@@ -1,0 +1,12 @@
+{
+  "id": "upgrade.engine-std",
+  "type": "upgrade",
+  "version": 1,
+  "name": "Standard Engine Tuning",
+  "track": "engine",
+  "levels": [
+    { "level": 1, "price": 0, "mul": { "engine.nominalSpeed": 1.0 } },
+    { "level": 2, "price": 200, "mul": { "engine.nominalSpeed": 1.08 } },
+    { "level": 3, "price": 500, "mul": { "engine.nominalSpeed": 1.18 } }
+  ]
+}

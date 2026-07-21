@@ -1,0 +1,12 @@
+{
+  "id": "upgrade.energy-std",
+  "type": "upgrade",
+  "version": 1,
+  "name": "Standard Capacitor",
+  "track": "energy",
+  "levels": [
+    { "level": 1, "price": 0, "add": { "energy.capacitor": 0 } },
+    { "level": 2, "price": 200, "add": { "energy.capacitor": 20, "energy.regen": 2 } },
+    { "level": 3, "price": 500, "add": { "energy.capacitor": 45, "energy.regen": 5 } }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "module.shield-mk1",
+  "type": "module",
+  "version": 1,
+  "family": "shield",
+  "level": 1,
+  "name": "Deflector Shield Mk I",
+  "activation": { "deployTime": 1.0, "retractTime": 0.8 },
+  "energy": { "drawIdle": 8, "drawActive": 14 },
+  "heat": {
+    "perSecondActive": 3,
+    "overheatThreshold": 60,
+    "overheatCooldown": 5.0,
+    "overheatSelfDamage": 0
+  },
+  "mitigation": {
+    "damageReduction": 0.5,
+    "absorbPerSecond": 12,
+    "coversFamilies": ["kinetic", "energy"]
+  },
+  "ui": { "icon": "[ICON: shield]", "label": "Shield" },
+  "price": 150,
+  "requiresLevel": 1
+}

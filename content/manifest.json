@@ -1,0 +1,29 @@
+{
+  "id": "manifest.default",
+  "type": "manifest",
+  "version": 1,
+  "name": "Default Content Pack",
+  "files": [
+    "camera/default.json",
+    "tuning/default.json",
+    "themes/default.json",
+    "progression/default.json",
+    "asteroids/small-rock.json",
+    "asteroids/large-hazard.json",
+    "arenas/ring-nebula.json",
+    "gamemodes/practice.json",
+    "gamemodes/duel-1v1.json",
+    "upgrades/hull-std.json",
+    "upgrades/engine-std.json",
+    "upgrades/energy-std.json",
+    "upgrades/heat-std.json",
+    "ships/interceptor.json",
+    "modules/laser-mk1.json",
+    "modules/missile-mk1.json",
+    "modules/shield-mk1.json",
+    "modules/boost-mk1.json",
+    "notifications/overheat-warning.json",
+    "actions/notify-overheat.json",
+    "actions/play-sound-laser.json"
+  ]
+}

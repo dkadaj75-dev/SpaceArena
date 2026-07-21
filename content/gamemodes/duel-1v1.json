@@ -1,0 +1,11 @@
+{
+  "id": "gamemode.duel-1v1",
+  "type": "gamemode",
+  "version": 1,
+  "name": "Duel 1v1",
+  "teams": "1v1",
+  "winCondition": { "type": "fragLimit", "count": 5 },
+  "respawn": { "enabled": true, "delay": 4 },
+  "boundaryRule": { "type": "damage", "damagePerSec": 8 },
+  "rewards": { "win": 100, "loss": 25, "perKill": 10 }
+}

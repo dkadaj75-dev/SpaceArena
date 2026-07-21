@@ -1,0 +1,74 @@
+import { z } from "zod";
+import { baseShape } from "./base.js";
+import { damageType, moduleFamily } from "./common.js";
+
+/** Projectile params. `null` = hitscan/beam; object = travelling ordnance. */
+const projectile = z.union([
+  z.null(),
+  z.object({
+    speed: z.number().positive(),
+    turnRate: z.number().nonnegative().optional(), // homing (missiles)
+    lifetime: z.number().positive(),
+  }),
+]);
+
+/** Weapon block (laser / kinetic / missile families). */
+const fireBlock = z.object({
+  mode: z.enum(["autoTarget"]),
+  range: z.number().positive(),
+  cycleTime: z.number().positive(),
+  damage: z.number().nonnegative(),
+  damageType,
+  requiresLineOfSight: z.boolean(),
+  projectile,
+});
+
+/** Active mitigation block (shield family). */
+const mitigationBlock = z.object({
+  damageReduction: z.number().min(0).max(1),
+  absorbPerSecond: z.number().nonnegative().optional(),
+  coversFamilies: z.array(damageType).optional(),
+});
+
+/** Afterburner block (boost family). */
+const boostBlock = z.object({
+  speedMult: z.number().min(1),
+  heatPerSec: z.number().nonnegative(),
+});
+
+export const moduleSchema = z.object({
+  ...baseShape("module"),
+  family: moduleFamily,
+  level: z.number().int().positive(),
+  activation: z.object({
+    deployTime: z.number().nonnegative(),
+    retractTime: z.number().nonnegative(),
+  }),
+  energy: z.object({
+    drawIdle: z.number().nonnegative(),
+    drawActive: z.number().nonnegative(),
+  }),
+  heat: z.object({
+    perSecondActive: z.number().nonnegative(),
+    overheatThreshold: z.number().positive(),
+    overheatCooldown: z.number().nonnegative(),
+    overheatSelfDamage: z.number().nonnegative(),
+  }),
+  // Optional per-family behavior blocks, interpreted generically by ModuleSystem.
+  fire: fireBlock.optional(),
+  mitigation: mitigationBlock.optional(),
+  boost: boostBlock.optional(),
+  // Action-id hooks dispatched by the module state machine.
+  onFire: z.array(z.string()).optional(),
+  onOverheat: z.array(z.string()).optional(),
+  onActivate: z.array(z.string()).optional(),
+  onDeactivate: z.array(z.string()).optional(),
+  ui: z.object({
+    icon: z.string(),
+    label: z.string(),
+  }),
+  price: z.number().int().nonnegative(),
+  requiresLevel: z.number().int().positive(),
+});
+
+export type ModuleConfig = z.infer<typeof moduleSchema>;

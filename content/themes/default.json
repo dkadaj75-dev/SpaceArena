@@ -1,0 +1,22 @@
+{
+  "id": "theme.default",
+  "type": "theme",
+  "version": 1,
+  "name": "Default Theme",
+  "colors": {
+    "--hud-bg": "#0a0e1a",
+    "--hud-primary": "#57d8ff",
+    "--hud-accent": "#ff8c42",
+    "--hud-danger": "#ff4d5e",
+    "--hud-text": "#e6f0ff"
+  },
+  "fonts": {
+    "body": "system-ui, sans-serif",
+    "display": "'Orbitron', system-ui, sans-serif"
+  },
+  "hud": {
+    "scale": 1.0,
+    "moduleButtonRadiusPx": 34,
+    "safeAreaInsetPx": 12
+  }
+}

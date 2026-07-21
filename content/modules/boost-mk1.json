@@ -1,0 +1,20 @@
+{
+  "id": "module.boost-mk1",
+  "type": "module",
+  "version": 1,
+  "family": "boost",
+  "level": 1,
+  "name": "Afterburner Mk I",
+  "activation": { "deployTime": 0.5, "retractTime": 0.5 },
+  "energy": { "drawIdle": 1, "drawActive": 9 },
+  "heat": {
+    "perSecondActive": 5,
+    "overheatThreshold": 45,
+    "overheatCooldown": 4.0,
+    "overheatSelfDamage": 0
+  },
+  "boost": { "speedMult": 1.8, "heatPerSec": 5 },
+  "ui": { "icon": "[ICON: boost]", "label": "Boost" },
+  "price": 100,
+  "requiresLevel": 1
+}

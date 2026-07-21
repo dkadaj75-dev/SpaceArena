@@ -1,0 +1,12 @@
+{
+  "id": "upgrade.heat-std",
+  "type": "upgrade",
+  "version": 1,
+  "name": "Standard Heat Sink",
+  "track": "heat",
+  "levels": [
+    { "level": 1, "price": 0, "add": { "heat.capacity": 0 } },
+    { "level": 2, "price": 200, "add": { "heat.capacity": 15, "heat.dissipation": 1.5 } },
+    { "level": 3, "price": 500, "add": { "heat.capacity": 35, "heat.dissipation": 3.5 } }
+  ]
+}

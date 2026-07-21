@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-laser",
+  "type": "action",
+  "version": 1,
+  "name": "Play Laser Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: laser_fire]", "volume": 0.8 }
+}

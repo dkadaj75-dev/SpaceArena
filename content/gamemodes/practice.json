@@ -1,0 +1,11 @@
+{
+  "id": "gamemode.practice",
+  "type": "gamemode",
+  "version": 1,
+  "name": "Practice",
+  "teams": "1v1",
+  "winCondition": { "type": "destroyTargets", "count": 3 },
+  "respawn": { "enabled": true, "delay": 3 },
+  "boundaryRule": { "type": "warning", "graceSeconds": 3 },
+  "rewards": { "win": 0, "loss": 0, "perKill": 0 }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "tuning.default",
+  "type": "tuning",
+  "version": 1,
+  "name": "Default Tuning",
+  "doubleTapWindowMs": 250,
+  "tapSlopPx": 12,
+  "targetingPolicy": "nearest",
+  "globalDamageMult": 1.0,
+  "dragCoefficient": 0.02,
+  "maxTicksPerFrame": 5,
+  "featureFlags": {
+    "showDebugOverlay": false
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "module.missile-mk1",
+  "type": "module",
+  "version": 1,
+  "family": "missile",
+  "level": 1,
+  "name": "Seeker Missile Mk I",
+  "activation": { "deployTime": 2.0, "retractTime": 1.0 },
+  "energy": { "drawIdle": 2, "drawActive": 6 },
+  "heat": {
+    "perSecondActive": 4,
+    "overheatThreshold": 50,
+    "overheatCooldown": 6.0,
+    "overheatSelfDamage": 0
+  },
+  "fire": {
+    "mode": "autoTarget",
+    "range": 55,
+    "cycleTime": 2.5,
+    "damage": 22,
+    "damageType": "kinetic",
+    "requiresLineOfSight": true,
+    "projectile": { "speed": 40, "turnRate": 2.2, "lifetime": 4.0 }
+  },
+  "ui": { "icon": "[ICON: missile]", "label": "Missile" },
+  "price": 150,
+  "requiresLevel": 1
+}

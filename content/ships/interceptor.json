@@ -1,0 +1,31 @@
+{
+  "id": "ship.interceptor",
+  "type": "ship",
+  "version": 2,
+  "name": "Interceptor",
+  "class": "light",
+  "core": {
+    "hull": { "base": 80, "resists": { "kinetic": 0.1, "energy": 0.0 } },
+    "engine": { "nominalSpeed": 34, "accel": 22, "turnRate": 3.0 },
+    "energy": { "capacitor": 120, "regen": 14 },
+    "heat": { "capacity": 100, "dissipation": 9, "criticalDamagePerSec": 4 }
+  },
+  "upgradeTracks": {
+    "hull": "upgrade.hull-std",
+    "engine": "upgrade.engine-std",
+    "energy": "upgrade.energy-std",
+    "heat": "upgrade.heat-std"
+  },
+  "hardpoints": [
+    { "id": "hp1", "accepts": ["laser", "kinetic"] },
+    { "id": "hp2", "accepts": ["missile", "kinetic"] },
+    { "id": "hp3", "accepts": ["shield"] },
+    { "id": "hp4", "accepts": ["boost", "utility"] }
+  ],
+  "defaultFitting": ["module.laser-mk1", "module.missile-mk1", "module.shield-mk1", "module.boost-mk1"],
+  "render": {
+    "recipe": "procedural.arrowhead",
+    "palette": { "primary": "#2f6fb8", "accent": "#57d8ff" }
+  },
+  "collider": { "shape": "circle", "radius": 1.4 }
+}

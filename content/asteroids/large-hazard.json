@@ -1,0 +1,13 @@
+{
+  "id": "asteroid.large-hazard",
+  "type": "asteroid",
+  "version": 1,
+  "name": "Large Hazard",
+  "radius": 8,
+  "destructible": false,
+  "impactDamage": 18,
+  "render": {
+    "recipe": "procedural.rock-large",
+    "palette": { "primary": "#463b34", "accent": "#8a5a3c" }
+  }
+}
