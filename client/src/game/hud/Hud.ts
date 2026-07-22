@@ -102,6 +102,11 @@ export class Hud {
     this.resultsOverlay.update(cur);
   }
 
+  /** Direct toast for client-side feedback (e.g. rejected online orders). */
+  showToast(text: string): void {
+    this.notifications.showText(text);
+  }
+
   /** Forward this frame's drained sim events to whichever sub-components care. */
   consumeEvents(events: readonly SimEvent[]): void {
     this.notifications.consumeEvents(events, this.configs);

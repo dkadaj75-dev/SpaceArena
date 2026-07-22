@@ -132,6 +132,26 @@ export class ArenaSimulation {
     this.world.queueOrder(entityId, order);
   }
 
+  /**
+   * Remove a ship from the sim (e.g. a player disconnecting for good). Silently
+   * no-ops if the id is not a live ship. Additive helper for the netcode layer;
+   * does not emit destruction events (this is a leave, not a kill).
+   */
+  removeShip(entityId: EntityId): void {
+    if (!this.world.shipCores.has(entityId)) return;
+    this.world.destroyEntity(entityId);
+  }
+
+  /** Whether an entity id is a live ship in this sim. */
+  hasShip(entityId: EntityId): boolean {
+    return this.world.shipCores.has(entityId);
+  }
+
+  /** Team of a live ship, or undefined. */
+  teamOf(entityId: EntityId): number | undefined {
+    return this.world.teams.get(entityId)?.team;
+  }
+
   /** Advance one fixed sim step. */
   tick(dt: number): void {
     if (this.phase === "ended") return;

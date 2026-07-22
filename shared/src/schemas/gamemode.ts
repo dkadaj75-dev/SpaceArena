@@ -20,6 +20,8 @@ export type BoundaryRule = z.infer<typeof boundaryRule>;
 export const gamemodeSchema = z.object({
   ...baseShape("gamemode"),
   teams: z.enum(["1v1", "2v2"]),
+  /** Optional default arena id this mode is played on when the room gets none. */
+  defaultArena: z.string().optional(),
   winCondition,
   /**
    * When true (default), a team with all ships destroyed loses immediately and

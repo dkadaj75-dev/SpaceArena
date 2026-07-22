@@ -55,6 +55,11 @@ export class NotificationCenter {
     this.show(notif);
   }
 
+  /** Direct client-side toast (e.g. rejected order feedback) — no config needed. */
+  showText(text: string, style = "warning", durationMs = 2500): void {
+    this.show({ text, style, durationMs } as NotificationConfig);
+  }
+
   private show(notif: NotificationConfig): void {
     if (this.toasts.length >= this.maxVisible) {
       const oldest = this.toasts.shift();

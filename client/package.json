@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^8.0.0",
+    "colyseus.js": "^0.16.16",
     "@space-arena/shared": "*"
   },
   "devDependencies": {

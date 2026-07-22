@@ -17,10 +17,10 @@
     { "asteroidId": "asteroid.small-rock", "position": { "x": 62, "z": 40 } }
   ],
   "spawnPoints": [
-    { "id": "sp-a1", "team": 0, "position": { "x": -70, "z": -70 }, "heading": 0.785 },
-    { "id": "sp-a2", "team": 0, "position": { "x": -78, "z": -58 }, "heading": 0.785 },
-    { "id": "sp-b1", "team": 1, "position": { "x": 70, "z": 70 }, "heading": 3.927 },
-    { "id": "sp-b2", "team": 1, "position": { "x": 78, "z": 58 }, "heading": 3.927 }
+    { "id": "sp-a1", "team": 0, "position": { "x": -55, "z": -55 }, "heading": 0.785 },
+    { "id": "sp-a2", "team": 0, "position": { "x": -64, "z": -44 }, "heading": 0.785 },
+    { "id": "sp-b1", "team": 1, "position": { "x": 55, "z": 55 }, "heading": 3.927 },
+    { "id": "sp-b2", "team": 1, "position": { "x": 64, "z": 44 }, "heading": 3.927 }
   ],
   "lighting": {
     "ambientColor": "#1a2233",

@@ -36,6 +36,12 @@ export const tuningSchema = z.object({
   projectilePoolSize: z.number().int().positive().optional(),
   /** Client render: move-order path dash segment length (world units). */
   orderMarkerDashLength: z.number().positive().optional(),
+  /** Client netcode: milliseconds rendered behind the newest server patch. */
+  netRenderDelayMs: z.number().nonnegative().optional(),
+  /** Client netcode: exponential local correction rate, per second. */
+  netCorrectionRate: z.number().positive().optional(),
+  /** Server: max client orders/sec accepted per player before drop + abuse count. */
+  maxOrdersPerSec: z.number().int().positive().optional(),
   /** Arbitrary feature flags. */
   featureFlags: z.record(z.string(), z.boolean()).optional(),
 });

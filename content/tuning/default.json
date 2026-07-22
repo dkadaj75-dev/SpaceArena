@@ -18,6 +18,8 @@
   "beamFadeMs": 120,
   "projectilePoolSize": 64,
   "orderMarkerDashLength": 3,
+  "netRenderDelayMs": 100,
+  "netCorrectionRate": 12,
   "featureFlags": {
     "showDebugOverlay": false
   }

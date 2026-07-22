@@ -17,6 +17,9 @@ import { ViewManager } from "./game/EntityView.js";
 import { OrderInput } from "./game/OrderInput.js";
 import { OrderMarkers } from "./game/OrderMarkers.js";
 import { Hud } from "./game/hud/Hud.js";
+import { Lobby, type LobbyChoice } from "./game/screens/Lobby.js";
+import { NetGameSession } from "./net/NetGameSession.js";
+import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 
 const log = createLogger("Client");
 
@@ -40,6 +43,7 @@ interface MatchRuntime {
   orderInput: OrderInput;
   orderMarkers: OrderMarkers;
   hud: Hud;
+  netOverlay: NetDebugOverlay | null;
   dispose(): void;
 }
 
@@ -92,16 +96,23 @@ async function bootstrap(): Promise<void> {
   const playerFollow = new TransformNode("playerFollow", scene);
   tacticalCamera.follow(playerFollow);
 
-  function createMatchRuntime(): MatchRuntime {
-    const session = new GameSession(configService, "arena.ring-nebula", "gamemode.practice");
+  function createMatchRuntime(session: GameSession): MatchRuntime {
     const viewManager = new ViewManager(scene, configService, (id) => session.shipConfigIdFor(id));
     const orderInput = new OrderInput(scene, configService, session);
     const orderMarkers = new OrderMarkers(scene, session.playerId);
     const hud = new Hud(hudRoot, configService, bus, session, session.playerId, () => {
-      log.info("play again requested — recreating match runtime");
-      runtime.dispose();
-      runtime = createMatchRuntime();
+      log.info("match over — returning to lobby");
+      runtime?.dispose();
+      runtime = null;
+      lobby.show();
     });
+
+    // Online sessions: rejection toasts + DEV net telemetry overlay (F9).
+    let netOverlay: NetDebugOverlay | null = null;
+    if (session instanceof NetGameSession) {
+      session.onOrderRejected = (reason) => hud.showToast(`Order rejected: ${reason}`);
+      if (import.meta.env.DEV) netOverlay = new NetDebugOverlay(session);
+    }
 
     const initial = playerShip(session.curSnapshot.ships, session.playerId);
     if (initial) playerFollow.position.set(initial.pos.x, 0.3, initial.pos.z);
@@ -114,21 +125,42 @@ async function bootstrap(): Promise<void> {
       orderInput,
       orderMarkers,
       hud,
+      netOverlay,
       dispose(): void {
         orderInput.dispose();
         orderMarkers.dispose();
         viewManager.dispose();
         hud.dispose();
+        netOverlay?.dispose();
+        if (session instanceof NetGameSession) session.dispose();
       },
     };
   }
 
-  let runtime = createMatchRuntime();
+  let runtime: MatchRuntime | null = null;
   let simPaused = false;
+
+  const lobby = new Lobby(document.body, configService, (choice: LobbyChoice) => {
+    void startMatch(choice);
+  });
+
+  async function startMatch(choice: LobbyChoice): Promise<void> {
+    try {
+      const session =
+        choice.kind === "practice"
+          ? new GameSession(configService, "arena.ring-nebula", "gamemode.practice")
+          : await NetGameSession.join(configService, { gamemode: choice.gamemode, ...choice.options });
+      runtime = createMatchRuntime(session);
+      lobby.hide();
+    } catch (err) {
+      log.error("failed to start match", err);
+      lobby.showError(err instanceof Error ? err.message : "Connection failed");
+    }
+  }
 
   // --- Fixed-timestep sim loop (30 Hz), driven by render delta ---
   const tuning = configService.getAll<TuningConfig>("tuning")[0];
-  const loop = new GameLoop((fixedDt) => runtime.session.tick(fixedDt), {
+  const loop = new GameLoop((fixedDt) => runtime?.session.tick(fixedDt), {
     maxTicksPerStep: tuning?.maxTicksPerFrame ?? 5,
   });
 
@@ -136,29 +168,32 @@ async function bootstrap(): Promise<void> {
     const dtMs = dtMsOverride ?? engine.getDeltaTime();
     if (!simPaused) loop.step(dtMs);
 
-    const prev = runtime.session.prevSnapshot;
-    const cur = runtime.session.curSnapshot;
-    const alpha = loop.alpha;
+    if (runtime) {
+      const prev = runtime.session.prevSnapshot;
+      const cur = runtime.session.curSnapshot;
+      const alpha = loop.alpha;
 
-    // Drive the camera follow node from the interpolated player position.
-    const pp = playerShip(prev.ships, runtime.session.playerId);
-    const pc = playerShip(cur.ships, runtime.session.playerId);
-    if (pc) {
-      const bx = pp ? pp.pos.x : pc.pos.x;
-      const bz = pp ? pp.pos.z : pc.pos.z;
-      playerFollow.position.set(bx + (pc.pos.x - bx) * alpha, 0.3, bz + (pc.pos.z - bz) * alpha);
+      // Drive the camera follow node from the interpolated player position.
+      const pp = playerShip(prev.ships, runtime.session.playerId);
+      const pc = playerShip(cur.ships, runtime.session.playerId);
+      if (pc) {
+        const bx = pp ? pp.pos.x : pc.pos.x;
+        const bz = pp ? pp.pos.z : pc.pos.z;
+        playerFollow.position.set(bx + (pc.pos.x - bx) * alpha, 0.3, bz + (pc.pos.z - bz) * alpha);
+      }
+
+      // Consume this frame's sim events, then render dynamic views + markers + HUD.
+      const events = runtime.session.drainFrameEvents();
+      runtime.viewManager.consumeEvents(events, cur);
+      runtime.orderMarkers.consumeEvents(events);
+      runtime.hud.consumeEvents(events);
+      runtime.session.clearFrameEvents();
+
+      runtime.viewManager.render(prev, cur, alpha, dtMs);
+      runtime.orderMarkers.render(cur, dtMs);
+      runtime.hud.update(cur, prev, dtMs, engine.getFps());
+      runtime.netOverlay?.update();
     }
-
-    // Consume this frame's sim events, then render dynamic views + markers + HUD.
-    const events = runtime.session.drainFrameEvents();
-    runtime.viewManager.consumeEvents(events, cur);
-    runtime.orderMarkers.consumeEvents(events);
-    runtime.hud.consumeEvents(events);
-    runtime.session.clearFrameEvents();
-
-    runtime.viewManager.render(prev, cur, alpha, dtMs);
-    runtime.orderMarkers.render(cur, dtMs);
-    runtime.hud.update(cur, prev, dtMs, engine.getFps());
     tacticalCamera.update(dtMs / 1000);
     scene.render();
   }
@@ -199,14 +234,16 @@ async function bootstrap(): Promise<void> {
       tacticalCamera,
       configService,
       get session() {
-        return runtime.session;
+        return runtime?.session;
       },
       get viewManager() {
-        return runtime.viewManager;
+        return runtime?.viewManager;
       },
       get hud() {
-        return runtime.hud;
+        return runtime?.hud;
       },
+      lobby,
+      startMatch,
       meshCount: () => scene.meshes.length,
       /**
        * Manually drive one render frame (sim tick + HUD/view sync) without
@@ -222,7 +259,7 @@ async function bootstrap(): Promise<void> {
   });
 
   window.addEventListener("beforeunload", () => {
-    runtime.dispose();
+    runtime?.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();
   });

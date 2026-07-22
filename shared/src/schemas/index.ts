@@ -167,6 +167,10 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
       if (config.triggerEvent) refs.push({ path: "triggerEvent", id: config.triggerEvent });
       break;
     }
+    case "gamemode": {
+      if (config.defaultArena) refs.push({ path: "defaultArena", id: config.defaultArena });
+      break;
+    }
     default:
       break;
   }
