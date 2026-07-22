@@ -8,7 +8,16 @@
   "targetingPolicy": "nearest",
   "globalDamageMult": 1.0,
   "dragCoefficient": 0.02,
+  "avoidLookahead": 16,
+  "avoidWeight": 30,
+  "arrivalRadius": 10,
+  "spatialCellSize": 16,
+  "impactSpeedThreshold": 6,
+  "impactDamageCooldown": 1.0,
   "maxTicksPerFrame": 5,
+  "beamFadeMs": 120,
+  "projectilePoolSize": 64,
+  "orderMarkerDashLength": 3,
   "featureFlags": {
     "showDebugOverlay": false
   }

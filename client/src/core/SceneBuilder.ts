@@ -17,13 +17,10 @@ import {
 import {
   createLogger,
   type ArenaConfig,
-  type AsteroidConfig,
   type ConfigService,
   type EventBus,
   type ConfigEvents,
-  type ShipConfig,
 } from "@space-arena/shared";
-import { AssetRegistry } from "./AssetRegistry.js";
 
 const log = createLogger("SceneBuilder");
 
@@ -47,22 +44,16 @@ const TEAM_COLORS = [new Color3(0.2, 0.55, 1.0), new Color3(1.0, 0.35, 0.25)];
  * Every node/material it creates is tracked so a rebuild leaves nothing behind.
  */
 export class SceneBuilder {
-  private readonly assets: AssetRegistry;
   private root: TransformNode | null = null;
   private glowLayer: GlowLayer | null = null;
   private unsubscribers: Array<() => void> = [];
   private generation = 0;
 
-  /** The ship mesh placed at team 0's spawn, exposed for TacticalCamera to follow. */
-  shipNode: TransformNode | null = null;
-
   constructor(
     private readonly scene: Scene,
     private readonly configService: ConfigService,
     private readonly bus: EventBus<ConfigEvents>,
-  ) {
-    this.assets = new AssetRegistry(scene);
-  }
+  ) {}
 
   /** Builds the arena named by `arenaId`, subscribing to hot-reload for arena/asteroid types. */
   buildArena(arenaId: string): void {
@@ -79,7 +70,7 @@ export class SceneBuilder {
     this.clearSubscriptions();
     this.unsubscribers.push(
       this.bus.on("config:changed", (evt) => {
-        if (evt.type === "arena" || evt.type === "asteroid" || evt.type === "ship") {
+        if (evt.type === "arena") {
           log.info(`rebuilding arena after ${evt.type} change: ${evt.id}`);
           const fresh = this.configService.get<ArenaConfig>("arena", arenaId);
           if (fresh) this.rebuild(fresh);
@@ -99,9 +90,7 @@ export class SceneBuilder {
     this.buildSkybox(arena, root, generation);
     this.buildBounds(arena, root);
     this.buildGroundPlane(arena, root);
-    this.buildAsteroids(arena, root);
     if (SHOW_SPAWN_MARKERS) this.buildSpawnMarkers(arena, root);
-    this.buildShip(arena, root);
   }
 
   private buildLighting(arena: ArenaConfig, root: TransformNode): void {
@@ -219,24 +208,6 @@ export class SceneBuilder {
     disc.parent = root;
   }
 
-  private buildAsteroids(arena: ArenaConfig, root: TransformNode): void {
-    for (const placement of arena.asteroidPlacements) {
-      const asteroid = this.configService.get<AsteroidConfig>("asteroid", placement.asteroidId);
-      if (!asteroid) {
-        log.warn(`unknown asteroid placement id: ${placement.asteroidId}`);
-        continue;
-      }
-      const master = this.assets.getMesh(asteroid.render.recipe, asteroid.render.palette ?? {});
-      const instance = master.createInstance(`asteroid.${placement.asteroidId}.${placement.position.x}.${placement.position.z}`);
-      const scale = (placement.scale ?? 1) * asteroid.radius;
-      instance.scaling.set(scale, scale, scale);
-      instance.position.set(placement.position.x, 0, placement.position.z);
-      if (placement.rotation) instance.rotation.y = placement.rotation;
-      instance.isPickable = false;
-      instance.parent = root;
-    }
-  }
-
   private buildSpawnMarkers(arena: ArenaConfig, root: TransformNode): void {
     const material0 = new StandardMaterial("mat.spawnTeam0", this.scene);
     material0.emissiveColor = TEAM_COLORS[0] ?? Color3.Blue();
@@ -255,31 +226,12 @@ export class SceneBuilder {
     }
   }
 
-  private buildShip(arena: ArenaConfig, root: TransformNode): void {
-    const ship = this.configService.get<ShipConfig>("ship", "ship.interceptor");
-    const spawn = arena.spawnPoints.find((sp) => sp.team === 0) ?? arena.spawnPoints[0];
-    if (!ship || !spawn) {
-      log.warn("no ship or spawn point available; skipping ship placement");
-      return;
-    }
-
-    const master = this.assets.getMesh(ship.render.recipe, ship.render.palette ?? {});
-    const instance = master.createInstance("ship.player");
-    instance.position.set(spawn.position.x, 0.3, spawn.position.z);
-    instance.rotation.y = spawn.heading;
-    instance.isPickable = false;
-    instance.parent = root;
-
-    this.shipNode = instance;
-  }
-
   private clearSubscriptions(): void {
     for (const unsub of this.unsubscribers) unsub();
     this.unsubscribers = [];
   }
 
   private disposeSceneNodes(): void {
-    this.shipNode = null;
     if (this.root) {
       disposeRecursive(this.root);
       this.root = null;
@@ -293,7 +245,6 @@ export class SceneBuilder {
     this.disposeSceneNodes();
     this.glowLayer?.dispose();
     this.glowLayer = null;
-    this.assets.dispose();
   }
 }
 

@@ -5,6 +5,7 @@
   "name": "Duel 1v1",
   "teams": "1v1",
   "winCondition": { "type": "fragLimit", "count": 5 },
+  "eliminationEndsMatch": true,
   "respawn": { "enabled": true, "delay": 4 },
   "boundaryRule": { "type": "damage", "damagePerSec": 8 },
   "rewards": { "win": 100, "loss": 25, "perKill": 10 }

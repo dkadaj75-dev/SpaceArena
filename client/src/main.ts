@@ -1,15 +1,22 @@
-import { Engine, EngineFactory, Scene, Color4 } from "@babylonjs/core";
+import { Engine, EngineFactory, Scene, Color4, TransformNode } from "@babylonjs/core";
 import {
   createLogger,
   ConfigService,
   GameLoop,
-  SIM_TICK_RATE,
   EventBus,
   type ConfigEvents,
+  type TuningConfig,
+  type ShipSnapshot,
+  type EntityId,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
+import { GameSession } from "./game/GameSession.js";
+import { ViewManager } from "./game/EntityView.js";
+import { OrderInput } from "./game/OrderInput.js";
+import { OrderMarkers } from "./game/OrderMarkers.js";
+import { Hud } from "./game/hud/Hud.js";
 
 const log = createLogger("Client");
 
@@ -20,11 +27,32 @@ async function fetchLoader(relPath: string): Promise<unknown> {
   return res.json();
 }
 
+/**
+ * Everything that lives for exactly one practice match: the authoritative
+ * session, its dynamic views/input, and the HUD. Rebuilt from scratch on
+ * "Play again" (§6 1.9) so there's no cross-match state to reset by hand —
+ * `dispose()` tears every piece down and the render loop picks up the freshly
+ * created replacement on its next tick.
+ */
+interface MatchRuntime {
+  session: GameSession;
+  viewManager: ViewManager;
+  orderInput: OrderInput;
+  orderMarkers: OrderMarkers;
+  hud: Hud;
+  dispose(): void;
+}
+
 async function bootstrap(): Promise<void> {
   const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
   if (!canvas) {
     throw new Error("#renderCanvas not found");
   }
+  const hudRootMaybe = document.getElementById("hud") as HTMLDivElement | null;
+  if (!hudRootMaybe) {
+    throw new Error("#hud not found");
+  }
+  const hudRoot: HTMLDivElement = hudRootMaybe;
 
   // --- Config pipeline ---
   const bus = new EventBus<ConfigEvents>();
@@ -52,60 +80,158 @@ async function bootstrap(): Promise<void> {
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
 
-  // --- Arena + camera (0.6/0.7/0.8) ---
+  // --- Static arena (0.6/0.7/0.8): bounds/skybox/ground/lighting/spawns only ---
   const sceneBuilder = new SceneBuilder(scene, configService, bus);
   sceneBuilder.buildArena("arena.ring-nebula");
 
   const tacticalCamera = new TacticalCamera(scene, canvas, configService, bus);
 
-  if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)["__debug"] = { scene, engine, sceneBuilder, tacticalCamera };
+  // Camera follows a lightweight node tracking the (moving) player ship
+  // position. Persists across "Play again" resets — only its target position
+  // is re-snapped.
+  const playerFollow = new TransformNode("playerFollow", scene);
+  tacticalCamera.follow(playerFollow);
+
+  function createMatchRuntime(): MatchRuntime {
+    const session = new GameSession(configService, "arena.ring-nebula", "gamemode.practice");
+    const viewManager = new ViewManager(scene, configService, (id) => session.shipConfigIdFor(id));
+    const orderInput = new OrderInput(scene, configService, session);
+    const orderMarkers = new OrderMarkers(scene, session.playerId);
+    const hud = new Hud(hudRoot, configService, bus, session, session.playerId, () => {
+      log.info("play again requested — recreating match runtime");
+      runtime.dispose();
+      runtime = createMatchRuntime();
+    });
+
+    const initial = playerShip(session.curSnapshot.ships, session.playerId);
+    if (initial) playerFollow.position.set(initial.pos.x, 0.3, initial.pos.z);
+    tacticalCamera.camera.target.copyFrom(playerFollow.position);
+    tacticalCamera.camera.setTarget(tacticalCamera.camera.target);
+
+    return {
+      session,
+      viewManager,
+      orderInput,
+      orderMarkers,
+      hud,
+      dispose(): void {
+        orderInput.dispose();
+        orderMarkers.dispose();
+        viewManager.dispose();
+        hud.dispose();
+      },
+    };
   }
-  if (sceneBuilder.shipNode) {
-    tacticalCamera.follow(sceneBuilder.shipNode);
-    tacticalCamera.camera.target.copyFrom(sceneBuilder.shipNode.position);
-  }
-  tacticalCamera.camera.setTarget(tacticalCamera.camera.target);
+
+  let runtime = createMatchRuntime();
+  let simPaused = false;
 
   // --- Fixed-timestep sim loop (30 Hz), driven by render delta ---
-  let lastLoggedSecond = -1;
-  const loop = new GameLoop((_fixedDt, tickNumber) => {
-    // Placeholder Phase 0 tick: log once per simulated second.
-    const second = Math.floor(tickNumber / SIM_TICK_RATE);
-    if (second !== lastLoggedSecond) {
-      lastLoggedSecond = second;
-      log.debug(`sim tick ${tickNumber} (t=${second}s)`);
-    }
+  const tuning = configService.getAll<TuningConfig>("tuning")[0];
+  const loop = new GameLoop((fixedDt) => runtime.session.tick(fixedDt), {
+    maxTicksPerStep: tuning?.maxTicksPerFrame ?? 5,
   });
 
-  engine.runRenderLoop(() => {
-    const dtMs = engine.getDeltaTime();
-    loop.step(dtMs);
+  function renderFrame(dtMsOverride?: number): void {
+    const dtMs = dtMsOverride ?? engine.getDeltaTime();
+    if (!simPaused) loop.step(dtMs);
+
+    const prev = runtime.session.prevSnapshot;
+    const cur = runtime.session.curSnapshot;
+    const alpha = loop.alpha;
+
+    // Drive the camera follow node from the interpolated player position.
+    const pp = playerShip(prev.ships, runtime.session.playerId);
+    const pc = playerShip(cur.ships, runtime.session.playerId);
+    if (pc) {
+      const bx = pp ? pp.pos.x : pc.pos.x;
+      const bz = pp ? pp.pos.z : pc.pos.z;
+      playerFollow.position.set(bx + (pc.pos.x - bx) * alpha, 0.3, bz + (pc.pos.z - bz) * alpha);
+    }
+
+    // Consume this frame's sim events, then render dynamic views + markers + HUD.
+    const events = runtime.session.drainFrameEvents();
+    runtime.viewManager.consumeEvents(events, cur);
+    runtime.orderMarkers.consumeEvents(events);
+    runtime.hud.consumeEvents(events);
+    runtime.session.clearFrameEvents();
+
+    runtime.viewManager.render(prev, cur, alpha, dtMs);
+    runtime.orderMarkers.render(cur, dtMs);
+    runtime.hud.update(cur, prev, dtMs, engine.getFps());
     tacticalCamera.update(dtMs / 1000);
     scene.render();
-  });
+  }
+
+  engine.runRenderLoop(renderFrame);
+
+  if (import.meta.env.DEV) {
+    let editorShell: import("./editor/EditorShell.js").EditorShell | null = null;
+    const editorHost = {
+      scene,
+      configService,
+      bus,
+      pauseSim: () => {
+        simPaused = true;
+        tacticalCamera.setEditorMode(true);
+      },
+      resumeSim: () => {
+        simPaused = false;
+        tacticalCamera.setEditorMode(false);
+        tacticalCamera.follow(playerFollow);
+      },
+      rebuildArena: () => {
+        sceneBuilder.buildArena("arena.ring-nebula");
+      },
+    };
+    window.addEventListener("keydown", (event) => {
+      if (event.key !== "F10" || event.repeat) return;
+      event.preventDefault();
+      void import("./editor/EditorShell.js").then(({ EditorShell }) => {
+        if (!editorShell) editorShell = new EditorShell(editorHost);
+        editorShell.toggle();
+      });
+    });
+    (window as unknown as Record<string, unknown>)["__debug"] = {
+      scene,
+      engine,
+      sceneBuilder,
+      tacticalCamera,
+      configService,
+      get session() {
+        return runtime.session;
+      },
+      get viewManager() {
+        return runtime.viewManager;
+      },
+      get hud() {
+        return runtime.hud;
+      },
+      meshCount: () => scene.meshes.length,
+      /**
+       * Manually drive one render frame (sim tick + HUD/view sync) without
+       * relying on `requestAnimationFrame`, which browsers suspend for
+       * hidden/uncomposited tabs. Handy for headless verification.
+       */
+      forceFrame: (dtMs = 33) => renderFrame(dtMs),
+    };
+  }
 
   window.addEventListener("resize", () => {
     engine.resize();
   });
 
   window.addEventListener("beforeunload", () => {
+    runtime.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();
   });
-
-  setupFpsCounter(engine);
 }
 
-function setupFpsCounter(engine: Engine): void {
-  const el = document.getElementById("fpsCounter");
-  if (!el) return;
-
-  // Update ~2x/sec instead of per frame to avoid needless DOM churn.
-  const intervalMs = 500;
-  setInterval(() => {
-    el.textContent = `FPS: ${engine.getFps().toFixed(0)}`;
-  }, intervalMs);
+/** Linear scan (no per-frame closure allocation) for a ship by id. */
+function playerShip(ships: readonly ShipSnapshot[], id: EntityId): ShipSnapshot | undefined {
+  for (let i = 0; i < ships.length; i++) if (ships[i]!.id === id) return ships[i];
+  return undefined;
 }
 
 bootstrap().catch((err) => {

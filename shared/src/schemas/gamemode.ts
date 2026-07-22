@@ -21,6 +21,12 @@ export const gamemodeSchema = z.object({
   ...baseShape("gamemode"),
   teams: z.enum(["1v1", "2v2"]),
   winCondition,
+  /**
+   * When true (default), a team with all ships destroyed loses immediately and
+   * the last surviving team wins — an implicit elimination rule layered on top of
+   * `winCondition`. Lets the player *lose* a practice `destroyTargets` match.
+   */
+  eliminationEndsMatch: z.boolean().optional().default(true),
   respawn: z.object({
     enabled: z.boolean(),
     delay: z.number().nonnegative(),

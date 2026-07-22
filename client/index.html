@@ -26,24 +26,11 @@
         outline: none;
       }
 
-      #fpsCounter {
-        position: fixed;
-        top: env(safe-area-inset-top, 0px);
-        left: 8px;
-        margin-top: 6px;
-        padding: 2px 8px;
-        font: 12px/1.4 monospace;
-        color: #9be8ff;
-        background: rgba(0, 0, 0, 0.35);
-        border-radius: 4px;
-        pointer-events: none;
-        z-index: 10;
-      }
     </style>
   </head>
   <body>
     <canvas id="renderCanvas"></canvas>
-    <div id="fpsCounter">FPS: --</div>
+    <div id="hud"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

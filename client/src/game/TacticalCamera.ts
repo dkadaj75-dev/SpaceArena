@@ -21,6 +21,7 @@ export class TacticalCamera {
   private readonly scratchTargetPos = new Vector3();
   private readonly scratchForward = new Vector3();
   private previousTargetPos: Vector3 | null = null;
+  private editorMode = false;
 
   constructor(
     private readonly scene: Scene,
@@ -69,6 +70,7 @@ export class TacticalCamera {
   }
 
   private applyLimits(config: CameraConfig | undefined): void {
+    if (this.editorMode) return;
     this.camera.lowerBetaLimit = config?.beta.min ?? 0.6;
     this.camera.upperBetaLimit = config?.beta.max ?? 1.15;
     this.camera.lowerRadiusLimit = config?.radius.min ?? 25;
@@ -81,6 +83,20 @@ export class TacticalCamera {
   follow(target: TransformNode): void {
     this.followTarget = target;
     this.previousTargetPos = null;
+  }
+
+  /** Temporarily turn the tactical rig into an unrestricted editor orbit camera. */
+  setEditorMode(enabled: boolean): void {
+    this.editorMode = enabled;
+    if (enabled) {
+      this.followTarget = null;
+      this.camera.lowerBetaLimit = 0.05;
+      this.camera.upperBetaLimit = Math.PI / 2 - 0.02;
+      this.camera.lowerRadiusLimit = 5;
+      this.camera.upperRadiusLimit = 300;
+      return;
+    }
+    this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
   }
 
   /** Call once per render frame. `dt` in seconds. No allocations. */
