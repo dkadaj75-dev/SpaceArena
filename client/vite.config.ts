@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
@@ -52,6 +52,28 @@ function contentPipelinePlugin(): Plugin {
           })();
         });
       });
+      // Dev-only: list binary model assets under content/ for the Ship tool's picker.
+      server.middlewares.use("/__editor/list-models", (req, res) => {
+        void (async () => {
+          const found: string[] = [];
+          const walk = async (dir: string): Promise<void> => {
+            for (const entry of await readdir(dir, { withFileTypes: true })) {
+              const abs = path.join(dir, entry.name);
+              if (entry.isDirectory()) await walk(abs);
+              else if (/\.gl(b|tf)$/i.test(entry.name)) found.push(path.relative(CONTENT_DIR, abs).split(path.sep).join("/"));
+            }
+          };
+          try {
+            await walk(CONTENT_DIR);
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ models: found.sort() }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ models: [], error: String(error) }));
+          }
+        })();
+      });
+
       // --- Serve /content/* from the repo content dir ---
       server.middlewares.use((req, res, next) => {
         const url = req.url;
@@ -62,6 +84,21 @@ function contentPipelinePlugin(): Plugin {
         if (!abs.startsWith(CONTENT_DIR)) {
           res.statusCode = 403;
           return res.end("forbidden");
+        }
+        // Binary model assets (GLB/GLTF buffers) must not go through utf8.
+        if (/\.(glb|bin)$/i.test(rel)) {
+          readFile(abs).then(
+            (buf) => {
+              res.setHeader("Content-Type", rel.toLowerCase().endsWith(".glb") ? "model/gltf-binary" : "application/octet-stream");
+              res.setHeader("Cache-Control", "no-store");
+              res.end(buf);
+            },
+            () => {
+              res.statusCode = 404;
+              res.end("not found");
+            },
+          );
+          return;
         }
         readFile(abs, "utf8").then(
           (text) => {

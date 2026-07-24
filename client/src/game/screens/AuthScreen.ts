@@ -27,7 +27,7 @@ export class AuthScreen {
     private readonly onSkipOffline: () => void,
   ) {
     this.root = document.createElement("div");
-    this.root.className = "auth-overlay";
+    this.root.className = "auth-overlay game-screen";
     this.root.style.cssText =
       "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;" +
       "background:rgba(4,8,16,.92);z-index:30;color:#e8f1ff;font-family:system-ui";

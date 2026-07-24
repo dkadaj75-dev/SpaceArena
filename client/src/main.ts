@@ -6,11 +6,14 @@ import {
   EventBus,
   type ArenaConfig,
   type ConfigEvents,
+  type GamemodeConfig,
+  type ShipConfig,
   type TuningConfig,
   type ShipSnapshot,
   type EntityId,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
+import { AssetRegistry } from "./core/AssetRegistry.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
@@ -100,6 +103,20 @@ async function bootstrap(): Promise<void> {
 
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
+
+  // Preload GLB hulls for every ship that configures one (render.model), so
+  // the sync view/hangar/editor paths can pick them up from the shared cache.
+  // Fire-and-forget with per-model fallback to the procedural recipe.
+  const preloadAssets = new AssetRegistry(scene);
+  for (const ship of configService.getAll<ShipConfig>("ship")) {
+    if (ship.render.model) void preloadAssets.ensureModel(ship.render);
+  }
+  bus.on("config:changed", (evt) => {
+    if (evt.id.startsWith("ship.")) {
+      const ship = configService.get<ShipConfig>("ship", evt.id);
+      if (ship?.render.model) void preloadAssets.ensureModel(ship.render);
+    }
+  });
 
   // --- Static arena (0.6/0.7/0.8): bounds/skybox/ground/lighting/spawns only ---
   const sceneBuilder = new SceneBuilder(scene, configService, bus);
@@ -233,11 +250,21 @@ async function bootstrap(): Promise<void> {
     return opts;
   }
 
+  /** Arena a practice gamemode wants (its `defaultArena`), if it names one. */
+  function practiceArena(gamemodeId?: string): string | undefined {
+    if (!gamemodeId) return undefined;
+    return configService.get<GamemodeConfig>("gamemode", gamemodeId)?.defaultArena;
+  }
+
   async function startMatch(choice: LobbyChoice): Promise<void> {
     try {
       const session =
         choice.kind === "practice"
-          ? new GameSession(configService, "arena.ring-nebula", "gamemode.practice")
+          ? new GameSession(
+              configService,
+              practiceArena(choice.gamemode) ?? "arena.ring-nebula",
+              choice.gamemode ?? "gamemode.practice",
+            )
           : await NetGameSession.join(configService, {
               gamemode: choice.gamemode,
               ...hangarJoinOptions(),
@@ -333,6 +360,9 @@ async function bootstrap(): Promise<void> {
       // `runtime` is null on the menu screens — nothing to hide then.
       setGameVisible: (visible: boolean) => {
         hudRoot.style.display = visible ? "" : "none";
+        // Menu/auth/hangar screens are body-level overlays — hide them too or
+        // they float over the editor viewport (editor.css targets this class).
+        document.body.classList.toggle("sa-editor-open", !visible);
         runtime?.viewManager.setVisible(visible);
         runtime?.orderMarkers.setVisible(visible);
         runtime?.orderInput.setEnabled(visible);
@@ -356,6 +386,7 @@ async function bootstrap(): Promise<void> {
       scene,
       engine,
       sceneBuilder,
+      assets: preloadAssets,
       tacticalCamera,
       configService,
       get session() {

@@ -2,11 +2,16 @@ import {
   Color3,
   Mesh,
   MeshBuilder,
+  MultiMaterial,
+  PBRMaterial,
+  SceneLoader,
   StandardMaterial,
   VertexBuffer,
+  type AbstractMesh,
   type Scene,
 } from "@babylonjs/core";
-import { createLogger, type Palette } from "@space-arena/shared";
+import "@babylonjs/loaders/glTF";
+import { createLogger, type Palette, type RenderRecipe } from "@space-arena/shared";
 
 const log = createLogger("AssetRegistry");
 
@@ -385,7 +390,131 @@ const RECIPES: Record<string, RecipeBuilder> = {
 export class AssetRegistry {
   private readonly cache = new Map<string, Mesh>();
 
+  /**
+   * GLB master meshes, shared across every AssetRegistry on the same scene
+   * (ViewManager, ShipManager, Hangar each construct their own registry —
+   * a model must load once, not once per consumer). `null` marks a failed
+   * load so we don't retry every frame.
+   */
+  private static readonly modelMasters = new WeakMap<Scene, Map<string, Mesh | null>>();
+  private static readonly modelLoads = new WeakMap<Scene, Map<string, Promise<Mesh | null>>>();
+
   constructor(private readonly scene: Scene) {}
+
+  private static sceneMap<T>(store: WeakMap<Scene, Map<string, T>>, scene: Scene): Map<string, T> {
+    let m = store.get(scene);
+    if (!m) {
+      m = new Map();
+      store.set(scene, m);
+    }
+    return m;
+  }
+
+  /**
+   * Load (once) a content-relative GLB/GLTF hull and cache a single merged,
+   * disabled master mesh for instancing. Scale/yaw from the render config are
+   * baked into the vertices so instances need no per-node correction.
+   * Resolves null on failure — callers fall back to the procedural recipe.
+   */
+  ensureModel(render: RenderRecipe): Promise<Mesh | null> {
+    const path = render.model;
+    if (!path) return Promise.resolve(null);
+    const key = `${path}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}`;
+    const masters = AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene);
+    const existing = masters.get(key);
+    if (existing !== undefined) return Promise.resolve(existing);
+    const loads = AssetRegistry.sceneMap(AssetRegistry.modelLoads, this.scene);
+    const pending = loads.get(key);
+    if (pending) return pending;
+
+    const dir = path.slice(0, path.lastIndexOf("/") + 1);
+    const file = path.slice(path.lastIndexOf("/") + 1);
+    const load = SceneLoader.ImportMeshAsync("", `/content/${dir}`, file, this.scene)
+      .then((result) => {
+        try {
+          return this.finalizeModel(result.meshes, render, path, masters, loads, key);
+        } catch (error) {
+          // A failed finalize must not strand half-imported meshes in the scene.
+          for (const m of result.meshes) if (!m.isDisposed()) m.dispose(false, true);
+          throw error;
+        }
+      })
+      .catch((error: unknown) => {
+        const stack = error instanceof Error && error.stack ? `\n${error.stack}` : "";
+        log.warn(`model load failed for "${path}": ${String(error)} — using procedural recipe${stack}`);
+        masters.set(key, null);
+        loads.delete(key);
+        return null;
+      });
+    loads.set(key, load);
+    return load;
+  }
+
+  /** Merge, orient and cache a freshly imported model's meshes into one disabled master. */
+  private finalizeModel(
+    meshes: readonly AbstractMesh[],
+    render: RenderRecipe,
+    path: string,
+    masters: Map<string, Mesh | null>,
+    loads: Map<string, Promise<Mesh | null>>,
+    key: string,
+  ): Mesh {
+    const parts = meshes.filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
+    if (parts.length === 0) throw new Error("no meshes with geometry in model");
+    for (const p of parts) p.computeWorldMatrix(true);
+    let merged: Mesh;
+    if (parts.length === 1) {
+      // Bake the full world matrix (includes the glTF root's RH→LH flip)
+      // so detaching from __root__ can't mirror or re-orient the hull.
+      merged = parts[0]!;
+      merged.bakeTransformIntoVertices(merged.getWorldMatrix());
+    } else {
+      const m = Mesh.MergeMeshes(parts, true, true, undefined, false, true);
+      if (!m) throw new Error("mesh merge failed");
+      merged = m;
+    }
+    // Detach BEFORE dropping the glTF __root__: MergeMeshes parents the
+    // result under it, and a recursive root dispose would take the merged
+    // mesh with it.
+    merged.setParent(null);
+    for (const m of meshes) if (m !== merged && !m.isDisposed()) m.dispose(false, false);
+    merged.position.setAll(0);
+    merged.scaling.setAll(render.modelScale ?? 1);
+    merged.rotation.setAll(0);
+    merged.rotationQuaternion = null;
+    merged.rotation.y = render.modelRotationY ?? 0;
+    merged.bakeCurrentTransformIntoVertices();
+    // The scene has no IBL/environment texture, so fully-metallic PBR
+    // surfaces (common in generated GLBs) would render black under our
+    // punctual lights. Clamp metalness so albedo responds to them.
+    const flat = merged.material;
+    const mats = flat instanceof MultiMaterial ? flat.subMaterials : [flat];
+    for (const m of mats) {
+      if (m instanceof PBRMaterial) {
+        m.metallic = Math.min(m.metallic ?? 1, 0.25);
+        m.roughness = Math.max(m.roughness ?? 0.4, 0.5);
+      }
+    }
+    merged.name = `master.model.${path}`;
+    merged.setEnabled(false);
+    masters.set(key, merged);
+    loads.delete(key);
+    return merged;
+  }
+
+  /**
+   * Master mesh for a ship render config: the GLB model when configured AND
+   * already loaded (kick loads off early via {@link ensureModel} — bootstrap
+   * preloads every ship model), otherwise the procedural recipe.
+   */
+  getShipMaster(render: RenderRecipe): Mesh {
+    if (render.model) {
+      const key = `${render.model}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}`;
+      const master = AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene).get(key);
+      if (master) return master;
+    }
+    return this.getMesh(render.recipe, render.palette ?? {});
+  }
 
   /** Returns the cached master mesh for a recipe+palette, building it on first use. */
   getMesh(recipeId: string, palette: Palette = {}): Mesh {

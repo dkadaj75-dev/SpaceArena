@@ -12,8 +12,9 @@
   },
   "dependencies": {
     "@babylonjs/core": "^8.0.0",
-    "colyseus.js": "^0.16.16",
-    "@space-arena/shared": "*"
+    "@babylonjs/loaders": "^8.56.2",
+    "@space-arena/shared": "*",
+    "colyseus.js": "^0.16.16"
   },
   "devDependencies": {
     "happy-dom": "^15.0.0",

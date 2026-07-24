@@ -224,6 +224,14 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
     }
     case "gamemode": {
       if (config.defaultArena) refs.push({ path: "defaultArena", id: config.defaultArena });
+      if (config.bots) {
+        refs.push({ path: "bots.defaultProfile", id: config.bots.defaultProfile });
+        if (config.bots.defaultShip) refs.push({ path: "bots.defaultShip", id: config.bots.defaultShip });
+        (config.bots.roster ?? []).forEach((slot, i) => {
+          refs.push({ path: `bots.roster[${i}].profile`, id: slot.profile });
+          if (slot.ship) refs.push({ path: `bots.roster[${i}].ship`, id: slot.ship });
+        });
+      }
       break;
     }
     default:

@@ -1120,3 +1120,9 @@
     max-width: none;
   }
 }
+
+/* While the editor owns the canvas, body-level game screens (lobby, auth,
+   hangar) must not float over the editor viewport. */
+body.sa-editor-open .game-screen {
+  display: none !important;
+}

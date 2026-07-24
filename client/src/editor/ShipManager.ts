@@ -197,11 +197,85 @@ export class ShipManager implements EditorPanel {
       this.element.append(warn(`Render recipe "${ship.render.recipe}" has no procedural builder — showing a placeholder capsule.`));
     }
 
+    this.element.append(this.modelSection(ship));
     this.element.append(this.socketListSection(ship));
     this.element.append(this.selectedSocketSection(ship));
     this.element.append(this.defaultFittingSection(ship));
     this.element.append(this.signalSimulatorSection(ship));
     this.element.append(this.coreStatsSection(ship));
+  }
+
+  /**
+   * GLB hull picker (render.model): content-relative path with a datalist of
+   * models discovered by the dev server, plus scale / yaw-correction fields.
+   * Empty path reverts to the procedural recipe.
+   */
+  private modelSection(ship: ShipConfig): HTMLElement {
+    const box = section("Ship model (GLB)");
+
+    const pathInput = document.createElement("input");
+    pathInput.type = "text";
+    pathInput.placeholder = "procedural recipe (no model)";
+    pathInput.value = ship.render.model ?? "";
+    pathInput.setAttribute("list", "sa-model-paths");
+    let datalist = document.getElementById("sa-model-paths") as HTMLDataListElement | null;
+    if (!datalist) {
+      datalist = document.createElement("datalist");
+      datalist.id = "sa-model-paths";
+      document.body.append(datalist);
+    }
+    void fetch("/__editor/list-models")
+      .then((r) => r.json() as Promise<{ models: string[] }>)
+      .then(({ models }) => {
+        datalist.replaceChildren(...models.map((m) => new Option(m)));
+      })
+      .catch(() => undefined);
+
+    const scaleInput = document.createElement("input");
+    scaleInput.type = "number";
+    scaleInput.step = "0.1";
+    scaleInput.min = "0.01";
+    scaleInput.value = String(ship.render.modelScale ?? 1);
+    const yawInput = document.createElement("input");
+    yawInput.type = "number";
+    yawInput.step = "0.1";
+    yawInput.value = String(ship.render.modelRotationY ?? 0);
+
+    const apply = button("Apply", () => {
+      const path = pathInput.value.trim();
+      const scale = Number(scaleInput.value) || 1;
+      const yaw = Number(yawInput.value) || 0;
+      const render = { ...ship.render };
+      if (path) {
+        render.model = path;
+        render.modelScale = scale;
+        render.modelRotationY = yaw;
+      } else {
+        delete render.model;
+        delete render.modelScale;
+        delete render.modelRotationY;
+      }
+      const next = { ...ship, render };
+      if (!path) {
+        this.replace(next);
+        return;
+      }
+      // Load first so the preview swap is immediate; fall back with a report.
+      void this.assets.ensureModel(render).then((master) => {
+        if (!master) {
+          this.report(`${ship.id}: model "${path}" failed to load — check the path (content-relative).`);
+          return;
+        }
+        this.replace(next);
+      });
+    });
+
+    box.append(
+      row(text("Path "), pathInput, apply),
+      row(text("Scale "), scaleInput, text(" Yaw correction (rad) "), yawInput),
+      hint("Convention: nose must face +Z. Use yaw correction for models authored facing another axis."),
+    );
+    return box;
   }
 
   /** Socket list with add / per-row select + duplicate/delete. */
@@ -640,7 +714,7 @@ export class ShipManager implements EditorPanel {
     const ship = this.ship();
     if (!ship) return;
 
-    const master = this.assets.getMesh(ship.render.recipe, ship.render.palette ?? {});
+    const master = this.assets.getShipMaster(ship.render);
     this.hullIsPlaceholder = master.name.includes("placeholder");
     const hull = master.clone(`shipPreviewHull.${ship.id}`);
     hull.setEnabled(true);
@@ -824,6 +898,12 @@ function warn(message: string): HTMLElement {
   const el = document.createElement("p");
   el.textContent = `⚠ ${message}`;
   el.className = "ed-warn";
+  return el;
+}
+function hint(message: string): HTMLElement {
+  const el = document.createElement("p");
+  el.textContent = message;
+  el.className = "ed-label";
   return el;
 }
 function row(...children: Node[]): HTMLDivElement {

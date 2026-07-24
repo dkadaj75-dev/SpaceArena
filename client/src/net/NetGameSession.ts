@@ -84,7 +84,9 @@ export class NetGameSession extends GameSession {
   private readonly lagQueue: { at: number; fn: () => void }[] = [];
 
   private constructor(configs: ConfigService, arenaId: string, gamemodeId: string) {
-    super(configs, arenaId, gamemodeId);
+    // `bots: null` — online ships (including server bots) all arrive via room
+    // state; the local shell sim must not spawn or drive any of its own.
+    super(configs, arenaId, gamemodeId, 1, { bots: null });
     this.previous = super.curSnapshot;
     this.current = this.previous;
     this.arena = configs.get<ArenaConfig>("arena", arenaId)!;

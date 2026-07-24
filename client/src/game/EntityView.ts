@@ -273,7 +273,7 @@ export class ViewManager {
       log.warn(`no ship config for entity ${s.id} (configId=${configId ?? "?"})`);
       return undefined;
     }
-    const master = this.assets.getMesh(ship.render.recipe, ship.render.palette ?? {});
+    const master = this.assets.getShipMaster(ship.render);
     const node = master.createInstance(`ship.${s.id}`);
     node.isPickable = true;
     node.metadata = { entityId: s.id, kind: "ship", team: s.team };

@@ -54,7 +54,10 @@
   "defaultFitting": ["module.laser-mk1", "module.missile-mk1", "module.shield-mk1", "module.boost-mk1"],
   "render": {
     "recipe": "procedural.arrowhead",
-    "palette": { "primary": "#2f6fb8", "accent": "#57d8ff" }
+    "palette": { "primary": "#2f6fb8", "accent": "#57d8ff" },
+    "model": "ships/LShip01.glb",
+    "modelScale": 4,
+    "modelRotationY": 0
   },
   "collider": { "shape": "circle", "radius": 1.4 }
 }

@@ -4,4 +4,5 @@ export * from "./core/ConfigService.js";
 export * from "./constants.js";
 export * from "./schemas/index.js";
 export * from "./sim/index.js";
+export * from "./bots/index.js";
 export * from "./net/index.js";

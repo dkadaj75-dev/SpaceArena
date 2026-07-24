@@ -107,7 +107,7 @@ export class Hangar {
 
     injectHangarStyle();
     this.root = document.createElement("div");
-    this.root.className = "hangar-overlay";
+    this.root.className = "hangar-overlay game-screen";
     this.panel = document.createElement("div");
     this.panel.className = "hangar-panel";
     this.root.append(this.panel);
@@ -218,7 +218,7 @@ export class Hangar {
     const ship = this.currentShip();
     if (!ship) return;
 
-    const master = this.assets.getMesh(ship.render.recipe, ship.render.palette ?? {});
+    const master = this.assets.getShipMaster(ship.render);
     const instance = master.createInstance(`hangarPreview.${ship.id}`);
     instance.isPickable = false;
     instance.parent = this.stageRoot;

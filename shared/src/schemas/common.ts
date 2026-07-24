@@ -30,6 +30,15 @@ export type Palette = z.infer<typeof palette>;
 export const renderRecipe = z.object({
   recipe: z.string(),
   palette: palette.optional(),
+  /**
+   * Optional GLB/GLTF hull replacing the procedural recipe, as a content-relative
+   * path (e.g. "ships/LShip01.glb"). The recipe stays the fallback while the
+   * model loads or if loading fails. Convention: ship noses point +Z at yaw 0 —
+   * use `modelRotationY` (radians) to correct models authored facing elsewhere.
+   */
+  model: z.string().optional(),
+  modelScale: z.number().positive().optional(),
+  modelRotationY: z.number().optional(),
 });
 export type RenderRecipe = z.infer<typeof renderRecipe>;
 
