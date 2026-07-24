@@ -79,9 +79,18 @@ async function bootstrap(): Promise<void> {
   const authService = new AuthService();
   await authService.restore();
 
-  // WebGPU with automatic WebGL2 fallback (Phase 0 renderer note).
-  const engine = (await EngineFactory.CreateAsync(canvas, {})) as Engine;
-  log.info("engine created", { webgpu: engine.getClassName() === "WebGPUEngine" });
+  // Default renderer is WebGL2: WebGPU can black-screen with no error on some
+  // GPUs (seen 2026-07: Intel UHD 630 + Chrome — device alive, frames render,
+  // nothing ever presents to the canvas). Re-test WebGPU with ?renderer=webgpu.
+  const rendererPref =
+    new URLSearchParams(window.location.search).get("renderer") ??
+    localStorage.getItem("spacearena.renderer") ??
+    "webgl";
+  const engine =
+    rendererPref === "webgpu"
+      ? ((await EngineFactory.CreateAsync(canvas, {})) as Engine)
+      : new Engine(canvas, true);
+  log.info("engine created", { renderer: rendererPref, cls: engine.getClassName() });
 
   // Cap device pixel ratio at 2 — perf guardrail from day 1 (Phase 0 constraint).
   engine.adaptToDeviceRatio = true;
@@ -343,9 +352,15 @@ async function bootstrap(): Promise<void> {
     };
   }
 
-  window.addEventListener("resize", () => {
+  // ResizeObserver, not window "resize": the canvas can change size without a
+  // window resize (late CSS, devtools/pane layout, mobile URL bar), and an
+  // engine created before layout settles would otherwise keep its 300×150
+  // default buffer forever.
+  const resizeObserver = new ResizeObserver(() => {
     engine.resize();
   });
+  resizeObserver.observe(canvas);
+  engine.resize();
 
   window.addEventListener("beforeunload", () => {
     runtime?.dispose();
