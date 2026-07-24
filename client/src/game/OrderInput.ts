@@ -44,6 +44,7 @@ export class OrderInput {
   // Active pointer tracking (multi-touch detection).
   private readonly activePointers = new Set<number>();
   private maxPointers = 0;
+  private enabled = true;
 
   // Primary-pointer down state.
   private downId: number | null = null;
@@ -67,7 +68,22 @@ export class OrderInput {
     this.observer = scene.onPointerObservable.add((pi) => this.onPointer(pi));
   }
 
+  /**
+   * Enable/disable gameplay tap orders. The dev editor turns these off while it
+   * is open so clicking in its 3D stage never issues a move/target order to the
+   * (hidden) live match.
+   */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.activePointers.clear();
+      this.maxPointers = 0;
+      this.downId = null;
+    }
+  }
+
   private onPointer(pi: PointerInfo): void {
+    if (!this.enabled) return;
     const ev = pi.event as PointerEvent;
     if (pi.type === PointerEventTypes.POINTERDOWN) {
       this.activePointers.add(ev.pointerId);

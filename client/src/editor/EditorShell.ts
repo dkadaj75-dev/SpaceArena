@@ -10,6 +10,7 @@ import { NotificationEditor } from "./NotificationEditor.js";
 import { ShipManager } from "./ShipManager.js";
 import { BalanceWorkbench } from "./BalanceWorkbench.js";
 import { ConsolePanel } from "./ConsolePanel.js";
+import { EditorStage } from "./EditorStage.js";
 import "./editor.css";
 
 export interface EditorHost {
@@ -19,12 +20,38 @@ export interface EditorHost {
   pauseSim(): void;
   resumeSim(): void;
   rebuildArena(): void;
+  /**
+   * Hide/show the live match entirely — HUD, entity views, order markers — and
+   * gate gameplay tap orders. The editor owns the canvas while it is open.
+   */
+  setGameVisible(visible: boolean): void;
+  /** Hide/show the static arena (bounds, skybox, ground AND its light rig). */
+  setArenaVisible(visible: boolean): void;
+  /** Freeze the editor camera's pointer gestures (used during gizmo drags). */
+  suspendCameraGestures(suspended: boolean): void;
 }
 
 export type EditorPanelFactory = (host: EditorHost, report: (message: string | null) => void) => EditorPanel;
 export interface EditorPanel { element: HTMLElement; dispose(): void; }
 
 const TAB_STORAGE_KEY = "sa-editor.tab";
+/**
+ * Which tools want the real arena behind them. Tools that stage their own
+ * subject (a ship, an asset, a chart) get a clean, arena-free backdrop instead
+ * — see {@link EditorStage} for the lighting/grid that replaces it.
+ */
+const ARENA_VISIBLE_TABS: Record<string, boolean> = {
+  Map: true,
+  Inspector: true,
+  Tuning: true,
+  Console: true,
+  Problems: true,
+  Actions: true,
+  Notifications: true,
+  Ships: false,
+  Assets: false,
+  Balance: false,
+};
 /** Mobile bottom-sheet heights, cycled by tapping the drag handle. */
 const SHEET_STATES = ["half", "full", "collapsed"] as const;
 type SheetState = (typeof SHEET_STATES)[number];
@@ -52,6 +79,7 @@ export class EditorShell {
   private statusCount: HTMLSpanElement | null = null;
   private renderProblems: (() => void) | null = null;
   private sheet: SheetState = "half";
+  private stage: EditorStage | null = null;
 
   constructor(private readonly host: EditorHost) {
     this.registerPanel("Map", (h, report) => new MapEditor(h, report));
@@ -71,6 +99,10 @@ export class EditorShell {
 
   private open(): void {
     this.host.pauseSim();
+    // The live match must be completely invisible behind the editor: each tool
+    // stages its own 3D content on this canvas.
+    this.host.setGameVisible(false);
+    this.stage = new EditorStage(this.host.scene);
     this.validateAll();
 
     const root = document.createElement("div");
@@ -201,6 +233,11 @@ export class EditorShell {
       tab.classList.toggle("is-active", tab.dataset.tab === name);
       tab.setAttribute("aria-selected", String(tab.dataset.tab === name));
     }
+    // Arena visible for world-space tools; clean lit stage for the rest.
+    const arenaVisible = ARENA_VISIBLE_TABS[name] ?? true;
+    this.host.setArenaVisible(arenaVisible);
+    this.stage?.setEnabled(!arenaVisible);
+
     // Opening a tool on a phone should reveal the sheet if it was collapsed.
     if (this.sheet === "collapsed") { this.sheet = "half"; this.root.dataset.sheet = "half"; }
 
@@ -256,6 +293,10 @@ export class EditorShell {
     this.active?.dispose(); this.active = null; this.unsubscribe?.(); this.unsubscribe = null;
     this.renderProblems = null;
     this.tabsBar = null; this.body = null; this.title = null; this.statusButton = null; this.statusCount = null;
+    this.stage?.dispose(); this.stage = null;
+    this.host.suspendCameraGestures(false);
+    this.host.setArenaVisible(true);
+    this.host.setGameVisible(true);
     this.root?.remove(); this.root = null; this.host.resumeSim();
   }
 }

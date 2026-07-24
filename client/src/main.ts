@@ -327,6 +327,22 @@ async function bootstrap(): Promise<void> {
         sceneBuilder.buildArena("arena.ring-nebula");
         applyArenaPanBounds();
       },
+      // The editor takes over the canvas: the live match (HUD, entity views,
+      // order markers) is hidden and gameplay taps are gated off, so nothing of
+      // the running game shows through or reacts behind the editor's own stage.
+      // `runtime` is null on the menu screens — nothing to hide then.
+      setGameVisible: (visible: boolean) => {
+        hudRoot.style.display = visible ? "" : "none";
+        runtime?.viewManager.setVisible(visible);
+        runtime?.orderMarkers.setVisible(visible);
+        runtime?.orderInput.setEnabled(visible);
+      },
+      setArenaVisible: (visible: boolean) => {
+        sceneBuilder.setVisible(visible);
+      },
+      suspendCameraGestures: (suspended: boolean) => {
+        tacticalCamera.setGesturesSuspended(suspended);
+      },
     };
     window.addEventListener("keydown", (event) => {
       if (event.key !== "F10" || event.repeat) return;

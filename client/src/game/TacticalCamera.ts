@@ -11,10 +11,25 @@ import { createLogger, type CameraConfig, type ConfigService, type EventBus, typ
 
 const log = createLogger("TacticalCamera");
 
+function clamp(value: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, value));
+}
+
 const CAMERA_CONFIG_ID = "camera.default";
 
 const RIGHT_AXIS = new Vector3(1, 0, 0);
 const FORWARD_AXIS = new Vector3(0, 0, 1);
+
+/** Radians of orbit per pixel dragged in editor mode. */
+const EDITOR_ORBIT_SPEED = 0.008;
+/**
+ * Pixels a pointer must travel before an editor drag counts as an orbit/pan.
+ * Below this a press-release stays a clean tap, so `POINTERPICK` consumers
+ * (the Ship Manager's socket markers, the Map editor's asteroids) still work.
+ */
+const EDITOR_DRAG_SLOP_PX = 4;
+/** Sanity bound on how far the editor camera target can be panned (world units). */
+const EDITOR_TARGET_LIMIT = 300;
 
 /**
  * `ArcRotateCamera` rig for the 3/4 tactical view (§2.1). Limits/speeds come
@@ -46,6 +61,10 @@ export class TacticalCamera {
   private panBoundsRadius = 90;
   private readonly activeTouches = new Map<number, { x: number; y: number }>();
   private rightDrag: { x: number; y: number } | null = null;
+  // Editor-mode drag state: `ox/oy` is the press origin (for the tap slop test),
+  // `x/y` the last processed position.
+  private editorDrag: { id: number; ox: number; oy: number; x: number; y: number; button: number; moved: boolean } | null = null;
+  private gesturesSuspended = false;
   private pointerObserver: Observer<PointerInfo> | null = null;
   private readonly onContextMenu = (e: Event): void => e.preventDefault();
   private readonly scratchRight = new Vector3();
@@ -135,9 +154,16 @@ export class TacticalCamera {
   /** Temporarily turn the tactical rig into an unrestricted editor orbit camera. */
   setEditorMode(enabled: boolean): void {
     this.editorMode = enabled;
+    this.editorDrag = null;
+    this.activeTouches.clear();
+    this.rightDrag = null;
     if (enabled) {
       this.followTarget = null;
-      if (this.pointersInput) this.pointersInput.buttons = [2];
+      // Editor gestures are fully custom (see onEditorPointer): left-drag
+      // orbits, right-drag pans, one finger orbits, two fingers pan + pinch.
+      // The built-in pointers input stays off so it can't double-apply them;
+      // only its wheel sibling (zoom) remains live.
+      if (this.pointersInput) this.pointersInput.buttons = [];
       this.camera.lowerBetaLimit = 0.05;
       this.camera.upperBetaLimit = Math.PI / 2 - 0.02;
       this.camera.lowerRadiusLimit = 5;
@@ -179,11 +205,30 @@ export class TacticalCamera {
     this.camera.beta = beta;
   }
 
+  /**
+   * Suspend every custom camera gesture. The dev editor turns this on while a
+   * transform gizmo is being dragged so the drag moves only the gizmo's mesh
+   * and never the camera; any in-flight drag is dropped immediately.
+   */
+  setGesturesSuspended(suspended: boolean): void {
+    this.gesturesSuspended = suspended;
+    if (suspended) {
+      this.editorDrag = null;
+      this.rightDrag = null;
+      this.activeTouches.clear();
+    }
+  }
+
   private onPointer(pi: PointerInfo): void {
-    // Editor/hangar modes use the built-in orbit input instead of these gestures.
-    if (this.editorMode || this.hangarMode) return;
+    if (this.gesturesSuspended) return;
+    // Hangar mode uses the built-in orbit input instead of these gestures.
+    if (this.hangarMode) return;
     const ev = pi.event as PointerEvent;
     const isTouch = ev.pointerType === "touch";
+    if (this.editorMode) {
+      this.onEditorPointer(pi, ev, isTouch);
+      return;
+    }
 
     if (pi.type === PointerEventTypes.POINTERDOWN) {
       if (isTouch) {
@@ -219,6 +264,110 @@ export class TacticalCamera {
       this.activeTouches.delete(ev.pointerId);
       if (!isTouch && ev.button === 2) this.rightDrag = null;
     }
+  }
+
+  /**
+   * Editor-mode gestures. Unlike tactical mode there is no ship to follow, so
+   * panning writes straight to `camera.target` rather than to an offset.
+   *
+   *  - mouse left-drag / one-finger drag → orbit
+   *  - mouse right-drag / two-finger drag → pan (two fingers also pinch-zoom)
+   *  - wheel zoom is handled by the built-in mouse-wheel input
+   */
+  private onEditorPointer(pi: PointerInfo, ev: PointerEvent, isTouch: boolean): void {
+    if (pi.type === PointerEventTypes.POINTERDOWN) {
+      if (isTouch) {
+        this.activeTouches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+        // A second finger turns the gesture into pan+pinch — drop the orbit.
+        this.editorDrag =
+          this.activeTouches.size === 1
+            ? { id: ev.pointerId, ox: ev.clientX, oy: ev.clientY, x: ev.clientX, y: ev.clientY, button: 0, moved: false }
+            : null;
+        return;
+      }
+      this.editorDrag = { id: ev.pointerId, ox: ev.clientX, oy: ev.clientY, x: ev.clientX, y: ev.clientY, button: ev.button, moved: false };
+      return;
+    }
+
+    if (pi.type === PointerEventTypes.POINTERUP) {
+      this.activeTouches.delete(ev.pointerId);
+      if (this.editorDrag?.id === ev.pointerId) this.editorDrag = null;
+      return;
+    }
+
+    if (pi.type !== PointerEventTypes.POINTERMOVE) return;
+
+    if (isTouch) {
+      const touch = this.activeTouches.get(ev.pointerId);
+      if (!touch) return;
+      const [a, b] = [...this.activeTouches.values()];
+      if (this.activeTouches.size === 2 && a && b) {
+        // Two-finger gesture: centroid delta pans, distance ratio pinch-zooms.
+        const prevCx = (a.x + b.x) / 2;
+        const prevCy = (a.y + b.y) / 2;
+        const prevDist = Math.hypot(a.x - b.x, a.y - b.y);
+        touch.x = ev.clientX;
+        touch.y = ev.clientY;
+        this.panTarget((a.x + b.x) / 2 - prevCx, (a.y + b.y) / 2 - prevCy);
+        const curDist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (prevDist > 1 && curDist > 1) this.zoomBy(prevDist / curDist);
+        return;
+      }
+      touch.x = ev.clientX;
+      touch.y = ev.clientY;
+    }
+
+    const drag = this.editorDrag;
+    if (!drag || drag.id !== ev.pointerId) return;
+    if (!drag.moved) {
+      // Stay a tap until the pointer has clearly moved, so picking still works.
+      if (Math.hypot(ev.clientX - drag.ox, ev.clientY - drag.oy) < EDITOR_DRAG_SLOP_PX) return;
+      drag.moved = true;
+      drag.x = ev.clientX;
+      drag.y = ev.clientY;
+      return;
+    }
+    const dx = ev.clientX - drag.x;
+    const dy = ev.clientY - drag.y;
+    drag.x = ev.clientX;
+    drag.y = ev.clientY;
+    if (drag.button === 2) this.panTarget(dx, dy);
+    else this.orbitBy(dx, dy);
+  }
+
+  /** Screen-pixel drag → orbit angles, clamped to the active beta limits. */
+  private orbitBy(dx: number, dy: number): void {
+    this.camera.alpha -= dx * EDITOR_ORBIT_SPEED;
+    this.camera.beta -= dy * EDITOR_ORBIT_SPEED;
+    const lo = this.camera.lowerBetaLimit;
+    const hi = this.camera.upperBetaLimit;
+    if (lo !== null && this.camera.beta < lo) this.camera.beta = lo;
+    if (hi !== null && this.camera.beta > hi) this.camera.beta = hi;
+  }
+
+  /**
+   * Editor pan: the same screen→world mapping as {@link pan}, but applied
+   * directly to the orbit target (there is no follow point to offset from) and
+   * clamped to a plain sanity box instead of the arena bounds.
+   */
+  private panTarget(dx: number, dy: number): void {
+    if (dx === 0 && dy === 0) return;
+    const viewportH = this.canvas.clientHeight || 1;
+    const worldPerPx =
+      ((2 * this.camera.radius * Math.tan(this.camera.fov / 2)) / viewportH) * this.panSensitivity;
+
+    this.camera.getDirectionToRef(RIGHT_AXIS, this.scratchRight);
+    this.scratchRight.y = 0;
+    this.scratchRight.normalize();
+    this.camera.getDirectionToRef(FORWARD_AXIS, this.scratchGroundFwd);
+    this.scratchGroundFwd.y = 0;
+    this.scratchGroundFwd.normalize();
+
+    // Mutated in place: `setTarget()` would recompute alpha/beta/radius and
+    // fight the orbit angles we just set.
+    const target = this.camera.target;
+    target.x = clamp(target.x + (-this.scratchRight.x * dx + this.scratchGroundFwd.x * dy) * worldPerPx, -EDITOR_TARGET_LIMIT, EDITOR_TARGET_LIMIT);
+    target.z = clamp(target.z + (-this.scratchRight.z * dx + this.scratchGroundFwd.z * dy) * worldPerPx, -EDITOR_TARGET_LIMIT, EDITOR_TARGET_LIMIT);
   }
 
   /** Screen-pixel drag → world-space pan offset ("grab the world": content follows the pointer). */

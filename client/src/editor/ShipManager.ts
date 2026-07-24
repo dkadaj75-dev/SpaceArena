@@ -35,6 +35,7 @@ import { AssetRegistry } from "../core/AssetRegistry.js";
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
+import { bindGizmoCameraSuspend } from "./EditorStage.js";
 import {
   addBinding,
   addSocket,
@@ -82,6 +83,7 @@ export class ShipManager implements EditorPanel {
   private readonly scene: Scene;
   private readonly previewRoot: TransformNode;
   private readonly gizmos: GizmoManager;
+  private readonly unbindGizmoSuspend: () => void;
   private readonly assets: AssetRegistry;
   private readonly labelLayer: HTMLDivElement;
 
@@ -114,13 +116,15 @@ export class ShipManager implements EditorPanel {
     this.gizmos.rotationGizmoEnabled = true;
     this.gizmos.scaleGizmoEnabled = true;
     this.gizmos.usePointerToAttachGizmos = false;
+    // A gizmo drag must move the socket marker only — freeze the editor
+    // camera's orbit/pan gestures for the duration of the drag.
+    this.unbindGizmoSuspend = bindGizmoCameraSuspend(this.gizmos, (on) => host.suspendCameraGestures(on));
 
     this.labelLayer = document.createElement("div");
     Object.assign(this.labelLayer.style, { position: "fixed", left: "0", top: "0", pointerEvents: "none", zIndex: "999" });
     document.body.append(this.labelLayer);
 
     this.shipId = host.configService.getAll<ShipConfig>("ship")[0]?.id ?? "";
-    this.focusCamera();
 
     this.pointerObserver = this.scene.onPointerObservable.add((info) => {
       if (info.type !== PointerEventTypes.POINTERPICK || !info.pickInfo?.hit || !info.pickInfo.pickedMesh) return;
@@ -130,6 +134,7 @@ export class ShipManager implements EditorPanel {
     this.beforeRenderObserver = this.scene.onBeforeRenderObservable.add(() => this.updateLabels());
 
     this.rebuildPreview();
+    this.focusCamera();
     this.renderUi();
   }
 
@@ -137,10 +142,19 @@ export class ShipManager implements EditorPanel {
     return this.host.configService.get<ShipConfig>("ship", this.shipId);
   }
 
-  /** Point the active camera at the preview origin so the ship is framed on open. */
+  /** Frame the preview: target the origin and pull the orbit in so the ship fills the view. */
   private focusCamera(): void {
-    const cam = this.scene.activeCamera as unknown as { setTarget?: (v: Vector3) => void };
+    const cam = this.scene.activeCamera as unknown as {
+      setTarget?: (v: Vector3) => void;
+      radius?: number;
+      beta?: number;
+    };
     cam?.setTarget?.(Vector3.Zero());
+    if (cam && typeof cam.radius === "number") {
+      const hullRadius = this.hullMesh?.getBoundingInfo().boundingSphere.radiusWorld ?? 4;
+      cam.radius = Math.max(8, hullRadius * 3.5);
+      cam.beta = 1.1;
+    }
   }
 
   // ---------------------------------------------------------------- UI ----
@@ -156,6 +170,7 @@ export class ShipManager implements EditorPanel {
       this.selectedIndex = null;
       this.gizmos.attachToMesh(null);
       this.rebuildPreview();
+      this.focusCamera();
       this.renderUi();
     });
     const newBtn = button("New ship", () => this.createShip());
@@ -756,6 +771,7 @@ export class ShipManager implements EditorPanel {
   }
 
   dispose(): void {
+    this.unbindGizmoSuspend();
     this.stopParticles();
     this.particleTexture?.dispose();
     this.scene.onPointerObservable.remove(this.pointerObserver);

@@ -38,6 +38,7 @@ export class OrderMarkers {
   private readonly targetRing: Mesh;
 
   private moveTarget: { x: number; z: number } | null = null;
+  private visible = true;
   private boost = false;
   private pulseT = 0;
 
@@ -91,7 +92,22 @@ export class OrderMarkers {
     }
   }
 
+  /**
+   * Show/hide the order markers. `render()` re-enables meshes every frame, so
+   * visibility has to be a latched flag it checks rather than a one-shot
+   * `setEnabled` — see the dev editor, which hides the live match entirely.
+   */
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+    if (!visible) {
+      this.pathLine.setEnabled(false);
+      this.destRing.setEnabled(false);
+      this.targetRing.setEnabled(false);
+    }
+  }
+
   render(cur: Snapshot, dtMs: number): void {
+    if (!this.visible) return;
     this.pulseT += dtMs / 1000;
     const player = findShip(cur, this.playerId);
 

@@ -3,12 +3,14 @@ import { arenaSchema, type ArenaConfig, type AsteroidConfig } from "@space-arena
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
+import { bindGizmoCameraSuspend } from "./EditorStage.js";
 
 /** Lightweight, editor-owned preview because live asteroids belong to ViewManager. */
 export class MapEditor implements EditorPanel {
   readonly element = document.createElement("div");
   private readonly root: TransformNode;
   private readonly gizmos: GizmoManager;
+  private readonly unbindGizmoSuspend: () => void;
   private observer: Observer<PointerInfo> | null = null;
   private arenaId = "";
   private selected: { kind: "asteroid" | "spawn"; index: number; mesh: AbstractMesh } | null = null;
@@ -20,6 +22,8 @@ export class MapEditor implements EditorPanel {
     this.root = new TransformNode("editorMapPreview", this.host.scene);
     this.gizmos = new GizmoManager(this.host.scene);
     this.gizmos.positionGizmoEnabled = true; this.gizmos.rotationGizmoEnabled = true; this.gizmos.scaleGizmoEnabled = true;
+    // Dragging a placement gizmo must not orbit/pan the editor camera.
+    this.unbindGizmoSuspend = bindGizmoCameraSuspend(this.gizmos, (on) => host.suspendCameraGestures(on));
     this.arenaId = host.configService.getAll<ArenaConfig>("arena")[0]?.id ?? "";
     this.renderUi(); this.rebuildPreview();
     this.observer = this.host.scene.onPointerObservable.add((info) => {
@@ -87,7 +91,7 @@ export class MapEditor implements EditorPanel {
   private removeSelected(): void { const arena = structuredClone(this.arena()); if (!arena || !this.selected) return; arena.asteroidPlacements.splice(this.selected.index, 1); this.selected = null; this.gizmos.attachToMesh(null); this.replace(arena); }
   private replace(arena: ArenaConfig): void { const result = this.host.configService.replace(arena); if (!result.ok) { this.report(result.errors.map((e) => e.message).join("; ")); return; } this.host.rebuildArena(); this.rebuildPreview(); this.renderUi(); }
   private async save(): Promise<void> { const arena = this.arena(); if (!arena) return; const error = await saveConfig(arena); if (error) this.report(error); }
-  dispose(): void { this.host.scene.onPointerObservable.remove(this.observer); window.removeEventListener("keydown", this.onKey); this.gizmos.dispose(); this.root.dispose(false, true); }
+  dispose(): void { this.unbindGizmoSuspend(); this.host.scene.onPointerObservable.remove(this.observer); window.removeEventListener("keydown", this.onKey); this.gizmos.dispose(); this.root.dispose(false, true); }
 }
 /** Small uppercase caption used by the toolbar rows. */
 function label(value: string): HTMLSpanElement { const span = document.createElement("span"); span.className = "ed-label"; span.textContent = value; return span; }

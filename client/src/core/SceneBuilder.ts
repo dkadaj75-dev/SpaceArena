@@ -45,6 +45,7 @@ const TEAM_COLORS = [new Color3(0.2, 0.55, 1.0), new Color3(1.0, 0.35, 0.25)];
  */
 export class SceneBuilder {
   private root: TransformNode | null = null;
+  private visible = true;
   private glowLayer: GlowLayer | null = null;
   private unsubscribers: Array<() => void> = [];
   private generation = 0;
@@ -85,12 +86,24 @@ export class SceneBuilder {
 
     const root = new TransformNode("arenaRoot", this.scene);
     this.root = root;
+    root.setEnabled(this.visible);
 
     this.buildLighting(arena, root);
     this.buildSkybox(arena, root, generation);
     this.buildBounds(arena, root);
     this.buildGroundPlane(arena, root);
     if (SHOW_SPAWN_MARKERS) this.buildSpawnMarkers(arena, root);
+  }
+
+  /**
+   * Show/hide the whole static arena — bounds, skybox, ground, spawn markers
+   * AND the light rig, which is parented to the same root. Callers that hide it
+   * to stage something else must supply their own lighting (see EditorStage).
+   * Latched so a hot-reload rebuild keeps the current visibility.
+   */
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+    this.root?.setEnabled(visible);
   }
 
   private buildLighting(arena: ArenaConfig, root: TransformNode): void {

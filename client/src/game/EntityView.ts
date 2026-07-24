@@ -106,6 +106,16 @@ export class ViewManager {
     this.buildPools();
   }
 
+  /**
+   * Show/hide every dynamic match view at once. Everything this manager creates
+   * is parented to `viewRoot`, so disabling the root hides ships, asteroids,
+   * projectiles and beams in one call — used by the dev editor, which takes
+   * over the canvas and must not show the live match behind its own stage.
+   */
+  setVisible(visible: boolean): void {
+    this.root.setEnabled(visible);
+  }
+
   private buildPools(): void {
     // Kinetic: small elongated glowing box, nose +Z.
     const kMat = new StandardMaterial("mat.proj.kinetic", this.scene);
