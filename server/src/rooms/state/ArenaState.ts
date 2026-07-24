@@ -19,6 +19,8 @@ import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
 
 /** Per-fitted-module remote-visible state (drives deploy/shield/overheat visuals). */
 export class ModuleState extends Schema {
+  /** Fitted module config id (so the client can resolve the module without the fitting). */
+  @type("string") moduleId = "";
   /** Hardpoint index this module occupies (client toggles address by this). */
   @type("uint8") hardpointIndex = 0;
   /** §2.3 state machine code (see shared `MODULE_STATE_CODE`). */
@@ -27,6 +29,10 @@ export class ModuleState extends Schema {
   @type("float32") stateTimer = 0;
   /** Module heat vs its overheat threshold (for the button heat fill). */
   @type("float32") heat = 0;
+  /** Weapon cooldown countdown (seconds) — drives fire-cadence visuals. */
+  @type("float32") cycleTimer = 0;
+  /** This module's shield-absorb reservoir (0 for non-shield modules). */
+  @type("float32") shieldPool = 0;
 }
 
 export class PlayerState extends Schema {
@@ -45,10 +51,16 @@ export class PlayerState extends Schema {
   @type("int16") vx = 0;
   @type("int16") vz = 0;
   @type("float32") hull = 0;
+  /** Resolved max hull (ship class + upgrades + module passives) — for HUD bars. */
+  @type("float32") hullMax = 0;
   /** Sum of active shield-module absorb reservoirs. */
   @type("float32") shieldPool = 0;
   @type("float32") energyCur = 0;
+  /** Resolved capacitor max (ship class + upgrades + module passives). */
+  @type("float32") energyMax = 0;
   @type("float32") heatCur = 0;
+  /** Resolved heat capacity (ship class + upgrades + module passives). */
+  @type("float32") heatCapacity = 0;
   @type([ModuleState]) modules = new ArraySchema<ModuleState>();
   /** Highest client order seq applied for this player (reconciliation). */
   @type("number") lastProcessedSeq = 0;

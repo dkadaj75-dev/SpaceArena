@@ -1,0 +1,21 @@
+{
+  "id": "fx.engine-trail",
+  "type": "effect",
+  "version": 1,
+  "name": "Engine Trail",
+  "base": {
+    "capacity": 200,
+    "emitRate": 0,
+    "lifeMin": 0.15,
+    "lifeMax": 0.4,
+    "sizeMin": 0.15,
+    "sizeMax": 0.4,
+    "speedMin": 4,
+    "speedMax": 8,
+    "color1": "#57d8ff",
+    "color2": "#2f6fb8",
+    "direction": [0, 0, -1],
+    "gravity": 0
+  },
+  "params": ["emitRate", "lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"]
+}

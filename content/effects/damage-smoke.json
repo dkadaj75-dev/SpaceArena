@@ -1,0 +1,21 @@
+{
+  "id": "fx.damage-smoke",
+  "type": "effect",
+  "version": 1,
+  "name": "Damage Smoke",
+  "base": {
+    "capacity": 120,
+    "emitRate": 0,
+    "lifeMin": 0.6,
+    "lifeMax": 1.4,
+    "sizeMin": 0.3,
+    "sizeMax": 0.9,
+    "speedMin": 1,
+    "speedMax": 3,
+    "color1": "#5a5a5a",
+    "color2": "#1c1c1c",
+    "direction": [0, 1, 0],
+    "gravity": -2
+  },
+  "params": ["emitRate", "lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"]
+}

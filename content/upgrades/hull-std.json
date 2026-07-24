@@ -1,12 +1,14 @@
 {
   "id": "upgrade.hull-std",
   "type": "upgrade",
-  "version": 1,
+  "version": 2,
   "name": "Standard Hull Plating",
   "track": "hull",
   "levels": [
     { "level": 1, "price": 0, "add": { "hull.base": 0 } },
     { "level": 2, "price": 200, "add": { "hull.base": 15 } },
-    { "level": 3, "price": 500, "add": { "hull.base": 35 } }
+    { "level": 3, "price": 500, "add": { "hull.base": 35 } },
+    { "level": 4, "price": 900, "add": { "hull.base": 60 } },
+    { "level": 5, "price": 1400, "add": { "hull.base": 90 } }
   ]
 }

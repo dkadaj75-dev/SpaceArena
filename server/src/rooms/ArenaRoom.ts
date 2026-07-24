@@ -23,10 +23,11 @@ import {
   type FireEventMessage,
   type SimEventMessage,
 } from "@space-arena/shared";
+import type { HardpointMap, ModuleConfig, UpgradeLevels } from "@space-arena/shared";
 import { getConfigService } from "../configService.js";
 import { verifyAccessToken } from "../auth/tokens.js";
-import { fittingsRepo, profilesRepo } from "../db/repos.js";
-import { hardpointMapToFitting } from "../api/fittingValidation.js";
+import { fittingsRepo, ownedModulesRepo, profilesRepo, shipUpgradesRepo } from "../db/repos.js";
+import { hardpointMapToFitting, validateFitting } from "../api/fittingValidation.js";
 import { finalizeMatch, type Participant } from "../progression/service.js";
 import { ArenaState, PlayerState, ProjectileState, ModuleState, AsteroidState } from "./state/ArenaState.js";
 
@@ -198,7 +199,9 @@ export class ArenaRoom extends Room<ArenaState> {
     if (!ship) throw new Error(`no ship config available (wanted ${shipId})`);
 
     const team = this.assignTeam();
-    const entityId = this.sim.spawnPlayer(shipId, fitting, team);
+    // Apply the player's persisted upgrade purchases to their spawned stats.
+    const upgradeLevels = this.loadUpgradeLevels(userId, shipId);
+    const entityId = this.sim.spawnPlayer(shipId, fitting, team, upgradeLevels);
 
     const ps = new PlayerState();
     ps.entityId = entityId;
@@ -225,29 +228,77 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   /**
-   * Pick the ship + ordered module list to spawn. An authed user passing a
-   * `fittingId` they own loads that fitting; otherwise fall back to the requested
-   * (or default) ship's `defaultFitting`.
+   * Pick the ship + ordered module list to spawn, then **validate it** against
+   * the joining player's ownership/level and the ship's current sockets (same
+   * logic as the REST fitting API). An authed user passing a `fittingId` they own
+   * loads that fitting; otherwise fall back to the requested (or default) ship's
+   * `defaultFitting`. Either way, an invalid resolved fitting **rejects the join**
+   * (Finding 1) rather than spawning an illegal loadout.
    */
   private resolveFitting(
     configs: ReturnType<typeof getConfigService>,
     userId: string | null,
     options: JoinOptions,
   ): { shipId: string; fitting: (string | null)[] } {
+    // Candidate ship + hardpoint map.
+    let shipId: string | null = null;
+    let hardpointMap: HardpointMap | null = null;
+
     if (userId && options.fittingId) {
       const fit = fittingsRepo.byId(options.fittingId);
-      if (fit && fit.user_id === userId) {
-        const ship = configs.get<ShipConfig>("ship", fit.ship_id);
-        if (ship) return { shipId: fit.ship_id, fitting: hardpointMapToFitting(ship, fit.hardpointMap) };
-        log.warn("fitting references unknown ship; using default", { fittingId: options.fittingId });
+      if (fit && fit.user_id === userId && configs.get<ShipConfig>("ship", fit.ship_id)) {
+        shipId = fit.ship_id;
+        hardpointMap = fit.hardpointMap;
       } else {
-        log.warn("fitting not found or not owned; using default", { fittingId: options.fittingId, userId });
+        log.warn("fitting not found / not owned / unknown ship; using default", { fittingId: options.fittingId, userId });
       }
     }
-    const shipId =
-      options.shipId && configs.get<ShipConfig>("ship", options.shipId) ? options.shipId : "ship.interceptor";
-    const ship = configs.get<ShipConfig>("ship", shipId);
-    return { shipId, fitting: ship ? ship.defaultFitting : [] };
+
+    if (!shipId || !hardpointMap) {
+      shipId = options.shipId && configs.get<ShipConfig>("ship", options.shipId) ? options.shipId : "ship.interceptor";
+      const ship = configs.get<ShipConfig>("ship", shipId);
+      if (!ship) throw new Error(`no ship config available (wanted ${shipId})`);
+      hardpointMap = defaultFittingToHardpointMap(ship.defaultFitting);
+    }
+
+    const { owned, level } = this.ownershipContext(configs, userId);
+    const result = validateFitting(configs, shipId, hardpointMap, owned, level);
+    if (!result.ok) {
+      throw new Error(`invalid-fitting: ${result.code}: ${result.message}`);
+    }
+    const ship = configs.get<ShipConfig>("ship", shipId)!;
+    return { shipId, fitting: hardpointMapToFitting(ship, hardpointMap) };
+  }
+
+  /**
+   * The module-ownership set + profile level used to validate a join fitting.
+   * Authenticated users get their real owned modules + level. Anonymous
+   * (DEV_ALLOW_ANON) players implicitly hold the free starter kit (every
+   * `price: 0` module) at level 1 — enough to validate any ship's default fit.
+   */
+  private ownershipContext(
+    configs: ReturnType<typeof getConfigService>,
+    userId: string | null,
+  ): { owned: Set<string>; level: number } {
+    if (userId) {
+      const owned = new Set(ownedModulesRepo.byUser(userId).map((r) => r.module_id));
+      const level = profilesRepo.byUser(userId)?.level ?? 1;
+      return { owned, level };
+    }
+    const owned = new Set(configs.getAll<ModuleConfig>("module").filter((m) => m.price === 0).map((m) => m.id));
+    return { owned, level: 1 };
+  }
+
+  /**
+   * Load a user's persisted per-track upgrade purchase counts for `shipId`.
+   * Anonymous joins (no userId) or ships never upgraded resolve to all-zero
+   * (base stats). Counts feed the shared stat resolver at spawn.
+   */
+  private loadUpgradeLevels(userId: string | null, shipId: string): UpgradeLevels {
+    if (!userId) return { hull: 0, engine: 0, energy: 0, heat: 0 };
+    const row = shipUpgradesRepo.get(userId, shipId);
+    if (!row) return { hull: 0, engine: 0, energy: 0, heat: 0 };
+    return { hull: row.hull_lvl, engine: row.engine_lvl, energy: row.energy_lvl, heat: row.heat_lvl };
   }
 
   private resolveDisplayName(userId: string | null, options: JoinOptions): string {
@@ -503,8 +554,13 @@ export class ArenaRoom extends Room<ArenaState> {
     if (ps.z !== qz) ps.z = qz;
     if (ps.heading !== qh) ps.heading = qh;
     if (ps.hull !== ship.hull) ps.hull = ship.hull;
+    // Resolved maxima (ship class + upgrades + module passives): the sim already
+    // resolved these into the snapshot at spawn, so mirror them straight through.
+    if (ps.hullMax !== ship.hullMax) ps.hullMax = ship.hullMax;
     if (ps.energyCur !== ship.energy.cur) ps.energyCur = ship.energy.cur;
+    if (ps.energyMax !== ship.energy.max) ps.energyMax = ship.energy.max;
     if (ps.heatCur !== ship.heat.cur) ps.heatCur = ship.heat.cur;
+    if (ps.heatCapacity !== ship.heat.capacity) ps.heatCapacity = ship.heat.capacity;
 
     let shieldPool = 0;
     for (let i = 0; i < ship.modules.length; i++) {
@@ -513,18 +569,24 @@ export class ArenaRoom extends Room<ArenaState> {
       const target = ps.modules[i];
       if (!target) {
         const ms = new ModuleState();
+        ms.moduleId = m.moduleId;
         ms.hardpointIndex = m.hardpointIndex;
         ms.state = encodeModuleState(m.state);
         ms.stateTimer = m.stateTimer;
         ms.heat = m.heat;
+        ms.cycleTimer = m.cycleTimer;
+        ms.shieldPool = m.shieldPool;
         ps.modules.push(ms);
         continue;
       }
+      if (target.moduleId !== m.moduleId) target.moduleId = m.moduleId;
       if (target.hardpointIndex !== m.hardpointIndex) target.hardpointIndex = m.hardpointIndex;
       const code = encodeModuleState(m.state);
       if (target.state !== code) target.state = code;
       if (target.stateTimer !== m.stateTimer) target.stateTimer = m.stateTimer;
       if (target.heat !== m.heat) target.heat = m.heat;
+      if (target.cycleTimer !== m.cycleTimer) target.cycleTimer = m.cycleTimer;
+      if (target.shieldPool !== m.shieldPool) target.shieldPool = m.shieldPool;
     }
     if (ps.shieldPool !== shieldPool) ps.shieldPool = shieldPool;
   }
@@ -629,6 +691,15 @@ export class ArenaRoom extends Room<ArenaState> {
     if (this.endTimer) clearTimeout(this.endTimer);
     log.info("room disposed", { gamemode: this.gamemode?.id });
   }
+}
+
+/** Convert a positional `defaultFitting` into a validate-able hardpoint map (skip empties). */
+function defaultFittingToHardpointMap(defaultFitting: readonly (string | null)[]): HardpointMap {
+  const map: HardpointMap = {};
+  defaultFitting.forEach((moduleId, i) => {
+    if (moduleId) map[String(i)] = moduleId;
+  });
+  return map;
 }
 
 function toSimEventMessage(ev: SimEvent): SimEventMessage | null {

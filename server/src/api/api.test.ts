@@ -42,11 +42,12 @@ describe("fittings API", () => {
     expect(wrongFamily.status).toBe(400);
     expect(wrongFamily.body.error.code).toBe("family-mismatch");
 
-    // Not owned: shield-mk1 fits hardpoint 2 by family but user does not own it.
+    // Not owned: shield-mk2 fits hardpoint 2 by family but is a priced module the
+    // fresh user does not own (mk1 modules are the free, pre-owned starter kit).
     const notOwned = await request(app)
       .post("/api/fittings")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", name: "Bad2", hardpointMap: { "2": "module.shield-mk1" } });
+      .send({ shipId: "ship.interceptor", name: "Bad2", hardpointMap: { "2": "module.shield-mk2" } });
     expect(notOwned.status).toBe(400);
     expect(notOwned.body.error.code).toBe("not-owned");
   });
@@ -60,64 +61,61 @@ describe("fittings API", () => {
 describe("modules + upgrades API", () => {
   it("buys a module, deducting credits", async () => {
     const { auth, userId } = await newUser("buy@example.com");
-    const before = profilesRepo.byUser(userId)!.credits; // 250
+    profilesRepo.addCredits(userId, 1000); // afford a priced mk2
+    const before = profilesRepo.byUser(userId)!.credits;
 
-    // boost-mk1 costs 100, requiresLevel 1.
-    const buy = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk1" });
+    // boost-mk2 costs 300, requiresLevel 2 (mk1 variants are free/pre-owned).
+    profilesRepo.setProgress(userId, 2, 0, before);
+    const buy = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk2" });
     expect(buy.status).toBe(200);
-    expect(buy.body.credits).toBe(before - 100);
+    expect(buy.body.credits).toBe(before - 300);
 
     // Buying again → already owned.
-    const again = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk1" });
+    const again = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk2" });
     expect(again.status).toBe(409);
   });
 
   it("rejects a module buy with insufficient credits (409, atomic debit)", async () => {
     const { auth, userId } = await newUser("brokebuy@example.com");
-    // Drain the starter credits so nothing is left.
-    profilesRepo.addCredits(userId, -profilesRepo.byUser(userId)!.credits);
-    const res = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk1" });
+    // Level 2 so the gate passes; drain the starter credits so nothing is left.
+    profilesRepo.setProgress(userId, 2, 0, 0);
+    const res = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk2" });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("insufficient-credits");
     // Nothing was granted (debit + grant are atomic).
     const list = await request(app).get("/api/modules").set("Authorization", auth);
-    const boost = (list.body.modules as Array<{ id: string; owned: boolean }>).find((m) => m.id === "module.boost-mk1")!;
+    const boost = (list.body.modules as Array<{ id: string; owned: boolean }>).find((m) => m.id === "module.boost-mk2")!;
     expect(boost.owned).toBe(false);
   });
 
   it("upgrades a ship track, deducting credits and capping at max level", async () => {
     const { auth, userId } = await newUser("upg@example.com");
-    // Give plenty of credits for the full hull track (0 + 200 + 500).
-    profilesRepo.addCredits(userId, 1000);
+    // Give plenty of credits for the full hull track (0 + 200 + 500 + 900 + 1400).
+    profilesRepo.addCredits(userId, 4000);
 
-    // hull-std has 3 levels (prices 0, 200, 500).
-    const l1 = await request(app).post("/api/ships/ship.interceptor/upgrade").set("Authorization", auth).send({ track: "hull" });
-    expect(l1.status).toBe(200);
-    expect(l1.body.level).toBe(1);
+    // hull-std has 5 levels (prices 0, 200, 500, 900, 1400); buy each in order.
+    for (let expected = 1; expected <= 5; expected++) {
+      const res = await request(app).post("/api/ships/ship.interceptor/upgrade").set("Authorization", auth).send({ track: "hull" });
+      expect(res.status).toBe(200);
+      expect(res.body.level).toBe(expected);
+    }
 
-    const l2 = await request(app).post("/api/ships/ship.interceptor/upgrade").set("Authorization", auth).send({ track: "hull" });
-    expect(l2.body.level).toBe(2);
-    const l3 = await request(app).post("/api/ships/ship.interceptor/upgrade").set("Authorization", auth).send({ track: "hull" });
-    expect(l3.body.level).toBe(3);
-
-    // Fourth purchase → max-level rejection.
-    const l4 = await request(app).post("/api/ships/ship.interceptor/upgrade").set("Authorization", auth).send({ track: "hull" });
-    expect(l4.status).toBe(400);
-    expect(l4.body.error.code).toBe("max-level");
+    // Sixth purchase → max-level rejection.
+    const past = await request(app).post("/api/ships/ship.interceptor/upgrade").set("Authorization", auth).send({ track: "hull" });
+    expect(past.status).toBe(400);
+    expect(past.body.error.code).toBe("max-level");
 
     // GET /api/ships reflects the purchased level.
     const ships = await request(app).get("/api/ships").set("Authorization", auth);
     const interceptor = (ships.body.ships as Array<{ id: string; upgrades: { hull: number } }>).find((s) => s.id === "ship.interceptor")!;
-    expect(interceptor.upgrades.hull).toBe(3);
+    expect(interceptor.upgrades.hull).toBe(5);
   });
 
   it("rejects an upgrade with insufficient credits", async () => {
-    const { auth } = await newUser("poor@example.com");
-    // Advance to level 2 price (200) after a free level-1 buy; drain credits first.
+    const { auth, userId } = await newUser("poor@example.com");
+    // Free level-1 engine buy, then set the balance below the level-2 price (200).
     await request(app).post("/api/ships/ship.interceptor/upgrade").set("Authorization", auth).send({ track: "engine" });
-    // Now level-2 costs 200 but a fresh user has 250; spend it via a module buy (missile 150 + shield 150 unavailable) — buy boost (100) twice not allowed.
-    // Instead directly check: buy two modules to drop below 200.
-    await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.missile-mk1" }); // 150 → 100 left
+    profilesRepo.setProgress(userId, 1, 0, 150);
     const broke = await request(app).post("/api/ships/ship.interceptor/upgrade").set("Authorization", auth).send({ track: "engine" });
     expect(broke.status).toBe(409);
     expect(broke.body.error.code).toBe("insufficient-credits");

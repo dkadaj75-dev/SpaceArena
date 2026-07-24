@@ -10,6 +10,7 @@ import {
 } from "@babylonjs/core";
 import {
   createLogger,
+  hardpointsOf,
   type AsteroidConfig,
   type AsteroidSnapshot,
   type ConfigService,
@@ -22,6 +23,7 @@ import {
   type TuningConfig,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
+import { ShipSocketRig } from "./ShipSocketRig.js";
 
 const log = createLogger("ViewManager");
 
@@ -35,6 +37,8 @@ export type ShipConfigResolver = (id: EntityId) => string | undefined;
 
 interface ShipView {
   node: InstancedMesh;
+  /** Hardpoint module meshes + emitter particle systems (§9 4.6); null if the ship config had none. */
+  rig: ShipSocketRig | null;
 }
 
 interface AsteroidView {
@@ -225,10 +229,12 @@ export class ViewManager {
     // Remove views whose ship no longer exists.
     for (const [id, view] of this.ships) {
       if (!cur.ships.some((s) => s.id === id)) {
+        view.rig?.dispose();
         view.node.dispose();
         this.ships.delete(id);
       }
     }
+    const nowMs = performance.now();
     for (let i = 0; i < cur.ships.length; i++) {
       const s = cur.ships[i]!;
       let view = this.ships.get(s.id);
@@ -242,6 +248,9 @@ export class ViewManager {
       const z = p.pos.z + (s.pos.z - p.pos.z) * alpha;
       view.node.position.set(x, SHIP_Y, z);
       view.node.rotation.y = lerpAngle(p.heading, s.heading, alpha);
+
+      view.rig?.updateModules(s.modules);
+      view.rig?.updateEmitters(s, findShip(prev, s.id), nowMs);
     }
   }
 
@@ -257,7 +266,15 @@ export class ViewManager {
     node.isPickable = true;
     node.metadata = { entityId: s.id, kind: "ship", team: s.team };
     node.parent = this.root;
-    return { node };
+
+    // Fitted module ids in hardpoint order (sparse-safe: an unfitted hardpoint stays null).
+    const fittedModuleIds: (string | null)[] = new Array(hardpointsOf(ship).length).fill(null);
+    for (const m of s.modules) {
+      if (m.hardpointIndex < fittedModuleIds.length) fittedModuleIds[m.hardpointIndex] = m.moduleId;
+    }
+    const rig = new ShipSocketRig(this.scene, this.configs, this.assets, ship, node, fittedModuleIds);
+
+    return { node, rig };
   }
 
   private syncAsteroids(cur: Snapshot, frameDtMs: number): void {
@@ -346,7 +363,10 @@ export class ViewManager {
   }
 
   dispose(): void {
-    for (const v of this.ships.values()) v.node.dispose();
+    for (const v of this.ships.values()) {
+      v.rig?.dispose();
+      v.node.dispose();
+    }
     this.ships.clear();
     for (const v of this.asteroids.values()) v.instance.dispose();
     this.asteroids.clear();

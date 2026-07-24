@@ -3,6 +3,7 @@ import type { ArenaConfig, GamemodeConfig, TuningConfig } from "../schemas/index
 import type { EntityId, ModuleState } from "./components.js";
 import type { SimEvent } from "./events.js";
 import type { Order } from "./orders.js";
+import type { UpgradeLevels } from "./resolveStats.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { cleanupSystem } from "./systems/CleanupSystem.js";
@@ -109,13 +110,22 @@ export class ArenaSimulation {
     }
   }
 
-  /** Spawn a ship for `team` at the next free spawn point for that team. */
-  spawnPlayer(shipId: string, fitting: readonly (string | null)[], team: number): EntityId {
+  /**
+   * Spawn a ship for `team` at the next free spawn point for that team.
+   * `upgradeLevels` (optional, additive) are the player's DB upgrade purchase
+   * counts, applied by the stat resolver; omitted ⇒ base stats.
+   */
+  spawnPlayer(
+    shipId: string,
+    fitting: readonly (string | null)[],
+    team: number,
+    upgradeLevels?: UpgradeLevels,
+  ): EntityId {
     const spawns = this.world.arena.spawnPoints.filter((s) => s.team === team);
     const used = this.world.shipIds().length;
     const sp = spawns[used % Math.max(1, spawns.length)] ?? this.world.arena.spawnPoints[0]!;
     this.teamsEverPresent.add(team);
-    return spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, sp.position, sp.heading);
+    return spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, sp.position, sp.heading, upgradeLevels);
   }
 
   /** Spawn a ship at an explicit position (used by tests/practice placement). */
@@ -125,9 +135,10 @@ export class ArenaSimulation {
     team: number,
     pos: { x: number; z: number },
     heading = 0,
+    upgradeLevels?: UpgradeLevels,
   ): EntityId {
     this.teamsEverPresent.add(team);
-    return spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, pos, heading);
+    return spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, pos, heading, upgradeLevels);
   }
 
   applyOrder(entityId: EntityId, order: Order): void {

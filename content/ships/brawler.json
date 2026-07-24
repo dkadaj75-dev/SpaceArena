@@ -1,0 +1,70 @@
+{
+  "id": "ship.brawler",
+  "type": "ship",
+  "version": 1,
+  "name": "Brawler",
+  "class": "heavy",
+  "core": {
+    "hull": { "base": 160, "resists": { "kinetic": 0.25, "energy": 0.15 } },
+    "engine": { "nominalSpeed": 22, "accel": 12, "turnRate": 1.8 },
+    "energy": { "capacitor": 140, "regen": 12 },
+    "heat": { "capacity": 180, "dissipation": 12, "criticalDamagePerSec": 3 }
+  },
+  "upgradeTracks": {
+    "hull": "upgrade.hull-std",
+    "engine": "upgrade.engine-std",
+    "energy": "upgrade.energy-std",
+    "heat": "upgrade.heat-std"
+  },
+  "sockets": [
+    { "id": "hp-nose-l", "kind": "hardpoint", "transform": { "pos": [-0.9, 0.1, 1.6] }, "accepts": ["laser", "kinetic"] },
+    { "id": "hp-nose-r", "kind": "hardpoint", "transform": { "pos": [0.9, 0.1, 1.6] }, "accepts": ["laser", "kinetic"] },
+    { "id": "hp-spine", "kind": "hardpoint", "transform": { "pos": [0, 0.4, 0.2] }, "accepts": ["missile", "kinetic"] },
+    { "id": "hp-core", "kind": "hardpoint", "transform": { "pos": [0, 0.3, -0.3] }, "accepts": ["shield"] },
+    { "id": "hp-aft", "kind": "hardpoint", "transform": { "pos": [0, 0.1, -1.4] }, "accepts": ["boost", "utility"] },
+    {
+      "id": "eng-l",
+      "kind": "emitter",
+      "transform": { "pos": [-0.9, 0, -2.0] },
+      "effect": "fx.engine-trail",
+      "bindings": [
+        { "source": "throttle", "param": "emitRate", "curve": [[0, 0], [1, 90]] },
+        { "source": "boostActive", "param": "speedMax", "curve": [[0, 6], [1, 12]] }
+      ]
+    },
+    {
+      "id": "eng-r",
+      "kind": "emitter",
+      "transform": { "pos": [0.9, 0, -2.0] },
+      "effect": "fx.engine-trail",
+      "bindings": [
+        { "source": "throttle", "param": "emitRate", "curve": [[0, 0], [1, 90]] },
+        { "source": "boostActive", "param": "speedMax", "curve": [[0, 6], [1, 12]] }
+      ]
+    },
+    {
+      "id": "smoke-hull",
+      "kind": "emitter",
+      "transform": { "pos": [0, 0.3, 0.2] },
+      "effect": "fx.damage-smoke",
+      "bindings": [
+        { "source": "hullFraction", "param": "emitRate", "curve": [[1, 0], [0.5, 10], [0.2, 80]] }
+      ]
+    },
+    {
+      "id": "vent-core",
+      "kind": "emitter",
+      "transform": { "pos": [0, 0.5, -0.3] },
+      "effect": "fx.overheat-vent",
+      "bindings": [
+        { "source": "heatFraction", "param": "emitRate", "curve": [[0, 0], [0.8, 0], [1, 70]] }
+      ]
+    }
+  ],
+  "defaultFitting": ["module.kinetic-mk1", "module.laser-mk1", "module.missile-mk1", "module.shield-mk1", "module.boost-mk1"],
+  "render": {
+    "recipe": "procedural.brawler",
+    "palette": { "primary": "#b8542f", "accent": "#ffb257" }
+  },
+  "collider": { "shape": "circle", "radius": 2.1 }
+}

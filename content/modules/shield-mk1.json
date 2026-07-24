@@ -19,6 +19,6 @@
     "coversFamilies": ["kinetic", "energy"]
   },
   "ui": { "icon": "[ICON: shield]", "label": "Shield" },
-  "price": 150,
+  "price": 0,
   "requiresLevel": 1
 }

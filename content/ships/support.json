@@ -1,0 +1,60 @@
+{
+  "id": "ship.support",
+  "type": "ship",
+  "version": 1,
+  "name": "Support",
+  "class": "medium",
+  "core": {
+    "hull": { "base": 110, "resists": { "kinetic": 0.15, "energy": 0.2 } },
+    "engine": { "nominalSpeed": 28, "accel": 16, "turnRate": 2.4 },
+    "energy": { "capacitor": 170, "regen": 20 },
+    "heat": { "capacity": 130, "dissipation": 14, "criticalDamagePerSec": 3 }
+  },
+  "upgradeTracks": {
+    "hull": "upgrade.hull-std",
+    "engine": "upgrade.engine-std",
+    "energy": "upgrade.energy-std",
+    "heat": "upgrade.heat-std"
+  },
+  "sockets": [
+    { "id": "hp-nose", "kind": "hardpoint", "transform": { "pos": [0, 0.1, 1.6] }, "accepts": ["laser", "kinetic"] },
+    { "id": "hp-wing", "kind": "hardpoint", "transform": { "pos": [-1.0, 0, 0.1] }, "accepts": ["missile"] },
+    { "id": "hp-core", "kind": "hardpoint", "transform": { "pos": [0, 0.3, 0.2] }, "accepts": ["shield", "utility"] },
+    { "id": "hp-aux", "kind": "hardpoint", "transform": { "pos": [1.0, 0, 0.1] }, "accepts": ["utility", "boost"] },
+    {
+      "id": "eng-l",
+      "kind": "emitter",
+      "transform": { "pos": [-0.5, 0, -1.7] },
+      "effect": "fx.engine-trail",
+      "bindings": [
+        { "source": "throttle", "param": "emitRate", "curve": [[0, 0], [1, 100]] },
+        { "source": "boostActive", "param": "speedMax", "curve": [[0, 7], [1, 14]] }
+      ]
+    },
+    {
+      "id": "eng-r",
+      "kind": "emitter",
+      "transform": { "pos": [0.5, 0, -1.7] },
+      "effect": "fx.engine-trail",
+      "bindings": [
+        { "source": "throttle", "param": "emitRate", "curve": [[0, 0], [1, 100]] },
+        { "source": "boostActive", "param": "speedMax", "curve": [[0, 7], [1, 14]] }
+      ]
+    },
+    {
+      "id": "smoke-hull",
+      "kind": "emitter",
+      "transform": { "pos": [0.2, 0.15, 0.3] },
+      "effect": "fx.damage-smoke",
+      "bindings": [
+        { "source": "hullFraction", "param": "emitRate", "curve": [[1, 0], [0.5, 5], [0.2, 55]] }
+      ]
+    }
+  ],
+  "defaultFitting": ["module.laser-mk1", "module.missile-mk1", "module.shield-mk1", "module.boost-mk1"],
+  "render": {
+    "recipe": "procedural.support",
+    "palette": { "primary": "#2fb87a", "accent": "#7affd0" }
+  },
+  "collider": { "shape": "circle", "radius": 1.7 }
+}

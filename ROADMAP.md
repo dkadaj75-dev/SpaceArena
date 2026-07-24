@@ -426,7 +426,25 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
 - [ ] **4.3 Three ship classes** — `interceptor` (fast, 4 hardpoints, small capacitor), `brawler` (slow, tanky, 5 hardpoints, big heat capacity), `support` (medium, utility-leaning hardpoints) — **authored entirely as JSON via editors**; distinct top-down silhouettes + palettes. *(Sonnet)*
 - [ ] **4.4 Module catalog (~12)** — 2 lasers, 2 kinetics, 2 missiles, 2 shields, 2 boosts, 2 utility (e.g. capacitor battery = passive energy mod, heat sink = passive heat mod) with levels, prices, gates. Every one exercises only the generic module schema. *(Sonnet)*
 - [ ] **4.5 Hangar / Fitting screen** — 3D top-down ship preview (`AssetContainer` isolated scene), hardpoint slot grid, module inventory filtered by `accepts`/owned/level, drag-to-fit (tap-to-fit on mobile), **live budget panel**: idle-draw vs regen bar, projected heat under sustained fire, DPS/EHP diffs (green/red via the 4.1 resolver), viability warnings; buy modules/upgrades with credits; save named fittings. Responsive: side panel desktop / bottom sheet mobile. *(Sonnet UI + Opus resolver integration)*
-- [ ] **4.6 Ship & Fitting Editor (dev)** — SchemaFormGen panels for ship core/hardpoints/upgrade tracks + procedural recipe params (hull shape, wings, palette) with live top-down preview; module workbench with **sustained-combat simulator** (plots energy & heat over a 60 s simulated engagement for a given fit) and **TTK matrix** across ships × fits to spot balance outliers; edits hot-reload into a running practice match. *(Codex)*
+- [ ] **4.6 Ship Manager — 3D socket editor (dev) ⭐** — ships are **socket graphs, not fixed layouts**. A ship config carries a `sockets[]` array; each socket has a 3D transform (position/rotation/scale relative to the hull), a `kind`, and kind-specific props — **nothing about socket count or placement is hardcoded**:
+  ```jsonc
+  "sockets": [
+    { "id": "hp-nose", "kind": "hardpoint", "transform": { "pos": [0, 0.1, 1.8] },
+      "accepts": ["laser", "kinetic"] },                        // module 3D model attaches here
+    { "id": "eng-l", "kind": "emitter", "transform": { "pos": [-0.6, 0, -1.9] },
+      "effect": "fx.engine-trail",                              // effect = its own config type
+      "bindings": [ { "source": "throttle",     "param": "emitRate",  "curve": [[0,0],[1,80]] },
+                    { "source": "boostActive",  "param": "power",     "curve": [[0,1],[1,2.2]] } ] },
+    { "id": "smoke-hull", "kind": "emitter", "transform": { "pos": [0.3, 0.15, 0.4] },
+      "effect": "fx.damage-smoke",
+      "bindings": [ { "source": "hullFraction", "param": "emitRate", "curve": [[1,0],[0.5,0],[0.2,60]] } ] }
+  ]
+  ```
+  - **Hardpoint sockets** replace the flat `hardpoints[]` list (sim consumes the derived ordered list; renderer attaches module models at socket transforms).
+  - **Emitter sockets** drive particle effects from a **runtime signal registry** (throttle, boostActive, hullFraction, heatFraction, shieldActive, moduleFiring, …) through per-binding response curves — engine trails, damage smoke, overheat venting are pure data. New signals are one registry entry; new effect configs (`content/effects/*.json`) are pure content.
+  - Socket kinds are an extensible enum (hardpoint | emitter today; lights, shield anchors, tow points later) — the renderer dispatches per kind, unknown-kind configs fail validation loudly.
+  - **Ship Manager editor panel**: pick ship → orbitable 3D preview → add/remove/duplicate sockets of any kind, drag them in 3D with gizmos, edit all props via SchemaFormGen, **signal simulator sliders** (throttle/damage/heat) to preview emitter behavior live, save to config. *(Opus)*
+- [ ] **4.6b Balance workbench** — module workbench with **sustained-combat simulator** (energy & heat over a 60 s engagement for a given fit) and **TTK matrix** across ships × fits; edits hot-reload into a running practice match. *(Opus)*
 - [ ] **4.7 Content pack round-trip v1** — PackIO export (selected configs + dependency graph) / import (schema version + id-collision checks, rename-on-conflict). *(Opus)*
 
 **Key APIs:** `AssetContainer`, mesh merging/CSG (procedural hulls), `PBRMaterial`, glTF `SceneLoader.ImportMeshAsync` stub for future art (`[MODEL: x]` placeholders until then).

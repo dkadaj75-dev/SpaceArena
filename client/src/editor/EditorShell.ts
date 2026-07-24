@@ -7,6 +7,8 @@ import { TuningPanel } from "./TuningPanel.js";
 import { AssetEditor } from "./AssetEditor.js";
 import { ActionEditor } from "./ActionEditor.js";
 import { NotificationEditor } from "./NotificationEditor.js";
+import { ShipManager } from "./ShipManager.js";
+import { BalanceWorkbench } from "./BalanceWorkbench.js";
 
 export interface EditorHost {
   scene: Scene;
@@ -32,6 +34,8 @@ export class EditorShell {
     this.registerPanel("Map", (h, report) => new MapEditor(h, report));
     this.registerPanel("Inspector", (host, report) => arenaInspector(host, report));
     this.registerPanel("Tuning", (h, report) => new TuningPanel(h, report));
+    this.registerPanel("Ships", (h, report) => new ShipManager(h, report));
+    this.registerPanel("Balance", (h, report) => new BalanceWorkbench(h, report));
     this.registerPanel("Assets", (h, report) => new AssetEditor(h, report));
     this.registerPanel("Actions", (h, report) => new ActionEditor(h, report));
     this.registerPanel("Notifications", (h, report) => new NotificationEditor(h, report));

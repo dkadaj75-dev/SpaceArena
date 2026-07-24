@@ -22,6 +22,8 @@ export class TacticalCamera {
   private readonly scratchForward = new Vector3();
   private previousTargetPos: Vector3 | null = null;
   private editorMode = false;
+  private hangarMode = false;
+  private pointersInput: { buttons: number[] } | undefined;
 
   constructor(
     private readonly scene: Scene,
@@ -48,10 +50,10 @@ export class TacticalCamera {
     // Attach orbit/zoom control, then restrict orbit dragging to the right mouse
     // button only — left click/tap stays 100% free for gameplay (tap-to-move etc).
     this.camera.attachControl(canvas, true);
-    const pointersInput = this.camera.inputs.attached.pointers as unknown as
+    this.pointersInput = this.camera.inputs.attached.pointers as unknown as
       | { buttons: number[] }
       | undefined;
-    if (pointersInput) pointersInput.buttons = [2];
+    if (this.pointersInput) this.pointersInput.buttons = [2];
 
     this.camera.wheelDeltaPercentage = 0.01;
     this.camera.pinchDeltaPercentage = 0.01;
@@ -70,7 +72,7 @@ export class TacticalCamera {
   }
 
   private applyLimits(config: CameraConfig | undefined): void {
-    if (this.editorMode) return;
+    if (this.editorMode || this.hangarMode) return;
     this.camera.lowerBetaLimit = config?.beta.min ?? 0.6;
     this.camera.upperBetaLimit = config?.beta.max ?? 1.15;
     this.camera.lowerRadiusLimit = config?.radius.min ?? 25;
@@ -97,6 +99,37 @@ export class TacticalCamera {
       return;
     }
     this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
+  }
+
+  /**
+   * Hangar preview mode (ROADMAP §9 4.5): a tight free-orbit around a staged
+   * ship at the origin, reusing this rig instead of a second scene/camera.
+   * Enabling drops any follow target and widens orbit control to left-drag
+   * (no tap-to-move to conflict with in the Hangar); disabling restores the
+   * normal tactical limits and right-drag-only orbit. Does not itself re-attach
+   * a follow target — callers call {@link follow} again when returning to a match.
+   */
+  setHangarMode(enabled: boolean): void {
+    this.hangarMode = enabled;
+    if (enabled) {
+      this.followTarget = null;
+      this.camera.lowerBetaLimit = 0.25;
+      this.camera.upperBetaLimit = Math.PI / 2 - 0.05;
+      this.camera.lowerRadiusLimit = 4;
+      this.camera.upperRadiusLimit = 24;
+      if (this.pointersInput) this.pointersInput.buttons = [0, 2];
+      return;
+    }
+    if (this.pointersInput) this.pointersInput.buttons = [2];
+    this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
+  }
+
+  /** Snap the camera to look at `target` at the given radius/beta — used to stage the Hangar preview. */
+  stageAt(target: Vector3, radius: number, alpha: number, beta: number): void {
+    this.camera.target.copyFrom(target);
+    this.camera.radius = radius;
+    this.camera.alpha = alpha;
+    this.camera.beta = beta;
   }
 
   /** Call once per render frame. `dt` in seconds. No allocations. */

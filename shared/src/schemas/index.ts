@@ -5,21 +5,24 @@ import { arenaSchema, type ArenaConfig } from "./arena.js";
 import { asteroidSchema, type AsteroidConfig } from "./asteroid.js";
 import { botprofileSchema, type BotprofileConfig } from "./botprofile.js";
 import { cameraSchema, type CameraConfig } from "./camera.js";
+import { effectSchema, type EffectConfig } from "./effect.js";
 import { eventSchema, type EventConfig } from "./event.js";
 import { gamemodeSchema, type GamemodeConfig } from "./gamemode.js";
 import { type ManifestConfig } from "./manifest.js";
 import { moduleSchema, type ModuleConfig } from "./module.js";
 import { notificationSchema, type NotificationConfig } from "./notification.js";
 import { progressionSchema, type ProgressionConfig } from "./progression.js";
-import { shipSchema, type ShipConfig } from "./ship.js";
+import { hardpointsOf, shipSchema, type ShipConfig } from "./ship.js";
 import { themeSchema, type ThemeConfig } from "./theme.js";
 import { tuningSchema, type TuningConfig } from "./tuning.js";
 import { upgradeSchema, type UpgradeConfig } from "./upgrade.js";
 
 export * from "./base.js";
 export * from "./common.js";
+export * from "./socket.js";
 export * from "./ship.js";
 export * from "./module.js";
+export * from "./effect.js";
 export * from "./upgrade.js";
 export * from "./arena.js";
 export * from "./asteroid.js";
@@ -42,6 +45,7 @@ export * from "./manifest.js";
 export const CONFIG_SCHEMAS = {
   ship: shipSchema,
   module: moduleSchema,
+  effect: effectSchema,
   upgrade: upgradeSchema,
   arena: arenaSchema,
   asteroid: asteroidSchema,
@@ -62,6 +66,7 @@ export type ConfigType = keyof typeof CONFIG_SCHEMAS;
 export type AnyConfig =
   | ShipConfig
   | ModuleConfig
+  | EffectConfig
   | UpgradeConfig
   | ArenaConfig
   | AsteroidConfig
@@ -120,6 +125,52 @@ export interface ConfigRef {
   id: string;
 }
 
+/** A relational (cross-config) problem: a violated constraint needing other configs to detect. */
+export interface RelationalError {
+  path: string;
+  message: string;
+}
+
+/**
+ * Validate constraints that span multiple configs and therefore can only be
+ * checked once the whole pack is staged (mirrors dangling-ref resolution).
+ * `resolve` looks a config up by type+id in the staged/registry set.
+ *
+ * Ship rule (Finding 6): a ship's `defaultFitting` must fit its socket graph —
+ * no more entries than hardpoints, and each entry's module family must be
+ * accepted by the hardpoint at that index. Dangling module ids are reported by
+ * reference resolution, not here.
+ */
+export function collectRelationalErrors(
+  config: AnyConfig,
+  resolve: (type: ConfigType, id: string) => AnyConfig | undefined,
+): RelationalError[] {
+  const errs: RelationalError[] = [];
+  if (config.type === "ship") {
+    const hardpoints = hardpointsOf(config);
+    if (config.defaultFitting.length > hardpoints.length) {
+      errs.push({
+        path: "defaultFitting",
+        message: `defaultFitting has ${config.defaultFitting.length} entries but the ship has only ${hardpoints.length} hardpoint socket(s)`,
+      });
+    }
+    config.defaultFitting.forEach((moduleId, i) => {
+      if (!moduleId) return; // empty slot is allowed
+      const hp = hardpoints[i];
+      if (!hp) return; // out-of-range already reported above
+      const mod = resolve("module", moduleId) as ModuleConfig | undefined;
+      if (!mod) return; // dangling id handled by collectReferences
+      if (!hp.accepts.includes(mod.family)) {
+        errs.push({
+          path: `defaultFitting[${i}]`,
+          message: `module ${moduleId} (family '${mod.family}') is not accepted by hardpoint ${i} (${hp.id} accepts ${hp.accepts.join(", ")})`,
+        });
+      }
+    });
+  }
+  return errs;
+}
+
 /**
  * Extract every by-id cross-reference from a validated config. Reference
  * *resolution* (existence checking, graph building) happens in ConfigService;
@@ -137,6 +188,10 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
       config.defaultFitting.forEach((id, i) =>
         refs.push({ path: `defaultFitting[${i}]`, id }),
       );
+      // Emitter sockets reference an effect (`fx.*`) config by id.
+      config.sockets.forEach((s, i) => {
+        if (s.kind === "emitter") refs.push({ path: `sockets[${i}].effect`, id: s.effect });
+      });
       break;
     }
     case "module": {

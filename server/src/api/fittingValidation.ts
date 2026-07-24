@@ -1,4 +1,4 @@
-import type { ConfigService, HardpointMap, ModuleConfig, ShipConfig } from "@space-arena/shared";
+import { hardpointsOf, type ConfigService, type HardpointMap, type ModuleConfig, type ShipConfig } from "@space-arena/shared";
 
 export type FittingValidation =
   | { ok: true; moduleIds: string[] }
@@ -21,17 +21,18 @@ export function validateFitting(
 ): FittingValidation {
   const ship = configs.get<ShipConfig>("ship", shipId);
   if (!ship) return { ok: false, code: "unknown-ship", message: `unknown ship: ${shipId}` };
+  const hardpoints = hardpointsOf(ship);
 
   const moduleIds: string[] = [];
   for (const [key, moduleId] of Object.entries(hardpointMap)) {
     const idx = Number(key);
-    if (!Number.isInteger(idx) || idx < 0 || idx >= ship.hardpoints.length) {
+    if (!Number.isInteger(idx) || idx < 0 || idx >= hardpoints.length) {
       return { ok: false, code: "bad-hardpoint", message: `hardpoint index ${key} out of range for ${shipId}` };
     }
     const mod = configs.get<ModuleConfig>("module", moduleId);
     if (!mod) return { ok: false, code: "unknown-module", message: `unknown module: ${moduleId}` };
 
-    const hardpoint = ship.hardpoints[idx]!;
+    const hardpoint = hardpoints[idx]!;
     if (!hardpoint.accepts.includes(mod.family)) {
       return {
         ok: false,
@@ -61,7 +62,7 @@ export function validateFitting(
  * spawns the shield answering hardpoint index 2 (not a compacted index 1).
  */
 export function hardpointMapToFitting(ship: ShipConfig, hardpointMap: HardpointMap): (string | null)[] {
-  const out: (string | null)[] = new Array(ship.hardpoints.length).fill(null);
+  const out: (string | null)[] = new Array(hardpointsOf(ship).length).fill(null);
   for (const [key, moduleId] of Object.entries(hardpointMap)) {
     const idx = Number(key);
     if (Number.isInteger(idx) && idx >= 0 && idx < out.length) out[idx] = moduleId;

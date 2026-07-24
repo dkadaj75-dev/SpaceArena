@@ -20,6 +20,7 @@ import { OrderMarkers } from "./game/OrderMarkers.js";
 import { Hud } from "./game/hud/Hud.js";
 import { Lobby, type LobbyChoice } from "./game/screens/Lobby.js";
 import { AuthScreen } from "./game/screens/AuthScreen.js";
+import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { NetGameSession } from "./net/NetGameSession.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 
@@ -170,8 +171,17 @@ async function bootstrap(): Promise<void> {
       if (tab === "register") authScreen.showRegisterTab();
       else authScreen.showLoginTab();
     },
+    () => {
+      lobby.hide();
+      hangar.show();
+    },
   );
   lobby.hide();
+
+  const hangar = new Hangar(document.body, scene, configService, authService, tacticalCamera, () => {
+    hangar.hide();
+    lobby.show();
+  });
 
   const authScreen = new AuthScreen(
     document.body,
@@ -195,6 +205,15 @@ async function bootstrap(): Promise<void> {
     authScreen.show();
   }
 
+  /** The Hangar's last-saved ship/fitting choice (ROADMAP §9 4.5), as additive NetGameSession join options. */
+  function hangarJoinOptions(): { shipId?: string; fittingId?: string } {
+    const sel = loadHangarSelection();
+    const opts: { shipId?: string; fittingId?: string } = {};
+    if (sel.shipId) opts.shipId = sel.shipId;
+    if (sel.fittingId) opts.fittingId = sel.fittingId;
+    return opts;
+  }
+
   async function startMatch(choice: LobbyChoice): Promise<void> {
     try {
       const session =
@@ -202,6 +221,7 @@ async function bootstrap(): Promise<void> {
           ? new GameSession(configService, "arena.ring-nebula", "gamemode.practice")
           : await NetGameSession.join(configService, {
               gamemode: choice.gamemode,
+              ...hangarJoinOptions(),
               ...choice.options,
               token: authService.getAccessToken() ?? undefined,
             });
@@ -315,6 +335,7 @@ async function bootstrap(): Promise<void> {
 
   window.addEventListener("beforeunload", () => {
     runtime?.dispose();
+    hangar.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();
   });

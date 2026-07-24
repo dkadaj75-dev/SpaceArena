@@ -186,7 +186,12 @@ export class NetGameSession extends GameSession {
     } else if (order.kind === "target") {
       this.events.push({ type: "targetSet", entityId: this.playerId, targetId: order.targetId });
     } else if (order.kind === "moduleToggle") {
-      const mod = this.current.ships.find((s) => s.id === this.playerId)?.modules[order.hardpointIndex];
+      // Keyed by hardpointIndex, not array position — the modules array is
+      // sparse-safe (spawn.ts) so a fitting like {0: laser, 2: shield} never
+      // has an entry at array index 2.
+      const mod = this.current.ships
+        .find((s) => s.id === this.playerId)
+        ?.modules.find((m) => m.hardpointIndex === order.hardpointIndex);
       if (mod) {
         const retracting = mod.state === "active" || mod.state === "deploying";
         this.pendingToggles.set(order.hardpointIndex, {
@@ -289,7 +294,7 @@ export class NetGameSession extends GameSession {
           turnRate: cfg.core.engine.turnRate,
           arrivalRadius: tuning?.arrivalRadius ?? 10,
           arrivalStop: 1.5,
-          speedMult: this.predBoost ? boostMult(this.netConfigs, cfg) : 1,
+          speedMult: this.predBoost ? boostMult(this.netConfigs, player.modules.map((m) => m.moduleId)) : 1,
         },
         dt,
       );
@@ -327,7 +332,9 @@ export class NetGameSession extends GameSession {
     const player = this.current.ships.find((s) => s.id === this.playerId);
     if (!player) return;
     for (const [idx, pending] of this.pendingToggles) {
-      const mod = player.modules[idx];
+      // Keyed by hardpointIndex, not array position — see the moduleToggle
+      // order handler above for why positional indexing is unsafe here.
+      const mod = player.modules.find((m) => m.hardpointIndex === idx);
       if (!mod || mod.state !== pending.fromState || now - pending.sentAt > PENDING_TOGGLE_MS) {
         this.pendingToggles.delete(idx);
         continue;
@@ -343,26 +350,20 @@ export class NetGameSession extends GameSession {
       this.shipIds.set(id, shipId);
       if (this.playerId !== id && this.net.room?.sessionId && findKey(state.players, p) === this.net.room.sessionId)
         (this as { playerId: number }).playerId = id;
-      const cfg = this.netConfigs.get<ShipConfig>("ship", shipId);
       return {
         id,
         team: p.team,
         pos: { x: decodeCenti(p.x), z: decodeCenti(p.z) },
         heading: decodeHeading(p.heading),
         hull: p.hull,
-        hullMax: cfg?.core.hull.base ?? p.hull,
-        energy: { cur: p.energyCur, max: cfg?.core.energy.capacitor ?? p.energyCur },
-        heat: { cur: p.heatCur, capacity: cfg?.core.heat.capacity ?? p.heatCur },
+        // Server-resolved maxima (upgrade + passive-resolved), replicated verbatim —
+        // never reconstructed from the base ship config, which would ignore
+        // upgrade tracks and utility-module passives (capacitor battery, heat sink).
+        hullMax: p.hullMax,
+        energy: { cur: p.energyCur, max: p.energyMax },
+        heat: { cur: p.heatCur, capacity: p.heatCapacity },
         targetId: null,
-        modules: mapValues(p.modules).map((m: any, i: number) => ({
-          hardpointIndex: i,
-          moduleId: cfg?.defaultFitting[i] ?? "",
-          state: decodeModuleState(m.state),
-          heat: m.heat,
-          stateTimer: m.stateTimer,
-          cycleTimer: 0,
-          shieldPool: m.shieldPool ?? 0,
-        })),
+        modules: decodeModules(p.modules),
       };
     });
     const asteroids = this.arena.asteroidPlacements.map((p, i) => ({
@@ -390,12 +391,44 @@ export class NetGameSession extends GameSession {
   }
 }
 
-function boostMult(configs: ConfigService, ship: ShipConfig): number {
-  for (const modId of ship.defaultFitting) {
+/**
+ * Boost speed multiplier for the CURRENTLY FITTED modules — the ship's
+ * `defaultFitting` is only what a fresh spawn starts with; a saved fitting
+ * (Hangar, task 4.5) can swap the boost module or drop it entirely, so this
+ * must read the actual replicated module ids, not the ship config's default.
+ */
+export function boostMult(configs: ConfigService, fittedModuleIds: readonly string[]): number {
+  for (const modId of fittedModuleIds) {
     const mod = configs.get<import("@space-arena/shared").ModuleConfig>("module", modId);
     if (mod?.boost) return mod.boost.speedMult;
   }
   return 1;
+}
+
+/**
+ * Decode a replicated `PlayerState.modules` ArraySchema into `ModuleSnapshot[]`,
+ * reading `hardpointIndex`/`moduleId`/`cycleTimer`/`shieldPool` verbatim from
+ * the wire state — never synthesized from array position or the ship config's
+ * `defaultFitting`. The modules array is sparse-safe (see `spawn.ts`): a
+ * fitting like `{0: laser, 2: shield}` replicates two entries whose own
+ * `hardpointIndex` fields are 0 and 2, NOT array positions 0 and 1, so every
+ * consumer (ShipSocketRig, ModuleButtons, pending-toggle overlay) must look
+ * modules up by `hardpointIndex`, never by index into this array.
+ *
+ * Exported standalone (pure over its `raw` input) so the sparse-fitting
+ * decode contract has a direct regression test independent of a live
+ * Colyseus room.
+ */
+export function decodeModules(raw: any): Snapshot["ships"][number]["modules"] {
+  return mapValues(raw).map((m: any) => ({
+    hardpointIndex: m.hardpointIndex,
+    moduleId: m.moduleId,
+    state: decodeModuleState(m.state),
+    heat: m.heat,
+    stateTimer: m.stateTimer,
+    cycleTimer: m.cycleTimer,
+    shieldPool: m.shieldPool ?? 0,
+  }));
 }
 
 function mapValues(value: any): any[] { return value?.values ? [...value.values()] : Object.values(value ?? {}); }

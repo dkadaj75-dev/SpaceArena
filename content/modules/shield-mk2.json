@@ -1,0 +1,24 @@
+{
+  "id": "module.shield-mk2",
+  "type": "module",
+  "version": 1,
+  "family": "shield",
+  "level": 2,
+  "name": "Deflector Shield Mk II",
+  "activation": { "deployTime": 1.0, "retractTime": 0.8 },
+  "energy": { "drawIdle": 11, "drawActive": 20 },
+  "heat": {
+    "perSecondActive": 4,
+    "overheatThreshold": 65,
+    "overheatCooldown": 5.0,
+    "overheatSelfDamage": 0
+  },
+  "mitigation": {
+    "damageReduction": 0.6,
+    "absorbPerSecond": 20,
+    "coversFamilies": ["kinetic", "energy"]
+  },
+  "ui": { "icon": "[ICON: shield]", "label": "Shield II" },
+  "price": 500,
+  "requiresLevel": 3
+}

@@ -1,7 +1,7 @@
 {
   "id": "ship.interceptor",
   "type": "ship",
-  "version": 2,
+  "version": 3,
   "name": "Interceptor",
   "class": "light",
   "core": {
@@ -16,11 +16,40 @@
     "energy": "upgrade.energy-std",
     "heat": "upgrade.heat-std"
   },
-  "hardpoints": [
-    { "id": "hp1", "accepts": ["laser", "kinetic"] },
-    { "id": "hp2", "accepts": ["missile", "kinetic"] },
-    { "id": "hp3", "accepts": ["shield"] },
-    { "id": "hp4", "accepts": ["boost", "utility"] }
+  "sockets": [
+    { "id": "hp-nose", "kind": "hardpoint", "transform": { "pos": [0, 0.1, 1.8] }, "accepts": ["laser", "kinetic"] },
+    { "id": "hp-wing-l", "kind": "hardpoint", "transform": { "pos": [-1.1, 0, -0.2] }, "accepts": ["missile", "kinetic"] },
+    { "id": "hp-core", "kind": "hardpoint", "transform": { "pos": [0, 0.28, 0.3] }, "accepts": ["shield"] },
+    { "id": "hp-wing-r", "kind": "hardpoint", "transform": { "pos": [1.1, 0, -0.2] }, "accepts": ["boost", "utility"] },
+    {
+      "id": "eng-l",
+      "kind": "emitter",
+      "transform": { "pos": [-0.4, 0, -1.9] },
+      "effect": "fx.engine-trail",
+      "bindings": [
+        { "source": "throttle", "param": "emitRate", "curve": [[0, 0], [1, 120]] },
+        { "source": "boostActive", "param": "speedMax", "curve": [[0, 8], [1, 16]] }
+      ]
+    },
+    {
+      "id": "eng-r",
+      "kind": "emitter",
+      "transform": { "pos": [0.4, 0, -1.9] },
+      "effect": "fx.engine-trail",
+      "bindings": [
+        { "source": "throttle", "param": "emitRate", "curve": [[0, 0], [1, 120]] },
+        { "source": "boostActive", "param": "speedMax", "curve": [[0, 8], [1, 16]] }
+      ]
+    },
+    {
+      "id": "smoke-hull",
+      "kind": "emitter",
+      "transform": { "pos": [0.3, 0.15, 0.4] },
+      "effect": "fx.damage-smoke",
+      "bindings": [
+        { "source": "hullFraction", "param": "emitRate", "curve": [[1, 0], [0.5, 0], [0.2, 60]] }
+      ]
+    }
   ],
   "defaultFitting": ["module.laser-mk1", "module.missile-mk1", "module.shield-mk1", "module.boost-mk1"],
   "render": {

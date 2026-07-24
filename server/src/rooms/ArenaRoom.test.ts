@@ -6,7 +6,7 @@ import { setGlobalLogLevel, type ConfigService, type ShipConfig } from "@space-a
 import { loadContent, setConfigService } from "../configService.js";
 import { openDatabase, setDb } from "../db/index.js";
 import { seedNewUser } from "../db/seed.js";
-import { fittingsRepo, ownedModulesRepo, profilesRepo, usersRepo } from "../db/repos.js";
+import { fittingsRepo, ownedModulesRepo, profilesRepo, shipUpgradesRepo, usersRepo } from "../db/repos.js";
 import { signAccessToken } from "../auth/tokens.js";
 import { ArenaRoom } from "./ArenaRoom.js";
 import type { ArenaState } from "./state/ArenaState.js";
@@ -277,6 +277,46 @@ describe("ArenaRoom", () => {
     await advance(room, 2);
     const shieldAfter = [...ps.modules].find((m) => m.hardpointIndex === 2)!;
     expect(shieldAfter.state).toBeGreaterThan(0);
+
+    await c.leave();
+  });
+
+  it("rejects a join whose fitting references an unowned module (Finding 1)", async () => {
+    usersRepo.create({ id: "u-cheat", email: null, pass_hash: null, guest_token: "gt-cheat" });
+    seedNewUser(configs, "u-cheat", "Cheater");
+    // Craft an illegal fitting directly in the repo: shield-mk2 is a priced module
+    // the fresh user does not own (family-legal for hardpoint 2).
+    const fit = fittingsRepo.create({
+      id: "fit-cheat",
+      user_id: "u-cheat",
+      ship_id: "ship.interceptor",
+      name: "Cheat",
+      hardpointMap: { "0": "module.laser-mk1", "2": "module.shield-mk2" },
+    });
+    const token = signAccessToken("u-cheat");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    // resolveFitting validates the loadout in onJoin → join rejected.
+    await expect(colyseus.connectTo(room, { token, fittingId: fit.id })).rejects.toBeDefined();
+  });
+
+  it("reflects a player's ship upgrades in the replicated maxima (Finding 3)", async () => {
+    usersRepo.create({ id: "u-upg", email: null, pass_hash: null, guest_token: "gt-upg" });
+    seedNewUser(configs, "u-upg", "Upgraded");
+    // Buy the full hull track (5 purchases) → resolved hullMax = 80 + 90 = 170.
+    shipUpgradesRepo.setTrackLevel("u-upg", "ship.interceptor", "hull", 5);
+    const token = signAccessToken("u-upg");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c = await colyseus.connectTo(room, { token, shipId: "ship.interceptor" });
+    await advance(room, 1);
+
+    const ps = room.state.players.get(c.sessionId)!;
+    expect(ps.hullMax).toBeCloseTo(170, 3);
+    expect(ps.hull).toBeCloseTo(170, 3); // spawns at full resolved hull
+    // Base energy/heat maxima also present.
+    expect(ps.energyMax).toBeCloseTo(120, 3);
+    expect(ps.heatCapacity).toBeCloseTo(100, 3);
 
     await c.leave();
   });

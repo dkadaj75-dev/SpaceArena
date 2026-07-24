@@ -4,6 +4,7 @@ import type { AnyConfig, ConfigType } from "@space-arena/shared";
 const CONTENT_FOLDERS: Record<ConfigType, string> = {
   ship: "ships",
   module: "modules",
+  effect: "effects",
   upgrade: "upgrades",
   arena: "arenas",
   asteroid: "asteroids",

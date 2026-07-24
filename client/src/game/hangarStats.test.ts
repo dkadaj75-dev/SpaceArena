@@ -1,0 +1,91 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { beforeAll, describe, expect, it } from "vitest";
+import { ConfigService, type ShipConfig } from "@space-arena/shared";
+import { computeStatPanel } from "./hangarStats.js";
+
+// Mirrors shared/src/sim/testutil.ts's fsLoader (that file lives inside the
+// `shared` package and isn't part of its public `@space-arena/shared` export
+// surface, so client tests load the real content pack the same way rather
+// than reaching across package boundaries). Locates `content/` by walking up
+// from `process.cwd()` instead of resolving against `import.meta.url`:
+// vitest's `happy-dom` environment (this project's test env) rewrites
+// `new URL(relative, import.meta.url)` through Vite's dev-server `/@fs/`
+// asset-URL shim, so it never resolves back to a real `file:` URL there
+// (the same pattern works fine in `shared`'s plain-"node" test environment).
+function findContentDir(start: string): string {
+  let dir = start;
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(path.join(dir, "content", "manifest.json"))) return path.join(dir, "content");
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`content/manifest.json not found by walking up from ${start}`);
+}
+const CONTENT_DIR = findContentDir(process.cwd());
+async function fsLoader(relPath: string): Promise<unknown> {
+  return JSON.parse(await readFile(path.join(CONTENT_DIR, relPath), "utf8"));
+}
+
+let configs: ConfigService;
+let interceptor: ShipConfig;
+
+beforeAll(async () => {
+  configs = new ConfigService(fsLoader);
+  const result = await configs.load("manifest.json");
+  if (!result.ok) throw new Error("test content failed to load: " + JSON.stringify(result.errors));
+  interceptor = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+});
+
+describe("computeStatPanel (Hangar stat panel)", () => {
+  it("resolves base stats with an empty fit (no idle draw, no dps)", () => {
+    const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: [] });
+    expect(panel.hullMax).toBe(80);
+    expect(panel.capacitorMax).toBe(120);
+    expect(panel.idleDrawTotal).toBe(0);
+    expect(panel.energyBudget).toBe(panel.capacitorRegen);
+    expect(panel.dps).toBe(0);
+  });
+
+  it("sums idle draw and dps across the default fitting", () => {
+    const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
+    // laser-mk1 drawIdle 3, missile-mk1 drawIdle 2, shield-mk1 drawIdle 8, boost-mk1 drawIdle 1.
+    expect(panel.idleDrawTotal).toBe(3 + 2 + 8 + 1);
+    expect(panel.energyBudget).toBe(panel.capacitorRegen - panel.idleDrawTotal);
+    // laser 7/0.4 + missile 22/2.5 = 17.5 + 8.8 = 26.3 (shield/boost have no fire block).
+    expect(panel.dps).toBeCloseTo(7 / 0.4 + 22 / 2.5, 6);
+  });
+
+  it("flags a negative energy budget when idle draw exceeds regen", () => {
+    // Fit every hardpoint with the shield (heaviest idle draw) to force a deficit.
+    const heavy = interceptor.defaultFitting.map(() => "module.shield-mk1");
+    const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: heavy });
+    expect(panel.idleDrawTotal).toBe(8 * 4);
+    expect(panel.energyBudget).toBeLessThan(0);
+  });
+
+  it("reflects fitted module passives (capacitor battery raises capacitor + regen)", () => {
+    const withBattery = computeStatPanel(interceptor, configs, {
+      fittedModuleIds: ["module.utility-capacitor-battery"],
+    });
+    const empty = computeStatPanel(interceptor, configs, { fittedModuleIds: [] });
+    expect(withBattery.capacitorMax).toBe(empty.capacitorMax + 40);
+    expect(withBattery.capacitorRegen).toBe(empty.capacitorRegen + 4);
+  });
+
+  it("applies upgrade levels through the same resolveShipStats pipeline", () => {
+    const upgraded = computeStatPanel(interceptor, configs, {
+      fittedModuleIds: [],
+      upgradeLevels: { hull: 5, engine: 0, energy: 0, heat: 0 },
+    });
+    expect(upgraded.hullMax).toBe(170); // 80 + upgrade.hull-std levels[4] add 90
+  });
+
+  it("is deterministic for identical inputs", () => {
+    const a = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
+    const b = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
+    expect(a).toEqual(b);
+  });
+});

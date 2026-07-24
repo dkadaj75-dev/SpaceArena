@@ -109,6 +109,209 @@ function buildArrowhead(scene: Scene, palette: Palette): Mesh {
 }
 
 /**
+ * `procedural.brawler` — chunky twin-hull ship recipe (ROADMAP 4 task 1). Two
+ * short, wide tapered hulls side by side joined by a wide spine/nose plate and
+ * a single broad rear engine block: reads wide and tanky from directly above,
+ * distinct from the arrowhead's single tapered fuselage.
+ */
+function buildBrawler(scene: Scene, palette: Palette): Mesh {
+  const primary = colorFromHex(palette.primary, new Color3(0.72, 0.33, 0.18));
+  const accent = colorFromHex(palette.accent, new Color3(1.0, 0.7, 0.34));
+
+  const hullMat = new StandardMaterial(`mat.brawler.${paletteKey(palette)}`, scene);
+  hullMat.diffuseColor = primary;
+  hullMat.specularColor = Color3.Black();
+  hullMat.emissiveColor = accent.scale(0.12);
+
+  // Twin hulls: two short, wide tapered cylinders side by side.
+  const hullL = MeshBuilder.CreateCylinder(
+    "brawler.hullL",
+    { diameterTop: 0.5, diameterBottom: 1.3, height: 3.0, tessellation: 8 },
+    scene,
+  );
+  hullL.rotation.x = Math.PI / 2;
+  hullL.position.set(-0.9, 0, 0);
+  hullL.bakeCurrentTransformIntoVertices();
+
+  const hullR = hullL.clone("brawler.hullR");
+  hullR.position.set(0.9, 0, 0);
+  hullR.bakeCurrentTransformIntoVertices();
+
+  // Central spine plate binding the two hulls together — reinforces the wide read.
+  const spine = MeshBuilder.CreateBox("brawler.spine", { width: 2.2, height: 0.35, depth: 1.6 }, scene);
+  spine.position.set(0, 0, -0.1);
+  spine.bakeCurrentTransformIntoVertices();
+
+  // Forward armor bridge.
+  const nose = MeshBuilder.CreateBox("brawler.nose", { width: 1.6, height: 0.3, depth: 0.9 }, scene);
+  nose.position.set(0, 0, 1.6);
+  nose.bakeCurrentTransformIntoVertices();
+
+  // One broad rear engine block spanning both hulls, plus two engine nubs.
+  const engineBlock = MeshBuilder.CreateBox("brawler.engineBlock", { width: 2.4, height: 0.4, depth: 0.6 }, scene);
+  engineBlock.position.set(0, 0, -1.9);
+  engineBlock.bakeCurrentTransformIntoVertices();
+
+  const engineL = MeshBuilder.CreateCylinder(
+    "brawler.engineL",
+    { diameter: 0.5, height: 0.4, tessellation: 8 },
+    scene,
+  );
+  engineL.rotation.x = Math.PI / 2;
+  engineL.position.set(-0.9, 0, -2.15);
+  engineL.bakeCurrentTransformIntoVertices();
+
+  const engineR = engineL.clone("brawler.engineR");
+  engineR.position.set(0.9, 0, -2.15);
+  engineR.bakeCurrentTransformIntoVertices();
+
+  const merged = Mesh.MergeMeshes(
+    [hullL, hullR, spine, nose, engineBlock, engineL, engineR],
+    true,
+    true,
+    undefined,
+    false,
+    true,
+  )!;
+  merged.name = "master.procedural.brawler";
+  merged.material = hullMat;
+  merged.setEnabled(false);
+  return merged;
+}
+
+/**
+ * `procedural.support` — rounded medium hull with side pods (ROADMAP 4 task
+ * 1). An elongated ellipsoid core with two small rounded pods on thin arms:
+ * reads rounded/utility-leaning from above, distinct from both the pointed
+ * arrowhead and the wide brawler.
+ */
+function buildSupport(scene: Scene, palette: Palette): Mesh {
+  const primary = colorFromHex(palette.primary, new Color3(0.18, 0.72, 0.48));
+  const accent = colorFromHex(palette.accent, new Color3(0.48, 1.0, 0.82));
+
+  const hullMat = new StandardMaterial(`mat.support.${paletteKey(palette)}`, scene);
+  hullMat.diffuseColor = primary;
+  hullMat.specularColor = Color3.Black();
+  hullMat.emissiveColor = accent.scale(0.15);
+
+  // Central rounded hull: elongated ellipsoid via a non-uniformly scaled sphere.
+  const core = MeshBuilder.CreateSphere(
+    "support.core",
+    { diameterX: 1.3, diameterY: 0.6, diameterZ: 2.6, segments: 10 },
+    scene,
+  );
+  core.bakeCurrentTransformIntoVertices();
+
+  // Two thin connecting arms out to rounded side pods.
+  const armL = MeshBuilder.CreateBox("support.armL", { width: 1.0, height: 0.14, depth: 0.28 }, scene);
+  armL.position.set(-0.8, 0, -0.1);
+  armL.bakeCurrentTransformIntoVertices();
+  const armR = armL.clone("support.armR");
+  armR.position.set(0.8, 0, -0.1);
+  armR.bakeCurrentTransformIntoVertices();
+
+  const podL = MeshBuilder.CreateSphere("support.podL", { diameter: 0.7, segments: 8 }, scene);
+  podL.scaling.set(1, 0.7, 1.4);
+  podL.position.set(-1.35, 0, -0.1);
+  podL.bakeCurrentTransformIntoVertices();
+  const podR = podL.clone("support.podR");
+  podR.position.set(1.35, 0, -0.1);
+  podR.bakeCurrentTransformIntoVertices();
+
+  // Small forward sensor bump.
+  const nose = MeshBuilder.CreateSphere("support.nose", { diameter: 0.35, segments: 8 }, scene);
+  nose.scaling.set(1, 0.7, 1.1);
+  nose.position.set(0, 0.1, 1.4);
+  nose.bakeCurrentTransformIntoVertices();
+
+  const merged = Mesh.MergeMeshes([core, armL, armR, podL, podR, nose], true, true, undefined, false, true)!;
+  merged.name = "master.procedural.support";
+  merged.material = hullMat;
+  merged.setEnabled(false);
+  return merged;
+}
+
+/**
+ * `procedural.module.<family>` — small per-family hardpoint module meshes
+ * (ROADMAP §9 4.6/socket rendering). Attached at a hardpoint socket transform
+ * by {@link import("../game/ShipSocketRig.js").ShipSocketRig}; shape alone
+ * should read the family at a glance: laser = thin barrel, kinetic = boxy
+ * cannon, missile = tube rack, shield = dome nub, boost = thruster cone,
+ * utility = small box. `palette.primary` is the ship's accent color so the
+ * module reads as part of that ship (see ShipSocketRig).
+ */
+function buildModuleFamily(scene: Scene, palette: Palette, family: string): Mesh {
+  const tint = colorFromHex(palette.primary, new Color3(0.6, 0.65, 0.72));
+
+  const mat = new StandardMaterial(`mat.module.${family}.${paletteKey(palette)}`, scene);
+  mat.diffuseColor = Color3.Black();
+  mat.specularColor = Color3.Black();
+  mat.emissiveColor = tint;
+
+  let mesh: Mesh;
+  switch (family) {
+    case "laser": {
+      mesh = MeshBuilder.CreateCylinder("module.laser", { diameter: 0.12, height: 0.8, tessellation: 8 }, scene);
+      mesh.rotation.x = Math.PI / 2;
+      mesh.bakeCurrentTransformIntoVertices();
+      break;
+    }
+    case "kinetic": {
+      const body = MeshBuilder.CreateBox("module.kinetic.body", { width: 0.34, height: 0.28, depth: 0.5 }, scene);
+      const barrel = MeshBuilder.CreateCylinder(
+        "module.kinetic.barrel",
+        { diameter: 0.14, height: 0.5, tessellation: 8 },
+        scene,
+      );
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0, 0.4);
+      barrel.bakeCurrentTransformIntoVertices();
+      mesh = Mesh.MergeMeshes([body, barrel], true, true, undefined, false, true)!;
+      break;
+    }
+    case "missile": {
+      const rack = MeshBuilder.CreateBox("module.missile.rack", { width: 0.4, height: 0.22, depth: 0.5 }, scene);
+      const tubeL = MeshBuilder.CreateCylinder(
+        "module.missile.tubeL",
+        { diameter: 0.12, height: 0.6, tessellation: 6 },
+        scene,
+      );
+      tubeL.rotation.x = Math.PI / 2;
+      tubeL.position.set(-0.11, 0.12, 0.05);
+      tubeL.bakeCurrentTransformIntoVertices();
+      const tubeR = tubeL.clone("module.missile.tubeR");
+      tubeR.position.set(0.11, 0.12, 0.05);
+      tubeR.bakeCurrentTransformIntoVertices();
+      mesh = Mesh.MergeMeshes([rack, tubeL, tubeR], true, true, undefined, false, true)!;
+      break;
+    }
+    case "shield": {
+      mesh = MeshBuilder.CreateSphere("module.shield.dome", { diameter: 0.5, segments: 8, slice: 0.5 }, scene);
+      break;
+    }
+    case "boost": {
+      mesh = MeshBuilder.CreateCylinder(
+        "module.boost.cone",
+        { diameterTop: 0.08, diameterBottom: 0.32, height: 0.5, tessellation: 8 },
+        scene,
+      );
+      mesh.rotation.x = -Math.PI / 2; // flare points aft (-Z)
+      mesh.bakeCurrentTransformIntoVertices();
+      break;
+    }
+    case "utility":
+    default: {
+      mesh = MeshBuilder.CreateBox("module.utility.box", { width: 0.3, height: 0.24, depth: 0.3 }, scene);
+      break;
+    }
+  }
+  mesh.name = `master.procedural.module.${family}`;
+  mesh.material = mat;
+  mesh.setEnabled(false);
+  return mesh;
+}
+
+/**
  * Icosphere + per-vertex noise displacement, shared by both asteroid recipes.
  * `subdivisions` and `displacement` let small-rock/large-hazard reuse one
  * builder with different roughness while keeping materials shared per palette.
@@ -159,10 +362,18 @@ function buildRock(
 
 const RECIPES: Record<string, RecipeBuilder> = {
   "procedural.arrowhead": buildArrowhead,
+  "procedural.brawler": buildBrawler,
+  "procedural.support": buildSupport,
   "procedural.rock-small": (scene, palette) =>
     buildRock(scene, palette, "procedural.rock-small", 2, 0.18, 1337),
   "procedural.rock-large": (scene, palette) =>
     buildRock(scene, palette, "procedural.rock-large", 3, 0.28, 9001),
+  "procedural.module.laser": (scene, palette) => buildModuleFamily(scene, palette, "laser"),
+  "procedural.module.kinetic": (scene, palette) => buildModuleFamily(scene, palette, "kinetic"),
+  "procedural.module.missile": (scene, palette) => buildModuleFamily(scene, palette, "missile"),
+  "procedural.module.shield": (scene, palette) => buildModuleFamily(scene, palette, "shield"),
+  "procedural.module.boost": (scene, palette) => buildModuleFamily(scene, palette, "boost"),
+  "procedural.module.utility": (scene, palette) => buildModuleFamily(scene, palette, "utility"),
 };
 
 /**

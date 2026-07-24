@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
-import { damageType, moduleFamily } from "./common.js";
+import { damageType, moduleFamily, statOp } from "./common.js";
 
 /** Projectile params. `null` = hitscan/beam; object = travelling ordnance. */
 const projectile = z.union([
@@ -58,6 +58,13 @@ export const moduleSchema = z.object({
   fire: fireBlock.optional(),
   mitigation: mitigationBlock.optional(),
   boost: boostBlock.optional(),
+  /**
+   * Passive stat modifiers a fitted module applies to the ship's resolved core
+   * (utility modules: capacitor battery, heat sink, …). Ops feed the stat
+   * resolver after upgrade levels, in add→mul→clamp order. Purely additive to
+   * the schema — weapons/shields simply omit it.
+   */
+  passives: z.array(statOp).optional(),
   // Action-id hooks dispatched by the module state machine.
   onFire: z.array(z.string()).optional(),
   onOverheat: z.array(z.string()).optional(),

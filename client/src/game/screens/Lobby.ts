@@ -32,6 +32,7 @@ export class Lobby {
     private readonly onChoose: (choice: LobbyChoice) => void,
     private readonly onLogout: () => void,
     private readonly onAccountRequested: (tab: "login" | "register") => void,
+    private readonly onHangarRequested: () => void,
   ) {
     this.root = document.createElement("div");
     this.root.className = "lobby-overlay";
@@ -50,6 +51,7 @@ export class Lobby {
     this.root.append(title);
 
     this.addButton("Practice (offline)", () => this.choose({ kind: "practice" }), false);
+    this.addButton("Hangar", () => this.onHangarRequested(), false);
     for (const gm of this.configs.getAll<GamemodeConfig>("gamemode")) {
       if (gm.id === "gamemode.practice") continue;
       this.addButton(`Play Online — ${gm.name ?? gm.id}`, () => this.choose({ kind: "online", gamemode: gm.id }), true);

@@ -131,6 +131,94 @@ describe("ConfigService.load", () => {
   });
 });
 
+// --- Relational (cross-config) validation: ship defaultFitting vs sockets ---
+
+const moduleOf = (id: string, family: string) => ({
+  id,
+  type: "module",
+  version: 1,
+  family,
+  level: 1,
+  name: id,
+  activation: { deployTime: 0, retractTime: 0 },
+  energy: { drawIdle: 0, drawActive: 0 },
+  heat: { perSecondActive: 0, overheatThreshold: 1, overheatCooldown: 0, overheatSelfDamage: 0 },
+  ui: { icon: "i", label: "l" },
+  price: 0,
+  requiresLevel: 1,
+});
+
+const upgradeOf = (id: string, track: string) => ({
+  id,
+  type: "upgrade",
+  version: 1,
+  track,
+  levels: [{ level: 1, price: 0 }],
+});
+
+function shipFiles(defaultFitting: string[]): Record<string, unknown> {
+  return {
+    "manifest.json": {
+      id: "manifest.default",
+      type: "manifest",
+      version: 1,
+      files: ["laser.json", "shield.json", "u-hull.json", "u-engine.json", "u-energy.json", "u-heat.json", "ship.json"],
+    },
+    "laser.json": moduleOf("module.laserx", "laser"),
+    "shield.json": moduleOf("module.shieldx", "shield"),
+    "u-hull.json": upgradeOf("upgrade.hull", "hull"),
+    "u-engine.json": upgradeOf("upgrade.engine", "engine"),
+    "u-energy.json": upgradeOf("upgrade.energy", "energy"),
+    "u-heat.json": upgradeOf("upgrade.heat", "heat"),
+    "ship.json": {
+      id: "ship.tester",
+      type: "ship",
+      version: 1,
+      name: "Tester",
+      class: "light",
+      core: {
+        hull: { base: 80, resists: { kinetic: 0.1, energy: 0 } },
+        engine: { nominalSpeed: 34, accel: 22, turnRate: 3 },
+        energy: { capacitor: 120, regen: 14 },
+        heat: { capacity: 100, dissipation: 9, criticalDamagePerSec: 4 },
+      },
+      upgradeTracks: { hull: "upgrade.hull", engine: "upgrade.engine", energy: "upgrade.energy", heat: "upgrade.heat" },
+      sockets: [
+        { id: "hp0", kind: "hardpoint", transform: { pos: [0, 0, 1] }, accepts: ["laser"] },
+        { id: "hp1", kind: "hardpoint", transform: { pos: [0, 0, -1] }, accepts: ["shield"] },
+      ],
+      defaultFitting,
+      render: { recipe: "procedural.arrowhead" },
+      collider: { shape: "circle", radius: 1.4 },
+    },
+  };
+}
+
+describe("ConfigService relational validation (ship defaultFitting vs sockets)", () => {
+  it("loads a ship whose defaultFitting matches its hardpoint families", async () => {
+    const svc = new ConfigService(memLoader(shipFiles(["module.laserx", "module.shieldx"])));
+    const result = await svc.load("manifest.json");
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects a defaultFitting whose module family is not accepted by its hardpoint", async () => {
+    // hp0 accepts laser, but index 0 is a shield module → relational error.
+    const svc = new ConfigService(memLoader(shipFiles(["module.shieldx", "module.laserx"])));
+    const result = await svc.load("manifest.json");
+    expect(result.ok).toBe(false);
+    const rel = result.errors.find((e) => e.message.includes("not accepted by hardpoint"));
+    expect(rel).toBeDefined();
+    expect(rel?.path).toBe("defaultFitting[0]");
+  });
+
+  it("rejects a defaultFitting with more entries than hardpoints", async () => {
+    const svc = new ConfigService(memLoader(shipFiles(["module.laserx", "module.shieldx", "module.laserx"])));
+    const result = await svc.load("manifest.json");
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.message.includes("only 2 hardpoint"))).toBe(true);
+  });
+});
+
 describe("ConfigService.replace", () => {
   it("re-validates, swaps, and emits config:changed", async () => {
     const bus = new EventBus<ConfigEvents>();

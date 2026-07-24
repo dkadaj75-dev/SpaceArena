@@ -1,0 +1,20 @@
+{
+  "id": "module.boost-mk2",
+  "type": "module",
+  "version": 1,
+  "family": "boost",
+  "level": 2,
+  "name": "Afterburner Mk II",
+  "activation": { "deployTime": 0.5, "retractTime": 0.5 },
+  "energy": { "drawIdle": 1, "drawActive": 12 },
+  "heat": {
+    "perSecondActive": 6,
+    "overheatThreshold": 50,
+    "overheatCooldown": 4.0,
+    "overheatSelfDamage": 0
+  },
+  "boost": { "speedMult": 2.1, "heatPerSec": 6 },
+  "ui": { "icon": "[ICON: boost]", "label": "Boost II" },
+  "price": 300,
+  "requiresLevel": 2
+}

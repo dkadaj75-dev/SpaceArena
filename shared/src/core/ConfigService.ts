@@ -2,6 +2,7 @@ import type { EventBus } from "./EventBus.js";
 import {
   CONFIG_TYPES,
   collectReferences,
+  collectRelationalErrors,
   manifestSchema,
   validateConfig,
   type AnyConfig,
@@ -136,6 +137,7 @@ export class ConfigService {
     }
 
     // Resolve cross-references against the full staged id set.
+    const stagedResolve = (type: ConfigType, id: string): AnyConfig | undefined => staged.get(type)?.get(id);
     for (const config of configs) {
       for (const ref of collectReferences(config)) {
         if (!stagedIndex.has(ref.id)) {
@@ -145,6 +147,10 @@ export class ConfigService {
             message: `dangling reference: no config with id "${ref.id}"`,
           });
         }
+      }
+      // Relational (cross-config) constraints, e.g. ship defaultFitting vs sockets.
+      for (const rel of collectRelationalErrors(config, stagedResolve)) {
+        errors.push({ file: fileById.get(config.id) ?? config.id, path: rel.path, message: rel.message });
       }
     }
 
@@ -227,6 +233,12 @@ export class ConfigService {
           message: `dangling reference: no config with id "${ref.id}"`,
         });
       }
+    }
+    // Relational constraints against the live registry (self-lookups see the new value).
+    for (const rel of collectRelationalErrors(config, (type, id) =>
+      id === config.id ? config : this.registry.get(type)?.get(id),
+    )) {
+      errors.push({ file: "<replace>", path: rel.path, message: rel.message });
     }
     if (errors.length > 0) return { ok: false, errors };
 

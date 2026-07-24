@@ -1,0 +1,28 @@
+{
+  "id": "module.kinetic-mk1",
+  "type": "module",
+  "version": 1,
+  "family": "kinetic",
+  "level": 1,
+  "name": "Autocannon Mk I",
+  "activation": { "deployTime": 1.0, "retractTime": 0.8 },
+  "energy": { "drawIdle": 2, "drawActive": 7 },
+  "heat": {
+    "perSecondActive": 5,
+    "overheatThreshold": 55,
+    "overheatCooldown": 5.0,
+    "overheatSelfDamage": 0
+  },
+  "fire": {
+    "mode": "autoTarget",
+    "range": 30,
+    "cycleTime": 0.6,
+    "damage": 9,
+    "damageType": "kinetic",
+    "requiresLineOfSight": true,
+    "projectile": { "speed": 60, "lifetime": 1.2 }
+  },
+  "ui": { "icon": "[ICON: kinetic]", "label": "Autocannon" },
+  "price": 0,
+  "requiresLevel": 1
+}

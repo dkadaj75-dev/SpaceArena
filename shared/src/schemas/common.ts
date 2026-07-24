@@ -46,3 +46,17 @@ export const resists = z.object({
   energy: z.number().min(0).max(0.95),
 });
 export type Resists = z.infer<typeof resists>;
+
+/**
+ * A single op-based stat effect used by the deterministic stat resolver
+ * (see `shared/src/sim/resolveStats.ts`). `target` is a core stat path such as
+ * `engine.nominalSpeed` (an optional leading `core.` is accepted and stripped);
+ * `op` is `add` (summed) or `mul` (multiplied); resolution order is
+ * add-then-mul-then-clamp.
+ */
+export const statOp = z.object({
+  target: z.string().min(1),
+  op: z.enum(["add", "mul"]),
+  value: z.number(),
+});
+export type StatOp = z.infer<typeof statOp>;

@@ -23,6 +23,6 @@
     "projectile": { "speed": 40, "turnRate": 2.2, "lifetime": 4.0 }
   },
   "ui": { "icon": "[ICON: missile]", "label": "Missile" },
-  "price": 150,
+  "price": 0,
   "requiresLevel": 1
 }

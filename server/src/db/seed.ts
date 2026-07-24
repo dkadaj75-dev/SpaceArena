@@ -23,15 +23,22 @@ export function seedNewUser(configs: ConfigService, userId: string, displayName:
   profilesRepo.create({ user_id: userId, display_name: displayName, level: 1, xp: 0, credits: starterCredits });
 
   // Grant every starter (free) module.
+  const owned = new Set<string>();
   for (const mod of configs.getAll<ModuleConfig>("module")) {
-    if (mod.price === 0) ownedModulesRepo.grant(userId, mod.id, 1);
+    if (mod.price === 0) {
+      ownedModulesRepo.grant(userId, mod.id, 1);
+      owned.add(mod.id);
+    }
   }
 
-  // One default fitting per ship, from defaultFitting (hardpoint order).
+  // One default fitting per ship, from defaultFitting (hardpoint order). Only
+  // seed modules the user actually owns — a level-gated or priced entry in a
+  // ship's defaultFitting is dropped to an empty slot rather than seeded as an
+  // illegal (unowned) fit that would fail validation at match join.
   for (const ship of configs.getAll<ShipConfig>("ship")) {
     const hardpointMap: HardpointMap = {};
     ship.defaultFitting.forEach((moduleId, i) => {
-      if (moduleId) hardpointMap[String(i)] = moduleId;
+      if (moduleId && owned.has(moduleId)) hardpointMap[String(i)] = moduleId;
     });
     fittingsRepo.create({
       id: randomUUID(),

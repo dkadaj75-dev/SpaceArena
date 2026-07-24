@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { upgradeBodySchema, type ShipConfig, type UpgradeConfig, type UpgradeTrackName } from "@space-arena/shared";
+import { hardpointsOf, upgradeBodySchema, type ShipConfig, type UpgradeConfig, type UpgradeTrackName } from "@space-arena/shared";
 import { getConfigService } from "../configService.js";
 import { withTransaction } from "../db/index.js";
 import { profilesRepo, shipUpgradesRepo, type ShipUpgradeRow } from "../db/repos.js";
@@ -31,7 +31,11 @@ export function createShipsRouter(): Router {
         id: ship.id,
         name: ship.name,
         class: ship.class,
-        hardpoints: ship.hardpoints,
+        // Ordered hardpoint list derived from the socket graph (id + accepts,
+        // matching the pre-socket API shape). Emitter sockets are visual-only.
+        hardpoints: hardpointsOf(ship).map((h) => ({ id: h.id, accepts: h.accepts })),
+        // Full socket graph (transforms + kinds) for the 3D hangar preview / editor.
+        sockets: ship.sockets,
         upgrades: {
           hull: trackLevel(req.userId!, ship.id, "hull"),
           engine: trackLevel(req.userId!, ship.id, "engine"),

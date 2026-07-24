@@ -16,6 +16,14 @@ export interface ArenaJoinOptions {
   gamemode: string;
   arena?: string;
   shipId?: string;
+  /**
+   * Saved fitting id (`/api/fittings`) to spawn with. `ArenaRoom.resolveFitting`
+   * (server/src/rooms/ArenaRoom.ts) loads it — ship + hardpointMap — when the
+   * joining user owns it; falls back to `shipId`'s `defaultFitting` otherwise.
+   * Additive client-side option: the server has accepted this since Phase 3
+   * (see `ArenaRoom.test.ts`), the client just didn't send it yet (Hangar 4.5).
+   */
+  fittingId?: string;
   practiceTarget?: boolean;
   minPlayers?: number;
   /** Access token for authenticated join; omitted for DEV_ALLOW_ANON solo testing. */
