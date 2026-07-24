@@ -300,6 +300,37 @@ describe("ArenaRoom", () => {
     await expect(colyseus.connectTo(room, { token, fittingId: fit.id })).rejects.toBeDefined();
   });
 
+  it("backfills empty slots with bots and starts the match (5.1)", async () => {
+    // botBackfillMs: 0 → backfill as soon as the (single) human is in and the
+    // room is still short of `minPlayers`.
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.duel-1v1",
+      minPlayers: 2,
+      botBackfillMs: 0,
+      botProfile: "bot.aggressive",
+    });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+
+    // Wait for the backfill timer, then let the sim run.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await advance(room, 40);
+
+    expect(room.state.matchPhase).toBe("live");
+    const botKeys = [...room.state.players.keys()].filter((k) => k.startsWith("bot-"));
+    expect(botKeys.length).toBe(1); // 1v1: one empty slot filled
+    const bot = room.state.players.get(botKeys[0]!)!;
+    expect(bot.team).not.toBe(room.state.players.get(c1.sessionId)!.team);
+    expect(bot.displayName).toBe("Aggressive");
+
+    // The bot drives itself through the normal order pipeline: it moves and
+    // brings modules online.
+    await advance(room, 60);
+    const movedOrArmed = bot.x !== 0 || bot.z !== 0 || bot.modules.some((m) => m.state > 0);
+    expect(movedOrArmed).toBe(true);
+
+    await c1.leave();
+  });
+
   it("reflects a player's ship upgrades in the replicated maxima (Finding 3)", async () => {
     usersRepo.create({ id: "u-upg", email: null, pass_hash: null, guest_token: "gt-upg" });
     seedNewUser(configs, "u-upg", "Upgraded");

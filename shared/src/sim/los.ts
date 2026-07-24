@@ -28,6 +28,31 @@ export function hasLineOfSight(
   return true;
 }
 
+/** A circular LoS blocker (an asteroid) expressed without World access. */
+export interface LosCircle {
+  pos: { x: number; z: number };
+  radius: number;
+}
+
+/**
+ * World-free variant of {@link hasLineOfSight}: segment `a`→`b` vs an explicit
+ * list of circular blockers. Same narrow-phase math (segment-vs-circle), no
+ * broadphase — used by consumers that only hold a read-only {@link
+ * import("./ArenaSimulation.js").Snapshot} (bots, debug overlays) rather than a
+ * live World. Keeping it here means there is exactly one LoS implementation.
+ */
+export function hasLineOfSightAmong(
+  a: { x: number; z: number },
+  b: { x: number; z: number },
+  blockers: readonly LosCircle[],
+): boolean {
+  for (let i = 0; i < blockers.length; i++) {
+    const c = blockers[i]!;
+    if (segmentIntersectsCircle(a, b, c.pos, c.radius)) return false;
+  }
+  return true;
+}
+
 function pairKey(a: EntityId, b: EntityId): number {
   const lo = a < b ? a : b;
   const hi = a < b ? b : a;

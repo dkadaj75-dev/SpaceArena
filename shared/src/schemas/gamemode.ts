@@ -17,9 +17,41 @@ export const boundaryRule = z.discriminatedUnion("type", [
 ]);
 export type BoundaryRule = z.infer<typeof boundaryRule>;
 
+/**
+ * One entry of a gamemode's pre-placed bot roster (Phase 5 §10A). Purely data:
+ * which behaviour profile drives the bot, which ship it flies, which team it
+ * joins and how many of it to spawn.
+ */
+export const gamemodeBotSlot = z.object({
+  /** `botprofile` config id driving this bot. */
+  profile: z.string(),
+  /** `ship` config id to spawn (defaults to the gamemode's `bots.defaultShip`). */
+  ship: z.string().optional(),
+  team: z.number().int().nonnegative(),
+  count: z.number().int().positive().optional(),
+});
+export type GamemodeBotSlot = z.infer<typeof gamemodeBotSlot>;
+
+/**
+ * Bot configuration for a gamemode. Optional and fully additive: a mode without
+ * it behaves exactly as before (no backfill, no roster).
+ *  - `roster`   — bots spawned up-front (offline practice-vs-bots modes)
+ *  - `defaultProfile`/`defaultShip` — used by the server's empty-slot backfill
+ *  - `backfillWaitMs` — how long the room waits for humans before backfilling
+ */
+export const gamemodeBots = z.object({
+  defaultProfile: z.string(),
+  defaultShip: z.string().optional(),
+  backfillWaitMs: z.number().nonnegative().optional(),
+  roster: z.array(gamemodeBotSlot).optional(),
+});
+export type GamemodeBots = z.infer<typeof gamemodeBots>;
+
 export const gamemodeSchema = z.object({
   ...baseShape("gamemode"),
   teams: z.enum(["1v1", "2v2"]),
+  /** Optional bot roster / backfill policy (Phase 5 5.1). Omitted ⇒ no bots. */
+  bots: gamemodeBots.optional(),
   /** Optional default arena id this mode is played on when the room gets none. */
   defaultArena: z.string().optional(),
   winCondition,

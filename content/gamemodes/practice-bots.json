@@ -1,0 +1,22 @@
+{
+  "id": "gamemode.practice-bots",
+  "type": "gamemode",
+  "version": 1,
+  "name": "Practice vs Bots",
+  "teams": "1v1",
+  "defaultArena": "arena.ring-nebula",
+  "winCondition": { "type": "destroyTargets", "count": 2 },
+  "eliminationEndsMatch": true,
+  "respawn": { "enabled": false, "delay": 3 },
+  "boundaryRule": { "type": "warning", "graceSeconds": 3 },
+  "rewards": { "win": 0, "loss": 0, "perKill": 0 },
+  "bots": {
+    "defaultProfile": "bot.aggressive",
+    "defaultShip": "ship.interceptor",
+    "backfillWaitMs": 15000,
+    "roster": [
+      { "profile": "bot.aggressive", "ship": "ship.interceptor", "team": 1, "count": 1 },
+      { "profile": "bot.cautious", "ship": "ship.brawler", "team": 1, "count": 1 }
+    ]
+  }
+}

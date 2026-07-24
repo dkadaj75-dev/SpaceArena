@@ -1,6 +1,9 @@
 import { Room, type Client } from "@colyseus/core";
 import {
   ArenaSimulation,
+  BotDriver,
+  resolveBackfillBot,
+  teamSizeOf,
   SIM_TICK_RATE,
   createLogger,
   encodeCenti,
@@ -41,6 +44,8 @@ const PATCH_RATE_MS = 50;
 const MATCH_END_GRACE_MS = 8000;
 /** Reconnection window (seconds) offered on an unconsented leave. */
 const RECONNECT_WINDOW_S = 30;
+/** Fallback wait before bot backfill when the gamemode omits `bots.backfillWaitMs`. */
+const DEFAULT_BOT_BACKFILL_MS = 15000;
 /** Default order rate cap (orders/sec) if tuning omits `maxOrdersPerSec`. */
 const DEFAULT_MAX_ORDERS_PER_SEC = 20;
 /** Sustained-abuse threshold: kick a client after this many rate-limited orders. */
@@ -60,6 +65,10 @@ interface CreateOptions {
   minPlayers?: number;
   /** Spawn static team-1 dummy ships so a solo player has something to shoot. */
   practiceTarget?: boolean;
+  /** `botprofile` id used for empty-slot backfill (overrides `gamemode.bots.defaultProfile`). */
+  botProfile?: string;
+  /** Override the gamemode's `bots.backfillWaitMs`. 0 backfills as soon as someone joins. */
+  botBackfillMs?: number;
   seed?: number;
 }
 
@@ -105,6 +114,15 @@ export class ArenaRoom extends Room<ArenaState> {
   /** Placement index → asteroid sim entity id (stable across the match). */
   private asteroidEntityIds: EntityId[] = [];
   private endTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // --- bots (5.1) ---
+  /** Bot entity id → its driver. Drivers emit orders through the human pipeline. */
+  private readonly botDrivers = new Map<EntityId, BotDriver>();
+  private botBackfillTimer: ReturnType<typeof setTimeout> | null = null;
+  private botBackfillMs = DEFAULT_BOT_BACKFILL_MS;
+  private botProfileOverride: string | undefined;
+  /** Sim-clock milliseconds fed to the bot drivers (their decision cadence). */
+  private botClockMs = 0;
 
   /** sessionId → authenticated userId (null for anon/dummy). */
   private readonly sessionUserId = new Map<string, string | null>();
@@ -161,6 +179,9 @@ export class ArenaRoom extends Room<ArenaState> {
       a.destroyed = tag.state === "destroyed";
       state.asteroids.set(String(i), a);
     });
+
+    this.botProfileOverride = options.botProfile;
+    this.botBackfillMs = options.botBackfillMs ?? gamemode.bots?.backfillWaitMs ?? DEFAULT_BOT_BACKFILL_MS;
 
     if (options.practiceTarget) this.spawnPracticeDummies();
 
@@ -349,8 +370,105 @@ export class ArenaRoom extends Room<ArenaState> {
   private maybeStart(): void {
     if (this.state.matchPhase !== "waiting") return;
     if (this.humanSessions.size >= this.minPlayers) {
+      this.clearBotBackfillTimer();
       this.state.matchPhase = "live";
       log.info("match live", { players: this.humanSessions.size });
+      return;
+    }
+    this.scheduleBotBackfill();
+  }
+
+  // -------------------------------------------------------------------------
+  // Bot backfill (ROADMAP §7 2.8 wait logic → §10A 5.1 real bots)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Arm the backfill timer once the first human is in and the room is still
+   * short of players. When it fires, every empty team slot is filled with a
+   * {@link BotDriver}-driven ship and the match starts. Off entirely for a
+   * gamemode that declares no `bots` block and no `botProfile` room option.
+   */
+  private scheduleBotBackfill(): void {
+    if (this.botBackfillTimer !== null) return;
+    if (this.humanSessions.size === 0) return;
+    if (!resolveBackfillBot(this.gamemode, getConfigService(), this.botProfileOverride)) return;
+    this.botBackfillTimer = setTimeout(() => {
+      this.botBackfillTimer = null;
+      this.backfillBots();
+    }, this.botBackfillMs);
+    log.info("bot backfill armed", { waitMs: this.botBackfillMs });
+  }
+
+  private clearBotBackfillTimer(): void {
+    if (this.botBackfillTimer === null) return;
+    clearTimeout(this.botBackfillTimer);
+    this.botBackfillTimer = null;
+  }
+
+  /**
+   * Fill every team up to the gamemode's team size with bots, then start the
+   * match. Bots get a schema `PlayerState` exactly like a dummy does, so remote
+   * clients render them with no client-side changes.
+   */
+  private backfillBots(): void {
+    if (this.state.matchPhase !== "waiting") return;
+    const configs = getConfigService();
+    const backfill = resolveBackfillBot(this.gamemode, configs, this.botProfileOverride);
+    if (!backfill) return;
+    const ship = configs.get<ShipConfig>("ship", backfill.shipId);
+    if (!ship) return;
+
+    const teamSize = teamSizeOf(this.gamemode);
+    const perTeam = new Map<number, number>();
+    for (const eid of this.keyToEntity.values()) {
+      const team = this.sim.teamOf(eid);
+      if (team === undefined) continue;
+      perTeam.set(team, (perTeam.get(team) ?? 0) + 1);
+    }
+
+    let spawned = 0;
+    for (let team = 0; team < 2; team++) {
+      for (let i = perTeam.get(team) ?? 0; i < teamSize; i++) {
+        const entityId = this.sim.spawnPlayer(backfill.shipId, ship.defaultFitting, team);
+        const key = `bot-${entityId}`;
+        const ps = new PlayerState();
+        ps.entityId = entityId;
+        ps.team = team;
+        ps.shipId = backfill.shipId;
+        ps.displayName = backfill.profile.name ?? backfill.profile.id;
+        ps.connected = false;
+        for (let m = 0; m < ship.defaultFitting.filter((x) => x !== null).length; m++) ps.modules.push(new ModuleState());
+        this.state.players.set(key, ps);
+        this.keyToEntity.set(key, entityId);
+        this.entityToKey.set(entityId, key);
+        this.fragsByEntity.set(entityId, 0);
+        this.botDrivers.set(entityId, new BotDriver({ entityId, profile: backfill.profile, configs }));
+        this.syncShipState(entityId, ps);
+        spawned++;
+      }
+    }
+
+    log.info("bot backfill complete", { spawned, profile: backfill.profile.id });
+    this.state.matchPhase = "live";
+  }
+
+  /**
+   * Drive every live bot: feed it the read-only snapshot and push its orders
+   * through the **same validation + apply path** a human order takes, so bots
+   * can never issue an order a player could not.
+   */
+  private driveBots(): void {
+    this.botClockMs += FIXED_DT * 1000;
+    const snapshot = this.sim.snapshot();
+    for (const [entityId, driver] of this.botDrivers) {
+      if (!this.sim.hasShip(entityId)) {
+        this.botDrivers.delete(entityId);
+        continue;
+      }
+      for (const order of driver.update(snapshot, this.botClockMs)) {
+        if (this.validateOrder(entityId, order)) continue; // same rules as humans
+        this.sim.applyOrder(entityId, order);
+      }
     }
   }
 
@@ -444,6 +562,7 @@ export class ArenaRoom extends Room<ArenaState> {
   private update(): void {
     if (this.state.matchPhase !== "live") return;
 
+    if (this.botDrivers.size > 0) this.driveBots();
     this.sim.tick(FIXED_DT);
     const events = this.sim.getEvents();
     this.trackFrags(events);
@@ -689,6 +808,7 @@ export class ArenaRoom extends Room<ArenaState> {
 
   onDispose(): void {
     if (this.endTimer) clearTimeout(this.endTimer);
+    this.clearBotBackfillTimer();
     log.info("room disposed", { gamemode: this.gamemode?.id });
   }
 }

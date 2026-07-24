@@ -4,7 +4,8 @@ import type { AuthService, AuthState } from "../../core/AuthService.js";
 const log = createLogger("Lobby");
 
 export type LobbyChoice =
-  | { kind: "practice" }
+  /** Offline practice. `gamemode` defaults to `gamemode.practice` (static dummies). */
+  | { kind: "practice"; gamemode?: string }
   | { kind: "online"; gamemode: string; options?: { practiceTarget?: boolean; minPlayers?: number } };
 
 interface TrackedButton {
@@ -35,7 +36,7 @@ export class Lobby {
     private readonly onHangarRequested: () => void,
   ) {
     this.root = document.createElement("div");
-    this.root.className = "lobby-overlay";
+    this.root.className = "lobby-overlay game-screen";
     this.root.style.cssText =
       "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
       "background:rgba(4,8,16,.88);z-index:20;color:#e8f1ff;font-family:system-ui";
@@ -51,9 +52,18 @@ export class Lobby {
     this.root.append(title);
 
     this.addButton("Practice (offline)", () => this.choose({ kind: "practice" }), false);
+    // Any gamemode declaring a bot roster (5.1) is an offline practice mode.
+    for (const gm of this.configs.getAll<GamemodeConfig>("gamemode")) {
+      if (!gm.bots?.roster?.length) continue;
+      this.addButton(
+        `${gm.name ?? gm.id} (offline)`,
+        () => this.choose({ kind: "practice", gamemode: gm.id }),
+        false,
+      );
+    }
     this.addButton("Hangar", () => this.onHangarRequested(), false);
     for (const gm of this.configs.getAll<GamemodeConfig>("gamemode")) {
-      if (gm.id === "gamemode.practice") continue;
+      if (gm.id === "gamemode.practice" || gm.bots?.roster?.length) continue;
       this.addButton(`Play Online — ${gm.name ?? gm.id}`, () => this.choose({ kind: "online", gamemode: gm.id }), true);
     }
     this.addButton(

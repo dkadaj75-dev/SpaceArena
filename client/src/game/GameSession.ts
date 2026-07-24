@@ -1,6 +1,8 @@
 import {
   ArenaSimulation,
+  BotDriver,
   createLogger,
+  resolveBotRoster,
   type ConfigService,
   type EntityId,
   type Order,
@@ -32,26 +34,50 @@ const DUMMY_POSITIONS = [
   { x: 6, z: 30 },
 ];
 
+/** Additive practice options (Phase 5 5.1 integration B). */
+export interface GameSessionOptions {
+  /**
+   * Bot wiring. `undefined` (default) ⇒ spawn the gamemode config's
+   * `bots.roster`, if it declares one. `null` ⇒ never spawn bots (used by
+   * {@link import("../net/NetGameSession.js").NetGameSession}, whose ships all
+   * come from server state).
+   */
+  bots?: null;
+  /** Deterministic RNG for bot decisions (defaults to `Math.random`). */
+  botRng?: () => number;
+}
+
 export class GameSession {
   readonly sim: ArenaSimulation;
   readonly playerId: EntityId;
-  /** First spawned dummy id, kept for back-compat with any single-target callers. */
-  readonly dummyId: EntityId;
+  /**
+   * First spawned dummy id, kept for back-compat with any single-target callers.
+   * `undefined` in a bots-roster mode, which spawns no static dummies.
+   */
+  readonly dummyId: EntityId | undefined;
   /** All practice-dummy entity ids (one per `winCondition.count` for `destroyTargets`). */
   readonly dummyIds: EntityId[] = [];
+  /**
+   * Bot drivers by ship entity id (5.1). Public so a debug overlay (5.3) can read
+   * `driver.lastDecision` — behaviour, utility scores, chosen move point.
+   */
+  readonly bots = new Map<EntityId, BotDriver>();
 
   private prev: Snapshot;
   private cur: Snapshot;
   private readonly frameEvents: SimEvent[] = [];
   private readonly shipConfigIds = new Map<EntityId, string>();
+  /** Ships that count toward the "Targets: x/y" objective (dummies and/or bots). */
   private readonly dummyIdSet: Set<EntityId>;
   private destroyedTargetsCount = 0;
+  private elapsedMs = 0;
 
   constructor(
     private readonly configs: ConfigService,
     arenaId = "arena.ring-nebula",
     gamemodeId = "gamemode.practice",
     seed = 1,
+    options: GameSessionOptions = {},
   ) {
     this.sim = new ArenaSimulation(configs, arenaId, gamemodeId, seed);
 
@@ -68,16 +94,32 @@ export class GameSession {
     // player so combat is immediately testable. Receive no orders. Count
     // follows the gamemode's `destroyTargets` win condition (falls back to a
     // single dummy for other win-condition types).
+    // Bots (5.1): spawned from the gamemode config's `bots.roster` unless the
+    // caller opts out. A mode with a roster replaces the static dummies — the
+    // existing dummy flow is untouched for modes without one.
+    const gamemode = this.sim.world.gamemode;
+    const roster = options.bots === null ? [] : resolveBotRoster(gamemode, configs);
+    for (const slot of roster) {
+      const botShip = configs.get<ShipConfig>("ship", slot.shipId);
+      if (!botShip) continue;
+      const id = this.sim.spawnPlayer(slot.shipId, botShip.defaultFitting, slot.team);
+      this.shipConfigIds.set(id, slot.shipId);
+      this.bots.set(
+        id,
+        new BotDriver({ entityId: id, profile: slot.profile, configs, rng: options.botRng }),
+      );
+    }
+
     const wc = this.sim.world.gamemode.winCondition;
-    const dummyCount = wc.type === "destroyTargets" ? wc.count : 1;
+    const dummyCount = roster.length > 0 ? 0 : wc.type === "destroyTargets" ? wc.count : 1;
     for (let i = 0; i < dummyCount; i++) {
       const pos = DUMMY_POSITIONS[i % DUMMY_POSITIONS.length]!;
       const id = this.sim.spawnPlayerAt(shipId, fitting, 1, pos, Math.PI);
       this.shipConfigIds.set(id, shipId);
       this.dummyIds.push(id);
     }
-    this.dummyId = this.dummyIds[0]!;
-    this.dummyIdSet = new Set(this.dummyIds);
+    this.dummyId = this.dummyIds[0];
+    this.dummyIdSet = new Set([...this.dummyIds, ...this.bots.keys()]);
 
     this.prev = this.sim.snapshot();
     this.cur = this.prev;
@@ -87,11 +129,13 @@ export class GameSession {
       gamemode: gamemodeId,
       playerId: this.playerId,
       dummyIds: this.dummyIds,
+      botIds: [...this.bots.keys()],
     });
   }
 
   /** Advance one fixed sim step. Retires the current snapshot and drains events. */
   tick(fixedDt: number): void {
+    this.driveBots(fixedDt);
     this.sim.tick(fixedDt);
     this.prev = this.cur;
     this.cur = this.sim.snapshot();
@@ -102,6 +146,25 @@ export class GameSession {
         this.destroyedTargetsCount += 1;
       }
       this.frameEvents.push(ev);
+    }
+  }
+
+  /**
+   * Feed every live bot the current snapshot and push its orders through the
+   * normal order queue — the exact path a human tap takes. Dead bots are
+   * dropped. Called before the sim step so orders land on this tick.
+   */
+  private driveBots(fixedDt: number): void {
+    if (this.bots.size === 0) return;
+    this.elapsedMs += fixedDt * 1000;
+    for (const [entityId, driver] of this.bots) {
+      if (!this.sim.hasShip(entityId)) {
+        this.bots.delete(entityId);
+        continue;
+      }
+      for (const order of driver.update(this.cur, this.elapsedMs)) {
+        this.sim.applyOrder(entityId, order);
+      }
     }
   }
 

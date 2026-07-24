@@ -1,0 +1,22 @@
+{
+  "id": "bot.cautious",
+  "type": "botprofile",
+  "version": 1,
+  "name": "Cautious",
+  "decisionIntervalMs": 350,
+  "orderJitterMs": 80,
+  "preferredRange": [30, 45],
+  "behaviors": {
+    "engage": { "baseWeight": 0.7, "doubleTapBoostChance": 0.05, "orbitStepRad": 0.5, "targetPreference": "lowestHull" },
+    "kite": { "baseWeight": 1.1, "urgencyGain": 1.0, "doubleTapBoostChance": 0.35, "lateralRad": 0.5 },
+    "breakLoS": { "baseWeight": 1.0, "triggerHullBelow": 0.7, "coverOffset": 4, "urgencyGain": 1.0 },
+    "retreat": { "baseWeight": 0.9, "triggerHullBelow": 0.35, "triggerShieldDown": true, "retreatDistance": 60, "doubleTapBoostChance": 0.6 },
+    "dodge": { "baseWeight": 1.2, "dodgeRadius": 24, "dodgeDistance": 16 }
+  },
+  "moduleDiscipline": {
+    "heatShutdownAt": 0.7,
+    "reactivateBelow": 0.35,
+    "energyReserve": 0.3,
+    "shieldOnlyWhenEngaged": true
+  }
+}

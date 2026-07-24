@@ -1,0 +1,19 @@
+{
+  "id": "bot.rookie",
+  "type": "botprofile",
+  "version": 1,
+  "name": "Rookie",
+  "decisionIntervalMs": 900,
+  "orderJitterMs": 400,
+  "preferredRange": [14, 30],
+  "behaviors": {
+    "engage": { "baseWeight": 1.0, "doubleTapBoostChance": 0.1, "orbitStepRad": 0.4, "targetPreference": "nearest" },
+    "kite": { "baseWeight": 0.35, "urgencyGain": 0.4 }
+  },
+  "moduleDiscipline": {
+    "heatShutdownAt": 0.98,
+    "reactivateBelow": 0.85,
+    "energyReserve": 0.05,
+    "shieldOnlyWhenEngaged": false
+  }
+}
