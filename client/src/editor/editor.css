@@ -1,0 +1,1122 @@
+/*
+ * Space Arena dev editor ("constellation tools") design system.
+ *
+ * Everything is namespaced under `.sa-editor` so the in-game HUD keeps its own
+ * styling. Custom properties live on the namespace root rather than `:root`
+ * for the same reason.
+ *
+ * Visual language: dark sci-fi HUD — near-black navy panels, thin cyan borders
+ * with corner-notch frames (clip-path), a subtle outer glow, amber warnings and
+ * red danger. Uppercase letter-spaced section headers, monospace for numbers
+ * and ids.
+ */
+
+.sa-editor {
+  /* Surfaces */
+  --ed-bg: #0a0f1a;
+  --ed-panel: rgba(13, 21, 36, 0.93);
+  --ed-panel-solid: #0d1524;
+  --ed-panel-2: rgba(18, 28, 46, 0.92);
+  --ed-sunken: rgba(5, 9, 16, 0.72);
+
+  /* Accent family (matches the game HUD cyan) */
+  --ed-accent: #57d8ff;
+  --ed-accent-dim: rgba(87, 216, 255, 0.55);
+  --ed-accent-faint: rgba(87, 216, 255, 0.12);
+  --ed-glow: rgba(87, 216, 255, 0.15);
+
+  /* Status */
+  --ed-ok: #46e39b;
+  --ed-warn: #ffb545;
+  --ed-danger: #ff4d5e;
+
+  /* Text */
+  --ed-text: #dceaf7;
+  --ed-text-dim: #8ba3bd;
+  --ed-text-faint: #5d738c;
+
+  /* Lines */
+  --ed-border: rgba(87, 216, 255, 0.28);
+  --ed-border-soft: rgba(87, 216, 255, 0.14);
+
+  /* Metrics */
+  --ed-notch: 10px;
+  --ed-topbar-h: 44px;
+  --ed-control-h: 28px;
+  --ed-radius: 2px;
+  --ed-font: 13px/1.45 system-ui, "Segoe UI", Roboto, sans-serif;
+  --ed-mono: 12px/1.45 ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-rows: var(--ed-topbar-h) 1fr;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "topbar topbar"
+    "viewport inspector";
+  font: var(--ed-font);
+  color: var(--ed-text);
+  /* The 3D scene is the viewport: only real chrome takes pointer events. */
+  pointer-events: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sa-editor *,
+.sa-editor *::before,
+.sa-editor *::after {
+  box-sizing: border-box;
+}
+
+/* ------------------------------------------------------------------ frames */
+
+/*
+ * `.ed-frame` paints the panel background + notched border on a pseudo element
+ * so the clip-path never eats the panel's own scrolling content, and so the
+ * outer glow can follow the notched silhouette via drop-shadow (a box-shadow
+ * would be clipped away).
+ */
+.sa-editor .ed-frame {
+  position: relative;
+  background: transparent;
+}
+
+.sa-editor .ed-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--ed-panel);
+  border: 1px solid var(--ed-border);
+  clip-path: polygon(
+    0 var(--ed-notch),
+    var(--ed-notch) 0,
+    100% 0,
+    100% calc(100% - var(--ed-notch)),
+    calc(100% - var(--ed-notch)) 100%,
+    0 100%
+  );
+  filter: drop-shadow(0 0 18px var(--ed-glow));
+  pointer-events: none;
+}
+
+.sa-editor .ed-frame > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ------------------------------------------------------------------ topbar */
+
+.sa-editor .ed-topbar {
+  grid-area: topbar;
+  pointer-events: auto;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 0 8px;
+  min-width: 0;
+  background: linear-gradient(180deg, rgba(10, 15, 26, 0.97), rgba(10, 15, 26, 0.88));
+  border-bottom: 1px solid var(--ed-border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), 0 0 24px var(--ed-glow);
+  backdrop-filter: blur(6px);
+}
+
+.sa-editor .ed-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-right: 1px solid var(--ed-border-soft);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ed-accent);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.sa-editor .ed-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sa-editor .ed-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* -------------------------------------------------------------- tab button */
+
+.sa-editor .ed-tab {
+  appearance: none;
+  flex: 0 0 auto;
+  height: var(--ed-control-h);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ed-text-dim);
+  background: rgba(18, 28, 46, 0.7);
+  border: 1px solid var(--ed-border-soft);
+  border-radius: var(--ed-radius);
+  clip-path: polygon(0 8px, 8px 0, 100% 0, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.sa-editor .ed-tab:hover {
+  color: var(--ed-text);
+  border-color: var(--ed-border);
+  background: rgba(24, 38, 60, 0.85);
+}
+
+.sa-editor .ed-tab.is-active {
+  color: #04121b;
+  background: var(--ed-accent);
+  border-color: var(--ed-accent);
+  font-weight: 600;
+}
+
+.sa-editor .ed-tab:focus-visible {
+  outline: 1px solid var(--ed-accent);
+  outline-offset: 1px;
+}
+
+/* ------------------------------------------------------------- status dot */
+
+.sa-editor .ed-status {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ed-control-h);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ed-text-dim);
+  background: var(--ed-sunken);
+  border: 1px solid var(--ed-border-soft);
+  border-radius: var(--ed-radius);
+  cursor: pointer;
+}
+
+.sa-editor .ed-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ed-ok);
+  box-shadow: 0 0 8px currentColor;
+  color: var(--ed-ok);
+  flex: 0 0 auto;
+}
+
+.sa-editor .ed-status.is-bad {
+  color: var(--ed-danger);
+  border-color: rgba(255, 77, 94, 0.45);
+}
+
+.sa-editor .ed-status.is-bad .ed-status-dot {
+  background: var(--ed-danger);
+  color: var(--ed-danger);
+  animation: ed-pulse 1.4s ease-in-out infinite;
+}
+
+.sa-editor .ed-status-count {
+  font: var(--ed-mono);
+  font-weight: 700;
+}
+
+@keyframes ed-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ---------------------------------------------------------------- viewport */
+
+/*
+ * Transparent spacer over the live 3D scene. It must not swallow pointer
+ * events — camera orbit / gizmo picking happens through it.
+ */
+.sa-editor .ed-viewport {
+  grid-area: viewport;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------- inspector */
+
+.sa-editor .ed-inspector {
+  grid-area: inspector;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 400px;
+  min-width: 260px;
+  max-width: 90vw;
+  /*
+   * `resize: horizontal` grows to the right, which is useless for a
+   * right-docked panel; RTL flips the handle to the bottom-left so dragging
+   * left widens the inspector. Content is switched back to LTR below.
+   */
+  direction: rtl;
+  resize: horizontal;
+  overflow: hidden;
+}
+
+.sa-editor .ed-inspector > * {
+  direction: ltr;
+}
+
+.sa-editor .ed-inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--ed-border-soft);
+  flex: 0 0 auto;
+}
+
+.sa-editor .ed-inspector-title {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ed-accent);
+}
+
+.sa-editor .ed-inspector-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 24px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Drag handle: desktop hides it, mobile bottom-sheet uses it. */
+.sa-editor .ed-sheet-handle {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- controls */
+
+.sa-editor button,
+.sa-editor .ed-btn {
+  appearance: none;
+  height: var(--ed-control-h);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--ed-text);
+  background: rgba(20, 32, 52, 0.9);
+  border: 1px solid var(--ed-border-soft);
+  border-radius: var(--ed-radius);
+  clip-path: polygon(0 8px, 8px 0, 100% 0, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.sa-editor button:hover,
+.sa-editor .ed-btn:hover {
+  background: rgba(30, 48, 74, 0.95);
+  border-color: var(--ed-border);
+  color: #fff;
+}
+
+.sa-editor button:active,
+.sa-editor .ed-btn:active {
+  background: var(--ed-accent-faint);
+}
+
+.sa-editor button:disabled,
+.sa-editor .ed-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sa-editor .ed-btn--primary {
+  color: #04121b;
+  background: var(--ed-accent);
+  border-color: var(--ed-accent);
+  font-weight: 600;
+}
+
+.sa-editor .ed-btn--primary:hover {
+  background: #7ee4ff;
+  color: #04121b;
+}
+
+.sa-editor .ed-btn--danger {
+  color: var(--ed-danger);
+  border-color: rgba(255, 77, 94, 0.45);
+  background: rgba(255, 77, 94, 0.1);
+}
+
+.sa-editor .ed-btn--danger:hover {
+  background: rgba(255, 77, 94, 0.22);
+  color: #fff;
+}
+
+.sa-editor .ed-btn--ghost {
+  background: transparent;
+  color: var(--ed-text-dim);
+}
+
+.sa-editor .ed-btn--sm {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+/* Text-ish inputs, selects, textareas */
+.sa-editor input[type="text"],
+.sa-editor input[type="search"],
+.sa-editor input[type="number"],
+.sa-editor input:not([type]),
+.sa-editor select,
+.sa-editor textarea,
+.sa-editor .ed-input {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: var(--ed-control-h);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ed-text);
+  background: var(--ed-sunken);
+  border: 1px solid var(--ed-border-soft);
+  border-radius: var(--ed-radius);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.sa-editor textarea {
+  height: auto;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.sa-editor input[type="number"],
+.sa-editor .ed-mono,
+.sa-editor .ed-num {
+  font: var(--ed-mono);
+}
+
+.sa-editor input:focus,
+.sa-editor select:focus,
+.sa-editor textarea:focus {
+  outline: none;
+  border-color: var(--ed-accent);
+  box-shadow: 0 0 0 1px var(--ed-accent-faint), 0 0 12px var(--ed-glow);
+}
+
+.sa-editor input::placeholder,
+.sa-editor textarea::placeholder {
+  color: var(--ed-text-faint);
+}
+
+.sa-editor select {
+  padding-right: 22px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ed-accent) 50%),
+    linear-gradient(135deg, var(--ed-accent) 50%, transparent 50%);
+  background-position: calc(100% - 13px) calc(50% + 1px), calc(100% - 8px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.sa-editor option {
+  background: var(--ed-panel-solid);
+  color: var(--ed-text);
+}
+
+/* Range slider */
+.sa-editor input[type="range"] {
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.sa-editor input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: linear-gradient(90deg, var(--ed-accent-dim), rgba(87, 216, 255, 0.15));
+  border-radius: 2px;
+}
+
+.sa-editor input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  background: var(--ed-accent);
+  border: none;
+  border-radius: 0;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  box-shadow: 0 0 8px var(--ed-accent-dim);
+}
+
+.sa-editor input[type="range"]::-moz-range-track {
+  height: 3px;
+  background: rgba(87, 216, 255, 0.3);
+  border-radius: 2px;
+}
+
+.sa-editor input[type="range"]::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  background: var(--ed-accent);
+  border: none;
+  border-radius: 0;
+}
+
+/* Colour input */
+.sa-editor input[type="color"] {
+  width: 34px;
+  height: var(--ed-control-h);
+  min-width: 34px;
+  padding: 2px;
+  background: var(--ed-sunken);
+  border: 1px solid var(--ed-border-soft);
+  border-radius: var(--ed-radius);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+/* Checkbox rendered as a toggle switch */
+.sa-editor .ed-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 38px;
+  height: 20px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.sa-editor .ed-toggle input[type="checkbox"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sa-editor .ed-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--ed-sunken);
+  border: 1px solid var(--ed-border-soft);
+  border-radius: 10px;
+  transition: background 0.15s, border-color 0.15s;
+  pointer-events: none;
+}
+
+.sa-editor .ed-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ed-text-faint);
+  transition: transform 0.15s, background 0.15s;
+}
+
+.sa-editor .ed-toggle input:checked + .ed-toggle-track {
+  background: var(--ed-accent-faint);
+  border-color: var(--ed-accent);
+}
+
+.sa-editor .ed-toggle input:checked + .ed-toggle-track::after {
+  transform: translateX(18px);
+  background: var(--ed-accent);
+  box-shadow: 0 0 8px var(--ed-accent-dim);
+}
+
+.sa-editor .ed-toggle input:focus-visible + .ed-toggle-track {
+  box-shadow: 0 0 0 2px var(--ed-accent-faint);
+}
+
+/* ------------------------------------------------------------- form layout */
+
+.sa-editor .ed-section-title,
+.sa-editor .editor-schema-form > div > summary,
+.sa-editor summary {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ed-accent);
+}
+
+.sa-editor details {
+  margin: 6px 0;
+  padding: 0 0 0 8px;
+  border-left: 1px solid var(--ed-border-soft);
+}
+
+.sa-editor summary {
+  padding: 4px 0;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.sa-editor summary::-webkit-details-marker {
+  display: none;
+}
+
+.sa-editor summary::before {
+  content: "▸ ";
+  color: var(--ed-accent-dim);
+}
+
+.sa-editor details[open] > summary::before {
+  content: "▾ ";
+}
+
+.sa-editor .editor-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 3px 0;
+}
+
+.sa-editor .editor-field > span:first-child {
+  flex: 0 0 40%;
+  max-width: 40%;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ed-text-dim);
+  overflow-wrap: anywhere;
+}
+
+.sa-editor .editor-field > input,
+.sa-editor .editor-field > select,
+.sa-editor .editor-field > .ed-control-row {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.sa-editor .ed-control-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sa-editor .ed-control-row .ed-num {
+  flex: 0 0 84px;
+  width: 84px;
+  text-align: right;
+}
+
+.sa-editor .ed-control-row input[type="range"] {
+  flex: 1 1 80px;
+}
+
+.sa-editor .editor-field-error {
+  flex: 1 0 100%;
+  min-height: 0;
+  font: var(--ed-mono);
+  color: var(--ed-danger);
+}
+
+.sa-editor .editor-field-error:empty {
+  display: none;
+}
+
+.sa-editor .ed-optional {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 4px 0 4px 6px;
+  border-left: 1px dashed var(--ed-border-soft);
+}
+
+.sa-editor .ed-optional-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ed-text-faint);
+}
+
+.sa-editor .ed-optional > .editor-field,
+.sa-editor .ed-optional > details {
+  flex: 1 0 100%;
+}
+
+.sa-editor .editor-array {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 0 100%;
+}
+
+.sa-editor .editor-array-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--ed-border-soft);
+}
+
+.sa-editor .editor-array-row > *:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sa-editor .editor-array-row button {
+  flex: 0 0 auto;
+  color: var(--ed-danger);
+  border-color: rgba(255, 77, 94, 0.4);
+  background: rgba(255, 77, 94, 0.08);
+}
+
+/* ---------------------------------------------------------- panel toolbars */
+
+.sa-editor .ed-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ed-border-soft);
+}
+
+.sa-editor .ed-toolbar select,
+.sa-editor .ed-toolbar input {
+  width: auto;
+  flex: 1 1 120px;
+}
+
+.sa-editor .ed-label {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ed-text-dim);
+  white-space: nowrap;
+}
+
+.sa-editor .ed-panel-root {
+  display: block;
+  min-width: 0;
+}
+
+.sa-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--ed-mono);
+}
+
+.sa-editor th,
+.sa-editor td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--ed-border-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sa-editor th {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ed-accent);
+}
+
+/* ------------------------------------------------- shared panel primitives */
+
+.sa-editor h3,
+.sa-editor h4 {
+  margin: 12px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ed-accent);
+}
+
+.sa-editor .ed-note {
+  margin: 6px 0;
+  font-size: 11px;
+  color: var(--ed-text-faint);
+}
+
+.sa-editor .ed-warn {
+  margin: 4px 0;
+  color: var(--ed-warn);
+}
+
+/* Horizontal control cluster used by the ship/socket editors. */
+.sa-editor .ed-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.sa-editor .ed-callout {
+  margin: 6px 0;
+  padding: 8px;
+  border: 1px solid var(--ed-border-soft);
+  background: var(--ed-panel-2);
+  clip-path: polygon(0 8px, 8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+}
+
+.sa-editor .ed-callout--danger {
+  border-color: rgba(255, 77, 94, 0.5);
+  background: rgba(255, 77, 94, 0.1);
+}
+
+.sa-editor .ed-callout--warn {
+  border-color: rgba(255, 181, 69, 0.5);
+  background: rgba(255, 181, 69, 0.09);
+}
+
+.sa-editor .ed-callout-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sa-editor .ed-callout--danger .ed-callout-title {
+  color: var(--ed-danger);
+}
+
+.sa-editor .ed-callout--warn .ed-callout-title {
+  color: var(--ed-warn);
+}
+
+.sa-editor .ed-callout-line {
+  margin: 2px 0;
+  font: var(--ed-mono);
+}
+
+/* List-style selection buttons (socket list). */
+.sa-editor .ed-list-btn {
+  text-align: left;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sa-editor .ed-list-btn.is-selected {
+  color: var(--ed-accent);
+  border-color: var(--ed-accent);
+  background: var(--ed-accent-faint);
+  font-weight: 700;
+}
+
+.sa-editor .ed-inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+  font-size: 11px;
+  color: var(--ed-text-dim);
+}
+
+.sa-editor .ed-num--sm {
+  width: 72px;
+  flex: 0 0 72px;
+  text-align: right;
+}
+
+.sa-editor .ed-subrow {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--ed-border-soft);
+}
+
+.sa-editor .ed-chart {
+  display: block;
+  max-width: 100%;
+  margin: 4px 0;
+  background: #070c15;
+  border: 1px solid var(--ed-border-soft);
+}
+
+.sa-editor .ed-legend {
+  margin: 2px 0 8px;
+  font-size: 11px;
+  color: var(--ed-text-dim);
+}
+
+/* Numeric comparison tables (balance workbench). */
+.sa-editor .ed-table td {
+  text-align: right;
+}
+
+.sa-editor .ed-table th:first-child,
+.sa-editor .ed-table td.ed-cell-head {
+  text-align: left;
+  color: var(--ed-text);
+}
+
+.sa-editor .ed-table th {
+  text-align: right;
+}
+
+.sa-editor .ed-table-scroll {
+  overflow-x: auto;
+  margin: 4px 0;
+}
+
+/* ----------------------------------------------------------------- console */
+
+.sa-editor .ed-console {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 240px;
+  gap: 6px;
+}
+
+.sa-editor .ed-console-log {
+  flex: 1 1 auto;
+  min-height: 140px;
+  overflow: auto;
+  padding: 6px 8px;
+  font: var(--ed-mono);
+  background: var(--ed-sunken);
+  border: 1px solid var(--ed-border-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sa-editor .ed-console-entry {
+  margin: 0 0 2px;
+  color: var(--ed-text);
+}
+
+.sa-editor .ed-console-entry--cmd {
+  color: var(--ed-text-faint);
+}
+
+.sa-editor .ed-console-entry--err {
+  color: var(--ed-danger);
+}
+
+.sa-editor .ed-console-entry--info {
+  color: var(--ed-accent-dim);
+}
+
+.sa-editor .ed-console-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.sa-editor .ed-console-prompt {
+  color: var(--ed-accent);
+  font: var(--ed-mono);
+  font-weight: 700;
+}
+
+.sa-editor .ed-console-input {
+  flex: 1 1 auto;
+  font: var(--ed-mono);
+}
+
+/* ---------------------------------------------------------------- problems */
+
+.sa-editor .ed-problems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sa-editor .ed-problem {
+  margin: 0;
+  padding: 5px 8px;
+  font: var(--ed-mono);
+  color: var(--ed-text);
+  background: rgba(255, 77, 94, 0.08);
+  border-left: 2px solid var(--ed-danger);
+  overflow-wrap: anywhere;
+}
+
+.sa-editor .ed-empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--ed-text-faint);
+}
+
+/* -------------------------------------------------------------- scrollbars */
+
+.sa-editor ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sa-editor ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.sa-editor ::-webkit-scrollbar-thumb {
+  background: rgba(87, 216, 255, 0.28);
+  border-radius: 4px;
+}
+
+.sa-editor ::-webkit-scrollbar-thumb:hover {
+  background: rgba(87, 216, 255, 0.5);
+}
+
+.sa-editor ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ------------------------------------------------------------ touch tuning */
+
+@media (pointer: coarse) {
+  .sa-editor {
+    --ed-control-h: 40px;
+    --ed-font: 15px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+    --ed-mono: 14px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+
+  .sa-editor .ed-tab,
+  .sa-editor button,
+  .sa-editor .ed-btn,
+  .sa-editor .ed-status {
+    font-size: 13px;
+    min-height: 40px;
+  }
+
+  .sa-editor input[type="text"],
+  .sa-editor input[type="search"],
+  .sa-editor input[type="number"],
+  .sa-editor input:not([type]),
+  .sa-editor select,
+  .sa-editor .ed-input {
+    font-size: 15px;
+  }
+
+  .sa-editor .ed-toggle {
+    width: 52px;
+    height: 28px;
+  }
+
+  .sa-editor .ed-toggle-track::after {
+    width: 22px;
+    height: 22px;
+  }
+
+  .sa-editor .ed-toggle input:checked + .ed-toggle-track::after {
+    transform: translateX(24px);
+  }
+
+  .sa-editor input[type="range"] {
+    height: 40px;
+  }
+
+  .sa-editor .ed-btn--sm {
+    height: 34px;
+    min-height: 34px;
+  }
+}
+
+/* --------------------------------------------------- mobile bottom sheet */
+
+@media (max-width: 720px) {
+  .sa-editor {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "viewport";
+  }
+
+  .sa-editor .ed-brand {
+    display: none;
+  }
+
+  .sa-editor .ed-inspector {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 55vh;
+    direction: ltr;
+    resize: none;
+    transition: height 0.18s ease;
+  }
+
+  .sa-editor[data-sheet="collapsed"] .ed-inspector {
+    height: 36px;
+  }
+
+  .sa-editor[data-sheet="full"] .ed-inspector {
+    height: 90vh;
+  }
+
+  .sa-editor[data-sheet="collapsed"] .ed-inspector-head,
+  .sa-editor[data-sheet="collapsed"] .ed-inspector-body {
+    display: none;
+  }
+
+  .sa-editor .ed-sheet-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 36px;
+    flex: 0 0 auto;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--ed-border-soft);
+    clip-path: none;
+    cursor: pointer;
+    touch-action: none;
+  }
+
+  .sa-editor .ed-sheet-grip {
+    width: 44px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--ed-accent-dim);
+  }
+
+  .sa-editor .ed-sheet-label {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ed-text-faint);
+  }
+
+  .sa-editor .editor-field > span:first-child {
+    flex: 1 0 100%;
+    max-width: none;
+  }
+}

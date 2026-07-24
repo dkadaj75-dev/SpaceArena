@@ -20,6 +20,7 @@ type JsonSchema = {
   required?: string[];
   items?: JsonSchema;
   enum?: unknown[];
+  const?: unknown;
   minimum?: number;
   maximum?: number;
   pattern?: string;
@@ -27,6 +28,11 @@ type JsonSchema = {
   $ref?: string;
   $defs?: Record<string, JsonSchema>;
 };
+
+/** Matches a 6-digit hex colour, which we surface as a native colour picker. */
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+let datalistSeq = 0;
 
 const REFERENCE_TYPES: Record<string, ConfigType> = {
   asteroidId: "asteroid",
@@ -77,14 +83,21 @@ export class SchemaFormGen<T> {
   private field(raw: JsonSchema, value: unknown, path: string[], label: string, root = false): HTMLElement {
     const schema = this.resolve(raw);
     if (schema.anyOf) {
-      const concrete = schema.anyOf.find((item) => this.resolve(item).type !== "null") ?? schema.anyOf[0]!;
-      return this.field(concrete, value, path, label, root);
+      const branches = schema.anyOf.map((item) => this.resolve(item)).filter((item) => item.type !== "null");
+      // A union of literals is really an enum — render it as a <select>.
+      const literals = branches.filter((item) => item.const !== undefined).map((item) => item.const);
+      if (branches.length > 1 && literals.length === branches.length) {
+        return this.scalarField({ type: typeof literals[0] === "number" ? "number" : "string", enum: literals }, value, path, label);
+      }
+      return this.field(branches[0] ?? schema.anyOf[0]!, value, path, label, root);
     }
     if (schema.type === "object" || schema.properties) {
       const box = document.createElement(root ? "div" : "details");
+      box.className = root ? "ed-form-root" : "ed-group";
       if (!root) {
         (box as HTMLDetailsElement).open = true;
         const summary = document.createElement("summary");
+        summary.className = "ed-group-title";
         summary.textContent = label;
         box.append(summary);
       }
@@ -94,12 +107,21 @@ export class SchemaFormGen<T> {
         const childField = this.field(child, childValue, [...path, key], key);
         if (!(schema.required ?? []).includes(key)) {
           const optional = document.createElement("div");
+          optional.className = "ed-optional";
+          const toggle = document.createElement("span");
+          toggle.className = "ed-toggle";
           const present = document.createElement("input");
           present.type = "checkbox"; present.checked = childValue !== undefined;
-          const presentLabel = document.createElement("span"); presentLabel.textContent = `${key} present`;
+          present.dataset.presenceFor = [...path, key].join(".");
+          const track = document.createElement("span");
+          track.className = "ed-toggle-track";
+          toggle.append(present, track);
+          const presentLabel = document.createElement("span");
+          presentLabel.className = "ed-optional-label";
+          presentLabel.textContent = `${key} present`;
           childField.hidden = !present.checked;
           present.addEventListener("change", () => this.change([...path, key], present.checked ? defaultFor(child) : undefined));
-          optional.append(present, presentLabel, childField); box.append(optional);
+          optional.append(toggle, presentLabel, childField); box.append(optional);
         } else box.append(childField);
       }
       return box;
@@ -118,6 +140,7 @@ export class SchemaFormGen<T> {
       row.append(this.field(schema.items ?? {}, item, [...path, String(index)], `${label} ${index + 1}`));
       const remove = document.createElement("button");
       remove.type = "button";
+      remove.className = "ed-btn ed-btn--danger ed-btn--sm";
       remove.textContent = "Remove";
       remove.addEventListener("click", () => this.change(path, values.filter((_, i) => i !== index)));
       row.append(remove);
@@ -125,6 +148,7 @@ export class SchemaFormGen<T> {
     });
     const add = document.createElement("button");
     add.type = "button";
+    add.className = "ed-btn ed-btn--sm";
     add.textContent = "Add";
     add.addEventListener("click", () => this.change(path, [...values, defaultFor(schema.items ?? {})]));
     wrap.append(list, add);
@@ -133,46 +157,104 @@ export class SchemaFormGen<T> {
 
   private scalarField(schema: JsonSchema, value: unknown, path: string[], label: string): HTMLElement {
     const wrap = this.wrap(label);
+    const name = path.join(".");
     const referenceType = REFERENCE_TYPES[label];
     let input: HTMLInputElement | HTMLSelectElement;
+    /** Extra node appended after the primary control (slider, colour swatch…). */
+    let companion: HTMLElement | null = null;
+
     if (referenceType) {
-      input = document.createElement("select");
-      input.className = "editor-reference";
+      // Searchable reference picker: a text box backed by a <datalist> of ids.
+      // Keeps typing/filtering on desktop and the native picker on touch, which
+      // a plain <select> of hundreds of ids cannot.
+      input = document.createElement("input");
+      input.type = "text";
+      input.className = "ed-input editor-reference";
+      input.value = typeof value === "string" ? value : "";
+      input.autocomplete = "off";
+      input.placeholder = `${referenceType} id…`;
+      const list = document.createElement("datalist");
+      list.id = `ed-ref-${referenceType}-${++datalistSeq}`;
       const ids = this.options.configService.getAll(referenceType).map((item) => item.id).sort();
-      for (const id of ids) input.append(new Option(id, id, false, id === value));
+      for (const id of ids) list.append(new Option(id, id));
+      input.setAttribute("list", list.id);
+      companion = list;
     } else if (schema.enum) {
       input = document.createElement("select");
+      input.className = "ed-select";
       for (const option of schema.enum) input.append(new Option(String(option), String(option), false, option === value));
+    } else if (schema.type === "boolean") {
+      input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = value === true;
+      input.className = "ed-toggle-input";
+    } else if (schema.type === "number" || schema.type === "integer") {
+      input = document.createElement("input");
+      input.type = "number";
+      input.className = "ed-input ed-num";
+      if (schema.minimum !== undefined) input.min = String(schema.minimum);
+      if (schema.maximum !== undefined) input.max = String(schema.maximum);
+      input.step = schema.type === "integer" ? "1" : "any";
+      input.value = typeof value === "number" || typeof value === "string" ? String(value) : "";
+    } else if (isColor(label, schema, value)) {
+      input = document.createElement("input");
+      input.type = "color";
+      input.className = "ed-color";
+      input.value = typeof value === "string" && HEX_COLOR.test(value) ? value.toLowerCase() : "#000000";
     } else {
       input = document.createElement("input");
-      if (schema.type === "number" || schema.type === "integer") {
-        input.type = "number";
-        if (schema.minimum !== undefined) input.min = String(schema.minimum);
-        if (schema.maximum !== undefined) input.max = String(schema.maximum);
-        input.step = schema.type === "integer" ? "1" : "any";
-      } else if (schema.type === "boolean") {
-        input.type = "checkbox";
-        input.checked = value === true;
-      } else if (isColor(label, schema, value)) input.type = "color";
-      else input.type = "text";
-      if (input.type !== "checkbox") input.value = typeof value === "string" || typeof value === "number" ? String(value) : "";
+      input.type = "text";
+      input.className = "ed-input";
+      input.value = typeof value === "string" || typeof value === "number" ? String(value) : "";
     }
-    input.name = path.join(".");
+
+    input.name = name;
     input.addEventListener("change", () => this.change(path, inputValue(input, schema)));
-    wrap.append(input);
-    if (schema.type === "number" && schema.minimum !== undefined && schema.maximum !== undefined) {
+
+    if (input instanceof HTMLInputElement && input.type === "checkbox") {
+      // Toggle switch: the visual track is a sibling styled off :checked.
+      const toggle = document.createElement("span");
+      toggle.className = "ed-toggle";
+      const track = document.createElement("span");
+      track.className = "ed-toggle-track";
+      toggle.append(input, track);
+      wrap.append(toggle);
+    } else if (input instanceof HTMLInputElement && input.type === "number" && schema.minimum !== undefined && schema.maximum !== undefined) {
+      // Bounded number: slider + number box, kept in sync both ways. The slider
+      // only *commits* on `change` so dragging doesn't re-render every frame.
+      const row = document.createElement("div");
+      row.className = "ed-control-row";
       const slider = document.createElement("input");
       slider.type = "range";
+      slider.className = "ed-range";
       slider.min = String(schema.minimum);
       slider.max = String(schema.maximum);
-      slider.step = input instanceof HTMLInputElement ? input.step : "any";
-      slider.value = String(value ?? schema.minimum);
-      slider.addEventListener("input", () => {
-        if (input instanceof HTMLInputElement) input.value = slider.value;
-        this.change(path, Number(slider.value));
-      });
-      wrap.append(slider);
+      slider.step = schema.type === "integer" ? "1" : String((schema.maximum - schema.minimum) / 100 || "any");
+      slider.value = String(typeof value === "number" ? value : schema.minimum);
+      slider.addEventListener("input", () => { input.value = slider.value; });
+      slider.addEventListener("change", () => this.change(path, Number(slider.value)));
+      input.addEventListener("input", () => { slider.value = input.value; });
+      row.append(input, slider);
+      wrap.append(row);
+    } else if (input instanceof HTMLInputElement && input.type === "color") {
+      // Colour: swatch + hex text box, kept in sync.
+      const row = document.createElement("div");
+      row.className = "ed-control-row";
+      const hex = document.createElement("input");
+      hex.type = "text";
+      hex.className = "ed-input ed-mono ed-color-text";
+      hex.dataset.colorFor = name;
+      hex.value = typeof value === "string" ? value : "";
+      hex.addEventListener("input", () => { if (HEX_COLOR.test(hex.value)) input.value = hex.value.toLowerCase(); });
+      hex.addEventListener("change", () => this.change(path, hex.value));
+      input.addEventListener("input", () => { hex.value = input.value; });
+      row.append(input, hex);
+      wrap.append(row);
+    } else {
+      wrap.append(input);
     }
+    if (companion) wrap.append(companion);
+
     const error = document.createElement("small");
     error.className = "editor-field-error";
     error.dataset.errorFor = path.join(".");
@@ -231,6 +313,11 @@ function inputValue(input: HTMLInputElement | HTMLSelectElement, schema: JsonSch
 }
 function defaultFor(raw: JsonSchema): unknown {
   const schema = raw;
+  if (schema.const !== undefined) return schema.const;
+  if (schema.anyOf) {
+    const branch = schema.anyOf.find((item) => item.type !== "null");
+    if (branch) return defaultFor(branch);
+  }
   if (schema.type === "object") return Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, child]) => [key, defaultFor(child)]));
   if (schema.type === "array") return [];
   if (schema.type === "boolean") return false;
@@ -247,6 +334,13 @@ function setPath(value: unknown, path: string[], next: unknown): void {
   if (Array.isArray(target)) target[Number(key)] = next;
   else (target as Record<string, unknown>)[key] = next;
 }
+/**
+ * A colour picker is only safe when the current value really is a 6-digit hex
+ * (`<input type="color">` silently coerces anything else to #000000). Empty
+ * values fall back to the field's name/pattern hints.
+ */
 function isColor(label: string, schema: JsonSchema, value: unknown): boolean {
-  return /color|palette/i.test(label) || schema.pattern?.includes("#") === true || (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value));
+  if (typeof value === "string" && HEX_COLOR.test(value)) return true;
+  if (value !== undefined && value !== "") return false;
+  return /color|palette/i.test(label) || schema.pattern?.includes("#") === true;
 }

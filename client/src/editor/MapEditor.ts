@@ -35,15 +35,27 @@ export class MapEditor implements EditorPanel {
   private arena(): ArenaConfig | undefined { return this.host.configService.get<ArenaConfig>("arena", this.arenaId); }
   private renderUi(): void {
     this.element.replaceChildren();
+    const toolbar = document.createElement("div"); toolbar.className = "ed-toolbar";
     const select = document.createElement("select");
     for (const arena of this.host.configService.getAll<ArenaConfig>("arena")) select.append(new Option(arena.name, arena.id, false, arena.id === this.arenaId));
     select.addEventListener("change", () => { this.arenaId = select.value; this.rebuildPreview(); this.renderUi(); });
-    this.element.append(text("Arena: "), select, text("Asteroid palette"));
-    for (const asteroid of this.host.configService.getAll<AsteroidConfig>("asteroid")) { const button = document.createElement("button"); button.textContent = asteroid.name ?? asteroid.id ?? "Asteroid"; button.addEventListener("click", () => { this.paletteId = asteroid.id ?? null; }); this.element.append(button); }
+    toolbar.append(label("Arena"), select);
+    const save = document.createElement("button"); save.className = "ed-btn ed-btn--primary"; save.textContent = "Save to disk"; save.addEventListener("click", () => void this.save()); toolbar.append(save);
+    this.element.append(toolbar);
+
+    const palette = document.createElement("div"); palette.className = "ed-row";
+    palette.append(label("Asteroid palette"));
+    for (const asteroid of this.host.configService.getAll<AsteroidConfig>("asteroid")) { const button = document.createElement("button"); button.className = "ed-btn ed-btn--sm"; button.textContent = asteroid.name ?? asteroid.id ?? "Asteroid"; button.addEventListener("click", () => { this.paletteId = asteroid.id ?? null; }); palette.append(button); }
+    this.element.append(palette);
+
+    const snapRow = document.createElement("div"); snapRow.className = "ed-row";
+    const snapToggle = document.createElement("span"); snapToggle.className = "ed-toggle";
     const snap = document.createElement("input"); snap.type = "checkbox"; snap.checked = this.snap; snap.addEventListener("change", () => { this.snap = snap.checked; });
-    const grid = document.createElement("input"); grid.type = "number"; grid.value = String(this.grid); grid.min = "0.1"; grid.addEventListener("change", () => { this.grid = Math.max(.1, Number(grid.value)); });
-    this.element.append(text("Snap "), snap, text(" grid "), grid);
-    const save = document.createElement("button"); save.textContent = "Save to disk"; save.addEventListener("click", () => void this.save()); this.element.append(save);
+    const snapTrack = document.createElement("span"); snapTrack.className = "ed-toggle-track";
+    snapToggle.append(snap, snapTrack);
+    const grid = document.createElement("input"); grid.type = "number"; grid.className = "ed-input ed-num ed-num--sm"; grid.value = String(this.grid); grid.min = "0.1"; grid.addEventListener("change", () => { this.grid = Math.max(.1, Number(grid.value)); });
+    snapRow.append(label("Snap"), snapToggle, label("Grid"), grid);
+    this.element.append(snapRow);
     const arena = this.arena(); if (arena) {
       const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: this.host.configService, onProblem: (p) => this.report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => { this.host.rebuildArena(); this.rebuildPreview(); } });
       this.element.append(form.element);
@@ -77,5 +89,6 @@ export class MapEditor implements EditorPanel {
   private async save(): Promise<void> { const arena = this.arena(); if (!arena) return; const error = await saveConfig(arena); if (error) this.report(error); }
   dispose(): void { this.host.scene.onPointerObservable.remove(this.observer); window.removeEventListener("keydown", this.onKey); this.gizmos.dispose(); this.root.dispose(false, true); }
 }
-function text(value: string): Text { return document.createTextNode(value); }
+/** Small uppercase caption used by the toolbar rows. */
+function label(value: string): HTMLSpanElement { const span = document.createElement("span"); span.className = "ed-label"; span.textContent = value; return span; }
 function material(host: EditorHost, name: string, color: Color3): StandardMaterial { const mat = new StandardMaterial(name, host.scene); mat.emissiveColor = color; return mat; }

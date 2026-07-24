@@ -75,8 +75,7 @@ export class BalanceWorkbench implements EditorPanel {
     this.element.append(textEl("h3", "60 s engagement simulator"));
     this.element.append(this.engagementPanel(rows));
     const note = textEl("p", "TTK and stats are closed-form over configs (no movement/LoS/shield-reduction). See balanceMath.ts for each simplification.");
-    note.style.color = "#8fa6c4";
-    note.style.fontSize = "11px";
+    note.className = "ed-note";
     this.element.append(note);
   }
 
@@ -95,8 +94,7 @@ export class BalanceWorkbench implements EditorPanel {
       ["Shield", (m) => fmt(m.shieldPool)],
     ];
     const table = document.createElement("table");
-    table.style.borderCollapse = "collapse";
-    table.style.fontSize = "11px";
+    table.className = "ed-table";
     const head = table.insertRow();
     head.append(th("Fit"));
     for (const [name] of cols) head.append(th(name));
@@ -110,8 +108,7 @@ export class BalanceWorkbench implements EditorPanel {
 
   private ttkMatrix(rows: FitRow[]): HTMLElement {
     const table = document.createElement("table");
-    table.style.borderCollapse = "collapse";
-    table.style.fontSize = "11px";
+    table.className = "ed-table";
     const head = table.insertRow();
     head.append(th("atk \\ def"));
     for (const r of rows) head.append(th(shortLabel(r.label)));
@@ -177,13 +174,12 @@ export class BalanceWorkbench implements EditorPanel {
     const canvas = document.createElement("canvas");
     canvas.width = 340;
     canvas.height = 140;
-    canvas.style.background = "#0b1220";
-    canvas.style.border = "1px solid #33465f";
+    canvas.className = "ed-chart";
     box.append(canvas);
     this.plot(canvas, result.samples.map((s) => s.energy), result.capacitorMax, "#57d8ff", result.samples.map((s) => s.heat), result.heatCapacity, "#ff9a3c");
 
     const legend = textEl("p", `energy (cyan, max ${fmt(result.capacitorMax)}) · heat (orange, cap ${fmt(result.heatCapacity)}) · uptime ${fmt(result.uptime * 100)}%${result.brownedOut ? " · brown-out occurred" : ""}`);
-    legend.style.fontSize = "11px";
+    legend.className = "ed-legend";
     box.append(legend);
     return box;
   }
@@ -237,17 +233,12 @@ function textEl(tag: string, content: string): HTMLElement {
 function th(content: string): HTMLTableCellElement {
   const cell = document.createElement("th");
   cell.textContent = content;
-  cell.style.border = "1px solid #33465f";
-  cell.style.padding = "2px 5px";
-  cell.style.textAlign = "right";
   return cell;
 }
 function td(content: string, head = false): HTMLTableCellElement {
   const cell = document.createElement("td");
   cell.textContent = content;
-  cell.style.border = "1px solid #33465f";
-  cell.style.padding = "2px 5px";
-  cell.style.textAlign = head ? "left" : "right";
+  if (head) cell.className = "ed-cell-head";
   return cell;
 }
 function labeled(label: string, control: Node): HTMLElement {

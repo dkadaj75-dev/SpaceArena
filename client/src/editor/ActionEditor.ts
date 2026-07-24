@@ -31,6 +31,8 @@ export class ActionEditor implements EditorPanel {
   private render(): void {
     this.element.replaceChildren();
     const configs = this.host.configService.getAll<ActionConfig>("action");
+    const toolbar = document.createElement("div");
+    toolbar.className = "ed-toolbar";
     const select = document.createElement("select");
     for (const config of configs) select.append(new Option(config.name ?? config.id, config.id, false, config.id === this.selectedId));
     select.addEventListener("change", () => {
@@ -39,9 +41,11 @@ export class ActionEditor implements EditorPanel {
     });
     const add = document.createElement("button");
     add.type = "button";
+    add.className = "ed-btn";
     add.textContent = "New";
     add.addEventListener("click", () => this.createFrom(configs));
-    this.element.append(select, add);
+    toolbar.append(select, add);
+    this.element.append(toolbar);
 
     const selected = configs.find((c) => c.id === this.selectedId);
     if (!selected) return;
@@ -53,6 +57,7 @@ export class ActionEditor implements EditorPanel {
     });
     const save = document.createElement("button");
     save.type = "button";
+    save.className = "ed-btn ed-btn--primary";
     save.textContent = "Save to disk";
     save.addEventListener("click", () => void this.save());
     this.element.append(this.form.element, save);

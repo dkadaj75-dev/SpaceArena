@@ -205,8 +205,8 @@ export class ShipManager implements EditorPanel {
       const hpIndex = hardpointIndexOf(ship, index);
       const label = socket.kind === "hardpoint" ? `#${hpIndex} ${socket.id}` : socket.id;
       const btn = button(`${dot(socket.kind)} ${label} (${socket.kind})`, () => this.select(index));
-      btn.style.fontWeight = index === this.selectedIndex ? "bold" : "normal";
-      btn.style.textAlign = "left";
+      btn.classList.add("ed-list-btn");
+      btn.classList.toggle("is-selected", index === this.selectedIndex);
       const dup = button("Dup", () => this.replace(duplicateSocket(ship, index)));
       const del = button("Del", () => {
         this.selectedIndex = null;
@@ -286,7 +286,7 @@ export class ShipManager implements EditorPanel {
         this.replace(setHardpointAccepts(ship, index, next));
       });
       const lbl = document.createElement("label");
-      lbl.style.marginRight = "6px";
+      lbl.className = "ed-inline-label";
       lbl.append(cb, document.createTextNode(fam));
       acceptsBox.append(lbl);
     }
@@ -318,16 +318,14 @@ export class ShipManager implements EditorPanel {
   /** Blocking banner listing incompatible fitting slots + a one-click fix (Finding 6). */
   private incompatibleBanner(issues: FittingIssue[]): HTMLElement {
     const box = document.createElement("div");
-    Object.assign(box.style, { border: "1px solid #ff6b6b", background: "#3a1414cc", padding: "6px", margin: "4px 0", borderRadius: "4px" });
+    box.className = "ed-callout ed-callout--danger";
     const title = document.createElement("p");
     title.textContent = "⛔ Incompatible default fitting — Save is blocked.";
-    title.style.color = "#ff9a9a";
-    title.style.fontWeight = "bold";
-    title.style.margin = "0 0 4px";
+    title.className = "ed-callout-title";
     box.append(title);
     for (const issue of issues) {
       const line = document.createElement("p");
-      line.style.margin = "2px 0";
+      line.className = "ed-callout-line";
       const fam = issue.moduleFamily ? ` [${issue.moduleFamily}]` : "";
       const acc = issue.accepts.length ? issue.accepts.join(", ") : "— (orphaned slot: no hardpoint)";
       line.textContent = `Hardpoint #${issue.hpIndex} (${issue.socketId}): '${issue.moduleId}'${fam} is not accepted (accepts: ${acc}).`;
@@ -346,16 +344,14 @@ export class ShipManager implements EditorPanel {
   /** Persistent, dismissable warnings + Save-acknowledge checkbox (Finding 7). */
   private stickyWarningsSection(): HTMLElement {
     const box = document.createElement("div");
-    Object.assign(box.style, { border: "1px solid #ffce6b", background: "#33280fcc", padding: "6px", margin: "4px 0", borderRadius: "4px" });
+    box.className = "ed-callout ed-callout--warn";
     const title = document.createElement("p");
     title.textContent = "⚠ Sticky warnings (persist until dismissed):";
-    title.style.color = "#ffce6b";
-    title.style.fontWeight = "bold";
-    title.style.margin = "0 0 4px";
+    title.className = "ed-callout-title";
     box.append(title);
     this.sticky.list().forEach((message, i) => {
       const line = document.createElement("p");
-      line.style.margin = "2px 0";
+      line.className = "ed-callout-line";
       line.append(button("×", () => { this.sticky.dismiss(i); this.renderUi(); }), document.createTextNode(` ${message}`));
       box.append(line);
     });
@@ -386,8 +382,7 @@ export class ShipManager implements EditorPanel {
     const list = section("bindings");
     socket.bindings.forEach((binding, bIndex) => {
       const brow = document.createElement("div");
-      brow.style.borderTop = "1px solid #33465f";
-      brow.style.paddingTop = "4px";
+      brow.className = "ed-row ed-subrow";
 
       const source = document.createElement("select");
       for (const s of ALL_SIGNALS) source.append(new Option(s, s, false, s === binding.source));
@@ -812,17 +807,12 @@ function text(value: string): HTMLSpanElement {
 function warn(message: string): HTMLElement {
   const el = document.createElement("p");
   el.textContent = `⚠ ${message}`;
-  el.style.color = "#ffce6b";
-  el.style.margin = "4px 0";
+  el.className = "ed-warn";
   return el;
 }
 function row(...children: Node[]): HTMLDivElement {
   const div = document.createElement("div");
-  div.style.display = "flex";
-  div.style.gap = "4px";
-  div.style.alignItems = "center";
-  div.style.flexWrap = "wrap";
-  div.style.margin = "2px 0";
+  div.className = "ed-row";
   div.append(...children);
   return div;
 }
@@ -849,7 +839,7 @@ function numberInput(value: number, onChange: () => void): HTMLInputElement {
   const input = document.createElement("input");
   input.type = "number";
   input.step = "any";
-  input.style.width = "64px";
+  input.className = "ed-input ed-num ed-num--sm";
   input.value = String(value);
   input.addEventListener("change", onChange);
   return input;

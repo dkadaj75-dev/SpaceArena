@@ -52,10 +52,13 @@ describe("SchemaFormGen", () => {
     const noteInput = form.element.querySelector('[name="note"]') as HTMLInputElement;
     expect(noteInput).not.toBeNull();
     expect((noteInput.closest("label.editor-field") as HTMLElement | null)?.hidden).toBe(true);
-    const presenceCheckbox = Array.from(form.element.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(
-      (c) => c.nextSibling?.textContent === "note present",
-    );
-    expect(presenceCheckbox).toBeDefined();
+    // The presence checkbox is now wrapped in a `.ed-toggle` switch, so it is
+    // located by its data attribute rather than by sibling text.
+    const presenceCheckbox = form.element.querySelector<HTMLInputElement>('input[type="checkbox"][data-presence-for="note"]');
+    expect(presenceCheckbox).not.toBeNull();
+    expect(presenceCheckbox!.checked).toBe(false);
+    expect(presenceCheckbox!.closest(".ed-toggle")).not.toBeNull();
+    expect(presenceCheckbox!.closest(".ed-optional")?.querySelector(".ed-optional-label")?.textContent).toBe("note present");
 
     // Enum field -> <select> with one option per enum value.
     const modeSelect = input(form, "mode") as HTMLSelectElement;
@@ -112,18 +115,90 @@ describe("SchemaFormGen", () => {
     expect(form.getValue().tags).toEqual(["two", ""]);
   });
 
-  it("renders id-reference fields as a <select> populated from configService.getAll (current implementation)", () => {
-    // Gap note: REFERENCE_TYPES support only a plain <select>, not the
-    // "searchable dropdown" called for in ROADMAP §6B 1.11 — there is no
-    // text-filter affordance inside the reference dropdown itself.
+  it("renders id-reference fields as a searchable input backed by a datalist of configService ids", () => {
     const configService = fakeConfigService();
     const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService });
 
-    const referenceSelect = input(form, "asteroidId");
-    expect(referenceSelect.tagName).toBe("SELECT");
+    const reference = input(form, "asteroidId") as HTMLInputElement;
+    expect(reference.tagName).toBe("INPUT");
+    expect(reference.type).toBe("text");
     expect(configService.getAll).toHaveBeenCalledWith("asteroid");
-    const ids = Array.from((referenceSelect as HTMLSelectElement).options).map((o) => o.value);
+    expect(reference.value).toBe("asteroid.small-rock");
+
+    // The candidate ids live in the linked <datalist>, still sorted.
+    const listId = reference.getAttribute("list");
+    expect(listId).toBeTruthy();
+    const datalist = form.element.querySelector(`datalist#${listId}`) as HTMLDataListElement;
+    expect(datalist).not.toBeNull();
+    const ids = Array.from(datalist.querySelectorAll("option")).map((o) => o.value);
     expect(ids).toEqual(["asteroid.large-hazard", "asteroid.small-rock"]);
-    expect((referenceSelect as HTMLSelectElement).value).toBe("asteroid.small-rock");
+  });
+
+  it("renders a bounded number as a synced number box + range slider, and the slider commits edits", () => {
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService });
+
+    const speed = input(form, "nested.speed") as HTMLInputElement;
+    expect(speed.type).toBe("number");
+    const row = speed.closest(".ed-control-row")!;
+    const slider = row.querySelector('input[type="range"]') as HTMLInputElement;
+    expect(slider).not.toBeNull();
+    expect(slider.min).toBe("0");
+    expect(slider.max).toBe("10");
+    expect(slider.value).toBe("5");
+
+    // Dragging syncs the number box without committing…
+    slider.value = "7";
+    slider.dispatchEvent(new Event("input"));
+    expect(speed.value).toBe("7");
+    expect(configService.replace).not.toHaveBeenCalled();
+    // …releasing commits.
+    slider.dispatchEvent(new Event("change"));
+    expect(configService.replace).toHaveBeenCalledTimes(1);
+    expect(form.getValue().nested.speed).toBe(7);
+  });
+
+  it("renders booleans as a toggle switch and hex-coloured strings as a colour picker + hex box", () => {
+    const schema = z.object({
+      id: z.string(),
+      enabled: z.boolean(),
+      tint: z.string(),
+    });
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({
+      schema,
+      value: { id: "x.1", enabled: true, tint: "#57d8ff" },
+      configService,
+    });
+
+    const toggle = form.element.querySelector('[name="enabled"]') as HTMLInputElement;
+    expect(toggle.type).toBe("checkbox");
+    expect(toggle.checked).toBe(true);
+    expect(toggle.closest(".ed-toggle")?.querySelector(".ed-toggle-track")).not.toBeNull();
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change"));
+    expect(configService.replace).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+
+    const color = form.element.querySelector('[name="tint"]') as HTMLInputElement;
+    expect(color.type).toBe("color");
+    const hex = form.element.querySelector('[data-color-for="tint"]') as HTMLInputElement;
+    expect(hex.value).toBe("#57d8ff");
+    hex.value = "#ff4d5e";
+    hex.dispatchEvent(new Event("change"));
+    expect(configService.replace).toHaveBeenLastCalledWith(expect.objectContaining({ tint: "#ff4d5e" }));
+  });
+
+  it("renders a union of literals as a <select>", () => {
+    const schema = z.object({
+      id: z.string(),
+      shape: z.union([z.literal("box"), z.literal("sphere"), z.literal("cone")]),
+    });
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({ schema, value: { id: "x.1", shape: "sphere" }, configService });
+
+    const select = form.element.querySelector('[name="shape"]') as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["box", "sphere", "cone"]);
+    expect(select.value).toBe("sphere");
   });
 });

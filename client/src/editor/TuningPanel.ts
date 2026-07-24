@@ -37,6 +37,7 @@ class ConfigSection<T extends TuningConfig | CameraConfig> {
     summary.textContent = label;
     const save = document.createElement("button");
     save.type = "button";
+    save.className = "ed-btn ed-btn--primary ed-btn--sm";
     save.textContent = "Save to disk";
     save.addEventListener("click", () => void this.save());
     this.form = form.element;
@@ -78,11 +79,15 @@ export class TuningPanel implements EditorPanel {
   private readonly sections: ConfigSection<TuningConfig | CameraConfig>[] = [];
 
   constructor(host: EditorHost, report: (message: string | null) => void) {
+    const toolbar = document.createElement("div");
+    toolbar.className = "ed-toolbar";
     const search = document.createElement("input");
     search.type = "search";
+    search.className = "ed-input";
     search.placeholder = "Filter fields…";
     search.addEventListener("input", () => this.filter(search.value));
-    this.element.append(search);
+    toolbar.append(search);
+    this.element.append(toolbar);
 
     for (const tuning of host.configService.getAll<TuningConfig>("tuning")) {
       const form = new SchemaFormGen({
