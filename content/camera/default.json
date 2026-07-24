@@ -7,5 +7,6 @@
   "beta": { "min": 0.61, "max": 1.13, "default": 0.9 },
   "radius": { "min": 30, "max": 90, "default": 55 },
   "followLag": 0.15,
-  "lookAhead": 6
+  "lookAhead": 6,
+  "pan": { "sensitivity": 1, "boundsMargin": 10 }
 }

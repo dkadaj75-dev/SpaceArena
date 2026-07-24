@@ -247,7 +247,9 @@ export class ViewManager {
       const x = p.pos.x + (s.pos.x - p.pos.x) * alpha;
       const z = p.pos.z + (s.pos.z - p.pos.z) * alpha;
       view.node.position.set(x, SHIP_Y, z);
-      view.node.rotation.y = lerpAngle(p.heading, s.heading, alpha);
+      // Sim heading is math-convention (0 = +X, atan2(z,x)); Babylon yaw 0
+      // faces +Z (the models' nose axis), so yaw = π/2 − heading.
+      view.node.rotation.y = Math.PI / 2 - lerpAngle(p.heading, s.heading, alpha);
 
       view.rig?.updateModules(s.modules);
       view.rig?.updateEmitters(s, findShip(prev, s.id), nowMs);
@@ -334,7 +336,8 @@ export class ViewManager {
       const x = p.pos.x + (pr.pos.x - p.pos.x) * alpha;
       const z = p.pos.z + (pr.pos.z - p.pos.z) * alpha;
       mesh.position.set(x, PROJECTILE_Y, z);
-      mesh.rotation.y = lerpAngle(p.heading, pr.heading, alpha);
+      // Same sim-heading → Babylon-yaw conversion as ships (nose +Z).
+      mesh.rotation.y = Math.PI / 2 - lerpAngle(p.heading, pr.heading, alpha);
       mesh.setEnabled(true);
     }
     for (let i = k; i < this.kineticPool.length; i++) this.kineticPool[i]!.setEnabled(false);

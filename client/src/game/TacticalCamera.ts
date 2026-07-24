@@ -1,9 +1,20 @@
-import { ArcRotateCamera, Vector3, type Scene, type TransformNode } from "@babylonjs/core";
+import {
+  ArcRotateCamera,
+  PointerEventTypes,
+  Vector3,
+  type Observer,
+  type PointerInfo,
+  type Scene,
+  type TransformNode,
+} from "@babylonjs/core";
 import { createLogger, type CameraConfig, type ConfigService, type EventBus, type ConfigEvents } from "@space-arena/shared";
 
 const log = createLogger("TacticalCamera");
 
 const CAMERA_CONFIG_ID = "camera.default";
+
+const RIGHT_AXIS = new Vector3(1, 0, 0);
+const FORWARD_AXIS = new Vector3(0, 0, 1);
 
 /**
  * `ArcRotateCamera` rig for the 3/4 tactical view (§2.1). Limits/speeds come
@@ -25,9 +36,24 @@ export class TacticalCamera {
   private hangarMode = false;
   private pointersInput: { buttons: number[] } | undefined;
 
+  // Tactical-mode pan/pinch gesture state (right-drag on desktop, two-finger
+  // on touch). The pan is an offset ON TOP of the follow point, so the camera
+  // keeps tracking the ship while the player looks around the arena.
+  private readonly panOffset = new Vector3();
+  private readonly followPoint = new Vector3();
+  private panSensitivity = 1;
+  private panBoundsMargin = 10;
+  private panBoundsRadius = 90;
+  private readonly activeTouches = new Map<number, { x: number; y: number }>();
+  private rightDrag: { x: number; y: number } | null = null;
+  private pointerObserver: Observer<PointerInfo> | null = null;
+  private readonly onContextMenu = (e: Event): void => e.preventDefault();
+  private readonly scratchRight = new Vector3();
+  private readonly scratchGroundFwd = new Vector3();
+
   constructor(
     private readonly scene: Scene,
-    canvas: HTMLCanvasElement,
+    private readonly canvas: HTMLCanvasElement,
     private readonly configService: ConfigService,
     private readonly bus: EventBus<ConfigEvents>,
   ) {
@@ -47,13 +73,19 @@ export class TacticalCamera {
 
     this.applyLimits(config);
 
-    // Attach orbit/zoom control, then restrict orbit dragging to the right mouse
-    // button only — left click/tap stays 100% free for gameplay (tap-to-move etc).
+    // Attach control for wheel zoom. The built-in pointers input only serves
+    // the editor/hangar orbit modes (buttons set there); in tactical mode all
+    // pointer gestures are handled by this class: right-drag pans, two-finger
+    // drag pans + pinches, and left click/tap stays 100% free for gameplay.
     this.camera.attachControl(canvas, true);
     this.pointersInput = this.camera.inputs.attached.pointers as unknown as
       | { buttons: number[] }
       | undefined;
-    if (this.pointersInput) this.pointersInput.buttons = [2];
+    if (this.pointersInput) this.pointersInput.buttons = [];
+
+    canvas.style.touchAction = "none";
+    canvas.addEventListener("contextmenu", this.onContextMenu);
+    this.pointerObserver = scene.onPointerObservable.add((pi) => this.onPointer(pi));
 
     this.camera.wheelDeltaPercentage = 0.01;
     this.camera.pinchDeltaPercentage = 0.01;
@@ -79,12 +111,25 @@ export class TacticalCamera {
     this.camera.upperRadiusLimit = config?.radius.max ?? 100;
     this.followLag = config?.followLag ?? this.followLag;
     this.lookAhead = config?.lookAhead ?? this.lookAhead;
+    this.panSensitivity = config?.pan?.sensitivity ?? 1;
+    this.panBoundsMargin = config?.pan?.boundsMargin ?? 10;
+  }
+
+  /** Arena bounds radius clamping how far the view target can pan (world units). */
+  setPanBounds(radius: number): void {
+    this.panBoundsRadius = radius;
   }
 
   /** Follow a transform node (the player ship) with smoothed lag + look-ahead. */
   follow(target: TransformNode): void {
     this.followTarget = target;
     this.previousTargetPos = null;
+    this.panOffset.setAll(0);
+  }
+
+  /** Recenter the view on the followed ship (clears any user pan). */
+  recenter(): void {
+    this.panOffset.setAll(0);
   }
 
   /** Temporarily turn the tactical rig into an unrestricted editor orbit camera. */
@@ -92,12 +137,14 @@ export class TacticalCamera {
     this.editorMode = enabled;
     if (enabled) {
       this.followTarget = null;
+      if (this.pointersInput) this.pointersInput.buttons = [2];
       this.camera.lowerBetaLimit = 0.05;
       this.camera.upperBetaLimit = Math.PI / 2 - 0.02;
       this.camera.lowerRadiusLimit = 5;
       this.camera.upperRadiusLimit = 300;
       return;
     }
+    if (this.pointersInput) this.pointersInput.buttons = [];
     this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
   }
 
@@ -120,7 +167,7 @@ export class TacticalCamera {
       if (this.pointersInput) this.pointersInput.buttons = [0, 2];
       return;
     }
-    if (this.pointersInput) this.pointersInput.buttons = [2];
+    if (this.pointersInput) this.pointersInput.buttons = [];
     this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
   }
 
@@ -130,6 +177,76 @@ export class TacticalCamera {
     this.camera.radius = radius;
     this.camera.alpha = alpha;
     this.camera.beta = beta;
+  }
+
+  private onPointer(pi: PointerInfo): void {
+    // Editor/hangar modes use the built-in orbit input instead of these gestures.
+    if (this.editorMode || this.hangarMode) return;
+    const ev = pi.event as PointerEvent;
+    const isTouch = ev.pointerType === "touch";
+
+    if (pi.type === PointerEventTypes.POINTERDOWN) {
+      if (isTouch) {
+        this.activeTouches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      } else if (ev.button === 2) {
+        this.rightDrag = { x: ev.clientX, y: ev.clientY };
+      }
+    } else if (pi.type === PointerEventTypes.POINTERMOVE) {
+      if (!isTouch && this.rightDrag) {
+        this.pan(ev.clientX - this.rightDrag.x, ev.clientY - this.rightDrag.y);
+        this.rightDrag.x = ev.clientX;
+        this.rightDrag.y = ev.clientY;
+        return;
+      }
+      const touch = this.activeTouches.get(ev.pointerId);
+      if (!touch) return;
+      const [a, b] = [...this.activeTouches.values()];
+      if (this.activeTouches.size === 2 && a && b) {
+        // Two-finger gesture: centroid delta pans, distance ratio pinch-zooms.
+        const prevCx = (a.x + b.x) / 2;
+        const prevCy = (a.y + b.y) / 2;
+        const prevDist = Math.hypot(a.x - b.x, a.y - b.y);
+        touch.x = ev.clientX;
+        touch.y = ev.clientY;
+        this.pan((a.x + b.x) / 2 - prevCx, (a.y + b.y) / 2 - prevCy);
+        const curDist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (prevDist > 1 && curDist > 1) this.zoomBy(prevDist / curDist);
+      } else {
+        touch.x = ev.clientX;
+        touch.y = ev.clientY;
+      }
+    } else if (pi.type === PointerEventTypes.POINTERUP) {
+      this.activeTouches.delete(ev.pointerId);
+      if (!isTouch && ev.button === 2) this.rightDrag = null;
+    }
+  }
+
+  /** Screen-pixel drag → world-space pan offset ("grab the world": content follows the pointer). */
+  private pan(dx: number, dy: number): void {
+    if (dx === 0 && dy === 0) return;
+    const viewportH = this.canvas.clientHeight || 1;
+    const worldPerPx =
+      ((2 * this.camera.radius * Math.tan(this.camera.fov / 2)) / viewportH) * this.panSensitivity;
+
+    // Camera axes flattened onto the arena plane: screen-x maps to `right`,
+    // screen-y to the view direction with tilt removed.
+    this.camera.getDirectionToRef(RIGHT_AXIS, this.scratchRight);
+    this.scratchRight.y = 0;
+    this.scratchRight.normalize();
+    this.camera.getDirectionToRef(FORWARD_AXIS, this.scratchGroundFwd);
+    this.scratchGroundFwd.y = 0;
+    this.scratchGroundFwd.normalize();
+
+    this.panOffset.x += (-this.scratchRight.x * dx + this.scratchGroundFwd.x * dy) * worldPerPx;
+    this.panOffset.z += (-this.scratchRight.z * dx + this.scratchGroundFwd.z * dy) * worldPerPx;
+  }
+
+  /** Multiply the orbit radius (pinch), clamped to the configured zoom limits. */
+  private zoomBy(factor: number): void {
+    const r = this.camera.radius * factor;
+    const lo = this.camera.lowerRadiusLimit ?? r;
+    const hi = this.camera.upperRadiusLimit ?? r;
+    this.camera.radius = Math.min(hi, Math.max(lo, r));
   }
 
   /** Call once per render frame. `dt` in seconds. No allocations. */
@@ -152,17 +269,34 @@ export class TacticalCamera {
 
     if (!this.previousTargetPos) {
       this.previousTargetPos = new Vector3();
+      this.followPoint.copyFrom(this.scratchTargetPos);
     }
     this.previousTargetPos.copyFrom(this.followTarget.position);
 
     // Exponential smoothing toward the look-ahead-biased target, frame-rate independent.
     const t = 1 - Math.pow(1 - this.followLag, dt * 60);
-    Vector3.LerpToRef(this.camera.target, this.scratchTargetPos, t, this.camera.target);
+    Vector3.LerpToRef(this.followPoint, this.scratchTargetPos, t, this.followPoint);
+
+    // User pan rides on top of the follow point, clamped to the arena bounds.
+    this.camera.target.copyFrom(this.followPoint).addInPlace(this.panOffset);
+    const maxR = this.panBoundsRadius + this.panBoundsMargin;
+    const len = Math.hypot(this.camera.target.x, this.camera.target.z);
+    if (len > maxR) {
+      const s = maxR / len;
+      this.camera.target.x *= s;
+      this.camera.target.z *= s;
+      // Re-derive the offset from the clamped target so panning back in
+      // responds immediately instead of unwinding invisible overshoot.
+      this.panOffset.copyFrom(this.camera.target).subtractInPlace(this.followPoint);
+    }
   }
 
   dispose(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    if (this.pointerObserver) this.scene.onPointerObservable.remove(this.pointerObserver);
+    this.pointerObserver = null;
+    this.canvas.removeEventListener("contextmenu", this.onContextMenu);
     this.camera.dispose();
   }
 }

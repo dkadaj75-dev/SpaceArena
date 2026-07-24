@@ -4,6 +4,7 @@ import {
   ConfigService,
   GameLoop,
   EventBus,
+  type ArenaConfig,
   type ConfigEvents,
   type TuningConfig,
   type ShipSnapshot,
@@ -105,6 +106,15 @@ async function bootstrap(): Promise<void> {
   sceneBuilder.buildArena("arena.ring-nebula");
 
   const tacticalCamera = new TacticalCamera(scene, canvas, configService, bus);
+
+  // Pan clamp follows the arena's playable bounds (re-applied on arena rebuild).
+  const applyArenaPanBounds = (): void => {
+    const bounds = configService.get<ArenaConfig>("arena", "arena.ring-nebula")?.bounds;
+    tacticalCamera.setPanBounds(
+      bounds?.shape === "circle" ? bounds.radius : bounds ? Math.hypot(bounds.width, bounds.height) / 2 : 90,
+    );
+  };
+  applyArenaPanBounds();
 
   // Camera follows a lightweight node tracking the (moving) player ship
   // position. Persists across "Play again" resets — only its target position
@@ -315,6 +325,7 @@ async function bootstrap(): Promise<void> {
       },
       rebuildArena: () => {
         sceneBuilder.buildArena("arena.ring-nebula");
+        applyArenaPanBounds();
       },
     };
     window.addEventListener("keydown", (event) => {

@@ -119,7 +119,9 @@ export class Minimap {
       const isPlayer = s.id === this.session.playerId;
       ctx.save();
       ctx.translate(px, py);
-      ctx.rotate(s.heading);
+      // Sim heading is math-convention (0 = +X). The triangle points up
+      // (canvas −y = world −z) at rotation 0, so rotate by π/2 + heading.
+      ctx.rotate(Math.PI / 2 + s.heading);
       ctx.fillStyle = isPlayer
         ? "#57d8ff"
         : s.team === this.session.playerTeam
