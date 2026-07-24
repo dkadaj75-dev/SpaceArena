@@ -228,3 +228,74 @@ registerBotBehavior("dodge", dodge);
 
 /** Built-in behaviour keys (for content validation / editor dropdowns). */
 export const BUILTIN_BEHAVIOR_KEYS = ["engage", "kite", "breakLoS", "retreat", "dodge"] as const;
+
+/**
+ * Editor metadata for one tunable a behaviour reads out of its `catchall` param
+ * bag. The bag is deliberately schema-free (a behaviour may read anything), so
+ * this list is what the Behavior Editor offers in its "add param" dropdown —
+ * it is documentation, not validation: an unknown key is still legal config.
+ */
+export interface BehaviorParamSpec {
+  key: string;
+  kind: "number" | "boolean" | "enum" | "string";
+  /** Value the behaviour falls back to when the param is absent. */
+  fallback: number | boolean | string;
+  min?: number;
+  max?: number;
+  options?: readonly string[];
+  doc: string;
+}
+
+const BOOST_CHANCE: BehaviorParamSpec = {
+  key: "doubleTapBoostChance",
+  kind: "number",
+  fallback: 0,
+  min: 0,
+  max: 1,
+  doc: "Chance the move order requests afterburner (human double-tap equivalent).",
+};
+const URGENCY: BehaviorParamSpec = {
+  key: "urgencyGain",
+  kind: "number",
+  fallback: 1,
+  min: 0,
+  max: 4,
+  doc: "How much the situational score grows with urgency (0 = flat).",
+};
+
+/** Tunables each built-in behaviour reads, keyed by behaviour key. */
+export const BEHAVIOR_PARAM_SPECS: Readonly<Record<string, readonly BehaviorParamSpec[]>> = {
+  engage: [
+    { key: "orbitStepRad", kind: "number", fallback: 0.6, min: 0, max: 1.6, doc: "Angle stepped around the target each decision." },
+    { key: "tooCloseFalloff", kind: "number", fallback: 0.6, min: 0, max: 2, doc: "Score multiplier while inside the preferred band." },
+    { key: "noLosFalloff", kind: "number", fallback: 1.2, min: 0, max: 3, doc: "Score multiplier with no line of sight (>1 presses to regain it)." },
+    { key: "targetPreference", kind: "enum", fallback: "nearest", options: ["nearest", "lowestHull"], doc: "Which enemy the bot focuses." },
+    { key: "losPenalty", kind: "number", fallback: 2, min: 1, max: 10, doc: "Target-choice cost multiplier for enemies behind cover." },
+    BOOST_CHANCE,
+  ],
+  kite: [
+    URGENCY,
+    { key: "lateralRad", kind: "number", fallback: 0.4, min: 0, max: 1.6, doc: "Sideways component while backing off (0 = straight retreat)." },
+    BOOST_CHANCE,
+  ],
+  breakLoS: [
+    { key: "triggerHullBelow", kind: "number", fallback: 0, min: 0, max: 1, doc: "Only seek cover under this hull fraction (absent = always eligible)." },
+    URGENCY,
+    { key: "coverOffset", kind: "number", fallback: 3, min: 0, max: 20, doc: "Standoff distance from the asteroid's surface." },
+    { key: "coverSearchRadius", kind: "number", fallback: 70, min: 0, max: 200, doc: "How far to look for cover (default: 2 × preferred max range)." },
+    BOOST_CHANCE,
+  ],
+  retreat: [
+    { key: "triggerHullBelow", kind: "number", fallback: 0, min: 0, max: 1, doc: "Disengage under this hull fraction." },
+    { key: "triggerShieldDown", kind: "boolean", fallback: false, doc: "Disengage whenever the shield is down." },
+    URGENCY,
+    { key: "retreatDistance", kind: "number", fallback: 70, min: 0, max: 200, doc: "How far to run (default: 2 × preferred max range)." },
+    BOOST_CHANCE,
+  ],
+  dodge: [
+    { key: "dodgeRadius", kind: "number", fallback: 20, min: 0, max: 80, doc: "Consider missiles closer than this." },
+    { key: "dodgeDistance", kind: "number", fallback: 12, min: 0, max: 60, doc: "How far to sidestep." },
+    URGENCY,
+    BOOST_CHANCE,
+  ],
+};

@@ -27,6 +27,7 @@ import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { NetGameSession } from "./net/NetGameSession.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
+import { BotDebugOverlay } from "./game/BotDebugOverlay.js";
 
 const log = createLogger("Client");
 
@@ -51,6 +52,7 @@ interface MatchRuntime {
   orderMarkers: OrderMarkers;
   hud: Hud;
   netOverlay: NetDebugOverlay | null;
+  botOverlay: BotDebugOverlay | null;
   dispose(): void;
 }
 
@@ -162,6 +164,11 @@ async function bootstrap(): Promise<void> {
       if (import.meta.env.DEV) netOverlay = new NetDebugOverlay(session);
     }
 
+    // Offline practice with bots: DEV-only Behavior Editor overlay (5.3) —
+    // per-bot utility/behaviour cards plus move-point and LoS lines (F8).
+    const botOverlay =
+      import.meta.env.DEV && session.bots.size > 0 ? new BotDebugOverlay(scene, session) : null;
+
     const initial = playerShip(session.curSnapshot.ships, session.playerId);
     if (initial) playerFollow.position.set(initial.pos.x, 0.3, initial.pos.z);
     tacticalCamera.camera.target.copyFrom(playerFollow.position);
@@ -174,12 +181,14 @@ async function bootstrap(): Promise<void> {
       orderMarkers,
       hud,
       netOverlay,
+      botOverlay,
       dispose(): void {
         orderInput.dispose();
         orderMarkers.dispose();
         viewManager.dispose();
         hud.dispose();
         netOverlay?.dispose();
+        botOverlay?.dispose();
         if (session instanceof NetGameSession) session.dispose();
       },
     };
@@ -314,6 +323,7 @@ async function bootstrap(): Promise<void> {
       runtime.orderMarkers.render(cur, dtMs);
       runtime.hud.update(cur, prev, dtMs, engine.getFps());
       runtime.netOverlay?.update();
+      runtime.botOverlay?.update();
     }
     tacticalCamera.update(dtMs / 1000);
     scene.render();
@@ -365,6 +375,7 @@ async function bootstrap(): Promise<void> {
         document.body.classList.toggle("sa-editor-open", !visible);
         runtime?.viewManager.setVisible(visible);
         runtime?.orderMarkers.setVisible(visible);
+        runtime?.botOverlay?.setSuppressed(!visible);
         runtime?.orderInput.setEnabled(visible);
       },
       setArenaVisible: (visible: boolean) => {
@@ -397,6 +408,9 @@ async function bootstrap(): Promise<void> {
       },
       get hud() {
         return runtime?.hud;
+      },
+      get botOverlay() {
+        return runtime?.botOverlay;
       },
       lobby,
       startMatch,

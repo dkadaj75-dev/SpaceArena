@@ -188,6 +188,79 @@ describe("SchemaFormGen", () => {
     expect(configService.replace).toHaveBeenLastCalledWith(expect.objectContaining({ tint: "#ff4d5e" }));
   });
 
+  it("renders a discriminated union as a kind <select> plus only the selected branch", () => {
+    const schema = z.object({
+      id: z.string(),
+      rule: z.discriminatedUnion("type", [
+        z.object({ type: z.literal("bounce"), restitution: z.number().min(0).max(1) }),
+        z.object({ type: z.literal("damage"), damagePerSec: z.number().nonnegative() }),
+      ]),
+    });
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({ schema, value: { id: "x.1", rule: { type: "bounce", restitution: 0.5 } }, configService });
+
+    const kind = form.element.querySelector('[name="rule.type"]') as HTMLSelectElement;
+    expect(kind.tagName).toBe("SELECT");
+    expect(Array.from(kind.options).map((o) => o.textContent)).toEqual(["bounce", "damage"]);
+    expect(form.element.querySelector('[name="rule.restitution"]')).not.toBeNull();
+    expect(form.element.querySelector('[name="rule.damagePerSec"]')).toBeNull();
+
+    // Switching branch re-seeds the subtree with that branch's defaults.
+    kind.value = "1";
+    kind.dispatchEvent(new Event("change"));
+    expect(form.getValue().rule).toEqual({ type: "damage", damagePerSec: 0 });
+    expect(form.element.querySelector('[name="rule.damagePerSec"]')).not.toBeNull();
+    expect(form.element.querySelector('[name="rule.restitution"]')).toBeNull();
+  });
+
+  it("seeds an exclusive minimum above the bound and skips sliders for unbounded integers", () => {
+    const schema = z.object({
+      id: z.string(),
+      seconds: z.number().positive().optional(),
+      count: z.number().int().nonnegative(),
+    });
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({ schema, value: { id: "x.1", count: 3 }, configService });
+
+    // `z.number().int()` reports MAX_SAFE_INTEGER as its maximum — no slider.
+    const count = form.element.querySelector('[name="count"]') as HTMLInputElement;
+    expect(count.closest(".ed-control-row")).toBeNull();
+
+    // Enabling an optional `positive()` number must not seed an invalid 0.
+    const presence = form.element.querySelector<HTMLInputElement>('[data-presence-for="seconds"]')!;
+    presence.checked = true;
+    presence.dispatchEvent(new Event("change"));
+    expect(form.getValue().seconds).toBe(1);
+  });
+
+  it("delegates a field to a bespoke renderer registered by path", () => {
+    const schema = z.object({ id: z.string(), bag: z.record(z.string(), z.number()) });
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({
+      schema,
+      value: { id: "x.1", bag: { a: 1 } },
+      configService,
+      fields: {
+        bag: (ctx) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "custom-bag";
+          button.textContent = Object.keys(ctx.value as object).join(",");
+          button.addEventListener("click", () => ctx.change(ctx.path, { ...(ctx.value as object), b: 2 }));
+          return button;
+        },
+      },
+    });
+
+    const custom = form.element.querySelector<HTMLButtonElement>("button.custom-bag")!;
+    expect(custom.textContent).toBe("a");
+    custom.click();
+    expect(form.getValue().bag).toEqual({ a: 1, b: 2 });
+    expect(configService.replace).toHaveBeenCalledWith(expect.objectContaining({ bag: { a: 1, b: 2 } }));
+    // The re-render keeps using the bespoke renderer.
+    expect(form.element.querySelector<HTMLButtonElement>("button.custom-bag")!.textContent).toBe("a,b");
+  });
+
   it("renders a union of literals as a <select>", () => {
     const schema = z.object({
       id: z.string(),

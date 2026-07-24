@@ -696,6 +696,36 @@
   background: rgba(255, 77, 94, 0.08);
 }
 
+/* ------------------------------------ discriminated unions + record editors */
+
+/* The `type` picker of a discriminated union (win condition, boundary rule). */
+.sa-editor .ed-union-kind > select {
+  border-color: var(--ed-accent-dim);
+}
+
+.sa-editor .ed-union-kind > span:first-child {
+  color: var(--ed-accent);
+}
+
+/* A record of addable keys (botprofile `behaviors`). */
+.sa-editor .ed-record > .ed-behavior {
+  margin: 6px 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--ed-accent-dim);
+}
+
+.sa-editor .ed-record-add {
+  margin-top: 6px;
+}
+
+.sa-editor .ed-record-add select {
+  flex: 1 1 160px;
+}
+
+.sa-editor .ed-param > button {
+  flex: 0 0 auto;
+}
+
 /* ---------------------------------------------------------- panel toolbars */
 
 .sa-editor .ed-toolbar {

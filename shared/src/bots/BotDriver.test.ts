@@ -172,6 +172,28 @@ describe("BotDriver utility scoring", () => {
     expect(driver.lastDecision!.atMs).toBe(at); // no new decision yet
     driver.update(s, at + 501);
     expect(driver.lastDecision!.atMs).toBe(at + 501);
+    // The second decision re-planned the same point, so nothing was re-ordered —
+    // but the debug snapshot still reports where the bot is headed.
+    expect(driver.lastDecision!.movePoint).toBeNull();
+    expect(driver.lastDecision!.plannedMove).not.toBeNull();
+  });
+
+  it("re-reads its profile from the registry, so a Behavior Editor tweak reaches a flying bot", () => {
+    const configs = new ConfigService(async () => ({}));
+    const p = profile({
+      behaviors: { engage: { baseWeight: 1 }, retreat: { baseWeight: 0, triggerShieldDown: true } },
+    });
+    expect(configs.replace(p).ok).toBe(true);
+    const driver = makeDriver(p, configs);
+    const s = snap([ship(1, 0, 0, 0), ship(2, 1, 27, 0)]);
+    decide(driver, s);
+    expect(driver.lastDecision?.behavior).toBe("engage");
+
+    // Same edit the editor makes: replace the config under the same id.
+    expect(configs.replace({ ...p, behaviors: { ...p.behaviors, retreat: { baseWeight: 5, triggerShieldDown: true } } }).ok).toBe(true);
+    driver.update(s, 30_000);
+    expect(driver.lastDecision?.behavior).toBe("retreat");
+    expect(driver.profile.behaviors["retreat"]!.baseWeight).toBe(5);
   });
 
   it("is deterministic for a given injected RNG", () => {

@@ -6,12 +6,35 @@ export interface FormProblem {
   message: string;
 }
 
+/** Everything a bespoke field renderer needs to draw and commit one subtree. */
+export interface FieldRenderContext {
+  /** Current value at {@link path} (may be `undefined` for absent optionals). */
+  value: unknown;
+  /** Dotted path segments from the config root. */
+  path: string[];
+  label: string;
+  /** Commit a new value at an arbitrary path — same validation/replace path as generated inputs. */
+  change(path: string[], next: unknown): void;
+}
+
+/**
+ * Renderer for one field the generator cannot express (free-form records, for
+ * example). Return `null` to fall back to the generated control.
+ */
+export type FieldRenderer = (ctx: FieldRenderContext) => HTMLElement | null;
+
 export interface SchemaFormOptions<T> {
   schema: ZodType<T>;
   value: T;
   configService: Pick<ConfigService, "getAll" | "replace">;
   onProblem?: (problem: FormProblem | null) => void;
   onSaved?: (value: T) => void;
+  /**
+   * Bespoke renderers by dotted path (e.g. `"behaviors"`). Escape hatch for
+   * shapes with no enumerable JSON-schema properties — a `z.record(...)` of
+   * addable keys is the canonical case (see `BotProfileEditor`).
+   */
+  fields?: Record<string, FieldRenderer>;
 }
 
 type JsonSchema = {
@@ -23,8 +46,12 @@ type JsonSchema = {
   const?: unknown;
   minimum?: number;
   maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
   pattern?: string;
   anyOf?: JsonSchema[];
+  /** Zod emits `oneOf` for discriminated unions, `anyOf` for plain ones. */
+  oneOf?: JsonSchema[];
   $ref?: string;
   $defs?: Record<string, JsonSchema>;
 };
@@ -44,6 +71,11 @@ const REFERENCE_TYPES: Record<string, ConfigType> = {
   actions: "action",
   triggerEvent: "event",
   notification: "notification",
+  profile: "botprofile",
+  defaultProfile: "botprofile",
+  ship: "ship",
+  defaultShip: "ship",
+  defaultArena: "arena",
   hull: "upgrade",
   engine: "upgrade",
   energy: "upgrade",
@@ -82,14 +114,22 @@ export class SchemaFormGen<T> {
 
   private field(raw: JsonSchema, value: unknown, path: string[], label: string, root = false): HTMLElement {
     const schema = this.resolve(raw);
-    if (schema.anyOf) {
-      const branches = schema.anyOf.map((item) => this.resolve(item)).filter((item) => item.type !== "null");
+    if (!root) {
+      const custom = this.options.fields?.[path.join(".")];
+      const element = custom?.({ value, path, label, change: (p, next) => this.change(p, next) });
+      if (element) return element;
+    }
+    const union = schema.anyOf ?? schema.oneOf;
+    if (union) {
+      const branches = union.map((item) => this.resolve(item)).filter((item) => item.type !== "null");
       // A union of literals is really an enum — render it as a <select>.
       const literals = branches.filter((item) => item.const !== undefined).map((item) => item.const);
       if (branches.length > 1 && literals.length === branches.length) {
         return this.scalarField({ type: typeof literals[0] === "number" ? "number" : "string", enum: literals }, value, path, label);
       }
-      return this.field(branches[0] ?? schema.anyOf[0]!, value, path, label, root);
+      const tagged = branches.length > 1 ? discriminatorOf(branches) : null;
+      if (tagged) return this.unionField(branches, tagged, value, path, label);
+      return this.field(branches[0] ?? union[0]!, value, path, label, root);
     }
     if (schema.type === "object" || schema.properties) {
       const box = document.createElement(root ? "div" : "details");
@@ -128,6 +168,46 @@ export class SchemaFormGen<T> {
     }
     if (schema.type === "array") return this.arrayField(schema, Array.isArray(value) ? value : [], path, label);
     return this.scalarField(schema, value, path, label);
+  }
+
+  /**
+   * A discriminated union (`winCondition`, `boundaryRule`, …): a `<select>` of
+   * the discriminator's literals plus the fields of the *selected* branch only.
+   * Switching the discriminator replaces the whole subtree with that branch's
+   * defaults, so the value never sits in a shape no branch accepts.
+   */
+  private unionField(branches: JsonSchema[], key: string, value: unknown, path: string[], label: string): HTMLElement {
+    const current = value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
+    const index = Math.max(0, branches.findIndex((b) => this.resolve(b.properties?.[key] ?? {}).const === current));
+    const branch = branches[index]!;
+    // Render the branch without its discriminator — the <select> below owns it.
+    const { [key]: _discriminator, ...rest } = branch.properties ?? {};
+    const body = this.field(
+      { ...branch, type: "object", properties: rest, required: (branch.required ?? []).filter((r) => r !== key) },
+      value,
+      path,
+      label,
+    );
+
+    const row = document.createElement("label");
+    row.className = "editor-field ed-union-kind";
+    const title = document.createElement("span");
+    title.textContent = key;
+    const select = document.createElement("select");
+    select.className = "ed-select";
+    select.name = [...path, key].join(".");
+    branches.forEach((b, i) => {
+      const literal = this.resolve(b.properties?.[key] ?? {}).const;
+      select.append(new Option(String(literal), String(i), false, i === index));
+    });
+    select.addEventListener("change", () => this.change(path, defaultFor(branches[Number(select.value)] ?? branch)));
+    row.append(title, select);
+
+    // `body` is a <details> group (never root here) — the picker goes first.
+    const summary = body.querySelector(":scope > summary");
+    if (summary) summary.after(row);
+    else body.prepend(row);
+    return body;
   }
 
   private arrayField(schema: JsonSchema, values: unknown[], path: string[], label: string): HTMLElement {
@@ -219,18 +299,19 @@ export class SchemaFormGen<T> {
       track.className = "ed-toggle-track";
       toggle.append(input, track);
       wrap.append(toggle);
-    } else if (input instanceof HTMLInputElement && input.type === "number" && schema.minimum !== undefined && schema.maximum !== undefined) {
+    } else if (input instanceof HTMLInputElement && input.type === "number" && sliderBounds(schema)) {
       // Bounded number: slider + number box, kept in sync both ways. The slider
       // only *commits* on `change` so dragging doesn't re-render every frame.
       const row = document.createElement("div");
       row.className = "ed-control-row";
+      const [min, max] = sliderBounds(schema)!;
       const slider = document.createElement("input");
       slider.type = "range";
       slider.className = "ed-range";
-      slider.min = String(schema.minimum);
-      slider.max = String(schema.maximum);
-      slider.step = schema.type === "integer" ? "1" : String((schema.maximum - schema.minimum) / 100 || "any");
-      slider.value = String(typeof value === "number" ? value : schema.minimum);
+      slider.min = String(min);
+      slider.max = String(max);
+      slider.step = schema.type === "integer" ? "1" : String((max - min) / 100 || "any");
+      slider.value = String(typeof value === "number" ? value : min);
       slider.addEventListener("input", () => { input.value = slider.value; });
       slider.addEventListener("change", () => this.change(path, Number(slider.value)));
       input.addEventListener("input", () => { slider.value = input.value; });
@@ -306,6 +387,37 @@ export class SchemaFormGen<T> {
   }
 }
 
+/**
+ * The discriminator property of an object union: a key every branch declares
+ * with a distinct literal (`const`) value. Returns null for unions that are not
+ * discriminated, which fall back to the first-branch rendering.
+ */
+function discriminatorOf(branches: JsonSchema[]): string | null {
+  const first = branches[0];
+  if (!first?.properties) return null;
+  for (const key of Object.keys(first.properties)) {
+    const literals = branches.map((b) => b.properties?.[key]?.const);
+    if (literals.some((l) => l === undefined)) continue;
+    if (new Set(literals).size !== literals.length) continue;
+    return key;
+  }
+  return null;
+}
+
+/**
+ * Bounds worth drawing a slider for. `z.number().int()` reports JS's max safe
+ * integer as its maximum, which would make a 0..9e15 track — those stay a plain
+ * number box.
+ */
+const MAX_SLIDER_SPAN = 1e6;
+function sliderBounds(schema: JsonSchema): [number, number] | null {
+  const min = schema.minimum;
+  const max = schema.maximum;
+  if (min === undefined || max === undefined) return null;
+  if (max - min > MAX_SLIDER_SPAN) return null;
+  return [min, max];
+}
+
 function inputValue(input: HTMLInputElement | HTMLSelectElement, schema: JsonSchema): unknown {
   if (input instanceof HTMLInputElement && input.type === "checkbox") return input.checked;
   if (schema.type === "number" || schema.type === "integer") return Number(input.value);
@@ -321,7 +433,11 @@ function defaultFor(raw: JsonSchema): unknown {
   if (schema.type === "object") return Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, child]) => [key, defaultFor(child)]));
   if (schema.type === "array") return [];
   if (schema.type === "boolean") return false;
-  if (schema.type === "number" || schema.type === "integer") return schema.minimum ?? 0;
+  if (schema.type === "number" || schema.type === "integer") {
+    // `exclusiveMinimum` (z.number().positive()) must not seed an invalid 0.
+    if (schema.minimum !== undefined) return schema.minimum;
+    return schema.exclusiveMinimum !== undefined ? schema.exclusiveMinimum + 1 : 0;
+  }
   return schema.enum?.[0] ?? "";
 }
 function setPath(value: unknown, path: string[], next: unknown): void {

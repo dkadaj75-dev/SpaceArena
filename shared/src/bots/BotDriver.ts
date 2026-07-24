@@ -24,6 +24,13 @@ export interface BotDecisionSnapshot {
   scores: Readonly<Record<string, number>>;
   /** Move point ordered this decision (null when the bot kept its order). */
   movePoint: { x: number; z: number } | null;
+  /**
+   * Move point the winning behaviour *chose* this decision, whether or not it
+   * differed enough from the standing order to be re-issued. This is the point
+   * the 5.3 debug overlay draws — {@link movePoint} only tells you which
+   * decisions produced traffic.
+   */
+  plannedMove: { x: number; z: number } | null;
   boost: boolean;
   targetId: EntityId | null;
   engaged: boolean;
@@ -70,7 +77,8 @@ const MISSILE_SCAN_MULT = 2;
  */
 export class BotDriver {
   readonly entityId: EntityId;
-  readonly profile: BotprofileConfig;
+  /** Profile handed in at spawn; used until/unless the registry has a newer one. */
+  private readonly spawnProfile: BotprofileConfig;
 
   private readonly configs: ConfigService;
   private readonly rng: () => number;
@@ -86,11 +94,22 @@ export class BotDriver {
 
   constructor(options: BotDriverOptions) {
     this.entityId = options.entityId;
-    this.profile = options.profile;
+    this.spawnProfile = options.profile;
     this.configs = options.configs;
     this.rng = options.rng ?? Math.random;
     this.behaviors = options.behaviors ?? botBehaviors();
     this.orbitSign = options.orbitSign ?? (this.rng() < 0.5 ? -1 : 1);
+  }
+
+  /**
+   * The profile driving this bot, re-read from the config registry every time
+   * it is used. `ConfigService.replace` stores a *new* frozen object, so
+   * resolving by id is what makes a Behavior Editor tweak (or a content hot
+   * reload) apply to the bots already flying, with the spawn-time profile as the
+   * fallback for registries that do not hold it (tests, ad-hoc drivers).
+   */
+  get profile(): BotprofileConfig {
+    return this.configs.get<BotprofileConfig>("botprofile", this.spawnProfile.id) ?? this.spawnProfile;
   }
 
   /** Last decision taken, for debug overlays. Null before the first decision. */
@@ -137,16 +156,18 @@ export class BotDriver {
 
   private decide(snapshot: Snapshot, self: ShipSnapshot, nowMs: number): Order[] {
     const orders: Order[] = [];
+    // One registry read per decision: the profile cannot change mid-decision.
+    const profile = this.profile;
 
     // --- context (target choice first: behaviours score relative to it) ---
     const weaponRange = this.weaponRange(self);
     const preliminary = buildBotContext({
       snapshot,
       self,
-      profile: this.profile,
+      profile,
       weaponRange,
       targetId: self.targetId,
-      missileScanRadius: Math.max(this.profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
+      missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
       orbitSign: this.orbitSign,
       rng: this.rng,
     });
@@ -157,10 +178,10 @@ export class BotDriver {
         : buildBotContext({
             snapshot,
             self,
-            profile: this.profile,
+            profile,
             weaponRange,
             targetId,
-            missileScanRadius: Math.max(this.profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
+            missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
             orbitSign: this.orbitSign,
             rng: this.rng,
           });
@@ -170,7 +191,7 @@ export class BotDriver {
     let bestKey: string | null = null;
     let bestScore = 0;
     let bestPlan: BotPlan | null = null;
-    for (const [key, params] of Object.entries(this.profile.behaviors)) {
+    for (const [key, params] of Object.entries(profile.behaviors)) {
       const behavior = this.behaviors.get(key);
       if (!behavior) continue; // unknown key in config: ignored, never crashes a match
       const score = params.baseWeight * behavior.score(ctx, params);
@@ -181,7 +202,7 @@ export class BotDriver {
       }
     }
     if (bestKey !== null) {
-      const params = this.profile.behaviors[bestKey]!;
+      const params = profile.behaviors[bestKey]!;
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
 
@@ -210,6 +231,7 @@ export class BotDriver {
       behavior: bestKey,
       scores,
       movePoint: issuedMove,
+      plannedMove: move,
       boost: bestPlan?.boost ?? false,
       targetId,
       engaged,
