@@ -13,6 +13,7 @@ import {
   type Order,
   type ShipConfig,
   type SimEvent,
+  type SimEventMessage,
   type Snapshot,
   type SteerState,
   type TuningConfig,
@@ -75,6 +76,8 @@ export class NetGameSession extends GameSession {
   private patchWindowStart = performance.now();
   private patchWindowCount = 0;
   onOrderRejected: ((reason: string) => void) | null = null;
+  /** Per-player progression summary sent once, after the match ends (auth'd participants only). */
+  onMatchRewards: ((event: Extract<SimEventMessage, { type: "matchRewards" }>) => void) | null = null;
 
   /** Artificial inbound latency (?fakelag=ms) for netcode testing. */
   private readonly fakeLagMs: number;
@@ -127,7 +130,17 @@ export class NetGameSession extends GameSession {
           targetId: event.targetEntityId,
         }),
       );
-    session.net.onSimEvent = (event) => session.deferred(() => session.events.push(event as SimEvent));
+    session.net.onSimEvent = (event) =>
+      session.deferred(() => {
+        // matchRewards isn't a sim.SimEvent (it's a net-only per-player message,
+        // never produced by the shared sim) — route it to its own callback
+        // instead of smuggling it through the sim event queue.
+        if (event.type === "matchRewards") {
+          session.onMatchRewards?.(event);
+          return;
+        }
+        session.events.push(event as SimEvent);
+      });
     const room = await session.net.connect(options);
 
     // Resolve only once the first state patch has been decoded so playerId and
@@ -342,6 +355,7 @@ export class NetGameSession extends GameSession {
         heat: { cur: p.heatCur, capacity: cfg?.core.heat.capacity ?? p.heatCur },
         targetId: null,
         modules: mapValues(p.modules).map((m: any, i: number) => ({
+          hardpointIndex: i,
           moduleId: cfg?.defaultFitting[i] ?? "",
           state: decodeModuleState(m.state),
           heat: m.heat,

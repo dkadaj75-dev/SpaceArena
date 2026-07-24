@@ -264,6 +264,27 @@ const CSS = `
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+.hud-results-rewards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+}
+.hud-results-rewards:empty { display: none; }
+.hud-results-rewards-line {
+  font-size: 14px;
+  color: var(--hud-primary, #57d8ff);
+  letter-spacing: 0.03em;
+}
+.hud-results-levelup {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5fe08c;
+  animation: hud-toast-in 0.2s ease-out;
+}
 .hud-results-btn {
   pointer-events: auto;
   cursor: pointer;

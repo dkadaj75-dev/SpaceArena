@@ -4,6 +4,7 @@
   "version": 1,
   "name": "Default Progression",
   "xpCurve": [0, 100, 250, 500, 900, 1500],
+  "starterCredits": 250,
   "rewards": { "perKill": 10, "win": 100, "loss": 25 },
   "unlocks": {
     "1": ["ship.interceptor", "module.laser-mk1"],

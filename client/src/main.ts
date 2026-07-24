@@ -11,6 +11,7 @@ import {
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
+import { AuthService } from "./core/AuthService.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
 import { GameSession } from "./game/GameSession.js";
 import { ViewManager } from "./game/EntityView.js";
@@ -18,6 +19,7 @@ import { OrderInput } from "./game/OrderInput.js";
 import { OrderMarkers } from "./game/OrderMarkers.js";
 import { Hud } from "./game/hud/Hud.js";
 import { Lobby, type LobbyChoice } from "./game/screens/Lobby.js";
+import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { NetGameSession } from "./net/NetGameSession.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 
@@ -72,6 +74,10 @@ async function bootstrap(): Promise<void> {
   }
   wireContentHotReload(configService);
 
+  // --- Auth (§8 3.3): restore any existing session before the first screen shows. ---
+  const authService = new AuthService();
+  await authService.restore();
+
   // WebGPU with automatic WebGL2 fallback (Phase 0 renderer note).
   const engine = (await EngineFactory.CreateAsync(canvas, {})) as Engine;
   log.info("engine created", { webgpu: engine.getClassName() === "WebGPUEngine" });
@@ -104,6 +110,10 @@ async function bootstrap(): Promise<void> {
       log.info("match over — returning to lobby");
       runtime?.dispose();
       runtime = null;
+      // Credits/xp/level may have changed server-side (matchRewards) — refresh
+      // the profile so the Lobby header reflects it. Fire-and-forget: the
+      // header updates via AuthService.onChange whenever this resolves.
+      void authService.refreshProfile();
       lobby.show();
     });
 
@@ -111,6 +121,7 @@ async function bootstrap(): Promise<void> {
     let netOverlay: NetDebugOverlay | null = null;
     if (session instanceof NetGameSession) {
       session.onOrderRejected = (reason) => hud.showToast(`Order rejected: ${reason}`);
+      session.onMatchRewards = (rewards) => hud.showMatchRewards(rewards);
       if (import.meta.env.DEV) netOverlay = new NetDebugOverlay(session);
     }
 
@@ -140,16 +151,60 @@ async function bootstrap(): Promise<void> {
   let runtime: MatchRuntime | null = null;
   let simPaused = false;
 
-  const lobby = new Lobby(document.body, configService, (choice: LobbyChoice) => {
-    void startMatch(choice);
-  });
+  const lobby = new Lobby(
+    document.body,
+    configService,
+    authService,
+    (choice: LobbyChoice) => {
+      void startMatch(choice);
+    },
+    () => {
+      // Log out: drop the session and fall back to the auth gate.
+      authService.logout();
+      lobby.hide();
+      authScreen.show();
+    },
+    (tab) => {
+      lobby.hide();
+      authScreen.show();
+      if (tab === "register") authScreen.showRegisterTab();
+      else authScreen.showLoginTab();
+    },
+  );
+  lobby.hide();
+
+  const authScreen = new AuthScreen(
+    document.body,
+    authService,
+    () => {
+      authScreen.hide();
+      lobby.show();
+    },
+    () => {
+      // "Skip (offline practice)": go straight to the Lobby, still anonymous
+      // (its online buttons stay disabled — practice works without auth).
+      authScreen.hide();
+      lobby.show();
+    },
+  );
+  authScreen.hide();
+
+  if (authService.getState().status === "authed") {
+    lobby.show();
+  } else {
+    authScreen.show();
+  }
 
   async function startMatch(choice: LobbyChoice): Promise<void> {
     try {
       const session =
         choice.kind === "practice"
           ? new GameSession(configService, "arena.ring-nebula", "gamemode.practice")
-          : await NetGameSession.join(configService, { gamemode: choice.gamemode, ...choice.options });
+          : await NetGameSession.join(configService, {
+              gamemode: choice.gamemode,
+              ...choice.options,
+              token: authService.getAccessToken() ?? undefined,
+            });
       runtime = createMatchRuntime(session);
       lobby.hide();
     } catch (err) {

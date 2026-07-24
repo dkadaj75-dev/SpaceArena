@@ -97,7 +97,13 @@ export type SimEventMessage =
   | { type: "shieldAbsorb"; targetId: EntityId; hardpointIndex: number; amount: number }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "warning" }
-  | { type: "matchEnded"; winnerTeam: number | null; reason: "winCondition" | "elimination" };
+  | { type: "matchEnded"; winnerTeam: number | null; reason: "winCondition" | "elimination" }
+  /**
+   * Per-player progression summary sent individually (client.send) after a match
+   * ends. Only authenticated (non-anon) participants receive one. `leveledUp`
+   * lets the results screen play a level-up flourish.
+   */
+  | { type: "matchRewards"; credits: number; xp: number; newLevel: number; leveledUp: boolean };
 
 // ---------------------------------------------------------------------------
 // Order validation (trust boundary — the server never trusts client shape)

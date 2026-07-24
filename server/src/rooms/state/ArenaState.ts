@@ -19,6 +19,8 @@ import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
 
 /** Per-fitted-module remote-visible state (drives deploy/shield/overheat visuals). */
 export class ModuleState extends Schema {
+  /** Hardpoint index this module occupies (client toggles address by this). */
+  @type("uint8") hardpointIndex = 0;
   /** §2.3 state machine code (see shared `MODULE_STATE_CODE`). */
   @type("uint8") state = 0;
   /** Remaining seconds in a timed state (deploying/retracting/overheated). */
@@ -32,6 +34,8 @@ export class PlayerState extends Schema {
   @type("number") entityId = 0;
   @type("uint8") team = 0;
   @type("string") shipId = "";
+  /** Player display name (from profile), or a generated guest/anon label. */
+  @type("string") displayName = "";
   /** Position, int16 centi-units (decode with shared `decodeCenti`). */
   @type("int16") x = 0;
   @type("int16") z = 0;

@@ -16,11 +16,13 @@ import type { World } from "../World.js";
  * EnergySystem (after combat) since they depend on the worked-this-tick flags.
  */
 export function moduleSystem(world: World, dt: number): void {
-  // Apply toggle orders.
+  // Apply toggle orders. Modules are addressed by hardpoint index (the modules
+  // array is sparse-safe: empty hardpoints have no runtime entry), so find the
+  // module occupying the ordered hardpoint rather than indexing by position.
   for (const { entityId, order } of world.takeOrders("moduleToggle")) {
     const mods = world.modules.get(entityId);
     if (!mods) continue;
-    const m = mods.modules[order.hardpointIndex];
+    const m = mods.modules.find((mm) => mm.hardpointIndex === order.hardpointIndex);
     if (!m) continue;
     toggle(world, entityId, m);
   }

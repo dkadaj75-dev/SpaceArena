@@ -24,6 +24,10 @@ import {
   type SimEventMessage,
 } from "@space-arena/shared";
 import { getConfigService } from "../configService.js";
+import { verifyAccessToken } from "../auth/tokens.js";
+import { fittingsRepo, profilesRepo } from "../db/repos.js";
+import { hardpointMapToFitting } from "../api/fittingValidation.js";
+import { finalizeMatch, type Participant } from "../progression/service.js";
 import { ArenaState, PlayerState, ProjectileState, ModuleState, AsteroidState } from "./state/ArenaState.js";
 
 const log = createLogger("ArenaRoom");
@@ -61,6 +65,15 @@ interface CreateOptions {
 interface JoinOptions {
   shipId?: string;
   name?: string;
+  /** Access-token JWT; verified in onAuth to resolve the user id. */
+  token?: string;
+  /** Saved fitting to spawn with (must belong to the authed user). */
+  fittingId?: string;
+}
+
+/** Result of {@link ArenaRoom.onAuth}, stored on `client.auth`. */
+interface AuthData {
+  userId: string | null;
 }
 
 interface OrderRate {
@@ -75,6 +88,12 @@ export class ArenaRoom extends Room<ArenaState> {
   private arena!: ArenaConfig;
   private maxOrdersPerSec = DEFAULT_MAX_ORDERS_PER_SEC;
   private minPlayers = 2;
+  /**
+   * Whether this match grants progression. Client-supplied `practiceTarget` or
+   * `minPlayers` overrides (which enable trivially-winnable solo rooms) mark the
+   * match ineligible — results are still recorded, but no credits/XP are granted.
+   */
+  private rewardsEligible = true;
 
   /** sessionId/dummy-key → sim entity id, for every ship this room owns. */
   private readonly keyToEntity = new Map<string, EntityId>();
@@ -86,10 +105,24 @@ export class ArenaRoom extends Room<ArenaState> {
   private asteroidEntityIds: EntityId[] = [];
   private endTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Phase 3 adds JWT verification here; for now every join is allowed.
-  onAuth(): boolean {
-    // TODO(Phase 3): verify JWT, resolve playerId, load owned fitting.
-    return true;
+  /** sessionId → authenticated userId (null for anon/dummy). */
+  private readonly sessionUserId = new Map<string, string | null>();
+  /** Ship entity id → frags scored this match (for perKill rewards). */
+  private readonly fragsByEntity = new Map<EntityId, number>();
+
+  /**
+   * Verify the access-token JWT from `options.token` → resolve the userId.
+   * Fails CLOSED: an anonymous (tokenless/invalid-token) join is allowed only
+   * when DEV_ALLOW_ANON==='1' AND we are not in production; otherwise rejected.
+   */
+  onAuth(_client: Client, options: JoinOptions): AuthData {
+    const userId = options.token ? verifyAccessToken(options.token) : null;
+    if (userId) return { userId };
+    if (process.env.DEV_ALLOW_ANON === "1" && process.env.NODE_ENV !== "production") {
+      log.warn("anonymous join allowed (DEV_ALLOW_ANON=1, non-production)");
+      return { userId: null };
+    }
+    throw new Error("unauthorized: missing or invalid token");
   }
 
   onCreate(options: CreateOptions): void {
@@ -109,6 +142,8 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.maxClients = gamemode.teams === "2v2" ? 4 : 2;
     this.minPlayers = Math.max(1, options.minPlayers ?? this.maxClients);
+    // Anti-farming: overrides that enable trivial solo wins forfeit rewards.
+    this.rewardsEligible = options.practiceTarget !== true && options.minPlayers === undefined;
 
     this.sim = new ArenaSimulation(configs, arenaId, options.gamemode, options.seed ?? 1);
 
@@ -151,33 +186,76 @@ export class ArenaRoom extends Room<ArenaState> {
 
   onJoin(client: Client, options: JoinOptions): void {
     const configs = getConfigService();
-    const shipId =
-      options.shipId && configs.get<ShipConfig>("ship", options.shipId)
-        ? options.shipId
-        : "ship.interceptor";
+    const userId = (client.auth as AuthData | undefined)?.userId ?? null;
+
+    // Reward-farming guard (3b): one authenticated user may hold only one slot.
+    if (userId !== null && [...this.sessionUserId.values()].includes(userId)) {
+      throw new Error("already-in-room");
+    }
+
+    const { shipId, fitting } = this.resolveFitting(configs, userId, options);
     const ship = configs.get<ShipConfig>("ship", shipId);
     if (!ship) throw new Error(`no ship config available (wanted ${shipId})`);
 
     const team = this.assignTeam();
-    const entityId = this.sim.spawnPlayer(shipId, ship.defaultFitting, team);
+    const entityId = this.sim.spawnPlayer(shipId, fitting, team);
 
     const ps = new PlayerState();
     ps.entityId = entityId;
     ps.team = team;
     ps.shipId = shipId;
+    ps.displayName = this.resolveDisplayName(userId, options);
     ps.connected = true;
-    for (let i = 0; i < ship.defaultFitting.length; i++) ps.modules.push(new ModuleState());
+    // One ModuleState per fitted (non-empty) module; empty hardpoints get none.
+    const fittedCount = fitting.filter((m) => m !== null).length;
+    for (let i = 0; i < fittedCount; i++) ps.modules.push(new ModuleState());
     this.state.players.set(client.sessionId, ps);
 
     this.keyToEntity.set(client.sessionId, entityId);
     this.entityToKey.set(entityId, client.sessionId);
     this.humanSessions.add(client.sessionId);
+    this.sessionUserId.set(client.sessionId, userId);
+    this.fragsByEntity.set(entityId, 0);
     this.orderRates.set(client.sessionId, { windowStart: Date.now(), count: 0, abuse: 0 });
 
     this.syncShipState(entityId, ps);
 
-    log.info("client joined", { sessionId: client.sessionId, team, entityId, shipId });
+    log.info("client joined", { sessionId: client.sessionId, team, entityId, shipId, userId });
     this.maybeStart();
+  }
+
+  /**
+   * Pick the ship + ordered module list to spawn. An authed user passing a
+   * `fittingId` they own loads that fitting; otherwise fall back to the requested
+   * (or default) ship's `defaultFitting`.
+   */
+  private resolveFitting(
+    configs: ReturnType<typeof getConfigService>,
+    userId: string | null,
+    options: JoinOptions,
+  ): { shipId: string; fitting: (string | null)[] } {
+    if (userId && options.fittingId) {
+      const fit = fittingsRepo.byId(options.fittingId);
+      if (fit && fit.user_id === userId) {
+        const ship = configs.get<ShipConfig>("ship", fit.ship_id);
+        if (ship) return { shipId: fit.ship_id, fitting: hardpointMapToFitting(ship, fit.hardpointMap) };
+        log.warn("fitting references unknown ship; using default", { fittingId: options.fittingId });
+      } else {
+        log.warn("fitting not found or not owned; using default", { fittingId: options.fittingId, userId });
+      }
+    }
+    const shipId =
+      options.shipId && configs.get<ShipConfig>("ship", options.shipId) ? options.shipId : "ship.interceptor";
+    const ship = configs.get<ShipConfig>("ship", shipId);
+    return { shipId, fitting: ship ? ship.defaultFitting : [] };
+  }
+
+  private resolveDisplayName(userId: string | null, options: JoinOptions): string {
+    if (userId) {
+      const profile = profilesRepo.byUser(userId);
+      if (profile) return profile.display_name;
+    }
+    return options.name ?? "Anon";
   }
 
   private assignTeam(): number {
@@ -267,7 +345,10 @@ export class ArenaRoom extends Room<ArenaState> {
         return this.inBounds(order.target.x, order.target.z) ? null : "out-of-bounds";
       case "moduleToggle": {
         const mods = this.sim.world.modules.get(entityId);
-        if (!mods || order.hardpointIndex >= mods.modules.length) return "bad-hardpoint";
+        // Address by hardpoint index (sparse-safe): a module must occupy it.
+        if (!mods || !mods.modules.some((m) => m.hardpointIndex === order.hardpointIndex)) {
+          return "bad-hardpoint";
+        }
         return null;
       }
       case "target": {
@@ -314,12 +395,29 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.sim.tick(FIXED_DT);
     const events = this.sim.getEvents();
+    this.trackFrags(events);
     this.relayEvents(events);
 
     this.writeState();
     this.state.matchTimer = this.sim.snapshot().elapsed;
 
     if (this.sim.isEnded && this.state.matchPhase === "live") this.endMatch();
+  }
+
+  /**
+   * Attribute kills for perKill rewards. Kill attribution uses the sim's
+   * `entityDestroyed.killerId` (the only attribution the sim exposes); ship kills
+   * on an enemy ship count, asteroid destructions and team-kills do not.
+   */
+  private trackFrags(events: SimEvent[]): void {
+    for (const ev of events) {
+      if (ev.type !== "entityDestroyed" || ev.isAsteroid || ev.killerId === null) continue;
+      const killer = ev.killerId;
+      if (!this.fragsByEntity.has(killer)) continue;
+      const killerTeam = this.sim.teamOf(killer);
+      if (killerTeam !== undefined && killerTeam === ev.team) continue; // no team-kill credit
+      this.fragsByEntity.set(killer, (this.fragsByEntity.get(killer) ?? 0) + 1);
+    }
   }
 
   private relayEvents(events: SimEvent[]): void {
@@ -415,12 +513,14 @@ export class ArenaRoom extends Room<ArenaState> {
       const target = ps.modules[i];
       if (!target) {
         const ms = new ModuleState();
+        ms.hardpointIndex = m.hardpointIndex;
         ms.state = encodeModuleState(m.state);
         ms.stateTimer = m.stateTimer;
         ms.heat = m.heat;
         ps.modules.push(ms);
         continue;
       }
+      if (target.hardpointIndex !== m.hardpointIndex) target.hardpointIndex = m.hardpointIndex;
       const code = encodeModuleState(m.state);
       if (target.state !== code) target.state = code;
       if (target.stateTimer !== m.stateTimer) target.stateTimer = m.stateTimer;
@@ -432,10 +532,63 @@ export class ArenaRoom extends Room<ArenaState> {
   private endMatch(): void {
     const snap = this.sim.snapshot();
     this.state.matchPhase = "ended";
-    this.state.winnerTeam = snap.winnerTeam ?? -1;
+    const winnerTeam = snap.winnerTeam ?? null;
+    this.state.winnerTeam = winnerTeam ?? -1;
     this.lock();
     log.info("match ended", { winnerTeam: this.state.winnerTeam });
+
+    this.persistAndReward(snap.winnerTeam ?? null, snap.elapsed);
+
     this.endTimer = setTimeout(() => this.disconnect(), MATCH_END_GRACE_MS);
+  }
+
+  /**
+   * Persist the match result and grant progression to authenticated players,
+   * then mirror each player's rewards back as a `matchRewards` simEvent. Best-
+   * effort: a persistence error must not crash the room's end sequence.
+   */
+  private persistAndReward(winnerTeam: number | null, durationS: number): void {
+    try {
+      const configs = getConfigService();
+      const participants: Participant[] = [];
+      const userToSession = new Map<string, string>();
+      for (const [key, ps] of this.state.players) {
+        const userId = this.sessionUserId.get(key) ?? null;
+        if (userId) userToSession.set(userId, key);
+        participants.push({
+          userId,
+          team: ps.team,
+          frags: this.fragsByEntity.get(ps.entityId) ?? 0,
+          entityId: ps.entityId,
+        });
+      }
+
+      const summaries = finalizeMatch(configs, {
+        mode: this.gamemode.id,
+        arenaId: this.arena.id,
+        winnerTeam,
+        durationS,
+        participants,
+        rewardsEligible: this.rewardsEligible,
+      });
+
+      for (const summary of summaries) {
+        const sessionId = userToSession.get(summary.userId);
+        if (!sessionId) continue;
+        const client = this.clients.find((c) => c.sessionId === sessionId);
+        if (!client) continue;
+        const msg: SimEventMessage = {
+          type: "matchRewards",
+          credits: summary.credits,
+          xp: summary.xp,
+          newLevel: summary.newLevel,
+          leveledUp: summary.leveledUp,
+        };
+        client.send(MSG_SIM_EVENT, msg);
+      }
+    } catch (err) {
+      log.error("failed to persist/reward match", err);
+    }
   }
 
   async onLeave(client: Client, consented: boolean): Promise<void> {
@@ -466,6 +619,8 @@ export class ArenaRoom extends Room<ArenaState> {
     this.keyToEntity.delete(sessionId);
     this.humanSessions.delete(sessionId);
     this.orderRates.delete(sessionId);
+    this.sessionUserId.delete(sessionId);
+    if (entityId !== undefined) this.fragsByEntity.delete(entityId);
     this.state.players.delete(sessionId);
     log.info("client removed", { sessionId, entityId });
   }

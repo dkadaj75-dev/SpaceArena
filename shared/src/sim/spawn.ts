@@ -82,12 +82,20 @@ export function resolveShipCore(
   };
 }
 
-/** Instantiate a ship from config with a resolved core and per-module runtimes. */
+/**
+ * Instantiate a ship from config with a resolved core and per-module runtimes.
+ *
+ * `fittingModuleIds` is **positional**: the array index is the hardpoint index,
+ * and a `null` (or missing) entry is an empty hardpoint that is skipped. Each
+ * built {@link ModuleRuntime} carries its true `hardpointIndex`, so the modules
+ * array is sparse-safe — module toggles address modules by hardpoint index, not
+ * by array position (see ModuleSystem).
+ */
 export function spawnShipFromConfig(
   world: World,
   configs: ConfigService,
   shipId: string,
-  fittingModuleIds: string[],
+  fittingModuleIds: readonly (string | null)[],
   team: number,
   pos: { x: number; z: number },
   heading: number,
@@ -103,13 +111,15 @@ export function spawnShipFromConfig(
   world.teams.set(id, { team });
   world.targets.set(id, { targetId: null, manual: false });
 
-  const modules: ModuleRuntime[] = fittingModuleIds.map((moduleId, i) => {
+  const modules: ModuleRuntime[] = [];
+  fittingModuleIds.forEach((moduleId, hardpointIndex) => {
+    if (moduleId === null || moduleId === undefined) return; // empty hardpoint
     if (!configs.get<ModuleConfig>("module", moduleId)) {
       throw new Error(`unknown module config: ${moduleId}`);
     }
-    return {
+    modules.push({
       moduleId,
-      hardpointIndex: i,
+      hardpointIndex,
       state: "retracted",
       stateTimer: 0,
       heat: 0,
@@ -117,7 +127,7 @@ export function spawnShipFromConfig(
       workedThisTick: false,
       shieldPool: 0,
       overheatDamaged: false,
-    };
+    });
   });
   world.modules.set(id, { modules });
 

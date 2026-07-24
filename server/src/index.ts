@@ -1,10 +1,11 @@
 import { createServer } from "node:http";
-import express from "express";
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { monitor } from "@colyseus/monitor";
 import { createLogger, PROTOCOL_VERSION, SIM_TICK_RATE } from "@space-arena/shared";
 import { loadContent, setConfigService } from "./configService.js";
+import { openDatabase, resolveDbPath, setDb } from "./db/index.js";
+import { createHttpApp } from "./httpApp.js";
 import { ArenaRoom } from "./rooms/ArenaRoom.js";
 
 const log = createLogger("Server");
@@ -19,11 +20,12 @@ async function main(): Promise<void> {
   setConfigService(configs);
   log.info("content loaded", { protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE });
 
-  const app = express();
-  app.get("/health", (_req, res) => {
-    res.json({ status: "ok", protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE });
-  });
+  // Open + migrate the database (dir auto-created, gitignored).
+  const dbPath = resolveDbPath();
+  setDb(openDatabase(dbPath));
+  log.info("database ready", { dbPath });
 
+  const app = createHttpApp();
   const httpServer = createServer(app);
   const gameServer = new Server({
     transport: new WebSocketTransport({ server: httpServer }),

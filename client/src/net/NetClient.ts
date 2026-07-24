@@ -8,6 +8,7 @@ import {
   type OrderAckMessage,
   type SimEventMessage,
 } from "@space-arena/shared";
+import { wsServerUrl } from "../core/serverConfig.js";
 
 const log = createLogger("NetClient");
 
@@ -17,6 +18,8 @@ export interface ArenaJoinOptions {
   shipId?: string;
   practiceTarget?: boolean;
   minPlayers?: number;
+  /** Access token for authenticated join; omitted for DEV_ALLOW_ANON solo testing. */
+  token?: string;
 }
 
 /** Thin Colyseus lifecycle wrapper; state decoding belongs to NetGameSession. */
@@ -28,7 +31,7 @@ export class NetClient {
   onSimEvent: ((message: SimEventMessage) => void) | null = null;
   onStateChange: ((connected: boolean, error?: unknown) => void) | null = null;
 
-  async connect(options: ArenaJoinOptions, url = serverUrl()): Promise<Room> {
+  async connect(options: ArenaJoinOptions, url = wsServerUrl()): Promise<Room> {
     const client = new Client(url);
     const room = await client.joinOrCreate("arena", options);
     this.room = room;
@@ -51,9 +54,4 @@ export class NetClient {
     if (room) void room.leave();
     log.debug("disposed");
   }
-}
-
-function serverUrl(): string {
-  const q = new URLSearchParams(location.search).get("server");
-  return q || `ws://${location.hostname}:2567`;
 }

@@ -25,5 +25,10 @@
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.0.0",
     "vitest": "^2.0.5"
+  },
+  "allowScripts": {
+    "argon2@0.45.1": true,
+    "better-sqlite3@13.0.1": true,
+    "msgpackr-extract@3.0.4": true
   }
 }

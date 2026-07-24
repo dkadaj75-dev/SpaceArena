@@ -16,6 +16,8 @@ import { World } from "./World.js";
 
 export interface ModuleSnapshot {
   moduleId: string;
+  /** Hardpoint index this module occupies (stable; toggle addresses by this). */
+  hardpointIndex: number;
   state: ModuleState;
   heat: number;
   stateTimer: number;
@@ -108,7 +110,7 @@ export class ArenaSimulation {
   }
 
   /** Spawn a ship for `team` at the next free spawn point for that team. */
-  spawnPlayer(shipId: string, fitting: string[], team: number): EntityId {
+  spawnPlayer(shipId: string, fitting: readonly (string | null)[], team: number): EntityId {
     const spawns = this.world.arena.spawnPoints.filter((s) => s.team === team);
     const used = this.world.shipIds().length;
     const sp = spawns[used % Math.max(1, spawns.length)] ?? this.world.arena.spawnPoints[0]!;
@@ -119,7 +121,7 @@ export class ArenaSimulation {
   /** Spawn a ship at an explicit position (used by tests/practice placement). */
   spawnPlayerAt(
     shipId: string,
-    fitting: string[],
+    fitting: readonly (string | null)[],
     team: number,
     pos: { x: number; z: number },
     heading = 0,
@@ -297,6 +299,7 @@ export class ArenaSimulation {
         targetId: w.targets.get(id)?.targetId ?? null,
         modules: mods.modules.map((m) => ({
           moduleId: m.moduleId,
+          hardpointIndex: m.hardpointIndex,
           state: m.state,
           heat: m.heat,
           stateTimer: m.stateTimer,

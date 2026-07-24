@@ -15,7 +15,7 @@ import { Minimap } from "./Minimap.js";
 import { NotificationCenter } from "./Notifications.js";
 import { DamageFeedback } from "./DamageFeedback.js";
 import { MatchStatus } from "./MatchStatus.js";
-import { ResultsOverlay } from "./ResultsOverlay.js";
+import { ResultsOverlay, type MatchRewards } from "./ResultsOverlay.js";
 import { injectHudStyle } from "./hudStyle.js";
 
 const log = createLogger("Hud");
@@ -105,6 +105,11 @@ export class Hud {
   /** Direct toast for client-side feedback (e.g. rejected online orders). */
   showToast(text: string): void {
     this.notifications.showText(text);
+  }
+
+  /** Forwards a match's credit/xp/level-up summary to the results overlay. */
+  showMatchRewards(rewards: MatchRewards): void {
+    this.resultsOverlay.showRewards(rewards);
   }
 
   /** Forward this frame's drained sim events to whichever sub-components care. */
