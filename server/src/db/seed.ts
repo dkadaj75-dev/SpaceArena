@@ -16,6 +16,20 @@ export function getProgression(configs: ConfigService): ProgressionConfig | unde
  * built from that ship's `defaultFitting`. Idempotent per-call is not required —
  * this runs exactly once, right after the user row is inserted.
  */
+/**
+ * Idempotent starter-kit top-up: grant any `price: 0` module the user doesn't
+ * own yet. Runs on every auth so accounts created before a content change
+ * (e.g. a module becoming part of the free starter kit) are repaired and can
+ * still join with default fittings.
+ */
+export function ensureStarterKit(configs: ConfigService, userId: string): void {
+  for (const mod of configs.getAll<ModuleConfig>("module")) {
+    if (mod.price === 0 && !ownedModulesRepo.owns(userId, mod.id)) {
+      ownedModulesRepo.grant(userId, mod.id, 1);
+    }
+  }
+}
+
 export function seedNewUser(configs: ConfigService, userId: string, displayName: string): void {
   const progression = getProgression(configs);
   const starterCredits = progression?.starterCredits ?? 0;

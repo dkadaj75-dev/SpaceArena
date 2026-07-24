@@ -273,7 +273,21 @@ async function bootstrap(): Promise<void> {
     scene.render();
   }
 
-  engine.runRenderLoop(renderFrame);
+  // A single throwing frame must never silently kill the render loop (the
+  // canvas would stay black-cleared while the DOM HUD looks alive). Log,
+  // surface once, and keep rendering.
+  let frameErrorShown = false;
+  engine.runRenderLoop(() => {
+    try {
+      renderFrame();
+    } catch (err) {
+      log.error("render frame failed", err);
+      if (!frameErrorShown) {
+        frameErrorShown = true;
+        runtime?.hud.showToast("Render error — see console (F12)");
+      }
+    }
+  });
 
   if (import.meta.env.DEV) {
     let editorShell: import("./editor/EditorShell.js").EditorShell | null = null;

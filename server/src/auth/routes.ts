@@ -9,7 +9,7 @@ import {
 import { getConfigService } from "../configService.js";
 import { withTransaction } from "../db/index.js";
 import { profilesRepo, sessionsRepo, usersRepo } from "../db/repos.js";
-import { seedNewUser } from "../db/seed.js";
+import { ensureStarterKit, seedNewUser } from "../db/seed.js";
 import { asyncHandler, bearerToken, parseBody, requireAuth, sendError, type AuthedRequest } from "../api/http.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { issueTokenPair, rotateRefreshToken, verifyAccessToken } from "./tokens.js";
@@ -99,6 +99,7 @@ export function createAuthRouter(): Router {
         return;
       }
       const pair = issueTokenPair(user.id);
+      ensureStarterKit(getConfigService(), user.id);
       res.json({ ...pair, profile: profilePayload(user.id) });
     }),
   );
@@ -115,6 +116,7 @@ export function createAuthRouter(): Router {
         const existing = usersRepo.byGuestToken(body.guestToken);
         if (existing) {
           const pair = issueTokenPair(existing.id);
+          ensureStarterKit(getConfigService(), existing.id);
           res.json({ ...pair, guestToken: body.guestToken, profile: profilePayload(existing.id) });
           return;
         }
@@ -154,6 +156,7 @@ export function createAuthRouter(): Router {
     "/me",
     requireAuth,
     asyncHandler(async (req: AuthedRequest, res) => {
+      ensureStarterKit(getConfigService(), req.userId!);
       const payload = profilePayload(req.userId!);
       if (!payload) {
         sendError(res, 404, "not-found", "profile not found");
