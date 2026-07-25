@@ -2,6 +2,7 @@ import {
   Color3,
   MeshBuilder,
   StandardMaterial,
+  VertexBuffer,
   Vector3,
   type LinesMesh,
   type Mesh,
@@ -18,6 +19,10 @@ import {
 const log = createLogger("OrderMarkers");
 
 const MARKER_Y = 0.15;
+/** Dashed move-path geometry: fixed segment count so the buffer never resizes. */
+const DASH_COUNT = 40;
+const DASH_SIZE = 2;
+const GAP_SIZE = 1;
 const MOVE_COLOR = new Color3(0.35, 0.85, 1.0);
 const BOOST_COLOR = new Color3(1.0, 0.7, 0.25);
 const TEAM_COLORS = [new Color3(0.2, 0.55, 1.0), new Color3(1.0, 0.35, 0.25)];
@@ -33,7 +38,7 @@ const TEAM_COLORS = [new Color3(0.2, 0.55, 1.0), new Color3(1.0, 0.35, 0.25)];
  * and reused — updates mutate existing geometry/transforms, no per-frame alloc.
  */
 export class OrderMarkers {
-  private pathLine: LinesMesh;
+  private readonly pathLine: LinesMesh;
   private readonly destRing: Mesh;
   private readonly targetRing: Mesh;
 
@@ -44,16 +49,29 @@ export class OrderMarkers {
 
   // Reused scratch for the 2-point dashed line.
   private readonly linePoints = [new Vector3(), new Vector3()];
+  /**
+   * Pre-sized position buffer for the dashed path, written in place every
+   * frame. `MeshBuilder.CreateDashedLines(..., { instance })` would do the same
+   * job but allocates a closure and a `Vector3` per call — this runs on every
+   * frame the player has a move order standing.
+   */
+  private readonly dashPositions: Float32Array;
+  private readonly dashCount: number;
 
   constructor(
     private readonly scene: Scene,
     private readonly playerId: EntityId,
   ) {
+    this.linePoints[0]!.set(0, MARKER_Y, 0);
+    this.linePoints[1]!.set(0, MARKER_Y, 1);
     this.pathLine = MeshBuilder.CreateDashedLines(
       "orderPath",
-      { points: this.linePoints, dashSize: 2, gapSize: 1, dashNb: 40, updatable: true },
+      { points: this.linePoints, dashSize: DASH_SIZE, gapSize: GAP_SIZE, dashNb: DASH_COUNT, updatable: true },
       scene,
     );
+    const positions = this.pathLine.getVerticesData(VertexBuffer.PositionKind);
+    this.dashPositions = new Float32Array(positions ? positions.length : 0);
+    this.dashCount = this.dashPositions.length / 6;
     this.pathLine.color = MOVE_COLOR;
     this.pathLine.isPickable = false;
     this.pathLine.setEnabled(false);
@@ -113,12 +131,7 @@ export class OrderMarkers {
 
     // Move path + destination ring.
     if (this.moveTarget && player) {
-      this.linePoints[0]!.set(player.pos.x, MARKER_Y, player.pos.z);
-      this.linePoints[1]!.set(this.moveTarget.x, MARKER_Y, this.moveTarget.z);
-      this.pathLine = MeshBuilder.CreateDashedLines("orderPath", {
-        points: this.linePoints,
-        instance: this.pathLine,
-      });
+      this.updateDashedPath(player.pos.x, player.pos.z, this.moveTarget.x, this.moveTarget.z);
       this.pathLine.setEnabled(true);
 
       this.destRing.position.set(this.moveTarget.x, MARKER_Y, this.moveTarget.z);
@@ -141,6 +154,35 @@ export class OrderMarkers {
     } else {
       this.targetRing.setEnabled(false);
     }
+  }
+
+  /**
+   * Rewrite the dashed path's vertex positions in place: `dashCount` segments
+   * spread along from→to, each `dashFraction` of the spacing long. Pure number
+   * writes into a preallocated buffer — zero allocations per frame.
+   */
+  private updateDashedPath(fromX: number, fromZ: number, toX: number, toZ: number): void {
+    if (this.dashCount === 0) return;
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const length = Math.hypot(dx, dz);
+    const step = length > 0 ? length / DASH_COUNT : 0;
+    const dash = (DASH_SIZE * step) / (DASH_SIZE + GAP_SIZE);
+    const ux = length > 0 ? dx / length : 0;
+    const uz = length > 0 ? dz / length : 0;
+    const buffer = this.dashPositions;
+    for (let i = 0; i < this.dashCount; i++) {
+      const start = step * i;
+      const end = start + dash;
+      const o = i * 6;
+      buffer[o] = fromX + ux * start;
+      buffer[o + 1] = MARKER_Y;
+      buffer[o + 2] = fromZ + uz * start;
+      buffer[o + 3] = fromX + ux * end;
+      buffer[o + 4] = MARKER_Y;
+      buffer[o + 5] = fromZ + uz * end;
+    }
+    this.pathLine.updateVerticesData(VertexBuffer.PositionKind, buffer, false, false);
   }
 
   dispose(): void {

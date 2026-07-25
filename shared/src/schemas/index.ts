@@ -12,6 +12,7 @@ import { type ManifestConfig } from "./manifest.js";
 import { moduleSchema, type ModuleConfig } from "./module.js";
 import { notificationSchema, type NotificationConfig } from "./notification.js";
 import { progressionSchema, type ProgressionConfig } from "./progression.js";
+import { qualitySchema, type QualityConfig } from "./quality.js";
 import { hardpointsOf, shipSchema, type ShipConfig } from "./ship.js";
 import { themeSchema, type ThemeConfig } from "./theme.js";
 import { tuningSchema, type TuningConfig } from "./tuning.js";
@@ -34,6 +35,7 @@ export * from "./event.js";
 export * from "./notification.js";
 export * from "./theme.js";
 export * from "./progression.js";
+export * from "./quality.js";
 export * from "./botprofile.js";
 export * from "./manifest.js";
 
@@ -58,6 +60,7 @@ export const CONFIG_SCHEMAS = {
   theme: themeSchema,
   progression: progressionSchema,
   botprofile: botprofileSchema,
+  quality: qualitySchema,
 } as const;
 
 export type ConfigType = keyof typeof CONFIG_SCHEMAS;
@@ -78,7 +81,8 @@ export type AnyConfig =
   | NotificationConfig
   | ThemeConfig
   | ProgressionConfig
-  | BotprofileConfig;
+  | BotprofileConfig
+  | QualityConfig;
 
 export type { ManifestConfig };
 

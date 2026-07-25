@@ -1,10 +1,20 @@
-import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, Snapshot } from "@space-arena/shared";
+import type {
+  ConfigService,
+  EntityId,
+  EventBus,
+  ConfigEvents,
+  ModuleConfig,
+  ShipSnapshot,
+  Snapshot,
+} from "@space-arena/shared";
 
 interface GaugeEntry {
   fill: HTMLDivElement;
   valueEl: HTMLSpanElement;
   lastPct: number;
-  lastText: string;
+  /** Last numerator/denominator written, so an unchanged frame builds no string. */
+  lastValue: number;
+  lastMax: number;
   lastWarn: boolean;
 }
 
@@ -60,14 +70,16 @@ export class Gauges {
     row.appendChild(valueEl);
     this.container.appendChild(row);
 
-    return { fill, valueEl, lastPct: -1, lastText: "", lastWarn: false };
+    return { fill, valueEl, lastPct: -1, lastValue: Number.NaN, lastMax: Number.NaN, lastWarn: false };
   }
 
   update(cur: Snapshot): void {
-    const ship = cur.ships.find((s) => s.id === this.playerId);
+    // Indexed scan, not `Array.find` — this runs every render frame and the
+    // predicate closure would be a fresh allocation each time.
+    const ship = findShip(cur, this.playerId);
     if (!ship) return;
 
-    this.set(this.hull, ship.hullMax > 0 ? ship.hull / ship.hullMax : 0, `${Math.ceil(ship.hull)}/${ship.hullMax}`);
+    this.set(this.hull, ship.hullMax > 0 ? ship.hull / ship.hullMax : 0, Math.ceil(ship.hull), ship.hullMax);
 
     let shieldPool = 0;
     let shieldCap = 0;
@@ -79,23 +91,34 @@ export class Gauges {
         shieldCap += cap;
       }
     }
-    this.set(this.shield, shieldCap > 0 ? shieldPool / shieldCap : 0, `${shieldPool.toFixed(0)}`);
+    this.set(this.shield, shieldCap > 0 ? shieldPool / shieldCap : 0, Math.round(shieldPool), Number.NaN);
 
-    this.set(this.energy, ship.energy.max > 0 ? ship.energy.cur / ship.energy.max : 0, `${Math.ceil(ship.energy.cur)}/${ship.energy.max}`);
+    this.set(
+      this.energy,
+      ship.energy.max > 0 ? ship.energy.cur / ship.energy.max : 0,
+      Math.ceil(ship.energy.cur),
+      ship.energy.max,
+    );
 
     const heatFrac = ship.heat.capacity > 0 ? ship.heat.cur / ship.heat.capacity : 0;
-    this.set(this.heat, heatFrac, `${Math.ceil(ship.heat.cur)}/${ship.heat.capacity}`, heatFrac >= HEAT_WARN_FRACTION);
+    this.set(this.heat, heatFrac, Math.ceil(ship.heat.cur), ship.heat.capacity, heatFrac >= HEAT_WARN_FRACTION);
   }
 
-  private set(entry: GaugeEntry, frac: number, text: string, warn = false): void {
+  /**
+   * Write a gauge. Every branch compares numbers first: the label string is
+   * only built (and only touched in the DOM) on the frame its value actually
+   * changes. `max` of NaN means "no denominator" — show the bare value.
+   */
+  private set(entry: GaugeEntry, frac: number, value: number, max: number, warn = false): void {
     const pct = Math.max(0, Math.min(100, Math.round(frac * 100)));
     if (pct !== entry.lastPct) {
       entry.fill.style.transform = `scaleX(${pct / 100})`;
       entry.lastPct = pct;
     }
-    if (text !== entry.lastText) {
-      entry.valueEl.textContent = text;
-      entry.lastText = text;
+    if (!Object.is(value, entry.lastValue) || !Object.is(max, entry.lastMax)) {
+      entry.lastValue = value;
+      entry.lastMax = max;
+      entry.valueEl.textContent = Number.isNaN(max) ? `${value}` : `${value}/${max}`;
     }
     if (warn !== entry.lastWarn) {
       entry.fill.classList.toggle("warn", warn);
@@ -106,4 +129,9 @@ export class Gauges {
   dispose(): void {
     this.container.remove();
   }
+}
+
+function findShip(snap: Snapshot, id: EntityId): ShipSnapshot | undefined {
+  for (let i = 0; i < snap.ships.length; i++) if (snap.ships[i]!.id === id) return snap.ships[i];
+  return undefined;
 }

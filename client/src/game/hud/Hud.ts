@@ -26,11 +26,19 @@ const THEME_ID = "theme.default";
 
 /** Current viewport in CSS px — the input to the portrait/landscape switch. */
 function viewportSize(): { width: number; height: number } {
-  if (typeof window === "undefined") return { width: 0, height: 0 };
-  return {
-    width: window.visualViewport?.width ?? window.innerWidth,
-    height: window.visualViewport?.height ?? window.innerHeight,
-  };
+  return { width: viewportWidth(), height: viewportHeight() };
+}
+
+// Split accessors so the per-frame staleness check in `update()` can compare
+// numbers without allocating a `{width, height}` object every single frame.
+function viewportWidth(): number {
+  if (typeof window === "undefined") return 0;
+  return window.visualViewport?.width ?? window.innerWidth;
+}
+
+function viewportHeight(): number {
+  if (typeof window === "undefined") return 0;
+  return window.visualViewport?.height ?? window.innerHeight;
 }
 
 /**
@@ -52,7 +60,7 @@ export class Hud {
   private readonly unsubscribeTheme: () => void;
   private readonly onViewportChange: () => void;
 
-  private lastFpsText = "";
+  private lastFps = Number.POSITIVE_INFINITY;
   private layout: HudLayout;
 
   constructor(
@@ -129,8 +137,10 @@ export class Hud {
     // comparisons per frame, and only then any DOM write. Some mobile browsers
     // resize the visual viewport (URL bar collapse, split-screen) without
     // firing a usable event, and a stale layout would break the thumb zone.
-    const vp = viewportSize();
-    if (vp.width !== this.layout.viewport.width || vp.height !== this.layout.viewport.height) {
+    if (
+      viewportWidth() !== this.layout.viewport.width ||
+      viewportHeight() !== this.layout.viewport.height
+    ) {
       this.applyTheme();
     }
     this.updateFps(fps);
@@ -160,12 +170,16 @@ export class Hud {
     this.haptics.consumeEvents(events);
   }
 
+  /**
+   * DOM write only when the *rounded* value changes — comparing the numbers
+   * first means no template string is built on the ~59 frames out of 60 where
+   * the reading is unchanged.
+   */
   private updateFps(fps: number): void {
-    const text = `FPS: ${Number.isFinite(fps) ? fps.toFixed(0) : "--"}`;
-    if (text !== this.lastFpsText) {
-      this.lastFpsText = text;
-      this.fpsEl.textContent = text;
-    }
+    const rounded = Number.isFinite(fps) ? Math.round(fps) : Number.NaN;
+    if (Object.is(rounded, this.lastFps)) return;
+    this.lastFps = rounded;
+    this.fpsEl.textContent = `FPS: ${Number.isNaN(rounded) ? "--" : rounded}`;
   }
 
   dispose(): void {

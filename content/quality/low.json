@@ -1,0 +1,15 @@
+{
+  "id": "quality.low",
+  "type": "quality",
+  "version": 1,
+  "name": "Low (budget phones)",
+  "tier": "low",
+  "probe": { "minCores": 0, "minMemoryGb": 0, "allowMobile": true },
+  "autoTier": { "sampleAfterMs": 5000, "sampleWindowMs": 3000, "demoteBelowFps": 0, "promoteAboveFps": 52 },
+  "render": { "hardwareScalingMultiplier": 1.33, "maxDevicePixelRatio": 1.5, "freezeStatics": true },
+  "glow": { "enabled": false, "intensity": 0 },
+  "particles": { "enabled": true, "budgetMultiplier": 0.35, "maxEmitterCapacity": 40 },
+  "asteroids": { "lodMediumDistance": 45, "lodLowDistance": 75, "lodCullDistance": 200, "thinInstances": false },
+  "projectiles": { "useInstances": true },
+  "scene": { "starfieldPoints": 120, "groundGrid": false, "spawnMarkers": true }
+}

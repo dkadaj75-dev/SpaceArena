@@ -1,4 +1,4 @@
-import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleSnapshot, Snapshot, ModuleState } from "@space-arena/shared";
+import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState } from "@space-arena/shared";
 import { createLogger } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
@@ -79,7 +79,8 @@ export class ModuleButtons {
   }
 
   update(cur: Snapshot): void {
-    const ship = cur.ships.find((s) => s.id === this.playerId);
+    // Indexed scan, not `Array.find` — per-frame hot path, no closure.
+    const ship = findShipSnapshot(cur, this.playerId);
     if (!ship) return;
 
     // Module count only changes on a fresh spawn (fitting is fixed for the
@@ -178,4 +179,9 @@ export class ModuleButtons {
   dispose(): void {
     this.container.remove();
   }
+}
+
+function findShipSnapshot(snap: Snapshot, id: EntityId): ShipSnapshot | undefined {
+  for (let i = 0; i < snap.ships.length; i++) if (snap.ships[i]!.id === id) return snap.ships[i];
+  return undefined;
 }

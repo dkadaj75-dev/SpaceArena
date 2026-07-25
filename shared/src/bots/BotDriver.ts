@@ -53,6 +53,13 @@ export interface BotDriverOptions {
   orbitSign?: 1 | -1;
 }
 
+/**
+ * Shared empty order list. `BotDriver.update` runs once per bot per sim tick
+ * (30 Hz) and returns nothing on the vast majority of them — a fresh `[]` each
+ * time is pure garbage. Frozen so a caller can never mutate the shared value.
+ */
+const NO_ORDERS: readonly Order[] = Object.freeze([]);
+
 /** Minimum spacing between decisions after jitter (ms). */
 const MIN_DECISION_MS = 16;
 /** Re-issuing a move order closer than this to the last one is pointless. */
@@ -131,19 +138,19 @@ export class BotDriver {
    * elapsed sim time in milliseconds; returns the orders to feed through the
    * normal order pipeline (empty between decision intervals).
    */
-  update(snapshot: Snapshot, nowMs: number): Order[] {
-    if (snapshot.phase !== "live") return [];
+  update(snapshot: Snapshot, nowMs: number): readonly Order[] {
+    if (snapshot.phase !== "live") return NO_ORDERS;
     if (!this.started) {
       this.started = true;
       // Stagger first decisions across bots so they don't all fire on tick 0.
       this.nextDecisionMs = nowMs + this.rng() * this.profile.decisionIntervalMs;
-      return [];
+      return NO_ORDERS;
     }
-    if (nowMs < this.nextDecisionMs) return [];
+    if (nowMs < this.nextDecisionMs) return NO_ORDERS;
     this.nextDecisionMs = nowMs + this.jitteredInterval();
 
-    const self = snapshot.ships.find((s) => s.id === this.entityId);
-    if (!self) return [];
+    const self = findShipSnapshot(snapshot, this.entityId);
+    if (!self) return NO_ORDERS;
 
     return this.decide(snapshot, self, nowMs);
   }
@@ -279,4 +286,12 @@ export class BotDriver {
     this.weaponRangeCache = max;
     return max;
   }
+}
+
+/** Indexed ship lookup — runs every sim tick per bot, so no predicate closure. */
+function findShipSnapshot(snapshot: Snapshot, id: EntityId): ShipSnapshot | undefined {
+  for (let i = 0; i < snapshot.ships.length; i++) {
+    if (snapshot.ships[i]!.id === id) return snapshot.ships[i];
+  }
+  return undefined;
 }

@@ -11,6 +11,7 @@ import {
   TransformNode,
   Vector3,
   type CloudPoint,
+  type Material,
   type Node,
   type Scene,
 } from "@babylonjs/core";
@@ -20,12 +21,10 @@ import {
   type ConfigService,
   type EventBus,
   type ConfigEvents,
+  type QualityConfig,
 } from "@space-arena/shared";
 
 const log = createLogger("SceneBuilder");
-
-/** Dev-only: show colored team spawn-point gizmos. Flip off to declutter. */
-const SHOW_SPAWN_MARKERS = true;
 
 function colorFromHex(hex: string | undefined, fallback: Color3): Color3 {
   if (!hex) return fallback;
@@ -38,10 +37,31 @@ function colorFromHex(hex: string | undefined, fallback: Color3): Color3 {
 
 const TEAM_COLORS = [new Color3(0.2, 0.55, 1.0), new Color3(1.0, 0.35, 0.25)];
 
+/** Everything SceneBuilder reads off the active quality tier (§10 5.6). */
+export type SceneQuality = Pick<QualityConfig, "glow" | "scene" | "render">;
+
+/** Conservative defaults for callers that predate the quality system. */
+const DEFAULT_QUALITY: SceneQuality = {
+  glow: { enabled: true, intensity: 0.5 },
+  scene: { starfieldPoints: 400, groundGrid: true, spawnMarkers: true },
+  render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: false },
+};
+
 /**
  * Builds (and rebuilds, on hot-reload) the arena scene: bounds, ground plane,
  * skybox, light rig, asteroid placements, spawn markers, and the player ship.
  * Every node/material it creates is tracked so a rebuild leaves nothing behind.
+ *
+ * Perf (§10 5.6): the arena is entirely static, so once built its meshes get
+ * `freezeWorldMatrix()` and their materials `freeze()`. Both are correctly
+ * reversed whenever the arena is hidden (the dev editor stages its own content
+ * and adds its own lights — a frozen StandardMaterial would never recompile for
+ * the new light count) and on every rebuild.
+ *
+ * Note on `scene.freezeActiveMeshes()`: deliberately **not** used. It freezes
+ * the scene-wide active-mesh list, and this scene also holds ships, projectiles
+ * and asteroids that appear and disappear every frame — freezing it would
+ * strand them. Per-mesh freezing gets the static-arena win without that.
  */
 export class SceneBuilder {
   private root: TransformNode | null = null;
@@ -49,12 +69,45 @@ export class SceneBuilder {
   private glowLayer: GlowLayer | null = null;
   private unsubscribers: Array<() => void> = [];
   private generation = 0;
+  private quality: SceneQuality;
+  private frozen = false;
+  private arenaId: string | null = null;
 
   constructor(
     private readonly scene: Scene,
     private readonly configService: ConfigService,
     private readonly bus: EventBus<ConfigEvents>,
-  ) {}
+    quality: SceneQuality = DEFAULT_QUALITY,
+  ) {
+    this.quality = quality;
+  }
+
+  /**
+   * Swap the active quality tier. Cheap knobs (glow intensity/enabled) apply in
+   * place; anything baked into geometry (starfield density, decoration meshes)
+   * needs the rebuild this triggers.
+   */
+  setQuality(quality: SceneQuality): void {
+    const previous = this.quality;
+    this.quality = quality;
+    if (!this.root) return;
+    const needsRebuild =
+      previous.scene.starfieldPoints !== quality.scene.starfieldPoints ||
+      previous.scene.groundGrid !== quality.scene.groundGrid ||
+      previous.scene.spawnMarkers !== quality.scene.spawnMarkers;
+    if (needsRebuild && this.arenaId) {
+      const arena = this.configService.get<ArenaConfig>("arena", this.arenaId);
+      if (arena) {
+        this.rebuild(arena);
+        return;
+      }
+    }
+    this.applyGlowQuality();
+    if (previous.render.freezeStatics !== quality.render.freezeStatics) {
+      if (quality.render.freezeStatics) this.freezeStatics();
+      else this.unfreezeStatics();
+    }
+  }
 
   /** Builds the arena named by `arenaId`, subscribing to hot-reload for arena/asteroid types. */
   buildArena(arenaId: string): void {
@@ -63,6 +116,7 @@ export class SceneBuilder {
       log.error(`arena config not found: ${arenaId}`);
       return;
     }
+    this.arenaId = arenaId;
 
     this.rebuild(arena);
 
@@ -81,7 +135,9 @@ export class SceneBuilder {
   }
 
   private rebuild(arena: ArenaConfig): void {
+    // A rebuild disposes everything, so the frozen bookkeeping resets with it.
     this.disposeSceneNodes();
+    this.frozen = false;
     const generation = ++this.generation;
 
     const root = new TransformNode("arenaRoot", this.scene);
@@ -92,7 +148,9 @@ export class SceneBuilder {
     this.buildSkybox(arena, root, generation);
     this.buildBounds(arena, root);
     this.buildGroundPlane(arena, root);
-    if (SHOW_SPAWN_MARKERS) this.buildSpawnMarkers(arena, root);
+    if (this.quality.scene.spawnMarkers) this.buildSpawnMarkers(arena, root);
+
+    if (this.visible) this.freezeStatics();
   }
 
   /**
@@ -100,10 +158,49 @@ export class SceneBuilder {
    * AND the light rig, which is parented to the same root. Callers that hide it
    * to stage something else must supply their own lighting (see EditorStage).
    * Latched so a hot-reload rebuild keeps the current visibility.
+   *
+   * Hiding also unfreezes: the editor adds its own lights while the arena is
+   * away, and a material frozen against the old light set would come back with
+   * a stale shader. Showing re-freezes against whatever is in the scene then.
    */
   setVisible(visible: boolean): void {
     this.visible = visible;
     this.root?.setEnabled(visible);
+    if (visible) this.freezeStatics();
+    else this.unfreezeStatics();
+  }
+
+  /** Whether the static arena meshes/materials are currently frozen (test hook). */
+  get staticsFrozen(): boolean {
+    return this.frozen;
+  }
+
+  /**
+   * `freezeWorldMatrix()` + `material.freeze()` across the arena, minus the
+   * skybox: `infiniteDistance` re-derives its world matrix from the camera
+   * every frame, so freezing it would pin the sky in place.
+   */
+  private freezeStatics(): void {
+    if (this.frozen || !this.root || !this.quality.render.freezeStatics) return;
+    this.frozen = true;
+    const materials = new Set<Material>();
+    forEachMesh(this.root, (mesh) => {
+      if (mesh.infiniteDistance) return;
+      mesh.freezeWorldMatrix();
+      if (mesh.material) materials.add(mesh.material);
+    });
+    for (const material of materials) material.freeze();
+  }
+
+  private unfreezeStatics(): void {
+    if (!this.frozen || !this.root) return;
+    this.frozen = false;
+    const materials = new Set<Material>();
+    forEachMesh(this.root, (mesh) => {
+      mesh.unfreezeWorldMatrix();
+      if (mesh.material) materials.add(mesh.material);
+    });
+    for (const material of materials) material.unfreeze();
   }
 
   private buildLighting(arena: ArenaConfig, root: TransformNode): void {
@@ -132,9 +229,12 @@ export class SceneBuilder {
     skybox.isPickable = false;
     skybox.parent = root;
 
-    // Cheap starfield: a couple hundred points via PointsCloudSystem.
+    // Cheap starfield: a few hundred points via PointsCloudSystem, density per
+    // quality tier (the point count is baked into the mesh at build time).
+    const starCount = this.quality.scene.starfieldPoints;
+    if (starCount <= 0) return;
     const pcs = new PointsCloudSystem("stars", 1, this.scene);
-    pcs.addPoints(400, (particle: CloudPoint) => {
+    pcs.addPoints(starCount, (particle: CloudPoint) => {
       const radius = 300 + Math.random() * 250;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
@@ -154,14 +254,17 @@ export class SceneBuilder {
       }
       mesh.isPickable = false;
       mesh.parent = root;
+      // The starfield lands after rebuild() froze everything else — freeze it
+      // too, or it would be the one arena mesh recomputing its matrix forever.
+      if (this.frozen) {
+        mesh.freezeWorldMatrix();
+        mesh.material?.freeze();
+      }
     });
   }
 
   private buildBounds(arena: ArenaConfig, root: TransformNode): void {
-    if (!this.glowLayer) {
-      this.glowLayer = new GlowLayer("arenaGlow", this.scene);
-      this.glowLayer.intensity = 0.5;
-    }
+    this.applyGlowQuality();
 
     if (arena.bounds.shape === "circle") {
       const ring = MeshBuilder.CreateTorus(
@@ -199,6 +302,29 @@ export class SceneBuilder {
     }
   }
 
+  /**
+   * The arena `GlowLayer`, created/disposed and tuned per quality tier. Measured
+   * on the practice-bots arena: enabling it roughly **doubles** the frame's draw
+   * calls (47 → 24 with it off), because every emissive submesh is re-rendered
+   * into the blur target. It is the first thing the low tier drops.
+   */
+  private applyGlowQuality(): void {
+    const glow = this.quality.glow;
+    if (!glow.enabled) {
+      this.glowLayer?.dispose();
+      this.glowLayer = null;
+      return;
+    }
+    if (!this.glowLayer) {
+      this.glowLayer = new GlowLayer(
+        "arenaGlow",
+        this.scene,
+        glow.blurKernelSize === undefined ? undefined : { blurKernelSize: glow.blurKernelSize },
+      );
+    }
+    this.glowLayer.intensity = glow.intensity;
+  }
+
   private buildGroundPlane(arena: ArenaConfig, root: TransformNode): void {
     const size =
       arena.bounds.shape === "circle" ? arena.bounds.radius * 2.1 : Math.max(arena.bounds.width, arena.bounds.height) * 1.1;
@@ -209,6 +335,7 @@ export class SceneBuilder {
     ground.parent = root;
 
     // Faint polar grid disc so depth reads without being visually loud.
+    if (!this.quality.scene.groundGrid) return;
     const disc = MeshBuilder.CreateDisc("groundDisc", { radius: size / 2, tessellation: 64 }, this.scene);
     disc.rotation.x = Math.PI / 2;
     disc.isPickable = false;
@@ -266,7 +393,15 @@ function disposeRecursive(node: Node): void {
     disposeRecursive(child);
   }
   if (node instanceof Mesh) {
+    // A frozen material refuses to dispose its effect cleanly — thaw first.
+    node.material?.unfreeze();
     node.material?.dispose();
   }
   node.dispose();
+}
+
+/** Depth-first walk over every `Mesh` under `node` (inclusive). */
+function forEachMesh(node: Node, visit: (mesh: Mesh) => void): void {
+  if (node instanceof Mesh) visit(node);
+  for (const child of node.getChildren()) forEachMesh(child, visit);
 }

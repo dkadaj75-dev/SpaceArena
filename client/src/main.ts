@@ -14,6 +14,7 @@ import {
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
+import { QualityManager } from "./core/QualityManager.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
@@ -112,10 +113,16 @@ async function bootstrap(): Promise<void> {
       : new Engine(canvas, true);
   log.info("engine created", { renderer: rendererPref, cls: engine.getClassName() });
 
-  // Cap device pixel ratio at 2 — perf guardrail from day 1 (Phase 0 constraint).
+  // Render quality (§10 5.6). The tier owns the DPR cap and the hardware
+  // scaling level that used to be hardcoded here: device probe picks the
+  // starting tier, `sa.quality` in localStorage overrides it, and measured FPS
+  // may adjust it once in the first seconds of a match.
   engine.adaptToDeviceRatio = true;
-  const cappedDpr = Math.min(window.devicePixelRatio || 1, 2);
-  engine.setHardwareScalingLevel(1 / cappedDpr);
+  const quality = new QualityManager(configService, engine, {
+    bus,
+    navigator: window.navigator,
+    devicePixelRatio: window.devicePixelRatio || 1,
+  });
 
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
@@ -135,8 +142,14 @@ async function bootstrap(): Promise<void> {
   });
 
   // --- Static arena (0.6/0.7/0.8): bounds/skybox/ground/lighting/spawns only ---
-  const sceneBuilder = new SceneBuilder(scene, configService, bus);
+  const sceneBuilder = new SceneBuilder(scene, configService, bus, quality.current);
   sceneBuilder.buildArena("arena.ring-nebula");
+
+  // One subscription fans the active tier out to every consumer.
+  quality.onChange((cfg) => {
+    sceneBuilder.setQuality(cfg);
+    runtime?.viewManager.setQuality(cfg);
+  });
 
   const tacticalCamera = new TacticalCamera(scene, canvas, configService, bus);
 
@@ -156,7 +169,12 @@ async function bootstrap(): Promise<void> {
   tacticalCamera.follow(playerFollow);
 
   function createMatchRuntime(session: GameSession): MatchRuntime {
-    const viewManager = new ViewManager(scene, configService, (id) => session.shipConfigIdFor(id));
+    const viewManager = new ViewManager(
+      scene,
+      configService,
+      (id) => session.shipConfigIdFor(id),
+      quality.current,
+    );
     const orderInput = new OrderInput(scene, configService, session);
     const orderMarkers = new OrderMarkers(scene, session.playerId);
     const hud = new Hud(hudRoot, configService, bus, session, session.playerId, () => {
@@ -237,10 +255,18 @@ async function bootstrap(): Promise<void> {
   );
   lobby.hide();
 
-  const hangar = new Hangar(document.body, scene, configService, authService, tacticalCamera, () => {
-    hangar.hide();
-    lobby.show();
-  });
+  const hangar = new Hangar(
+    document.body,
+    scene,
+    configService,
+    authService,
+    tacticalCamera,
+    () => {
+      hangar.hide();
+      lobby.show();
+    },
+    quality.current.particles,
+  );
 
   const authScreen = new AuthScreen(
     document.body,
@@ -295,6 +321,9 @@ async function bootstrap(): Promise<void> {
               token: authService.getAccessToken() ?? undefined,
             });
       runtime = createMatchRuntime(session);
+      // Fresh auto-tier sampling window: one demote/promote per match, measured
+      // from here (see QualityManager.sampleFrame in the render loop).
+      quality.beginMatch();
       lobby.hide();
     } catch (err) {
       log.error("failed to start match", err);
@@ -338,6 +367,7 @@ async function bootstrap(): Promise<void> {
       runtime.hud.update(cur, prev, dtMs, engine.getFps());
       runtime.netOverlay?.update();
       runtime.botOverlay?.update();
+      quality.sampleFrame(engine.getFps(), dtMs);
     }
     tacticalCamera.update(dtMs / 1000);
     scene.render();
@@ -427,6 +457,7 @@ async function bootstrap(): Promise<void> {
         return runtime?.botOverlay;
       },
       lobby,
+      quality,
       startMatch,
       meshCount: () => scene.meshes.length,
       /**
@@ -443,6 +474,9 @@ async function bootstrap(): Promise<void> {
   // engine created before layout settles would otherwise keep its 300×150
   // default buffer forever.
   const resizeObserver = new ResizeObserver(() => {
+    // A move between displays changes devicePixelRatio; the tier's DPR cap and
+    // scaling multiplier have to be re-applied against the new value.
+    quality.refreshDevicePixelRatio(window.devicePixelRatio || 1);
     engine.resize();
   });
   resizeObserver.observe(canvas);
@@ -453,6 +487,7 @@ async function bootstrap(): Promise<void> {
     hangar.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();
+    quality.dispose();
   });
 }
 

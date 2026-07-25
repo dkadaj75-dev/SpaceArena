@@ -22,7 +22,7 @@ import {
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
-import { ShipSocketRig } from "../ShipSocketRig.js";
+import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
 import type { TacticalCamera } from "../TacticalCamera.js";
 
 const log = createLogger("Hangar");
@@ -96,6 +96,12 @@ export class Hangar {
     private readonly auth: AuthService,
     private readonly camera: TacticalCamera,
     private readonly onClose: () => void,
+    /**
+     * Emitter budget for the preview ship (§10 5.6). The hangar stages a full
+     * socket rig on the same canvas as a match, so it honours the same tier —
+     * a budget phone should not run full-rate trails on a menu screen.
+     */
+    private readonly particleQuality?: ParticleQuality,
   ) {
     this.api = new HangarApi(auth);
     this.assets = new AssetRegistry(scene);
@@ -226,7 +232,15 @@ export class Hangar {
     this.previewInstance = instance;
 
     const fittedModuleIds = fittedModuleIdsOf(this.slots);
-    this.previewRig = new ShipSocketRig(this.scene, this.configs, this.assets, ship, instance, fittedModuleIds);
+    this.previewRig = new ShipSocketRig(
+      this.scene,
+      this.configs,
+      this.assets,
+      ship,
+      instance,
+      fittedModuleIds,
+      this.particleQuality,
+    );
     this.idleModules = this.slots
       .filter((s): s is HangarSlot & { moduleId: string } => s.moduleId !== null)
       .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }) satisfies ModuleSnapshot);

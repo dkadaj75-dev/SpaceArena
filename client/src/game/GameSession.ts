@@ -189,7 +189,11 @@ export class GameSession {
 
   /** Team of a sim ship in the latest snapshot (for enemy checks). */
   teamOf(id: EntityId): number | undefined {
-    return this.cur.ships.find((s) => s.id === id)?.team;
+    // Indexed scan, no predicate closure: `playerTeam` reads this from render
+    // and input paths that run every frame.
+    const ships = this.cur.ships;
+    for (let i = 0; i < ships.length; i++) if (ships[i]!.id === id) return ships[i]!.team;
+    return undefined;
   }
 
   get playerTeam(): number {

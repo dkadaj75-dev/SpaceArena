@@ -365,6 +365,28 @@ function buildRock(
   return mesh;
 }
 
+/**
+ * LOD distances for asteroid masters (§10 5.6). Set by the active quality tier;
+ * `0` on a level disables it. Distances are camera→mesh in world units and the
+ * tactical camera radius is clamped to 30-90 (the dev editor goes to 300), so
+ * the band is known up front — which is what makes LOD a cheap win here.
+ */
+export interface AsteroidLod {
+  lodMediumDistance: number;
+  lodLowDistance: number;
+  lodCullDistance: number;
+}
+
+/**
+ * Recipes that get asteroid LOD levels attached, mapped to the icosphere
+ * subdivision counts used for their medium/low variants. Keyed by recipe id so
+ * a content pack adding a rock recipe opts in by name, not by code change.
+ */
+const ASTEROID_LOD_SUBDIVISIONS: Record<string, { medium: number; low: number }> = {
+  "procedural.rock-small": { medium: 1, low: 1 },
+  "procedural.rock-large": { medium: 2, low: 1 },
+};
+
 const RECIPES: Record<string, RecipeBuilder> = {
   "procedural.arrowhead": buildArrowhead,
   "procedural.brawler": buildBrawler,
@@ -389,6 +411,9 @@ const RECIPES: Record<string, RecipeBuilder> = {
  */
 export class AssetRegistry {
   private readonly cache = new Map<string, Mesh>();
+  /** LOD variants built alongside a master, disposed with it. */
+  private readonly lodMeshes = new Map<string, Mesh[]>();
+  private asteroidLod: AsteroidLod | null = null;
 
   /**
    * GLB master meshes, shared across every AssetRegistry on the same scene
@@ -533,15 +558,89 @@ export class AssetRegistry {
 
     const mesh = builder(this.scene, palette);
     this.cache.set(key, mesh);
+    this.applyAsteroidLod(key, recipeId, palette, mesh);
     return mesh;
   }
 
-  /** Disposes every cached master mesh and its material. */
+  /**
+   * Set (or clear) the asteroid LOD distances. Applies to masters already built
+   * and to any built later, so a quality-tier switch mid-session takes effect
+   * without recreating the registry. `null` removes every LOD level.
+   */
+  setAsteroidLod(lod: AsteroidLod | null): void {
+    this.asteroidLod = lod;
+    for (const [key, master] of this.cache) {
+      const recipeId = key.slice(0, key.indexOf("::"));
+      this.clearLod(key, master);
+      this.applyAsteroidLod(key, recipeId, paletteFromKey(key), master);
+    }
+  }
+
+  /**
+   * `addLODLevel` on an asteroid master: a mid-detail icosphere, a low-detail
+   * one, then (optionally) `null` to stop drawing entirely past the cull
+   * distance. `InstancedMesh.getLOD` defers to its source mesh, so every
+   * asteroid instance picks up these levels for free.
+   */
+  private applyAsteroidLod(key: string, recipeId: string, palette: Palette, master: Mesh): void {
+    const lod = this.asteroidLod;
+    const subdivisions = ASTEROID_LOD_SUBDIVISIONS[recipeId];
+    if (!lod || !subdivisions) return;
+
+    const levels: Mesh[] = [];
+    const addLevel = (distance: number, subs: number, suffix: string): void => {
+      if (distance <= 0) return;
+      const variant = buildRock(
+        this.scene,
+        palette,
+        `${recipeId}.lod-${suffix}`,
+        subs,
+        recipeId === "procedural.rock-large" ? 0.28 : 0.18,
+        recipeId === "procedural.rock-large" ? 9001 : 1337,
+      );
+      // Share the master's material so an LOD swap can't change the look or
+      // add a second material to the scene.
+      variant.material?.dispose();
+      variant.material = master.material;
+      master.addLODLevel(distance, variant);
+      levels.push(variant);
+    };
+    addLevel(lod.lodMediumDistance, subdivisions.medium, "med");
+    addLevel(lod.lodLowDistance, subdivisions.low, "low");
+    if (lod.lodCullDistance > 0) master.addLODLevel(lod.lodCullDistance, null);
+    if (levels.length > 0) this.lodMeshes.set(key, levels);
+  }
+
+  private clearLod(key: string, master: Mesh): void {
+    const levels = this.lodMeshes.get(key);
+    if (!levels) return;
+    for (const level of levels) {
+      master.removeLODLevel(level);
+      level.dispose();
+    }
+    this.lodMeshes.delete(key);
+  }
+
+  /** Disposes every cached master mesh, its LOD variants, and its material. */
   dispose(): void {
+    for (const levels of this.lodMeshes.values()) for (const level of levels) level.dispose();
+    this.lodMeshes.clear();
     for (const mesh of this.cache.values()) {
       mesh.material?.dispose();
       mesh.dispose();
     }
     this.cache.clear();
   }
+}
+
+/** Inverse of {@link paletteKey} for the `recipe::k=v|k=v` cache-key format. */
+function paletteFromKey(key: string): Palette {
+  const encoded = key.slice(key.indexOf("::") + 2);
+  if (encoded === "") return {};
+  const palette: Record<string, string> = {};
+  for (const pair of encoded.split("|")) {
+    const eq = pair.indexOf("=");
+    if (eq > 0) palette[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  return palette;
 }

@@ -1,0 +1,15 @@
+{
+  "id": "quality.high",
+  "type": "quality",
+  "version": 1,
+  "name": "High (desktop / flagship)",
+  "tier": "high",
+  "probe": { "minCores": 8, "minMemoryGb": 8, "allowMobile": false },
+  "autoTier": { "sampleAfterMs": 5000, "sampleWindowMs": 3000, "demoteBelowFps": 40, "promoteAboveFps": 0 },
+  "render": { "hardwareScalingMultiplier": 1, "maxDevicePixelRatio": 2, "freezeStatics": true },
+  "glow": { "enabled": true, "intensity": 0.5, "blurKernelSize": 32 },
+  "particles": { "enabled": true, "budgetMultiplier": 1, "maxEmitterCapacity": 80 },
+  "asteroids": { "lodMediumDistance": 90, "lodLowDistance": 160, "lodCullDistance": 0, "thinInstances": false },
+  "projectiles": { "useInstances": true },
+  "scene": { "starfieldPoints": 400, "groundGrid": true, "spawnMarkers": true }
+}

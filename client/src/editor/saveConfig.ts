@@ -17,6 +17,7 @@ const CONTENT_FOLDERS: Record<ConfigType, string> = {
   theme: "themes",
   progression: "progression",
   botprofile: "bots",
+  quality: "quality",
 };
 
 /** Strips the `type.` prefix from a config id to get its file slug. */

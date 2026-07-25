@@ -19,6 +19,7 @@ import {
   type ShipConfig,
   type ShipSnapshot,
   type SimEvent,
+  type QualityConfig,
   type Snapshot,
   type TuningConfig,
 } from "@space-arena/shared";
@@ -54,6 +55,22 @@ interface BeamSlot {
   maxLife: number;
 }
 
+/** Everything ViewManager reads off the active quality tier (§10 5.6). */
+export type ViewQuality = Pick<QualityConfig, "projectiles" | "particles" | "asteroids">;
+
+const DEFAULT_VIEW_QUALITY: ViewQuality = {
+  projectiles: { useInstances: true },
+  particles: { enabled: true, budgetMultiplier: 1, maxEmitterCapacity: 80 },
+  asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
+};
+
+/**
+ * A pooled projectile node: an `InstancedMesh` (batched — one draw call for the
+ * whole pool) or a cloned `Mesh` (one draw call each) depending on the tier.
+ * Both expose the position/rotation/enable surface the sync path uses.
+ */
+type ProjectileNode = Mesh | InstancedMesh;
+
 /** Shortest-path angular interpolation. */
 function lerpAngle(a: number, b: number, t: number): number {
   let d = b - a;
@@ -80,12 +97,15 @@ export class ViewManager {
   private readonly asteroids = new Map<EntityId, AsteroidView>();
 
   // Projectile pools (shown/hidden, never reallocated).
-  private readonly kineticPool: Mesh[] = [];
-  private readonly missilePool: Mesh[] = [];
+  private readonly kineticPool: ProjectileNode[] = [];
+  private readonly missilePool: ProjectileNode[] = [];
   private readonly beamPool: BeamSlot[] = [];
+  /** Pool masters, kept so a quality change can rebuild the pools in place. */
+  private readonly poolMasters: Mesh[] = [];
 
   private readonly beamFadeMs: number;
   private readonly poolSize: number;
+  private quality: ViewQuality;
 
   // Reused scratch — no per-frame allocation.
   private readonly sFrom = new Vector3();
@@ -95,15 +115,36 @@ export class ViewManager {
     private readonly scene: Scene,
     private readonly configs: ConfigService,
     private readonly resolveShipConfig: ShipConfigResolver,
+    quality: ViewQuality = DEFAULT_VIEW_QUALITY,
   ) {
     this.assets = new AssetRegistry(scene);
     this.root = new TransformNode("viewRoot", scene);
+    this.quality = quality;
 
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
     this.beamFadeMs = tuning?.beamFadeMs ?? 120;
     this.poolSize = tuning?.projectilePoolSize ?? 64;
 
+    this.assets.setAsteroidLod(quality.asteroids);
     this.buildPools();
+  }
+
+  /**
+   * Apply a new quality tier. Only the projectile pools depend on it
+   * structurally, so they are rebuilt; live ships keep their rigs (the emitter
+   * budget applies to ships spawned from here on, which is every ship next
+   * match — rebuilding mid-match would pop every trail).
+   */
+  setQuality(quality: ViewQuality): void {
+    const wasInstanced = this.quality.projectiles.useInstances;
+    this.quality = quality;
+    this.assets.setAsteroidLod(quality.asteroids);
+    if (wasInstanced !== quality.projectiles.useInstances) this.rebuildPools();
+  }
+
+  /** The emitter budget live rigs are built against. */
+  get particleQuality(): ViewQuality["particles"] {
+    return this.quality.particles;
   }
 
   /**
@@ -116,6 +157,28 @@ export class ViewManager {
     this.root.setEnabled(visible);
   }
 
+  /**
+   * Populate a projectile pool from a master.
+   *
+   * Instancing is the whole point (§10 5.6): measured on the practice arena,
+   * every *cloned* projectile mesh costs **2 draw calls** (base pass + glow
+   * pass) — 16 in flight took the frame from 37 to 69 draw calls, 48 to 133.
+   * Hardware instances collapse the entire pool into one batch instead.
+   */
+  private fillPool(master: Mesh, prefix: string, out: ProjectileNode[]): void {
+    const useInstances = this.quality.projectiles.useInstances;
+    for (let i = 0; i < this.poolSize; i++) {
+      const node: ProjectileNode = useInstances
+        ? master.createInstance(`${prefix}.${i}`)
+        : master.clone(`${prefix}.${i}`);
+      if (!useInstances) (node as Mesh).material = master.material;
+      node.isPickable = false;
+      node.setEnabled(false);
+      node.parent = this.root;
+      out.push(node);
+    }
+  }
+
   private buildPools(): void {
     // Kinetic: small elongated glowing box, nose +Z.
     const kMat = new StandardMaterial("mat.proj.kinetic", this.scene);
@@ -126,14 +189,8 @@ export class ViewManager {
     kMaster.material = kMat;
     kMaster.isPickable = false;
     kMaster.setEnabled(false);
-    for (let i = 0; i < this.poolSize; i++) {
-      const m = kMaster.clone(`proj.kinetic.${i}`);
-      m.material = kMat;
-      m.isPickable = false;
-      m.setEnabled(false);
-      m.parent = this.root;
-      this.kineticPool.push(m);
-    }
+    this.poolMasters.push(kMaster);
+    this.fillPool(kMaster, "proj.kinetic", this.kineticPool);
 
     // Missile: small cone (cylinder w/ zero top), nose +Z.
     const mMat = new StandardMaterial("mat.proj.missile", this.scene);
@@ -150,14 +207,8 @@ export class ViewManager {
     mMaster.material = mMat;
     mMaster.isPickable = false;
     mMaster.setEnabled(false);
-    for (let i = 0; i < this.poolSize; i++) {
-      const m = mMaster.clone(`proj.missile.${i}`);
-      m.material = mMat;
-      m.isPickable = false;
-      m.setEnabled(false);
-      m.parent = this.root;
-      this.missilePool.push(m);
-    }
+    this.poolMasters.push(mMaster);
+    this.fillPool(mMaster, "proj.missile", this.missilePool);
 
     // Beams: thin emissive boxes stretched shooter→target, faded over beamFadeMs.
     const bMat = new StandardMaterial("mat.beam", this.scene);
@@ -201,11 +252,10 @@ export class ViewManager {
 
   private spawnBeam(ownerId: EntityId, targetId: EntityId | null, cur: Snapshot): void {
     if (targetId === null) return;
-    const from = cur.ships.find((s) => s.id === ownerId);
-    const to =
-      cur.ships.find((s) => s.id === targetId) ?? cur.asteroids.find((a) => a.id === targetId);
+    const from = findShip(cur, ownerId);
+    const to = findShip(cur, targetId) ?? findAsteroid(cur, targetId);
     if (!from || !to) return;
-    const slot = this.beamPool.find((b) => b.life <= 0);
+    const slot = firstFreeBeam(this.beamPool);
     if (!slot) return; // pool exhausted this frame — acceptable, no alloc
     this.sFrom.set(from.pos.x, BEAM_Y, from.pos.z);
     this.sTo.set(to.pos.x, BEAM_Y, to.pos.z);
@@ -236,9 +286,11 @@ export class ViewManager {
   }
 
   private syncShips(prev: Snapshot, cur: Snapshot, alpha: number): void {
-    // Remove views whose ship no longer exists.
+    // Remove views whose ship no longer exists. Both the map walk and the
+    // membership test are allocation-free — `Array.some(cb)` here would build a
+    // closure per live view per frame.
     for (const [id, view] of this.ships) {
-      if (!cur.ships.some((s) => s.id === id)) {
+      if (findShip(cur, id) === undefined) {
         view.rig?.dispose();
         view.node.dispose();
         this.ships.delete(id);
@@ -253,7 +305,10 @@ export class ViewManager {
         if (!view) continue;
         this.ships.set(s.id, view);
       }
-      const p = findShip(prev, s.id) ?? s;
+      // One prev-snapshot lookup, reused for interpolation and the emitter
+      // signals (which want the real `undefined` when the ship is brand new).
+      const prevShip = findShip(prev, s.id);
+      const p = prevShip ?? s;
       const x = p.pos.x + (s.pos.x - p.pos.x) * alpha;
       const z = p.pos.z + (s.pos.z - p.pos.z) * alpha;
       view.node.position.set(x, SHIP_Y, z);
@@ -262,7 +317,7 @@ export class ViewManager {
       view.node.rotation.y = Math.PI / 2 - lerpAngle(p.heading, s.heading, alpha);
 
       view.rig?.updateModules(s.modules);
-      view.rig?.updateEmitters(s, findShip(prev, s.id), nowMs);
+      view.rig?.updateEmitters(s, prevShip, nowMs);
     }
   }
 
@@ -284,7 +339,15 @@ export class ViewManager {
     for (const m of s.modules) {
       if (m.hardpointIndex < fittedModuleIds.length) fittedModuleIds[m.hardpointIndex] = m.moduleId;
     }
-    const rig = new ShipSocketRig(this.scene, this.configs, this.assets, ship, node, fittedModuleIds);
+    const rig = new ShipSocketRig(
+      this.scene,
+      this.configs,
+      this.assets,
+      ship,
+      node,
+      fittedModuleIds,
+      this.quality.particles,
+    );
 
     return { node, rig };
   }
@@ -392,9 +455,35 @@ export class ViewManager {
     this.kineticPool.length = 0;
     this.missilePool.length = 0;
     this.beamPool.length = 0;
+    for (const master of this.poolMasters) {
+      master.material?.dispose();
+      master.dispose();
+    }
+    this.poolMasters.length = 0;
     this.assets.dispose();
     this.root.dispose();
   }
+
+  /** Drop and re-create both projectile pools in the current instancing mode. */
+  private rebuildPools(): void {
+    for (const m of this.kineticPool) m.dispose();
+    for (const m of this.missilePool) m.dispose();
+    this.kineticPool.length = 0;
+    this.missilePool.length = 0;
+    const [kMaster, mMaster] = this.poolMasters;
+    if (kMaster) this.fillPool(kMaster, "proj.kinetic", this.kineticPool);
+    if (mMaster) this.fillPool(mMaster, "proj.missile", this.missilePool);
+  }
+}
+
+function findAsteroid(snap: Snapshot, id: EntityId): AsteroidSnapshot | undefined {
+  for (let i = 0; i < snap.asteroids.length; i++) if (snap.asteroids[i]!.id === id) return snap.asteroids[i];
+  return undefined;
+}
+
+function firstFreeBeam(pool: readonly BeamSlot[]): BeamSlot | undefined {
+  for (let i = 0; i < pool.length; i++) if (pool[i]!.life <= 0) return pool[i];
+  return undefined;
 }
 
 function findShip(snap: Snapshot, id: EntityId): ShipSnapshot | undefined {

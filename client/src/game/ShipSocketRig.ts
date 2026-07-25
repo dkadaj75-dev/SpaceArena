@@ -21,6 +21,7 @@ import {
   type ModuleConfig,
   type ModuleSnapshot,
   type ShipConfig,
+  type QualityConfig,
   type ShipSnapshot,
   type SocketTransform,
 } from "@space-arena/shared";
@@ -35,15 +36,28 @@ const EMITTER_UPDATE_HZ = 15;
 const EMITTER_UPDATE_INTERVAL_MS = 1000 / EMITTER_UPDATE_HZ;
 
 /**
- * Per-emitter particle budget ceiling. Content `effect.base.capacity` values
- * (120-200) are authored per-effect in isolation; a live match can have many
- * ships × several emitter sockets each, so each system's *actual* Babylon
- * capacity is capped here regardless of what the config asks for. At the
- * default cap, a worst-case 8-ship match with 4 emitters/ship tops out at
- * 8 × 4 × 80 = 2560 resident CPU particles, and `emitRate` is usually 0 or
- * near-0 (idle throttle) so live counts stay far below that in practice.
+ * Per-emitter particle budget, from the active quality tier (§10 5.6).
+ *
+ * Content `effect.base.capacity` values (120-200) are authored per-effect in
+ * isolation; a live match can have many ships × several emitter sockets each,
+ * so each system's *actual* Babylon capacity is capped here regardless of what
+ * the config asks for. At the high-tier cap, a worst-case 8-ship match with 4
+ * emitters/ship tops out at 8 × 4 × 80 = 2560 resident CPU particles, and
+ * `emitRate` is usually 0 or near-0 (idle throttle) so live counts stay far
+ * below that in practice. Lower tiers scale both the cap and the emit rate.
+ *
+ * Measured: particle systems accounted for ~6 of 47 draw calls on the practice
+ * arena, plus a per-frame `defines.join()` inside Babylon's
+ * `ParticleSystem._getWrapper` for every system every frame — fewer/smaller
+ * systems is both a draw-call and an allocation win.
  */
-const MAX_EMITTER_CAPACITY = 80;
+export type ParticleQuality = QualityConfig["particles"];
+
+const DEFAULT_PARTICLE_QUALITY: ParticleQuality = {
+  enabled: true,
+  budgetMultiplier: 1,
+  maxEmitterCapacity: 80,
+};
 
 function applySocketTransform(node: TransformNode, t: SocketTransform): void {
   node.position.set(t.pos[0], t.pos[1], t.pos[2]);
@@ -108,6 +122,7 @@ export class ShipSocketRig {
   private readonly root: TransformNode;
   private readonly hardpoints: HardpointAttachment[] = [];
   private readonly emitters: EmitterAttachment[] = [];
+  private readonly particleQuality: ParticleQuality;
   private nextEmitterUpdateMs = 0;
 
   constructor(
@@ -117,11 +132,13 @@ export class ShipSocketRig {
     private readonly ship: ShipConfig,
     parent: TransformNode | InstancedMesh,
     fittedModuleIds: readonly (string | null | undefined)[],
+    particleQuality: ParticleQuality | undefined = DEFAULT_PARTICLE_QUALITY,
   ) {
+    this.particleQuality = particleQuality ?? DEFAULT_PARTICLE_QUALITY;
     this.root = new TransformNode(`socketRig.${ship.id}`, scene);
     this.root.parent = parent;
     this.buildHardpoints(fittedModuleIds);
-    this.buildEmitters();
+    if (this.particleQuality.enabled && this.particleQuality.budgetMultiplier > 0) this.buildEmitters();
   }
 
   private buildHardpoints(fittedModuleIds: readonly (string | null | undefined)[]): void {
@@ -164,7 +181,13 @@ export class ShipSocketRig {
       anchor.parent = this.root;
       applySocketTransform(anchor, socket.transform);
 
-      const capacity = Math.min(effect.base.capacity, MAX_EMITTER_CAPACITY);
+      // Tier budget: cap first (absolute ceiling), then scale. At least one
+      // particle so a live emitter never becomes a zero-capacity no-op.
+      const budget = this.particleQuality;
+      const capacity = Math.max(
+        1,
+        Math.round(Math.min(effect.base.capacity, budget.maxEmitterCapacity) * budget.budgetMultiplier),
+      );
       const system = new ParticleSystem(`fx.${this.ship.id}.${socket.id}`, capacity, this.scene);
       system.particleTexture = getParticleTexture(this.scene);
       system.emitter = anchor;
@@ -179,7 +202,7 @@ export class ShipSocketRig {
       system.maxSize = effect.base.sizeMax;
       system.minEmitPower = effect.base.speedMin;
       system.maxEmitPower = effect.base.speedMax;
-      system.emitRate = effect.base.emitRate;
+      system.emitRate = effect.base.emitRate * budget.budgetMultiplier;
       system.gravity = new Vector3(0, effect.base.gravity ?? 0, 0);
       const dir = effect.base.direction ?? [0, 0, -1];
       system.direction1 = new Vector3(dir[0], dir[1], dir[2]);
@@ -205,7 +228,7 @@ export class ShipSocketRig {
       // (see spawn.ts): a fitting like {0: laser, 2: shield} only has 2 array
       // entries whose own hardpointIndex fields are 0 and 2, so `modules[2]`
       // would be undefined even though hardpoint 2 IS fitted.
-      const m = modules.find((mm) => mm.hardpointIndex === hp.hardpointIndex);
+      const m = moduleAt(modules, hp.hardpointIndex);
       if (!m) continue;
 
       let target: number;
@@ -248,7 +271,11 @@ export class ShipSocketRig {
       for (const binding of em.bindings) {
         const signalValue = evalSignal(binding.source, cur, prev);
         const mapped = evalCurve(binding.curve, signalValue);
-        applyParticleParam(em.system, em.effect.base, binding.param, mapped, (msg) =>
+        // The tier budget also throttles *live* signal-driven emit rates, or a
+        // low-tier ship would ramp straight back to full rate under boost.
+        const scaled =
+          binding.param === "emitRate" ? mapped * this.particleQuality.budgetMultiplier : mapped;
+        applyParticleParam(em.system, em.effect.base, binding.param, scaled, (msg) =>
           log.warn(`${em.system.name}: ${msg}`),
         );
       }
@@ -266,4 +293,16 @@ export class ShipSocketRig {
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/**
+ * Module snapshot for a hardpoint index. An indexed scan, not `Array.find` —
+ * this runs once per hardpoint per ship per render frame, and the callback
+ * would be a fresh closure every time.
+ */
+function moduleAt(modules: readonly ModuleSnapshot[], hardpointIndex: number): ModuleSnapshot | undefined {
+  for (let i = 0; i < modules.length; i++) {
+    if (modules[i]!.hardpointIndex === hardpointIndex) return modules[i];
+  }
+  return undefined;
 }
