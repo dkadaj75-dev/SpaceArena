@@ -146,6 +146,23 @@ export class AuthService {
     this.setSession(pair);
   }
 
+  /**
+   * DEV ONLY: passwordless admin session via the server's dev-login route
+   * (404s in production, so this can never succeed there). Returns false
+   * instead of throwing when the server is down — the caller falls back to
+   * the normal auth screen.
+   */
+  async devLogin(): Promise<boolean> {
+    try {
+      const pair = await this.request<TokenPair>("POST", "/api/auth/dev-login");
+      this.setSession(pair);
+      return true;
+    } catch (err) {
+      log.info("dev-login unavailable (server down or production build)", err);
+      return false;
+    }
+  }
+
   async me(): Promise<Profile> {
     const body = await this.request<{ profile: Profile }>("GET", "/api/auth/me");
     if (this.state.status === "authed") this.setState({ status: "authed", profile: body.profile });

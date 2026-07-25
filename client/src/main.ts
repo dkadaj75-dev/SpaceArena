@@ -85,6 +85,20 @@ async function bootstrap(): Promise<void> {
   const authService = new AuthService();
   await authService.restore();
 
+  // DEV convenience: skip the login screen with an instant admin session
+  // (server-side dev-login route; hard-absent in production). Escape hatches
+  // for testing the real auth flow: `?login=1` for one boot, or
+  // `localStorage["sa.devLogin"] = "off"` until cleared.
+  if (
+    import.meta.env.DEV &&
+    authService.getState().status !== "authed" &&
+    !new URLSearchParams(window.location.search).has("login") &&
+    localStorage.getItem("sa.devLogin") !== "off"
+  ) {
+    const ok = await authService.devLogin();
+    if (ok) log.info("dev-login: authenticated as admin (use ?login=1 to test the auth screen)");
+  }
+
   // Default renderer is WebGL2: WebGPU can black-screen with no error on some
   // GPUs (seen 2026-07: Intel UHD 630 + Chrome — device alive, frames render,
   // nothing ever presents to the canvas). Re-test WebGPU with ?renderer=webgpu.

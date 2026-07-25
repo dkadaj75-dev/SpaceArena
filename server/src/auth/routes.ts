@@ -7,7 +7,7 @@ import {
   registerBodySchema,
 } from "@space-arena/shared";
 import { getConfigService } from "../configService.js";
-import { withTransaction } from "../db/index.js";
+import { getDb, withTransaction } from "../db/index.js";
 import { profilesRepo, sessionsRepo, usersRepo } from "../db/repos.js";
 import { ensureStarterKit, seedNewUser } from "../db/seed.js";
 import { asyncHandler, bearerToken, parseBody, requireAuth, sendError, type AuthedRequest } from "../api/http.js";
@@ -86,6 +86,38 @@ export function createAuthRouter(): Router {
       res.status(201).json({ ...pair, profile: profilePayload(userId) });
     }),
   );
+
+  // POST /dev-login — DEV ONLY: instant admin session so local testing can
+  // skip the login screen while the real auth stack stays intact. The guard is
+  // evaluated at router build time; production never mounts the route at all.
+  // Client counterpart: AuthService.devLogin(), called from the DEV bootstrap
+  // (opt out with ?login=1 or localStorage sa.devLogin="off").
+  if (process.env.NODE_ENV !== "production") {
+    router.post(
+      "/dev-login",
+      asyncHandler(async (_req, res) => {
+        const email = "admin@spacearena.local";
+        let user = usersRepo.byEmail(email);
+        if (!user) {
+          const userId = randomUUID();
+          // Random throwaway password: dev-login never uses it, and a real one
+          // can be set anytime via tools/create-admin.ts.
+          const passHash = await hashPassword(randomBytes(24).toString("hex"));
+          usersRepo.create({ id: userId, email, pass_hash: passHash, guest_token: null });
+          seedNewUser(getConfigService(), userId, "Admin");
+          user = usersRepo.byEmail(email);
+        }
+        if (!user) {
+          sendError(res, 500, "dev-login-failed", "could not create the dev admin account");
+          return;
+        }
+        getDb().prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+        ensureStarterKit(getConfigService(), user.id);
+        const pair = issueTokenPair(user.id);
+        res.json({ ...pair, profile: profilePayload(user.id) });
+      }),
+    );
+  }
 
   // POST /login — email + password.
   router.post(
