@@ -7,7 +7,9 @@ import { createShipsRouter } from "./api/ships.js";
 import { createModulesRouter } from "./api/modules.js";
 import { createConfigsRouter } from "./api/configs.js";
 import { createTelemetryRouter } from "./api/telemetry.js";
+import { createAdminContentRouter } from "./api/adminContent.js";
 import { createRateLimiter } from "./api/rateLimit.js";
+import { getPackStore } from "./content/packStore.js";
 import { getEnv } from "./env.js";
 import { mountClient, mountContent } from "./staticSite.js";
 
@@ -53,10 +55,24 @@ export function createHttpApp(options: HttpAppOptions = {}): Express {
       : [...allowlist];
   app.use(cors({ origin: corsOrigin, credentials: true }));
 
+  // Admin content-pack API (§11 6.7). Mounted BEFORE the global 64 kb JSON
+  // parser on purpose: a content pack is ~120 kb and needs its own, much larger
+  // cap. body-parser skips a request that an earlier parser already consumed, so
+  // registration order is what keeps the two limits from fighting.
+  app.use("/api/admin/content", createAdminContentRouter());
+
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE });
+    // The live pack's identity rides along so an operator can verify a
+    // deploy-free content update landed (§11 6.7) with a single unauthenticated
+    // GET. Best-effort: health must stay up even if the pack directory is unreadable.
+    void getPackStore()
+      .packInfo()
+      .then(
+        (pack) => res.json({ status: "ok", protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE, contentPack: pack }),
+        () => res.json({ status: "ok", protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE, contentPack: null }),
+      );
   });
 
   // Auth endpoints (own rate limiter, slightly stricter to blunt credential stuffing).

@@ -7,7 +7,7 @@ import {
   registerBodySchema,
 } from "@space-arena/shared";
 import { getConfigService } from "../configService.js";
-import { getDb, withTransaction } from "../db/index.js";
+import { withTransaction } from "../db/index.js";
 import { profilesRepo, sessionsRepo, usersRepo } from "../db/repos.js";
 import { ensureStarterKit, seedNewUser } from "../db/seed.js";
 import { asyncHandler, bearerToken, parseBody, requireAuth, sendError, type AuthedRequest } from "../api/http.js";
@@ -111,7 +111,7 @@ export function createAuthRouter(): Router {
           sendError(res, 500, "dev-login-failed", "could not create the dev admin account");
           return;
         }
-        getDb().prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+        usersRepo.setRole(user.id, "admin");
         ensureStarterKit(getConfigService(), user.id);
         const pair = issueTokenPair(user.id);
         res.json({ ...pair, profile: profilePayload(user.id) });

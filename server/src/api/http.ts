@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import type { z } from "zod";
 import { verifyAccessToken } from "../auth/tokens.js";
+import { usersRepo } from "../db/repos.js";
 
 /** Express request augmented with the authenticated userId (set by requireAuth). */
 export interface AuthedRequest extends Request {
@@ -34,6 +35,28 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
   }
   req.userId = userId;
   next();
+}
+
+/**
+ * Middleware: require an authenticated user whose `users.role` is `admin`.
+ *
+ * Split cleanly into the two failure modes operators actually need to tell
+ * apart: **401** = "I do not know who you are" (no/expired token), **403** =
+ * "I know who you are and you may not do this". The role is read from the
+ * database on every request rather than carried in the JWT, so demoting an
+ * admin takes effect immediately instead of at the next token expiry.
+ *
+ * Composes with {@link requireAuth} — it runs it first, so mounting only this
+ * one is enough.
+ */
+export function requireAdmin(req: AuthedRequest, res: Response, next: NextFunction): void {
+  requireAuth(req, res, () => {
+    if (usersRepo.roleOf(req.userId!) !== "admin") {
+      sendError(res, 403, "forbidden", "this endpoint requires an admin account");
+      return;
+    }
+    next();
+  });
 }
 
 /**

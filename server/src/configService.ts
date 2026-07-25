@@ -29,20 +29,32 @@ export function contentDir(): string {
   return getEnv().contentDir;
 }
 
-/** fs loader for ConfigService.load(), reading JSON relative to {@link contentDir}. */
-export async function fsLoader(relPath: string): Promise<unknown> {
-  const abs = path.join(contentDir(), relPath);
-  const text = await readFile(abs, "utf8");
-  try {
-    return JSON.parse(text);
-  } catch (err) {
-    throw new Error(`invalid JSON in ${relPath}: ${(err as Error).message}`);
-  }
+/** Build an fs loader for ConfigService.load(), reading JSON relative to `dir`. */
+export function fsLoaderFor(dir: string): (relPath: string) => Promise<unknown> {
+  return async (relPath: string): Promise<unknown> => {
+    const abs = path.join(dir, relPath);
+    const text = await readFile(abs, "utf8");
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      throw new Error(`invalid JSON in ${relPath}: ${(err as Error).message}`);
+    }
+  };
 }
 
-/** Build + load a ConfigService from the content dir (fail fast on invalid content). */
-export async function loadContent(): Promise<ConfigService> {
-  const cs = new ConfigService(fsLoader);
+/** fs loader for ConfigService.load(), reading JSON relative to {@link contentDir}. */
+export async function fsLoader(relPath: string): Promise<unknown> {
+  return fsLoaderFor(contentDir())(relPath);
+}
+
+/**
+ * Build + load a ConfigService from `dir` (fail fast on invalid content). Used
+ * at boot and again after a content-pack import swaps the directory in place
+ * (ROADMAP §11 6.7) — same code path, so a hot reload can never be laxer than a
+ * cold start.
+ */
+export async function loadContentFrom(dir: string): Promise<ConfigService> {
+  const cs = new ConfigService(fsLoaderFor(dir));
   const result = await cs.load("manifest.json");
   if (!result.ok) {
     const detail = result.errors
@@ -51,4 +63,9 @@ export async function loadContent(): Promise<ConfigService> {
     throw new Error(`content validation failed:\n${detail}`);
   }
   return cs;
+}
+
+/** Build + load a ConfigService from the configured content dir. */
+export async function loadContent(): Promise<ConfigService> {
+  return loadContentFrom(contentDir());
 }

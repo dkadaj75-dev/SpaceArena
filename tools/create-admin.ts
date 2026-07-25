@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 
   const id = randomUUID();
   usersRepo.create({ id, email, pass_hash: passHash, guest_token: null });
-  getDb().prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(id);
+  usersRepo.setRole(id, "admin");
   seedNewUser(configs, id, displayName); // creates profile + starter modules + default fittings
   console.log(`created admin ${email} (id ${id})`);
 }

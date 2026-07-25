@@ -509,7 +509,11 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
 - [ ] **6.4 Deploy** — single container (Colyseus + static + REST) on Fly.io/Railway/VPS, HTTPS/WSS, SQLite persistent volume + nightly backup, health checks, `@colyseus/monitor` behind admin auth. *(Opus)*
 - [ ] **6.5 PWA** — manifest + icons, `vite-plugin-pwa` (precache shell, network-first for content JSON so packs update), installable, offline page. *(Sonnet)*
 - [x] **6.6 Load & soak testing** — `@colyseus/loadtest`: 20 rooms of bot fights; tick duration, patch bytes/s, 1 h memory soak; audit `dispose()` on room/scene teardown (classic Babylon leak). *(Codex)*
-- [ ] **6.7 Content pack workflow — final proof** — export full content set → import on prod via admin endpoint → new arena/module live **without redeploy** (S6 ✅); document in `docs/CONTENT.md`. *(Opus)*
+- [x] **6.7 Content pack workflow — final proof** — export full content set → import on prod via admin endpoint → new arena/module live **without redeploy** (S6 ✅); document in `docs/CONTENT.md`. *(Opus)*
+  - Admin API `/api/admin/content` — `GET export`, `GET status`, `POST import`, `POST rollback`; `requireAdmin` (401 unauth / 403 non-admin, role read per request), two rate buckets, own 8 MB body cap.
+  - Import validates the **entire** pack through `ConfigService` (schemas + typed refs + relational) before touching disk, then stages → fsyncs → atomically renames (`content.previous/` kept for one-step rollback; Windows EPERM handled with backoff + a named error).
+  - Honest live-reload scope: `/content/*`, `/health` and **new** rooms use the new pack immediately; **in-flight** matches keep the pack pinned at room creation; open browser tabs refresh on their next load via the network-first SW. No live-match migration.
+  - `tools/export-content.ts` (offline bundling) and `tools/pack-proof.ts` (`npm run content:proof` — 40 checks, prod-mode server, single PID).
 - [x] **6.8 Telemetry (minimal)** — match results, error rates, avg tick time, client FPS bucket + device class → SQLite; feeds balance & perf. *(Sonnet)*
 
 **Exit criteria:** Public URL; a stranger on a phone guest-joins and fights a bot within 60 s, one-handed; CI green; pack import proven in prod.

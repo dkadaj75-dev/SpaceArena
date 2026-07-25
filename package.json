@@ -17,6 +17,8 @@
     "lint": "eslint .",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client && tsc -p tsconfig.tools.json",
     "validate:content": "tsx tools/validate-content.ts",
+    "content:export": "tsx tools/export-content.ts",
+    "content:proof": "tsx tools/pack-proof.ts",
     "bundle:budget": "tsx tools/bundle-budget.ts",
     "loadtest": "tsx tools/loadtest.ts --rooms 20 --duration 60",
     "loadtest:soak": "tsx tools/loadtest.ts --rooms 20 --duration 3600",

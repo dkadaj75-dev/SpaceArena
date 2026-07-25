@@ -11,12 +11,17 @@ import { getDb } from "./index.js";
 // Row types
 // ---------------------------------------------------------------------------
 
+/** `users.role` values (migration 003). */
+export type UserRole = "player" | "admin";
+
 export interface UserRow {
   id: string;
   email: string | null;
   pass_hash: string | null;
   guest_token: string | null;
   created_at: number;
+  /** 'player' by default; 'admin' unlocks the operator endpoints (§11 6.7). */
+  role: UserRole;
 }
 
 export interface ProfileRow {
@@ -121,14 +126,23 @@ const TRACK_COLUMN: Record<UpgradeTrackName, keyof ShipUpgradeRow> = {
 // ---------------------------------------------------------------------------
 
 export const usersRepo = {
-  create(row: Omit<UserRow, "created_at"> & { created_at?: number }): UserRow {
+  create(row: Omit<UserRow, "created_at" | "role"> & { created_at?: number }): UserRow {
     const created_at = row.created_at ?? Date.now();
     getDb()
       .prepare(
         "INSERT INTO users (id, email, pass_hash, guest_token, created_at) VALUES (@id, @email, @pass_hash, @guest_token, @created_at)",
       )
       .run({ ...row, email: row.email ?? null, pass_hash: row.pass_hash ?? null, guest_token: row.guest_token ?? null, created_at });
-    return { ...row, email: row.email ?? null, pass_hash: row.pass_hash ?? null, guest_token: row.guest_token ?? null, created_at };
+    // `role` is not in the INSERT: the column defaults to 'player' (migration 003),
+    // so a new account can never be created as an admin by accident.
+    return {
+      ...row,
+      email: row.email ?? null,
+      pass_hash: row.pass_hash ?? null,
+      guest_token: row.guest_token ?? null,
+      created_at,
+      role: "player",
+    };
   },
   byId(id: string): UserRow | undefined {
     return getDb().prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
@@ -144,6 +158,19 @@ export const usersRepo = {
     getDb()
       .prepare("UPDATE users SET email = ?, pass_hash = ?, guest_token = NULL WHERE id = ?")
       .run(email, passHash, id);
+  },
+  /**
+   * Role of a user, or undefined when the id is unknown. Read on every admin
+   * request rather than baked into the JWT, so revoking an admin takes effect on
+   * the next call instead of on the next token expiry.
+   */
+  roleOf(id: string): UserRole | undefined {
+    const row = getDb().prepare("SELECT role FROM users WHERE id = ?").get(id) as { role: UserRole } | undefined;
+    return row?.role;
+  },
+  /** Set a user's role (used by tools/create-admin.ts and the dev-login route). */
+  setRole(id: string, role: UserRole): void {
+    getDb().prepare("UPDATE users SET role = ? WHERE id = ?").run(role, id);
   },
 };
 

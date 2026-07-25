@@ -94,6 +94,18 @@ interface OrderRate {
 }
 
 export class ArenaRoom extends Room<ArenaState> {
+  /**
+   * The content pack this room runs on, **pinned at creation** (§11 6.7).
+   *
+   * An admin content import swaps the process-wide ConfigService for a new
+   * instance mid-flight. Reading the singleton on every lookup would let one
+   * match resolve its arena from the old pack and a late joiner's ship from the
+   * new one — silently mixed rules. Capturing the instance once makes the
+   * guarantee simple and honest instead: **a match plays out entirely on the
+   * pack that was live when its room was created; the next room created uses the
+   * new pack.** No live migration, and none pretended.
+   */
+  private configs!: ReturnType<typeof getConfigService>;
   private sim!: ArenaSimulation;
   private gamemode!: GamemodeConfig;
   private arena!: ArenaConfig;
@@ -163,7 +175,9 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   onCreate(options: CreateOptions): void {
+    // Pin the pack for this room's whole life — see the `configs` field doc.
     const configs = getConfigService();
+    this.configs = configs;
 
     const gamemode = configs.get<GamemodeConfig>("gamemode", options.gamemode);
     if (!gamemode) throw new Error(`unknown gamemode: ${options.gamemode}`);
@@ -227,7 +241,7 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   onJoin(client: Client, options: JoinOptions): void {
-    const configs = getConfigService();
+    const configs = this.configs;
     const userId = (client.auth as AuthData | undefined)?.userId ?? null;
 
     // Reward-farming guard (3b): one authenticated user may hold only one slot.
@@ -370,7 +384,7 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   private spawnPracticeDummies(): void {
-    const configs = getConfigService();
+    const configs = this.configs;
     const shipId = "ship.interceptor";
     const ship = configs.get<ShipConfig>("ship", shipId);
     if (!ship) return;
@@ -417,7 +431,7 @@ export class ArenaRoom extends Room<ArenaState> {
   private scheduleBotBackfill(): void {
     if (this.botBackfillTimer !== null) return;
     if (this.humanSessions.size === 0) return;
-    if (!resolveBackfillBot(this.gamemode, getConfigService(), this.botProfileOverride)) return;
+    if (!resolveBackfillBot(this.gamemode, this.configs, this.botProfileOverride)) return;
     this.botBackfillTimer = setTimeout(() => {
       this.botBackfillTimer = null;
       this.backfillBots();
@@ -438,7 +452,7 @@ export class ArenaRoom extends Room<ArenaState> {
    */
   private backfillBots(): void {
     if (this.state.matchPhase !== "waiting") return;
-    const configs = getConfigService();
+    const configs = this.configs;
     const backfill = resolveBackfillBot(this.gamemode, configs, this.botProfileOverride);
     if (!backfill) return;
     const ship = configs.get<ShipConfig>("ship", backfill.shipId);
@@ -780,7 +794,7 @@ export class ArenaRoom extends Room<ArenaState> {
    */
   private persistAndReward(winnerTeam: number | null, durationS: number): void {
     try {
-      const configs = getConfigService();
+      const configs = this.configs;
       const participants: Participant[] = [];
       const userToSession = new Map<string, string>();
       for (const [key, ps] of this.state.players) {

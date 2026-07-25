@@ -101,6 +101,31 @@ pattern, so the full user id and slug are dash-joined) and returns the final id.
 | `POST /` | `{ json, visibility? }` | 201 `{ config }` with the rewritten `id`. `400 invalid-config` if `json` fails its schema. `409 id-conflict` if the (namespaced) id somehow belongs to another user — upsert is owner-constrained. |
 | `DELETE /:id` | — | 200 `{ ok: true }`. 404 if not owned. |
 
+## Admin content packs — `/api/admin/content` (admin required)
+
+Export / import / roll back the **live content pack** with no redeploy
+(ROADMAP §11 6.7, criterion S6). Full workflow, curl examples and the honest
+account of what happens to in-flight matches: [`docs/CONTENT.md`](../../../docs/CONTENT.md).
+
+Gating is `requireAdmin`: **401** for a missing/invalid token, **403** for a
+valid token whose user is not `users.role = 'admin'`. The role is read from the
+database per request, so a demotion takes effect immediately rather than at the
+next token expiry. Create an admin with
+`npx tsx tools/create-admin.ts <email> <password>`.
+
+| Method & path | Notes |
+|---|---|
+| `GET /export` | The live pack as one bundle: `{ kind, protocolVersion, packId, packVersion, generatedAt, sourceHash, manifest, files }`. `Content-Disposition: attachment`, `Cache-Control: no-store`. |
+| `GET /status` | `{ protocolVersion, pack }` — the same `pack` object `/health` exposes (`packId`, `packVersion`, `sourceHash`, `files`, `loadedAt`, `rollbackAvailable`). |
+| `POST /import` | Validates the **whole** pack through `ConfigService` (schemas + typed references + relational rules) **before** writing anything, then swaps the content directory atomically and reloads in place. 200 `{ ok, packId, packVersion, sourceHash, files, counts, rollbackAvailable }`. `422 pack-validation-failed` / `pack-swap-failed` with `errors: [{ file, path, message }]` — the editor's error shape. `413 pack-too-large`, `400 invalid-json`. |
+| `POST /rollback` | Restores the pack the last import replaced (symmetric — calling it twice returns to the start). 200, or `409 rollback-failed` when there is nothing to restore. |
+
+Two extra limits apply here, both tighter than the game API's: an unauthenticated
+caller is rate-limited *before* the auth check (20 burst / 1 per s), and the two
+mutating routes carry a second bucket (6 burst / 1 per 10 s). `POST /import` also
+has its own body cap — `CONTENT_IMPORT_MAX_BYTES`, default 8 MB — instead of the
+global 64 kb, which is why the router is mounted ahead of the global JSON parser.
+
 ## Match rewards (Colyseus, not REST)
 
 When a match ends, the server persists a `match_results` row and grants credits +

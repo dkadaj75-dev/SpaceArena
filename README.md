@@ -13,6 +13,8 @@ Fast-paced arcade 3D space arena combat in the browser — one finger is enough.
 - `npm run build` — production client build (`client/dist`)
 - `npm run bundle:budget` — enforce the initial-payload budget on that build
 - `npm run validate:content` — run the content pack through every schema
+- `npm run content:export` — bundle `content/` into one importable JSON pack
+- `npm run content:proof` — end-to-end content-pack proof (§11 6.7); needs `npm run build` first
 - `npm run test:e2e` — Playwright smoke test (boots both servers itself)
 - `npx tsx tools/generate-pwa-icons.ts` — regenerate the PWA icons in `client/public/`
 
@@ -62,6 +64,14 @@ docker build -t space-arena .
 docker run -p 2567:2567 -v space-arena-data:/data \
   -e JWT_SECRET="$(openssl rand -base64 48)" space-arena
 ```
+
+### Content packs
+
+Arenas, ships, modules and gamemodes ship as a JSON **content pack** that can be
+exported, imported into a running production server, and rolled back — no
+redeploy, no restart (ROADMAP §11 6.7 / criterion S6). Workflow, curl examples,
+the atomic-swap mechanics and an honest account of what happens to in-flight
+matches: **[`docs/CONTENT.md`](docs/CONTENT.md)**.
 
 ### Environment
 
