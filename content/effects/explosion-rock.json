@@ -1,0 +1,22 @@
+{
+  "id": "fx.explosion-rock",
+  "type": "effect",
+  "version": 1,
+  "name": "Explosion (Asteroid)",
+  "base": {
+    "capacity": 80,
+    "emitRate": 0,
+    "lifeMin": 0.35,
+    "lifeMax": 0.9,
+    "sizeMin": 0.5,
+    "sizeMax": 1.6,
+    "speedMin": 4,
+    "speedMax": 11,
+    "color1": "#a89880",
+    "color2": "#43382c",
+    "direction": [0, 0.2, 0],
+    "gravity": -1.5
+  },
+  "params": ["emitRate", "lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"],
+  "sound": "[SOUND: explosion_rock]"
+}

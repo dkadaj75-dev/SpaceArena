@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-boost-down",
+  "type": "action",
+  "version": 1,
+  "name": "Play Boost Disengage Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: boost_disengage]", "volume": 0.45 }
+}

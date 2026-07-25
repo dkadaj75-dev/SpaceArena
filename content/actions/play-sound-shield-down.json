@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-shield-down",
+  "type": "action",
+  "version": 1,
+  "name": "Play Shield Down Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: shield_down]", "volume": 0.6 }
+}

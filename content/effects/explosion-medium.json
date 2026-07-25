@@ -1,0 +1,22 @@
+{
+  "id": "fx.explosion-medium",
+  "type": "effect",
+  "version": 1,
+  "name": "Explosion (Medium Hull)",
+  "base": {
+    "capacity": 120,
+    "emitRate": 0,
+    "lifeMin": 0.3,
+    "lifeMax": 0.75,
+    "sizeMin": 0.6,
+    "sizeMax": 1.8,
+    "speedMin": 8,
+    "speedMax": 18,
+    "color1": "#ffe08a",
+    "color2": "#ff4a1f",
+    "direction": [0, 0.3, 0],
+    "gravity": 0
+  },
+  "params": ["emitRate", "lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"],
+  "sound": "[SOUND: explosion_ship]"
+}

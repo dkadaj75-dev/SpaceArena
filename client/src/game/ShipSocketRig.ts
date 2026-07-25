@@ -1,14 +1,12 @@
 import {
   Color3,
   Color4,
-  DynamicTexture,
   Mesh,
   ParticleSystem,
   TransformNode,
   Vector3,
   type InstancedMesh,
   type Scene,
-  type Texture,
 } from "@babylonjs/core";
 import {
   createLogger,
@@ -27,6 +25,10 @@ import {
 } from "@space-arena/shared";
 import type { AssetRegistry } from "../core/AssetRegistry.js";
 import { applyParticleParam } from "./particleParams.js";
+import { getParticleTexture } from "./particleTexture.js";
+import { deployProgressFor, hardpointPose } from "./juice/deployAnim.js";
+import { DEFAULT_JUICE_SETTINGS, type JuiceSettings } from "./juice/juiceSettings.js";
+import { ShieldBubble } from "./juice/ShieldBubble.js";
 
 const log = createLogger("ShipSocketRig");
 
@@ -74,32 +76,17 @@ function hexToColor4(hex: string): Color4 {
   }
 }
 
-// One soft radial-gradient texture shared by every particle system in the app
-// (no external asset — generated once, reused for the life of the scene).
-let sharedParticleTexture: Texture | null = null;
-function getParticleTexture(scene: Scene): Texture {
-  if (sharedParticleTexture) return sharedParticleTexture;
-  const size = 32;
-  const tex = new DynamicTexture("tex.particle.soft", size, scene, false);
-  const ctx = tex.getContext() as CanvasRenderingContext2D;
-  const grd = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grd.addColorStop(0, "rgba(255,255,255,1)");
-  grd.addColorStop(0.5, "rgba(255,255,255,0.5)");
-  grd.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, size, size);
-  tex.update(false);
-  tex.hasAlpha = true;
-  sharedParticleTexture = tex;
-  return tex;
-}
-
 interface HardpointAttachment {
   hardpointIndex: number;
   node: TransformNode;
   instance: InstancedMesh | null;
   lastState: string | null;
-  curScale: number;
+  /** Socket-authored rest pose, kept so the deploy sweep offsets from it. */
+  baseY: number;
+  baseRotY: number;
+  baseScale: number;
+  /** Last applied sweep position (0..1) — the write-on-change guard. */
+  curProgress: number;
 }
 
 interface EmitterAttachment {
@@ -123,6 +110,8 @@ export class ShipSocketRig {
   private readonly hardpoints: HardpointAttachment[] = [];
   private readonly emitters: EmitterAttachment[] = [];
   private readonly particleQuality: ParticleQuality;
+  private juice: JuiceSettings;
+  private readonly shieldBubble: ShieldBubble;
   private nextEmitterUpdateMs = 0;
 
   constructor(
@@ -133,12 +122,29 @@ export class ShipSocketRig {
     parent: TransformNode | InstancedMesh,
     fittedModuleIds: readonly (string | null | undefined)[],
     particleQuality: ParticleQuality | undefined = DEFAULT_PARTICLE_QUALITY,
+    /** Deploy-sweep + shield-ripple knobs (theme `juice` block, §10 5.7). */
+    juice: JuiceSettings = DEFAULT_JUICE_SETTINGS,
   ) {
     this.particleQuality = particleQuality ?? DEFAULT_PARTICLE_QUALITY;
+    this.juice = juice;
     this.root = new TransformNode(`socketRig.${ship.id}`, scene);
     this.root.parent = parent;
     this.buildHardpoints(fittedModuleIds);
     if (this.particleQuality.enabled && this.particleQuality.budgetMultiplier > 0) this.buildEmitters();
+    // Lazy inside: no mesh exists until this ship actually raises a shield.
+    this.shieldBubble = new ShieldBubble(
+      scene,
+      this.root,
+      ship.collider.radius,
+      juice.shieldRipple,
+      ship.id,
+    );
+  }
+
+  /** Re-apply juice knobs after a theme hot-reload. */
+  setJuice(juice: JuiceSettings): void {
+    this.juice = juice;
+    this.shieldBubble.setSettings(juice.shieldRipple);
   }
 
   private buildHardpoints(fittedModuleIds: readonly (string | null | undefined)[]): void {
@@ -149,6 +155,7 @@ export class ShipSocketRig {
       const node = new TransformNode(`hp.${this.ship.id}.${socket.id}`, this.scene);
       node.parent = this.root;
       applySocketTransform(node, socket.transform);
+      const baseScale = socket.transform.scale ?? 1;
       node.scaling.setAll(0); // starts hidden — modules begin retracted
 
       const moduleId = fittedModuleIds[i];
@@ -161,7 +168,16 @@ export class ShipSocketRig {
         instance.parent = node;
       }
 
-      this.hardpoints.push({ hardpointIndex: i, node, instance, lastState: null, curScale: 0 });
+      this.hardpoints.push({
+        hardpointIndex: i,
+        node,
+        instance,
+        lastState: null,
+        baseY: node.position.y,
+        baseRotY: node.rotation.y,
+        baseScale,
+        curProgress: -1, // forces the first pose write
+      });
     });
   }
 
@@ -216,10 +232,15 @@ export class ShipSocketRig {
   }
 
   /**
-   * Hardpoint scale-in/out tween, driven by module state + `stateTimer`
-   * fraction. Visible (scale 1) while `active`/`overheated` (still mounted,
-   * just can't fire); scales toward/away from 1 across `deploying`/`retracting`;
-   * hidden (scale 0) while `retracted`. Cheap — runs every render frame.
+   * Hardpoint deploy/retract animation (§10 5.7), driven by module state +
+   * `stateTimer`: the turret rises out of the hull along its socket's local +Y,
+   * scales up with a back-ease overshoot and unwinds a settle-spin — the visible
+   * cost of the §2.3 deploy/retract tradeoff. Fully mounted (progress 1) while
+   * `active`/`overheated` (still there, just can't fire), gone while `retracted`.
+   *
+   * Cheap — runs every render frame, but only touches Babylon transforms when
+   * the sweep position actually changed. All shaping comes from the theme's
+   * `juice.deploy` block; all timing from the module config.
    */
   updateModules(modules: readonly ModuleSnapshot[]): void {
     for (const hp of this.hardpoints) {
@@ -231,34 +252,37 @@ export class ShipSocketRig {
       const m = moduleAt(modules, hp.hardpointIndex);
       if (!m) continue;
 
-      let target: number;
       const cfg = this.configs.get<ModuleConfig>("module", m.moduleId);
-      switch (m.state) {
-        case "active":
-        case "overheated":
-          target = 1;
-          break;
-        case "deploying":
-          target =
-            cfg && cfg.activation.deployTime > 0
-              ? clamp01(1 - m.stateTimer / cfg.activation.deployTime)
-              : 1;
-          break;
-        case "retracting":
-          target =
-            cfg && cfg.activation.retractTime > 0 ? clamp01(m.stateTimer / cfg.activation.retractTime) : 0;
-          break;
-        case "retracted":
-        default:
-          target = 0;
-          break;
-      }
+      const progress = deployProgressFor(m, cfg);
+      if (progress === hp.curProgress) continue;
+      hp.curProgress = progress;
+      const pose = hardpointPose(progress, this.juice.deploy);
+      hp.node.scaling.setAll(pose.scale * hp.baseScale);
+      hp.node.position.y = hp.baseY + pose.extend;
+      hp.node.rotation.y = hp.baseRotY + pose.spinRad;
+    }
+  }
 
-      if (target !== hp.curScale) {
-        hp.curScale = target;
-        hp.node.scaling.setAll(target);
+  /**
+   * Shield-bubble ripple (§10 5.7). Shown while ANY fitted shield module holds
+   * an absorb reservoir — the same `shieldActive` condition emitter bindings
+   * use, read straight off the snapshot so it works identically offline and
+   * online. `dtMs` is the render-frame delta driving the ripple phase.
+   */
+  updateShield(ship: ShipSnapshot, dtMs: number): void {
+    let shieldUp = false;
+    for (let i = 0; i < ship.modules.length; i++) {
+      if (ship.modules[i]!.shieldPool > 0) {
+        shieldUp = true;
+        break;
       }
     }
+    this.shieldBubble.update(shieldUp, dtMs);
+  }
+
+  /** Whether this ship's shield bubble is currently drawn (dev probe / tests). */
+  get shieldVisible(): boolean {
+    return this.shieldBubble.isVisible;
   }
 
   /** Throttled (~15 Hz) signal → curve → particle-param update for every emitter socket. */
@@ -287,12 +311,9 @@ export class ShipSocketRig {
     this.hardpoints.length = 0;
     for (const em of this.emitters) em.system.dispose();
     this.emitters.length = 0;
+    this.shieldBubble.dispose();
     this.root.dispose();
   }
-}
-
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 /**

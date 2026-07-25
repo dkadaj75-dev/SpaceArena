@@ -11,6 +11,7 @@ import {
   type TuningConfig,
   type ShipSnapshot,
   type EntityId,
+  type ThemeConfig,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
@@ -29,6 +30,10 @@ import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { NetGameSession } from "./net/NetGameSession.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 import { BotDebugOverlay } from "./game/BotDebugOverlay.js";
+import { AudioManager } from "./audio/AudioManager.js";
+import { AudioFeedback } from "./audio/AudioFeedback.js";
+import { audioSettingsOf } from "./audio/soundIds.js";
+import { ScreenShake } from "./game/juice/ScreenShake.js";
 
 const log = createLogger("Client");
 
@@ -52,6 +57,10 @@ interface MatchRuntime {
   orderInput: OrderInput;
   orderMarkers: OrderMarkers;
   hud: Hud;
+  /** Sim events → synthesized SFX (§10 5.7). */
+  audioFeedback: AudioFeedback;
+  /** Sim events → additive camera micro-shake (§10 5.7). */
+  screenShake: ScreenShake;
   netOverlay: NetDebugOverlay | null;
   botOverlay: BotDebugOverlay | null;
   dispose(): void;
@@ -127,6 +136,15 @@ async function bootstrap(): Promise<void> {
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
 
+  // Audio (§10 5.7). One manager for the whole app: it stays silent (and never
+  // even constructs an AudioContext) until the first user gesture, and does no
+  // work at all while muted. Volumes come from localStorage
+  // (`sa.volume.master`/`sa.volume.sfx`) with the theme supplying the defaults.
+  const audio = new AudioManager({
+    settings: audioSettingsOf(configService.get<ThemeConfig>("theme", "theme.default")),
+  });
+  audio.attachUnlock();
+
   // Preload GLB hulls for every ship that configures one (render.model), so
   // the sync view/hangar/editor paths can pick them up from the shared cache.
   // Fire-and-forget with per-model fallback to the procedural recipe.
@@ -174,6 +192,9 @@ async function bootstrap(): Promise<void> {
       configService,
       (id) => session.shipConfigIdFor(id),
       quality.current,
+      // Explosion sounds are picked from the effect config the view layer
+      // already resolved per ship class — one variant lookup, visual + audio.
+      { playSound: (id, volume) => audio.play(id, volume) },
     );
     const orderInput = new OrderInput(scene, configService, session);
     const orderMarkers = new OrderMarkers(scene, session.playerId);
@@ -206,12 +227,17 @@ async function bootstrap(): Promise<void> {
     tacticalCamera.camera.target.copyFrom(playerFollow.position);
     tacticalCamera.camera.setTarget(tacticalCamera.camera.target);
 
+    const audioFeedback = new AudioFeedback(configService, session.playerId, audio);
+    const screenShake = new ScreenShake(configService, session.playerId, tacticalCamera, bus);
+
     return {
       session,
       viewManager,
       orderInput,
       orderMarkers,
       hud,
+      audioFeedback,
+      screenShake,
       netOverlay,
       botOverlay,
       dispose(): void {
@@ -219,6 +245,7 @@ async function bootstrap(): Promise<void> {
         orderMarkers.dispose();
         viewManager.dispose();
         hud.dispose();
+        screenShake.dispose();
         netOverlay?.dispose();
         botOverlay?.dispose();
         if (session instanceof NetGameSession) session.dispose();
@@ -228,6 +255,15 @@ async function bootstrap(): Promise<void> {
 
   let runtime: MatchRuntime | null = null;
   let simPaused = false;
+
+  // Theme hot-reload fans out to the 5.7 juice/audio consumers (the HUD wires
+  // its own colors/layout/haptics; camera shake listens for `camera.*` itself).
+  bus.on("config:changed", (evt) => {
+    if (evt.type !== "theme") return;
+    audio.applySettings(audioSettingsOf(configService.get<ThemeConfig>("theme", "theme.default")));
+    runtime?.viewManager.refreshJuice();
+    runtime?.audioFeedback.refresh();
+  });
 
   const lobby = new Lobby(
     document.body,
@@ -360,8 +396,11 @@ async function bootstrap(): Promise<void> {
       runtime.viewManager.consumeEvents(events, cur);
       runtime.orderMarkers.consumeEvents(events);
       runtime.hud.consumeEvents(events);
+      runtime.audioFeedback.consumeEvents(events);
+      runtime.screenShake.consumeEvents(events);
       runtime.session.clearFrameEvents();
 
+      runtime.screenShake.update(dtMs);
       runtime.viewManager.render(prev, cur, alpha, dtMs);
       runtime.orderMarkers.render(cur, dtMs);
       runtime.hud.update(cur, prev, dtMs, engine.getFps());
@@ -458,6 +497,13 @@ async function bootstrap(): Promise<void> {
       },
       lobby,
       quality,
+      audio,
+      get audioFeedback() {
+        return runtime?.audioFeedback;
+      },
+      get screenShake() {
+        return runtime?.screenShake;
+      },
       startMatch,
       meshCount: () => scene.meshes.length,
       /**
@@ -484,6 +530,7 @@ async function bootstrap(): Promise<void> {
 
   window.addEventListener("beforeunload", () => {
     runtime?.dispose();
+    audio.dispose();
     hangar.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();

@@ -32,6 +32,13 @@ export const effectSchema = z.object({
   ...baseShape("effect"),
   base: effectBase,
   /**
+   * Optional sound id played with this effect (5.7) — `explosion_ship` or the
+   * placeholder form `[SOUND: explosion_ship]`. One-shot effects (explosion
+   * variants) own their audio here so a new variant is a content file, never a
+   * code change; continuous emitter effects normally omit it.
+   */
+  sound: z.string().min(1).optional(),
+  /**
    * Names of `base` fields an emitter binding may target. Authors declare the
    * bindable surface explicitly; validation of a binding's `param` against this
    * list is a renderer/editor concern (kept as data here).

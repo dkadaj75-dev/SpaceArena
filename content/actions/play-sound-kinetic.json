@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-kinetic",
+  "type": "action",
+  "version": 1,
+  "name": "Play Kinetic Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: kinetic_fire]", "volume": 0.75 }
+}

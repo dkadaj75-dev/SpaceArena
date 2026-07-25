@@ -22,6 +22,8 @@
     "requiresLineOfSight": true,
     "projectile": { "speed": 60, "lifetime": 1.2 }
   },
+  "onFire": ["action.play-sound-kinetic"],
+  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
   "ui": { "icon": "[ICON: kinetic]", "label": "Autocannon" },
   "price": 0,
   "requiresLevel": 1

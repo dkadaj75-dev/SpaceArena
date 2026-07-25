@@ -1,0 +1,22 @@
+{
+  "id": "fx.explosion-light",
+  "type": "effect",
+  "version": 1,
+  "name": "Explosion (Light Hull)",
+  "base": {
+    "capacity": 90,
+    "emitRate": 0,
+    "lifeMin": 0.22,
+    "lifeMax": 0.55,
+    "sizeMin": 0.4,
+    "sizeMax": 1.3,
+    "speedMin": 9,
+    "speedMax": 20,
+    "color1": "#ffd479",
+    "color2": "#ff5a2f",
+    "direction": [0, 0.35, 0],
+    "gravity": 0
+  },
+  "params": ["emitRate", "lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"],
+  "sound": "[SOUND: explosion_light]"
+}

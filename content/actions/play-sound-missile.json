@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-missile",
+  "type": "action",
+  "version": 1,
+  "name": "Play Missile Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: missile_fire]", "volume": 0.8 }
+}

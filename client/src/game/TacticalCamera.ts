@@ -72,6 +72,14 @@ export class TacticalCamera {
   // Editor-mode drag state: `ox/oy` is the press origin (for the tap slop test),
   // `x/y` the last processed position.
   private editorDrag: { id: number; ox: number; oy: number; x: number; y: number; button: number; moved: boolean } | null = null;
+  /**
+   * Camera micro-shake offset (§10 5.7), written by
+   * {@link import("./juice/ScreenShake.js").ScreenShake}. Purely ADDITIVE: it is
+   * applied as the last step of {@link update} and never feeds back into
+   * `panOffset` or the follow point, so a shake can't fight (or permanently
+   * displace) the player's pan.
+   */
+  private readonly shakeOffset = new Vector3();
   private gesturesSuspended = false;
   /** Palm-rejection margin (`tuning.edgeRejectMarginPx`), shared with OrderInput. */
   private edgeRejectMarginPx = 0;
@@ -161,6 +169,15 @@ export class TacticalCamera {
   /** Recenter the view on the followed ship (clears any user pan). */
   recenter(): void {
     this.panOffset.setAll(0);
+  }
+
+  /**
+   * Set this frame's additive shake offset (world units on the arena plane).
+   * Called by the shake consumer each frame; (0, 0) means "no shake".
+   */
+  setShakeOffset(x: number, z: number): void {
+    this.shakeOffset.x = x;
+    this.shakeOffset.z = z;
   }
 
   /** Temporarily turn the tactical rig into an unrestricted editor orbit camera. */
@@ -471,6 +488,13 @@ export class TacticalCamera {
       // Re-derive the offset from the clamped target so panning back in
       // responds immediately instead of unwinding invisible overshoot.
       this.panOffset.copyFrom(this.camera.target).subtractInPlace(this.followPoint);
+    }
+
+    // Shake rides LAST and outside the clamp bookkeeping above: it is a
+    // per-frame decoration on the final target, never part of the pan state.
+    if (this.shakeOffset.x !== 0 || this.shakeOffset.z !== 0) {
+      this.camera.target.x += this.shakeOffset.x;
+      this.camera.target.z += this.shakeOffset.z;
     }
   }
 

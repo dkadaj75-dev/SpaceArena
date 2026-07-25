@@ -1,0 +1,22 @@
+{
+  "id": "fx.explosion-heavy",
+  "type": "effect",
+  "version": 1,
+  "name": "Explosion (Heavy Hull)",
+  "base": {
+    "capacity": 160,
+    "emitRate": 0,
+    "lifeMin": 0.4,
+    "lifeMax": 1.05,
+    "sizeMin": 0.8,
+    "sizeMax": 2.6,
+    "speedMin": 6,
+    "speedMax": 15,
+    "color1": "#fff0b0",
+    "color2": "#ff3312",
+    "direction": [0, 0.25, 0],
+    "gravity": 0
+  },
+  "params": ["emitRate", "lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"],
+  "sound": "[SOUND: explosion_heavy]"
+}

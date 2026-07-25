@@ -49,6 +49,16 @@
       "bindings": [
         { "source": "hullFraction", "param": "emitRate", "curve": [[1, 0], [0.5, 5], [0.2, 55]] }
       ]
+    },
+    {
+      "id": "boost-plume",
+      "kind": "emitter",
+      "transform": { "pos": [0, 0, -2.0] },
+      "effect": "fx.boost-trail",
+      "bindings": [
+        { "source": "boostActive", "param": "emitRate", "curve": [[0, 0], [1, 130]] },
+        { "source": "speedFraction", "param": "sizeMax", "curve": [[0, 0.5], [1, 1.1]] }
+      ]
     }
   ],
   "defaultFitting": ["module.laser-mk1", "module.missile-mk1", "module.shield-mk1", "module.boost-mk1"],

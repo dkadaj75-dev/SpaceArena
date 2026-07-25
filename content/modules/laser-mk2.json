@@ -23,7 +23,7 @@
     "projectile": null
   },
   "onFire": ["action.play-sound-laser"],
-  "onOverheat": ["action.notify-overheat"],
+  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
   "ui": { "icon": "[ICON: laser]", "label": "Laser II" },
   "price": 350,
   "requiresLevel": 2

@@ -22,6 +22,8 @@
     "requiresLineOfSight": true,
     "projectile": { "speed": 40, "turnRate": 2.2, "lifetime": 4.0 }
   },
+  "onFire": ["action.play-sound-missile"],
+  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
   "ui": { "icon": "[ICON: missile]", "label": "Missile" },
   "price": 0,
   "requiresLevel": 1

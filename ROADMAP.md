@@ -489,7 +489,7 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
   - Zero per-frame allocations in sim & render hot paths; DOM HUD mutations only on state change
   - Particle budgets per tier (config)
   - **Verify on real mid-range Android (`--host` + `chrome://inspect`) — measured, not assumed**
-- [ ] **5.7 Juice & audio** — hit flashes, shield-bubble ripple while shield active, deploy/retract animations on ship (turrets extend — sells the tradeoff), boost trails, camera micro-shake (tunable, subtle at tactical distance), explosion variants; `AudioManager` (Web Audio, pooled), **sound ids referenced from module/action configs** (`[SOUND: laser_fire]` placeholders); volume settings. *(Sonnet)*
+- [x] **5.7 Juice & audio** — hit flashes, shield-bubble ripple while shield active, deploy/retract animations on ship (turrets extend — sells the tradeoff), boost trails, camera micro-shake (tunable, subtle at tactical distance), explosion variants; `AudioManager` (Web Audio, pooled), **sound ids referenced from module/action configs** (`[SOUND: laser_fire]` placeholders); volume settings. *(Sonnet)*
 - [ ] **5.8 Menus & flow polish** — main menu (dark nebula, cyan/orange per reference), settings (quality, audio, camera, control tunables exposed to players where sensible), results screen with XP/credit animations, Theme Editor pass over the whole flow. *(Sonnet)*
 
 **Key APIs:** `SceneOptimizer.OptimizeAsync`, thin instances, `addLODLevel`, Pointer Events multi-touch, `navigator.vibrate`, `Sound`/`AudioEngine`, `GlowLayer` budget tuning.

@@ -27,6 +27,11 @@
     "effects/engine-trail.json",
     "effects/damage-smoke.json",
     "effects/overheat-vent.json",
+    "effects/boost-trail.json",
+    "effects/explosion-light.json",
+    "effects/explosion-medium.json",
+    "effects/explosion-heavy.json",
+    "effects/explosion-rock.json",
     "ships/interceptor.json",
     "ships/brawler.json",
     "ships/support.json",
@@ -44,6 +49,13 @@
     "modules/utility-heat-sink.json",
     "notifications/overheat-warning.json",
     "actions/notify-overheat.json",
-    "actions/play-sound-laser.json"
+    "actions/play-sound-laser.json",
+    "actions/play-sound-kinetic.json",
+    "actions/play-sound-missile.json",
+    "actions/play-sound-shield-up.json",
+    "actions/play-sound-shield-down.json",
+    "actions/play-sound-boost-up.json",
+    "actions/play-sound-boost-down.json",
+    "actions/play-sound-overheat.json"
   ]
 }

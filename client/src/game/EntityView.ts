@@ -14,6 +14,7 @@ import {
   type AsteroidConfig,
   type AsteroidSnapshot,
   type ConfigService,
+  type EffectConfig,
   type EntityId,
   type ProjectileSnapshot,
   type ShipConfig,
@@ -21,10 +22,15 @@ import {
   type SimEvent,
   type QualityConfig,
   type Snapshot,
+  type ThemeConfig,
   type TuningConfig,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
 import { ShipSocketRig } from "./ShipSocketRig.js";
+import { resolveSoundId } from "../audio/soundIds.js";
+import { ExplosionFx } from "./juice/ExplosionFx.js";
+import { HitFlashPool } from "./juice/HitFlash.js";
+import { explosionEffectIdFor, juiceSettingsOf, type JuiceSettings } from "./juice/juiceSettings.js";
 
 const log = createLogger("ViewManager");
 
@@ -35,6 +41,19 @@ const ASTEROID_DEATH_MS = 260;
 
 /** Resolves a sim ship entity to its ship-config id (owned by GameSession). */
 export type ShipConfigResolver = (id: EntityId) => string | undefined;
+
+/** Fire-and-forget sound playback by content sound id (see `audio/AudioManager`). */
+export type PlaySound = (id: string, volume?: number) => void;
+
+const THEME_ID = "theme.default";
+
+/** Additive construction options (§10 5.7 juice wiring). */
+export interface ViewManagerOptions {
+  /** Theme `juice` knobs; re-read from the theme config when omitted. */
+  juice?: JuiceSettings;
+  /** Where explosion sounds go. Omitted = silent (editor/hangar previews). */
+  playSound?: PlaySound;
+}
 
 interface ShipView {
   node: InstancedMesh;
@@ -107,6 +126,12 @@ export class ViewManager {
   private readonly poolSize: number;
   private quality: ViewQuality;
 
+  // --- juice (§10 5.7) ---
+  private juice: JuiceSettings;
+  private readonly hitFlash: HitFlashPool;
+  private readonly explosions: ExplosionFx;
+  private readonly playSound: PlaySound | null;
+
   // Reused scratch — no per-frame allocation.
   private readonly sFrom = new Vector3();
   private readonly sTo = new Vector3();
@@ -116,6 +141,7 @@ export class ViewManager {
     private readonly configs: ConfigService,
     private readonly resolveShipConfig: ShipConfigResolver,
     quality: ViewQuality = DEFAULT_VIEW_QUALITY,
+    options: ViewManagerOptions = {},
   ) {
     this.assets = new AssetRegistry(scene);
     this.root = new TransformNode("viewRoot", scene);
@@ -125,8 +151,24 @@ export class ViewManager {
     this.beamFadeMs = tuning?.beamFadeMs ?? 120;
     this.poolSize = tuning?.projectilePoolSize ?? 64;
 
+    this.juice = options.juice ?? juiceSettingsOf(configs.get<ThemeConfig>("theme", THEME_ID));
+    this.playSound = options.playSound ?? null;
+    this.hitFlash = new HitFlashPool(scene, this.root, this.juice.hitFlash);
+    this.explosions = new ExplosionFx(scene, this.juice.explosions, quality.particles);
+
     this.assets.setAsteroidLod(quality.asteroids);
     this.buildPools();
+  }
+
+  /**
+   * Re-read the theme's `juice` block (hot-reload / Theme editor) and push it at
+   * every live juice consumer, including each ship's socket rig.
+   */
+  refreshJuice(): void {
+    this.juice = juiceSettingsOf(this.configs.get<ThemeConfig>("theme", THEME_ID));
+    this.hitFlash.setSettings(this.juice.hitFlash);
+    this.explosions.setSettings(this.juice.explosions);
+    for (const view of this.ships.values()) view.rig?.setJuice(this.juice);
   }
 
   /**
@@ -139,6 +181,9 @@ export class ViewManager {
     const wasInstanced = this.quality.projectiles.useInstances;
     this.quality = quality;
     this.assets.setAsteroidLod(quality.asteroids);
+    // Explosion pools are one-shot, so unlike ship emitters they CAN be rebuilt
+    // mid-match at the new particle budget with nothing visibly popping.
+    this.explosions.setQuality(quality.particles);
     if (wasInstanced !== quality.projectiles.useInstances) this.rebuildPools();
   }
 
@@ -240,14 +285,74 @@ export class ViewManager {
       const ev = events[i]!;
       if (ev.type === "projectileFired" && ev.kind === "beam") {
         this.spawnBeam(ev.ownerId, ev.targetId, cur);
-      } else if (ev.type === "entityDestroyed" && ev.isAsteroid) {
-        const v = this.asteroids.get(ev.entityId);
-        if (v && !v.dying) {
-          v.dying = true;
-          v.dyingMs = ASTEROID_DEATH_MS;
+      } else if (ev.type === "damage") {
+        this.flashHit(ev.targetId, ev.isAsteroid);
+      } else if (ev.type === "entityDestroyed") {
+        if (ev.isAsteroid) {
+          const v = this.asteroids.get(ev.entityId);
+          if (v && !v.dying) {
+            v.dying = true;
+            v.dyingMs = ASTEROID_DEATH_MS;
+          }
         }
+        this.explode(ev.entityId, ev.isAsteroid, cur);
       }
     }
+  }
+
+  /** Pop a hit flash on the damaged entity's view (§10 5.7). */
+  private flashHit(targetId: EntityId, isAsteroid: boolean): void {
+    if (isAsteroid) return; // asteroid hits already read through the death puff
+    const view = this.ships.get(targetId);
+    if (!view) return;
+    const radius = this.shipConfigFor(targetId)?.collider.radius ?? 1.5;
+    this.hitFlash.flash(view.node.position.x, SHIP_Y, view.node.position.z, radius);
+  }
+
+  /**
+   * Explosion variant for a destroyed entity (§10 5.7): the effect id comes from
+   * the theme's `juice.explosions` map (asteroid / per ship class), the particle
+   * budget from the active quality tier, and the SOUND from that same effect
+   * config's `sound` field — so a new variant is one content file, not code.
+   *
+   * The position comes from the live view node, not the snapshot: a destroyed
+   * ship is already gone from `cur.ships` by the time the event is drained.
+   */
+  private explode(entityId: EntityId, isAsteroid: boolean, cur: Snapshot): void {
+    const shipClass = isAsteroid ? null : (this.shipConfigFor(entityId)?.class ?? null);
+    const effectId = explosionEffectIdFor({ isAsteroid, shipClass }, this.juice.explosions);
+    if (!effectId) return;
+    const effect = this.configs.get<EffectConfig>("effect", effectId);
+    if (!effect) {
+      log.warn(`explosion effect not found: ${effectId}`);
+      return;
+    }
+    const pos = this.deathPosition(entityId, isAsteroid, cur);
+    if (!pos) return;
+    this.explosions.burst(effect, pos.x, pos.z);
+    // Audio is not a quality-tier concern: a low tier drops particles, never the bang.
+    const soundId = resolveSoundId(effect.sound);
+    if (soundId) this.playSound?.(soundId);
+  }
+
+  /** Last known world position of a (possibly already removed) entity. */
+  private deathPosition(entityId: EntityId, isAsteroid: boolean, cur: Snapshot): { x: number; z: number } | null {
+    if (isAsteroid) {
+      const view = this.asteroids.get(entityId);
+      if (view) return { x: view.instance.position.x, z: view.instance.position.z };
+      const snap = findAsteroid(cur, entityId);
+      return snap ? { x: snap.pos.x, z: snap.pos.z } : null;
+    }
+    const view = this.ships.get(entityId);
+    if (view) return { x: view.node.position.x, z: view.node.position.z };
+    const snap = findShip(cur, entityId);
+    return snap ? { x: snap.pos.x, z: snap.pos.z } : null;
+  }
+
+  /** Ship config behind a sim entity id, if the session still knows it. */
+  private shipConfigFor(id: EntityId): ShipConfig | undefined {
+    const configId = this.resolveShipConfig(id);
+    return configId ? this.configs.get<ShipConfig>("ship", configId) : undefined;
   }
 
   private spawnBeam(ownerId: EntityId, targetId: EntityId | null, cur: Snapshot): void {
@@ -279,13 +384,14 @@ export class ViewManager {
    * `frameDtMs` drives beam fade and asteroid-puff timers.
    */
   render(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
-    this.syncShips(prev, cur, alpha);
+    this.syncShips(prev, cur, alpha, frameDtMs);
     this.syncAsteroids(cur, frameDtMs);
     this.syncProjectiles(prev, cur, alpha);
     this.updateBeams(frameDtMs);
+    this.hitFlash.update(frameDtMs);
   }
 
-  private syncShips(prev: Snapshot, cur: Snapshot, alpha: number): void {
+  private syncShips(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
     // Remove views whose ship no longer exists. Both the map walk and the
     // membership test are allocation-free — `Array.some(cb)` here would build a
     // closure per live view per frame.
@@ -317,6 +423,7 @@ export class ViewManager {
       view.node.rotation.y = Math.PI / 2 - lerpAngle(p.heading, s.heading, alpha);
 
       view.rig?.updateModules(s.modules);
+      view.rig?.updateShield(s, frameDtMs);
       view.rig?.updateEmitters(s, prevShip, nowMs);
     }
   }
@@ -347,6 +454,7 @@ export class ViewManager {
       node,
       fittedModuleIds,
       this.quality.particles,
+      this.juice,
     );
 
     return { node, rig };
@@ -430,6 +538,22 @@ export class ViewManager {
     }
   }
 
+  /** Pooled explosion bursts — exposed for the dev probe and quality checks. */
+  get explosionFx(): ExplosionFx {
+    return this.explosions;
+  }
+
+  /** Live juice state for `window.__debug.viewManager` (dev verification). */
+  get juiceDebug(): { hitFlashActive: number; explosionParticles: boolean; shieldsUp: number } {
+    let shieldsUp = 0;
+    for (const view of this.ships.values()) if (view.rig?.shieldVisible) shieldsUp++;
+    return {
+      hitFlashActive: this.hitFlash.activeCount,
+      explosionParticles: this.explosions.particlesEnabled,
+      shieldsUp,
+    };
+  }
+
   /** The Babylon node a picked mesh belongs to → sim entity id, if it's a ship. */
   entityIdForMesh(meshName: string): EntityId | null {
     for (const [id, view] of this.ships) {
@@ -460,6 +584,8 @@ export class ViewManager {
       master.dispose();
     }
     this.poolMasters.length = 0;
+    this.hitFlash.dispose();
+    this.explosions.dispose();
     this.assets.dispose();
     this.root.dispose();
   }

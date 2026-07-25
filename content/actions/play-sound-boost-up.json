@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-boost-up",
+  "type": "action",
+  "version": 1,
+  "name": "Play Boost Engage Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: boost_engage]", "volume": 0.6 }
+}

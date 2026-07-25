@@ -54,5 +54,55 @@
     "enabled": true,
     "overheatPattern": [60, 50, 120],
     "killPattern": [25, 40, 25]
+  },
+  "audio": {
+    "enabled": true,
+    "defaultMasterVolume": 0.8,
+    "defaultSfxVolume": 0.8,
+    "maxVoices": 16,
+    "retriggerGapMs": 45,
+    "cues": {
+      "playerDamaged": "[SOUND: hit_thud]",
+      "shieldAbsorb": "[SOUND: shield_hit]",
+      "playerKill": "[SOUND: kill_confirm]",
+      "playerDeath": "[SOUND: explosion_heavy]",
+      "overheat": "[SOUND: overheat_warning]",
+      "boundaryWarning": "[SOUND: boundary_warn]"
+    }
+  },
+  "juice": {
+    "hitFlash": {
+      "enabled": true,
+      "durationMs": 160,
+      "color": "#ffd9a0",
+      "scale": 1.25,
+      "intensity": 0.5,
+      "maxConcurrent": 8
+    },
+    "shieldRipple": {
+      "enabled": true,
+      "color": "#57d8ff",
+      "periodMs": 1400,
+      "radiusScale": 1.5,
+      "scaleWobble": 0.06,
+      "minAlpha": 0.1,
+      "maxAlpha": 0.26
+    },
+    "deploy": {
+      "extendDistance": 0.18,
+      "overshoot": 0.9,
+      "spinDegrees": 45
+    },
+    "explosions": {
+      "default": "fx.explosion-medium",
+      "asteroid": "fx.explosion-rock",
+      "byShipClass": {
+        "light": "fx.explosion-light",
+        "medium": "fx.explosion-medium",
+        "heavy": "fx.explosion-heavy"
+      },
+      "burstCount": 60,
+      "poolPerEffect": 3
+    }
   }
 }

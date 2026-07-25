@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-overheat",
+  "type": "action",
+  "version": 1,
+  "name": "Play Overheat Warning Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: overheat_warning]", "volume": 0.9 }
+}

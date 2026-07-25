@@ -14,6 +14,9 @@
     "overheatSelfDamage": 0
   },
   "boost": { "speedMult": 2.1, "heatPerSec": 6 },
+  "onActivate": ["action.play-sound-boost-up"],
+  "onDeactivate": ["action.play-sound-boost-down"],
+  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
   "ui": { "icon": "[ICON: boost]", "label": "Boost II" },
   "price": 300,
   "requiresLevel": 2
