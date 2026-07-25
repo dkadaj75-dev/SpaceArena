@@ -6,6 +6,7 @@ import {
   type TuningConfig,
 } from "@space-arena/shared";
 import type { GameSession } from "./GameSession.js";
+import { shouldRejectContact, type SurfaceRect } from "./inputGuards.js";
 
 const log = createLogger("OrderInput");
 
@@ -34,12 +35,20 @@ function isShipMeta(m: unknown): m is ShipMeta {
  *    move already started the ship; the double-tap just upgrades it to boost.
  *  - Tap on a (non-player) ship view → target order.
  *  - Mouse parity falls out for free: pointer events cover click / double-click.
+ *
+ * Palm rejection (5.4): a TOUCH contact that lands within `edgeRejectMarginPx`
+ * of the canvas bezel is dropped before it reaches the state machine at all —
+ * it never becomes a tap and never counts toward the multi-touch tally, so a
+ * palm resting on the edge cannot swallow the thumb tap that follows. Mouse and
+ * pen pointers are exempt (they have no palm), as is anything landing on a HUD
+ * control.
  */
 export class OrderInput {
   private readonly observer: Observer<PointerInfo> | null;
 
   private readonly doubleTapWindowMs: number;
   private readonly tapSlopPx: number;
+  private readonly edgeRejectMarginPx: number;
 
   // Active pointer tracking (multi-touch detection).
   private readonly activePointers = new Set<number>();
@@ -64,8 +73,20 @@ export class OrderInput {
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
     this.doubleTapWindowMs = tuning?.doubleTapWindowMs ?? 250;
     this.tapSlopPx = tuning?.tapSlopPx ?? 12;
+    this.edgeRejectMarginPx = tuning?.edgeRejectMarginPx ?? 0;
 
     this.observer = scene.onPointerObservable.add((pi) => this.onPointer(pi));
+  }
+
+  /**
+   * The live input surface in client coordinates (Babylon's canvas client
+   * rect). Null before layout settles or in headless scenes — palm rejection
+   * then stays off rather than rejecting every contact against a 0×0 surface.
+   */
+  private surfaceRect(): SurfaceRect | null {
+    const rect = this.scene.getEngine?.()?.getRenderingCanvasClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
   }
 
   /**
@@ -86,6 +107,10 @@ export class OrderInput {
     if (!this.enabled) return;
     const ev = pi.event as PointerEvent;
     if (pi.type === PointerEventTypes.POINTERDOWN) {
+      if (this.isPalm(ev)) {
+        log.debug(`palm rejected pointer ${ev.pointerId} at (${ev.clientX}, ${ev.clientY})`);
+        return;
+      }
       this.activePointers.add(ev.pointerId);
       this.maxPointers = Math.max(this.maxPointers, this.activePointers.size);
       if (this.activePointers.size === 1) {
@@ -94,6 +119,8 @@ export class OrderInput {
         this.downY = ev.clientY;
       }
     } else if (pi.type === PointerEventTypes.POINTERUP) {
+      // A rejected contact was never tracked — its release is a no-op too.
+      if (!this.activePointers.has(ev.pointerId)) return;
       const wasPrimary = ev.pointerId === this.downId;
       const singlePointerGesture = this.maxPointers === 1;
       const movedPx = Math.hypot(ev.clientX - this.downX, ev.clientY - this.downY);
@@ -107,6 +134,18 @@ export class OrderInput {
         this.downId = null;
       }
     }
+  }
+
+  /**
+   * Edge palm rejection. Only touch contacts qualify: a mouse or pen click near
+   * the window edge is always intentional.
+   */
+  private isPalm(ev: PointerEvent): boolean {
+    if (this.edgeRejectMarginPx <= 0) return false;
+    if (ev.pointerType !== "touch") return false;
+    const rect = this.surfaceRect();
+    if (!rect) return false;
+    return shouldRejectContact(ev.clientX, ev.clientY, ev.target, rect, this.edgeRejectMarginPx);
   }
 
   private handleTap(clientX: number, clientY: number): void {

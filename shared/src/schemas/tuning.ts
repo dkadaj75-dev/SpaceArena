@@ -10,6 +10,14 @@ export const tuningSchema = z.object({
   doubleTapWindowMs: z.number().positive(),
   /** Max pixel movement still treated as a tap (not a drag). */
   tapSlopPx: z.number().nonnegative(),
+  /**
+   * Palm rejection (5.4): touch contacts landing within this many px of any
+   * canvas edge are ignored by the order state machine unless they hit a HUD
+   * control. 0 disables rejection. Lives here rather than in `theme.json`
+   * because it is an input-feel knob measured on the *input surface*, right
+   * next to `tapSlopPx`/`doubleTapWindowMs` — not a HUD look/layout dimension.
+   */
+  edgeRejectMarginPx: z.number().nonnegative().optional(),
   /** Auto-target selection policy when no focused target. */
   targetingPolicy,
   /** Global damage multiplier (balance knob). */

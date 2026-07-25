@@ -11,6 +11,7 @@ import { ShipManager } from "./ShipManager.js";
 import { BalanceWorkbench } from "./BalanceWorkbench.js";
 import { BotProfileEditor } from "./BotProfileEditor.js";
 import { GamemodeEditor } from "./GamemodeEditor.js";
+import { ThemeEditor } from "./ThemeEditor.js";
 import { ConsolePanel } from "./ConsolePanel.js";
 import { EditorStage } from "./EditorStage.js";
 import "./editor.css";
@@ -52,6 +53,7 @@ const ARENA_VISIBLE_TABS: Record<string, boolean> = {
   Notifications: true,
   Bots: true,
   Modes: true,
+  Theme: true,
   Ships: false,
   Assets: false,
   Balance: false,
@@ -96,6 +98,7 @@ export class EditorShell {
     this.registerPanel("Notifications", (h, report) => new NotificationEditor(h, report));
     this.registerPanel("Bots", (h, report) => new BotProfileEditor(h, report));
     this.registerPanel("Modes", (h, report) => new GamemodeEditor(h, report));
+    this.registerPanel("Theme", (h, report) => new ThemeEditor(h, report));
     this.registerPanel("Console", (h, report) => new ConsolePanel(h, report));
     this.registerPanel("Problems", () => this.problemsPanel());
   }

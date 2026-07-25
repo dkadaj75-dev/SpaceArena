@@ -7,7 +7,15 @@ import {
   type Scene,
   type TransformNode,
 } from "@babylonjs/core";
-import { createLogger, type CameraConfig, type ConfigService, type EventBus, type ConfigEvents } from "@space-arena/shared";
+import {
+  createLogger,
+  type CameraConfig,
+  type ConfigService,
+  type EventBus,
+  type ConfigEvents,
+  type TuningConfig,
+} from "@space-arena/shared";
+import { shouldRejectContact } from "./inputGuards.js";
 
 const log = createLogger("TacticalCamera");
 
@@ -65,6 +73,8 @@ export class TacticalCamera {
   // `x/y` the last processed position.
   private editorDrag: { id: number; ox: number; oy: number; x: number; y: number; button: number; moved: boolean } | null = null;
   private gesturesSuspended = false;
+  /** Palm-rejection margin (`tuning.edgeRejectMarginPx`), shared with OrderInput. */
+  private edgeRejectMarginPx = 0;
   private pointerObserver: Observer<PointerInfo> | null = null;
   private readonly onContextMenu = (e: Event): void => e.preventDefault();
   private readonly scratchRight = new Vector3();
@@ -101,6 +111,8 @@ export class TacticalCamera {
       | { buttons: number[] }
       | undefined;
     if (this.pointersInput) this.pointersInput.buttons = [];
+
+    this.edgeRejectMarginPx = configService.getAll<TuningConfig>("tuning")[0]?.edgeRejectMarginPx ?? 0;
 
     canvas.style.touchAction = "none";
     canvas.addEventListener("contextmenu", this.onContextMenu);
@@ -232,6 +244,10 @@ export class TacticalCamera {
 
     if (pi.type === PointerEventTypes.POINTERDOWN) {
       if (isTouch) {
+        // Palm rejection (5.4): a bezel contact must not become half of a
+        // two-finger pan/pinch either, or a resting palm would make every
+        // one-finger gameplay touch drag the camera.
+        if (this.isPalm(ev)) return;
         this.activeTouches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
       } else if (ev.button === 2) {
         this.rightDrag = { x: ev.clientX, y: ev.clientY };
@@ -264,6 +280,24 @@ export class TacticalCamera {
       this.activeTouches.delete(ev.pointerId);
       if (!isTouch && ev.button === 2) this.rightDrag = null;
     }
+  }
+
+  /**
+   * Edge palm rejection for tactical-mode touch gestures. Editor mode is
+   * deliberately exempt: it is a dev tool whose own gizmo/marker handles live
+   * right against the panel edges.
+   */
+  private isPalm(ev: PointerEvent): boolean {
+    if (this.edgeRejectMarginPx <= 0) return false;
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    return shouldRejectContact(
+      ev.clientX,
+      ev.clientY,
+      ev.target,
+      { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      this.edgeRejectMarginPx,
+    );
   }
 
   /**

@@ -479,8 +479,8 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
 
 ### 10B — Mobile & One-Thumb UX
 
-- [ ] **5.4 Touch input hardening** — the §2.2 input state machine on real devices: tap-slop, double-tap window, pinch/orbit vs tap disambiguation, palm rejection at screen edges; **portrait AND landscape layouts** (reference image is portrait — support both, layout from `theme.json`); module button cluster size/arc/position tunable in Theme Editor; haptics (`navigator.vibrate`) on overheat/kill (tunable). *(Sonnet, Opus if feel needs tuning)*
-- [ ] **5.5 Responsive UI pass** — all screens 360×640 → 4K, safe-area insets, HUD scale by theme config, one-thumb reachability audit on every in-match interaction (S3's "one thumb" clause). *(Sonnet)*
+- [x] **5.4 Touch input hardening** — the §2.2 input state machine on real devices: tap-slop, double-tap window, pinch/orbit vs tap disambiguation, palm rejection at screen edges; **portrait AND landscape layouts** (reference image is portrait — support both, layout from `theme.json`); module button cluster size/arc/position tunable in Theme Editor; haptics (`navigator.vibrate`) on overheat/kill (tunable). *(Sonnet, Opus if feel needs tuning)*
+- [x] **5.5 Responsive UI pass** — all screens 360×640 → 4K, safe-area insets, HUD scale by theme config, one-thumb reachability audit on every in-match interaction (S3's "one thumb" clause). *(Sonnet)*
 - [ ] **5.6 Mobile performance sprint** *(Codex — measure first)*:
   - `SceneOptimizer` custom priorities; quality tiers (`low/med/high`) in `quality.json`, auto-selected by device probe + first-seconds FPS
   - Thin instances for asteroids/tracers; `freezeActiveMeshes()`, `material.freeze()` on statics

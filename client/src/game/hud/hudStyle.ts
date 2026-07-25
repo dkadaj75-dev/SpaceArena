@@ -21,17 +21,28 @@ const CSS = `
   inset: 0;
   z-index: 10;
   pointer-events: none;
+  overflow: hidden;
   font-family: var(--hud-font-body, system-ui, sans-serif);
   color: var(--hud-text, #e6f0ff);
+  --hud-scale: 1;
   --hud-safe-inset: 12px;
+  /* Device safe area (notch/home indicator, viewport-fit=cover) + theme inset,
+     resolved once per side so every anchor uses the same margins. */
+  --hud-inset-top: calc(env(safe-area-inset-top, 0px) + var(--hud-safe-inset));
+  --hud-inset-right: calc(env(safe-area-inset-right, 0px) + var(--hud-safe-inset));
+  --hud-inset-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--hud-safe-inset));
+  --hud-inset-left: calc(env(safe-area-inset-left, 0px) + var(--hud-safe-inset));
+  /* HUD scale factor (theme.hud.scale): control sizes are pre-scaled in
+     hudLayout.ts, text scales through this root font-size. */
+  font-size: calc(16px * var(--hud-scale));
 }
 
 .hud-fps {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + var(--hud-safe-inset));
-  right: var(--hud-safe-inset);
+  top: var(--hud-inset-top);
+  right: var(--hud-inset-right);
   padding: 2px 8px;
-  font: 12px/1.4 monospace;
+  font: 0.75em/1.4 monospace;
   color: var(--hud-primary, #9be8ff);
   background: rgba(0, 0, 0, 0.35);
   border-radius: 4px;
@@ -40,10 +51,12 @@ const CSS = `
 /* --- Minimap (top-left) --- */
 .hud-minimap {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + var(--hud-safe-inset));
-  left: var(--hud-safe-inset);
+  top: var(--hud-inset-top);
+  left: var(--hud-inset-left);
   width: var(--hud-minimap-size, 128px);
   height: var(--hud-minimap-size, 128px);
+  max-width: 40vw;
+  max-height: 40vw;
   border-radius: 50%;
   border: 1px solid var(--hud-primary, #57d8ff);
   background: rgba(5, 10, 20, 0.55);
@@ -58,12 +71,13 @@ const CSS = `
 /* --- Gauges (left side): hull, shield, energy, heat --- */
 .hud-gauges {
   position: absolute;
-  left: var(--hud-safe-inset);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--hud-safe-inset));
+  left: var(--hud-inset-left);
+  bottom: var(--hud-inset-bottom);
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: var(--hud-gauge-width, 140px);
+  max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
 }
 .hud-gauge {
   display: flex;
@@ -71,7 +85,7 @@ const CSS = `
   gap: 2px;
 }
 .hud-gauge-label {
-  font-size: 10px;
+  font-size: 0.625em;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   opacity: 0.75;
@@ -99,22 +113,25 @@ const CSS = `
 .hud-gauge-fill.heat { background: var(--hud-accent, #ff8c42); }
 .hud-gauge-fill.heat.warn { background: var(--hud-danger, #ff4d5e); }
 
-/* --- Module radial buttons (bottom-right) --- */
+/* --- Module radial cluster --- */
+/* Zero-size pivot pinned to the themed anchor corner; ModuleButtons places each
+   button at a pivot-relative offset computed in hudLayout.ts. */
 .hud-modules {
   position: absolute;
-  right: var(--hud-safe-inset);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--hud-safe-inset));
-  display: flex;
-  flex-direction: row-reverse;
-  flex-wrap: wrap-reverse;
-  justify-content: flex-end;
-  align-items: flex-end;
-  gap: var(--hud-module-gap, 14px);
-  width: calc(var(--hud-module-btn-radius, 34px) * 6);
+  width: 0;
+  height: 0;
 }
+.hud-modules[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
+.hud-modules[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
+.hud-modules[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
+.hud-modules[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
 .hud-module-btn {
   pointer-events: auto;
-  position: relative;
+  position: absolute;
+  touch-action: manipulation;
+  /* border-box so the rendered box is exactly 2 x the themed radius — the
+     layout math in hudLayout.ts (and the one-thumb clamp) assumes it. */
+  box-sizing: border-box;
   width: calc(var(--hud-module-btn-radius, 34px) * 2);
   height: calc(var(--hud-module-btn-radius, 34px) * 2);
   border-radius: 50%;
@@ -127,13 +144,15 @@ const CSS = `
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: 0.5625em;
   line-height: 1.2;
   cursor: pointer;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
   transition: filter 0.15s linear, opacity 0.15s linear, box-shadow 0.15s linear;
 }
-.hud-module-btn .icon { font-size: 16px; }
+.hud-module-btn .icon { font-size: 1em; }
+.hud-module-btn .label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hud-module-btn.state-retracted { filter: brightness(0.6) saturate(0.7); }
 .hud-module-btn.state-deploying { filter: brightness(0.9); }
 .hud-module-btn.state-active {
@@ -156,7 +175,7 @@ const CSS = `
 /* --- Notifications (top-center toast stack) --- */
 .hud-notifications {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + var(--hud-safe-inset));
+  top: var(--hud-inset-top);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -164,11 +183,14 @@ const CSS = `
   align-items: center;
   gap: 6px;
   pointer-events: none;
+  max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
 }
 .hud-toast {
   padding: 4px 14px;
   border-radius: 4px;
-  font-size: 13px;
+  max-width: 100%;
+  text-align: center;
+  font-size: 0.8125em;
   font-weight: 600;
   letter-spacing: 0.03em;
   background: rgba(10, 14, 26, 0.85);
@@ -187,10 +209,11 @@ const CSS = `
 /* --- Match status (top-center, above notifications) --- */
 .hud-match-status {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + var(--hud-safe-inset) + 40px);
+  top: calc(var(--hud-inset-top) + 40px);
   left: 50%;
   transform: translateX(-50%);
-  font-size: 12px;
+  max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
+  font-size: 0.75em;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   opacity: 0.85;
@@ -248,18 +271,27 @@ const CSS = `
   pointer-events: auto;
 }
 .hud-results.visible { display: flex; }
+/* Portrait phones: drop the panel to the thumb end of the screen so "Play
+   again" stays a one-thumb reach (ROADMAP S3). */
+@media (orientation: portrait) {
+  .hud-results { align-items: flex-end; }
+}
 .hud-results-panel {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  padding: 32px 48px;
+  padding: min(32px, 6vh) min(48px, 8vw);
+  margin: var(--hud-inset-top) var(--hud-inset-right) var(--hud-inset-bottom) var(--hud-inset-left);
+  max-width: min(420px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
   background: var(--hud-bg, #0a0e1a);
   border: 1px solid var(--hud-primary, #57d8ff);
   border-radius: 8px;
 }
 .hud-results-title {
-  font-size: 22px;
+  font-size: 1.375em;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -273,12 +305,12 @@ const CSS = `
 }
 .hud-results-rewards:empty { display: none; }
 .hud-results-rewards-line {
-  font-size: 14px;
+  font-size: 0.875em;
   color: var(--hud-primary, #57d8ff);
   letter-spacing: 0.03em;
 }
 .hud-results-levelup {
-  font-size: 13px;
+  font-size: 0.8125em;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -288,8 +320,10 @@ const CSS = `
 .hud-results-btn {
   pointer-events: auto;
   cursor: pointer;
+  touch-action: manipulation;
+  min-height: 44px;
   padding: 8px 24px;
-  font-size: 14px;
+  font-size: 0.875em;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;

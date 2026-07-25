@@ -1,5 +1,6 @@
 import { createLogger } from "@space-arena/shared";
 import { ApiRequestError, type AuthService } from "../../core/AuthService.js";
+import { injectScreenStyle } from "./screenStyle.js";
 
 const log = createLogger("AuthScreen");
 
@@ -26,15 +27,15 @@ export class AuthScreen {
     private readonly onAuthed: () => void,
     private readonly onSkipOffline: () => void,
   ) {
+    injectScreenStyle();
     this.root = document.createElement("div");
-    this.root.className = "auth-overlay game-screen";
-    this.root.style.cssText =
-      "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;" +
-      "background:rgba(4,8,16,.92);z-index:30;color:#e8f1ff;font-family:system-ui";
+    this.root.className = "auth-overlay game-screen sa-screen";
+    this.root.style.background = "rgba(4,8,16,.92)";
+    this.root.style.zIndex = "30";
 
     const title = document.createElement("h1");
     title.textContent = "SPACE ARENA";
-    title.style.cssText = "letter-spacing:.3em;font-weight:300;color:#57d8ff;margin:0 0 8px";
+    title.className = "sa-screen-title";
     this.root.append(title);
 
     const guestBtn = this.bigButton("Play as Guest");
@@ -42,13 +43,13 @@ export class AuthScreen {
     this.root.append(guestBtn);
 
     this.errorEl = document.createElement("div");
-    this.errorEl.style.cssText = "min-height:1.4em;color:#ff8080;font-size:13px;max-width:320px;text-align:center";
+    this.errorEl.className = "sa-screen-error";
     this.root.append(this.errorEl);
 
     const toggle = document.createElement("a");
     toggle.href = "#";
     toggle.textContent = "Log in / Register";
-    toggle.style.cssText = "color:#57d8ff;text-decoration:underline;cursor:pointer;font-size:13px";
+    toggle.className = "sa-screen-link";
     toggle.addEventListener("click", (e) => {
       e.preventDefault();
       this.setExpanded(!this.expanded);
@@ -56,10 +57,10 @@ export class AuthScreen {
     this.root.append(toggle);
 
     this.formsWrap = document.createElement("div");
-    this.formsWrap.style.cssText = "display:none;flex-direction:column;align-items:center;gap:10px;width:280px";
+    this.formsWrap.className = "sa-screen-forms";
 
     const tabsRow = document.createElement("div");
-    tabsRow.style.cssText = "display:flex;gap:8px;width:100%";
+    tabsRow.className = "sa-screen-tabs";
     const loginTabBtn = this.tabButton("Log In");
     const registerTabBtn = this.tabButton("Register");
     loginTabBtn.addEventListener("click", () => this.selectTab("login"));
@@ -78,7 +79,7 @@ export class AuthScreen {
     const skip = document.createElement("a");
     skip.href = "#";
     skip.textContent = "Skip (offline practice)";
-    skip.style.cssText = "color:#6f84a0;text-decoration:underline;cursor:pointer;font-size:12px;margin-top:8px";
+    skip.className = "sa-screen-link muted";
     skip.addEventListener("click", (e) => {
       e.preventDefault();
       this.onSkipOffline();
@@ -91,7 +92,7 @@ export class AuthScreen {
 
   private buildLoginForm(): HTMLDivElement {
     const panel = document.createElement("div");
-    panel.style.cssText = "display:flex;flex-direction:column;gap:8px;width:100%";
+    panel.className = "sa-screen-panel";
     const email = this.textInput("email", "Email");
     const password = this.textInput("password", "Password");
     const submit = this.formButton("Log In");
@@ -104,7 +105,7 @@ export class AuthScreen {
 
   private buildRegisterForm(): HTMLDivElement {
     const panel = document.createElement("div");
-    panel.style.cssText = "display:flex;flex-direction:column;gap:8px;width:100%";
+    panel.className = "sa-screen-panel";
     const displayName = this.textInput("text", "Display name (optional)");
     const email = this.textInput("email", "Email");
     const password = this.textInput("password", "Password (min 8 chars)");
@@ -122,17 +123,14 @@ export class AuthScreen {
     const input = document.createElement("input");
     input.type = type;
     input.placeholder = placeholder;
-    input.style.cssText =
-      "padding:8px 10px;font-size:14px;background:#0c1526;color:#e8f1ff;border:1px solid #2f6fb8;border-radius:6px";
+    input.className = "sa-screen-input";
     return input;
   }
 
   private bigButton(label: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.textContent = label;
-    b.style.cssText =
-      "min-width:280px;padding:12px 24px;font-size:16px;background:#12203a;color:#e8f1ff;" +
-      "border:1px solid #2f6fb8;border-radius:8px;cursor:pointer";
+    b.className = "sa-screen-btn";
     this.actionButtons.push(b);
     return b;
   }
@@ -140,9 +138,7 @@ export class AuthScreen {
   private formButton(label: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.textContent = label;
-    b.style.cssText =
-      "padding:10px;font-size:14px;background:#57d8ff;color:#04101f;font-weight:600;" +
-      "border:none;border-radius:6px;cursor:pointer";
+    b.className = "sa-screen-formbtn";
     this.actionButtons.push(b);
     return b;
   }
@@ -150,9 +146,7 @@ export class AuthScreen {
   private tabButton(label: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.textContent = label;
-    b.style.cssText =
-      "flex:1;padding:6px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;" +
-      "background:#0c1526;color:#9fb4d0;border:1px solid #2f6fb8;border-radius:6px;cursor:pointer";
+    b.className = "sa-screen-tab";
     return b;
   }
 
@@ -160,14 +154,13 @@ export class AuthScreen {
     for (const key of ["login", "register"] as const) {
       const active = key === tab;
       this.panels[key].style.display = active ? "flex" : "none";
-      this.tabButtons[key].style.background = active ? "#1c3a5e" : "#0c1526";
-      this.tabButtons[key].style.color = active ? "#e8f1ff" : "#9fb4d0";
+      this.tabButtons[key].classList.toggle("active", active);
     }
   }
 
   private setExpanded(expanded: boolean): void {
     this.expanded = expanded;
-    this.formsWrap.style.display = expanded ? "flex" : "none";
+    this.formsWrap.classList.toggle("open", expanded);
   }
 
   /** Opens the panel directly on the Register tab — used for the guest "Upgrade account" flow. */

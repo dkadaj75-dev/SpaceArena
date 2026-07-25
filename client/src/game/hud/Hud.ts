@@ -17,10 +17,21 @@ import { DamageFeedback } from "./DamageFeedback.js";
 import { MatchStatus } from "./MatchStatus.js";
 import { ResultsOverlay, type MatchRewards } from "./ResultsOverlay.js";
 import { injectHudStyle } from "./hudStyle.js";
+import { Haptics } from "./Haptics.js";
+import { hudCssVars, resolveHudLayout, type HudLayout } from "./hudLayout.js";
 
 const log = createLogger("Hud");
 
 const THEME_ID = "theme.default";
+
+/** Current viewport in CSS px — the input to the portrait/landscape switch. */
+function viewportSize(): { width: number; height: number } {
+  if (typeof window === "undefined") return { width: 0, height: 0 };
+  return {
+    width: window.visualViewport?.width ?? window.innerWidth,
+    height: window.visualViewport?.height ?? window.innerHeight,
+  };
+}
 
 /**
  * Orchestrates the HTML/CSS HUD overlay (§2.3 / §6 tasks 1.8-1.9). Mounted into
@@ -36,10 +47,13 @@ export class Hud {
   private readonly damageFx: DamageFeedback;
   private readonly matchStatus: MatchStatus;
   private readonly resultsOverlay: ResultsOverlay;
+  private readonly haptics: Haptics;
   private readonly fpsEl: HTMLDivElement;
   private readonly unsubscribeTheme: () => void;
+  private readonly onViewportChange: () => void;
 
   private lastFpsText = "";
+  private layout: HudLayout;
 
   constructor(
     private readonly root: HTMLElement,
@@ -53,11 +67,6 @@ export class Hud {
     this.root.innerHTML = "";
     this.root.classList.add("hud-root");
 
-    this.applyTheme();
-    this.unsubscribeTheme = this.bus.on("config:changed", (evt) => {
-      if (evt.type === "theme") this.applyTheme();
-    });
-
     this.fpsEl = document.createElement("div");
     this.fpsEl.className = "hud-fps";
     this.fpsEl.textContent = "FPS: --";
@@ -70,28 +79,60 @@ export class Hud {
     this.damageFx = new DamageFeedback(this.root, playerId);
     this.matchStatus = new MatchStatus(this.root, session);
     this.resultsOverlay = new ResultsOverlay(this.root, session, playerId, onPlayAgain);
+    this.haptics = new Haptics(configs, playerId);
+
+    this.layout = resolveHudLayout(this.configs.get<ThemeConfig>("theme", THEME_ID), viewportSize());
+    this.applyTheme();
+    this.unsubscribeTheme = this.bus.on("config:changed", (evt) => {
+      if (evt.type === "theme") {
+        this.applyTheme();
+        this.haptics.refresh();
+      }
+    });
+
+    // Rotating the device swaps the theme's portrait/landscape block; the
+    // visual viewport also changes when the mobile URL bar collapses.
+    this.onViewportChange = () => this.applyTheme();
+    window.addEventListener("resize", this.onViewportChange);
+    window.addEventListener("orientationchange", this.onViewportChange);
+    window.visualViewport?.addEventListener("resize", this.onViewportChange);
   }
 
+  /**
+   * Pushes the theme's colors and the resolved (orientation-aware, scaled)
+   * layout onto the HUD root as CSS custom properties, then hands the module
+   * cluster geometry to {@link ModuleButtons}. Re-run on theme hot-reload and
+   * on every viewport/orientation change.
+   */
   private applyTheme(): void {
     const theme = this.configs.get<ThemeConfig>("theme", THEME_ID);
-    if (!theme) {
-      log.warn(`theme config not found: ${THEME_ID}`);
-      return;
-    }
-    for (const [prop, value] of Object.entries(theme.colors)) {
+    if (!theme) log.warn(`theme config not found: ${THEME_ID}`);
+    for (const [prop, value] of Object.entries(theme?.colors ?? {})) {
       this.root.style.setProperty(prop, value);
     }
-    const hud = theme.hud ?? {};
-    this.root.style.setProperty("--hud-scale", String(hud.scale ?? 1));
-    this.root.style.setProperty("--hud-module-btn-radius", `${hud.moduleButtonRadiusPx ?? 34}px`);
-    this.root.style.setProperty("--hud-safe-inset", `${hud.safeAreaInsetPx ?? 12}px`);
-    this.root.style.setProperty("--hud-module-gap", `${hud.moduleButtonGapPx ?? 14}px`);
-    this.root.style.setProperty("--hud-minimap-size", `${hud.minimapSizePx ?? 128}px`);
-    this.root.style.setProperty("--hud-gauge-width", `${hud.gaugeWidthPx ?? 140}px`);
+    this.layout = resolveHudLayout(theme, viewportSize());
+    for (const [prop, value] of Object.entries(hudCssVars(this.layout))) {
+      this.root.style.setProperty(prop, value);
+    }
+    this.root.dataset["orientation"] = this.layout.orientation;
+    this.moduleButtons.applyLayout(this.layout);
+  }
+
+  /** The layout currently driving the HUD — exposed for the one-thumb audit / debug hook. */
+  get currentLayout(): HudLayout {
+    return this.layout;
   }
 
   /** Call once per render frame after events have been drained for the frame. */
   update(cur: Snapshot, prev: Snapshot, dtMs: number, fps: number): void {
+    // Belt-and-braces for the resize/orientationchange listeners: two number
+    // comparisons per frame, and only then any DOM write. Some mobile browsers
+    // resize the visual viewport (URL bar collapse, split-screen) without
+    // firing a usable event, and a stale layout would break the thumb zone.
+    const vp = viewportSize();
+    if (vp.width !== this.layout.viewport.width || vp.height !== this.layout.viewport.height) {
+      this.applyTheme();
+    }
     this.updateFps(fps);
     this.gauges.update(cur);
     this.moduleButtons.update(cur);
@@ -116,6 +157,7 @@ export class Hud {
   consumeEvents(events: readonly SimEvent[]): void {
     this.notifications.consumeEvents(events, this.configs);
     this.damageFx.consumeEvents(events);
+    this.haptics.consumeEvents(events);
   }
 
   private updateFps(fps: number): void {
@@ -128,6 +170,9 @@ export class Hud {
 
   dispose(): void {
     this.unsubscribeTheme();
+    window.removeEventListener("resize", this.onViewportChange);
+    window.removeEventListener("orientationchange", this.onViewportChange);
+    window.visualViewport?.removeEventListener("resize", this.onViewportChange);
     this.moduleButtons.dispose();
     this.gauges.dispose();
     this.minimap.dispose();

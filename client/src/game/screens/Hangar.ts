@@ -683,16 +683,24 @@ const HANGAR_CSS = `
   top: 0;
   right: 0;
   bottom: 0;
-  width: 380px;
-  max-width: 100vw;
+  width: min(380px, 100vw);
+  box-sizing: border-box;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   background: rgba(6, 10, 20, 0.94);
   border-left: 1px solid #2f6fb8;
-  padding: 14px;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 14px)
+    calc(env(safe-area-inset-right, 0px) + 14px)
+    calc(env(safe-area-inset-bottom, 0px) + 14px)
+    14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
+/* Phones: the panel becomes a bottom sheet so the staged ship stays visible
+   and every control sits in the thumb half of the screen. */
 @media (max-width: 700px) {
   .hangar-panel {
     top: auto;
@@ -703,21 +711,26 @@ const HANGAR_CSS = `
     border-left: none;
     border-top: 1px solid #2f6fb8;
     border-radius: 12px 12px 0 0;
+    padding-left: calc(env(safe-area-inset-left, 0px) + 14px);
   }
+}
+/* Landscape phones have very little height — give the sheet more of it. */
+@media (max-width: 900px) and (max-height: 480px) {
+  .hangar-panel { max-height: 78vh; }
 }
 .hangar-header { display: flex; align-items: center; justify-content: space-between; }
 .hangar-title { letter-spacing: .25em; font-weight: 300; color: #57d8ff; font-size: 16px; }
-.hangar-close { background: transparent; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.hangar-close { background: transparent; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; padding: 8px 12px; min-height: 36px; cursor: pointer; touch-action: manipulation; }
 .hangar-hint { font-size: 12px; color: #9fb4d0; background: rgba(87,216,255,.08); border: 1px solid #2f6fb8; border-radius: 6px; padding: 6px 8px; }
 .hangar-error { font-size: 12px; color: #ff8080; background: rgba(255,77,94,.1); border: 1px solid #ff4d5e; border-radius: 6px; padding: 6px 8px; }
 .hangar-section-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #9fb4d0; margin-bottom: 4px; }
-.hangar-ships { display: flex; gap: 6px; }
-.hangar-ship-btn { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
+.hangar-ships { display: flex; flex-wrap: wrap; gap: 6px; }
+.hangar-ship-btn { flex: 1 1 96px; min-height: 44px; touch-action: manipulation; display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
 .hangar-ship-btn.active { background: #1c3a5e; border-color: #57d8ff; }
 .hangar-ship-name { font-size: 12px; font-weight: 600; }
 .hangar-ship-class { font-size: 10px; color: #9fb4d0; text-transform: uppercase; }
 .hangar-stats { display: flex; flex-direction: column; gap: 3px; }
-.hangar-stat-row { display: flex; justify-content: space-between; font-size: 12px; }
+.hangar-stat-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
 .hangar-stat-label { color: #9fb4d0; }
 .hangar-bar-row { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
 .hangar-bar-label { font-size: 11px; color: #9fb4d0; }
@@ -725,8 +738,8 @@ const HANGAR_CSS = `
 .hangar-bar-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
 .hangar-bar-fill { height: 100%; background: #5fe08c; }
 .hangar-bar-fill.warn { background: #ff4d5e; }
-.hangar-slot-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-.hangar-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
+.hangar-slot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; }
+.hangar-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; min-height: 60px; touch-action: manipulation; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
 .hangar-slot.filled { border-color: #57d8ff; }
 .hangar-slot.open { background: #1c3a5e; }
 .hangar-slot:disabled { opacity: .5; cursor: default; }
@@ -734,19 +747,19 @@ const HANGAR_CSS = `
 .hangar-slot-label { font-size: 11px; font-weight: 600; }
 .hangar-slot-socket { font-size: 9px; color: #9fb4d0; text-align: center; }
 .hangar-picker { display: flex; flex-direction: column; gap: 6px; background: #0c1526; border: 1px solid #2f6fb8; border-radius: 6px; padding: 8px; }
-.hangar-picker-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; }
+.hangar-picker-item { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: 12px; }
 .hangar-picker-name { flex: 1; }
 .hangar-picker-meta { color: #9fb4d0; font-size: 11px; white-space: nowrap; }
 .hangar-upgrades { display: flex; flex-direction: column; gap: 6px; }
-.hangar-upgrade-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.hangar-upgrade-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
 .hangar-upgrade-label { width: 72px; }
-.hangar-pips { display: flex; gap: 3px; flex: 1; }
+.hangar-pips { display: flex; flex-wrap: wrap; gap: 3px; flex: 1 1 60px; }
 .pip { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.15); border: 1px solid #2f6fb8; }
 .pip.filled { background: #57d8ff; }
 .hangar-fit-controls { display: flex; flex-direction: column; gap: 6px; }
-.hangar-fit-btn-row { display: flex; gap: 6px; }
-.hangar-select, .hangar-input { padding: 6px 8px; font-size: 12px; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; }
-.hangar-btn { padding: 6px 10px; font-size: 12px; background: #12203a; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
+.hangar-fit-btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.hangar-select, .hangar-input { width: 100%; box-sizing: border-box; padding: 8px; min-height: 40px; font-size: 16px; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; }
+.hangar-btn { padding: 8px 12px; min-height: 36px; touch-action: manipulation; font-size: 12px; background: #12203a; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
 .hangar-btn:disabled { opacity: .5; cursor: default; }
 .hangar-btn-primary { background: #57d8ff; color: #04101f; font-weight: 600; border: none; }
 .hangar-btn-danger { background: transparent; color: #ff8080; border-color: #ff4d5e; }

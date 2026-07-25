@@ -5,6 +5,7 @@
   "name": "Default Tuning",
   "doubleTapWindowMs": 250,
   "tapSlopPx": 12,
+  "edgeRejectMarginPx": 16,
   "targetingPolicy": "nearest",
   "globalDamageMult": 1.0,
   "dragCoefficient": 0.02,

@@ -1,5 +1,6 @@
 import { createLogger, type ConfigService, type GamemodeConfig } from "@space-arena/shared";
 import type { AuthService, AuthState } from "../../core/AuthService.js";
+import { injectScreenStyle } from "./screenStyle.js";
 
 const log = createLogger("Lobby");
 
@@ -35,20 +36,19 @@ export class Lobby {
     private readonly onAccountRequested: (tab: "login" | "register") => void,
     private readonly onHangarRequested: () => void,
   ) {
+    injectScreenStyle();
     this.root = document.createElement("div");
-    this.root.className = "lobby-overlay game-screen";
-    this.root.style.cssText =
-      "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
-      "background:rgba(4,8,16,.88);z-index:20;color:#e8f1ff;font-family:system-ui";
+    this.root.className = "lobby-overlay game-screen sa-screen";
+    this.root.style.background = "rgba(4,8,16,.88)";
+    this.root.style.zIndex = "20";
 
     this.header = document.createElement("div");
-    this.header.style.cssText =
-      "position:absolute;top:16px;right:20px;display:flex;align-items:center;gap:14px;font-size:13px;color:#9fb4d0";
+    this.header.className = "sa-screen-header";
     this.root.append(this.header);
 
     const title = document.createElement("h1");
     title.textContent = "SPACE ARENA";
-    title.style.cssText = "letter-spacing:.3em;font-weight:300;color:#57d8ff;margin:0 0 18px";
+    title.className = "sa-screen-title";
     this.root.append(title);
 
     this.addButton("Practice (offline)", () => this.choose({ kind: "practice" }), false);
@@ -73,7 +73,7 @@ export class Lobby {
     );
 
     this.status = document.createElement("div");
-    this.status.style.cssText = "min-height:1.4em;color:#9fb4d0";
+    this.status.className = "sa-screen-status";
     this.root.append(this.status);
 
     parent.append(this.root);
@@ -85,9 +85,7 @@ export class Lobby {
   private addButton(label: string, onClick: () => void, online: boolean): void {
     const b = document.createElement("button");
     b.textContent = label;
-    b.style.cssText =
-      "min-width:280px;padding:12px 24px;font-size:16px;background:#12203a;color:#e8f1ff;" +
-      "border:1px solid #2f6fb8;border-radius:8px;cursor:pointer";
+    b.className = "sa-screen-btn";
     b.addEventListener("click", onClick);
     this.buttons.push({ el: b, online });
     this.root.append(b);
@@ -102,8 +100,7 @@ export class Lobby {
       if (state.profile.isGuest) this.header.append(this.link("Upgrade account", () => this.onAccountRequested("register")));
       const logout = document.createElement("button");
       logout.textContent = "Log out";
-      logout.style.cssText =
-        "padding:4px 10px;font-size:12px;background:transparent;color:#e8f1ff;border:1px solid #2f6fb8;border-radius:6px;cursor:pointer";
+      logout.className = "sa-screen-chip";
       logout.addEventListener("click", () => this.onLogout());
       this.header.append(logout);
     } else {
@@ -118,7 +115,7 @@ export class Lobby {
     const a = document.createElement("a");
     a.href = "#";
     a.textContent = label;
-    a.style.cssText = "color:#57d8ff;text-decoration:underline;cursor:pointer";
+    a.className = "sa-screen-link";
     a.addEventListener("click", (e) => {
       e.preventDefault();
       onClick();

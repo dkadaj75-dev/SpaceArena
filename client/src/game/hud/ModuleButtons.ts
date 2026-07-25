@@ -1,6 +1,8 @@
 import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleSnapshot, Snapshot, ModuleState } from "@space-arena/shared";
 import { createLogger } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
+import { HUD_CONTROL_ATTR } from "../inputGuards.js";
+import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
 
 const log = createLogger("HudModuleButtons");
 
@@ -27,11 +29,18 @@ interface ButtonEntry {
  * `modules` array is sparse-safe (see `shared/src/sim/spawn.ts`) — a fitting
  * like `{0: laser, 2: shield}` replicates two entries whose own
  * `hardpointIndex` fields are 0 and 2, not array positions 0 and 1.
+ *
+ * Geometry (5.4) is 100 % theme-driven: the container is a zero-size pivot
+ * pinned to the corner named by `theme.hud.moduleCluster.anchor` (inside the
+ * safe-area inset) and each button is placed at an offset computed by
+ * {@link clusterOffsets} — arc or wrap, portrait or landscape block, with the
+ * one-thumb clamp applied. Nothing about the cluster is hardcoded in CSS.
  */
 export class ModuleButtons {
   private readonly container: HTMLDivElement;
   private entries = new Map<number, ButtonEntry>();
   private builtForModuleCount = -1;
+  private layout: HudLayout;
 
   constructor(
     root: HTMLElement,
@@ -43,6 +52,30 @@ export class ModuleButtons {
     this.container = document.createElement("div");
     this.container.className = "hud-modules";
     root.appendChild(this.container);
+    // Standalone default until the Hud pushes the resolved layout in.
+    this.layout = resolveHudLayout(undefined, { width: 0, height: 0 });
+    this.applyLayout(this.layout);
+  }
+
+  /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
+  applyLayout(layout: HudLayout): void {
+    this.layout = layout;
+    this.container.dataset["anchor"] = layout.cluster.anchor;
+    this.container.dataset["layout"] = layout.cluster.layout;
+    this.position();
+  }
+
+  /** Writes each button's pivot-relative centre into its inline left/top. */
+  private position(): void {
+    const buttons = [...this.entries.values()];
+    const offsets = clusterOffsets(buttons.length, this.layout);
+    const r = this.layout.cluster.buttonRadiusPx;
+    for (let i = 0; i < buttons.length; i++) {
+      const offset = offsets[i];
+      if (!offset) continue;
+      buttons[i]!.root.style.left = `${offset.dx - r}px`;
+      buttons[i]!.root.style.top = `${offset.dy - r}px`;
+    }
   }
 
   update(cur: Snapshot): void {
@@ -104,6 +137,7 @@ export class ModuleButtons {
 
         const btn = document.createElement("div");
         btn.className = "hud-module-btn";
+        btn.setAttribute(HUD_CONTROL_ATTR, "module");
         btn.style.setProperty("--ring", "0");
 
         const icon = document.createElement("span");
@@ -138,6 +172,7 @@ export class ModuleButtons {
       }),
     );
     this.builtForModuleCount = modules.length;
+    this.position();
   }
 
   dispose(): void {

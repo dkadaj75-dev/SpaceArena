@@ -16,12 +16,43 @@
   },
   "hud": {
     "scale": 1.0,
-    "moduleButtonRadiusPx": 34,
+    "moduleButtonRadiusPx": 32,
     "safeAreaInsetPx": 12,
-    "moduleButtonGapPx": 14,
+    "moduleButtonGapPx": 10,
     "minimapSizePx": 128,
     "minimapRangeUnits": 100,
-    "gaugeWidthPx": 140,
-    "notificationMaxVisible": 3
+    "gaugeWidthPx": 132,
+    "notificationMaxVisible": 3,
+    "thumbZoneFraction": 0.4,
+    "moduleCluster": {
+      "anchor": "bottom-right",
+      "layout": "arc",
+      "buttonRadiusPx": 32,
+      "gapPx": 10,
+      "arcRadiusPx": 144,
+      "arcStartDeg": 180,
+      "arcSweepDeg": -90,
+      "maxPerRow": 2,
+      "offsetXPx": 24,
+      "offsetYPx": 34
+    },
+    "landscape": {
+      "scale": 0.85,
+      "safeAreaInsetPx": 10,
+      "minimapSizePx": 104,
+      "gaugeWidthPx": 120,
+      "moduleCluster": {
+        "buttonRadiusPx": 28,
+        "gapPx": 8,
+        "arcRadiusPx": 126,
+        "offsetXPx": 22,
+        "offsetYPx": 30
+      }
+    }
+  },
+  "haptics": {
+    "enabled": true,
+    "overheatPattern": [60, 50, 120],
+    "killPattern": [25, 40, 25]
   }
 }
