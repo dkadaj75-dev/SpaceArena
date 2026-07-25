@@ -1,2 +1,14 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Binary assets, stated explicitly rather than left to `text=auto`'s heuristic:
+# a CRLF-normalized PNG or GLB is silently corrupt, and the PWA icons are
+# generated files nobody would think to re-check (tools/generate-pwa-icons.ts).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.glb binary
+*.gltf binary
+*.bin binary

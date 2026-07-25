@@ -1,33 +1,19 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
-import { createLogger } from "@space-arena/shared";
 import { sessionsRepo } from "../db/repos.js";
-
-const log = createLogger("Auth");
+import { getEnv } from "../env.js";
 
 /** Access-token TTL (15 min) and refresh-token TTL (7 days), in seconds. */
 export const ACCESS_TTL_S = 15 * 60;
 export const REFRESH_TTL_S = 7 * 24 * 60 * 60;
 
-let cachedSecret: string | null = null;
-
 /**
- * JWT signing secret from env. Required in production: a missing/empty
- * JWT_SECRET when NODE_ENV==='production' is a hard startup failure. Outside
- * production a dev fallback is used with a one-time boot warning.
+ * JWT signing secret. Resolution, validation ("required in production, ≥ 32
+ * chars, not a known placeholder") and the dev fallback all live in env.ts —
+ * this is a thin accessor so no call site has to know the rules.
  */
 export function getJwtSecret(): string {
-  if (cachedSecret) return cachedSecret;
-  const fromEnv = process.env.JWT_SECRET;
-  if (fromEnv && fromEnv.trim() !== "") {
-    cachedSecret = fromEnv;
-  } else if (process.env.NODE_ENV === "production") {
-    throw new Error("JWT_SECRET must be set in production");
-  } else {
-    cachedSecret = "dev-insecure-secret-change-me";
-    log.warn("JWT_SECRET not set — using insecure dev fallback. Set JWT_SECRET in production.");
-  }
-  return cachedSecret;
+  return getEnv().jwtSecret;
 }
 
 export interface AccessClaims {

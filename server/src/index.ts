@@ -4,28 +4,34 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import { monitor } from "@colyseus/monitor";
 import { createLogger, PROTOCOL_VERSION, SIM_TICK_RATE } from "@space-arena/shared";
 import { loadContent, setConfigService } from "./configService.js";
-import { openDatabase, resolveDbPath, setDb } from "./db/index.js";
+import { openDatabase, setDb } from "./db/index.js";
+import { describeEnv, envWarnings, getEnv } from "./env.js";
 import { createHttpApp } from "./httpApp.js";
 import { ArenaRoom } from "./rooms/ArenaRoom.js";
 
 const log = createLogger("Server");
 
-const PORT = Number(process.env.PORT ?? 2567);
-/** Enable /monitor + verbose room logging only when explicitly in dev. */
-const DEV = process.env.NODE_ENV !== "production" || process.env.COLYSEUS_MONITOR === "1";
-
 async function main(): Promise<void> {
+  // Env first: a bad PORT/JWT_SECRET/CORS_ORIGIN must fail before we load
+  // content, touch the database, or bind a socket (ROADMAP §11 6.3).
+  const env = getEnv();
+  for (const warning of envWarnings()) log.warn(warning);
+  log.info("environment", describeEnv(env));
+
   // Fail fast on invalid content before opening the socket.
   const configs = await loadContent();
   setConfigService(configs);
   log.info("content loaded", { protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE });
 
   // Open + migrate the database (dir auto-created, gitignored).
-  const dbPath = resolveDbPath();
-  setDb(openDatabase(dbPath));
-  log.info("database ready", { dbPath });
+  setDb(openDatabase(env.dbPath));
+  log.info("database ready", { dbPath: env.dbPath });
 
-  const app = createHttpApp();
+  const app = createHttpApp({
+    corsOrigins: env.corsOrigins,
+    contentDir: env.contentDir,
+    clientDir: env.clientDir,
+  });
   const httpServer = createServer(app);
   const gameServer = new Server({
     transport: new WebSocketTransport({ server: httpServer }),
@@ -33,13 +39,16 @@ async function main(): Promise<void> {
 
   gameServer.define("arena", ArenaRoom).filterBy(["gamemode"]);
 
-  if (DEV) {
+  if (env.devTools) {
     app.use("/monitor", monitor());
     log.info("colyseus monitor enabled at /monitor");
   }
 
-  await gameServer.listen(PORT);
-  log.info(`listening on :${PORT}`, { dev: DEV });
+  await gameServer.listen(env.port);
+  log.info(`listening on :${env.port}`, {
+    dev: env.devTools,
+    serving: env.clientDir ? "client + api + content" : "api + content",
+  });
 
   const shutdown = (signal: string): void => {
     log.info(`received ${signal}, shutting down`);

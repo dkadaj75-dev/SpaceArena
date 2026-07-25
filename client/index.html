@@ -7,6 +7,18 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>Space Arena</title>
+    <meta name="description" content="One-thumb tactical space combat. Fit your ship, manage heat, win the arena." />
+
+    <!-- PWA (ROADMAP §11 6.5). The manifest + service worker are injected at
+         build time by vite-plugin-pwa; these tags are what the browser needs
+         before the manifest is parsed, plus the iOS-only equivalents. -->
+    <meta name="theme-color" content="#0a0f1a" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Space Arena" />
     <style>
       html,
       body {

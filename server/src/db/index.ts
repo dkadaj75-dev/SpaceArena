@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { createLogger } from "@space-arena/shared";
+import { getEnv } from "../env.js";
 
 const log = createLogger("DB");
 
@@ -11,11 +12,12 @@ export type Db = Database.Database;
 /** Directory holding the ordered `NNN-*.sql` migration files. */
 const MIGRATIONS_DIR = fileURLToPath(new URL("./migrations/", import.meta.url));
 
-/** Resolve the DB file path from env (default ./data/space-arena.db). */
+/**
+ * Resolve the DB file path from env (`SPACE_ARENA_DB`, default
+ * `<cwd>/data/space-arena.db`). Parsing/validation lives in env.ts.
+ */
 export function resolveDbPath(): string {
-  const raw = process.env.SPACE_ARENA_DB;
-  if (raw && raw.trim() !== "") return raw;
-  return path.resolve(process.cwd(), "data", "space-arena.db");
+  return getEnv().dbPath;
 }
 
 /**

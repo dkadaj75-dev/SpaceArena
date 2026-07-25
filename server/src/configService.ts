@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { ConfigService } from "@space-arena/shared";
+import { getEnv } from "./env.js";
 
 /**
  * Process-wide {@link ConfigService} singleton. Set once at boot (index.ts, fs
@@ -19,12 +19,19 @@ export function getConfigService(): ConfigService {
   return instance;
 }
 
-/** Directory holding the content pack (repo-root `content/`). */
-export const CONTENT_DIR = fileURLToPath(new URL("../../content/", import.meta.url));
+/**
+ * Directory holding the content pack. `CONTENT_DIR` env, defaulting to the
+ * repo-root `content/` — the same path the Express `/content/*` handler serves
+ * and the same one the Vite dev middleware mirrors, so the server-side
+ * simulation and the browser always read identical bytes.
+ */
+export function contentDir(): string {
+  return getEnv().contentDir;
+}
 
-/** fs loader for ConfigService.load(), reading JSON relative to {@link CONTENT_DIR}. */
+/** fs loader for ConfigService.load(), reading JSON relative to {@link contentDir}. */
 export async function fsLoader(relPath: string): Promise<unknown> {
-  const abs = path.join(CONTENT_DIR, relPath);
+  const abs = path.join(contentDir(), relPath);
   const text = await readFile(abs, "utf8");
   try {
     return JSON.parse(text);

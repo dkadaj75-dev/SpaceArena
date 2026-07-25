@@ -7,28 +7,49 @@ import { createShipsRouter } from "./api/ships.js";
 import { createModulesRouter } from "./api/modules.js";
 import { createConfigsRouter } from "./api/configs.js";
 import { createRateLimiter } from "./api/rateLimit.js";
+import { getEnv } from "./env.js";
+import { mountClient, mountContent } from "./staticSite.js";
 
 /** Max JSON body size accepted by the API (3.2/3.7 payload cap). */
 export const JSON_BODY_LIMIT = "64kb";
+
+export interface HttpAppOptions {
+  /**
+   * Explicit CORS allowlist. `null` selects the permissive dev rule (any origin
+   * on port 5173); omit entirely to take whatever `CORS_ORIGIN` resolved to.
+   */
+  corsOrigins?: readonly string[] | null;
+  /** Absolute path to the content pack to serve at `/content/*`. Omit to serve none. */
+  contentDir?: string | null;
+  /** Absolute path to a built client (`client/dist`) to serve. Omit to serve none. */
+  clientDir?: string | null;
+}
 
 /**
  * Build the Express app with health, auth, and the authenticated REST API.
  * Kept separate from index.ts so tests can mount it with supertest without the
  * Colyseus/WebSocket transport.
+ *
+ * Static serving is opt-in via {@link HttpAppOptions}: index.ts passes the
+ * resolved env paths in production, unit tests pass nothing and get the bare API
+ * (so a 404 stays a 404 rather than becoming the SPA shell).
  */
-export function createHttpApp(): Express {
+export function createHttpApp(options: HttpAppOptions = {}): Express {
   const app = express();
 
-  // CORS: allow the Vite dev origin(s). Configurable via CORS_ORIGIN (comma list).
-  // Without CORS_ORIGIN (dev), any origin on the Vite port is allowed so
-  // phones on the LAN (`npm run dev -- --host`, e.g. http://10.x.x.x:5173)
-  // can reach the API — production deployments always set CORS_ORIGIN.
-  const originEnv = process.env.CORS_ORIGIN;
-  const corsOrigin: cors.CorsOptions["origin"] = originEnv
-    ? originEnv.split(",").map((s) => s.trim())
-    : (origin, cb) => {
-        cb(null, !origin || /^https?:\/\/[^/]+:5173$/.test(origin));
-      };
+  // CORS. The allowlist comes from CORS_ORIGIN (comma list), validated in env.ts:
+  //   - a list  → exactly those origins (production)
+  //   - []      → same-origin only; every cross-origin browser call is refused
+  //   - null    → dev rule: any origin on the Vite port, so phones on the LAN
+  //               (`npm run dev -- --host`, e.g. http://10.x.x.x:5173) can reach
+  //               the API without configuration.
+  const allowlist = options.corsOrigins !== undefined ? options.corsOrigins : getEnv().corsOrigins;
+  const corsOrigin: cors.CorsOptions["origin"] =
+    allowlist === null
+      ? (origin, cb) => {
+          cb(null, !origin || /^https?:\/\/[^/]+:5173$/.test(origin));
+        }
+      : [...allowlist];
   app.use(cors({ origin: corsOrigin, credentials: true }));
 
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
@@ -46,6 +67,12 @@ export function createHttpApp(): Express {
   app.use("/api/ships", apiLimiter, createShipsRouter());
   app.use("/api/modules", apiLimiter, createModulesRouter());
   app.use("/api/configs", apiLimiter, createConfigsRouter());
+
+  // Static serving last: the content pack and the client build are the only
+  // things allowed to answer a URL the API did not claim, and the SPA fallback
+  // inside mountClient() is the true catch-all.
+  if (options.contentDir) mountContent(app, options.contentDir);
+  if (options.clientDir) mountClient(app, options.clientDir);
 
   return app;
 }

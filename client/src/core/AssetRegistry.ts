@@ -10,10 +10,23 @@ import {
   type AbstractMesh,
   type Scene,
 } from "@babylonjs/core";
-import "@babylonjs/loaders/glTF";
 import { createLogger, type Palette, type RenderRecipe } from "@space-arena/shared";
 
 const log = createLogger("AssetRegistry");
+
+/**
+ * The glTF importer registers itself with `SceneLoader` as a side effect of
+ * being evaluated, so it only has to exist by the time a model is actually
+ * loaded. Importing it dynamically (ROADMAP §11 6.3) keeps ~1 MB of loader code
+ * out of the initial payload — it lands in the `babylon-loaders` chunk and is
+ * fetched on the first {@link AssetRegistry.ensureModel} call. Memoized: the
+ * promise is created once and every later load awaits the same one.
+ */
+let glTFLoaderReady: Promise<unknown> | null = null;
+function ensureGlTFLoader(): Promise<unknown> {
+  glTFLoaderReady ??= import("@babylonjs/loaders/glTF");
+  return glTFLoaderReady;
+}
 
 /** Builds a disabled master mesh for a given palette. Never called per-instance. */
 type RecipeBuilder = (scene: Scene, palette: Palette) => Mesh;
@@ -454,7 +467,8 @@ export class AssetRegistry {
 
     const dir = path.slice(0, path.lastIndexOf("/") + 1);
     const file = path.slice(path.lastIndexOf("/") + 1);
-    const load = SceneLoader.ImportMeshAsync("", `/content/${dir}`, file, this.scene)
+    const load = ensureGlTFLoader()
+      .then(() => SceneLoader.ImportMeshAsync("", `/content/${dir}`, file, this.scene))
       .then((result) => {
         try {
           return this.finalizeModel(result.meshes, render, path, masters, loads, key);

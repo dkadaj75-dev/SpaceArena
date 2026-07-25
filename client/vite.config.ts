@@ -2,6 +2,7 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
 import { CONFIG_SCHEMAS, type ConfigType } from "../shared/src/schemas/index.js";
 
 // Repo-root content/ directory (client/ is one level down).
@@ -147,18 +148,134 @@ function isConfigObject(value: unknown): value is { type: ConfigType } {
   return typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string" && (value as { type: string }).type in CONFIG_SCHEMAS;
 }
 
-export default defineConfig({
+/**
+ * Chunk layout (ROADMAP §11 6.3).
+ *
+ * Split along *rate-of-change* boundaries so a deploy invalidates as little of
+ * the browser cache as possible — every chunk here is content-hashed and served
+ * `immutable` by the production server (server/src/staticSite.ts):
+ *
+ *   babylon-core    — @babylonjs/core. Enormous, and changes only on an engine
+ *                     upgrade. One chunk, never subdivided: Babylon's internal
+ *                     module graph has cycles, and splitting it invites
+ *                     temporal-dead-zone crashes at load.
+ *   babylon-loaders — @babylonjs/loaders (the glTF importer). Depends on core,
+ *                     nothing depends on it, and it is `import()`ed lazily by
+ *                     AssetRegistry — so it stays OUT of the initial payload.
+ *   vendor          — colyseus.js, @colyseus/schema, zod. Small, stable.
+ *   index (entry)   — game code + @space-arena/shared.
+ *
+ * The dev editor is deliberately NOT listed here. Rollup already splits it on
+ * the `import("./editor/EditorShell.js")` in main.ts, emitting a lazy
+ * `EditorShell-*.js`; naming it in manualChunks instead makes Vite treat it as a
+ * chunk of the entry and emit a `<link rel=modulepreload>` for it — the exact
+ * opposite of what we want. (In a production build the whole
+ * `import.meta.env.DEV` branch is tree-shaken and no editor chunk exists at all;
+ * tools/bundle-budget.ts asserts that, and fails on editor code in any initial
+ * chunk.)
+ *
+ * The graph is a DAG (entry → vendor/babylon-*, babylon-loaders → babylon-core),
+ * so there is no cross-chunk initialization cycle.
+ */
+function manualChunks(id: string): string | undefined {
+  // Workspace source — including the symlinked @space-arena/shared package —
+  // resolves to a real path outside node_modules, and stays in the entry chunk.
+  const file = id.split("\\").join("/");
+  if (!file.includes("/node_modules/")) return undefined;
+
+  if (file.includes("/@babylonjs/loaders/")) return "babylon-loaders";
+  if (file.includes("/@babylonjs/")) return "babylon-core";
+  return "vendor";
+}
+
+export default defineConfig(({ command }) => ({
   build: {
     rollupOptions: {
-      output: {
-        // Keep Babylon in its own always-loaded vendor chunk so the lazy editor
-        // chunk stays small and is NOT pulled in at boot via shared imports.
-        manualChunks: (id) => (id.includes("@babylonjs") ? "babylon" : undefined),
-      },
+      output: { manualChunks },
     },
   },
   server: {
     host: true, // expose on LAN for phone testing (--host)
   },
-  plugins: [contentPipelinePlugin()],
-});
+  plugins: [
+    contentPipelinePlugin(),
+    VitePWA({
+      // Off in dev: a service worker caching a Vite dev server is a debugging
+      // nightmare, and the content hot-reload pipeline above would fight it.
+      disable: command !== "build",
+      // Ship a new SW as soon as one is built and take over silently. The game
+      // is a single long-lived page; prompting mid-match would be worse.
+      registerType: "autoUpdate",
+      injectRegister: "auto",
+      // No `includeAssets`: the workbox globPatterns below already sweep up
+      // everything Vite copies out of public/ (icons, favicon, offline.html).
+      // (The plugin still re-lists the manifest icons itself, so the generated
+      // precache manifest holds a few duplicate url+revision pairs — workbox
+      // collapses identical entries, and only *conflicting* ones would throw.)
+      manifest: {
+        name: "Space Arena",
+        short_name: "Space Arena",
+        description: "One-thumb tactical space combat. Fit your ship, manage heat, win the arena.",
+        id: "/",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        orientation: "any",
+        // Matches index.html's <meta name="theme-color"> and the icon artwork.
+        theme_color: "#0a0f1a",
+        background_color: "#05070d",
+        categories: ["games", "entertainment"],
+        icons: [
+          { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+        ],
+      },
+      workbox: {
+        // Precache the app shell: the HTML plus every chunk index.html loads
+        // eagerly. Babylon is ~6 MB raw, well past workbox's 2 MB default.
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
+        maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
+        // Nothing under these prefixes is a navigation: /api and the Colyseus
+        // matchmaking POST must always hit the network, and /content is handled
+        // by the network-first rule below.
+        navigateFallbackDenylist: [/^\/api\//, /^\/content\//, /^\/health/, /^\/monitor/, /^\/matchmake/],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        runtimeCaching: [
+          {
+            // ROADMAP S6: a content pack must go live WITHOUT a redeploy, so the
+            // network is always tried first and the cache is only a fallback for
+            // an offline (or very slow) player.
+            urlPattern: /\/content\/.*\.json(\?.*)?$/,
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "space-arena-content-json",
+              networkTimeoutSeconds: 5,
+              cacheableResponse: { statuses: [200] },
+              expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 },
+            },
+          },
+          {
+            // Binary pack assets (GLB hulls) are large and effectively immutable
+            // within a pack version: serve from cache, refresh in the background.
+            urlPattern: /\/content\/.*\.(glb|gltf|bin|png|jpe?g|webp|ktx2)(\?.*)?$/,
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "space-arena-content-assets",
+              cacheableResponse: { statuses: [200] },
+              expiration: { maxEntries: 60, maxAgeSeconds: 30 * 24 * 60 * 60 },
+            },
+          },
+        ],
+        // The app shell is what an offline navigation gets: the game boots and
+        // offline practice works off the cached content pack. `offline.html` is
+        // the deeper fallback, reached from main.ts when the pack itself is
+        // unavailable (see bootstrap()'s offline guard).
+        navigateFallback: "index.html",
+      },
+      devOptions: { enabled: false },
+    }),
+  ],
+}));

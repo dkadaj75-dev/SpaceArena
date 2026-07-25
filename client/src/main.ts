@@ -39,11 +39,31 @@ import { ScreenShake } from "./game/juice/ScreenShake.js";
 
 const log = createLogger("Client");
 
-/** Dev content is served by the Vite plugin at /content/* (see vite.config.ts). */
+/**
+ * Content lives at `/content/*` in both worlds: the Vite plugin serves it in dev
+ * (client/vite.config.ts), Express serves it in production
+ * (server/src/staticSite.ts), and the service worker puts a network-first cache
+ * in front of it so a new pack goes live without a redeploy (ROADMAP §11 6.5).
+ */
 async function fetchLoader(relPath: string): Promise<unknown> {
   const res = await fetch(`/content/${relPath}`);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${relPath}`);
   return res.json();
+}
+
+/**
+ * The one case the precached app shell cannot rescue: installed to the home
+ * screen, opened with no network, and the content pack was never cached. The
+ * shell boots, `ConfigService.load()` comes back empty, and every screen below
+ * would render blank — so hand over to the precached offline page instead
+ * (ROADMAP §11 6.5). Online failures fall through to the normal error path,
+ * because a redirect would hide a real bug.
+ */
+function redirectToOfflinePageIfNeeded(): boolean {
+  if (navigator.onLine || import.meta.env.DEV || location.pathname === "/offline.html") return false;
+  log.warn("offline with no cached content pack — showing the offline page");
+  location.replace("/offline.html");
+  return true;
 }
 
 /**
@@ -90,6 +110,7 @@ async function bootstrap(): Promise<void> {
     for (const e of loadResult.errors) {
       log.error(`  ${e.file} → ${e.path}: ${e.message}`);
     }
+    if (redirectToOfflinePageIfNeeded()) return;
   }
   wireContentHotReload(configService);
 

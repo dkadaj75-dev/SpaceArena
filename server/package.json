@@ -19,7 +19,8 @@
     "better-sqlite3": "^13.0.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "tsx": "^4.19.0"
   },
   "devDependencies": {
     "@colyseus/testing": "^0.16.3",
@@ -30,7 +31,6 @@
     "@types/node": "^22.5.0",
     "@types/supertest": "^7.2.1",
     "supertest": "^7.2.2",
-    "tsx": "^4.19.0",
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
   }

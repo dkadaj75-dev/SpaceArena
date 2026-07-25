@@ -9,15 +9,30 @@
  * or as a `<link rel=modulepreload>`. Anything Rollup emitted that index.html
  * does NOT name is reached through a dynamic `import()` and is therefore lazy —
  * which is exactly what the dev editor chunk is (`main.ts` imports
- * `./editor/EditorShell.js` behind the F10 key). Editor-named chunks are also
- * filtered explicitly, so the gate stays correct even if 6.3's `manualChunks`
- * pass changes how the editor is split out.
+ * `./editor/EditorShell.js` behind the F10 key).
+ *
+ * The editor is checked twice, because "excluded from the budget" must never
+ * become a way to smuggle it into the shell (§11 6.3):
+ *
+ *   1. By NAME. Rollup names the lazy chunk after the dynamically imported
+ *      module (`EditorShell-*.js`). Such a chunk that index.html *references* is
+ *      eagerly loaded, so the gate FAILS rather than quietly excusing it; one
+ *      nothing references is lazy, and excluded from the budget as before.
+ *   2. By CONTENT. Every initial chunk is scanned for `/__editor/` — a string
+ *      literal that exists nowhere but client/src/editor/** and survives
+ *      minification. That catches the subtler regression where editor modules
+ *      get merged into an initial chunk and the name signal disappears entirely.
+ *
+ * In a correct production build neither fires: main.ts guards the editor behind
+ * `import.meta.env.DEV`, so Rollup tree-shakes the branch and no editor chunk is
+ * emitted at all.
  *
  * The budget is measured on GZIP size — that is what is actually shipped over
  * the wire — using the same level (9) a CDN would use. Raw sizes are printed too
  * because they are what the browser has to parse.
  *
- * Exits 1 (with a readable table) when the initial payload is over budget.
+ * Exits 1 (with a readable table) when the initial payload is over budget or
+ * when editor code reached it.
  */
 import { gzipSync } from "node:zlib";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -29,21 +44,31 @@ const ASSETS = path.join(DIST, "assets");
 
 /**
  * Initial-JS gzip budget. ROADMAP §11 6.2 says "< 5 MB initial, editor chunk
- * excluded". Measured 2026-07 on the pre-6.3 build: 1.44 MB gzip (6.47 MB raw)
- * across two chunks, so today's build passes with ~3.5 MB of headroom.
+ * excluded". Measured 2026-07 after the §11 6.3 chunk split: 1.43 MB gzip
+ * (6.39 MB raw) across three chunks, so today's build passes with ~3.5 MB of
+ * headroom.
  */
 const BUDGET_GZIP_BYTES = 5 * 1024 * 1024;
 
 /**
  * Advisory ceiling on the raw (pre-gzip) initial payload. NOT a gate: the
- * roadmap budget is the gzip one, and the babylon vendor chunk alone is ~6.3 MB
- * raw until §11 6.3 splits it. Printed as a warning so the number stays visible
- * while 6.3 is outstanding.
+ * roadmap budget is the gzip one, and `babylon-core` alone is ~6.1 MB raw —
+ * Babylon's module graph has cycles, so subdividing it risks
+ * temporal-dead-zone crashes for a caching win we do not need. Printed as a
+ * warning so the number stays visible.
  */
 const ADVISORY_RAW_BYTES = 7 * 1024 * 1024;
 
 /** A chunk whose name marks it as the lazily-imported dev editor bundle. */
 const EDITOR_CHUNK = /editor/i;
+
+/**
+ * A string literal present in every editor module (`fetch("/__editor/save")`,
+ * `"/__editor/list-models"`) and nowhere else in client/src. Minification keeps
+ * string literals intact, so finding it inside an initial chunk proves editor
+ * code shipped in the shell.
+ */
+const EDITOR_CODE_MARKER = "/__editor/";
 
 interface Chunk {
   file: string;
@@ -101,18 +126,25 @@ function main(): void {
   }
   if (files.length === 0) fail(`no JS chunks in ${ASSETS} — did the build succeed?`);
 
+  /** Chunk basenames that carry editor code, whatever they are named. */
+  const editorCodeChunks = new Set<string>();
+
   const chunks: Chunk[] = files
     .map((file) => {
       const abs = path.join(ASSETS, file);
       const bytes = readFileSync(abs);
-      const isEditor = EDITOR_CHUNK.test(file);
       const isReferenced = referenced.has(file);
+      const isEditorNamed = EDITOR_CHUNK.test(file);
+      if (isEditorNamed || bytes.includes(EDITOR_CODE_MARKER)) editorCodeChunks.add(file);
+      // An editor-named chunk index.html references is NOT excused — it is
+      // eagerly loaded, which is precisely the regression this gate exists to
+      // catch. It stays in the "initial" set so the failure below is specific.
       return {
         file,
         raw: statSync(abs).size,
         gzip: gzipSync(bytes, { level: 9 }).length,
-        initial: isReferenced && !isEditor,
-        reason: isEditor ? "lazy (editor)" : isReferenced ? "initial" : "lazy (dynamic import)",
+        initial: isReferenced,
+        reason: isReferenced ? (isEditorNamed ? "INITIAL (editor!)" : "initial") : isEditorNamed ? "lazy (editor)" : "lazy (dynamic import)",
       };
     })
     .sort((a, b) => b.gzip - a.gzip);
@@ -138,12 +170,27 @@ function main(): void {
       `${padStart(humanBytes(totalRaw), 10)}  ${padStart(humanBytes(totalGzip), 10)}\n`,
   );
 
+  // Hard gate: no editor code in the initial payload, by chunk name or by
+  // content marker. See the module header for why both checks exist.
+  const leaked = initial.filter((c) => editorCodeChunks.has(c.file));
+  if (leaked.length > 0) {
+    fail(
+      `the dev editor is in the INITIAL payload — index.html eagerly loads ${leaked.map((c) => c.file).join(", ")}. ` +
+        `The editor must stay behind the lazy \`import("./editor/EditorShell.js")\` in main.ts ` +
+        `(and behind \`import.meta.env.DEV\`). Check manualChunks in client/vite.config.ts.`,
+    );
+  }
+  const lazyEditor = chunks.filter((c) => editorCodeChunks.has(c.file));
+  console.log(
+    lazyEditor.length > 0
+      ? `  editor code: ${lazyEditor.map((c) => c.file).join(", ")} — lazy, excluded from the budget.`
+      : "  editor code: absent from the build (DEV-gated in main.ts and tree-shaken).",
+  );
+
   if (totalRaw > ADVISORY_RAW_BYTES) {
-    // TODO(6.3): Vite manual chunks (babylon / game / lazy editor) should bring
-    // the raw initial payload down; until then this is informational only.
     console.warn(
-      `  ⚠ raw initial payload ${humanBytes(totalRaw)} exceeds the advisory ${humanBytes(ADVISORY_RAW_BYTES)} ` +
-        `— see ROADMAP §11 6.3 (manual chunks). Not a gate.`,
+      `  ⚠ raw initial payload ${humanBytes(totalRaw)} exceeds the advisory ${humanBytes(ADVISORY_RAW_BYTES)}. ` +
+        `babylon-core is the whole of it; Babylon's module graph has cycles, so it stays one chunk. Not a gate.`,
     );
   }
 

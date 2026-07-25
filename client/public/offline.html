@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0f1a" />
+    <title>Space Arena — Offline</title>
+    <!--
+      Offline fallback (ROADMAP §11 6.5). Precached by the service worker and
+      shown when the app shell boots but the content pack has never reached the
+      cache (installed from the home screen, then opened with no network).
+
+      Entirely self-contained: no external CSS, fonts, scripts or images, because
+      by definition nothing can be fetched when this page is doing its job.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #05070d;
+        --panel: #0a0f1a;
+        --primary: #57d8ff;
+        --text: #e6f0ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: radial-gradient(ellipse at 50% 0%, #101a2e 0%, var(--bg) 70%);
+        color: var(--text);
+        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        width: min(420px, 100%);
+        padding: 32px 28px;
+        text-align: center;
+        border: 1px solid rgba(87, 216, 255, 0.22);
+        border-radius: 16px;
+        background: rgba(10, 15, 26, 0.72);
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      }
+      svg {
+        width: 84px;
+        height: 84px;
+        margin-bottom: 12px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.4rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      p {
+        margin: 0 0 24px;
+        color: rgba(230, 240, 255, 0.7);
+        font-size: 0.95rem;
+      }
+      button {
+        min-height: 48px;
+        width: 100%;
+        padding: 0 20px;
+        border: 1px solid var(--primary);
+        border-radius: 10px;
+        background: rgba(87, 216, 255, 0.12);
+        color: var(--primary);
+        font: inherit;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      button:hover,
+      button:focus-visible {
+        background: rgba(87, 216, 255, 0.22);
+      }
+      #status {
+        margin: 16px 0 0;
+        min-height: 1.4em;
+        font-size: 0.85rem;
+        color: rgba(230, 240, 255, 0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg viewBox="0 0 512 512" aria-hidden="true">
+        <circle cx="256" cy="256" r="202" fill="none" stroke="#57d8ff" stroke-opacity="0.28" stroke-width="14" />
+        <path
+          d="M150 150 L362 362 M362 150 L150 362"
+          stroke="#57d8ff"
+          stroke-opacity="0.75"
+          stroke-width="26"
+          stroke-linecap="round"
+        />
+      </svg>
+      <h1>No signal</h1>
+      <p>
+        Space Arena can't reach the arena right now. The game will pick up where it left off as soon as
+        you're back online.
+      </p>
+      <button id="retry" type="button">Retry</button>
+      <p id="status" role="status"></p>
+    </main>
+    <script>
+      // Inline, tiny, and dependency-free — this page must work with zero network.
+      (function () {
+        var status = document.getElementById("status");
+        var retry = document.getElementById("retry");
+
+        function go() {
+          location.replace("/");
+        }
+        retry.addEventListener("click", go);
+        // The moment connectivity returns, get out of the way.
+        window.addEventListener("online", go);
+
+        function render() {
+          status.textContent = navigator.onLine
+            ? "Connection detected — tap Retry."
+            : "Waiting for a connection…";
+        }
+        window.addEventListener("offline", render);
+        window.addEventListener("online", render);
+        render();
+      })();
+    </script>
+  </body>
+</html>

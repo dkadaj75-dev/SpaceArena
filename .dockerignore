@@ -1,0 +1,50 @@
+# Keep the build context small and, more importantly, HERMETIC: everything the
+# image needs is installed or built inside it, so host artefacts must never leak
+# in. A stray host `node_modules` would ship Windows/macOS native binaries into a
+# linux image; a stray `client/dist` would ship a stale client past the builder.
+
+# Installed inside the image (`npm ci`) — never copied from the host.
+node_modules/
+**/node_modules/
+
+# Built inside the image (`npm run build`) — the builder stage's output wins.
+dist/
+**/dist/
+client/dist-*/
+
+# Local runtime state. The container's database lives on the /data volume.
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+.env
+.env.*
+
+# Test + tooling output.
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+coverage/
+
+# Repo metadata and editor/IDE noise: irrelevant to the build, and .git alone
+# can dwarf the rest of the context.
+.git/
+.github/
+.agents/
+.claude/
+*.log
+.DS_Store
+Thumbs.db
+
+# Docs. ROADMAP.md is 57 kB of prose the image has no use for.
+ROADMAP.md
+README.md
+Dockerfile
+.dockerignore
+
+# e2e suite runs in CI against the dev servers, not inside the image.
+e2e/
+playwright.config.ts
