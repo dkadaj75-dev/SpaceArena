@@ -242,7 +242,7 @@ const FALLBACK_TIER: QualityConfig = {
   render: { hardwareScalingMultiplier: 1.15, maxDevicePixelRatio: 2, freezeStatics: true },
   glow: { enabled: true, intensity: 0.35 },
   particles: { enabled: true, budgetMultiplier: 0.6, maxEmitterCapacity: 60 },
-  asteroids: { lodMediumDistance: 60, lodLowDistance: 100, lodCullDistance: 0, thinInstances: false },
+  asteroids: { lodMediumDistance: 85, lodLowDistance: 170, lodCullDistance: 450, thinInstances: false },
   projectiles: { useInstances: true },
   scene: { starfieldPoints: 250, groundGrid: true, spawnMarkers: true },
 };

@@ -19,6 +19,8 @@ import { ResultsOverlay, type MatchRewards, type ResultsCallbacks } from "./Resu
 import { injectHudStyle } from "./hudStyle.js";
 import { Haptics } from "./Haptics.js";
 import { hudCssVars, resolveHudLayout, type HudLayout } from "./hudLayout.js";
+import { FlightControls, type FlightHudBinding } from "./FlightControls.js";
+import { flightCssVars, resolveFlightHudLayout, type FlightHudLayout } from "./flightHudLayout.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 
 const log = createLogger("Hud");
@@ -43,6 +45,16 @@ function viewportHeight(): number {
 }
 
 /**
+ * Monotonic clock for the flight order debounce. `performance.now()` where it
+ * exists (every browser this ships to), `Date.now()` as the last resort — this
+ * is presentation timing, never sim timing, so it is outside the determinism
+ * rules that ban a clock read inside `shared/src/sim`.
+ */
+function nowMs(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+/**
  * Everything the HUD hands back to `main.ts`: the three results-screen exits
  * (5.8) plus the in-match settings affordance. `onSettings` is optional —
  * omitting it hides the gear button entirely.
@@ -54,6 +66,14 @@ export interface HudCallbacks extends ResultsCallbacks {
 export interface HudOptions {
   /** Offline practice: the results screen shows no reward animation (5.8). */
   offline?: boolean;
+  /**
+   * Flight controls (FLIGHT.md §4). Present ⇒ the HUD mounts the joystick,
+   * throttle lever, boost button and lock reticle and starts emitting `flight`
+   * orders. Absent ⇒ no flight HUD at all, which is what tests and any non-match
+   * mounting want — the 3D bindings (projection, camera geometry) are the only
+   * thing the HUD cannot supply for itself.
+   */
+  flight?: FlightHudBinding;
 }
 
 /**
@@ -71,12 +91,16 @@ export class Hud {
   private readonly matchStatus: MatchStatus;
   private readonly resultsOverlay: ResultsOverlay;
   private readonly haptics: Haptics;
+  /** Flight controls (FLIGHT.md §4), or null when the caller passed no 3D binding. */
+  private readonly flight: FlightControls | null;
   private readonly fpsEl: HTMLDivElement;
   private readonly unsubscribeTheme: () => void;
+  private readonly unsubscribeShipConfig: () => void;
   private readonly onViewportChange: () => void;
 
   private lastFps = Number.POSITIVE_INFINITY;
   private layout: HudLayout;
+  private flightLayout: FlightHudLayout;
 
   constructor(
     private readonly root: HTMLElement,
@@ -121,13 +145,24 @@ export class Hud {
     });
     this.haptics = new Haptics(configs, playerId);
 
-    this.layout = resolveHudLayout(this.configs.get<ThemeConfig>("theme", THEME_ID), viewportSize());
+    const theme = this.configs.get<ThemeConfig>("theme", THEME_ID);
+    this.layout = resolveHudLayout(theme, viewportSize());
+    this.flightLayout = resolveFlightHudLayout(theme, viewportSize());
+    this.flight = options.flight
+      ? new FlightControls(this.root, configs, session, playerId, options.flight, this.flightLayout)
+      : null;
     this.applyTheme();
     this.unsubscribeTheme = this.bus.on("config:changed", (evt) => {
       if (evt.type === "theme") {
         this.applyTheme();
         this.haptics.refresh();
       }
+    });
+    // The reticle sizes itself from the player's RESOLVED sensor cone, so a
+    // ship/module/upgrade edit has to invalidate that cache the same way a theme
+    // edit re-lays out the widgets.
+    this.unsubscribeShipConfig = this.bus.on("config:changed", (evt) => {
+      if (evt.type === "ship" || evt.type === "module" || evt.type === "upgrade") this.flight?.refresh();
     });
 
     // Rotating the device swaps the theme's portrait/landscape block; the
@@ -156,6 +191,24 @@ export class Hud {
     }
     this.root.dataset["orientation"] = this.layout.orientation;
     this.moduleButtons.applyLayout(this.layout);
+
+    // Flight geometry resolves from the same theme + viewport, through its own
+    // portrait/landscape block (FLIGHT.md §4). Its CSS vars land on the same
+    // root, including `--hud-gauge-lift` which keeps the gauges off the stick —
+    // which is exactly why they are only published when the controls exist. A
+    // HUD mounted without them must not shove the gauges up over empty space.
+    this.flightLayout = resolveFlightHudLayout(theme, viewportSize());
+    if (this.flight) {
+      for (const [prop, value] of Object.entries(flightCssVars(this.flightLayout))) {
+        this.root.style.setProperty(prop, value);
+      }
+      this.flight.applyLayout(this.flightLayout);
+    }
+  }
+
+  /** The flight layout currently driving the controls — debug hook / tests. */
+  get currentFlightLayout(): FlightHudLayout {
+    return this.flightLayout;
   }
 
   /** The layout currently driving the HUD — exposed for the one-thumb audit / debug hook. */
@@ -163,8 +216,13 @@ export class Hud {
     return this.layout;
   }
 
-  /** Call once per render frame after events have been drained for the frame. */
-  update(cur: Snapshot, prev: Snapshot, dtMs: number, fps: number): void {
+  /**
+   * Call once per render frame after events have been drained for the frame.
+   * `alpha` is the render loop's interpolation factor between `prev` and `cur`;
+   * the flight reticle uses it so the target bracket tracks the same
+   * interpolated ship the 3D view draws instead of stepping at the sim rate.
+   */
+  update(cur: Snapshot, prev: Snapshot, dtMs: number, fps: number, alpha = 1): void {
     // Belt-and-braces for the resize/orientationchange listeners: two number
     // comparisons per frame, and only then any DOM write. Some mobile browsers
     // resize the visual viewport (URL bar collapse, split-screen) without
@@ -176,6 +234,7 @@ export class Hud {
       this.applyTheme();
     }
     this.updateFps(fps);
+    this.flight?.update(cur, prev, alpha, dtMs, nowMs());
     this.gauges.update(cur);
     this.moduleButtons.update(cur);
     this.minimap.update(cur, dtMs);
@@ -225,6 +284,8 @@ export class Hud {
 
   dispose(): void {
     this.unsubscribeTheme();
+    this.unsubscribeShipConfig();
+    this.flight?.dispose();
     window.removeEventListener("resize", this.onViewportChange);
     window.removeEventListener("orientationchange", this.onViewportChange);
     window.visualViewport?.removeEventListener("resize", this.onViewportChange);

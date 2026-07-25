@@ -5,6 +5,8 @@ export interface HapticsSettings {
   enabled: boolean;
   overheatPattern: number[];
   killPattern: number[];
+  /** Sensors completing a lock (FLIGHT.md §4) — the "weapons live" tick. */
+  lockPattern: number[];
 }
 
 const THEME_ID = "theme.default";
@@ -15,6 +17,7 @@ export function hapticsSettingsOf(theme: ThemeConfig | undefined): HapticsSettin
     enabled: h?.enabled ?? false,
     overheatPattern: h?.overheatPattern ?? [],
     killPattern: h?.killPattern ?? [],
+    lockPattern: h?.lockPattern ?? [],
   };
 }
 
@@ -22,9 +25,15 @@ export function hapticsSettingsOf(theme: ThemeConfig | undefined): HapticsSettin
  * The vibration pattern one sim event should produce for `playerId`, or null.
  * Pure — the whole event→pattern policy is testable without a navigator.
  *
- * Two cues only (ROADMAP 5.4):
+ * Three cues (ROADMAP 5.4 + FLIGHT.md §4):
  *  - the player's OWN module force-shutting on overheat (`overheated`)
  *  - the player scoring a kill on an enemy SHIP (`entityDestroyed`)
+ *  - the player's OWN sensors completing a lock (`lockAcquired`) — the instant
+ *    weapons come live, which is the one flight-model state change a player
+ *    otherwise has to read off the HUD mid-turn
+ *
+ * `lockLost` deliberately has no buzz: locks drain and re-acquire constantly in
+ * a dogfight, and a vibration for each would be a rattle, not a signal.
  */
 export function hapticPatternFor(
   event: SimEvent,
@@ -34,6 +43,9 @@ export function hapticPatternFor(
   if (!settings.enabled) return null;
   if (event.type === "overheated" && event.entityId === playerId) {
     return settings.overheatPattern.length > 0 ? settings.overheatPattern : null;
+  }
+  if (event.type === "lockAcquired" && event.entityId === playerId) {
+    return settings.lockPattern.length > 0 ? settings.lockPattern : null;
   }
   if (
     event.type === "entityDestroyed" &&

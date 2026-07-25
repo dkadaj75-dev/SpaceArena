@@ -98,9 +98,12 @@ export const qualitySchema = z.object({
 
   asteroids: z.object({
     /**
-     * `addLODLevel` distances on the asteroid masters, in world units. The
-     * tactical camera radius is clamped to 30-90 (editor up to 300), so these
-     * sit inside a known band. `0` disables that level.
+     * `addLODLevel` distances on the asteroid masters, in world units, measured
+     * from the CAMERA. The in-match rig is the chase camera (FLIGHT.md §3): orbit
+     * radius ~12-20 at a low tilt, which is a much longer sightline than the old
+     * 30-90 top-down orbit — a rock 200 units down the lane is on screen and near
+     * the horizon, where a swap to the low-poly LOD is invisible but a cull is
+     * not. Retune these together with `camera.chase`. `0` disables that level.
      */
     lodMediumDistance: z.number().nonnegative(),
     lodLowDistance: z.number().nonnegative(),

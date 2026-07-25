@@ -1,14 +1,38 @@
 {
   "id": "bot.rookie",
   "type": "botprofile",
-  "version": 1,
+  "version": 2,
   "name": "Rookie",
-  "decisionIntervalMs": 900,
-  "orderJitterMs": 400,
-  "preferredRange": [14, 30],
+  "decisionIntervalMs": 700,
+  "orderJitterMs": 250,
+  "preferredRange": [26, 52],
+  "flight": {
+    "turnHorizonMult": 1.0,
+    "aimToleranceRad": 0.08,
+    "turnEpsilon": 0.12,
+    "throttleEpsilon": 0.1
+  },
   "behaviors": {
-    "engage": { "baseWeight": 1.0, "doubleTapBoostChance": 0.1, "orbitStepRad": 0.4, "targetPreference": "nearest" },
-    "kite": { "baseWeight": 0.35, "urgencyGain": 0.4 }
+    "engage": {
+      "baseWeight": 1.0,
+      "throttleApproach": 1.0,
+      "throttleBand": 0.55,
+      "throttleClose": 0.3,
+      "hardTurnRad": 1.4,
+      "throttleTurn": 0.5,
+      "targetPreference": "nearest",
+      "holdLockTarget": true,
+      "boostChance": 0.1
+    },
+    "kite": {
+      "baseWeight": 1.1,
+      "urgencyGain": 0.4,
+      "breakRange": 12,
+      "standoffFrac": 0.5,
+      "slipRad": 0.4,
+      "throttleRun": 1.0,
+      "throttleHold": 0.4
+    }
   },
   "moduleDiscipline": {
     "heatShutdownAt": 0.98,

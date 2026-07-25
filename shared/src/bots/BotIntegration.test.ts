@@ -36,6 +36,8 @@ function mulberry(seed: number): () => number {
 interface RunResult {
   events: SimEvent[];
   orders: number;
+  /** Order counts by kind, so "bots fly like humans" is checkable. */
+  orderKinds: Record<string, number>;
   start: Map<EntityId, { x: number; z: number }>;
   end: Map<EntityId, { x: number; z: number }>;
   botIds: EntityId[];
@@ -43,8 +45,16 @@ interface RunResult {
   seenStates: Set<string>;
   /** Highest normalized lock progress any bot reached (FLIGHT.md §2). */
   peakLockProgress: number;
-  /** True if any bot ever completed a lock. */
-  anyLocked: boolean;
+  /** Sim seconds at which a bot first completed a lock (Infinity if never). */
+  firstLockAt: number;
+  /** Sim seconds at which a bot first took weapon damage from another ship. */
+  firstWeaponHitAt: number;
+  /** Total hull/shield damage dealt by ships to ships (impacts excluded). */
+  weaponDamage: number;
+  /** Total damage from asteroid impacts and the arena boundary. */
+  impactDamage: number;
+  /** Sim seconds elapsed when the run stopped (match end or the time cap). */
+  duration: number;
 }
 
 /**
@@ -71,20 +81,26 @@ function runMatch(profileIds: string[], seed: number): RunResult {
 
   const events: SimEvent[] = [];
   const seenStates = new Set<string>();
+  const orderKinds: Record<string, number> = {};
   let orders = 0;
   let nowMs = 0;
   let peakLockProgress = 0;
-  let anyLocked = false;
+  let firstLockAt = Infinity;
+  let firstWeaponHitAt = Infinity;
+  let weaponDamage = 0;
+  let impactDamage = 0;
+  let duration = 0;
 
   for (let i = 0; i < SECONDS / DT; i++) {
     if (sim.isEnded) break;
     nowMs += DT * 1000;
     const snapshot = sim.snapshot();
+    duration = snapshot.elapsed;
     for (const s of snapshot.ships) {
       if (!drivers.has(s.id)) continue;
       for (const m of s.modules) seenStates.add(m.state);
       peakLockProgress = Math.max(peakLockProgress, s.lockProgress);
-      if (s.locked) anyLocked = true;
+      if (s.locked && firstLockAt === Infinity) firstLockAt = snapshot.elapsed;
     }
     for (const [entityId, driver] of drivers) {
       if (!sim.hasShip(entityId)) {
@@ -102,21 +118,44 @@ function runMatch(profileIds: string[], seed: number): RunResult {
           expect(sim.teamOf(order.targetId)).not.toBe(sim.teamOf(entityId));
         }
         orders++;
+        orderKinds[order.kind] = (orderKinds[order.kind] ?? 0) + 1;
         sim.applyOrder(entityId, order);
       }
     }
     sim.tick(DT);
+    for (const ev of sim.world.events) {
+      if (ev.type !== "damage") continue;
+      if (ev.sourceId === null) impactDamage += ev.amount;
+      else {
+        weaponDamage += ev.amount;
+        if (firstWeaponHitAt === Infinity) firstWeaponHitAt = duration;
+      }
+    }
     events.push(...sim.getEvents());
   }
 
   const end = new Map<EntityId, { x: number; z: number }>();
   for (const s of sim.snapshot().ships) end.set(s.id, { ...s.pos });
 
-  return { events, orders, start, end, botIds, seenStates, peakLockProgress, anyLocked };
+  return {
+    events,
+    orders,
+    orderKinds,
+    start,
+    end,
+    botIds,
+    seenStates,
+    peakLockProgress,
+    firstLockAt,
+    firstWeaponHitAt,
+    weaponDamage,
+    impactDamage,
+    duration,
+  };
 }
 
 describe("bots in a live ArenaSimulation", () => {
-  it("move, work their sensors and only issue legal orders over a 30 s match", () => {
+  it("flies, locks, fires and lands hull damage inside a bounded match", () => {
     const result = runMatch(["bot.aggressive", "bot.cautious"], 7);
 
     expect(result.orders).toBeGreaterThan(0);
@@ -134,23 +173,45 @@ describe("bots in a live ArenaSimulation", () => {
     }
     expect(moved).toBe(result.botIds.length);
 
-    // They deployed modules and drove their sensors toward a lock.
+    // Bots fly the human order vocabulary: continuous `flight` state, no move
+    // orders anywhere (FLIGHT.md §7 — same order path, no sim-side privilege).
+    expect(result.orderKinds["flight"]).toBeGreaterThan(0);
+    expect(result.orderKinds["move"]).toBeUndefined();
+
+    // Modules deployed, and the sensors actually completed a lock.
     expect(result.seenStates.has("active")).toBe(true);
-    // FLIGHT.md §2: weapons need a completed lock, and the gate is in the sim, so
-    // it binds bots exactly as it binds a human. These bots still fly the RTS-era
-    // orbit plan (move orders around a ring), which points the hull ACROSS the
-    // enemy instead of at it — they accrue lock progress on every closing leg but
-    // the orbit drains it before it fills, so a 30 s bot-vs-bot match currently
-    // produces no shots. That is the honest state of the pipeline until stage 4
-    // re-plans every behaviour in flight terms (hold the target in the cone);
-    // `moduleDiscipline` and the order path are what this test still guards.
-    // The gate itself, and that firing resumes once a lock completes, are covered
-    // in Combat.test.ts / Targeting.test.ts.
-    expect(result.peakLockProgress).toBeGreaterThan(0);
-    // Invariant that survives the bot rewrite: shots only ever exist alongside a
-    // completed lock — no bot gets a per-driver exemption from the gate.
+    expect(result.peakLockProgress).toBe(1);
+    expect(result.events.some((e) => e.type === "lockAcquired")).toBe(true);
+    // Nose-on discipline fills a 1.2 s lock early in the merge, not eventually.
+    expect(result.firstLockAt).toBeLessThan(10);
+
+    // ...and a completed lock is converted into shots and hull damage.
     const fired = result.events.filter((e) => e.type === "projectileFired");
-    expect(fired.length === 0 || result.anyLocked).toBe(true);
+    expect(fired.length).toBeGreaterThan(4);
+    expect(result.firstWeaponHitAt).toBeLessThan(15);
+    expect(result.weaponDamage).toBeGreaterThan(40);
+    // Weapons, not scenery, decide the fight. Flight retired asteroid avoidance
+    // and no shipped profile re-adds it (see `avoidRocks`), so bots do eat rocks —
+    // that cost is bounded and stays below what their guns achieve.
+    expect(result.impactDamage).toBeLessThan(result.weaponDamage);
+
+    // The invariant behind the gate: shots only ever exist alongside a lock.
+    expect(fired.length === 0 || result.peakLockProgress === 1).toBe(true);
+  });
+
+  it("resolves bot-vs-bot matches across seeds and profile pairings", () => {
+    for (const [a, b, seed] of [
+      ["bot.aggressive", "bot.aggressive", 3],
+      ["bot.cautious", "bot.cautious", 11],
+      ["bot.aggressive", "bot.cautious", 21],
+      ["bot.aggressive", "bot.cautious", 42],
+    ] as const) {
+      const label = `${a} vs ${b} @${seed}`;
+      const r = runMatch([a, b], seed);
+      expect(r.firstLockAt, label).toBeLessThan(12);
+      expect(r.events.filter((e) => e.type === "projectileFired").length, label).toBeGreaterThan(0);
+      expect(r.weaponDamage, label).toBeGreaterThan(20);
+    }
   });
 
   it("never lets a disciplined profile force-overheat a module", () => {
@@ -159,6 +220,10 @@ describe("bots in a live ArenaSimulation", () => {
     // moduleDiscipline (same skill axis as a human managing heat).
     const result = runMatch(["bot.cautious", "bot.cautious"], 11);
     expect(result.seenStates.has("overheated")).toBe(false);
+    // Discipline holds while the bots are genuinely fighting, not because they
+    // never switched anything on.
+    expect(result.seenStates.has("active")).toBe(true);
+    expect(result.weaponDamage).toBeGreaterThan(0);
   });
 
   it("is fully deterministic given the same seeds", () => {
@@ -166,6 +231,11 @@ describe("bots in a live ArenaSimulation", () => {
     const b = runMatch(["bot.aggressive", "bot.cautious"], 3);
     expect(JSON.stringify([...a.end])).toBe(JSON.stringify([...b.end]));
     expect(a.orders).toBe(b.orders);
+    expect(a.orderKinds).toEqual(b.orderKinds);
+    // Same seed ⇒ byte-identical match, not merely the same finishing positions.
+    expect(JSON.stringify(a.events)).toBe(JSON.stringify(b.events));
+    expect(a.weaponDamage).toBe(b.weaponDamage);
+    expect(a.firstLockAt).toBe(b.firstLockAt);
   });
 
   it("resolves the practice-bots roster from content", () => {

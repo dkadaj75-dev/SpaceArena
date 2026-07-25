@@ -16,6 +16,13 @@ import {
   type TuningConfig,
 } from "@space-arena/shared";
 import { shouldRejectContact } from "./inputGuards.js";
+import {
+  approachHeading,
+  chaseAlphaFor,
+  chaseSettingsOf,
+  DEFAULT_CHASE_SETTINGS,
+  type ChaseSettings,
+} from "./chaseCamera.js";
 
 const log = createLogger("TacticalCamera");
 
@@ -57,6 +64,19 @@ export class TacticalCamera {
   private previousTargetPos: Vector3 | null = null;
   private editorMode = false;
   private hangarMode = false;
+  /**
+   * Chase mode (FLIGHT.md §3) — the in-match rig for the flight model. Its yaw
+   * is driven by the ship instead of the player, so every look-around gesture is
+   * gated off while it is active (see {@link onPointer}).
+   */
+  private chaseMode = false;
+  private chase: ChaseSettings = DEFAULT_CHASE_SETTINGS;
+  /** Latest sim heading pushed in by the render loop (radians, sim convention). */
+  private chaseHeading = 0;
+  /** Smoothed heading the orbit alpha is derived from; null until the first frame seeds it. */
+  private chaseSmoothHeading: number | null = null;
+  /** Engine default FOV, captured at construction so leaving chase mode restores it. */
+  private readonly defaultFov: number;
   private pointersInput: { buttons: number[] } | undefined;
 
   // Tactical-mode pan/pinch gesture state (right-drag on desktop, two-finger
@@ -114,6 +134,8 @@ export class TacticalCamera {
       scene,
     );
 
+    this.defaultFov = this.camera.fov;
+    this.chase = chaseSettingsOf(config);
     this.applyLimits(config);
 
     // Attach control for wheel zoom. The built-in pointers input only serves
@@ -143,21 +165,32 @@ export class TacticalCamera {
       if (evt.id === CAMERA_CONFIG_ID) {
         log.info("camera config hot-reloaded, re-applying limits");
         const fresh = this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID);
+        this.chase = chaseSettingsOf(fresh);
         this.applyLimits(fresh);
       }
     });
   }
 
   private applyLimits(config: CameraConfig | undefined): void {
+    // Mode-independent feel knobs land in every mode; the orbit clamps below are
+    // the tactical rig's, and the editor/hangar/chase modes each own their own.
+    this.followLag = config?.followLag ?? this.followLag;
+    this.lookAhead = config?.lookAhead ?? this.lookAhead;
+    this.panSensitivity = config?.pan?.sensitivity ?? this.panSensitivity;
+    this.panBoundsMargin = config?.pan?.boundsMargin ?? this.panBoundsMargin;
     if (this.editorMode || this.hangarMode) return;
+    // Chase mode owns beta/radius outright (they come from the `chase` block),
+    // so the orbit limits must not be re-widened underneath it — including on
+    // the way out of a mode that widened them (editor) or on hot-reload.
+    if (this.chaseMode) {
+      this.applyChaseLimits();
+      return;
+    }
+    this.camera.fov = this.defaultFov;
     this.camera.lowerBetaLimit = config?.beta.min ?? 0.6;
     this.camera.upperBetaLimit = config?.beta.max ?? 1.15;
     this.camera.lowerRadiusLimit = config?.radius.min ?? 25;
     this.camera.upperRadiusLimit = config?.radius.max ?? 100;
-    this.followLag = config?.followLag ?? this.followLag;
-    this.lookAhead = config?.lookAhead ?? this.lookAhead;
-    this.panSensitivity = config?.pan?.sensitivity ?? 1;
-    this.panBoundsMargin = config?.pan?.boundsMargin ?? 10;
   }
 
   /** Player pan-sensitivity multiplier (5.8 settings). Clamped to a sane band. */
@@ -204,6 +237,10 @@ export class TacticalCamera {
     this.rightDrag = null;
     if (enabled) {
       this.followTarget = null;
+      // The editor stage is not a cockpit: drop the chase block's FOV so what a
+      // dev frames there matches the tactical rig. Leaving editor mode re-runs
+      // applyLimits, which hands the chase FOV back if the match is still live.
+      this.camera.fov = this.defaultFov;
       // Editor gestures are fully custom (see onEditorPointer): left-drag
       // orbits, right-drag pans, one finger orbits, two fingers pan + pinch.
       // The built-in pointers input stays off so it can't double-apply them;
@@ -242,6 +279,68 @@ export class TacticalCamera {
     this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
   }
 
+  /**
+   * Chase mode (FLIGHT.md §3) — the in-match rig for the continuous-flight
+   * model. It replaces the player's orbit control rather than extending it:
+   *
+   *  - `alpha` is derived every frame from the SHIP's heading
+   *    ({@link chaseCamera.chaseAlphaFor}) after `chase.yawLag` smoothing;
+   *  - `beta`/`radius` are pinned to the `chase` block, and the orbit limits are
+   *    collapsed onto those values so wheel/pinch zoom cannot fight them;
+   *  - the follow point is lifted by `chase.height` so the rig looks over the
+   *    ship's shoulder instead of through it;
+   *  - every look-around gesture (right-drag / two-finger pan + pinch) is gated
+   *    off in {@link onPointer}, and any pan already accumulated is dropped.
+   *
+   * Menu/editor/hangar modes are untouched — this is purely the third in-match
+   * alternative to the (now retiring) free tactical orbit.
+   */
+  setChaseMode(enabled: boolean): void {
+    if (this.chaseMode === enabled) return;
+    this.chaseMode = enabled;
+    this.activeTouches.clear();
+    this.rightDrag = null;
+    this.panOffset.setAll(0);
+    this.chaseSmoothHeading = null;
+    if (enabled) {
+      this.applyChaseLimits();
+      return;
+    }
+    this.camera.fov = this.defaultFov;
+    this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
+  }
+
+  /** True while the in-match chase rig is driving the camera. */
+  get isChaseMode(): boolean {
+    return this.chaseMode;
+  }
+
+  /**
+   * Push this frame's ship heading (radians, SIM convention: 0 = +X, growing
+   * counter-clockwise). Called once per render frame from the snapshot; the
+   * `yawLag` smoothing in {@link update} is what turns it into orbit alpha, so
+   * the raw per-tick value is fine here.
+   */
+  setChaseHeading(heading: number): void {
+    this.chaseHeading = heading;
+  }
+
+  /**
+   * Collapse the orbit clamps onto the chase block's beta/radius. Babylon clamps
+   * `radius`/`beta` inside its own input handling, so equal lower/upper limits
+   * is what makes wheel zoom and pinch inert without detaching the inputs (the
+   * wheel input is shared with the editor/hangar modes).
+   */
+  private applyChaseLimits(): void {
+    this.camera.lowerBetaLimit = this.chase.beta;
+    this.camera.upperBetaLimit = this.chase.beta;
+    this.camera.lowerRadiusLimit = this.chase.radius;
+    this.camera.upperRadiusLimit = this.chase.radius;
+    this.camera.beta = this.chase.beta;
+    this.camera.radius = this.chase.radius;
+    if (this.chase.fov !== null) this.camera.fov = this.chase.fov;
+  }
+
   /** Snap the camera to look at `target` at the given radius/beta — used to stage the Hangar preview. */
   stageAt(target: Vector3, radius: number, alpha: number, beta: number): void {
     this.camera.target.copyFrom(target);
@@ -270,10 +369,16 @@ export class TacticalCamera {
     if (this.hangarMode) return;
     const ev = pi.event as PointerEvent;
     const isTouch = ev.pointerType === "touch";
+    // Editor mode is checked BEFORE the chase gate: F10 can open the editor over
+    // a live (paused) match, and its stage still needs orbit/pan gestures.
     if (this.editorMode) {
       this.onEditorPointer(pi, ev, isTouch);
       return;
     }
+    // Chase mode (FLIGHT.md §3): the ship owns the view. Pan/pinch would either
+    // fight the heading-driven yaw or slide the ship out of frame, so the whole
+    // gesture path is gated off — the code stays for the menu/editor rigs.
+    if (this.chaseMode) return;
 
     if (pi.type === PointerEventTypes.POINTERDOWN) {
       if (isTouch) {
@@ -471,8 +576,11 @@ export class TacticalCamera {
 
     this.scratchTargetPos.copyFrom(this.followTarget.position);
 
-    // Look-ahead: bias the followed point along the ship's recent travel direction.
-    if (this.previousTargetPos) {
+    // Look-ahead: bias the followed point along the ship's recent travel
+    // direction. Skipped while chasing — the rig already looks down the ship's
+    // heading, so biasing the target along the same vector would only shove the
+    // ship down the frame (`chase.height` is the knob for framing there).
+    if (this.previousTargetPos && !this.chaseMode) {
       this.scratchForward
         .copyFrom(this.scratchTargetPos)
         .subtractInPlace(this.previousTargetPos);
@@ -493,17 +601,36 @@ export class TacticalCamera {
     const t = 1 - Math.pow(1 - this.followLag, dt * 60);
     Vector3.LerpToRef(this.followPoint, this.scratchTargetPos, t, this.followPoint);
 
-    // User pan rides on top of the follow point, clamped to the arena bounds.
-    this.camera.target.copyFrom(this.followPoint).addInPlace(this.panOffset);
-    const maxR = this.panBoundsRadius + this.panBoundsMargin;
-    const len = Math.hypot(this.camera.target.x, this.camera.target.z);
-    if (len > maxR) {
-      const s = maxR / len;
-      this.camera.target.x *= s;
-      this.camera.target.z *= s;
-      // Re-derive the offset from the clamped target so panning back in
-      // responds immediately instead of unwinding invisible overshoot.
-      this.panOffset.copyFrom(this.camera.target).subtractInPlace(this.followPoint);
+    if (this.chaseMode) {
+      // Orbit angle from the SHIP, smoothed with `yawLag` (mutated in place; no
+      // allocation and no setTarget(), which would recompute alpha/beta/radius
+      // from the position and undo exactly what we just set).
+      this.chaseSmoothHeading =
+        this.chaseSmoothHeading === null
+          ? this.chaseHeading
+          : approachHeading(this.chaseSmoothHeading, this.chaseHeading, this.chase.yawLag, dt);
+      this.camera.alpha = chaseAlphaFor(this.chaseSmoothHeading);
+      // Re-asserted every frame so a hot-reloaded chase block applies live.
+      this.camera.beta = this.chase.beta;
+      this.camera.radius = this.chase.radius;
+      this.camera.target.copyFrom(this.followPoint);
+      this.camera.target.y += this.chase.height;
+      // No pan offset and no arena-bounds clamp here: the target IS the ship, so
+      // it is inside the bounds by construction, and clamping it would push the
+      // camera off the ship near the arena edge.
+    } else {
+      // User pan rides on top of the follow point, clamped to the arena bounds.
+      this.camera.target.copyFrom(this.followPoint).addInPlace(this.panOffset);
+      const maxR = this.panBoundsRadius + this.panBoundsMargin;
+      const len = Math.hypot(this.camera.target.x, this.camera.target.z);
+      if (len > maxR) {
+        const s = maxR / len;
+        this.camera.target.x *= s;
+        this.camera.target.z *= s;
+        // Re-derive the offset from the clamped target so panning back in
+        // responds immediately instead of unwinding invisible overshoot.
+        this.panOffset.copyFrom(this.camera.target).subtractInPlace(this.followPoint);
+      }
     }
 
     // Shake rides LAST and outside the clamp bookkeeping above: it is a

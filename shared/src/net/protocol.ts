@@ -115,6 +115,13 @@ const vec2 = z.object({ x: z.number().finite(), z: z.number().finite() });
 /* semantic checks (in-bounds, hardpoint count, enemy target) live in the room. */
 export const orderSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("move"), target: vec2, boost: z.boolean() }),
+  /** Continuous flight input (FLIGHT.md §1/§5) — the joystick/throttle/boost state. */
+  z.object({
+    kind: z.literal("flight"),
+    throttle: z.number().min(0).max(1),
+    turn: z.number().min(-1).max(1),
+    boost: z.boolean(),
+  }),
   z.object({ kind: z.literal("target"), targetId: z.number().int().nullable() }),
   z.object({ kind: z.literal("moduleToggle"), hardpointIndex: z.number().int().nonnegative() }),
 ]);

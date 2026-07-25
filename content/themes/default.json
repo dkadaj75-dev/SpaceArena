@@ -36,6 +36,45 @@
       "offsetXPx": 24,
       "offsetYPx": 34
     },
+    "flight": {
+      "joystick": {
+        "anchor": "bottom-left",
+        "baseRadiusPx": 62,
+        "thumbRadiusPx": 28,
+        "offsetXPx": 22,
+        "offsetYPx": 22,
+        "deadzone": 0.12,
+        "expo": 1.35
+      },
+      "throttle": {
+        "anchor": "bottom-right",
+        "widthPx": 44,
+        "heightPx": 200,
+        "thumbHeightPx": 26,
+        "offsetXPx": 6,
+        "offsetYPx": 212,
+        "keyRampPerSec": 0.9
+      },
+      "boost": {
+        "anchor": "bottom-right",
+        "radiusPx": 34,
+        "offsetXPx": 24,
+        "offsetYPx": 34,
+        "icon": "»"
+      },
+      "reticle": {
+        "maxRadiusFraction": 0.82,
+        "strokePx": 2,
+        "bracketSizePx": 54,
+        "ringStrokePx": 4
+      },
+      "orders": {
+        "throttleEpsilon": 0.02,
+        "turnEpsilon": 0.05,
+        "heartbeatMs": 250,
+        "minIntervalMs": 120
+      }
+    },
     "landscape": {
       "scale": 0.85,
       "safeAreaInsetPx": 10,
@@ -47,13 +86,19 @@
         "arcRadiusPx": 126,
         "offsetXPx": 22,
         "offsetYPx": 30
+      },
+      "flight": {
+        "joystick": { "baseRadiusPx": 56, "thumbRadiusPx": 25, "offsetXPx": 20, "offsetYPx": 18 },
+        "throttle": { "heightPx": 150, "offsetYPx": 168 },
+        "boost": { "radiusPx": 30, "offsetXPx": 22, "offsetYPx": 30 }
       }
     }
   },
   "haptics": {
     "enabled": true,
     "overheatPattern": [60, 50, 120],
-    "killPattern": [25, 40, 25]
+    "killPattern": [25, 40, 25],
+    "lockPattern": [18, 45, 18]
   },
   "audio": {
     "enabled": true,
@@ -67,7 +112,9 @@
       "playerKill": "[SOUND: kill_confirm]",
       "playerDeath": "[SOUND: explosion_heavy]",
       "overheat": "[SOUND: overheat_warning]",
-      "boundaryWarning": "[SOUND: boundary_warn]"
+      "boundaryWarning": "[SOUND: boundary_warn]",
+      "lockAcquired": "[SOUND: lock_acquired]",
+      "lockLost": "[SOUND: lock_lost]"
     }
   },
   "menu": {

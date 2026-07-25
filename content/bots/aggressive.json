@@ -1,17 +1,58 @@
 {
   "id": "bot.aggressive",
   "type": "botprofile",
-  "version": 1,
+  "version": 2,
   "name": "Aggressive",
-  "decisionIntervalMs": 400,
-  "orderJitterMs": 150,
-  "preferredRange": [20, 35],
+  "decisionIntervalMs": 250,
+  "orderJitterMs": 60,
+  "preferredRange": [30, 60],
+  "flight": {
+    "turnHorizonMult": 1.0,
+    "aimToleranceRad": 0.02,
+    "turnEpsilon": 0.05,
+    "throttleEpsilon": 0.03
+  },
   "behaviors": {
-    "engage": { "baseWeight": 1.0, "doubleTapBoostChance": 0.4, "orbitStepRad": 0.7, "targetPreference": "nearest" },
-    "kite": { "baseWeight": 0.5, "urgencyGain": 0.5 },
-    "breakLoS": { "baseWeight": 0.7, "triggerHullBelow": 0.4, "coverOffset": 3 },
-    "retreat": { "baseWeight": 0.3, "triggerShieldDown": true },
-    "dodge": { "baseWeight": 0.8, "dodgeRadius": 18, "dodgeDistance": 12 }
+    "engage": {
+      "baseWeight": 1.0,
+      "throttleApproach": 1.0,
+      "throttleBand": 0.45,
+      "throttleClose": 0.15,
+      "hardTurnRad": 1.0,
+      "throttleTurn": 0.3,
+      "targetPreference": "nearest",
+      "holdLockTarget": true,
+      "boostChance": 0.3
+    },
+    "kite": {
+      "baseWeight": 1.4,
+      "urgencyGain": 0.5,
+      "breakRange": 14,
+      "standoffFrac": 0.55,
+      "slipRad": 0.6,
+      "throttleRun": 1.0,
+      "throttleHold": 0.3
+    },
+    "breakLoS": {
+      "baseWeight": 0.7,
+      "triggerHullBelow": 0.35,
+      "coverOffset": 3,
+      "urgencyGain": 1.0
+    },
+    "retreat": {
+      "baseWeight": 1.2,
+      "triggerHullBelow": 0.15,
+      "urgencyGain": 0.5,
+      "throttle": 1.0,
+      "boostChance": 1.0
+    },
+    "dodge": {
+      "baseWeight": 0.8,
+      "dodgeRadius": 18,
+      "dodgeDistance": 12,
+      "jinkAmp": 0.25,
+      "jinkPeriodSec": 0.9
+    }
   },
   "moduleDiscipline": {
     "heatShutdownAt": 0.85,

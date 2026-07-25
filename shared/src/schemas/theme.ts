@@ -39,6 +39,114 @@ export const moduleClusterSchema = z.object({
 export type ModuleClusterConfig = z.infer<typeof moduleClusterSchema>;
 
 /**
+ * Virtual joystick (FLIGHT.md §4, left thumb). Steer-only: the horizontal axis
+ * becomes the flight order's `turn`, the vertical axis is unused for now.
+ * Geometry is pivot-relative in the same convention as {@link
+ * moduleClusterSchema} — px before `hud.scale`.
+ */
+export const joystickSchema = z.object({
+  anchor: hudAnchor.optional(),
+  /** Radius of the fixed base ring the thumb travels inside. */
+  baseRadiusPx: z.number().positive().optional(),
+  /** Radius of the thumb knob drawn at the current stick position. */
+  thumbRadiusPx: z.number().positive().optional(),
+  /** Extra push away from the anchored vertical edge. */
+  offsetXPx: z.number().nonnegative().optional(),
+  /** Extra push away from the anchored horizontal edge. */
+  offsetYPx: z.number().nonnegative().optional(),
+  /** Stick travel (0..1 of the base radius) treated as centre — kills thumb drift. */
+  deadzone: z.number().min(0).max(0.9).optional(),
+  /**
+   * Response curve exponent on the de-deadzoned magnitude (1 = linear, >1 =
+   * finer control near centre). Never changes the SIGN of the turn.
+   */
+  expo: z.number().positive().optional(),
+});
+export type JoystickConfig = z.infer<typeof joystickSchema>;
+
+/**
+ * Throttle strip (FLIGHT.md §4, right edge, vertical). 0 % at the bottom, 100 %
+ * at the top; the thumb stays where it is released, so throttle is a held
+ * state, not a spring.
+ */
+export const throttleStripSchema = z.object({
+  anchor: hudAnchor.optional(),
+  /** Track width. */
+  widthPx: z.number().positive().optional(),
+  /** Track height — the full 0..100 % travel. */
+  heightPx: z.number().positive().optional(),
+  /** Height of the draggable thumb. */
+  thumbHeightPx: z.number().positive().optional(),
+  /** Extra push away from the anchored vertical edge. */
+  offsetXPx: z.number().nonnegative().optional(),
+  /** Extra push away from the anchored horizontal edge. */
+  offsetYPx: z.number().nonnegative().optional(),
+  /** Desktop W/S + ↑/↓ ramp rate, in throttle fraction per second while held. */
+  keyRampPerSec: z.number().positive().optional(),
+});
+export type ThrottleStripConfig = z.infer<typeof throttleStripSchema>;
+
+/** Hold-to-boost button (FLIGHT.md §4), placed in the module-cluster corner. */
+export const boostButtonSchema = z.object({
+  anchor: hudAnchor.optional(),
+  radiusPx: z.number().positive().optional(),
+  offsetXPx: z.number().nonnegative().optional(),
+  offsetYPx: z.number().nonnegative().optional(),
+  /** Glyph drawn on the button. */
+  icon: z.string().optional(),
+});
+export type BoostButtonConfig = z.infer<typeof boostButtonSchema>;
+
+/**
+ * Lock reticle (FLIGHT.md §4). The centre circle's radius is COMPUTED from the
+ * ship's resolved `sensors.coneDeg` and the live chase camera (fov + tilt) —
+ * see `client/src/game/hud/flightHudLayout.ts` — so it always describes the real
+ * sim cone. These knobs are only look + the safety clamp that keeps a cone wider
+ * than the camera's field of view on screen.
+ */
+export const lockReticleSchema = z.object({
+  /** Ceiling on the reticle radius as a fraction of the viewport's SHORT side / 2. */
+  maxRadiusFraction: z.number().gt(0).max(1).optional(),
+  /** Circle stroke width. */
+  strokePx: z.number().nonnegative().optional(),
+  /** Side length of the bracket drawn on the current lock candidate. */
+  bracketSizePx: z.number().positive().optional(),
+  /** Stroke width of the lock-progress ring around the bracket. */
+  ringStrokePx: z.number().nonnegative().optional(),
+});
+export type LockReticleConfig = z.infer<typeof lockReticleSchema>;
+
+/**
+ * Flight-order emission (FLIGHT.md §4). The client holds the latest input state
+ * and only sends when something meaningful changed, so continuous stick/throttle
+ * movement stays comfortably inside `tuning.maxOrdersPerSec`.
+ */
+export const flightOrdersSchema = z.object({
+  /** Minimum |Δthrottle| that justifies an order. */
+  throttleEpsilon: z.number().positive().optional(),
+  /** Minimum |Δturn| that justifies an order. */
+  turnEpsilon: z.number().positive().optional(),
+  /** Resend interval while the input keeps changing (also the trailing-send delay). */
+  heartbeatMs: z.number().positive().optional(),
+  /**
+   * Floor on the gap between two flight orders. Raised automatically if it would
+   * let flight alone eat more than its share of `tuning.maxOrdersPerSec`.
+   */
+  minIntervalMs: z.number().nonnegative().optional(),
+});
+export type FlightOrdersConfig = z.infer<typeof flightOrdersSchema>;
+
+/** The whole flight HUD block: joystick + throttle + boost + reticle + order feel. */
+export const flightHudSchema = z.object({
+  joystick: joystickSchema.optional(),
+  throttle: throttleStripSchema.optional(),
+  boost: boostButtonSchema.optional(),
+  reticle: lockReticleSchema.optional(),
+  orders: flightOrdersSchema.optional(),
+});
+export type FlightHudConfig = z.infer<typeof flightHudSchema>;
+
+/**
  * Per-orientation overrides layered on top of the base `hud` block. Only the
  * fields a phone actually needs to re-scale between portrait and landscape —
  * anything omitted falls through to the base block.
@@ -50,6 +158,8 @@ export const hudOrientationSchema = z.object({
   gaugeWidthPx: z.number().positive().optional(),
   thumbZoneFraction: z.number().gt(0).max(1).optional(),
   moduleCluster: moduleClusterSchema.optional(),
+  /** Flight-control geometry for this orientation (merged per sub-block). */
+  flight: flightHudSchema.optional(),
 });
 export type HudOrientationConfig = z.infer<typeof hudOrientationSchema>;
 
@@ -81,6 +191,10 @@ export const audioCuesSchema = z.object({
   overheat: soundRef.optional(),
   /** The local player's ship touching the arena boundary. */
   boundaryWarning: soundRef.optional(),
+  /** The local player's sensors completing a lock (FLIGHT.md §2/§4). */
+  lockAcquired: soundRef.optional(),
+  /** The local player losing a completed lock. */
+  lockLost: soundRef.optional(),
 });
 export type AudioCuesConfig = z.infer<typeof audioCuesSchema>;
 
@@ -268,6 +382,8 @@ export const themeSchema = z.object({
       thumbZoneFraction: z.number().gt(0).max(1).optional(),
       /** Module-button cluster geometry (portrait/base values). */
       moduleCluster: moduleClusterSchema.optional(),
+      /** Flight controls: joystick, throttle strip, boost button, lock reticle (FLIGHT.md §4). */
+      flight: flightHudSchema.optional(),
       /** Overrides applied when the viewport is taller than wide. */
       portrait: hudOrientationSchema.optional(),
       /** Overrides applied when the viewport is wider than tall. */
@@ -287,6 +403,13 @@ export const themeSchema = z.object({
       overheatPattern: z.array(z.number().int().nonnegative()).optional(),
       /** Played when the player destroys an enemy ship. */
       killPattern: z.array(z.number().int().nonnegative()).optional(),
+      /**
+       * Played the instant the player's sensors complete a lock (FLIGHT.md §4).
+       * The lock flip is the moment weapons come live, so it gets its own cue —
+       * a short double tick reads as "you may fire" without competing with the
+       * heavier overheat/kill buzzes.
+       */
+      lockPattern: z.array(z.number().int().nonnegative()).optional(),
     })
     .optional(),
   /**

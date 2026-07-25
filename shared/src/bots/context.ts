@@ -40,6 +40,15 @@ export interface BotContext {
   readonly preferredMax: number;
   /** Longest fitted weapon range (0 when the bot has no weapons). */
   readonly weaponRange: number;
+  /**
+   * Hull turn rate in rad/s, as the driver currently knows it (see
+   * `BotDriver` calibration); 0 means "not measured yet". Behaviours do not
+   * normally need it — the driver converts their aim point into a `turn` axis —
+   * but it is here so an overlay can reason about how sharp a stick input is.
+   */
+  readonly turnRate: number;
+  /** Control horizon in seconds the driver plans a turn over (its decision interval). */
+  readonly turnHorizonSec: number;
   /** Live asteroid colliders usable as cover / LoS blockers. */
   readonly blockers: readonly LosCircle[];
   /** Enemy missiles currently closing on this bot, nearest first. */
@@ -64,6 +73,10 @@ export interface BuildContextInput {
   missileScanRadius: number;
   orbitSign: 1 | -1;
   rng: () => number;
+  /** Measured hull turn rate (rad/s); 0 when the driver has not calibrated yet. */
+  turnRate?: number;
+  /** Seconds the driver plans a turn over; defaults to the profile decision interval. */
+  turnHorizonSec?: number;
 }
 
 /** Build the read-only decision context for one bot from a snapshot. */
@@ -123,6 +136,8 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     preferredMin,
     preferredMax,
     weaponRange: input.weaponRange,
+    turnRate: input.turnRate ?? 0,
+    turnHorizonSec: input.turnHorizonSec ?? profile.decisionIntervalMs / 1000,
     blockers,
     incomingMissiles,
     orbitSign: input.orbitSign,

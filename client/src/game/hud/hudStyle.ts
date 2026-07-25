@@ -72,7 +72,10 @@ const CSS = `
 .hud-gauges {
   position: absolute;
   left: var(--hud-inset-left);
-  bottom: var(--hud-inset-bottom);
+  /* --hud-gauge-lift is the flight joystick's reach (flightHudLayout.ts): the
+     stick is bottom-left too, so the gauges ride above it without either widget
+     knowing the other's geometry. 0 when there is no flight HUD. */
+  bottom: calc(var(--hud-inset-bottom) + var(--hud-gauge-lift, 0px));
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -170,6 +173,176 @@ const CSS = `
 @keyframes hud-overheat-flash {
   0%, 100% { box-shadow: 0 0 6px 1px var(--hud-danger, #ff4d5e); }
   50% { box-shadow: 0 0 16px 4px var(--hud-danger, #ff4d5e); }
+}
+
+/* --- Flight controls (FLIGHT.md §4) ---
+   Every dimension arrives as a --hud-* custom property resolved in
+   flightHudLayout.ts, and every widget's position is written inline from the
+   same math. Nothing about the flight HUD's geometry lives here. */
+.hud-flight.hidden { display: none; }
+/* Zero-size pivots pinned to the themed anchor corner, exactly like .hud-modules. */
+.hud-joystick,
+.hud-throttle,
+.hud-boost {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.hud-joystick[data-anchor="bottom-right"],
+.hud-throttle[data-anchor="bottom-right"],
+.hud-boost[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
+.hud-joystick[data-anchor="bottom-left"],
+.hud-throttle[data-anchor="bottom-left"],
+.hud-boost[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
+.hud-joystick[data-anchor="top-right"],
+.hud-throttle[data-anchor="top-right"],
+.hud-boost[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
+.hud-joystick[data-anchor="top-left"],
+.hud-throttle[data-anchor="top-left"],
+.hud-boost[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
+
+/* Steering stick: fixed base ring, spring-return thumb. */
+.hud-joystick-base {
+  pointer-events: auto;
+  position: absolute;
+  box-sizing: border-box;
+  touch-action: none;
+  width: calc(var(--hud-joy-base-radius, 62px) * 2);
+  height: calc(var(--hud-joy-base-radius, 62px) * 2);
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: radial-gradient(circle at center, rgba(10, 14, 26, 0.55) 40%, rgba(10, 14, 26, 0.25) 100%);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: border-color 0.12s linear;
+}
+.hud-joystick-base.active { border-color: var(--hud-primary, #57d8ff); }
+.hud-joystick-thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  box-sizing: border-box;
+  width: calc(var(--hud-joy-thumb-radius, 28px) * 2);
+  height: calc(var(--hud-joy-thumb-radius, 28px) * 2);
+  border-radius: 50%;
+  border: 2px solid var(--hud-primary, #57d8ff);
+  background: rgba(10, 14, 26, 0.8);
+  transform: translate(-50%, -50%);
+}
+
+/* Throttle lever: 0 % at the bottom, 100 % at the top, thumb holds on release. */
+.hud-throttle-track {
+  pointer-events: auto;
+  position: absolute;
+  box-sizing: border-box;
+  touch-action: none;
+  width: var(--hud-throttle-width, 44px);
+  height: var(--hud-throttle-height, 200px);
+  border-radius: calc(var(--hud-throttle-width, 44px) / 2);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(10, 14, 26, 0.55);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: border-color 0.12s linear;
+}
+.hud-throttle-track.active { border-color: var(--hud-primary, #57d8ff); }
+.hud-throttle-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%;
+  background: linear-gradient(to top, rgba(87, 216, 255, 0.15), var(--hud-primary, #57d8ff));
+  opacity: 0.55;
+}
+.hud-throttle-thumb {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  box-sizing: border-box;
+  height: var(--hud-throttle-thumb-height, 26px);
+  border-radius: 3px;
+  border: 2px solid var(--hud-primary, #57d8ff);
+  background: rgba(10, 14, 26, 0.9);
+}
+.hud-throttle-readout {
+  position: absolute;
+  transform: translate(-50%, -130%);
+  font-size: 0.6875em;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--hud-primary, #57d8ff);
+  white-space: nowrap;
+}
+
+/* Boost: momentary, held for as long as a pointer is down. */
+.hud-boost-btn {
+  pointer-events: auto;
+  position: absolute;
+  box-sizing: border-box;
+  touch-action: none;
+  width: calc(var(--hud-boost-radius, 34px) * 2);
+  height: calc(var(--hud-boost-radius, 34px) * 2);
+  border-radius: 50%;
+  border: 2px solid var(--hud-accent, #ff8c42);
+  background: rgba(10, 14, 26, 0.7);
+  color: var(--hud-accent, #ff8c42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 0.1s linear, box-shadow 0.1s linear;
+}
+.hud-boost-btn.active {
+  filter: brightness(1.25);
+  box-shadow: 0 0 14px 3px var(--hud-accent, #ff8c42);
+}
+
+/* Lock reticle: fixed centre zone circle + a bracket projected onto the candidate. */
+.hud-reticle {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.hud-reticle-zone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: var(--hud-reticle-stroke, 2px) dashed rgba(230, 240, 255, 0.28);
+}
+/* Cone wider than the camera can show: the circle is a floor on the zone, not
+   its edge, so it reads as an open boundary rather than a hard one. */
+.hud-reticle-zone.clamped { border-style: dotted; opacity: 0.55; }
+.hud-reticle-bracket {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  display: none;
+  border-radius: 50%;
+  /* Progress ring: a conic wedge masked to an annulus, so lockProgress reads as
+     a filling arc without a second element or an SVG. */
+  background: conic-gradient(var(--hud-primary, #57d8ff) calc(var(--ring, 0) * 1%), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-reticle-ring-stroke, 4px)), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-reticle-ring-stroke, 4px)), #000 0);
+}
+.hud-reticle-bracket.visible { display: block; }
+.hud-reticle-bracket.locked {
+  background: conic-gradient(var(--hud-danger, #ff4d5e) 100%, var(--hud-danger, #ff4d5e) 0);
+  animation: hud-lock-pulse 0.9s ease-in-out infinite;
+}
+@keyframes hud-lock-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 /* --- Notifications (top-center toast stack) --- */

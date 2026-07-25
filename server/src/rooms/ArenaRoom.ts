@@ -554,9 +554,9 @@ export class ArenaRoom extends Room<ArenaState> {
       case "move":
         return this.inBounds(order.target.x, order.target.z) ? null : "out-of-bounds";
       case "flight":
-        // Range guard only. Flight orders cannot reach here from the wire yet —
-        // `orderSchema` has no `flight` member until the flight netcode lands
-        // (FLIGHT.md §5), which is where zod clamping + this validation grow up.
+        // Range guard only, and deliberately redundant with `orderSchema`: bots
+        // reach this path without ever crossing the wire (FLIGHT.md §7 — same
+        // validation for bot and human), so the axis bounds are enforced here too.
         return Number.isFinite(order.throttle) &&
           Number.isFinite(order.turn) &&
           order.throttle >= 0 &&

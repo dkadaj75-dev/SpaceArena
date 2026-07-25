@@ -182,6 +182,20 @@ export const SOUND_SYNTHS: Record<string, SynthFn> = {
       tone(t, { type: "square", from: 300, to: 300, duration: 0.1, peak: 0.12, delay: 0.16 }),
     ),
 
+  // --- sensors (FLIGHT.md §2/§4) -------------------------------------------
+  /** Lock complete — short rising double tick, deliberately quieter than a kill. */
+  lock_acquired: (t) =>
+    longest(
+      tone(t, { type: "sine", from: 1180, to: 1180, duration: 0.05, peak: 0.1 }),
+      tone(t, { type: "sine", from: 1620, to: 1620, duration: 0.08, peak: 0.11, delay: 0.06 }),
+    ),
+  /** Lock broken — the same figure inverted, so the two never get confused. */
+  lock_lost: (t) =>
+    longest(
+      tone(t, { type: "sine", from: 1180, to: 1180, duration: 0.05, peak: 0.08 }),
+      tone(t, { type: "sine", from: 720, to: 660, duration: 0.1, peak: 0.09, delay: 0.06 }),
+    ),
+
   // --- explosions (variants selected from effect configs) ------------------
   /** Light hull: quick crack. */
   explosion_light: (t) =>

@@ -54,6 +54,16 @@ export class OrderInput {
   private readonly activePointers = new Set<number>();
   private maxPointers = 0;
   private enabled = true;
+  /**
+   * Flight mode (FLIGHT.md §3/§4): the chase camera + virtual joystick own
+   * steering, so ground-plane tap-to-move and its double-tap boost upgrade are
+   * gated off — a stray tap on what is now a first-person-ish flight view must
+   * not yank the ship across the arena. Tap-to-target still works: it only pins
+   * WHICH enemy the (automatic, lock-gated) targeting prefers. Both paths retire
+   * together with move orders in the cleanup stage, hence a gate and not a
+   * deletion.
+   */
+  private flightMode = false;
 
   // Primary-pointer down state.
   private downId: number | null = null;
@@ -101,6 +111,15 @@ export class OrderInput {
       this.maxPointers = 0;
       this.downId = null;
     }
+  }
+
+  /**
+   * Turn the flight gate on/off. On while the chase camera is driving an active
+   * match; off on the menu/editor rigs.
+   */
+  setFlightMode(enabled: boolean): void {
+    this.flightMode = enabled;
+    if (enabled) this.lastTapMs = -Infinity;
   }
 
   private onPointer(pi: PointerInfo): void {
@@ -163,7 +182,9 @@ export class OrderInput {
       return;
     }
 
-    // Ground plane → move order.
+    // Ground plane → move order. Gated off in flight mode (see `flightMode`).
+    if (this.flightMode) return;
+
     const point = pick.pickedPoint;
     if (!point) return;
     const target = { x: point.x, z: point.z };

@@ -1,13 +1,21 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import type { BotprofileConfig } from "../schemas/botprofile.js";
+import type { Vec2 } from "../schemas/common.js";
 import type { ModuleConfig } from "../schemas/module.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong } from "../sim/los.js";
-import { dist } from "../sim/math.js";
+import { angleDelta, clamp, dist } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
-import { botBehaviors, type BehaviorRegistry, type BotPlan } from "./behaviors.js";
-import { buildBotContext, numParam, strParam, type BotContext } from "./context.js";
+import {
+  botBehaviors,
+  type BehaviorRegistry,
+  type BotBehavior,
+  type BotPlan,
+  type FlightCommand,
+} from "./behaviors.js";
+import { boolParam, buildBotContext, numParam, strParam, type BehaviorParams, type BotContext } from "./context.js";
+import { turnForPoint } from "./flight.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";
 
 /**
@@ -22,15 +30,25 @@ export interface BotDecisionSnapshot {
   behavior: string | null;
   /** Final utility score per behaviour key considered (baseWeight × factor). */
   scores: Readonly<Record<string, number>>;
-  /** Move point ordered this decision (null when the bot kept its order). */
+  /**
+   * Aim point behind the `flight` order actually emitted this decision, or null
+   * when the standing flight state was close enough to keep (level-triggered
+   * orders mean "no order" is the normal case, not an error).
+   */
   movePoint: { x: number; z: number } | null;
   /**
-   * Move point the winning behaviour *chose* this decision, whether or not it
-   * differed enough from the standing order to be re-issued. This is the point
-   * the 5.3 debug overlay draws — {@link movePoint} only tells you which
-   * decisions produced traffic.
+   * Aim point the winning behaviour *chose* this decision, whether or not the
+   * resulting stick input differed enough to be re-issued. This is the point the
+   * 5.3 debug overlay draws — {@link movePoint} only tells you which decisions
+   * produced traffic.
    */
   plannedMove: { x: number; z: number } | null;
+  /**
+   * Stick state the driver settled on this decision (after overlays), whether or
+   * not it was re-sent. Optional so the field can be added without disturbing
+   * consumers that build decision fixtures.
+   */
+  flight?: FlightCommand;
   boost: boolean;
   targetId: EntityId | null;
   engaged: boolean;
@@ -62,25 +80,48 @@ const NO_ORDERS: readonly Order[] = Object.freeze([]);
 
 /** Minimum spacing between decisions after jitter (ms). */
 const MIN_DECISION_MS = 16;
-/** Re-issuing a move order closer than this to the last one is pointless. */
-const MOVE_EPSILON = 1.5;
 /** Missiles farther than this multiple of the preferred range are ignored. */
 const MISSILE_SCAN_MULT = 2;
 
+/** Rotation budget for one turn command, as a multiple of the decision interval. */
+const DEFAULT_TURN_HORIZON_MULT = 1;
+/** Heading error treated as "nose on" — inside it the stick centres (radians). */
+const DEFAULT_AIM_TOLERANCE_RAD = 0.02;
+/** Stick deltas below these keep the standing (level-triggered) flight state. */
+const DEFAULT_TURN_EPSILON = 0.05;
+const DEFAULT_THROTTLE_EPSILON = 0.02;
+/** Commanded |turn| below which a heading sample is too small to calibrate from. */
+const CALIBRATION_MIN_TURN = 0.05;
 /**
- * `BotDriver` (ROADMAP 5.1) — drives one ship by emitting the **same orders a
- * human client sends** (`move` / `target` / `moduleToggle`). It consumes a
- * read-only {@link Snapshot} plus its `botprofile` config and returns orders;
- * it never touches sim internals, so every rule (range, LoS, energy, heat,
- * order validation) applies to bots by construction.
+ * Longest sample window accepted for a turn-rate measurement (seconds). Over a
+ * longer span a fast hull could sweep past ±PI and `angleDelta` would alias the
+ * rotation down; one sim tick is ~0.033 s, so this only rejects pathological gaps.
+ */
+const CALIBRATION_MAX_SPAN_SEC = 0.2;
+
+/**
+ * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
+ * ship by emitting the **same orders a human client sends** (`flight` / `target`
+ * / `moduleToggle`). It consumes a read-only {@link Snapshot} plus its
+ * `botprofile` config and returns orders; it never touches sim internals, so
+ * every rule (lock gate, range, LoS, energy, heat, order validation) applies to
+ * bots by construction. There is no bot aimbot and no sim-side privilege.
  *
  * Utility decision-making: each behaviour key present in the profile is scored
- * as `baseWeight × situationalFactor`; the highest wins and plans the move. A
- * profile without a `retreat` block can never retreat — the config *is* the
- * behaviour set.
+ * as `baseWeight × situationalFactor`; the highest wins and plans the maneuver.
+ * A profile without a `retreat` block can never retreat — the config *is* the
+ * behaviour set. Behaviours that are situationally live but lost still get to
+ * {@link BotBehavior.overlay} the winner's stick (jinks, rock avoidance).
  *
- * Cadence, jitter, ranges, weights and thresholds all come from the profile.
- * Nothing bot-specific is hardcoded here.
+ * **Flight**: a plan is an aim point plus a throttle. {@link turnForPoint}
+ * converts the aim point into the `turn` axis, which needs the hull's turn rate
+ * — a stat the snapshot deliberately does not carry. The driver therefore
+ * *measures* it (see {@link BotDriver.calibrate}): heading integration is exactly
+ * `turn * turnRate * dt`, so one tick of a known non-zero stick reveals the rate
+ * exactly, and it then tracks modules/upgrades that change it for free.
+ *
+ * Cadence, jitter, ranges, weights, stick feel and thresholds all come from the
+ * profile. Nothing bot-specific and nothing per-ship is hardcoded here.
  */
 export class BotDriver {
   readonly entityId: EntityId;
@@ -94,10 +135,15 @@ export class BotDriver {
 
   private nextDecisionMs = 0;
   private started = false;
-  private lastMove: { x: number; z: number } | null = null;
+  /** Flight state the ship is currently integrating (what we last sent), if any. */
+  private lastFlight: FlightCommand | null = null;
   private lastTargetId: EntityId | null = null;
   private decision: BotDecisionSnapshot | null = null;
   private weaponRangeCache = -1;
+  /** Measured hull turn rate in rad/s; 0 until the first usable sample. */
+  private turnRateEst = 0;
+  private lastHeading: number | null = null;
+  private lastElapsed = 0;
 
   constructor(options: BotDriverOptions) {
     this.entityId = options.entityId;
@@ -124,22 +170,41 @@ export class BotDriver {
     return this.decision;
   }
 
-  /** Forget cadence + issued-order memory (e.g. after a respawn). */
+  /**
+   * Measured hull turn rate in rad/s (0 before the first usable sample). Exposed
+   * for the debug overlay and for tests that assert the calibration converges.
+   */
+  get measuredTurnRate(): number {
+    return this.turnRateEst;
+  }
+
+  /** Forget cadence, calibration and issued-order memory (e.g. after a respawn). */
   reset(): void {
     this.started = false;
     this.nextDecisionMs = 0;
-    this.lastMove = null;
+    this.lastFlight = null;
     this.lastTargetId = null;
     this.decision = null;
+    this.turnRateEst = 0;
+    this.lastHeading = null;
+    this.lastElapsed = 0;
   }
 
   /**
    * Advance the driver. Call every sim tick with the current snapshot and the
    * elapsed sim time in milliseconds; returns the orders to feed through the
    * normal order pipeline (empty between decision intervals).
+   *
+   * Turn-rate calibration runs on *every* tick, not just decision ticks — the
+   * ship keeps integrating the standing flight state in between, so those ticks
+   * are free measurements.
    */
   update(snapshot: Snapshot, nowMs: number): readonly Order[] {
     if (snapshot.phase !== "live") return NO_ORDERS;
+    const self = findShipSnapshot(snapshot, this.entityId);
+    if (!self) return NO_ORDERS;
+    this.calibrate(self, snapshot.elapsed);
+
     if (!this.started) {
       this.started = true;
       // Stagger first decisions across bots so they don't all fire on tick 0.
@@ -149,10 +214,32 @@ export class BotDriver {
     if (nowMs < this.nextDecisionMs) return NO_ORDERS;
     this.nextDecisionMs = nowMs + this.jitteredInterval();
 
-    const self = findShipSnapshot(snapshot, this.entityId);
-    if (!self) return NO_ORDERS;
-
     return this.decide(snapshot, self, nowMs);
+  }
+
+  /**
+   * Recover the hull's `turnRate` from what the ship actually did with the last
+   * stick we sent. NavigationSystem integrates `heading += turn * turnRate * dt`
+   * and nothing else rotates a ship, so the quotient is the rate exactly — no
+   * estimator, no smoothing, and it re-measures every tick, which is what keeps a
+   * module/upgrade that changes `turnRate` mid-match working with zero extra code.
+   *
+   * Samples are skipped when the stick was ~centred (no signal), when sim time did
+   * not advance (a replayed snapshot) or when the window is long enough that the
+   * hull could have swept past ±PI and aliased.
+   */
+  private calibrate(self: ShipSnapshot, elapsed: number): void {
+    const prevHeading = this.lastHeading;
+    const span = elapsed - this.lastElapsed;
+    this.lastHeading = self.heading;
+    this.lastElapsed = elapsed;
+
+    const turn = this.lastFlight?.turn ?? 0;
+    if (prevHeading === null) return;
+    if (span <= 0 || span > CALIBRATION_MAX_SPAN_SEC) return;
+    if (Math.abs(turn) < CALIBRATION_MIN_TURN) return;
+    const rate = angleDelta(prevHeading, self.heading) / (turn * span);
+    if (Number.isFinite(rate) && rate > 0) this.turnRateEst = rate;
   }
 
   private jitteredInterval(): number {
@@ -165,44 +252,44 @@ export class BotDriver {
     const orders: Order[] = [];
     // One registry read per decision: the profile cannot change mid-decision.
     const profile = this.profile;
+    const horizonSec =
+      (profile.decisionIntervalMs / 1000) * (profile.flight?.turnHorizonMult ?? DEFAULT_TURN_HORIZON_MULT);
 
     // --- context (target choice first: behaviours score relative to it) ---
     const weaponRange = this.weaponRange(self);
-    const preliminary = buildBotContext({
-      snapshot,
-      self,
-      profile,
-      weaponRange,
-      targetId: self.targetId,
-      missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
-      orbitSign: this.orbitSign,
-      rng: this.rng,
-    });
+    const build = (targetId: EntityId | null): BotContext =>
+      buildBotContext({
+        snapshot,
+        self,
+        profile,
+        weaponRange,
+        targetId,
+        missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
+        orbitSign: this.orbitSign,
+        rng: this.rng,
+        turnRate: this.turnRateEst,
+        turnHorizonSec: horizonSec,
+      });
+    const preliminary = build(self.targetId);
     const targetId = this.pickTarget(preliminary);
-    const ctx =
-      targetId === preliminary.target?.id
-        ? preliminary
-        : buildBotContext({
-            snapshot,
-            self,
-            profile,
-            weaponRange,
-            targetId,
-            missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
-            orbitSign: this.orbitSign,
-            rng: this.rng,
-          });
+    const ctx = targetId === preliminary.target?.id ? preliminary : build(targetId);
 
     // --- utility scoring over the behaviours the profile actually declares ---
+    // `factor` (situational, ≥ 0) and `score` (baseWeight × factor) are tracked
+    // separately: the score decides who *plans*, the factor decides who is live
+    // enough to *overlay*. That is what makes `baseWeight: 0` a pure overlay.
     const scores: Record<string, number> = {};
+    const live: { key: string; params: BehaviorParams; behavior: BotBehavior }[] = [];
     let bestKey: string | null = null;
     let bestScore = 0;
     let bestPlan: BotPlan | null = null;
     for (const [key, params] of Object.entries(profile.behaviors)) {
       const behavior = this.behaviors.get(key);
       if (!behavior) continue; // unknown key in config: ignored, never crashes a match
-      const score = params.baseWeight * behavior.score(ctx, params);
+      const factor = behavior.score(ctx, params);
+      const score = params.baseWeight * factor;
       scores[key] = score;
+      if (factor > 0 && behavior.overlay) live.push({ key, params, behavior });
       if (score > bestScore) {
         bestScore = score;
         bestKey = key;
@@ -213,19 +300,40 @@ export class BotDriver {
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
 
-    // --- target order (same order a human's tap-on-enemy produces) ---
+    // --- target order (interim manual pin, FLIGHT.md §2; retires in stage 7) ---
     if (targetId !== self.targetId && targetId !== this.lastTargetId) {
       orders.push({ kind: "target", targetId });
       this.lastTargetId = targetId;
     }
 
-    // --- move order ---
-    const move = bestPlan?.move ?? null;
-    let issuedMove: { x: number; z: number } | null = null;
-    if (move && (this.lastMove === null || dist(this.lastMove, move) > MOVE_EPSILON)) {
-      orders.push({ kind: "move", target: { x: move.x, z: move.z }, boost: bestPlan?.boost ?? false });
-      this.lastMove = { x: move.x, z: move.z };
-      issuedMove = this.lastMove;
+    // --- flight order: aim point -> stick, then overlays, then epsilon gate ---
+    const aim = bestPlan?.aim ?? null;
+    const tolerance = profile.flight?.aimToleranceRad ?? DEFAULT_AIM_TOLERANCE_RAD;
+    let cmd: FlightCommand = {
+      turn: aim ? turnForPoint(self.pos, self.heading, aim, this.turnRateEst, horizonSec, tolerance) : 0,
+      throttle: clamp(bestPlan?.throttle ?? 0, 0, 1),
+      boost: bestPlan?.boost ?? false,
+    };
+    for (const l of live) {
+      if (l.key === bestKey) continue; // the winner already spoke through its plan
+      cmd = l.behavior.overlay!(ctx, l.params, cmd);
+    }
+    // `clamp` passes NaN straight through, and a non-finite axis would poison the
+    // ship's heading for the rest of the match (flight orders are level-triggered).
+    // A mistyped content param is the realistic source, so neutralise it here
+    // rather than shipping an order the sim would have to drop.
+    cmd = {
+      turn: Number.isFinite(cmd.turn) ? clamp(cmd.turn, -1, 1) : 0,
+      throttle: Number.isFinite(cmd.throttle) ? clamp(cmd.throttle, 0, 1) : 0,
+      boost: cmd.boost,
+    };
+
+    let issuedAim: Vec2 | null = null;
+    if (this.shouldSendFlight(cmd, profile)) {
+      // Same shape, same validation, same pipeline as the human joystick.
+      orders.push({ kind: "flight", throttle: cmd.throttle, turn: cmd.turn, boost: cmd.boost });
+      this.lastFlight = cmd;
+      issuedAim = aim ? { x: aim.x, z: aim.z } : null;
     }
 
     // --- module discipline ---
@@ -237,9 +345,10 @@ export class BotDriver {
       atMs: nowMs,
       behavior: bestKey,
       scores,
-      movePoint: issuedMove,
-      plannedMove: move,
-      boost: bestPlan?.boost ?? false,
+      movePoint: issuedAim,
+      plannedMove: aim ? { x: aim.x, z: aim.z } : null,
+      flight: cmd,
+      boost: cmd.boost,
       targetId,
       engaged,
       moduleDecisions: modulePlan.decisions,
@@ -249,16 +358,40 @@ export class BotDriver {
   }
 
   /**
+   * Whether the stick moved enough to be worth a wire order. Flight orders are
+   * level-triggered, so "send nothing" means "keep flying the last command" —
+   * the epsilons are what keep a bot's order rate at a fraction of a decision per
+   * second instead of one per decision, well inside `tuning.maxOrdersPerSec`.
+   */
+  private shouldSendFlight(cmd: FlightCommand, profile: BotprofileConfig): boolean {
+    const last = this.lastFlight;
+    if (!last) return true;
+    if (last.boost !== cmd.boost) return true;
+    if (Math.abs(last.turn - cmd.turn) > (profile.flight?.turnEpsilon ?? DEFAULT_TURN_EPSILON)) return true;
+    return Math.abs(last.throttle - cmd.throttle) > (profile.flight?.throttleEpsilon ?? DEFAULT_THROTTLE_EPSILON);
+  }
+
+  /**
    * Which enemy to focus. Policy comes from the profile's `engage` block
    * (`targetPreference: "nearest" | "lowestHull"`, default `nearest`); enemies
    * without line of sight are penalised by `losPenalty` so bots prefer someone
    * they can actually shoot. Returns the current target when nothing is visible.
+   *
+   * `holdLockTarget` (default on) is the flight-model addition: TargetingSystem
+   * zeroes `lockProgress` whenever the candidate changes, so a bot that re-ranks
+   * its enemies mid-warm-up throws its own lock away and never fires. While there
+   * is progress on the books the sensors keep whoever they are already warming.
    */
   private pickTarget(ctx: BotContext): EntityId | null {
     if (ctx.enemies.length === 0) return null;
     const params = this.profile.behaviors["engage"];
     const preference = params ? strParam(params, "targetPreference", "nearest") : "nearest";
     const losPenalty = params ? numParam(params, "losPenalty", 2) : 2;
+    const hold = params ? boolParam(params, "holdLockTarget", true) : true;
+    if (hold && ctx.self.lockProgress > 0 && ctx.self.targetId !== null) {
+      const held = ctx.self.targetId;
+      if (ctx.enemies.some((e) => e.id === held)) return held;
+    }
 
     let best: EntityId | null = null;
     let bestCost = Infinity;

@@ -1,4 +1,4 @@
-import { Engine, EngineFactory, Scene, Color4, TransformNode } from "@babylonjs/core";
+import { Engine, EngineFactory, Scene, Color4, Matrix, TransformNode, Vector3, Viewport } from "@babylonjs/core";
 import {
   createLogger,
   ConfigService,
@@ -37,6 +37,9 @@ import { AudioManager } from "./audio/AudioManager.js";
 import { AudioFeedback } from "./audio/AudioFeedback.js";
 import { audioSettingsOf } from "./audio/soundIds.js";
 import { ScreenShake } from "./game/juice/ScreenShake.js";
+import { angleDeltaTo } from "./game/chaseCamera.js";
+import type { FlightHudBinding } from "./game/hud/FlightControls.js";
+import type { CameraView } from "./game/hud/flightHudLayout.js";
 
 const log = createLogger("Client");
 
@@ -251,6 +254,41 @@ async function bootstrap(): Promise<void> {
   const playerFollow = new TransformNode("playerFollow", scene);
   tacticalCamera.follow(playerFollow);
 
+  // --- Flight HUD ↔ 3D bridge (FLIGHT.md §4) ---
+  //
+  // The HUD is pure DOM and knows nothing about Babylon; these two callbacks are
+  // the entire surface between them. Both run once per frame, so everything here
+  // is scratch-allocated once and mutated in place.
+  const projectIdentity = Matrix.Identity();
+  // A unit viewport makes `Vector3.ProjectToRef` return normalized 0..1 screen
+  // coordinates, which we scale by the canvas's CSS size. Projecting into the
+  // RENDER buffer instead would be wrong by the quality tier's hardware-scaling
+  // factor — the HUD lives in CSS pixels.
+  const projectViewport = new Viewport(0, 0, 1, 1);
+  const projectWorld = new Vector3();
+  const projectResult = new Vector3();
+  const flightBinding: FlightHudBinding = {
+    project(x: number, y: number, z: number, out: { x: number; y: number }): boolean {
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (width <= 0 || height <= 0) return false;
+      projectWorld.set(x, y, z);
+      // Behind-camera check first: `Project` divides by w, so a point behind the
+      // near plane comes back mirrored onto the screen instead of absent. Babylon
+      // is left-handed by default, so view-space +z is in front of the camera.
+      Vector3.TransformCoordinatesToRef(projectWorld, scene.getViewMatrix(), projectResult);
+      if (projectResult.z <= 0.01) return false;
+      Vector3.ProjectToRef(projectWorld, projectIdentity, scene.getTransformMatrix(), projectViewport, projectResult);
+      out.x = projectResult.x * width;
+      out.y = projectResult.y * height;
+      return true;
+    },
+    cameraView(out: CameraView): void {
+      out.fovRad = tacticalCamera.camera.fov;
+      out.betaRad = tacticalCamera.camera.beta;
+    },
+  };
+
   function createMatchRuntime(session: GameSession): MatchRuntime {
     const viewManager = new ViewManager(
       scene,
@@ -262,6 +300,9 @@ async function bootstrap(): Promise<void> {
       { playSound: (id, volume) => audio.play(id, volume) },
     );
     const orderInput = new OrderInput(scene, configService, session);
+    // Chase camera + virtual joystick own steering now (FLIGHT.md §3): tap-to-move
+    // and its double-tap boost are gated off, tap-to-target stays.
+    orderInput.setFlightMode(true);
     const orderMarkers = new OrderMarkers(scene, session.playerId);
     const offline = !(session instanceof NetGameSession);
     const hud = new Hud(
@@ -289,7 +330,7 @@ async function bootstrap(): Promise<void> {
         },
         onSettings: () => openSettings("match"),
       },
-      { offline },
+      { offline, flight: flightBinding },
     );
 
     // Online sessions: rejection toasts + DEV net telemetry overlay (F9).
@@ -313,6 +354,12 @@ async function bootstrap(): Promise<void> {
     tacticalCamera.follow(playerFollow);
     tacticalCamera.camera.target.copyFrom(playerFollow.position);
     tacticalCamera.camera.setTarget(tacticalCamera.camera.target);
+    // In-match view IS the chase rig (FLIGHT.md §3). Enabled AFTER the setTarget
+    // above, which recomputes alpha/beta/radius from the camera position and
+    // would otherwise be undone by (and undo) the chase clamps. Seed its yaw from
+    // the spawn heading so the first frame is already behind the ship.
+    tacticalCamera.setChaseHeading(initial ? initial.heading : 0);
+    tacticalCamera.setChaseMode(true);
 
     const audioFeedback = new AudioFeedback(configService, session.playerId, audio);
     const screenShake = new ScreenShake(configService, session.playerId, tacticalCamera, bus);
@@ -389,6 +436,9 @@ async function bootstrap(): Promise<void> {
     settingsScreen.hide();
     runtime?.dispose();
     runtime = null;
+    // Back to the menu/hangar rigs: the chase view only exists while a ship is
+    // flying (FLIGHT.md §3), and leaving it restores the tactical orbit limits.
+    tacticalCamera.setChaseMode(false);
     void authService.refreshProfile();
   }
 
@@ -572,6 +622,11 @@ async function bootstrap(): Promise<void> {
         const bx = pp ? pp.pos.x : pc.pos.x;
         const bz = pp ? pp.pos.z : pc.pos.z;
         playerFollow.position.set(bx + (pc.pos.x - bx) * alpha, 0.3, bz + (pc.pos.z - bz) * alpha);
+        // Chase yaw follows the same interpolated ship the view draws. Lerped
+        // the SHORT way round so a wrap past ±π never spins the camera a full
+        // turn; `chase.yawLag` inside the rig does the actual smoothing.
+        const base = pp ? pp.heading : pc.heading;
+        tacticalCamera.setChaseHeading(base + angleDeltaTo(base, pc.heading) * alpha);
       }
 
       // Consume this frame's sim events, then render dynamic views + markers + HUD.
@@ -594,7 +649,7 @@ async function bootstrap(): Promise<void> {
       runtime.screenShake.update(dtMs);
       runtime.viewManager.render(prev, cur, alpha, dtMs);
       runtime.orderMarkers.render(cur, dtMs);
-      runtime.hud.update(cur, prev, dtMs, engine.getFps());
+      runtime.hud.update(cur, prev, dtMs, engine.getFps(), alpha);
       runtime.netOverlay?.update();
       runtime.botOverlay?.update();
       quality.sampleFrame(engine.getFps(), dtMs);

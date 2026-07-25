@@ -5,7 +5,12 @@ import { Haptics, hapticPatternFor, hapticsSettingsOf } from "./Haptics.js";
 const PLAYER = 1;
 const ENEMY = 2;
 
-const SETTINGS = { enabled: true, overheatPattern: [60, 50, 120], killPattern: [25, 40, 25] };
+const SETTINGS = {
+  enabled: true,
+  overheatPattern: [60, 50, 120],
+  killPattern: [25, 40, 25],
+  lockPattern: [18, 45, 18],
+};
 
 const overheat = (entityId: number): SimEvent => ({
   type: "overheated",
@@ -39,6 +44,15 @@ describe("hapticPatternFor", () => {
     expect(hapticPatternFor(destroyed(PLAYER, ENEMY), PLAYER, SETTINGS)).toBeNull();
   });
 
+  // FLIGHT.md §4: the lock flip is the moment weapons come live, so it gets its
+  // own buzz — but only for the local player, and only on acquire (a `lockLost`
+  // buzz would rattle constantly in a dogfight).
+  it("buzzes when the player's own sensors complete a lock", () => {
+    expect(hapticPatternFor({ type: "lockAcquired", entityId: PLAYER, targetId: ENEMY }, PLAYER, SETTINGS)).toEqual([18, 45, 18]);
+    expect(hapticPatternFor({ type: "lockAcquired", entityId: ENEMY, targetId: PLAYER }, PLAYER, SETTINGS)).toBeNull();
+    expect(hapticPatternFor({ type: "lockLost", entityId: PLAYER }, PLAYER, SETTINGS)).toBeNull();
+  });
+
   it("honours the master toggle and treats an empty pattern as 'off'", () => {
     expect(hapticPatternFor(overheat(PLAYER), PLAYER, { ...SETTINGS, enabled: false })).toBeNull();
     expect(hapticPatternFor(overheat(PLAYER), PLAYER, { ...SETTINGS, overheatPattern: [] })).toBeNull();
@@ -51,12 +65,12 @@ describe("hapticPatternFor", () => {
 
 describe("hapticsSettingsOf", () => {
   it("defaults to silent when a theme declares no haptics block", () => {
-    expect(hapticsSettingsOf(undefined)).toEqual({ enabled: false, overheatPattern: [], killPattern: [] });
+    expect(hapticsSettingsOf(undefined)).toEqual({ enabled: false, overheatPattern: [], killPattern: [], lockPattern: [] });
   });
 
   it("reads patterns and the toggle straight from the theme", () => {
-    const theme = { haptics: { enabled: true, killPattern: [10] } } as ThemeConfig;
-    expect(hapticsSettingsOf(theme)).toEqual({ enabled: true, overheatPattern: [], killPattern: [10] });
+    const theme = { haptics: { enabled: true, killPattern: [10], lockPattern: [18] } } as ThemeConfig;
+    expect(hapticsSettingsOf(theme)).toEqual({ enabled: true, overheatPattern: [], killPattern: [10], lockPattern: [18] });
   });
 });
 

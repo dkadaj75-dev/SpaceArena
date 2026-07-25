@@ -104,6 +104,10 @@ export interface AudioCueMap {
   playerDeath: string | null;
   overheat: string | null;
   boundaryWarning: string | null;
+  /** Sensors completing a lock on the local player's candidate (FLIGHT.md §2/§4). */
+  lockAcquired: string | null;
+  /** A completed lock breaking (progress drained to 0, or the target died). */
+  lockLost: string | null;
 }
 
 /** The theme's `audio` block, fully defaulted. */
@@ -129,6 +133,8 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
     playerDeath: null,
     overheat: null,
     boundaryWarning: null,
+    lockAcquired: null,
+    lockLost: null,
   },
 };
 
@@ -149,6 +155,8 @@ export function audioSettingsOf(theme: ThemeConfig | undefined): AudioSettings {
       playerDeath: resolveSoundId(cues?.playerDeath),
       overheat: resolveSoundId(cues?.overheat),
       boundaryWarning: resolveSoundId(cues?.boundaryWarning),
+      lockAcquired: resolveSoundId(cues?.lockAcquired),
+      lockLost: resolveSoundId(cues?.lockLost),
     },
   };
 }
@@ -175,6 +183,13 @@ export function cueSoundFor(event: SimEvent, playerId: EntityId, cues: AudioCueM
       return event.entityId === playerId ? cues.overheat : null;
     case "boundaryHit":
       return event.entityId === playerId && event.rule !== "bounce" ? cues.boundaryWarning : null;
+    // Lock flips (FLIGHT.md §4). Both directions get a cue: unlike the haptic,
+    // a short audio tick for losing the lock is the cheapest way to tell a
+    // player their guns just went cold without them reading the reticle.
+    case "lockAcquired":
+      return event.entityId === playerId ? cues.lockAcquired : null;
+    case "lockLost":
+      return event.entityId === playerId ? cues.lockLost : null;
     default:
       return null;
   }

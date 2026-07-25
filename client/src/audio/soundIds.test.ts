@@ -155,6 +155,8 @@ describe("cueSoundFor", () => {
     playerDeath: "explosion_heavy",
     overheat: "overheat_warning",
     boundaryWarning: "boundary_warn",
+    lockAcquired: "lock_acquired",
+    lockLost: "lock_lost",
   };
 
   it("fires player-feedback cues only for the local player", () => {
@@ -174,6 +176,15 @@ describe("cueSoundFor", () => {
   it("ignores harmless boundary bounces", () => {
     expect(cueSoundFor({ type: "boundaryHit", entityId: PLAYER, rule: "bounce" }, PLAYER, cues)).toBeNull();
     expect(cueSoundFor({ type: "boundaryHit", entityId: PLAYER, rule: "warning" }, PLAYER, cues)).toBe("boundary_warn");
+  });
+
+  // FLIGHT.md §2/§4: both lock directions get a cue (unlike the haptic, which
+  // only fires on acquire), and neither reacts to another ship's lock.
+  it("cues both directions of the local player's lock", () => {
+    expect(cueSoundFor({ type: "lockAcquired", entityId: PLAYER, targetId: ENEMY }, PLAYER, cues)).toBe("lock_acquired");
+    expect(cueSoundFor({ type: "lockLost", entityId: PLAYER }, PLAYER, cues)).toBe("lock_lost");
+    expect(cueSoundFor({ type: "lockAcquired", entityId: ENEMY, targetId: PLAYER }, PLAYER, cues)).toBeNull();
+    expect(cueSoundFor({ type: "lockLost", entityId: ENEMY }, PLAYER, cues)).toBeNull();
   });
 
   it("stays silent for cues the theme leaves unset", () => {

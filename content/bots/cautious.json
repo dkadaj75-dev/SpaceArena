@@ -1,17 +1,61 @@
 {
   "id": "bot.cautious",
   "type": "botprofile",
-  "version": 1,
+  "version": 2,
   "name": "Cautious",
-  "decisionIntervalMs": 350,
-  "orderJitterMs": 80,
-  "preferredRange": [30, 45],
+  "decisionIntervalMs": 300,
+  "orderJitterMs": 60,
+  "preferredRange": [38, 66],
+  "flight": {
+    "turnHorizonMult": 1.0,
+    "aimToleranceRad": 0.02,
+    "turnEpsilon": 0.05,
+    "throttleEpsilon": 0.03
+  },
   "behaviors": {
-    "engage": { "baseWeight": 0.7, "doubleTapBoostChance": 0.05, "orbitStepRad": 0.5, "targetPreference": "lowestHull" },
-    "kite": { "baseWeight": 1.1, "urgencyGain": 1.0, "doubleTapBoostChance": 0.35, "lateralRad": 0.5 },
-    "breakLoS": { "baseWeight": 1.0, "triggerHullBelow": 0.7, "coverOffset": 4, "urgencyGain": 1.0 },
-    "retreat": { "baseWeight": 0.9, "triggerHullBelow": 0.35, "triggerShieldDown": true, "retreatDistance": 60, "doubleTapBoostChance": 0.6 },
-    "dodge": { "baseWeight": 1.2, "dodgeRadius": 24, "dodgeDistance": 16 }
+    "engage": {
+      "baseWeight": 0.9,
+      "throttleApproach": 0.9,
+      "throttleBand": 0.35,
+      "throttleClose": 0.12,
+      "hardTurnRad": 0.9,
+      "throttleTurn": 0.25,
+      "targetPreference": "lowestHull",
+      "holdLockTarget": true,
+      "boostChance": 0.05
+    },
+    "kite": {
+      "baseWeight": 1.6,
+      "urgencyGain": 1.0,
+      "breakRange": 22,
+      "standoffFrac": 0.85,
+      "slipRad": 0.5,
+      "throttleRun": 1.0,
+      "throttleHold": 0.25,
+      "boostChance": 0.25
+    },
+    "breakLoS": {
+      "baseWeight": 1.0,
+      "triggerHullBelow": 0.6,
+      "coverOffset": 4,
+      "urgencyGain": 1.0,
+      "throttle": 1.0
+    },
+    "retreat": {
+      "baseWeight": 1.4,
+      "triggerHullBelow": 0.25,
+      "urgencyGain": 1.0,
+      "retreatDistance": 60,
+      "throttle": 1.0,
+      "boostChance": 1.0
+    },
+    "dodge": {
+      "baseWeight": 1.2,
+      "dodgeRadius": 24,
+      "dodgeDistance": 16,
+      "jinkAmp": 0.35,
+      "jinkPeriodSec": 0.7
+    }
   },
   "moduleDiscipline": {
     "heatShutdownAt": 0.7,

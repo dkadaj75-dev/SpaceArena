@@ -1,4 +1,5 @@
 export * from "./context.js";
+export * from "./flight.js";
 export * from "./behaviors.js";
 export * from "./moduleDiscipline.js";
 export * from "./BotDriver.js";

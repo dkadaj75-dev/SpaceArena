@@ -24,7 +24,7 @@ function profile(over: Partial<BotprofileConfig> = {}): BotprofileConfig {
     orderJitterMs: 150,
     preferredRange: [20, 35],
     behaviors: {
-      engage: { baseWeight: 1, doubleTapBoostChance: 0.4, targetPreference: "nearest" },
+      engage: { baseWeight: 1, boostChance: 0.4, targetPreference: "nearest" },
       kite: { baseWeight: 0.5 },
     },
     moduleDiscipline: { heatShutdownAt: 0.85, reactivateBelow: 0.5, energyReserve: 0.15, shieldOnlyWhenEngaged: true },
@@ -81,9 +81,9 @@ describe("botprofile behaviour record helpers", () => {
 
   it("offers only unset tunables for a behaviour", () => {
     const keys = addableParamKeys(record["engage"]!, "engage").map((s) => s.key);
-    expect(keys).not.toContain("doubleTapBoostChance");
+    expect(keys).not.toContain("boostChance");
     expect(keys).not.toContain("targetPreference");
-    expect(keys).toContain("orbitStepRad");
+    expect(keys).toContain("throttleBand");
   });
 
   it("picks the first free custom profile id", () => {
@@ -109,7 +109,7 @@ describe("BotProfileEditor panel", () => {
     const addable = Array.from(
       panel.element.querySelectorAll<HTMLSelectElement>(".ed-record > .ed-record-add select")[0]!.options,
     ).map((o) => o.value);
-    expect(addable).toEqual(["", "breakLoS", "retreat", "dodge"]);
+    expect(addable).toEqual(["", "breakLoS", "retreat", "dodge", "avoidRocks"]);
   });
 
   it("commits behaviour add/remove and param edits through the config service", () => {

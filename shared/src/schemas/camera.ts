@@ -46,6 +46,38 @@ export const cameraSchema = z.object({
       minDamageScale: z.number().min(0).max(1).optional(),
     })
     .optional(),
+  /**
+   * Chase camera (FLIGHT.md §3) — the in-match rig for the continuous-flight
+   * model. The orbit angle is driven by the ship's own heading instead of the
+   * player's drag, so these are pure feel knobs: they replace `alpha`/`beta`/
+   * `radius` while a match is running and change nothing about the menu,
+   * hangar or editor modes.
+   *
+   * Absent block ⇒ the client falls back to its built-in chase defaults, so a
+   * pre-flight content pack still gets a working chase view.
+   */
+  chase: z
+    .object({
+      /** Orbit distance behind the ship (world units). Also the zoom clamp while chasing. */
+      radius: z.number().positive(),
+      /** Follow-point Y offset above the ship, i.e. how far the rig looks over its shoulder. */
+      height: z.number(),
+      /**
+       * Tilt (radians, polar from +Y like `beta`): π/2 is dead level, smaller
+       * lifts the camera above the ship. A low angle is the whole point of the
+       * chase view — it is what makes speed read.
+       */
+      beta: z.number().positive(),
+      /**
+       * Heading smoothing 0..1 (higher = snappier), applied exactly like
+       * `followLag` but to the orbit yaw. Low values let the ship visibly lead
+       * its own camera through a turn; 1 pins the yaw to the heading.
+       */
+      yawLag: z.number().min(0).max(1),
+      /** Vertical field of view (radians) while chasing. Omitted keeps the engine default. */
+      fov: z.number().positive().optional(),
+    })
+    .optional(),
   /** View panning (right-drag / two-finger drag). Client falls back to defaults when absent. */
   pan: z
     .object({
