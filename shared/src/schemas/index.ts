@@ -127,6 +127,12 @@ export interface ConfigRef {
   path: string;
   /** The referenced config id. */
   id: string;
+  /**
+   * The config type this slot must point at. Resolution checks both existence
+   * AND type, so `upgradeTracks.hull: "module.laser-mk1"` is a load error, not
+   * a silent runtime `undefined` in resolveShipStats.
+   */
+  expects: ConfigType;
 }
 
 /** A relational (cross-config) problem: a violated constraint needing other configs to detect. */
@@ -185,55 +191,55 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
   switch (config.type) {
     case "ship": {
       const t = config.upgradeTracks;
-      refs.push({ path: "upgradeTracks.hull", id: t.hull });
-      refs.push({ path: "upgradeTracks.engine", id: t.engine });
-      refs.push({ path: "upgradeTracks.energy", id: t.energy });
-      refs.push({ path: "upgradeTracks.heat", id: t.heat });
+      refs.push({ path: "upgradeTracks.hull", id: t.hull, expects: "upgrade" });
+      refs.push({ path: "upgradeTracks.engine", id: t.engine, expects: "upgrade" });
+      refs.push({ path: "upgradeTracks.energy", id: t.energy, expects: "upgrade" });
+      refs.push({ path: "upgradeTracks.heat", id: t.heat, expects: "upgrade" });
       config.defaultFitting.forEach((id, i) =>
-        refs.push({ path: `defaultFitting[${i}]`, id }),
+        refs.push({ path: `defaultFitting[${i}]`, id, expects: "module" }),
       );
       // Emitter sockets reference an effect (`fx.*`) config by id.
       config.sockets.forEach((s, i) => {
-        if (s.kind === "emitter") refs.push({ path: `sockets[${i}].effect`, id: s.effect });
+        if (s.kind === "emitter") refs.push({ path: `sockets[${i}].effect`, id: s.effect, expects: "effect" });
       });
       break;
     }
     case "module": {
       for (const hook of ["onFire", "onOverheat", "onActivate", "onDeactivate"] as const) {
         (config[hook] ?? []).forEach((id, i) =>
-          refs.push({ path: `${hook}[${i}]`, id }),
+          refs.push({ path: `${hook}[${i}]`, id, expects: "action" }),
         );
       }
       break;
     }
     case "arena": {
       config.asteroidPlacements.forEach((p, i) =>
-        refs.push({ path: `asteroidPlacements[${i}].asteroidId`, id: p.asteroidId }),
+        refs.push({ path: `asteroidPlacements[${i}].asteroidId`, id: p.asteroidId, expects: "asteroid" }),
       );
       break;
     }
     case "action": {
       const params = config.params ?? {};
       const notif = params["notification"];
-      if (typeof notif === "string") refs.push({ path: "params.notification", id: notif });
+      if (typeof notif === "string") refs.push({ path: "params.notification", id: notif, expects: "notification" });
       break;
     }
     case "event": {
-      config.actions.forEach((id, i) => refs.push({ path: `actions[${i}]`, id }));
+      config.actions.forEach((id, i) => refs.push({ path: `actions[${i}]`, id, expects: "action" }));
       break;
     }
     case "notification": {
-      if (config.triggerEvent) refs.push({ path: "triggerEvent", id: config.triggerEvent });
+      if (config.triggerEvent) refs.push({ path: "triggerEvent", id: config.triggerEvent, expects: "event" });
       break;
     }
     case "gamemode": {
-      if (config.defaultArena) refs.push({ path: "defaultArena", id: config.defaultArena });
+      if (config.defaultArena) refs.push({ path: "defaultArena", id: config.defaultArena, expects: "arena" });
       if (config.bots) {
-        refs.push({ path: "bots.defaultProfile", id: config.bots.defaultProfile });
-        if (config.bots.defaultShip) refs.push({ path: "bots.defaultShip", id: config.bots.defaultShip });
+        refs.push({ path: "bots.defaultProfile", id: config.bots.defaultProfile, expects: "botprofile" });
+        if (config.bots.defaultShip) refs.push({ path: "bots.defaultShip", id: config.bots.defaultShip, expects: "ship" });
         (config.bots.roster ?? []).forEach((slot, i) => {
-          refs.push({ path: `bots.roster[${i}].profile`, id: slot.profile });
-          if (slot.ship) refs.push({ path: `bots.roster[${i}].ship`, id: slot.ship });
+          refs.push({ path: `bots.roster[${i}].profile`, id: slot.profile, expects: "botprofile" });
+          if (slot.ship) refs.push({ path: `bots.roster[${i}].ship`, id: slot.ship, expects: "ship" });
         });
       }
       break;

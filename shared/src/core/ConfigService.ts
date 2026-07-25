@@ -140,11 +140,18 @@ export class ConfigService {
     const stagedResolve = (type: ConfigType, id: string): AnyConfig | undefined => staged.get(type)?.get(id);
     for (const config of configs) {
       for (const ref of collectReferences(config)) {
-        if (!stagedIndex.has(ref.id)) {
+        const actualType = stagedIndex.get(ref.id);
+        if (actualType === undefined) {
           errors.push({
             file: fileById.get(config.id) ?? config.id,
             path: ref.path,
             message: `dangling reference: no config with id "${ref.id}"`,
+          });
+        } else if (actualType !== ref.expects) {
+          errors.push({
+            file: fileById.get(config.id) ?? config.id,
+            path: ref.path,
+            message: `reference type mismatch: "${ref.id}" is a ${actualType} config, expected ${ref.expects}`,
           });
         }
       }
@@ -223,14 +230,22 @@ export class ConfigService {
       };
     }
 
-    // Outgoing refs must resolve (self counts, so add id first).
+    // Outgoing refs must resolve to the expected TYPE (a self-reference
+    // resolves to this config's own type, which may not be committed yet).
     const errors: ConfigError[] = [];
     for (const ref of collectReferences(config)) {
-      if (ref.id !== config.id && !this.idIndex.has(ref.id)) {
+      const actualType = ref.id === config.id ? result.type : this.idIndex.get(ref.id);
+      if (actualType === undefined) {
         errors.push({
           file: "<replace>",
           path: ref.path,
           message: `dangling reference: no config with id "${ref.id}"`,
+        });
+      } else if (actualType !== ref.expects) {
+        errors.push({
+          file: "<replace>",
+          path: ref.path,
+          message: `reference type mismatch: "${ref.id}" is a ${actualType} config, expected ${ref.expects}`,
         });
       }
     }

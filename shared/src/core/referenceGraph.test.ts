@@ -359,17 +359,94 @@ describe("reference resolution — replace() re-checks the outgoing edges", () =
   });
 });
 
+// --------------------------------------------------------------------------
+// Type-checked references: an id that EXISTS but is the wrong kind of config
+// must be a load/replace error, not a silent runtime `undefined` (e.g.
+// resolveShipStats doing get("upgrade", "module.laser-mk1")).
+// --------------------------------------------------------------------------
+
+/** Assert the load failed with exactly one type-mismatch error at `path`. */
+async function expectTypeMismatch(
+  path: string,
+  wrongId: string,
+  actualType: string,
+  expectedType: string,
+  mutate: (files: Record<string, Record<string, unknown>>) => void,
+): Promise<void> {
+  const { ok, errors } = await loadWith(mutate);
+  expect(ok).toBe(false);
+  const mismatches = errors.filter((e) => e.message.includes("reference type mismatch"));
+  expect(mismatches.map((e) => e.path)).toEqual([path]);
+  expect(mismatches[0]!.message).toContain(`"${wrongId}" is a ${actualType} config, expected ${expectedType}`);
+}
+
+describe("reference resolution — wrong-type references are load errors", () => {
+  it("flags a ship upgrade track pointing at a module", async () => {
+    await expectTypeMismatch("upgradeTracks.hull", "module.laserx", "module", "upgrade", (f) => {
+      (f["ship.json"]!["upgradeTracks"] as Record<string, string>)["hull"] = "module.laserx";
+    });
+  });
+
+  it("flags a defaultFitting entry pointing at an upgrade", async () => {
+    await expectTypeMismatch("defaultFitting[0]", "upgrade.hull", "upgrade", "module", (f) => {
+      f["ship.json"]!["defaultFitting"] = ["upgrade.hull"];
+    });
+  });
+
+  it("flags an emitter socket pointing at an action instead of an effect", async () => {
+    await expectTypeMismatch("sockets[2].effect", "action.sound", "action", "effect", (f) => {
+      (f["ship.json"]!["sockets"] as Array<Record<string, unknown>>)[2]!["effect"] = "action.sound";
+    });
+  });
+
+  it("flags a gamemode bot profile pointing at a ship", async () => {
+    await expectTypeMismatch("bots.defaultProfile", "ship.ref", "ship", "botprofile", (f) => {
+      (f["gamemode.json"]!["bots"] as Record<string, unknown>)["defaultProfile"] = "ship.ref";
+    });
+  });
+
+  it("flags a bot roster ship slot pointing at a botprofile", async () => {
+    await expectTypeMismatch("bots.roster[0].ship", "bot.ref", "botprofile", "ship", (f) => {
+      const bots = f["gamemode.json"]!["bots"] as { roster: Array<Record<string, unknown>> };
+      bots.roster[0]!["ship"] = "bot.ref";
+    });
+  });
+
+  it("flags an event action pointing at a notification", async () => {
+    await expectTypeMismatch("actions[0]", "notification.overheat", "notification", "action", (f) => {
+      f["event.json"]!["actions"] = ["notification.overheat"];
+    });
+  });
+
+  it("replace() rejects a wrong-type edge against the live registry", async () => {
+    const svc = new ConfigService(memLoader(pack()));
+    expect((await svc.load("manifest.json")).ok).toBe(true);
+
+    const before = svc.get("module", "module.laserx");
+    const res = svc.replace({
+      ...(pack()["m-laser.json"] as Record<string, unknown>),
+      onFire: ["notification.overheat"],
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errors[0]?.path).toBe("onFire[0]");
+    expect(res.errors[0]?.message).toContain('"notification.overheat" is a notification config, expected action');
+    expect(svc.get("module", "module.laserx")).toBe(before);
+  });
+});
+
 describe("reference resolution — the shipped content pack", () => {
-  it("has no unresolved reference anywhere in content/", async () => {
+  it("has no unresolved or wrong-type reference anywhere in content/", async () => {
     const configs = await loadTestConfigs();
-    const unresolved: string[] = [];
+    const problems: string[] = [];
     for (const type of ["ship", "module", "arena", "action", "event", "notification", "gamemode"] as const) {
       for (const config of configs.getAll<AnyConfig>(type)) {
         for (const ref of collectReferences(config)) {
-          if (!configs.has(ref.id)) unresolved.push(`${config.id} → ${ref.path} = ${ref.id}`);
+          const actual = configs.typeOf(ref.id);
+          if (!actual) problems.push(`${config.id} → ${ref.path} = ${ref.id} (missing)`);
+          else if (actual !== ref.expects) problems.push(`${config.id} → ${ref.path} = ${ref.id} (${actual}, expected ${ref.expects})`);
         }
       }
     }
-    expect(unresolved).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });
