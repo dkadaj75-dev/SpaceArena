@@ -20,11 +20,16 @@ export function createHttpApp(): Express {
   const app = express();
 
   // CORS: allow the Vite dev origin(s). Configurable via CORS_ORIGIN (comma list).
+  // Without CORS_ORIGIN (dev), any origin on the Vite port is allowed so
+  // phones on the LAN (`npm run dev -- --host`, e.g. http://10.x.x.x:5173)
+  // can reach the API — production deployments always set CORS_ORIGIN.
   const originEnv = process.env.CORS_ORIGIN;
-  const origins = originEnv
+  const corsOrigin: cors.CorsOptions["origin"] = originEnv
     ? originEnv.split(",").map((s) => s.trim())
-    : ["http://localhost:5173", "http://127.0.0.1:5173"];
-  app.use(cors({ origin: origins, credentials: true }));
+    : (origin, cb) => {
+        cb(null, !origin || /^https?:\/\/[^/]+:5173$/.test(origin));
+      };
+  app.use(cors({ origin: corsOrigin, credentials: true }));
 
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
