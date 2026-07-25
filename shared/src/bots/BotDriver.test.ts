@@ -22,6 +22,7 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
     energy: { cur: 100, max: 100 },
     heat: { cur: 0, capacity: 100 },
     targetId: null,
+    throttle: 0,
     modules: [],
     ...over,
   };

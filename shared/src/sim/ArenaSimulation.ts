@@ -37,6 +37,12 @@ export interface ShipSnapshot {
   energy: { cur: number; max: number };
   heat: { cur: number; capacity: number };
   targetId: EntityId | null;
+  /**
+   * Commanded throttle 0..1 — the ship's actual FlightState value, 0 when it has
+   * none (unordered or move-order driven). Client signals read this instead of
+   * inferring engine output from per-snapshot displacement.
+   */
+  throttle: number;
   modules: ModuleSnapshot[];
 }
 
@@ -71,7 +77,7 @@ export interface Snapshot {
  * same seed + order stream + dt sequence.
  *
  * System run order (documented, order matters):
- *   1. NavigationSystem  — apply move orders, steer/avoid, boost
+ *   1. NavigationSystem  — apply move/flight orders, steer/avoid, boost
  *   2. ModuleSystem      — toggle orders + deploy/retract/overheat-cooldown timers
  *   3. TargetingSystem   — resolve TargetRef (manual/auto policy)
  *   4. CombatSystem      — auto-fire beams/kinetics/missiles (range+LoS+energy)
@@ -308,6 +314,7 @@ export class ArenaSimulation {
         energy: { cur: core.capacitor.cur, max: core.capacitor.max },
         heat: { cur: core.heat.cur, capacity: core.heat.capacity },
         targetId: w.targets.get(id)?.targetId ?? null,
+        throttle: w.flightStates.get(id)?.throttle ?? 0,
         modules: mods.modules.map((m) => ({
           moduleId: m.moduleId,
           hardpointIndex: m.hardpointIndex,

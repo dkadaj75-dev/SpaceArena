@@ -59,6 +59,7 @@ function shipWith(
     energy: { cur: opts.energy ?? 100, max: 100 },
     heat: { cur: opts.shipHeat ?? 0, capacity: 100 },
     targetId: 2,
+    throttle: 0,
     modules,
   };
 }

@@ -74,6 +74,30 @@ describe("Win conditions", () => {
   });
 });
 
+describe("Snapshots", () => {
+  it("reports the ship's real FlightState throttle (0 without one)", () => {
+    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.duel-1v1");
+    const flyer = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 });
+    const drifter = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 40, z: 0 });
+
+    expect(sim.snapshot().ships.map((s) => s.throttle)).toEqual([0, 0]);
+
+    sim.applyOrder(flyer, { kind: "flight", throttle: 0.6, turn: 0.2, boost: false });
+    sim.tick(DT);
+    const ships = sim.snapshot().ships;
+    expect(ships.find((s) => s.id === flyer)!.throttle).toBeCloseTo(0.6, 6);
+    expect(ships.find((s) => s.id === drifter)!.throttle).toBe(0);
+
+    // Level-triggered: the value persists across ticks with no further orders,
+    // and a move order hands the ship back to move control (throttle ⇒ 0).
+    for (let t = 0; t < 10; t++) sim.tick(DT);
+    expect(sim.snapshot().ships.find((s) => s.id === flyer)!.throttle).toBeCloseTo(0.6, 6);
+    sim.applyOrder(flyer, { kind: "move", target: { x: 5, z: 5 }, boost: false });
+    sim.tick(DT);
+    expect(sim.snapshot().ships.find((s) => s.id === flyer)!.throttle).toBe(0);
+  });
+});
+
 describe("Determinism", () => {
   it("two sims fed identical orders produce identical snapshots after 1000 ticks", () => {
     const build = () => {
@@ -95,6 +119,10 @@ describe("Determinism", () => {
           sim.applyOrder(a, { kind: "move", target: { x: 10, z: 5 }, boost: false });
           sim.applyOrder(b, { kind: "move", target: { x: -10, z: -5 }, boost: false });
         }
+        // Flight is level-triggered: two orders drive 900+ ticks of motion, and
+        // the integration must stay bit-identical across runs.
+        if (t === 200) sim.applyOrder(a, { kind: "flight", throttle: 0.7, turn: -0.4, boost: true });
+        if (t === 400) sim.applyOrder(b, { kind: "flight", throttle: 1, turn: 0.15, boost: false });
         sim.tick(DT);
         sim.getEvents();
       }

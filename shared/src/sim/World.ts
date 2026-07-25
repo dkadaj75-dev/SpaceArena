@@ -4,6 +4,7 @@ import type {
   AsteroidTag,
   ColliderComp,
   EntityId,
+  FlightState,
   ModulesComp,
   Projectile,
   ShipCore,
@@ -31,6 +32,8 @@ export class World {
   readonly transforms = new Map<EntityId, Transform2D>();
   readonly velocities = new Map<EntityId, Velocity>();
   readonly moveOrders = new Map<EntityId, { target: { x: number; z: number }; boost: boolean }>();
+  /** Persistent flight input per ship (level-triggered; see {@link FlightState}). */
+  readonly flightStates = new Map<EntityId, FlightState>();
   readonly shipCores = new Map<EntityId, ShipCore>();
   readonly modules = new Map<EntityId, ModulesComp>();
   readonly targets = new Map<EntityId, TargetRef>();
@@ -73,6 +76,7 @@ export class World {
     this.transforms.delete(id);
     this.velocities.delete(id);
     this.moveOrders.delete(id);
+    this.flightStates.delete(id);
     this.shipCores.delete(id);
     this.modules.delete(id);
     this.targets.delete(id);

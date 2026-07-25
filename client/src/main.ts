@@ -41,6 +41,13 @@ import { ScreenShake } from "./game/juice/ScreenShake.js";
 const log = createLogger("Client");
 
 /**
+ * Arena rendered before any match resolves one (boot/menu backdrop) and for a
+ * gamemode that declares no `defaultArena`. The ONLY arena id literal in the
+ * client — every in-match consumer routes through the session's resolved id.
+ */
+const FALLBACK_ARENA_ID = "arena.ring-nebula";
+
+/**
  * Content lives at `/content/*` in both worlds: the Vite plugin serves it in dev
  * (client/vite.config.ts), Express serves it in production
  * (server/src/staticSite.ts), and the service worker puts a network-first cache
@@ -199,8 +206,15 @@ async function bootstrap(): Promise<void> {
   });
 
   // --- Static arena (0.6/0.7/0.8): bounds/skybox/ground/lighting/spawns only ---
+  //
+  // ONE resolved arena id drives the scene, the camera pan clamp and the minimap.
+  // The sim resolves the real arena from the gamemode/join options, so every
+  // consumer here reads `session.arenaId` through `setArena` once a match starts
+  // (FLIGHT.md §6) — hardcoding an id in any of the three split the client's view
+  // of the arena from the sim's.
   const sceneBuilder = new SceneBuilder(scene, configService, bus, quality.current);
-  sceneBuilder.buildArena("arena.ring-nebula");
+  let currentArenaId = FALLBACK_ARENA_ID;
+  sceneBuilder.buildArena(currentArenaId);
 
   // One subscription fans the active tier out to every consumer.
   quality.onChange((cfg) => {
@@ -212,12 +226,24 @@ async function bootstrap(): Promise<void> {
 
   // Pan clamp follows the arena's playable bounds (re-applied on arena rebuild).
   const applyArenaPanBounds = (): void => {
-    const bounds = configService.get<ArenaConfig>("arena", "arena.ring-nebula")?.bounds;
+    const bounds = configService.get<ArenaConfig>("arena", currentArenaId)?.bounds;
     tacticalCamera.setPanBounds(
       bounds?.shape === "circle" ? bounds.radius : bounds ? Math.hypot(bounds.width, bounds.height) / 2 : 90,
     );
   };
   applyArenaPanBounds();
+
+  /**
+   * Point the scene at the arena a starting match resolved. A no-op when the id
+   * is unchanged (the common case), so a rematch on the same arena never pays
+   * for a rebuild.
+   */
+  function setArena(arenaId: string): void {
+    if (arenaId === currentArenaId) return;
+    currentArenaId = arenaId;
+    sceneBuilder.buildArena(currentArenaId);
+    applyArenaPanBounds();
+  }
 
   // Camera follows a lightweight node tracking the (moving) player ship
   // position. Persists across "Play again" resets — only its target position
@@ -495,7 +521,7 @@ async function bootstrap(): Promise<void> {
         choice.kind === "practice"
           ? new GameSession(
               configService,
-              practiceArena(choice.gamemode) ?? "arena.ring-nebula",
+              practiceArena(choice.gamemode) ?? FALLBACK_ARENA_ID,
               choice.gamemode ?? "gamemode.practice",
             )
           : await NetGameSession.join(configService, {
@@ -504,6 +530,9 @@ async function bootstrap(): Promise<void> {
               ...choice.options,
               token: authService.getAccessToken() ?? undefined,
             });
+      // Render the arena the SESSION resolved, before the runtime (and its HUD
+      // minimap) is built around it.
+      setArena(session.arenaId);
       runtime = createMatchRuntime(session);
       lastChoice = choice;
       // The new runtime's shake/haptics consumers start from their own defaults —
@@ -610,7 +639,7 @@ async function bootstrap(): Promise<void> {
         userSettings.refresh();
       },
       rebuildArena: () => {
-        sceneBuilder.buildArena("arena.ring-nebula");
+        sceneBuilder.buildArena(currentArenaId);
         applyArenaPanBounds();
       },
       // The editor takes over the canvas: the live match (HUD, entity views,

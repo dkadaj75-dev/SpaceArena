@@ -20,6 +20,25 @@ export interface MoveOrder {
   boost: boolean;
 }
 
+/**
+ * Persistent continuous-flight input (FLIGHT.md §1). Written by a `flight` order
+ * and NEVER auto-cleared — NavigationSystem integrates the last received state
+ * every tick until another flight order replaces it (or a move order takes the
+ * ship over; the two never drive one ship at the same time).
+ */
+export interface FlightState {
+  /** Fraction of nominal speed the pilot is asking for, 0..1. */
+  throttle: number;
+  /**
+   * Turn-rate fraction, -1..1. Positive turns in the same direction a positive
+   * `turnToward` delta does (the client maps stick-right to whichever sign reads
+   * as screen-right under the chase cam).
+   */
+  turn: number;
+  /** True while the pilot holds boost (resolved against a fitted boost module). */
+  boost: boolean;
+}
+
 /** Resolved ship stats (ship class + upgrade tracks at level 0 for now). */
 export interface ShipCore {
   hull: number;

@@ -553,6 +553,18 @@ export class ArenaRoom extends Room<ArenaState> {
     switch (order.kind) {
       case "move":
         return this.inBounds(order.target.x, order.target.z) ? null : "out-of-bounds";
+      case "flight":
+        // Range guard only. Flight orders cannot reach here from the wire yet —
+        // `orderSchema` has no `flight` member until the flight netcode lands
+        // (FLIGHT.md §5), which is where zod clamping + this validation grow up.
+        return Number.isFinite(order.throttle) &&
+          Number.isFinite(order.turn) &&
+          order.throttle >= 0 &&
+          order.throttle <= 1 &&
+          order.turn >= -1 &&
+          order.turn <= 1
+          ? null
+          : "malformed";
       case "moduleToggle": {
         const mods = this.sim.world.modules.get(entityId);
         // Address by hardpoint index (sparse-safe): a module must occupy it.

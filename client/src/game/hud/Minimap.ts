@@ -4,7 +4,6 @@ import type { GameSession } from "../GameSession.js";
 
 const log = createLogger("HudMinimap");
 
-const ARENA_ID = "arena.ring-nebula";
 const REDRAW_INTERVAL_MS = 100; // ~10 Hz, per spec
 
 /** Approximates a `rect` arena as its half-diagonal so the minimap scale still fits it. */
@@ -23,6 +22,8 @@ export class Minimap {
   private readonly container: HTMLDivElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
+  /** The arena the *sim* resolved — never a hardcoded id (FLIGHT.md §6). */
+  private readonly arenaId: string;
   private arena: ArenaConfig | undefined;
   private rangeUnits = 100;
   private sizePx = 128;
@@ -45,8 +46,9 @@ export class Minimap {
     if (!ctx) throw new Error("Minimap: 2D canvas context unavailable");
     this.ctx = ctx;
 
-    this.arena = configs.get<ArenaConfig>("arena", ARENA_ID);
-    if (!this.arena) log.warn(`arena config not found: ${ARENA_ID}`);
+    this.arenaId = session.arenaId;
+    this.arena = configs.get<ArenaConfig>("arena", this.arenaId);
+    if (!this.arena) log.warn(`arena config not found: ${this.arenaId}`);
 
     this.applySize();
     this.resizeCanvas();
@@ -55,8 +57,8 @@ export class Minimap {
       if (evt.type === "theme") {
         this.applySize();
         this.resizeCanvas();
-      } else if (evt.id === ARENA_ID) {
-        this.arena = configs.get<ArenaConfig>("arena", ARENA_ID);
+      } else if (evt.id === this.arenaId) {
+        this.arena = configs.get<ArenaConfig>("arena", this.arenaId);
       }
     });
   }

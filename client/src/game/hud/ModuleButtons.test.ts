@@ -28,6 +28,7 @@ function snapshotWithModules(modules: { hardpointIndex: number; moduleId: string
         energy: { cur: 100, max: 100 },
         heat: { cur: 0, capacity: 100 },
         targetId: null,
+        throttle: 0,
         modules: modules.map((m) => ({ ...m, stateTimer: m.stateTimer ?? 0, heat: m.heat ?? 0, cycleTimer: 0, shieldPool: 0 })),
       },
     ],

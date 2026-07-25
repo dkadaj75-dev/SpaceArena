@@ -365,6 +365,10 @@ export class NetGameSession extends GameSession {
         energy: { cur: p.energyCur, max: p.energyMax },
         heat: { cur: p.heatCur, capacity: p.heatCapacity },
         targetId: null,
+        // Not replicated yet — ArenaState gains a quantized `throttle` field with
+        // the rest of the flight netcode (FLIGHT.md §5); 0 keeps the signal layer
+        // on its displacement fallback until then.
+        throttle: 0,
         modules: decodeModules(p.modules),
       };
     });

@@ -17,13 +17,19 @@ export type { SignalId };
  * future server-side effect logic. **Extensible: adding a signal = add its id to
  * `signalId` (schema) and one entry here.**
  *
- * Motion signals (`throttle`, `speedFraction`, `boostActive`) are derived from
- * the per-snapshot planar displacement and normalized by the reference speeds
- * below. This keeps them dependency-free (no core-stat lookup) at MVP; the
- * editor's signal simulator can override the normalization later.
+ * `throttle` reads the snapshot's real commanded throttle (FLIGHT.md §1) — a
+ * flight-driven ship reports exactly what the pilot asked for. The remaining
+ * motion signals (`speedFraction`, `boostActive`) measure *actual* motion, so
+ * they stay derived from the per-snapshot planar displacement normalized by the
+ * reference speeds below. That keeps them dependency-free (no core-stat lookup);
+ * the editor's signal simulator can override the normalization later.
  */
 
-/** Reference planar displacement (world units between two snapshots) ≈ "full throttle". */
+/**
+ * Reference planar displacement (world units between two snapshots) ≈ "full throttle".
+ * Only used by the `throttle` FALLBACK for ships without a FlightState (move-order
+ * driven); it retires with move orders (FLIGHT.md §7).
+ */
 export const REFERENCE_THROTTLE_STEP = 1.2;
 /** Reference planar displacement treated as absolute top speed (boosted). */
 export const REFERENCE_TOP_STEP = 2.2;
@@ -46,8 +52,13 @@ function planarStep(ship: ShipSnapshot, prev?: ShipSnapshot): number {
 export type SignalFn = (ship: ShipSnapshot, prev?: ShipSnapshot) => number;
 
 export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
-  /** Engine output proxy, 0..1 (normalized planar speed vs nominal). */
-  throttle: (s, p) => clamp01(planarStep(s, p) / REFERENCE_THROTTLE_STEP),
+  /**
+   * Commanded engine output, 0..1. Reads the snapshot's real throttle
+   * (flight-driven ships); falls back to normalized planar displacement for
+   * ships with no FlightState (move-order driven, `throttle === 0`), which is
+   * what keeps engine trails alive until move orders retire (FLIGHT.md §7).
+   */
+  throttle: (s, p) => (s.throttle > 0 ? clamp01(s.throttle) : clamp01(planarStep(s, p) / REFERENCE_THROTTLE_STEP)),
   /** 1 while moving fast enough to imply afterburner, else 0. */
   boostActive: (s, p) => (planarStep(s, p) > BOOST_STEP_THRESHOLD ? 1 : 0),
   /** Remaining hull as a fraction of max, 0..1. */

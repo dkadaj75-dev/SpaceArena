@@ -168,6 +168,16 @@ export class GameSession {
     }
   }
 
+  /**
+   * The arena this session actually resolved (gamemode `defaultArena` / join
+   * option / explicit id). THE single source of truth for every client consumer
+   * that has to agree with the sim about the arena — scene build, camera pan
+   * clamp, minimap bounds (FLIGHT.md §6). Never hardcode an arena id against it.
+   */
+  get arenaId(): string {
+    return this.sim.world.arena.id;
+  }
+
   /** Practice-mode dummies destroyed so far (drives the "Targets: x/y" HUD line). */
   get destroyedTargets(): number {
     return this.destroyedTargetsCount;

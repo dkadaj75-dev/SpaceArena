@@ -684,6 +684,7 @@ function idleSnapshot(): ShipSnapshot {
     energy: { cur: 1, max: 1 },
     heat: { cur: 0, capacity: 1 },
     targetId: null,
+    throttle: 0, // parked on the hangar stage — no flight input
     modules: [],
   };
 }

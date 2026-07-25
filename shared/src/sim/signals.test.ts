@@ -13,6 +13,7 @@ function ship(overrides: Partial<ShipSnapshot> = {}): ShipSnapshot {
     energy: { cur: 50, max: 100 },
     heat: { cur: 0, capacity: 100 },
     targetId: null,
+    throttle: 0,
     modules: [],
     ...overrides,
   };
@@ -82,7 +83,18 @@ describe("signal registry", () => {
     expect(evalSignal("firing", firing)).toBe(1);
   });
 
+  it("throttle reads the snapshot's real commanded throttle", () => {
+    const prev = ship({ pos: { x: 0, z: 0 } });
+    // A flight-driven ship reports what the pilot asked for, regardless of how
+    // far it moved this snapshot (mid accel-ramp, or shoved by a collision).
+    expect(evalSignal("throttle", ship({ throttle: 0.4, pos: { x: 5, z: 0 } }), prev)).toBeCloseTo(0.4, 6);
+    expect(evalSignal("throttle", ship({ throttle: 1 }), prev)).toBe(1);
+    expect(evalSignal("throttle", ship({ throttle: 1 }))).toBe(1); // no prev needed
+    expect(evalSignal("throttle", ship({ throttle: 5 }), prev)).toBe(1); // clamped
+  });
+
   it("motion signals derive from planar displacement between snapshots", () => {
+    // throttle === 0 ⇒ no FlightState (move-order driven): displacement fallback.
     const prev = ship({ pos: { x: 0, z: 0 } });
     const moving = ship({ pos: { x: 1.2, z: 0 } });
     expect(evalSignal("throttle", moving, prev)).toBeCloseTo(1, 6); // step == reference
