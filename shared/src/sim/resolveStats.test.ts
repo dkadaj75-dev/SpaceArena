@@ -21,6 +21,8 @@ describe("resolveShipStats (4.1)", () => {
     expect(core.capacitor.regen).toBe(14);
     expect(core.heat.capacity).toBe(100);
     expect(core.heat.dissipation).toBe(9);
+    // Sensor suite comes through the same pipeline as engine/heat (FLIGHT.md §2).
+    expect(core.sensors).toEqual(interceptor.core.sensors);
   });
 
   it("applies upgrade levels as DB purchase counts (levels[count-1])", () => {
@@ -175,6 +177,11 @@ describe("resolveShipStats — module passive ops", () => {
     addModule("module.test-unknownpath", [{ target: "shields.mega", op: "add", value: 99 }]);
     addModule("module.test-halfcap", [{ target: "energy.capacitor", op: "mul", value: 0.5 }]);
     addModule("module.test-plus30cap", [{ target: "energy.capacitor", op: "add", value: 30 }]);
+    addModule("module.test-sensorbooster", [
+      { target: "sensors.lockRange", op: "add", value: 15 },
+      { target: "core.sensors.lockTimeSec", op: "mul", value: 0.5 },
+      { target: "sensors.coneDeg", op: "add", value: 10 },
+    ]);
   });
 
   it("accepts an optional leading `core.` on a passive target path", () => {
@@ -204,6 +211,20 @@ describe("resolveShipStats — module passive ops", () => {
     });
     expect(forward.capacitor.max).toBeCloseTo(95, 6);
     expect(reversed.capacitor.max).toBeCloseTo(95, 6);
+  });
+
+  it("moves the resolved sensor stats from a module statOp (all three registration sites wired)", () => {
+    // A stat only responds to statOps if it is in STAT_PATHS *and* the base bag
+    // *and* the ShipCore mapping — miss one and the op silently no-ops, which is
+    // exactly the failure this test exists to catch (FLIGHT.md §2).
+    const base = resolveShipStats(interceptor, ops);
+    const boosted = resolveShipStats(interceptor, ops, { fittedModuleIds: ["module.test-sensorbooster"] });
+    expect(boosted.sensors.lockRange).toBeCloseTo(base.sensors.lockRange + 15, 6);
+    expect(boosted.sensors.lockTimeSec).toBeCloseTo(base.sensors.lockTimeSec * 0.5, 6);
+    expect(boosted.sensors.coneDeg).toBeCloseTo(base.sensors.coneDeg + 10, 6);
+    // …and nothing else moved with them.
+    expect(boosted.engine).toEqual(base.engine);
+    expect(boosted.hullMax).toBe(base.hullMax);
   });
 
   it("stacks upgrade ops and passive ops on the same stat in one add→mul pass", () => {

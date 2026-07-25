@@ -96,6 +96,29 @@ describe("Snapshots", () => {
     sim.tick(DT);
     expect(sim.snapshot().ships.find((s) => s.id === flyer)!.throttle).toBe(0);
   });
+
+  it("reports lock progress normalized 0..1 and the locked flag (FLIGHT.md §2)", () => {
+    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.duel-1v1");
+    // Facing each other down the +x axis: both sit in the other's sensor cone.
+    const a = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const b = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 20, z: 0 }, Math.PI);
+    const lockTime = sim.world.shipCores.get(a)!.sensors.lockTimeSec;
+    const shipOf = (id: number) => sim.snapshot().ships.find((s) => s.id === id)!;
+
+    expect(shipOf(a).lockProgress).toBe(0);
+    expect(shipOf(a).locked).toBe(false);
+
+    sim.tick(DT);
+    expect(shipOf(a).lockProgress).toBeCloseTo(DT / lockTime, 6);
+    expect(shipOf(a).locked).toBe(false);
+
+    for (let t = 0; t * DT < lockTime; t++) sim.tick(DT);
+    for (const id of [a, b]) {
+      expect(shipOf(id).lockProgress).toBe(1); // normalized, never above 1
+      expect(shipOf(id).locked).toBe(true);
+      expect(shipOf(id).targetId).toBe(id === a ? b : a);
+    }
+  });
 });
 
 describe("Determinism", () => {

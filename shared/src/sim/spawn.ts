@@ -52,7 +52,7 @@ export function spawnShipFromConfig(
   world.shipCores.set(id, resolveShipStats(ship, configs, { upgradeLevels, fittedModuleIds: fittingModuleIds }));
   world.colliders.set(id, { radius: ship.collider.radius });
   world.teams.set(id, { team });
-  world.targets.set(id, { targetId: null, manual: false });
+  world.targets.set(id, { targetId: null, manual: false, lockProgress: 0, locked: false });
 
   // Ordered hardpoint sockets: array index === hardpoint index (see hardpointsOf).
   const hardpoints = hardpointsOf(ship);

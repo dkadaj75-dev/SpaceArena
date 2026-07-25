@@ -51,6 +51,8 @@ export interface ShipCore {
   capacitor: { cur: number; max: number; regen: number };
   /** `cur` is the shared ship heat pool = sum of module heats (recomputed each tick). */
   heat: { cur: number; capacity: number; dissipation: number; criticalDamagePerSec: number };
+  /** Resolved sensor suite driving the lock cone (FLIGHT.md §2). `coneDeg` is the FULL width. */
+  sensors: { lockRange: number; lockTimeSec: number; coneDeg: number };
 }
 
 export type ModuleState =
@@ -88,11 +90,23 @@ export interface ModulesComp {
   modules: ModuleRuntime[];
 }
 
-/** Current focused/auto target. */
+/** Current focused/auto target plus its lock state (FLIGHT.md §2). */
 export interface TargetRef {
   targetId: EntityId | null;
-  /** True if set by an explicit target order (sticky until death). */
+  /**
+   * True if set by an explicit target order. INTERIM (retires with move orders):
+   * the pin only decides WHICH enemy is the lock candidate, and it survives only
+   * while that enemy stays inside the sensor cone + range — see TargetingSystem.
+   */
   manual: boolean;
+  /**
+   * Seconds of accumulated lock, 0..`sensors.lockTimeSec`. Accrues at 1x while
+   * the candidate is in the cone, drains at `tuning.lockDecayMult` while it is
+   * not; the target is dropped when it reaches 0.
+   */
+  lockProgress: number;
+  /** True once `lockProgress` filled; stays true while progress > 0. Weapons need it. */
+  locked: boolean;
 }
 
 export interface ColliderComp {

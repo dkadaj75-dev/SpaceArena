@@ -7,6 +7,7 @@
   "tapSlopPx": 12,
   "edgeRejectMarginPx": 16,
   "targetingPolicy": "nearest",
+  "lockDecayMult": 1.5,
   "globalDamageMult": 1.0,
   "dragCoefficient": 0.02,
   "avoidLookahead": 16,

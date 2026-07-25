@@ -14,6 +14,8 @@ function ship(overrides: Partial<ShipSnapshot> = {}): ShipSnapshot {
     heat: { cur: 0, capacity: 100 },
     targetId: null,
     throttle: 0,
+    lockProgress: 0,
+    locked: false,
     modules: [],
     ...overrides,
   };

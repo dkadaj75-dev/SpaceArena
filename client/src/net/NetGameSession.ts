@@ -365,10 +365,13 @@ export class NetGameSession extends GameSession {
         energy: { cur: p.energyCur, max: p.energyMax },
         heat: { cur: p.heatCur, capacity: p.heatCapacity },
         targetId: null,
-        // Not replicated yet — ArenaState gains a quantized `throttle` field with
-        // the rest of the flight netcode (FLIGHT.md §5); 0 keeps the signal layer
-        // on its displacement fallback until then.
+        // Not replicated yet — ArenaState gains quantized `throttle` / lock fields
+        // with the rest of the flight netcode (FLIGHT.md §5); 0 keeps the signal
+        // layer on its displacement fallback until then, and a neutral lock keeps
+        // the online HUD from claiming a lock the server never sent.
         throttle: 0,
+        lockProgress: 0,
+        locked: false,
         modules: decodeModules(p.modules),
       };
     });

@@ -59,6 +59,12 @@ New ship stat block `core.sensors` (schema + all ship JSONs + resolveStats):
   TargetingSystem each tick:
   - Candidate = nearest enemy inside the cone (manual `target` orders are retired
     with move orders; targeting is fully automatic).
+    - **Interim, as landed in stage 2** (bots still issue `target` orders): a
+      manual pin only chooses WHICH enemy is the candidate, and only while that
+      enemy is inside the cone + range. It grants no lock of its own — the pinned
+      enemy warms up like any other candidate, drains when it leaves the zone, and
+      the pin clears when progress reaches 0 (immediately if it was already 0),
+      handing the ship back to auto targeting. Deleted with move orders in stage 7.
   - Candidate changed → `lockProgress = 0, locked = false`.
   - Candidate valid → `lockProgress += dt` capped at `lockTimeSec`;
     `locked = lockProgress >= lockTimeSec` (then stays true while progress > 0).

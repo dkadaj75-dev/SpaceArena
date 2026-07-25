@@ -28,6 +28,9 @@ const STAT_PATHS = [
   "heat.capacity",
   "heat.dissipation",
   "heat.criticalDamagePerSec",
+  "sensors.lockRange",
+  "sensors.lockTimeSec",
+  "sensors.coneDeg",
 ] as const;
 
 /** Strip an optional leading `core.` so authors may write either form. */
@@ -66,6 +69,9 @@ export function resolveShipStats(
     "heat.capacity": c.heat.capacity,
     "heat.dissipation": c.heat.dissipation,
     "heat.criticalDamagePerSec": c.heat.criticalDamagePerSec,
+    "sensors.lockRange": c.sensors.lockRange,
+    "sensors.lockTimeSec": c.sensors.lockTimeSec,
+    "sensors.coneDeg": c.sensors.coneDeg,
   };
 
   const adds: Record<string, number> = {};
@@ -138,6 +144,11 @@ export function resolveShipStats(
       capacity: stats["heat.capacity"]!,
       dissipation: stats["heat.dissipation"]!,
       criticalDamagePerSec: stats["heat.criticalDamagePerSec"]!,
+    },
+    sensors: {
+      lockRange: stats["sensors.lockRange"]!,
+      lockTimeSec: stats["sensors.lockTimeSec"]!,
+      coneDeg: stats["sensors.coneDeg"]!,
     },
   };
 }

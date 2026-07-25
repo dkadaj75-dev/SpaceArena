@@ -1,8 +1,9 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import type { ArenaConfig, GamemodeConfig, TuningConfig } from "../schemas/index.js";
-import type { EntityId, ModuleState } from "./components.js";
+import type { EntityId, ModuleState, ShipCore, TargetRef } from "./components.js";
 import type { SimEvent } from "./events.js";
 import type { Order } from "./orders.js";
+import { clamp } from "./math.js";
 import type { UpgradeLevels } from "./resolveStats.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
@@ -43,6 +44,14 @@ export interface ShipSnapshot {
    * inferring engine output from per-snapshot displacement.
    */
   throttle: number;
+  /**
+   * Lock progress on `targetId`, normalized 0..1 of the ship's resolved
+   * `sensors.lockTimeSec` (FLIGHT.md §2) — the reticle ring reads this directly
+   * so the HUD never needs the ship's stat block.
+   */
+  lockProgress: number;
+  /** True while the lock is complete; weapons only fire in this state. */
+  locked: boolean;
   modules: ModuleSnapshot[];
 }
 
@@ -79,8 +88,8 @@ export interface Snapshot {
  * System run order (documented, order matters):
  *   1. NavigationSystem  — apply move/flight orders, steer/avoid, boost
  *   2. ModuleSystem      — toggle orders + deploy/retract/overheat-cooldown timers
- *   3. TargetingSystem   — resolve TargetRef (manual/auto policy)
- *   4. CombatSystem      — auto-fire beams/kinetics/missiles (range+LoS+energy)
+ *   3. TargetingSystem   — resolve TargetRef + advance/drain the sensor lock
+ *   4. CombatSystem      — auto-fire beams/kinetics/missiles (lock+range+LoS+energy)
  *   5. EnergySystem      — regen/drain/brown-out; heat gen/overheat/dissipation/critical
  *   6. ProjectileSystem  — move/home/expire/hit
  *   7. CollisionSystem   — ship-asteroid, ship-ship, boundary
@@ -201,7 +210,7 @@ export class ArenaSimulation {
 
     navigationSystem(w, dt);
     moduleSystem(w, dt);
-    targetingSystem(w);
+    targetingSystem(w, dt);
     combatSystem(w, dt);
     energySystem(w, dt);
     projectileSystem(w, dt);
@@ -304,6 +313,7 @@ export class ArenaSimulation {
       const core = w.shipCores.get(id)!;
       const tf = w.transforms.get(id)!;
       const mods = w.modules.get(id)!;
+      const ref = w.targets.get(id);
       return {
         id,
         team: w.teams.get(id)!.team,
@@ -313,8 +323,14 @@ export class ArenaSimulation {
         hullMax: core.hullMax,
         energy: { cur: core.capacitor.cur, max: core.capacitor.max },
         heat: { cur: core.heat.cur, capacity: core.heat.capacity },
-        targetId: w.targets.get(id)?.targetId ?? null,
+        targetId: ref?.targetId ?? null,
         throttle: w.flightStates.get(id)?.throttle ?? 0,
+        // Normalized against the ship's own resolved lock time, so a module that
+        // shortens lockTimeSec still reads as a full ring at full lock. A resolved
+        // lockTimeSec of 0 (a passive strong enough to zero it out) locks
+        // instantly, so report the flag rather than dividing by zero.
+        lockProgress: lockFraction(core, ref),
+        locked: ref?.locked ?? false,
         modules: mods.modules.map((m) => ({
           moduleId: m.moduleId,
           hardpointIndex: m.hardpointIndex,
@@ -346,4 +362,11 @@ export class ArenaSimulation {
       projectiles,
     };
   }
+}
+
+/** Lock progress as a 0..1 fraction of the ship's own resolved `lockTimeSec`. */
+function lockFraction(core: ShipCore, ref: TargetRef | undefined): number {
+  if (!ref) return 0;
+  if (core.sensors.lockTimeSec <= 0) return ref.locked ? 1 : 0;
+  return clamp(ref.lockProgress / core.sensors.lockTimeSec, 0, 1);
 }

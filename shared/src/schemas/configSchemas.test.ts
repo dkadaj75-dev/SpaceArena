@@ -50,6 +50,7 @@ const ship = {
     engine: { nominalSpeed: 34, accel: 22, turnRate: 3 },
     energy: { capacitor: 120, regen: 14 },
     heat: { capacity: 100, dissipation: 9, criticalDamagePerSec: 4 },
+    sensors: { lockRange: 60, lockTimeSec: 1.5, coneDeg: 70 },
   },
   upgradeTracks: {
     hull: "upgrade.hull-std",
@@ -375,6 +376,21 @@ describe("ship schema", () => {
         core["energy"]!["capacitor"] = 0;
       }),
     ).toBe(false);
+  });
+
+  it("requires a positive sensor suite (FLIGHT.md §2 lock stats)", () => {
+    const sensors = (d: Record<string, unknown>) =>
+      (d["core"] as { sensors: Record<string, number> }).sensors;
+    expect(parses("ship", clone(ship))).toBe(true);
+    expect(mutated("ship", (d) => delete (d["core"] as Record<string, unknown>)["sensors"])).toBe(false);
+    for (const key of ["lockRange", "lockTimeSec", "coneDeg"]) {
+      expect(mutated("ship", (d) => (sensors(d)[key] = 0))).toBe(false);
+      expect(mutated("ship", (d) => (sensors(d)[key] = -1))).toBe(false);
+      expect(mutated("ship", (d) => delete sensors(d)[key])).toBe(false);
+    }
+    // Fractional values are legal: lock time and cone width are continuous knobs.
+    expect(mutated("ship", (d) => (sensors(d)["lockTimeSec"] = 0.75))).toBe(true);
+    expect(mutated("ship", (d) => (sensors(d)["coneDeg"] = 42.5))).toBe(true);
   });
 
   it("caps resists at 0.95 and floors them at 0", () => {
@@ -747,6 +763,7 @@ describe("tuning schema", () => {
           netRenderDelayMs: 100,
           netCorrectionRate: 8,
           maxOrdersPerSec: 20,
+          lockDecayMult: 1.5,
           featureFlags: { botDebug: true },
         });
       }),
@@ -754,6 +771,13 @@ describe("tuning schema", () => {
     expect(mutated("tuning", (d) => (d["maxTicksPerFrame"] = 5.5))).toBe(false);
     expect(mutated("tuning", (d) => (d["projectilePoolSize"] = 0))).toBe(false);
     expect(mutated("tuning", (d) => (d["featureFlags"] = { botDebug: "yes" }))).toBe(false);
+  });
+
+  it("keeps lockDecayMult optional but strictly positive (a 0 drain would freeze locks)", () => {
+    expect(parses("tuning", clone(tuning))).toBe(true); // absent ⇒ code default 1.5
+    expect(mutated("tuning", (d) => (d["lockDecayMult"] = 3))).toBe(true);
+    expect(mutated("tuning", (d) => (d["lockDecayMult"] = 0))).toBe(false);
+    expect(mutated("tuning", (d) => (d["lockDecayMult"] = -1))).toBe(false);
   });
 });
 

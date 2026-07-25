@@ -4,7 +4,7 @@ import { ConfigService } from "../core/ConfigService.js";
 import type { ModuleConfig, ShipConfig } from "../schemas/index.js";
 import { ArenaSimulation } from "./ArenaSimulation.js";
 import type { EntityId } from "./components.js";
-import { loadTestConfigs } from "./testutil.js";
+import { loadTestConfigs, pinLock } from "./testutil.js";
 
 /**
  * ROADMAP §11 6.1 — "energy/heat sim over scripted 60 s engagements
@@ -202,6 +202,12 @@ function runEngagement(shipId: string, script: readonly ScriptStep[], opponentSh
     // Immortal sparring partners: the bench measures upkeep, not lethality.
     subjectCore.hull = subjectCore.hullMax;
     opponentCore.hull = opponentCore.hullMax;
+    // Locks pinned every tick (FLIGHT.md §2): the script's shuttle legs point the
+    // hull away from the opponent, which would swing it out of the sensor cone and
+    // silence the guns for reasons that have nothing to do with energy/heat upkeep.
+    // Lock behaviour has its own tests; this bench measures the upkeep curve.
+    pinLock(sim.world, subject);
+    pinLock(sim.world, opponent);
 
     const eventsBefore = sim.world.events.length;
     sim.tick(DT);
@@ -440,6 +446,27 @@ const TTK_HARD_CEILING_S = 60;
 const TTK_BAND = 0.25;
 
 /**
+ * Ticks allowed for the sensor lock to complete before the TTK clock starts. The
+ * slowest hull locks in 2.2 s; a pair that cannot lock at all (out of sensor
+ * range) burns this window without firing and then reports Infinity as before.
+ */
+const LOCK_WARMUP_TICKS = 5 * TPS;
+
+/**
+ * Advance until `shooter` holds a lock, or the warm-up window expires. Nothing
+ * can fire before the lock completes (FLIGHT.md §2), so this window is dead time
+ * for every measurement below — running it before the clock starts keeps the
+ * recorded TTKs measuring what they always measured: time-to-kill once engaged.
+ */
+function warmUpLock(sim: ArenaSimulation, shooter: EntityId): void {
+  for (let t = 0; t < LOCK_WARMUP_TICKS; t++) {
+    if (sim.world.targets.get(shooter)?.locked) return;
+    sim.tick(DT);
+    sim.getEvents();
+  }
+}
+
+/**
  * Seconds for `attacker` (default fitting, every weapon already deployed, target
  * locked) to destroy a stationary `defender` whose modules stay offline, at
  * `range` world units. `Infinity` if the defender survives the ceiling.
@@ -452,6 +479,7 @@ function timeToKill(attackerShip: string, defenderShip: string, range: number): 
   for (const m of sim.world.modules.get(attacker)!.modules) {
     if (isWeapon(m.moduleId)) m.state = "active";
   }
+  warmUpLock(sim, attacker);
 
   for (let tick = 1; tick <= TTK_HARD_CEILING_S * TPS; tick++) {
     sim.tick(DT);
@@ -505,6 +533,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     }
     // Defender raises its shield (hardpoint 2 on the light hull) and holds it.
     sim.applyOrder(defender, { kind: "moduleToggle", hardpointIndex: 2 });
+    warmUpLock(sim, attacker); // same pre-engagement window as timeToKill()
 
     let shieldedTtk = Infinity;
     for (let tick = 1; tick <= TTK_HARD_CEILING_S * TPS; tick++) {

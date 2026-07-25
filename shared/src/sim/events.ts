@@ -12,6 +12,10 @@ export type SimEvent =
   | { type: "moveOrderSet"; entityId: EntityId; target: { x: number; z: number }; boost: boolean }
   | { type: "moveOrderCleared"; entityId: EntityId }
   | { type: "targetSet"; entityId: EntityId; targetId: EntityId | null }
+  /** Lock completed on `targetId` — weapons are now free to fire (FLIGHT.md §2). */
+  | { type: "lockAcquired"; entityId: EntityId; targetId: EntityId }
+  /** Lock broke (progress drained to 0, or the target died/changed). */
+  | { type: "lockLost"; entityId: EntityId }
   | {
       type: "moduleStateChanged";
       entityId: EntityId;

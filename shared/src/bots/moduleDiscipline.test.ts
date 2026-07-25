@@ -60,6 +60,8 @@ function shipWith(
     heat: { cur: opts.shipHeat ?? 0, capacity: 100 },
     targetId: 2,
     throttle: 0,
+    lockProgress: 0,
+    locked: false,
     modules,
   };
 }

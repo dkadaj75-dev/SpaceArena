@@ -3,7 +3,7 @@ import type { ConfigService } from "../../core/ConfigService.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { hasLineOfSight } from "../los.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "../spawn.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
+import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial, warmLock } from "../testutil.js";
 import type { World } from "../World.js";
 import { combatSystem } from "./CombatSystem.js";
 import { projectileSystem } from "./ProjectileSystem.js";
@@ -18,7 +18,12 @@ beforeAll(async () => {
   configs = await loadTestConfigs();
 });
 
-/** Shooter (team 0) with an active weapon targeting an enemy (team 1). */
+/**
+ * Shooter (team 0) with an active weapon targeting an enemy (team 1). The shooter
+ * faces +x (heading 0) and every `targetPos` used here sits on that axis inside
+ * `sensors.lockRange`, so {@link warmLock} can drive the real lock to full before
+ * the assertions — weapons cannot fire unlocked (FLIGHT.md §2).
+ */
 function duel(
   targetPos: { x: number; z: number },
   weapon = LASER,
@@ -31,6 +36,7 @@ function duel(
   mod.cycleTimer = 0;
   world.targets.get(shooter)!.targetId = target;
   world.targets.get(shooter)!.manual = true;
+  warmLock(world, shooter);
   rebuildSpatial(world);
   return { world, shooter, target };
 }

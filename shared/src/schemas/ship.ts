@@ -22,6 +22,21 @@ const shipCore = z.object({
     dissipation: z.number().nonnegative(),
     criticalDamagePerSec: z.number().nonnegative(),
   }),
+  /**
+   * Sensor suite (FLIGHT.md §2). Drives the heading-relative lock cone every
+   * weapon fires through, so it is a per-ship stat like engine or heat — and it
+   * goes through the resolver, which is what lets modules/upgrades move it.
+   * Keep `lockRange` at or above the longest weapon range the hull can fit, or
+   * range (not lock) becomes the binding constraint on reach.
+   */
+  sensors: z.object({
+    /** Max distance at which an enemy can be locked (world units). */
+    lockRange: z.number().positive(),
+    /** Seconds of continuous in-cone tracking needed for a full lock. */
+    lockTimeSec: z.number().positive(),
+    /** FULL cone width in degrees; the half-angle used by the sim is coneDeg/2. */
+    coneDeg: z.number().positive(),
+  }),
 });
 
 export const shipSchema = z

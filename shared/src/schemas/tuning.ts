@@ -20,6 +20,13 @@ export const tuningSchema = z.object({
   edgeRejectMarginPx: z.number().nonnegative().optional(),
   /** Auto-target selection policy when no focused target. */
   targetingPolicy,
+  /**
+   * TargetingSystem: how fast lock progress drains while the candidate is out of
+   * the sensor cone/range, as a multiple of real time (FLIGHT.md §2). The drain
+   * window IS the lock-break grace: at 1.5 a full lock survives ~2/3 of
+   * `lockTimeSec` outside the cone before the target is dropped. Default 1.5.
+   */
+  lockDecayMult: z.number().positive().optional(),
   /** Global damage multiplier (balance knob). */
   globalDamageMult: z.number().positive(),
   /** Planar linear drag coefficient. */

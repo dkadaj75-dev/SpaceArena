@@ -96,18 +96,25 @@ describe("ArenaRoom", () => {
     // Direct sim access to set up a point-blank, low-hull enemy (task-sanctioned).
     const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
       sim: {
-        world: { transforms: Map<number, { pos: { x: number; z: number } }>; shipCores: Map<number, { hull: number }> };
+        world: {
+          transforms: Map<number, { pos: { x: number; z: number }; heading: number }>;
+          shipCores: Map<number, { hull: number }>;
+        };
         spawnPlayerAt: (shipId: string, fitting: string[], team: number, pos: { x: number; z: number }, heading: number) => number;
       };
     };
     const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
     const playerEntity = room.state.players.get(c1.sessionId)!.entityId;
-    const pPos = serverRoom.sim.world.transforms.get(playerEntity)!.pos;
+    const pTf = serverRoom.sim.world.transforms.get(playerEntity)!;
+    // Straight down the player's nose: weapons need a sensor LOCK (FLIGHT.md §2),
+    // which only accrues while the enemy sits inside the heading-relative cone —
+    // dropping it beside the ship would leave the laser cold no matter how long
+    // the loop runs.
     const enemyId = serverRoom.sim.spawnPlayerAt(
       "ship.interceptor",
       ship.defaultFitting,
       1,
-      { x: pPos.x + 10, z: pPos.z },
+      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
       Math.PI,
     );
     serverRoom.sim.world.shipCores.get(enemyId)!.hull = 8;
@@ -194,17 +201,19 @@ describe("ArenaRoom", () => {
       sim: {
         world: {
           shipCores: Map<number, { hull: number }>;
-          transforms: Map<number, { pos: { x: number; z: number } }>;
+          transforms: Map<number, { pos: { x: number; z: number }; heading: number }>;
         };
       };
     };
-    // Force the enemy (c2) to near-death and place it point-blank next to c1.
+    // Force the enemy (c2) to near-death and park it point-blank ahead of c1 —
+    // inside the sensor cone, or the lock never completes and nothing fires
+    // (FLIGHT.md §2).
     const playerId = room.state.players.get(c1.sessionId)!.entityId;
     const enemyId = room.state.players.get(c2.sessionId)!.entityId;
-    const pPos = serverRoom.sim.world.transforms.get(playerId)!.pos;
+    const pTf = serverRoom.sim.world.transforms.get(playerId)!;
     const ePos = serverRoom.sim.world.transforms.get(enemyId)!.pos;
-    ePos.x = pPos.x + 8;
-    ePos.z = pPos.z;
+    ePos.x = pTf.pos.x + Math.cos(pTf.heading) * 8;
+    ePos.z = pTf.pos.z + Math.sin(pTf.heading) * 8;
     serverRoom.sim.world.shipCores.get(enemyId)!.hull = 8;
 
     const rewards: Array<{ type: string; credits: number; xp: number }> = [];

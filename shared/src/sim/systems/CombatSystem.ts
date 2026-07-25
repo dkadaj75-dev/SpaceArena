@@ -6,8 +6,10 @@ import { spawnProjectile } from "../spawn.js";
 import type { World } from "../World.js";
 
 /**
- * CombatSystem (1.6) — active weapon modules auto-fire when their target is in
- * range, has LoS (if required), the cycle has elapsed and energy is available.
+ * CombatSystem (1.6) — active weapon modules auto-fire when the ship holds a
+ * LOCK on its target (FLIGHT.md §2 — every weapon kind requires it, no
+ * exceptions and no per-driver carve-outs), the target is in weapon range, has
+ * LoS (if required), the cycle has elapsed and energy is available.
  *   - beam (`projectile: null`): instant damage (projectileFired + damage events)
  *   - kinetic: dumb projectile aimed at the target's *current* position (leads
  *     nothing, so it can miss a mover — intentional)
@@ -34,7 +36,10 @@ export function combatSystem(world: World, dt: number): void {
         m.cycleTimer = 0;
       }
 
-      const targetId = ref?.targetId ?? null;
+      // Lock gate (checked after the cycle timer: a weapon keeps cooling down
+      // whether or not the pilot is holding a lock).
+      if (!ref?.locked) continue;
+      const targetId = ref.targetId;
       if (targetId === null || !world.shipCores.has(targetId)) continue;
       const tgtTf = world.transforms.get(targetId)!;
 

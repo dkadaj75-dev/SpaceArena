@@ -8,7 +8,8 @@
     "hull": { "base": 160, "resists": { "kinetic": 0.25, "energy": 0.15 } },
     "engine": { "nominalSpeed": 22, "accel": 12, "turnRate": 1.8 },
     "energy": { "capacitor": 140, "regen": 12 },
-    "heat": { "capacity": 180, "dissipation": 12, "criticalDamagePerSec": 3 }
+    "heat": { "capacity": 180, "dissipation": 12, "criticalDamagePerSec": 3 },
+    "sensors": { "lockRange": 62, "lockTimeSec": 2.2, "coneDeg": 80 }
   },
   "upgradeTracks": {
     "hull": "upgrade.hull-std",
