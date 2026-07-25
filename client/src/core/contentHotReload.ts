@@ -1,4 +1,4 @@
-import { createLogger, type ConfigService } from "@space-arena/shared";
+import { createLogger, manifestSchema, type ConfigService } from "@space-arena/shared";
 
 const log = createLogger("HotReload");
 
@@ -20,6 +20,19 @@ export function wireContentHotReload(configService: ConfigService): void {
   if (!import.meta.hot) return;
 
   import.meta.hot.on("content:changed", (data: ContentChanged) => {
+    // The manifest is not a config (its "manifest" type is deliberately absent
+    // from CONFIG_SCHEMAS — ConfigService.load() validates it separately), so
+    // replace() would reject it with a misleading red error on every edit.
+    // New/removed files only take effect on a full content load anyway.
+    if (data.file === "manifest.json") {
+      const parsed = manifestSchema.safeParse(data.json);
+      if (parsed.success) {
+        log.info("manifest changed — reload the page to pick up added/removed content files");
+      } else {
+        log.error(`✖ invalid manifest.json: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}`);
+      }
+      return;
+    }
     const result = configService.replace(data.json);
     if (result.ok) {
       log.info(`hot-reloaded ${data.file}`);
