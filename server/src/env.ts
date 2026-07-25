@@ -22,6 +22,7 @@
  * | `CONTENT_DIR`    | repo `content/`                     | same default; override for a mounted pack    |
  * | `CLIENT_DIR`     | repo `client/dist`                  | same default; must exist when serving        |
  * | `SERVE_CLIENT`   | on iff `client/dist` exists         | same                                         |
+ * | `SPACE_ARENA_TELEMETRY` | off ⇒ no `server_metrics` rows | on; opt out explicitly with `=0`          |
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -81,6 +82,14 @@ export interface ServerEnv {
   readonly clientDir: string | null;
   /** Enable the Colyseus monitor + verbose room logging. */
   readonly devTools: boolean;
+  /**
+   * Persist periodic `server_metrics` rollups (ROADMAP §11 6.8). On in
+   * production; off in dev unless `SPACE_ARENA_TELEMETRY=1`, so an ordinary
+   * `npm run dev:server` session does not fill the working database with a row
+   * every ten seconds. The in-memory metrics registry runs either way — this
+   * gates only the database writes.
+   */
+  readonly telemetryEnabled: boolean;
 }
 
 /** Thrown by {@link getEnv} when the environment is not fit to boot. */
@@ -255,6 +264,7 @@ export function parseEnv(source: EnvSource = process.env): ParsedEnv {
   }
 
   const devTools = !isProduction || bool(source, "COLYSEUS_MONITOR") === true;
+  const telemetryEnabled = bool(source, "SPACE_ARENA_TELEMETRY") ?? isProduction;
 
   const env: ServerEnv = Object.freeze({
     nodeEnv,
@@ -267,6 +277,7 @@ export function parseEnv(source: EnvSource = process.env): ParsedEnv {
     contentDir,
     clientDir,
     devTools,
+    telemetryEnabled,
   });
 
   return { env, errors, warnings };
@@ -306,5 +317,6 @@ export function describeEnv(env: ServerEnv): Record<string, unknown> {
     contentDir: env.contentDir,
     clientDir: env.clientDir ?? "(not serving a client build)",
     devTools: env.devTools,
+    telemetry: env.telemetryEnabled,
   };
 }

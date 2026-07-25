@@ -32,6 +32,7 @@ import { verifyAccessToken } from "../auth/tokens.js";
 import { fittingsRepo, ownedModulesRepo, profilesRepo, shipUpgradesRepo } from "../db/repos.js";
 import { hardpointMapToFitting, validateFitting } from "../api/fittingValidation.js";
 import { finalizeMatch, type Participant } from "../progression/service.js";
+import { getMetrics, instrumentClientEgress } from "../telemetry/metrics.js";
 import { ArenaState, PlayerState, ProjectileState, ModuleState, AsteroidState } from "./state/ArenaState.js";
 
 const log = createLogger("ArenaRoom");
@@ -129,6 +130,23 @@ export class ArenaRoom extends Room<ArenaState> {
   /** Ship entity id → frags scored this match (for perKill rewards). */
   private readonly fragsByEntity = new Map<EntityId, number>();
 
+  // --- telemetry (6.6/6.8) --------------------------------------------------
+  /**
+   * True only while {@link broadcastPatch} is on the stack, so the egress byte
+   * counter can tell a state patch from an ordinary message. Read by
+   * `instrumentClientEgress`; see telemetry/metrics.ts for why this is the only
+   * seam Colyseus 0.16 offers.
+   */
+  private patchPhase = false;
+  /** Humans who joined at any point this match (leavers included). */
+  private humansJoined = 0;
+  /** Bots spawned by backfill this match. */
+  private botsSpawned = 0;
+
+  get inPatchPhase(): boolean {
+    return this.patchPhase;
+  }
+
   /**
    * Verify the access-token JWT from `options.token` → resolve the userId.
    * Fails CLOSED: an anonymous (tokenless/invalid-token) join is allowed only
@@ -190,6 +208,8 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.onMessage(MSG_ORDER, (client, message) => this.handleOrder(client, message));
 
+    getMetrics().registerRoom(this.roomId, gamemode.id);
+
     log.info("room created", {
       gamemode: gamemode.id,
       arena: arenaId,
@@ -241,6 +261,12 @@ export class ArenaRoom extends Room<ArenaState> {
     this.sessionUserId.set(client.sessionId, userId);
     this.fragsByEntity.set(entityId, 0);
     this.orderRates.set(client.sessionId, { windowStart: Date.now(), count: 0, abuse: 0 });
+    this.humansJoined++;
+
+    // Count this client's outbound bytes (6.6 patch-bytes/s). The wrapper lives
+    // on the client object, so it is collected with the client — nothing to undo.
+    instrumentClientEgress(client, this.roomId, this);
+    getMetrics().setClientCount(this.roomId, this.clients.length);
 
     this.syncShipState(entityId, ps);
 
@@ -448,6 +474,7 @@ export class ArenaRoom extends Room<ArenaState> {
       }
     }
 
+    this.botsSpawned += spawned;
     log.info("bot backfill complete", { spawned, profile: backfill.profile.id });
     this.state.matchPhase = "live";
   }
@@ -559,8 +586,15 @@ export class ArenaRoom extends Room<ArenaState> {
     client.send(MSG_ORDER_ACK, reason ? { seq, accepted, reason } : { seq, accepted });
   }
 
+  /**
+   * The fixed simulation step, wrapped in a duration counter (6.6/6.8). The two
+   * `performance.now()` calls cost well under a microsecond against a 33 ms
+   * budget, and the roadmap wants avg tick time in production telemetry — so
+   * this is measured always, not behind a dev flag.
+   */
   private update(): void {
     if (this.state.matchPhase !== "live") return;
+    const startedAt = performance.now();
 
     if (this.botDrivers.size > 0) this.driveBots();
     this.sim.tick(FIXED_DT);
@@ -571,7 +605,23 @@ export class ArenaRoom extends Room<ArenaState> {
     this.writeState();
     this.state.matchTimer = this.sim.snapshot().elapsed;
 
+    getMetrics().recordTick(this.roomId, performance.now() - startedAt);
+
     if (this.sim.isEnded && this.state.matchPhase === "live") this.endMatch();
+  }
+
+  /**
+   * Mark the patch window so wrapped `Client.raw` writes are attributed to state
+   * patches rather than to messages. `applyPatches` is synchronous, so the flag
+   * cannot straddle two patches; `finally` keeps it honest if encoding throws.
+   */
+  override broadcastPatch(): boolean {
+    this.patchPhase = true;
+    try {
+      return super.broadcastPatch();
+    } finally {
+      this.patchPhase = false;
+    }
   }
 
   /**
@@ -751,6 +801,12 @@ export class ArenaRoom extends Room<ArenaState> {
         durationS,
         participants,
         rewardsEligible: this.rewardsEligible,
+        // Telemetry (6.8): who was actually in this match. Counted across the
+        // whole match rather than read off `state.players` at the end, so a
+        // player who rage-quits at 4-4 still counts as having played.
+        roomId: this.roomId,
+        playerCount: this.humansJoined,
+        botCount: this.botsSpawned,
       });
 
       for (const summary of summaries) {
@@ -803,12 +859,33 @@ export class ArenaRoom extends Room<ArenaState> {
     this.sessionUserId.delete(sessionId);
     if (entityId !== undefined) this.fragsByEntity.delete(entityId);
     this.state.players.delete(sessionId);
+    getMetrics().setClientCount(this.roomId, this.clients.length);
     log.info("client removed", { sessionId, entityId });
   }
 
+  /**
+   * Teardown (6.6 dispose audit). Everything this room owns that outlives a tick
+   * is released here: both `setTimeout` handles, every bot driver (each holds a
+   * profile config and a decision-state closure), the sim's entity maps, and the
+   * room's slot in the metrics registry. Colyseus itself clears
+   * `setSimulationInterval`, the patch interval and `this.clock`; the two raw
+   * `setTimeout`s below are ours and are *not* covered by that.
+   */
   onDispose(): void {
-    if (this.endTimer) clearTimeout(this.endTimer);
+    if (this.endTimer) {
+      clearTimeout(this.endTimer);
+      this.endTimer = null;
+    }
     this.clearBotBackfillTimer();
+    this.botDrivers.clear();
+    this.keyToEntity.clear();
+    this.entityToKey.clear();
+    this.humanSessions.clear();
+    this.sessionUserId.clear();
+    this.fragsByEntity.clear();
+    this.orderRates.clear();
+    this.asteroidEntityIds = [];
+    getMetrics().unregisterRoom(this.roomId);
     log.info("room disposed", { gamemode: this.gamemode?.id });
   }
 }

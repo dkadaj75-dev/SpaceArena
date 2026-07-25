@@ -34,6 +34,12 @@ export interface MatchRecord {
    * client-overridden trivially-winnable rooms.
    */
   rewardsEligible?: boolean;
+  /** Colyseus room id, recorded for telemetry (6.8). */
+  roomId?: string;
+  /** Humans who joined at any point during the match (6.8). */
+  playerCount?: number;
+  /** Bots spawned into the match (6.8). */
+  botCount?: number;
 }
 
 /**
@@ -81,6 +87,9 @@ export function finalizeMatch(configs: ConfigService, record: MatchRecord): Rewa
       winner_team: record.winnerTeam,
       duration_s: record.durationS,
       rewards_eligible: eligible,
+      room_id: record.roomId ?? null,
+      player_count: record.playerCount ?? record.participants.filter((p) => p.userId !== null).length,
+      bot_count: record.botCount ?? 0,
     });
 
     if (!eligible) return [];

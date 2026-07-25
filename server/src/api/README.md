@@ -120,3 +120,46 @@ row is still written (flagged `rewards_eligible=0`) but no credits/XP are grante
 and one authenticated user may occupy only one slot per room. `finalizeMatch`
 persists the result and all profile writes in a single transaction and dedupes
 rewards by userId.
+
+## Telemetry — `/api/telemetry` (ROADMAP §11 6.8)
+
+| Method & path | Auth | Body | Notes |
+|---|---|---|---|
+| `POST /client` | **none** | `{ sessionHash, fpsBucket, deviceClass, qualityTier }` | `204 No Content`. Fire-and-forget, called once per finished match (offline or online). `400 invalid-body`; `429 rate-limited` past 240 reports/hour for one session hash. |
+
+Schema: `clientMetricBodySchema` in `shared/src/net/telemetry.ts`. It is
+**strict** — an unknown key is a 400, so a future client cannot quietly start
+attaching an identifier.
+
+- `sessionHash` — 32–64 lowercase hex characters. Random per page load, held in
+  memory only, never persisted client-side and never linked to an account. There
+  is deliberately no foreign key from `client_metrics` to `users`.
+- `fpsBucket` — `<20` | `20-30` | `30-45` | `45-60` | `60+`, from the match's
+  frames ÷ seconds (not a mean of per-frame readings).
+- `deviceClass` — `mobile` | `desktop`, from the UA hint.
+- `qualityTier` — `low` | `med` | `high`, the tier that was actually active.
+
+Unauthenticated on purpose: the payload gains nothing from an identity, and
+requiring a token would drop reports from exactly the sessions worth measuring
+(guests bouncing off a slow device). It still shares the per-IP token bucket that
+guards the rest of `/api/*`, and the per-session cap blunts the slow trickle the
+IP limiter would let through.
+
+Two further tables back this up, written server-side and not exposed over REST:
+`match_results` (extended in migration 004 with `room_id`, `player_count`,
+`bot_count`) and `server_metrics` (room count, tick avg/p95/max and RSS, sampled
+every 10 s while rooms are live — see `SPACE_ARENA_TELEMETRY`). Read all three
+with `npm run telemetry:report`.
+
+## Operations — `/metrics`
+
+`GET /metrics` returns the live metrics registry as JSON: per-room tick
+histograms, patch/egress byte counters, room and client counts, process memory,
+and lifetime room create/dispose totals. Counters are **cumulative**, so a poller
+derives windows by diffing consecutive responses.
+
+Mounted only when `env.devTools` is on (development, or production with
+`COLYSEUS_MONITOR=1`), alongside `/monitor`, and it belongs behind the same admin
+auth that §11 6.4 puts in front of that dashboard. `?gc=1` forces a collection
+before sampling — a no-op unless the process was started with `--expose-gc`,
+which only the load-test harness does.

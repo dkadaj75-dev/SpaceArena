@@ -4,7 +4,8 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import { boot, ColyseusTestServer } from "@colyseus/testing";
 import { setGlobalLogLevel, type ConfigService, type ShipConfig } from "@space-arena/shared";
 import { loadContent, setConfigService } from "../configService.js";
-import { openDatabase, setDb } from "../db/index.js";
+import { getDb, openDatabase, setDb } from "../db/index.js";
+import { getMetrics } from "../telemetry/metrics.js";
 import { seedNewUser } from "../db/seed.js";
 import { fittingsRepo, ownedModulesRepo, profilesRepo, shipUpgradesRepo, usersRepo } from "../db/repos.js";
 import { signAccessToken } from "../auth/tokens.js";
@@ -350,5 +351,76 @@ describe("ArenaRoom", () => {
     expect(ps.heatCapacity).toBeCloseTo(100, 3);
 
     await c.leave();
+  });
+
+  it("records a match_results row with room id, player and bot counts (6.8)", async () => {
+    const db = getDb();
+    const before = (db.prepare("SELECT COUNT(*) AS n FROM match_results").get() as { n: number }).n;
+
+    // One human + one backfilled bot: player_count 1, bot_count 1.
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.duel-1v1",
+      botBackfillMs: 0,
+    });
+    const c1 = await colyseus.connectTo(room);
+    for (let i = 0; i < 40 && room.state.matchPhase !== "live"; i++) await advance(room, 1);
+    expect(room.state.matchPhase).toBe("live");
+
+    // Kill the bot outright so the match ends by elimination.
+    const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
+      sim: { world: { shipCores: Map<number, { hull: number }> } };
+    };
+    const playerEntity = room.state.players.get(c1.sessionId)!.entityId;
+    for (const [key, ps] of room.state.players) {
+      if (key === c1.sessionId) continue;
+      serverRoom.sim.world.shipCores.get(ps.entityId)!.hull = 0;
+    }
+
+    for (let i = 0; i < 400 && room.state.matchPhase !== "ended"; i++) await advance(room, 1);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(room.state.matchPhase).toBe("ended");
+
+    const rows = db
+      .prepare("SELECT * FROM match_results ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .all() as Array<{ mode: string; room_id: string | null; player_count: number; bot_count: number; duration_s: number }>;
+    expect((db.prepare("SELECT COUNT(*) AS n FROM match_results").get() as { n: number }).n).toBe(before + 1);
+    const row = rows[0]!;
+    expect(row.mode).toBe("gamemode.duel-1v1");
+    expect(row.room_id).toBe(room.roomId);
+    expect(row.player_count).toBe(1);
+    expect(row.bot_count).toBe(1);
+    expect(row.duration_s).toBeGreaterThan(0);
+    expect(playerEntity).toBeGreaterThanOrEqual(0);
+
+    await c1.leave();
+  });
+
+  it("registers itself in the metrics registry and unregisters on dispose (6.6)", async () => {
+    const metrics = getMetrics();
+    const roomsBefore = metrics.snapshot().roomCount;
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c = await colyseus.connectTo(room);
+    await advance(room, 5);
+
+    const during = metrics.snapshot();
+    expect(during.roomCount).toBe(roomsBefore + 1);
+    const entry = during.rooms.find((r) => r.roomId === room.roomId)!;
+    expect(entry.gamemode).toBe("gamemode.duel-1v1");
+    expect(entry.clients).toBe(1);
+    // The fixed step was timed, and the patch broadcast was measured in bytes.
+    expect(entry.tick.count).toBeGreaterThan(0);
+    expect(entry.tick.maxMs).toBeGreaterThan(0);
+    expect(during.patchBytes).toBeGreaterThan(0);
+    expect(during.patches).toBeGreaterThan(0);
+
+    await c.leave();
+    await room.disconnect();
+    await new Promise((r) => setTimeout(r, 200));
+
+    const after = metrics.snapshot();
+    expect(after.rooms.some((r) => r.roomId === room.roomId)).toBe(false);
+    // Lifetime tick counters survive the room they came from (6.6 windowing).
+    expect(after.tick.count).toBeGreaterThanOrEqual(during.tick.count);
   });
 });

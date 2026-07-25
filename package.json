@@ -17,9 +17,13 @@
     "lint": "eslint .",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client && tsc -p tsconfig.tools.json",
     "validate:content": "tsx tools/validate-content.ts",
-    "bundle:budget": "tsx tools/bundle-budget.ts"
+    "bundle:budget": "tsx tools/bundle-budget.ts",
+    "loadtest": "tsx tools/loadtest.ts --rooms 20 --duration 60",
+    "loadtest:soak": "tsx tools/loadtest.ts --rooms 20 --duration 3600",
+    "telemetry:report": "tsx tools/telemetry-report.ts"
   },
   "devDependencies": {
+    "@colyseus/loadtest": "^0.16.2",
     "@eslint/js": "^9.9.0",
     "@playwright/test": "^1.62.0",
     "eslint": "^9.9.0",

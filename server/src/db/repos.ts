@@ -69,6 +69,36 @@ export interface MatchResultRow {
   duration_s: number;
   rewards_eligible: number;
   created_at: number;
+  /** Colyseus room id (telemetry, 6.8). NULL on rows written before migration 004. */
+  room_id: string | null;
+  /** Humans who joined at any point. 0 on pre-004 rows — "not recorded", not "nobody". */
+  player_count: number;
+  /** Bots spawned by backfill. 0 on pre-004 rows. */
+  bot_count: number;
+}
+
+/** One anonymous client report (telemetry, 6.8). Carries no user id by design. */
+export interface ClientMetricRow {
+  id: string;
+  session_hash: string;
+  fps_bucket: string;
+  device_class: string;
+  quality_tier: string;
+  created_at: number;
+}
+
+/** One periodic server rollup (telemetry, 6.8). */
+export interface ServerMetricRow {
+  id: string;
+  sampled_at: number;
+  room_count: number;
+  client_count: number;
+  tick_avg_ms: number;
+  tick_p95_ms: number;
+  tick_max_ms: number;
+  tick_samples: number;
+  rss_bytes: number;
+  heap_used_bytes: number;
 }
 
 export interface SessionRow {
@@ -318,11 +348,15 @@ export const matchResultsRepo = {
     winner_team: number | null;
     duration_s: number;
     rewards_eligible?: boolean;
+    room_id?: string | null;
+    player_count?: number;
+    bot_count?: number;
     created_at?: number;
   }): void {
     getDb()
       .prepare(
-        "INSERT INTO match_results (id, mode, arena_id, participants, winner_team, duration_s, rewards_eligible, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO match_results (id, mode, arena_id, participants, winner_team, duration_s, rewards_eligible, room_id, player_count, bot_count, created_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         row.id,
@@ -332,11 +366,77 @@ export const matchResultsRepo = {
         row.winner_team,
         row.duration_s,
         row.rewards_eligible === false ? 0 : 1,
+        row.room_id ?? null,
+        row.player_count ?? 0,
+        row.bot_count ?? 0,
         row.created_at ?? Date.now(),
       );
   },
   byId(id: string): MatchResultRow | undefined {
     return getDb().prepare("SELECT * FROM match_results WHERE id = ?").get(id) as MatchResultRow | undefined;
+  },
+  /** Matches created at or after `since` (epoch ms), oldest first. Report tool. */
+  since(since: number): MatchResultRow[] {
+    return getDb()
+      .prepare("SELECT * FROM match_results WHERE created_at >= ? ORDER BY created_at ASC")
+      .all(since) as MatchResultRow[];
+  },
+};
+
+// ---------------------------------------------------------------------------
+// client_metrics (telemetry 6.8)
+// ---------------------------------------------------------------------------
+
+export const clientMetricsRepo = {
+  create(row: {
+    id: string;
+    session_hash: string;
+    fps_bucket: string;
+    device_class: string;
+    quality_tier: string;
+    created_at?: number;
+  }): void {
+    getDb()
+      .prepare(
+        "INSERT INTO client_metrics (id, session_hash, fps_bucket, device_class, quality_tier, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(row.id, row.session_hash, row.fps_bucket, row.device_class, row.quality_tier, row.created_at ?? Date.now());
+  },
+  since(since: number): ClientMetricRow[] {
+    return getDb()
+      .prepare("SELECT * FROM client_metrics WHERE created_at >= ? ORDER BY created_at ASC")
+      .all(since) as ClientMetricRow[];
+  },
+  /**
+   * How many reports this session hash has already filed since `since`. The
+   * telemetry endpoint uses it as a per-session cap so one looping client cannot
+   * flood a bucket — the IP rate limiter alone would let a slow trickle through.
+   */
+  countForSession(sessionHash: string, since: number): number {
+    const row = getDb()
+      .prepare("SELECT COUNT(*) AS n FROM client_metrics WHERE session_hash = ? AND created_at >= ?")
+      .get(sessionHash, since) as { n: number };
+    return row.n;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// server_metrics (telemetry 6.8)
+// ---------------------------------------------------------------------------
+
+export const serverMetricsRepo = {
+  create(row: Omit<ServerMetricRow, "sampled_at"> & { sampled_at?: number }): void {
+    getDb()
+      .prepare(
+        "INSERT INTO server_metrics (id, sampled_at, room_count, client_count, tick_avg_ms, tick_p95_ms, tick_max_ms, tick_samples, rss_bytes, heap_used_bytes) " +
+          "VALUES (@id, @sampled_at, @room_count, @client_count, @tick_avg_ms, @tick_p95_ms, @tick_max_ms, @tick_samples, @rss_bytes, @heap_used_bytes)",
+      )
+      .run({ ...row, sampled_at: row.sampled_at ?? Date.now() });
+  },
+  since(since: number): ServerMetricRow[] {
+    return getDb()
+      .prepare("SELECT * FROM server_metrics WHERE sampled_at >= ? ORDER BY sampled_at ASC")
+      .all(since) as ServerMetricRow[];
   },
 };
 

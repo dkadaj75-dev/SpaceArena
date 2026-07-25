@@ -18,6 +18,7 @@ import { AssetRegistry } from "./core/AssetRegistry.js";
 import { QualityManager } from "./core/QualityManager.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
+import { TelemetryClient } from "./core/TelemetryClient.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
 import { GameSession } from "./game/GameSession.js";
 import { ViewManager } from "./game/EntityView.js";
@@ -155,6 +156,11 @@ async function bootstrap(): Promise<void> {
     navigator: window.navigator,
     devicePixelRatio: window.devicePixelRatio || 1,
   });
+
+  // Anonymous per-match perf telemetry (§11 6.8). Constructed once per page
+  // load so its session handle covers the whole visit; silent in dev builds
+  // unless VITE_SPACE_ARENA_TELEMETRY=1.
+  const telemetry = new TelemetryClient();
 
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
@@ -506,6 +512,7 @@ async function bootstrap(): Promise<void> {
       // Fresh auto-tier sampling window: one demote/promote per match, measured
       // from here (see QualityManager.sampleFrame in the render loop).
       quality.beginMatch();
+      telemetry.beginMatch();
       lobby.hide();
       hangar.hide();
     } catch (err) {
@@ -540,6 +547,14 @@ async function bootstrap(): Promise<void> {
 
       // Consume this frame's sim events, then render dynamic views + markers + HUD.
       const events = runtime.session.drainFrameEvents();
+      // Match-end telemetry (§11 6.8). This event is the one point where offline
+      // and online converge: offline it comes from the local ArenaSimulation,
+      // online from the server's `simEvent` broadcast, and both land in this
+      // same per-frame array. Hooking the results-screen buttons instead would
+      // miss every player who closes the tab on the results screen.
+      if (events.some((ev) => ev.type === "matchEnded")) {
+        void telemetry.endMatch({ qualityTier: quality.currentTier, deviceProbe: quality.deviceProbe });
+      }
       runtime.viewManager.consumeEvents(events, cur);
       runtime.orderMarkers.consumeEvents(events);
       runtime.hud.consumeEvents(events);
@@ -554,6 +569,7 @@ async function bootstrap(): Promise<void> {
       runtime.netOverlay?.update();
       runtime.botOverlay?.update();
       quality.sampleFrame(engine.getFps(), dtMs);
+      telemetry.sampleFrame(dtMs);
     }
     tacticalCamera.update(dtMs / 1000);
     scene.render();

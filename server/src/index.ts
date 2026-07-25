@@ -7,6 +7,8 @@ import { loadContent, setConfigService } from "./configService.js";
 import { openDatabase, setDb } from "./db/index.js";
 import { describeEnv, envWarnings, getEnv } from "./env.js";
 import { createHttpApp } from "./httpApp.js";
+import { createMetricsRouter } from "./api/metrics.js";
+import { TelemetrySampler } from "./telemetry/sampler.js";
 import { ArenaRoom } from "./rooms/ArenaRoom.js";
 
 const log = createLogger("Server");
@@ -41,8 +43,16 @@ async function main(): Promise<void> {
 
   if (env.devTools) {
     app.use("/monitor", monitor());
-    log.info("colyseus monitor enabled at /monitor");
+    // Load-test / ops metrics (§11 6.6). Same gate as the monitor: both are
+    // operator surfaces and both go behind admin auth in 6.4.
+    app.use("/metrics", createMetricsRouter());
+    log.info("colyseus monitor enabled at /monitor, metrics at /metrics");
   }
+
+  // Periodic server_metrics rollup (§11 6.8). Off in dev unless opted in, so a
+  // normal dev session does not write a row every ten seconds.
+  const sampler = new TelemetrySampler();
+  if (env.telemetryEnabled) sampler.start();
 
   await gameServer.listen(env.port);
   log.info(`listening on :${env.port}`, {
@@ -52,6 +62,7 @@ async function main(): Promise<void> {
 
   const shutdown = (signal: string): void => {
     log.info(`received ${signal}, shutting down`);
+    sampler.stop();
     gameServer
       .gracefullyShutdown()
       .then(() => {

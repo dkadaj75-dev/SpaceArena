@@ -3,8 +3,9 @@ import request from "supertest";
 import { setGlobalLogLevel } from "@space-arena/shared";
 import { loadContent, setConfigService } from "../configService.js";
 import { openDatabase, setDb } from "../db/index.js";
-import { profilesRepo } from "../db/repos.js";
+import { clientMetricsRepo, profilesRepo } from "../db/repos.js";
 import { createHttpApp } from "../httpApp.js";
+import { MAX_REPORTS_PER_SESSION } from "./telemetry.js";
 
 setGlobalLogLevel("error");
 
@@ -148,5 +149,60 @@ describe("user configs API", () => {
     const { auth } = await newUser("cfg2@example.com");
     const res = await request(app).post("/api/configs").set("Authorization", auth).send({ json: { type: "arena", name: "broken" } });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("telemetry API (6.8)", () => {
+  const body = {
+    sessionHash: "0123456789abcdef0123456789abcdef",
+    fpsBucket: "45-60",
+    deviceClass: "desktop",
+    qualityTier: "high",
+  };
+
+  it("accepts an anonymous report with no auth and stores it", async () => {
+    const res = await request(app).post("/api/telemetry/client").send(body);
+    expect(res.status).toBe(204);
+    expect(res.text).toBe("");
+
+    const rows = clientMetricsRepo.since(0).filter((r) => r.session_hash === body.sessionHash);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ fps_bucket: "45-60", device_class: "desktop", quality_tier: "high" });
+    // Privacy: the stored row must carry nothing that identifies a user.
+    expect(Object.keys(rows[0]!)).toEqual(["id", "session_hash", "fps_bucket", "device_class", "quality_tier", "created_at"]);
+  });
+
+  it("rejects a malformed body", async () => {
+    const bad = await request(app).post("/api/telemetry/client").send({ ...body, fpsBucket: "1000+" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe("invalid-body");
+
+    const shortHash = await request(app).post("/api/telemetry/client").send({ ...body, sessionHash: "abc" });
+    expect(shortHash.status).toBe(400);
+  });
+
+  it("rejects a body carrying an extra identifier field", async () => {
+    const res = await request(app)
+      .post("/api/telemetry/client")
+      .send({ ...body, sessionHash: "1111111111111111111111111111aaaa", userId: "u-1" });
+    expect(res.status).toBe(400);
+  });
+
+  it("caps how many reports one session may file", async () => {
+    const sessionHash = "abcdef0123456789abcdef0123456789";
+    const now = Date.now();
+    for (let i = 0; i < MAX_REPORTS_PER_SESSION; i++) {
+      clientMetricsRepo.create({
+        id: `cap-${i}`,
+        session_hash: sessionHash,
+        fps_bucket: "60+",
+        device_class: "desktop",
+        quality_tier: "high",
+        created_at: now,
+      });
+    }
+    const res = await request(app).post("/api/telemetry/client").send({ ...body, sessionHash });
+    expect(res.status).toBe(429);
+    expect(res.body.error.code).toBe("rate-limited");
   });
 });

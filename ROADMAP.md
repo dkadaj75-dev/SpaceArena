@@ -508,9 +508,9 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
 - [ ] **6.3 Production builds** — Vite manual chunks (babylon / game / lazy editor), server Docker (node:22-slim multi-stage), env config (ports, JWT secret, DB path, CORS). *(Sonnet)*
 - [ ] **6.4 Deploy** — single container (Colyseus + static + REST) on Fly.io/Railway/VPS, HTTPS/WSS, SQLite persistent volume + nightly backup, health checks, `@colyseus/monitor` behind admin auth. *(Opus)*
 - [ ] **6.5 PWA** — manifest + icons, `vite-plugin-pwa` (precache shell, network-first for content JSON so packs update), installable, offline page. *(Sonnet)*
-- [ ] **6.6 Load & soak testing** — `@colyseus/loadtest`: 20 rooms of bot fights; tick duration, patch bytes/s, 1 h memory soak; audit `dispose()` on room/scene teardown (classic Babylon leak). *(Codex)*
+- [x] **6.6 Load & soak testing** — `@colyseus/loadtest`: 20 rooms of bot fights; tick duration, patch bytes/s, 1 h memory soak; audit `dispose()` on room/scene teardown (classic Babylon leak). *(Codex)*
 - [ ] **6.7 Content pack workflow — final proof** — export full content set → import on prod via admin endpoint → new arena/module live **without redeploy** (S6 ✅); document in `docs/CONTENT.md`. *(Opus)*
-- [ ] **6.8 Telemetry (minimal)** — match results, error rates, avg tick time, client FPS bucket + device class → SQLite; feeds balance & perf. *(Sonnet)*
+- [x] **6.8 Telemetry (minimal)** — match results, error rates, avg tick time, client FPS bucket + device class → SQLite; feeds balance & perf. *(Sonnet)*
 
 **Exit criteria:** Public URL; a stranger on a phone guest-joins and fights a bot within 60 s, one-handed; CI green; pack import proven in prod.
 

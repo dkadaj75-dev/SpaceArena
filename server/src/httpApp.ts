@@ -6,6 +6,7 @@ import { createFittingsRouter } from "./api/fittings.js";
 import { createShipsRouter } from "./api/ships.js";
 import { createModulesRouter } from "./api/modules.js";
 import { createConfigsRouter } from "./api/configs.js";
+import { createTelemetryRouter } from "./api/telemetry.js";
 import { createRateLimiter } from "./api/rateLimit.js";
 import { getEnv } from "./env.js";
 import { mountClient, mountContent } from "./staticSite.js";
@@ -67,6 +68,9 @@ export function createHttpApp(options: HttpAppOptions = {}): Express {
   app.use("/api/ships", apiLimiter, createShipsRouter());
   app.use("/api/modules", apiLimiter, createModulesRouter());
   app.use("/api/configs", apiLimiter, createConfigsRouter());
+  // Anonymous, unauthenticated, but on the same per-IP bucket as everything
+  // else (ROADMAP §11 6.8) — "no login required" must not mean "no limit".
+  app.use("/api/telemetry", apiLimiter, createTelemetryRouter());
 
   // Static serving last: the content pack and the client build are the only
   // things allowed to answer a URL the API did not claim, and the SPA fallback
