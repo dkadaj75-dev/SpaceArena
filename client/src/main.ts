@@ -27,6 +27,8 @@ import { Hud } from "./game/hud/Hud.js";
 import { Lobby, type LobbyChoice } from "./game/screens/Lobby.js";
 import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
+import { SettingsScreen } from "./game/screens/SettingsScreen.js";
+import { UserSettingsStore, type UserSettings } from "./core/userSettings.js";
 import { NetGameSession } from "./net/NetGameSession.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 import { BotDebugOverlay } from "./game/BotDebugOverlay.js";
@@ -145,6 +147,16 @@ async function bootstrap(): Promise<void> {
   });
   audio.attachUnlock();
 
+  // Player settings (§10 5.8). One store owns the localStorage overrides; the
+  // apply pass below is the ONLY place that turns a setting into behaviour, so
+  // the settings screen never has to know about the engine, the audio graph or
+  // the camera rig. Volume defaults come from whatever the AudioManager already
+  // resolved (stored value, else the theme's default).
+  const userSettings = new UserSettingsStore(undefined, {
+    masterVolume: audio.masterVolume,
+    sfxVolume: audio.sfxVolume,
+  });
+
   // Preload GLB hulls for every ship that configures one (render.model), so
   // the sync view/hangar/editor paths can pick them up from the shared cache.
   // Fire-and-forget with per-model fallback to the procedural recipe.
@@ -198,16 +210,34 @@ async function bootstrap(): Promise<void> {
     );
     const orderInput = new OrderInput(scene, configService, session);
     const orderMarkers = new OrderMarkers(scene, session.playerId);
-    const hud = new Hud(hudRoot, configService, bus, session, session.playerId, () => {
-      log.info("match over — returning to lobby");
-      runtime?.dispose();
-      runtime = null;
-      // Credits/xp/level may have changed server-side (matchRewards) — refresh
-      // the profile so the Lobby header reflects it. Fire-and-forget: the
-      // header updates via AuthService.onChange whenever this resolves.
-      void authService.refreshProfile();
-      lobby.show();
-    });
+    const offline = !(session instanceof NetGameSession);
+    const hud = new Hud(
+      hudRoot,
+      configService,
+      bus,
+      session,
+      session.playerId,
+      {
+        // "Play again" rebuilds the same kind of match from scratch (§6 1.9):
+        // no cross-match state survives, so a rematch is a fresh runtime.
+        onPlayAgain: () => {
+          const again = lastChoice ?? { kind: "practice" as const };
+          endMatch();
+          void startMatch(again);
+        },
+        onHangar: () => {
+          endMatch();
+          hangar.show();
+        },
+        onMenu: () => {
+          log.info("match over — returning to lobby");
+          endMatch();
+          lobby.show();
+        },
+        onSettings: () => openSettings("match"),
+      },
+      { offline },
+    );
 
     // Online sessions: rejection toasts + DEV net telemetry overlay (F9).
     let netOverlay: NetDebugOverlay | null = null;
@@ -224,6 +254,10 @@ async function bootstrap(): Promise<void> {
 
     const initial = playerShip(session.curSnapshot.ships, session.playerId);
     if (initial) playerFollow.position.set(initial.pos.x, 0.3, initial.pos.z);
+    // Re-arm the follow rig: the Hangar's orbit mode (and the editor's) drop the
+    // follow target, and 5.8 lets a player reach the Hangar straight from the
+    // results screen — without this a post-Hangar match left the camera parked.
+    tacticalCamera.follow(playerFollow);
     tacticalCamera.camera.target.copyFrom(playerFollow.position);
     tacticalCamera.camera.setTarget(tacticalCamera.camera.target);
 
@@ -255,6 +289,81 @@ async function bootstrap(): Promise<void> {
 
   let runtime: MatchRuntime | null = null;
   let simPaused = false;
+  /** True while the sim is frozen *because the settings screen is open* (5.8). */
+  let pausedBySettings = false;
+
+  /**
+   * The single place a player setting turns into behaviour (§10 5.8). Called on
+   * boot, on every settings change, and once per new match runtime (a fresh
+   * `ScreenShake`/`Hud` starts from its own defaults).
+   *
+   * The renderer choice is deliberately absent: it decides which engine gets
+   * constructed at boot, so the settings screen offers a reload button instead.
+   */
+  function applyUserSettings(values: UserSettings = userSettings.current): void {
+    quality.applyOverride(values.quality);
+    audio.setMasterVolume(values.masterVolume, { persist: false });
+    audio.setSfxVolume(values.sfxVolume, { persist: false });
+    tacticalCamera.setPanSensitivityScale(values.cameraPanSens);
+    runtime?.screenShake.setUserEnabled(values.cameraShake);
+    runtime?.hud.setHapticsEnabled(values.haptics);
+  }
+
+  applyUserSettings();
+  userSettings.onChange((values) => applyUserSettings(values));
+
+  /**
+   * Freeze/unfreeze the fixed-timestep loop. Shared by the dev editor (which
+   * additionally flips the camera into editor mode) and the in-match settings
+   * screen (which does not — the tactical view stays exactly as the player left
+   * it behind the overlay).
+   */
+  function setSimPaused(paused: boolean): void {
+    simPaused = paused;
+  }
+
+  /**
+   * Tear the current match down. Every results-screen exit goes through here so
+   * the runtime is disposed exactly once and the profile is refreshed (credits /
+   * xp / level may have moved server-side via `matchRewards`). Fire-and-forget:
+   * the Lobby header updates through `AuthService.onChange` when it resolves.
+   */
+  function endMatch(): void {
+    if (pausedBySettings) {
+      pausedBySettings = false;
+      setSimPaused(false);
+    }
+    settingsScreen.hide();
+    runtime?.dispose();
+    runtime = null;
+    void authService.refreshProfile();
+  }
+
+  /**
+   * Open the settings overlay. In an OFFLINE match it also freezes the sim (the
+   * same `simPaused` flag the dev editor uses) so a player adjusting sliders
+   * doesn't get shot; online matches are server-authoritative and keep running,
+   * which is why the pause is conditional rather than unconditional.
+   */
+  function openSettings(context: "menu" | "match"): void {
+    const pauseable = context === "match" && runtime !== null && !(runtime.session instanceof NetGameSession);
+    if (pauseable) {
+      pausedBySettings = true;
+      setSimPaused(true);
+    }
+    settingsScreen.show({
+      context,
+      onClose: () => {
+        if (pausedBySettings) {
+          pausedBySettings = false;
+          setSimPaused(false);
+        }
+      },
+    });
+  }
+
+  /** The last match the player started — what "Play again" repeats (5.8). */
+  let lastChoice: LobbyChoice | null = null;
 
   // Theme hot-reload fans out to the 5.7 juice/audio consumers (the HUD wires
   // its own colors/layout/haptics; camera shake listens for `camera.*` itself).
@@ -269,27 +378,39 @@ async function bootstrap(): Promise<void> {
     document.body,
     configService,
     authService,
-    (choice: LobbyChoice) => {
-      void startMatch(choice);
+    {
+      onChoose: (choice: LobbyChoice) => {
+        void startMatch(choice);
+      },
+      onLogout: () => {
+        // Log out: drop the session and fall back to the auth gate.
+        authService.logout();
+        lobby.hide();
+        authScreen.show();
+      },
+      onAccountRequested: (tab) => {
+        lobby.hide();
+        authScreen.show();
+        if (tab === "register") authScreen.showRegisterTab();
+        else authScreen.showLoginTab();
+      },
+      onHangarRequested: () => {
+        lobby.hide();
+        hangar.show();
+      },
+      // The settings overlay stacks ON TOP of the lobby (z-index 40 vs 20), so
+      // there is nothing to restore when it closes.
+      onSettingsRequested: () => openSettings("menu"),
     },
-    () => {
-      // Log out: drop the session and fall back to the auth gate.
-      authService.logout();
-      lobby.hide();
-      authScreen.show();
-    },
-    (tab) => {
-      lobby.hide();
-      authScreen.show();
-      if (tab === "register") authScreen.showRegisterTab();
-      else authScreen.showLoginTab();
-    },
-    () => {
-      lobby.hide();
-      hangar.show();
-    },
+    bus,
   );
   lobby.hide();
+
+  const settingsScreen = new SettingsScreen(document.body, {
+    configs: configService,
+    audio,
+    settings: userSettings,
+  });
 
   const hangar = new Hangar(
     document.body,
@@ -357,10 +478,15 @@ async function bootstrap(): Promise<void> {
               token: authService.getAccessToken() ?? undefined,
             });
       runtime = createMatchRuntime(session);
+      lastChoice = choice;
+      // The new runtime's shake/haptics consumers start from their own defaults —
+      // push the player's settings onto them (5.8).
+      applyUserSettings();
       // Fresh auto-tier sampling window: one demote/promote per match, measured
       // from here (see QualityManager.sampleFrame in the render loop).
       quality.beginMatch();
       lobby.hide();
+      hangar.hide();
     } catch (err) {
       log.error("failed to start match", err);
       lobby.showError(err instanceof Error ? err.message : "Connection failed");
@@ -435,13 +561,16 @@ async function bootstrap(): Promise<void> {
       configService,
       bus,
       pauseSim: () => {
-        simPaused = true;
+        setSimPaused(true);
         tacticalCamera.setEditorMode(true);
       },
       resumeSim: () => {
-        simPaused = false;
+        setSimPaused(false);
         tacticalCamera.setEditorMode(false);
         tacticalCamera.follow(playerFollow);
+        // The Quality panel writes `sa.quality` directly — pick up whatever the
+        // dev changed while the editor was open (5.8 store owns the rest).
+        userSettings.refresh();
       },
       rebuildArena: () => {
         sceneBuilder.buildArena("arena.ring-nebula");
@@ -496,6 +625,9 @@ async function bootstrap(): Promise<void> {
         return runtime?.botOverlay;
       },
       lobby,
+      settingsScreen,
+      userSettings,
+      openSettings,
       quality,
       audio,
       get audioFeedback() {
@@ -531,6 +663,8 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("beforeunload", () => {
     runtime?.dispose();
     audio.dispose();
+    settingsScreen.dispose();
+    userSettings.dispose();
     hangar.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();

@@ -291,11 +291,35 @@ const CSS = `
   border-radius: 8px;
 }
 .hud-results-title {
-  font-size: 1.375em;
+  font-size: 1.75em;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  text-align: center;
+  animation: hud-results-banner 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* Outcome colouring — all four banners share one element, only the tint moves. */
+.hud-results-title[data-outcome="victory"],
+.hud-results-title[data-outcome="targets-cleared"] {
+  color: var(--hud-primary, #57d8ff);
+  text-shadow: 0 0 24px rgba(87, 216, 255, 0.45);
+}
+.hud-results-title[data-outcome="defeat"] {
+  color: var(--hud-danger, #ff4d5e);
+  text-shadow: 0 0 24px rgba(255, 77, 94, 0.35);
+}
+.hud-results-title[data-outcome="draw"] { color: var(--hud-accent, #ff8c42); }
+@keyframes hud-results-banner {
+  from { opacity: 0; transform: translateY(-10px) scale(0.94); letter-spacing: 0.02em; }
+  to { opacity: 1; transform: none; letter-spacing: 0.14em; }
+}
+.hud-results-sub {
+  font-size: 0.75em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.hud-results-sub:empty { display: none; }
 .hud-results-rewards {
   display: flex;
   flex-direction: column;
@@ -305,9 +329,28 @@ const CSS = `
 }
 .hud-results-rewards:empty { display: none; }
 .hud-results-rewards-line {
-  font-size: 0.875em;
+  font-size: 1.125em;
   color: var(--hud-primary, #57d8ff);
   letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.hud-results-rewards-line .credits { color: var(--hud-accent, #ff8c42); font-weight: 700; }
+.hud-results-rewards-line .xp { color: var(--hud-primary, #57d8ff); font-weight: 700; }
+.hud-results-rewards-line .unit,
+.hud-results-rewards-line .dot { font-size: 0.7em; opacity: 0.75; letter-spacing: 0.06em; }
+/* One soft pop when the count-up lands — marks "that's your total". */
+.hud-results-rewards-line.done { animation: hud-results-tally 0.28s ease-out; }
+@keyframes hud-results-tally {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.hud-results-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
 }
 .hud-results-levelup {
   font-size: 0.8125em;
@@ -321,15 +364,47 @@ const CSS = `
   pointer-events: auto;
   cursor: pointer;
   touch-action: manipulation;
+  flex: 1 1 auto;
+  min-width: 96px;
   min-height: 44px;
-  padding: 8px 24px;
-  font-size: 0.875em;
+  padding: 8px 18px;
+  font-size: 0.8125em;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  color: var(--hud-text, #e6f0ff);
+  background: transparent;
+  border: 1px solid var(--hud-primary, #57d8ff);
+  border-radius: 4px;
+}
+.hud-results-btn--primary {
+  flex: 1 1 100%;
   color: var(--hud-bg, #0a0e1a);
   background: var(--hud-primary, #57d8ff);
-  border: none;
-  border-radius: 4px;
+  border-color: var(--hud-primary, #57d8ff);
+  font-size: 0.875em;
+}
+
+/* --- In-match settings affordance (top-right, next to the FPS readout) ---
+   Tagged data-hud-control so edge palm rejection never eats it (5.4). */
+.hud-settings-btn {
+  pointer-events: auto;
+  position: absolute;
+  top: var(--hud-inset-top);
+  right: calc(var(--hud-inset-right) + 76px);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;
+  line-height: 1;
+  color: var(--hud-primary, #57d8ff);
+  background: rgba(10, 14, 26, 0.7);
+  border: 1px solid var(--hud-primary, #57d8ff);
+  border-radius: 8px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 `;

@@ -15,10 +15,11 @@ import { Minimap } from "./Minimap.js";
 import { NotificationCenter } from "./Notifications.js";
 import { DamageFeedback } from "./DamageFeedback.js";
 import { MatchStatus } from "./MatchStatus.js";
-import { ResultsOverlay, type MatchRewards } from "./ResultsOverlay.js";
+import { ResultsOverlay, type MatchRewards, type ResultsCallbacks } from "./ResultsOverlay.js";
 import { injectHudStyle } from "./hudStyle.js";
 import { Haptics } from "./Haptics.js";
 import { hudCssVars, resolveHudLayout, type HudLayout } from "./hudLayout.js";
+import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 
 const log = createLogger("Hud");
 
@@ -39,6 +40,20 @@ function viewportWidth(): number {
 function viewportHeight(): number {
   if (typeof window === "undefined") return 0;
   return window.visualViewport?.height ?? window.innerHeight;
+}
+
+/**
+ * Everything the HUD hands back to `main.ts`: the three results-screen exits
+ * (5.8) plus the in-match settings affordance. `onSettings` is optional —
+ * omitting it hides the gear button entirely.
+ */
+export interface HudCallbacks extends ResultsCallbacks {
+  onSettings?: () => void;
+}
+
+export interface HudOptions {
+  /** Offline practice: the results screen shows no reward animation (5.8). */
+  offline?: boolean;
 }
 
 /**
@@ -69,7 +84,8 @@ export class Hud {
     private readonly bus: EventBus<ConfigEvents>,
     private readonly session: GameSession,
     private readonly playerId: EntityId,
-    onPlayAgain: () => void,
+    callbacks: HudCallbacks,
+    options: HudOptions = {},
   ) {
     injectHudStyle();
     this.root.innerHTML = "";
@@ -80,13 +96,29 @@ export class Hud {
     this.fpsEl.textContent = "FPS: --";
     this.root.appendChild(this.fpsEl);
 
+    // In-match settings (5.8). Marked as a HUD control so the 5.4 palm-rejection
+    // guard exempts it — it sits close to the top edge on phones.
+    if (callbacks.onSettings) {
+      const settingsBtn = document.createElement("button");
+      settingsBtn.className = "hud-settings-btn";
+      settingsBtn.textContent = "⚙";
+      settingsBtn.title = "Settings";
+      settingsBtn.setAttribute("aria-label", "Settings");
+      settingsBtn.setAttribute(HUD_CONTROL_ATTR, "");
+      settingsBtn.dataset["hudSettings"] = "";
+      settingsBtn.addEventListener("click", callbacks.onSettings);
+      this.root.appendChild(settingsBtn);
+    }
+
     this.minimap = new Minimap(this.root, configs, bus, session);
     this.gauges = new Gauges(this.root, configs, bus, playerId);
     this.moduleButtons = new ModuleButtons(this.root, configs, bus, session, playerId);
     this.notifications = new NotificationCenter(this.root, configs);
     this.damageFx = new DamageFeedback(this.root, playerId);
     this.matchStatus = new MatchStatus(this.root, session);
-    this.resultsOverlay = new ResultsOverlay(this.root, session, playerId, onPlayAgain);
+    this.resultsOverlay = new ResultsOverlay(this.root, session, playerId, callbacks, {
+      offline: options.offline ?? false,
+    });
     this.haptics = new Haptics(configs, playerId);
 
     this.layout = resolveHudLayout(this.configs.get<ThemeConfig>("theme", THEME_ID), viewportSize());
@@ -150,12 +182,21 @@ export class Hud {
     this.matchStatus.update(cur);
     this.notifications.update(dtMs);
     this.damageFx.update(dtMs);
-    this.resultsOverlay.update(cur);
+    this.resultsOverlay.update(cur, dtMs);
   }
 
   /** Direct toast for client-side feedback (e.g. rejected online orders). */
   showToast(text: string): void {
     this.notifications.showText(text);
+  }
+
+  /**
+   * Player-level haptics opt-out (5.8 settings). The theme keeps its own master
+   * switch — this only ever disables further, never enables what content
+   * turned off.
+   */
+  setHapticsEnabled(enabled: boolean): void {
+    this.haptics.setUserEnabled(enabled);
   }
 
   /** Forwards a match's credit/xp/level-up summary to the results overlay. */

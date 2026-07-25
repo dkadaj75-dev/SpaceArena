@@ -67,6 +67,12 @@ export function defaultVibrate(): ((pattern: number[]) => void) | null {
  */
 export class Haptics {
   private settings: HapticsSettings;
+  /**
+   * Player-level opt-out (5.8 settings, `sa.haptics=off`). Layered ON TOP of the
+   * theme switch: content can silence haptics for everyone, a player can
+   * silence them for themselves, and neither can re-enable the other's off.
+   */
+  private userEnabled = true;
 
   constructor(
     private readonly configs: ConfigService,
@@ -81,8 +87,13 @@ export class Haptics {
     this.settings = hapticsSettingsOf(this.configs.get<ThemeConfig>("theme", THEME_ID));
   }
 
+  /** Apply the player's local on/off choice (5.8 settings screen). */
+  setUserEnabled(enabled: boolean): void {
+    this.userEnabled = enabled;
+  }
+
   consumeEvents(events: readonly SimEvent[]): void {
-    if (!this.vibrate || !this.settings.enabled) return;
+    if (!this.vibrate || !this.userEnabled || !this.settings.enabled) return;
     for (let i = 0; i < events.length; i++) {
       const pattern = hapticPatternFor(events[i]!, this.playerId, this.settings);
       // One buzz per frame at most: stacked vibrate() calls just cancel each other.

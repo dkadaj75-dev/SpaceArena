@@ -65,6 +65,12 @@ export class TacticalCamera {
   private readonly panOffset = new Vector3();
   private readonly followPoint = new Vector3();
   private panSensitivity = 1;
+  /**
+   * Player-level multiplier on the configured pan sensitivity (5.8 settings,
+   * `sa.camera.panSens`). The config value stays the baseline — this is a
+   * per-player feel adjustment layered on top of it, never a write to content.
+   */
+  private panSensitivityScale = 1;
   private panBoundsMargin = 10;
   private panBoundsRadius = 90;
   private readonly activeTouches = new Map<number, { x: number; y: number }>();
@@ -152,6 +158,16 @@ export class TacticalCamera {
     this.lookAhead = config?.lookAhead ?? this.lookAhead;
     this.panSensitivity = config?.pan?.sensitivity ?? 1;
     this.panBoundsMargin = config?.pan?.boundsMargin ?? 10;
+  }
+
+  /** Player pan-sensitivity multiplier (5.8 settings). Clamped to a sane band. */
+  setPanSensitivityScale(scale: number): void {
+    this.panSensitivityScale = Number.isFinite(scale) ? clamp(scale, 0.1, 5) : 1;
+  }
+
+  /** Config sensitivity × the player's local multiplier. */
+  private get effectivePanSensitivity(): number {
+    return this.panSensitivity * this.panSensitivityScale;
   }
 
   /** Arena bounds radius clamping how far the view target can pan (world units). */
@@ -405,7 +421,7 @@ export class TacticalCamera {
     if (dx === 0 && dy === 0) return;
     const viewportH = this.canvas.clientHeight || 1;
     const worldPerPx =
-      ((2 * this.camera.radius * Math.tan(this.camera.fov / 2)) / viewportH) * this.panSensitivity;
+      ((2 * this.camera.radius * Math.tan(this.camera.fov / 2)) / viewportH) * this.effectivePanSensitivity;
 
     this.camera.getDirectionToRef(RIGHT_AXIS, this.scratchRight);
     this.scratchRight.y = 0;
@@ -426,7 +442,7 @@ export class TacticalCamera {
     if (dx === 0 && dy === 0) return;
     const viewportH = this.canvas.clientHeight || 1;
     const worldPerPx =
-      ((2 * this.camera.radius * Math.tan(this.camera.fov / 2)) / viewportH) * this.panSensitivity;
+      ((2 * this.camera.radius * Math.tan(this.camera.fov / 2)) / viewportH) * this.effectivePanSensitivity;
 
     // Camera axes flattened onto the arena plane: screen-x maps to `right`,
     // screen-y to the view direction with tilt removed.

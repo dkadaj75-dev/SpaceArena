@@ -460,7 +460,7 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
 
 ### 10A — Data-Driven Bots
 
-- [ ] **5.1 Bot architecture** — server-side `BotDriver` emits the **same orders as human clients** (move targets, module toggles, target selects) through the identical pipeline ⇒ bots obey all rules by construction. Utility-based decisions (engage / kite to range / break-LoS behind asteroid / retreat / manage-modules) with all weights, ranges, thresholds from `botprofile` config:
+- [x] **5.1 Bot architecture** — server-side `BotDriver` emits the **same orders as human clients** (move targets, module toggles, target selects) through the identical pipeline ⇒ bots obey all rules by construction. Utility-based decisions (engage / kite to range / break-LoS behind asteroid / retreat / manage-modules) with all weights, ranges, thresholds from `botprofile` config:
   ```jsonc
   { "id": "bot.aggressive", "type": "botprofile",
     "decisionIntervalMs": 400, "orderJitterMs": 150,
@@ -474,14 +474,14 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
                           "energyReserve": 0.15, "shieldOnlyWhenEngaged": true } }
   ```
   `moduleDiscipline` makes bot skill = same skill axis as players (heat/energy judgement), and difficulty = config. *(Opus)*
-- [ ] **5.2 Bot tactics** — arrival/orbit-at-range steering via move orders, cover-seeking = pick points that break enemy LoS (sample points behind asteroids using the same LoS math), missile-dodge repositioning. *(Opus)*
-- [ ] **5.3 Behavior Editor (dev)** — SchemaFormGen over botprofile + **live debug overlay** (current behavior, utility scores, chosen move point, LoS lines) during practice; **win-condition/rule builder** for gamemodes (dropdown-driven conditions, timers, scoring, boundary rules). *(Codex)*
+- [x] **5.2 Bot tactics** — arrival/orbit-at-range steering via move orders, cover-seeking = pick points that break enemy LoS (sample points behind asteroids using the same LoS math), missile-dodge repositioning. *(Opus)*
+- [x] **5.3 Behavior Editor (dev)** — SchemaFormGen over botprofile + **live debug overlay** (current behavior, utility scores, chosen move point, LoS lines) during practice; **win-condition/rule builder** for gamemodes (dropdown-driven conditions, timers, scoring, boundary rules). *(Codex)*
 
 ### 10B — Mobile & One-Thumb UX
 
 - [x] **5.4 Touch input hardening** — the §2.2 input state machine on real devices: tap-slop, double-tap window, pinch/orbit vs tap disambiguation, palm rejection at screen edges; **portrait AND landscape layouts** (reference image is portrait — support both, layout from `theme.json`); module button cluster size/arc/position tunable in Theme Editor; haptics (`navigator.vibrate`) on overheat/kill (tunable). *(Sonnet, Opus if feel needs tuning)*
 - [x] **5.5 Responsive UI pass** — all screens 360×640 → 4K, safe-area insets, HUD scale by theme config, one-thumb reachability audit on every in-match interaction (S3's "one thumb" clause). *(Sonnet)*
-- [ ] **5.6 Mobile performance sprint** *(Codex — measure first)*:
+- [x] **5.6 Mobile performance sprint** *(Codex — measure first)*:
   - `SceneOptimizer` custom priorities; quality tiers (`low/med/high`) in `quality.json`, auto-selected by device probe + first-seconds FPS
   - Thin instances for asteroids/tracers; `freezeActiveMeshes()`, `material.freeze()` on statics
   - `setHardwareScalingLevel` per tier (low = 0.75× internal res); DPR cap
@@ -490,7 +490,7 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
   - Particle budgets per tier (config)
   - **Verify on real mid-range Android (`--host` + `chrome://inspect`) — measured, not assumed**
 - [x] **5.7 Juice & audio** — hit flashes, shield-bubble ripple while shield active, deploy/retract animations on ship (turrets extend — sells the tradeoff), boost trails, camera micro-shake (tunable, subtle at tactical distance), explosion variants; `AudioManager` (Web Audio, pooled), **sound ids referenced from module/action configs** (`[SOUND: laser_fire]` placeholders); volume settings. *(Sonnet)*
-- [ ] **5.8 Menus & flow polish** — main menu (dark nebula, cyan/orange per reference), settings (quality, audio, camera, control tunables exposed to players where sensible), results screen with XP/credit animations, Theme Editor pass over the whole flow. *(Sonnet)*
+- [x] **5.8 Menus & flow polish** — main menu (dark nebula, cyan/orange per reference), settings (quality, audio, camera, control tunables exposed to players where sensible), results screen with XP/credit animations, Theme Editor pass over the whole flow. *(Sonnet)*
 
 **Key APIs:** `SceneOptimizer.OptimizeAsync`, thin instances, `addLODLevel`, Pointer Events multi-touch, `navigator.vibrate`, `Sound`/`AudioEngine`, `GlowLayer` budget tuning.
 

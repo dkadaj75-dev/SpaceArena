@@ -37,6 +37,12 @@ export class ScreenShake {
   private readonly state: ShakeState = newShakeState();
   private readonly offset = { x: 0, z: 0 };
   private unsubscribe: (() => void) | null = null;
+  /**
+   * Player-level opt-out (5.8 settings, `sa.camera.shake=off`). Layered on top
+   * of `camera.shake.enabled`: amplitudes stay data-driven, this only decides
+   * whether the rig is allowed to move at all.
+   */
+  private userEnabled = true;
 
   constructor(
     private readonly configs: ConfigService,
@@ -57,8 +63,25 @@ export class ScreenShake {
     this.settings = shakeSettingsOf(this.configs.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
   }
 
+  /**
+   * Apply the player's local on/off choice. Turning it off also cancels any
+   * in-flight shake and re-centres the rig on the same frame.
+   */
+  setUserEnabled(enabled: boolean): void {
+    if (this.userEnabled === enabled) return;
+    this.userEnabled = enabled;
+    if (!enabled) {
+      this.state.durationMs = 0;
+      this.state.elapsedMs = 0;
+      this.state.amplitude = 0;
+      this.offset.x = 0;
+      this.offset.z = 0;
+      this.target.setShakeOffset(0, 0);
+    }
+  }
+
   consumeEvents(events: readonly SimEvent[]): void {
-    if (!this.settings.enabled) return;
+    if (!this.userEnabled || !this.settings.enabled) return;
     for (let i = 0; i < events.length; i++) {
       const amplitude = shakeRequestFor(events[i]!, this.playerId, this.settings);
       if (amplitude !== null) addShake(this.state, amplitude, this.settings);

@@ -140,6 +140,28 @@ export class QualityManager {
     this.emit();
   }
 
+  /**
+   * Apply the player's tier choice from the 5.8 settings screen: a tier pins
+   * the quality (and disables auto-tier), `null` means **Auto** — the stored
+   * override is cleared and the device probe decides again, immediately.
+   *
+   * The settings store owns persistence, so nothing is written here; this only
+   * moves the *live* tier so the choice is visible without a reload.
+   */
+  applyOverride(tier: QualityTier | null): void {
+    if (tier) {
+      this.fromOverride = true;
+      if (tier !== this.tier) this.setTier(tier);
+      return;
+    }
+    if (!this.fromOverride) return;
+    this.fromOverride = false;
+    this.auto = newAutoTierState();
+    const probed = resolveStartTier(this.tiers, this.probe, null).tier;
+    log.info("quality override cleared — back to auto", { tier: probed });
+    this.setTier(probed);
+  }
+
   /** Reset the once-per-match auto-tier sampler. Call when a match starts. */
   beginMatch(): void {
     this.auto = newAutoTierState();

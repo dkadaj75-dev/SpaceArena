@@ -70,6 +70,30 @@
       "boundaryWarning": "[SOUND: boundary_warn]"
     }
   },
+  "menu": {
+    "colors": {
+      "base": "#04070f",
+      "panel": "#0b1424",
+      "primary": "#57d8ff",
+      "accent": "#ff8c42",
+      "text": "#e8f1ff",
+      "muted": "#8ba3c4",
+      "border": "#1d3a5e"
+    },
+    "backdrop": {
+      "nebulaPrimary": "#0f4f7a",
+      "nebulaAccent": "#7a3a12",
+      "nebulaOpacity": 0.55,
+      "starDensity": 0.5,
+      "vignette": 0.55
+    },
+    "title": {
+      "text": "SPACE ARENA",
+      "subtitle": "TACTICAL SHIP COMBAT",
+      "letterSpacingEm": 0.32,
+      "glow": 0.5
+    }
+  },
   "juice": {
     "hitFlash": {
       "enabled": true,

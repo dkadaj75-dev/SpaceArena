@@ -171,6 +171,70 @@ export const juiceSchema = z.object({
 });
 export type JuiceConfig = z.infer<typeof juiceSchema>;
 
+/**
+ * Full-screen menu look (5.8): the Lobby / Settings / Auth screens render
+ * *before* the HUD exists, so they cannot read the `--hud-*` custom properties
+ * (scoped to `#hud`). This block is their palette, resolved into `--sa-menu-*`
+ * variables by `client/src/game/screens/menuTheme.ts`.
+ *
+ * Everything is optional — omitting the whole block keeps the built-in
+ * dark/cyan defaults, which is exactly what every pre-5.8 content pack does.
+ */
+export const menuSchema = z.object({
+  /** Screen palette. Hex colors get a swatch picker in the Theme editor. */
+  colors: z
+    .object({
+      /** Deepest backdrop color, behind the nebula blooms. */
+      base: z.string().optional(),
+      /** Card/panel fill for grouped sections. */
+      panel: z.string().optional(),
+      /** Primary accent (cyan in the reference) — titles, primary buttons. */
+      primary: z.string().optional(),
+      /** Secondary accent (orange in the reference) — hangar/section marks. */
+      accent: z.string().optional(),
+      /** Body text. */
+      text: z.string().optional(),
+      /** De-emphasized text (status lines, hints). */
+      muted: z.string().optional(),
+      /** Control borders / section rules. */
+      border: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * The dark nebula backdrop. Pure CSS: two radial blooms over `colors.base`
+   * plus a procedurally generated star tile — no image assets, no per-frame
+   * work.
+   */
+  backdrop: z
+    .object({
+      /** Cyan-side bloom color. */
+      nebulaPrimary: z.string().optional(),
+      /** Orange-side bloom color. */
+      nebulaAccent: z.string().optional(),
+      /** Bloom opacity 0..1 (0 = flat background). */
+      nebulaOpacity: z.number().min(0).max(1).optional(),
+      /** Stars per 256x256 tile, 0..1 of the built-in maximum (0 = no starfield). */
+      starDensity: z.number().min(0).max(1).optional(),
+      /** Corner darkening 0..1. */
+      vignette: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
+  /** Title treatment for the main menu. */
+  title: z
+    .object({
+      /** Overrides the built-in "SPACE ARENA" wordmark. */
+      text: z.string().optional(),
+      /** Tagline under the wordmark; empty string hides it. */
+      subtitle: z.string().optional(),
+      /** Tracking in em. */
+      letterSpacingEm: z.number().min(0).max(2).optional(),
+      /** Text-shadow bloom strength 0..1. */
+      glow: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
+});
+export type MenuConfig = z.infer<typeof menuSchema>;
+
 export const themeSchema = z.object({
   ...baseShape("theme"),
   /** CSS custom-property values, e.g. { "--hud-primary": "#57d8ff" }. */
@@ -232,6 +296,8 @@ export const themeSchema = z.object({
   audio: audioSchema.optional(),
   /** Hit flash / shield ripple / deploy sweep / explosion variants (5.7). */
   juice: juiceSchema.optional(),
+  /** Full-screen menu palette / nebula backdrop / title treatment (5.8). */
+  menu: menuSchema.optional(),
 });
 
 export type ThemeConfig = z.infer<typeof themeSchema>;
