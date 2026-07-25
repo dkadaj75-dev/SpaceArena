@@ -30,9 +30,12 @@
     "typescript-eslint": "^8.0.0",
     "vitest": "^2.0.5"
   },
+  "//allowScripts": "Keys are version-pinned, so every upgrade of one of these packages re-surfaces the npm-11 allow-scripts warning until its entry is bumped — that is deliberate (re-approval should be a conscious step). esbuild matters at PRODUCTION runtime since 6.3: the Docker image runs the server via tsx, and esbuild's install script is its fallback for resolving the platform binary when the optionalDependencies path fails.",
   "allowScripts": {
     "argon2@0.45.1": true,
     "better-sqlite3@13.0.1": true,
-    "msgpackr-extract@3.0.4": true
+    "msgpackr-extract@3.0.4": true,
+    "esbuild@0.21.5": true,
+    "esbuild@0.28.1": true
   }
 }
