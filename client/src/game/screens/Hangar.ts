@@ -89,6 +89,16 @@ export class Hangar {
   private previewClock = 0;
   private renderObserver: Observer<Scene> | null = null;
 
+  /**
+   * When the panel is a full-width bottom sheet (phones), the ship must center
+   * in the strip ABOVE it, not in the full viewport (where the sheet hides it).
+   * `panelShiftFrac` = the fraction of the full viewport height the visible
+   * center is displaced upward: panelHeight / (2 * viewportHeight). 0 when the
+   * panel docks right (desktop). Applied per-frame so it tracks pinch zoom.
+   */
+  private panelShiftFrac = 0;
+  private readonly onViewportResize = (): void => this.measurePanelShift();
+
   constructor(
     parent: HTMLElement,
     private readonly scene: Scene,
@@ -157,9 +167,12 @@ export class Hangar {
     this.camera.setHangarMode(true);
     this.camera.stageAt(this.stageRoot.position, 9, -Math.PI / 2, 1.15);
     this.renderObserver = this.scene.onBeforeRenderObservable.add(() => this.tickPreview());
+    window.addEventListener("resize", this.onViewportResize);
+    window.addEventListener("orientationchange", this.onViewportResize);
 
     this.rebuildPreview();
     this.render();
+    this.measurePanelShift();
 
     void this.refreshFromServer().then(() => {
       if (stored.fittingId && this.fittings.some((f) => f.id === stored.fittingId && f.ship_id === ship?.id)) {
@@ -170,6 +183,9 @@ export class Hangar {
 
   hide(): void {
     this.root.style.display = "none";
+    window.removeEventListener("resize", this.onViewportResize);
+    window.removeEventListener("orientationchange", this.onViewportResize);
+    this.panelShiftFrac = 0;
     if (this.renderObserver) {
       this.scene.onBeforeRenderObservable.remove(this.renderObserver);
       this.renderObserver = null;
@@ -247,7 +263,25 @@ export class Hangar {
   }
 
   /** Idle preview animation: a gentle synthetic throttle wave so engine trails visibly breathe at rest. */
+  /** Re-measure how much of the viewport the panel sheet covers (phones only). */
+  private measurePanelShift(): void {
+    const rect = this.panel.getBoundingClientRect();
+    const vw = window.innerWidth || 1;
+    const vh = window.innerHeight || 1;
+    // Bottom-sheet mode = panel spans (nearly) the full width. Right-dock mode
+    // leaves the ship visible already and gets no shift.
+    this.panelShiftFrac = rect.width >= vw * 0.95 && rect.height > 0 ? rect.height / (2 * vh) : 0;
+  }
+
   private tickPreview(): void {
+    // Keep the staged ship centered in the UNOBSCURED part of the screen: shift
+    // the orbit target down by the sheet's half-height expressed in world units
+    // at the current radius, so the ship rides up above the panel. Tracks pinch
+    // zoom because it re-derives from the live radius every frame.
+    const cam = this.camera.camera;
+    const worldViewHeight = 2 * cam.radius * Math.tan(cam.fov / 2);
+    cam.target.y = this.stageRoot.position.y - this.panelShiftFrac * worldViewHeight;
+
     if (!this.previewRig) return;
     const dtMs = this.scene.getEngine().getDeltaTime();
     this.previewClock += dtMs / 1000;
