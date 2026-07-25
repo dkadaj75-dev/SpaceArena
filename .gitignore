@@ -9,3 +9,9 @@ dist/
 *.db-wal
 *.db-shm
 data/
+
+# Playwright (6.1 e2e smoke): HTML report, traces/screenshots, browser cache
+playwright-report/
+test-results/
+blob-report/
+.playwright/

@@ -1,0 +1,135 @@
+name: CI
+
+# ROADMAP §11 6.2 — typecheck, lint, tests, the validate-content gate, the
+# bundle budget, and the Playwright smoke.
+#
+# Shape: the five fast checks are independent jobs with NO `needs:` between them,
+# so they run fully in parallel and each failure lands on its own red X instead of
+# hiding behind whichever check happened to run first. They share one composite
+# setup action (`.github/actions/setup`) that pins Node 22 and does the cached
+# `npm ci`, so "how do we install" is defined once. Total wall time is therefore
+# the slowest single job (the e2e smoke), not the sum.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same ref supersedes the previous run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run typecheck
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run lint
+
+  test:
+    name: Unit tests (vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # Runs the shared + server + client projects from vitest.workspace.ts.
+      - run: npm test
+
+  content:
+    name: Content gate (validate:content)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # Loads content/manifest.json through ConfigService: every schema, every
+      # cross-reference, every relational constraint. Bad content never merges.
+      - run: npm run validate:content
+
+  build:
+    name: Client build + bundle budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Production build
+        run: npm run build
+      # Gate: initial JS (what index.html loads eagerly; the lazily-imported dev
+      # editor chunk is excluded) must stay under the roadmap's 5 MB gzip budget.
+      # Measured 2026-07 on the pre-6.3 build: 1.44 MB gzip / 6.48 MB raw.
+      - name: Bundle budget
+        run: npm run bundle:budget
+      - name: Upload dist on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-dist
+          path: client/dist
+          retention-days: 7
+
+  e2e:
+    name: Playwright smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A red smoke test blocks the merge like any other check.
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Cache the downloaded browsers on the exact @playwright/test version that
+      # npm resolved — a version bump must re-download, a rerun must not.
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: Install Chromium (+ OS deps)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      # Cache hit: browsers are present but the runner's shared libraries are not.
+      - name: Install OS deps only (cached browsers)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # CI=true (set by Actions) makes playwright.config.ts start BOTH servers
+      # itself rather than reusing anything, and each run gets a fresh throwaway
+      # SQLite database under the OS temp dir via SPACE_ARENA_DB.
+      - name: Run smoke test
+        run: npm run test:e2e
+
+      - name: Upload trace + report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

@@ -1,0 +1,12 @@
+{
+  // Repo-root TypeScript that belongs to no workspace: the content validator,
+  // the bundle-budget gate, the admin helper, and the Playwright e2e suite.
+  // Without this they would reach CI unchecked — `tsx` and Playwright both strip
+  // types rather than verify them.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["tools/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"]
+}

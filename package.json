@@ -11,17 +11,21 @@
   "scripts": {
     "dev": "npm run dev -w client",
     "dev:server": "npm run dev -w server",
+    "build": "npm run build -w client",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "lint": "eslint .",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client",
-    "validate:content": "tsx tools/validate-content.ts"
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client && tsc -p tsconfig.tools.json",
+    "validate:content": "tsx tools/validate-content.ts",
+    "bundle:budget": "tsx tools/bundle-budget.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
-    "tsx": "^4.19.0",
+    "@playwright/test": "^1.62.0",
     "eslint": "^9.9.0",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.3.3",
+    "tsx": "^4.19.0",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.0.0",
     "vitest": "^2.0.5"

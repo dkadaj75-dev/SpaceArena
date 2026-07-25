@@ -1,0 +1,1102 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  CONFIG_SCHEMAS,
+  CONFIG_TYPES,
+  collectReferences,
+  collectRelationalErrors,
+  manifestSchema,
+  validateConfig,
+  type AnyConfig,
+  type ConfigType,
+} from "./index.js";
+
+/**
+ * ROADMAP §11 6.1 — "all schemas (valid/invalid/edge fixtures)".
+ *
+ * Structure:
+ *  1. `VALID` holds one canonical, minimal-but-complete fixture per config type.
+ *     A coverage guard asserts the map stays in lockstep with {@link CONFIG_TYPES},
+ *     so adding a schema without a fixture fails here rather than silently
+ *     shipping untested.
+ *  2. Generic laws every config obeys (base shape, `type` discrimination) run as
+ *     a table over that map.
+ *  3. Per-type `describe`s cover the invalid + edge cases specific to each schema.
+ *
+ * Deliberately NOT duplicated here (already covered elsewhere, kept green):
+ *  - ship socket graph ordering / duplicate socket ids  → `socket.test.ts`
+ *  - theme hud cluster + orientation + haptics blocks   → `client/.../ThemeEditor.test.ts`
+ *  - `ship.defaultFitting` vs hardpoints (relational)   → `core/ConfigService.test.ts`
+ *  - dangling-reference resolution end to end           → `core/referenceGraph.test.ts`
+ */
+
+// --------------------------------------------------------------------------
+// 1. Canonical valid fixtures
+// --------------------------------------------------------------------------
+
+/** Deep-ish clone so a mutation in one test can never leak into another. */
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+const ship = {
+  id: "ship.fixture",
+  type: "ship",
+  version: 1,
+  name: "Fixture",
+  class: "light",
+  core: {
+    hull: { base: 80, resists: { kinetic: 0.1, energy: 0 } },
+    engine: { nominalSpeed: 34, accel: 22, turnRate: 3 },
+    energy: { capacitor: 120, regen: 14 },
+    heat: { capacity: 100, dissipation: 9, criticalDamagePerSec: 4 },
+  },
+  upgradeTracks: {
+    hull: "upgrade.hull-std",
+    engine: "upgrade.engine-std",
+    energy: "upgrade.energy-std",
+    heat: "upgrade.heat-std",
+  },
+  sockets: [
+    { id: "hp-nose", kind: "hardpoint", transform: { pos: [0, 0, 1.8] }, accepts: ["laser", "kinetic"] },
+    { id: "hp-core", kind: "hardpoint", transform: { pos: [0, 0.3, 0] }, accepts: ["shield"] },
+    {
+      id: "eng-l",
+      kind: "emitter",
+      transform: { pos: [-0.4, 0, -1.9] },
+      effect: "fx.engine-trail",
+      bindings: [{ source: "throttle", param: "emitRate", curve: [[0, 0], [1, 120]] }],
+    },
+  ],
+  defaultFitting: ["module.fixture-laser", "module.fixture-shield"],
+  render: { recipe: "procedural.arrowhead" },
+  collider: { shape: "circle", radius: 1.4 },
+};
+
+const module_ = {
+  id: "module.fixture-laser",
+  type: "module",
+  version: 1,
+  family: "laser",
+  level: 1,
+  name: "Fixture Laser",
+  activation: { deployTime: 1.5, retractTime: 1 },
+  energy: { drawIdle: 3, drawActive: 11 },
+  heat: { perSecondActive: 6, overheatThreshold: 55, overheatCooldown: 5, overheatSelfDamage: 0 },
+  fire: {
+    mode: "autoTarget",
+    range: 38,
+    cycleTime: 0.4,
+    damage: 7,
+    damageType: "energy",
+    requiresLineOfSight: true,
+    projectile: null,
+  },
+  onFire: ["action.fixture-sound"],
+  ui: { icon: "[ICON: laser]", label: "Laser" },
+  price: 0,
+  requiresLevel: 1,
+};
+
+const effect = {
+  id: "fx.fixture",
+  type: "effect",
+  version: 1,
+  base: {
+    capacity: 200,
+    emitRate: 60,
+    lifeMin: 0.2,
+    lifeMax: 0.6,
+    sizeMin: 0.1,
+    sizeMax: 0.4,
+    speedMin: 1,
+    speedMax: 4,
+    color1: "#ffffff",
+    color2: "#000000",
+  },
+  params: ["emitRate", "sizeMax"],
+};
+
+const upgrade = {
+  id: "upgrade.fixture",
+  type: "upgrade",
+  version: 1,
+  track: "hull",
+  levels: [
+    { level: 1, price: 0 },
+    { level: 2, price: 100, add: { "hull.base": 15 } },
+    { level: 3, price: 250, add: { "hull.base": 35 }, mul: { "hull.base": 1.05 } },
+  ],
+};
+
+const arena = {
+  id: "arena.fixture",
+  type: "arena",
+  version: 1,
+  bounds: { shape: "circle", radius: 90 },
+  asteroidPlacements: [{ asteroidId: "asteroid.fixture", position: { x: 10, z: -4 } }],
+  spawnPoints: [{ id: "s0", team: 0, position: { x: -30, z: 0 }, heading: 0 }],
+};
+
+const asteroid = {
+  id: "asteroid.fixture",
+  type: "asteroid",
+  version: 1,
+  radius: 3.5,
+  destructible: true,
+  impactDamage: 6,
+  render: { recipe: "procedural.rock" },
+};
+
+const gamemode = {
+  id: "gamemode.fixture",
+  type: "gamemode",
+  version: 1,
+  teams: "1v1",
+  winCondition: { type: "destroyTargets", count: 3 },
+  respawn: { enabled: true, delay: 3 },
+  boundaryRule: { type: "warning", graceSeconds: 3 },
+  rewards: { win: 100, loss: 25, perKill: 10 },
+};
+
+const camera = {
+  id: "camera.fixture",
+  type: "camera",
+  version: 1,
+  alpha: { default: 0 },
+  beta: { min: 0.6, max: 1.1, default: 0.9 },
+  radius: { min: 30, max: 90, default: 55 },
+  followLag: 0.2,
+  lookAhead: 5,
+};
+
+const tuning = {
+  id: "tuning.fixture",
+  type: "tuning",
+  version: 1,
+  doubleTapWindowMs: 280,
+  tapSlopPx: 12,
+  targetingPolicy: "nearest",
+  globalDamageMult: 1,
+};
+
+const action = {
+  id: "action.fixture-sound",
+  type: "action",
+  version: 1,
+  kind: "play_sound",
+  params: { sound: "laser_fire" },
+};
+
+const event = {
+  id: "event.fixture",
+  type: "event",
+  version: 1,
+  trigger: "on_overheat",
+  actions: ["action.fixture-sound"],
+};
+
+const notification = {
+  id: "notification.fixture",
+  type: "notification",
+  version: 1,
+  text: "Overheating!",
+  style: "warning",
+  durationMs: 2500,
+};
+
+const theme = {
+  id: "theme.fixture",
+  type: "theme",
+  version: 1,
+  colors: { "--hud-primary": "#57d8ff" },
+};
+
+const progression = {
+  id: "progression.fixture",
+  type: "progression",
+  version: 1,
+  xpCurve: [0, 100, 250],
+  rewards: { perKill: 10, win: 100, loss: 25 },
+};
+
+const botprofile = {
+  id: "bot.fixture",
+  type: "botprofile",
+  version: 1,
+  decisionIntervalMs: 400,
+  orderJitterMs: 80,
+  preferredRange: [18, 32],
+  behaviors: { engage: { baseWeight: 1, doubleTapBoostChance: 0.3 } },
+  moduleDiscipline: {
+    heatShutdownAt: 0.8,
+    reactivateBelow: 0.4,
+    energyReserve: 0.15,
+    shieldOnlyWhenEngaged: true,
+  },
+};
+
+const quality = {
+  id: "quality.fixture",
+  type: "quality",
+  version: 1,
+  tier: "med",
+  probe: { minCores: 4, minMemoryGb: 4, allowMobile: true },
+  autoTier: { sampleAfterMs: 2000, sampleWindowMs: 3000, demoteBelowFps: 25, promoteAboveFps: 55 },
+  render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: true },
+  glow: { enabled: true, intensity: 0.6 },
+  particles: { enabled: true, budgetMultiplier: 0.7, maxEmitterCapacity: 400 },
+  asteroids: { lodMediumDistance: 60, lodLowDistance: 120, lodCullDistance: 0, thinInstances: false },
+  projectiles: { useInstances: true },
+  scene: { starfieldPoints: 1500, groundGrid: true, spawnMarkers: true },
+};
+
+/** One canonical valid fixture per content type. Keys MUST cover CONFIG_TYPES. */
+const VALID: Record<ConfigType, Record<string, unknown>> = {
+  ship,
+  module: module_,
+  effect,
+  upgrade,
+  arena,
+  asteroid,
+  gamemode,
+  camera,
+  tuning,
+  action,
+  event,
+  notification,
+  theme,
+  progression,
+  botprofile,
+  quality,
+};
+
+/** Parse `fixture` with the schema registered for `type`. */
+function parses(type: ConfigType, fixture: unknown): boolean {
+  return CONFIG_SCHEMAS[type].safeParse(fixture).success;
+}
+
+/** Apply `mutate` to a clone of the canonical fixture and report parse success. */
+function mutated(type: ConfigType, mutate: (draft: Record<string, unknown>) => void): boolean {
+  const draft = clone(VALID[type]);
+  mutate(draft);
+  return parses(type, draft);
+}
+
+// --------------------------------------------------------------------------
+// 2. Generic laws — every schema, driven off the fixture table
+// --------------------------------------------------------------------------
+
+describe("schema fixture coverage", () => {
+  it("has a valid fixture for every registered config type", () => {
+    expect(Object.keys(VALID).sort()).toEqual([...CONFIG_TYPES].sort());
+  });
+
+  it("registers exactly the types in the AnyConfig union (manifest excluded)", () => {
+    expect(CONFIG_TYPES).not.toContain("manifest" as ConfigType);
+    expect(CONFIG_TYPES.length).toBe(Object.keys(CONFIG_SCHEMAS).length);
+  });
+});
+
+describe.each(CONFIG_TYPES)("%s schema — base laws", (type) => {
+  it("accepts the canonical fixture through validateConfig", () => {
+    const result = validateConfig(clone(VALID[type]));
+    expect(result.success).toBe(true);
+    expect(result.type).toBe(type);
+  });
+
+  it("rejects ids that break the `type.slug` convention", () => {
+    for (const bad of ["nodot", "Ship.Fixture", "ship.", ".fixture", "ship.-lead", "1ship.x", ""]) {
+      expect(mutated(type, (d) => (d["id"] = bad))).toBe(false);
+    }
+  });
+
+  it("rejects a non-positive or fractional version", () => {
+    expect(mutated(type, (d) => (d["version"] = 0))).toBe(false);
+    expect(mutated(type, (d) => (d["version"] = -1))).toBe(false);
+    expect(mutated(type, (d) => (d["version"] = 1.5))).toBe(false);
+  });
+
+  it("rejects a missing/foreign type literal", () => {
+    expect(mutated(type, (d) => delete d["type"])).toBe(false);
+    const foreign: ConfigType = type === "ship" ? "module" : "ship";
+    expect(mutated(type, (d) => (d["type"] = foreign))).toBe(false);
+  });
+
+  it("accepts the optional `name` and tolerates its absence", () => {
+    expect(mutated(type, (d) => delete d["name"])).toBe(true);
+    expect(mutated(type, (d) => (d["name"] = "Renamed"))).toBe(true);
+    expect(mutated(type, (d) => (d["name"] = 7))).toBe(false);
+  });
+});
+
+describe("validateConfig dispatcher", () => {
+  it("refuses non-objects", () => {
+    for (const bad of [null, undefined, 42, "ship", true, [ship]]) {
+      const r = validateConfig(bad);
+      expect(r.success).toBe(false);
+      expect(r.type).toBeNull();
+    }
+  });
+
+  it("refuses an unknown or missing type discriminator with a readable message", () => {
+    const unknown = validateConfig({ id: "x.y", type: "wormhole", version: 1 });
+    expect(unknown.success).toBe(false);
+    expect(unknown.success === false && unknown.message).toContain("unknown or missing config type");
+
+    const missing = validateConfig({ id: "x.y", version: 1 });
+    expect(missing.success).toBe(false);
+  });
+
+  it("returns the zod error (not a message) for a type-known but malformed config", () => {
+    const r = validateConfig({ ...clone(camera), followLag: 9 });
+    expect(r.success).toBe(false);
+    expect(r.success === false && r.type).toBe("camera");
+    expect(r.success === false && r.error?.issues.length).toBeGreaterThan(0);
+  });
+});
+
+// --------------------------------------------------------------------------
+// 3. Per-type invalid + edge cases
+// --------------------------------------------------------------------------
+
+describe("ship schema", () => {
+  it("rejects non-positive core stats", () => {
+    expect(mutated("ship", (d) => ((d["core"] as Record<string, Record<string, number>>)["hull"]!["base"] = 0))).toBe(false);
+    expect(
+      mutated("ship", (d) => {
+        const core = d["core"] as Record<string, Record<string, number>>;
+        core["engine"]!["nominalSpeed"] = -1;
+      }),
+    ).toBe(false);
+    expect(
+      mutated("ship", (d) => {
+        const core = d["core"] as Record<string, Record<string, number>>;
+        core["energy"]!["capacitor"] = 0;
+      }),
+    ).toBe(false);
+  });
+
+  it("caps resists at 0.95 and floors them at 0", () => {
+    const setResist = (v: number) => (d: Record<string, unknown>) => {
+      const core = d["core"] as { hull: { resists: Record<string, number> } };
+      core.hull.resists["kinetic"] = v;
+    };
+    expect(mutated("ship", setResist(0.95))).toBe(true);
+    expect(mutated("ship", setResist(0))).toBe(true);
+    expect(mutated("ship", setResist(0.96))).toBe(false);
+    expect(mutated("ship", setResist(-0.01))).toBe(false);
+  });
+
+  it("requires all four upgrade tracks", () => {
+    for (const track of ["hull", "engine", "energy", "heat"]) {
+      expect(mutated("ship", (d) => delete (d["upgradeTracks"] as Record<string, unknown>)[track])).toBe(false);
+    }
+  });
+
+  it("requires at least one socket and rejects zero-radius colliders", () => {
+    expect(mutated("ship", (d) => (d["sockets"] = []))).toBe(false);
+    expect(mutated("ship", (d) => ((d["collider"] as Record<string, number>)["radius"] = 0))).toBe(false);
+  });
+
+  it("accepts an empty defaultFitting and a GLB render override (edge)", () => {
+    expect(mutated("ship", (d) => (d["defaultFitting"] = []))).toBe(true);
+    expect(
+      mutated("ship", (d) => {
+        d["render"] = { recipe: "procedural.arrowhead", model: "ships/LShip01.glb", modelScale: 1.2, modelRotationY: Math.PI };
+      }),
+    ).toBe(true);
+    expect(
+      mutated("ship", (d) => {
+        d["render"] = { recipe: "procedural.arrowhead", modelScale: 0 };
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects an emitter binding on an unknown signal or an empty curve", () => {
+    const patchBinding = (binding: unknown) => (d: Record<string, unknown>) => {
+      const sockets = d["sockets"] as Array<Record<string, unknown>>;
+      sockets[2]!["bindings"] = [binding];
+    };
+    expect(mutated("ship", patchBinding({ source: "warpCharge", param: "emitRate", curve: [[0, 0]] }))).toBe(false);
+    expect(mutated("ship", patchBinding({ source: "throttle", param: "", curve: [[0, 0]] }))).toBe(false);
+    expect(mutated("ship", patchBinding({ source: "throttle", param: "emitRate", curve: [] }))).toBe(false);
+  });
+});
+
+describe("module schema", () => {
+  it("rejects an unknown family and a non-positive level", () => {
+    expect(mutated("module", (d) => (d["family"] = "tractor"))).toBe(false);
+    expect(mutated("module", (d) => (d["level"] = 0))).toBe(false);
+    expect(mutated("module", (d) => (d["level"] = 1.5))).toBe(false);
+  });
+
+  it("rejects negative activation/energy and a non-positive overheat threshold", () => {
+    expect(mutated("module", (d) => ((d["activation"] as Record<string, number>)["deployTime"] = -0.1))).toBe(false);
+    expect(mutated("module", (d) => ((d["energy"] as Record<string, number>)["drawActive"] = -1))).toBe(false);
+    expect(mutated("module", (d) => ((d["heat"] as Record<string, number>)["overheatThreshold"] = 0))).toBe(false);
+  });
+
+  it("accepts instant activation (0s deploy + retract) as an edge", () => {
+    expect(mutated("module", (d) => (d["activation"] = { deployTime: 0, retractTime: 0 }))).toBe(true);
+  });
+
+  it("treats `fire.projectile: null` as hitscan and validates travelling ordnance", () => {
+    expect(parses("module", clone(module_))).toBe(true); // projectile: null
+    expect(
+      mutated("module", (d) => {
+        (d["fire"] as Record<string, unknown>)["projectile"] = { speed: 40, turnRate: 2.2, lifetime: 4 };
+      }),
+    ).toBe(true);
+    expect(
+      mutated("module", (d) => {
+        (d["fire"] as Record<string, unknown>)["projectile"] = { speed: 0, lifetime: 4 };
+      }),
+    ).toBe(false);
+    expect(
+      mutated("module", (d) => {
+        (d["fire"] as Record<string, unknown>)["projectile"] = { speed: 40, lifetime: 0 };
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects an unknown fire mode, damage type or non-positive range/cycle", () => {
+    const patchFire = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
+      d["fire"] = { ...(d["fire"] as Record<string, unknown>), ...patch };
+    };
+    expect(mutated("module", patchFire({ mode: "manual" }))).toBe(false);
+    expect(mutated("module", patchFire({ damageType: "plasma" }))).toBe(false);
+    expect(mutated("module", patchFire({ range: 0 }))).toBe(false);
+    expect(mutated("module", patchFire({ cycleTime: 0 }))).toBe(false);
+    expect(mutated("module", patchFire({ damage: 0 }))).toBe(true); // 0 damage is legal (utility beam)
+  });
+
+  it("validates the mitigation and boost blocks", () => {
+    const withBlock = (key: string, value: unknown) => (d: Record<string, unknown>) => {
+      delete d["fire"];
+      d[key] = value;
+    };
+    expect(mutated("module", withBlock("mitigation", { damageReduction: 0.5, absorbPerSecond: 12, coversFamilies: ["kinetic", "energy"] }))).toBe(true);
+    expect(mutated("module", withBlock("mitigation", { damageReduction: 1 }))).toBe(true);
+    expect(mutated("module", withBlock("mitigation", { damageReduction: 1.01 }))).toBe(false);
+    expect(mutated("module", withBlock("mitigation", { damageReduction: 0.5, coversFamilies: ["thermal"] }))).toBe(false);
+    expect(mutated("module", withBlock("boost", { speedMult: 1.8, heatPerSec: 5 }))).toBe(true);
+    expect(mutated("module", withBlock("boost", { speedMult: 0.9, heatPerSec: 5 }))).toBe(false); // must be ≥ 1
+  });
+
+  it("validates passive stat ops (utility modules)", () => {
+    const withPassives = (passives: unknown) => (d: Record<string, unknown>) => (d["passives"] = passives);
+    expect(mutated("module", withPassives([{ target: "energy.capacitor", op: "add", value: 40 }]))).toBe(true);
+    expect(mutated("module", withPassives([{ target: "core.heat.capacity", op: "mul", value: 1.1 }]))).toBe(true);
+    expect(mutated("module", withPassives([{ target: "heat.capacity", op: "sub", value: 1 }]))).toBe(false);
+    expect(mutated("module", withPassives([{ target: "", op: "add", value: 1 }]))).toBe(false);
+    expect(mutated("module", withPassives([]))).toBe(true);
+  });
+
+  it("rejects a fractional price or a non-positive requiresLevel", () => {
+    expect(mutated("module", (d) => (d["price"] = 10.5))).toBe(false);
+    expect(mutated("module", (d) => (d["price"] = -1))).toBe(false);
+    expect(mutated("module", (d) => (d["requiresLevel"] = 0))).toBe(false);
+  });
+});
+
+describe("effect schema", () => {
+  it("requires a positive capacity and a params list", () => {
+    expect(mutated("effect", (d) => ((d["base"] as Record<string, number>)["capacity"] = 0))).toBe(false);
+    expect(mutated("effect", (d) => ((d["base"] as Record<string, number>)["capacity"] = 10.5))).toBe(false);
+    expect(mutated("effect", (d) => delete d["params"])).toBe(false);
+    expect(mutated("effect", (d) => (d["params"] = []))).toBe(true); // nothing bindable is legal
+  });
+
+  it("accepts optional direction/gravity and a sound id (edge)", () => {
+    expect(
+      mutated("effect", (d) => {
+        const base = d["base"] as Record<string, unknown>;
+        base["direction"] = [0, 1, 0];
+        base["gravity"] = -2;
+        d["sound"] = "[SOUND: explosion_ship]";
+      }),
+    ).toBe(true);
+    expect(mutated("effect", (d) => (d["sound"] = ""))).toBe(false);
+    expect(mutated("effect", (d) => ((d["base"] as Record<string, unknown>)["direction"] = [0, 1]))).toBe(false);
+  });
+});
+
+describe("upgrade schema", () => {
+  it("rejects an unknown track and an empty level list", () => {
+    expect(mutated("upgrade", (d) => (d["track"] = "shields"))).toBe(false);
+    expect(mutated("upgrade", (d) => (d["levels"] = []))).toBe(false);
+  });
+
+  it("rejects non-positive level numbers and negative/fractional prices", () => {
+    expect(mutated("upgrade", (d) => (d["levels"] = [{ level: 0, price: 0 }]))).toBe(false);
+    expect(mutated("upgrade", (d) => (d["levels"] = [{ level: 1, price: -1 }]))).toBe(false);
+    expect(mutated("upgrade", (d) => (d["levels"] = [{ level: 1, price: 1.5 }]))).toBe(false);
+  });
+
+  it("accepts add-only, mul-only and combined level ops (edge)", () => {
+    expect(mutated("upgrade", (d) => (d["levels"] = [{ level: 1, price: 0, add: { "hull.base": 10 } }]))).toBe(true);
+    expect(mutated("upgrade", (d) => (d["levels"] = [{ level: 1, price: 0, mul: { "hull.base": 1.1 } }]))).toBe(true);
+    expect(mutated("upgrade", (d) => (d["levels"] = [{ level: 1, price: 0, add: {}, mul: {} }]))).toBe(true);
+    expect(mutated("upgrade", (d) => (d["levels"] = [{ level: 1, price: 0, add: { "hull.base": "x" } }]))).toBe(false);
+  });
+});
+
+describe("arena schema", () => {
+  it("accepts both bounds shapes and rejects unknown/degenerate ones", () => {
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "rect", width: 120, height: 80 }))).toBe(true);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "circle", radius: 0 }))).toBe(false);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "hex", radius: 90 }))).toBe(false);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "rect", width: 120 }))).toBe(false);
+  });
+
+  it("requires at least one spawn point with a non-negative integer team", () => {
+    expect(mutated("arena", (d) => (d["spawnPoints"] = []))).toBe(false);
+    expect(
+      mutated("arena", (d) => {
+        (d["spawnPoints"] as Array<Record<string, unknown>>)[0]!["team"] = -1;
+      }),
+    ).toBe(false);
+    expect(
+      mutated("arena", (d) => {
+        (d["spawnPoints"] as Array<Record<string, unknown>>)[0]!["team"] = 1.5;
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts an empty asteroid list, lighting, skybox and zones (edge)", () => {
+    expect(mutated("arena", (d) => (d["asteroidPlacements"] = []))).toBe(true);
+    expect(
+      mutated("arena", (d) => {
+        d["lighting"] = { ambientColor: "#101820", ambientIntensity: 0.4, directionalIntensity: 1.2 };
+        d["skybox"] = { recipe: "procedural.nebula", palette: { a: "#123456" } };
+        d["zones"] = [{ id: "z0", shape: "circle", position: { x: 0, z: 0 }, radius: 12 }];
+      }),
+    ).toBe(true);
+    expect(
+      mutated("arena", (d) => {
+        d["zones"] = [{ id: "z0", shape: "circle", position: { x: 0, z: 0 }, radius: 0 }];
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a placement with a non-positive scale", () => {
+    expect(
+      mutated("arena", (d) => {
+        (d["asteroidPlacements"] as Array<Record<string, unknown>>)[0]!["scale"] = 0;
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("asteroid schema", () => {
+  it("requires a positive radius, a destructible flag and non-negative impact damage", () => {
+    expect(mutated("asteroid", (d) => (d["radius"] = 0))).toBe(false);
+    expect(mutated("asteroid", (d) => delete d["destructible"])).toBe(false);
+    expect(mutated("asteroid", (d) => (d["impactDamage"] = -1))).toBe(false);
+    expect(mutated("asteroid", (d) => (d["impactDamage"] = 0))).toBe(true);
+  });
+
+  it("accepts optional hp and per-state render overrides (edge)", () => {
+    expect(mutated("asteroid", (d) => (d["hp"] = 40))).toBe(true);
+    expect(mutated("asteroid", (d) => (d["hp"] = 0))).toBe(false);
+    expect(
+      mutated("asteroid", (d) => {
+        d["states"] = [{ id: "cracked", render: { recipe: "procedural.rock-cracked" }, onEnter: ["action.fixture-sound"] }];
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("gamemode schema", () => {
+  it("defaults eliminationEndsMatch to true when omitted (edge)", () => {
+    const parsed = CONFIG_SCHEMAS.gamemode.parse(clone(gamemode));
+    expect(parsed.eliminationEndsMatch).toBe(true);
+    const off = CONFIG_SCHEMAS.gamemode.parse({ ...clone(gamemode), eliminationEndsMatch: false });
+    expect(off.eliminationEndsMatch).toBe(false);
+  });
+
+  it("accepts every win condition and rejects unknown/degenerate ones", () => {
+    expect(mutated("gamemode", (d) => (d["winCondition"] = { type: "fragLimit", count: 5 }))).toBe(true);
+    expect(mutated("gamemode", (d) => (d["winCondition"] = { type: "timeLimit", seconds: 180 }))).toBe(true);
+    expect(mutated("gamemode", (d) => (d["winCondition"] = { type: "destroyTargets", count: 0 }))).toBe(false);
+    expect(mutated("gamemode", (d) => (d["winCondition"] = { type: "timeLimit", seconds: 0 }))).toBe(false);
+    expect(mutated("gamemode", (d) => (d["winCondition"] = { type: "lastStanding" }))).toBe(false);
+  });
+
+  it("accepts every boundary rule and rejects unknown/degenerate ones", () => {
+    expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "bounce", restitution: 1 }))).toBe(true);
+    expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "bounce" }))).toBe(true);
+    expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "damage", damagePerSec: 8 }))).toBe(true);
+    expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "bounce", restitution: 1.5 }))).toBe(false);
+    expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "damage", damagePerSec: -1 }))).toBe(false);
+    expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "teleport" }))).toBe(false);
+  });
+
+  it("rejects an unsupported team layout and fractional rewards", () => {
+    expect(mutated("gamemode", (d) => (d["teams"] = "2v2"))).toBe(true);
+    expect(mutated("gamemode", (d) => (d["teams"] = "3v3"))).toBe(false);
+    expect(mutated("gamemode", (d) => ((d["rewards"] as Record<string, number>)["win"] = 10.5))).toBe(false);
+    expect(mutated("gamemode", (d) => ((d["rewards"] as Record<string, number>)["perKill"] = -1))).toBe(false);
+  });
+
+  it("validates the optional bots block (5.1 roster + backfill)", () => {
+    const withBots = (bots: unknown) => (d: Record<string, unknown>) => (d["bots"] = bots);
+    expect(parses("gamemode", clone(gamemode))).toBe(true); // bots omitted ⇒ no bots
+    expect(mutated("gamemode", withBots({ defaultProfile: "bot.fixture" }))).toBe(true);
+    expect(
+      mutated(
+        "gamemode",
+        withBots({
+          defaultProfile: "bot.fixture",
+          defaultShip: "ship.fixture",
+          backfillWaitMs: 15000,
+          roster: [{ profile: "bot.fixture", ship: "ship.fixture", team: 1, count: 2 }],
+        }),
+      ),
+    ).toBe(true);
+    expect(mutated("gamemode", withBots({ roster: [] }))).toBe(false); // defaultProfile required
+    expect(mutated("gamemode", withBots({ defaultProfile: "bot.fixture", backfillWaitMs: -1 }))).toBe(false);
+    expect(mutated("gamemode", withBots({ defaultProfile: "bot.fixture", roster: [{ profile: "bot.fixture", team: -1 }] }))).toBe(false);
+    expect(mutated("gamemode", withBots({ defaultProfile: "bot.fixture", roster: [{ profile: "bot.fixture", team: 1, count: 0 }] }))).toBe(false);
+    expect(mutated("gamemode", withBots({ defaultProfile: "bot.fixture", roster: [{ team: 1 }] }))).toBe(false); // profile required
+  });
+
+  it("rejects a negative respawn delay", () => {
+    expect(mutated("gamemode", (d) => (d["respawn"] = { enabled: false, delay: -1 }))).toBe(false);
+    expect(mutated("gamemode", (d) => (d["respawn"] = { enabled: false, delay: 0 }))).toBe(true);
+  });
+});
+
+describe("camera schema", () => {
+  it("clamps followLag to 0..1 and forbids negative look-ahead", () => {
+    expect(mutated("camera", (d) => (d["followLag"] = 0))).toBe(true);
+    expect(mutated("camera", (d) => (d["followLag"] = 1))).toBe(true);
+    expect(mutated("camera", (d) => (d["followLag"] = 1.01))).toBe(false);
+    expect(mutated("camera", (d) => (d["followLag"] = -0.01))).toBe(false);
+    expect(mutated("camera", (d) => (d["lookAhead"] = -1))).toBe(false);
+    expect(mutated("camera", (d) => (d["lookAhead"] = 0))).toBe(true);
+  });
+
+  it("accepts a fully specified shake block (5.7) and rejects degenerate fields", () => {
+    const shake = {
+      enabled: true,
+      hitAmplitude: 0.25,
+      killAmplitude: 0.6,
+      durationMs: 320,
+      frequencyHz: 22,
+      maxAmplitude: 0.9,
+      damageReference: 20,
+      minDamageScale: 0.25,
+    };
+    expect(mutated("camera", (d) => (d["shake"] = shake))).toBe(true);
+    // Only the four core numbers are required; the rest are optional.
+    expect(
+      mutated("camera", (d) => {
+        d["shake"] = { hitAmplitude: 0.25, killAmplitude: 0.6, durationMs: 320, frequencyHz: 22, maxAmplitude: 0.9 };
+      }),
+    ).toBe(true);
+    expect(mutated("camera", (d) => (d["shake"] = { ...shake, durationMs: 0 }))).toBe(false);
+    expect(mutated("camera", (d) => (d["shake"] = { ...shake, frequencyHz: 0 }))).toBe(false);
+    expect(mutated("camera", (d) => (d["shake"] = { ...shake, hitAmplitude: -0.1 }))).toBe(false);
+    expect(mutated("camera", (d) => (d["shake"] = { ...shake, damageReference: 0 }))).toBe(false);
+    expect(mutated("camera", (d) => (d["shake"] = { ...shake, minDamageScale: 1.5 }))).toBe(false);
+    expect(mutated("camera", (d) => (d["shake"] = { hitAmplitude: 0.25 }))).toBe(false); // partial block rejected
+  });
+
+  it("accepts a pan block and rejects a non-positive sensitivity", () => {
+    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 1, boundsMargin: 20 }))).toBe(true);
+    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 0, boundsMargin: 20 }))).toBe(false);
+    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 1, boundsMargin: -1 }))).toBe(false);
+    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 1 }))).toBe(false);
+  });
+
+  it("keeps shake and pan optional (pre-5.7 packs still load)", () => {
+    expect(parses("camera", clone(camera))).toBe(true);
+  });
+});
+
+describe("tuning schema", () => {
+  it("requires the four core input/balance knobs to be sane", () => {
+    expect(mutated("tuning", (d) => (d["doubleTapWindowMs"] = 0))).toBe(false);
+    expect(mutated("tuning", (d) => (d["tapSlopPx"] = -1))).toBe(false);
+    expect(mutated("tuning", (d) => (d["tapSlopPx"] = 0))).toBe(true);
+    expect(mutated("tuning", (d) => (d["globalDamageMult"] = 0))).toBe(false);
+    expect(mutated("tuning", (d) => (d["targetingPolicy"] = "random"))).toBe(false);
+    for (const policy of ["nearest", "lowestHp", "attacker"]) {
+      expect(mutated("tuning", (d) => (d["targetingPolicy"] = policy))).toBe(true);
+    }
+  });
+
+  it("accepts the full optional knob surface and rejects fractional counters (edge)", () => {
+    expect(
+      mutated("tuning", (d) => {
+        Object.assign(d, {
+          edgeRejectMarginPx: 16,
+          dragCoefficient: 0.4,
+          avoidLookahead: 12,
+          avoidWeight: 1.5,
+          arrivalRadius: 4,
+          spatialCellSize: 8,
+          impactSpeedThreshold: 6,
+          impactDamageCooldown: 1,
+          maxTicksPerFrame: 5,
+          beamFadeMs: 120,
+          projectilePoolSize: 48,
+          orderMarkerDashLength: 2,
+          netRenderDelayMs: 100,
+          netCorrectionRate: 8,
+          maxOrdersPerSec: 20,
+          featureFlags: { botDebug: true },
+        });
+      }),
+    ).toBe(true);
+    expect(mutated("tuning", (d) => (d["maxTicksPerFrame"] = 5.5))).toBe(false);
+    expect(mutated("tuning", (d) => (d["projectilePoolSize"] = 0))).toBe(false);
+    expect(mutated("tuning", (d) => (d["featureFlags"] = { botDebug: "yes" }))).toBe(false);
+  });
+});
+
+describe("action / event / notification schemas", () => {
+  it("rejects an unknown action kind and keeps params free-form", () => {
+    expect(mutated("action", (d) => (d["kind"] = "teleport_player"))).toBe(false);
+    expect(mutated("action", (d) => delete d["params"])).toBe(true);
+    expect(mutated("action", (d) => (d["params"] = { anything: { nested: [1, 2, 3] } }))).toBe(true);
+    expect(mutated("action", (d) => (d["params"] = []))).toBe(false);
+    for (const kind of ["apply_damage", "spawn_entity", "apply_buff", "impulse", "play_sound", "show_notification", "change_asset_state", "grant_reward"]) {
+      expect(mutated("action", (d) => (d["kind"] = kind))).toBe(true);
+    }
+  });
+
+  it("rejects an unknown event trigger and allows an empty action list (edge)", () => {
+    expect(mutated("event", (d) => (d["trigger"] = "on_lunch_break"))).toBe(false);
+    expect(mutated("event", (d) => (d["actions"] = []))).toBe(true);
+    expect(mutated("event", (d) => (d["actions"] = "action.fixture-sound"))).toBe(false);
+  });
+
+  it("rejects an unknown notification style and a non-positive duration", () => {
+    for (const style of ["info", "warning", "critical", "success"]) {
+      expect(mutated("notification", (d) => (d["style"] = style))).toBe(true);
+    }
+    expect(mutated("notification", (d) => (d["style"] = "shout"))).toBe(false);
+    expect(mutated("notification", (d) => (d["durationMs"] = 0))).toBe(false);
+    expect(mutated("notification", (d) => (d["triggerEvent"] = "event.fixture"))).toBe(true);
+  });
+});
+
+describe("theme schema — 5.7/5.8 blocks", () => {
+  it("requires colors and rejects non-string color values", () => {
+    expect(mutated("theme", (d) => delete d["colors"])).toBe(false);
+    expect(mutated("theme", (d) => (d["colors"] = {}))).toBe(true);
+    expect(mutated("theme", (d) => (d["colors"] = { "--hud-primary": 255 }))).toBe(false);
+  });
+
+  it("accepts a full audio block and clamps its volumes", () => {
+    const audio = {
+      enabled: true,
+      defaultMasterVolume: 0.8,
+      defaultSfxVolume: 0.9,
+      maxVoices: 16,
+      retriggerGapMs: 40,
+      cues: {
+        playerDamaged: "hull_hit",
+        shieldAbsorb: "[SOUND: shield_absorb]",
+        playerKill: "kill",
+        playerDeath: "death",
+        overheat: "overheat",
+        boundaryWarning: "boundary",
+      },
+    };
+    expect(mutated("theme", (d) => (d["audio"] = audio))).toBe(true);
+    expect(mutated("theme", (d) => (d["audio"] = {}))).toBe(true); // every field optional
+    expect(mutated("theme", (d) => (d["audio"] = { ...audio, defaultMasterVolume: 1.5 }))).toBe(false);
+    expect(mutated("theme", (d) => (d["audio"] = { ...audio, defaultSfxVolume: -0.1 }))).toBe(false);
+    expect(mutated("theme", (d) => (d["audio"] = { ...audio, maxVoices: 0 }))).toBe(false);
+    expect(mutated("theme", (d) => (d["audio"] = { ...audio, retriggerGapMs: -1 }))).toBe(false);
+    expect(mutated("theme", (d) => (d["audio"] = { ...audio, cues: { playerKill: "" } }))).toBe(false);
+  });
+
+  it("accepts a full juice block and rejects out-of-range shaping", () => {
+    const juice = {
+      hitFlash: { enabled: true, durationMs: 140, color: "#ffffff", scale: 1.2, intensity: 0.8, maxConcurrent: 8 },
+      shieldRipple: { enabled: true, color: "#57d8ff", periodMs: 1200, radiusScale: 1.4, scaleWobble: 0.1, minAlpha: 0.1, maxAlpha: 0.5 },
+      deploy: { extendDistance: 0.25, overshoot: 1.2, spinDegrees: 180 },
+      explosions: { default: "fx.explosion-medium", asteroid: "fx.explosion-rock", byShipClass: { light: "fx.explosion-light" }, burstCount: 60, poolPerEffect: 3 },
+    };
+    expect(mutated("theme", (d) => (d["juice"] = juice))).toBe(true);
+    expect(mutated("theme", (d) => (d["juice"] = {}))).toBe(true);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, hitFlash: { ...juice.hitFlash, intensity: 1.2 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, hitFlash: { ...juice.hitFlash, durationMs: 0 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, hitFlash: { ...juice.hitFlash, maxConcurrent: 1.5 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, shieldRipple: { ...juice.shieldRipple, scaleWobble: 1.5 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, deploy: { ...juice.deploy, overshoot: 3.5 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, deploy: { extendDistance: -1 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, explosions: { ...juice.explosions, burstCount: 0 } }))).toBe(false);
+  });
+
+  it("accepts a full menu block and rejects out-of-range backdrop/title values", () => {
+    const menu = {
+      colors: { base: "#05070c", panel: "#0d1520", primary: "#57d8ff", accent: "#ff9a3c", text: "#e8f4ff", muted: "#7d93a8", border: "#1d2b3a" },
+      backdrop: { nebulaPrimary: "#0d5f7a", nebulaAccent: "#7a3d0d", nebulaOpacity: 0.6, starDensity: 0.5, vignette: 0.4 },
+      title: { text: "SPACE ARENA", subtitle: "tactical duels", letterSpacingEm: 0.3, glow: 0.7 },
+    };
+    expect(mutated("theme", (d) => (d["menu"] = menu))).toBe(true);
+    expect(mutated("theme", (d) => (d["menu"] = {}))).toBe(true);
+    expect(mutated("theme", (d) => (d["menu"] = { ...menu, backdrop: { ...menu.backdrop, nebulaOpacity: 1.5 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["menu"] = { ...menu, backdrop: { ...menu.backdrop, starDensity: -0.1 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["menu"] = { ...menu, backdrop: { ...menu.backdrop, vignette: 2 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["menu"] = { ...menu, title: { ...menu.title, letterSpacingEm: 2.5 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["menu"] = { ...menu, title: { ...menu.title, glow: 1.2 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["menu"] = { ...menu, colors: { base: 0 } }))).toBe(false);
+    // Empty subtitle is meaningful (hides the tagline), not a validation error.
+    expect(mutated("theme", (d) => (d["menu"] = { title: { subtitle: "" } }))).toBe(true);
+  });
+});
+
+describe("progression schema", () => {
+  it("requires a non-empty xp curve and integral credit rewards", () => {
+    expect(mutated("progression", (d) => (d["xpCurve"] = []))).toBe(false);
+    expect(mutated("progression", (d) => (d["xpCurve"] = [0]))).toBe(true);
+    expect(mutated("progression", (d) => (d["xpCurve"] = [0, -100]))).toBe(false);
+    expect(mutated("progression", (d) => ((d["rewards"] as Record<string, number>)["win"] = 10.5))).toBe(false);
+  });
+
+  it("defaults starterCredits to 0 and accepts an unlocks map (edge)", () => {
+    const parsed = CONFIG_SCHEMAS.progression.parse(clone(progression));
+    expect(parsed.starterCredits).toBe(0);
+    expect(mutated("progression", (d) => (d["starterCredits"] = 500))).toBe(true);
+    expect(mutated("progression", (d) => (d["starterCredits"] = -1))).toBe(false);
+    expect(mutated("progression", (d) => (d["starterCredits"] = 1.5))).toBe(false);
+    expect(mutated("progression", (d) => (d["unlocks"] = { "2": ["module.fixture-laser"], "3": [] }))).toBe(true);
+    expect(mutated("progression", (d) => (d["unlocks"] = { "2": "module.fixture-laser" }))).toBe(false);
+  });
+});
+
+describe("botprofile schema", () => {
+  it("requires a positive decision interval and a two-element preferred range", () => {
+    expect(mutated("botprofile", (d) => (d["decisionIntervalMs"] = 0))).toBe(false);
+    expect(mutated("botprofile", (d) => (d["orderJitterMs"] = -1))).toBe(false);
+    expect(mutated("botprofile", (d) => (d["preferredRange"] = [10]))).toBe(false);
+    expect(mutated("botprofile", (d) => (d["preferredRange"] = [10, 20, 30]))).toBe(false);
+    expect(mutated("botprofile", (d) => (d["preferredRange"] = [-1, 20]))).toBe(false);
+  });
+
+  it("clamps every moduleDiscipline fraction to 0..1", () => {
+    const setDiscipline = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
+      d["moduleDiscipline"] = { ...(d["moduleDiscipline"] as Record<string, unknown>), ...patch };
+    };
+    expect(mutated("botprofile", setDiscipline({ heatShutdownAt: 1 }))).toBe(true);
+    expect(mutated("botprofile", setDiscipline({ heatShutdownAt: 1.01 }))).toBe(false);
+    expect(mutated("botprofile", setDiscipline({ reactivateBelow: -0.01 }))).toBe(false);
+    expect(mutated("botprofile", setDiscipline({ energyReserve: 2 }))).toBe(false);
+    expect(mutated("botprofile", setDiscipline({ shieldOnlyWhenEngaged: "yes" }))).toBe(false);
+    expect(mutated("botprofile", (d) => delete d["moduleDiscipline"])).toBe(false);
+  });
+
+  it("keeps per-behavior tunables open (catchall) but requires baseWeight (edge)", () => {
+    expect(mutated("botprofile", (d) => (d["behaviors"] = { kite: { baseWeight: 0, anythingElse: [1, 2] } }))).toBe(true);
+    expect(mutated("botprofile", (d) => (d["behaviors"] = {}))).toBe(true);
+    expect(mutated("botprofile", (d) => (d["behaviors"] = { kite: { doubleTapBoostChance: 0.5 } }))).toBe(false);
+    expect(mutated("botprofile", (d) => (d["behaviors"] = { kite: { baseWeight: -1 } }))).toBe(false);
+  });
+});
+
+describe("quality schema (5.6)", () => {
+  it("rejects an unknown tier and accepts each known one", () => {
+    for (const tier of ["low", "med", "high"]) {
+      expect(mutated("quality", (d) => (d["tier"] = tier))).toBe(true);
+    }
+    expect(mutated("quality", (d) => (d["tier"] = "ultra"))).toBe(false);
+  });
+
+  it("bounds the render scaling knobs to 0.5..4", () => {
+    const setRender = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
+      d["render"] = { ...(d["render"] as Record<string, unknown>), ...patch };
+    };
+    expect(mutated("quality", setRender({ hardwareScalingMultiplier: 0.5 }))).toBe(true);
+    expect(mutated("quality", setRender({ hardwareScalingMultiplier: 4 }))).toBe(true);
+    expect(mutated("quality", setRender({ hardwareScalingMultiplier: 0.49 }))).toBe(false);
+    expect(mutated("quality", setRender({ hardwareScalingMultiplier: 4.01 }))).toBe(false);
+    expect(mutated("quality", setRender({ maxDevicePixelRatio: 0.2 }))).toBe(false);
+    expect(mutated("quality", setRender({ freezeStatics: "yes" }))).toBe(false);
+  });
+
+  it("validates the probe / autoTier / particle budget blocks", () => {
+    const set = (key: string, patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
+      d[key] = { ...(d[key] as Record<string, unknown>), ...patch };
+    };
+    expect(mutated("quality", set("probe", { minCores: 0, minMemoryGb: 0, allowMobile: false }))).toBe(true);
+    expect(mutated("quality", set("probe", { minCores: -1 }))).toBe(false);
+    expect(mutated("quality", set("probe", { minCores: 2.5 }))).toBe(false);
+    expect(mutated("quality", set("autoTier", { sampleAfterMs: 0 }))).toBe(true); // no warm-up is legal
+    expect(mutated("quality", set("autoTier", { sampleWindowMs: 0 }))).toBe(false);
+    expect(mutated("quality", set("autoTier", { demoteBelowFps: 0, promoteAboveFps: 0 }))).toBe(true); // never adjust
+    expect(mutated("quality", set("particles", { budgetMultiplier: 0 }))).toBe(true);
+    expect(mutated("quality", set("particles", { budgetMultiplier: 1.01 }))).toBe(false);
+    expect(mutated("quality", set("particles", { maxEmitterCapacity: -1 }))).toBe(false);
+  });
+
+  it("treats 0 LOD/cull distances as 'disabled' and rejects negatives (edge)", () => {
+    const setAsteroids = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
+      d["asteroids"] = { ...(d["asteroids"] as Record<string, unknown>), ...patch };
+    };
+    expect(mutated("quality", setAsteroids({ lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0 }))).toBe(true);
+    expect(mutated("quality", setAsteroids({ lodLowDistance: -1 }))).toBe(false);
+    expect(mutated("quality", (d) => ((d["glow"] as Record<string, unknown>)["blurKernelSize"] = 0))).toBe(false);
+    expect(mutated("quality", (d) => ((d["glow"] as Record<string, unknown>)["blurKernelSize"] = 32))).toBe(true);
+    expect(mutated("quality", (d) => ((d["scene"] as Record<string, unknown>)["starfieldPoints"] = 1500.5))).toBe(false);
+    expect(mutated("quality", (d) => ((d["scene"] as Record<string, unknown>)["starfieldPoints"] = 0))).toBe(true);
+  });
+
+  it("requires every consumer block to be present (no half-configured tier)", () => {
+    for (const block of ["probe", "autoTier", "render", "glow", "particles", "asteroids", "projectiles", "scene"]) {
+      expect(mutated("quality", (d) => delete d[block])).toBe(false);
+    }
+  });
+});
+
+describe("manifest schema (validated outside CONFIG_SCHEMAS)", () => {
+  it("accepts a non-empty file list and rejects an empty one", () => {
+    const base = { id: "manifest.fixture", type: "manifest", version: 1, files: ["a.json"] };
+    expect(manifestSchema.safeParse(base).success).toBe(true);
+    expect(manifestSchema.safeParse({ ...base, files: [] }).success).toBe(false);
+    expect(manifestSchema.safeParse({ ...base, files: "a.json" }).success).toBe(false);
+    expect(manifestSchema.safeParse({ ...base, type: "ship" }).success).toBe(false);
+  });
+
+  it("is not dispatchable through validateConfig (it is meta, not content)", () => {
+    const r = validateConfig({ id: "manifest.fixture", type: "manifest", version: 1, files: ["a.json"] });
+    expect(r.success).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// 4. Reference extraction (pure half of reference resolution)
+// --------------------------------------------------------------------------
+
+/** Parse a fixture and hand the typed config to `collectReferences`. */
+function refsOf(type: ConfigType, fixture: unknown): Record<string, string> {
+  const parsed = CONFIG_SCHEMAS[type].parse(fixture) as AnyConfig;
+  return Object.fromEntries(collectReferences(parsed).map((r) => [r.path, r.id]));
+}
+
+describe("collectReferences", () => {
+  it("extracts every outgoing id from a ship (tracks, fitting, emitter effects)", () => {
+    expect(refsOf("ship", clone(ship))).toEqual({
+      "upgradeTracks.hull": "upgrade.hull-std",
+      "upgradeTracks.engine": "upgrade.engine-std",
+      "upgradeTracks.energy": "upgrade.energy-std",
+      "upgradeTracks.heat": "upgrade.heat-std",
+      "defaultFitting[0]": "module.fixture-laser",
+      "defaultFitting[1]": "module.fixture-shield",
+      "sockets[2].effect": "fx.engine-trail",
+    });
+  });
+
+  it("extracts module action hooks from all four lifecycle points", () => {
+    const withHooks = clone(module_);
+    Object.assign(withHooks, {
+      onFire: ["action.a"],
+      onOverheat: ["action.b", "action.c"],
+      onActivate: ["action.d"],
+      onDeactivate: ["action.e"],
+    });
+    expect(refsOf("module", withHooks)).toEqual({
+      "onFire[0]": "action.a",
+      "onOverheat[0]": "action.b",
+      "onOverheat[1]": "action.c",
+      "onActivate[0]": "action.d",
+      "onDeactivate[0]": "action.e",
+    });
+  });
+
+  it("extracts arena asteroid placements, event actions and notification triggers", () => {
+    expect(refsOf("arena", clone(arena))).toEqual({ "asteroidPlacements[0].asteroidId": "asteroid.fixture" });
+    expect(refsOf("event", clone(event))).toEqual({ "actions[0]": "action.fixture-sound" });
+    expect(refsOf("notification", { ...clone(notification), triggerEvent: "event.fixture" })).toEqual({
+      triggerEvent: "event.fixture",
+    });
+    expect(refsOf("notification", clone(notification))).toEqual({}); // triggerEvent optional
+  });
+
+  it("extracts only the `notification` key out of an action's free-form params", () => {
+    expect(refsOf("action", { ...clone(action), kind: "show_notification", params: { notification: "notification.fixture", ttl: 5 } })).toEqual({
+      "params.notification": "notification.fixture",
+    });
+    expect(refsOf("action", { ...clone(action), params: { notification: 42 } })).toEqual({});
+    expect(refsOf("action", { ...clone(action), params: undefined })).toEqual({});
+  });
+
+  it("extracts the whole gamemode bots graph (default + roster, ships optional)", () => {
+    const withBots = clone(gamemode);
+    Object.assign(withBots, {
+      defaultArena: "arena.fixture",
+      bots: {
+        defaultProfile: "bot.fixture",
+        defaultShip: "ship.fixture",
+        roster: [
+          { profile: "bot.aggressive", ship: "ship.fixture", team: 1 },
+          { profile: "bot.cautious", team: 1 },
+        ],
+      },
+    });
+    expect(refsOf("gamemode", withBots)).toEqual({
+      defaultArena: "arena.fixture",
+      "bots.defaultProfile": "bot.fixture",
+      "bots.defaultShip": "ship.fixture",
+      "bots.roster[0].profile": "bot.aggressive",
+      "bots.roster[0].ship": "ship.fixture",
+      "bots.roster[1].profile": "bot.cautious",
+    });
+    expect(refsOf("gamemode", clone(gamemode))).toEqual({}); // no bots, no defaultArena
+  });
+
+  it("returns no references for leaf config types", () => {
+    for (const type of ["asteroid", "camera", "tuning", "theme", "progression", "botprofile", "quality", "effect", "upgrade"] as const) {
+      expect(refsOf(type, clone(VALID[type]))).toEqual({});
+    }
+  });
+});
+
+describe("collectRelationalErrors", () => {
+  const resolve = (type: ConfigType, id: string): AnyConfig | undefined => {
+    if (type === "module" && id === "module.fixture-laser") return CONFIG_SCHEMAS.module.parse(clone(module_)) as AnyConfig;
+    if (type === "module" && id === "module.fixture-shield") {
+      return CONFIG_SCHEMAS.module.parse({ ...clone(module_), id: "module.fixture-shield", family: "shield", fire: undefined }) as AnyConfig;
+    }
+    return undefined;
+  };
+
+  it("passes a fitting whose families match the hardpoints in order", () => {
+    const parsed = CONFIG_SCHEMAS.ship.parse(clone(ship)) as AnyConfig;
+    expect(collectRelationalErrors(parsed, resolve)).toEqual([]);
+  });
+
+  it("flags a family/hardpoint mismatch at the offending index", () => {
+    const swapped = CONFIG_SCHEMAS.ship.parse({
+      ...clone(ship),
+      defaultFitting: ["module.fixture-shield", "module.fixture-laser"],
+    }) as AnyConfig;
+    const errs = collectRelationalErrors(swapped, resolve);
+    expect(errs.map((e) => e.path)).toEqual(["defaultFitting[0]", "defaultFitting[1]"]);
+  });
+
+  it("flags a fitting longer than the hardpoint list, and ignores empty slots + unknown ids", () => {
+    const tooLong = CONFIG_SCHEMAS.ship.parse({
+      ...clone(ship),
+      defaultFitting: ["module.fixture-laser", "module.fixture-shield", "module.fixture-laser"],
+    }) as AnyConfig;
+    expect(collectRelationalErrors(tooLong, resolve).some((e) => e.path === "defaultFitting")).toBe(true);
+
+    const sparse = CONFIG_SCHEMAS.ship.parse({ ...clone(ship), defaultFitting: ["", "module.fixture-shield"] }) as AnyConfig;
+    expect(collectRelationalErrors(sparse, resolve)).toEqual([]);
+
+    const unknown = CONFIG_SCHEMAS.ship.parse({ ...clone(ship), defaultFitting: ["module.ghost", "module.fixture-shield"] }) as AnyConfig;
+    expect(collectRelationalErrors(unknown, resolve)).toEqual([]); // dangling ids are reference errors, not relational ones
+  });
+
+  it("returns nothing for non-ship configs", () => {
+    const parsed = CONFIG_SCHEMAS.gamemode.parse(clone(gamemode)) as AnyConfig;
+    expect(collectRelationalErrors(parsed, resolve)).toEqual([]);
+  });
+});

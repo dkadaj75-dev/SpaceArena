@@ -1,0 +1,21 @@
+name: Setup workspace
+description: >-
+  Node 22 + a clean, cached npm workspace install at the repo root. Every CI job
+  starts with this, so the Node version and the install command live in exactly
+  one place.
+
+runs:
+  using: composite
+  steps:
+    - name: Use Node 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        # Caches ~/.npm keyed on the lockfile. The native deps (better-sqlite3,
+        # argon2) resolve to prebuilds, so a warm cache install is quick.
+        cache: npm
+        cache-dependency-path: package-lock.json
+
+    - name: Install workspace (npm ci at the root installs client + server + shared)
+      shell: bash
+      run: npm ci
