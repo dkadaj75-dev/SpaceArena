@@ -9,6 +9,7 @@ import {
   encodeCenti,
   encodeHeading,
   encodeModuleState,
+  encodeUnit,
   orderMessageSchema,
   MSG_ORDER,
   MSG_ORDER_ACK,
@@ -756,6 +757,17 @@ export class ArenaRoom extends Room<ArenaState> {
     if (ps.energyMax !== ship.energy.max) ps.energyMax = ship.energy.max;
     if (ps.heatCur !== ship.heat.cur) ps.heatCur = ship.heat.cur;
     if (ps.heatCapacity !== ship.heat.capacity) ps.heatCapacity = ship.heat.capacity;
+
+    // Flight + sensor state (FLIGHT.md §5). `throttle` and `lockProgress` are
+    // already normalized 0..1 in the snapshot, so they quantize through the same
+    // `encodeUnit` the client decodes with — no per-field scaling anywhere else.
+    const qThrottle = encodeUnit(ship.throttle);
+    const qLock = encodeUnit(ship.lockProgress);
+    if (ps.throttle !== qThrottle) ps.throttle = qThrottle;
+    if (ps.lockProgress !== qLock) ps.lockProgress = qLock;
+    if (ps.locked !== ship.locked) ps.locked = ship.locked;
+    const targetId = ship.targetId ?? -1;
+    if (ps.targetId !== targetId) ps.targetId = targetId;
 
     let shieldPool = 0;
     for (let i = 0; i < ship.modules.length; i++) {

@@ -27,6 +27,23 @@ export function decodeCenti(q: number): number {
   return q / 100;
 }
 
+/**
+ * Quantize a NORMALIZED 0..1 scalar (throttle, lock progress) to uint8.
+ * 1/255 ≈ 0.4% precision — finer than any HUD readout or engine-trail curve
+ * reads, and a whole byte cheaper per field than the float32 the sim carries.
+ * Out-of-range inputs clamp (a normalized value should never leave 0..1).
+ */
+export function encodeUnit(value: number): number {
+  if (!(value > 0)) return 0; // also catches NaN
+  if (value >= 1) return 255;
+  return Math.round(value * 255);
+}
+
+/** Restore a normalized 0..1 scalar from uint8. */
+export function decodeUnit(q: number): number {
+  return q / 255;
+}
+
 const TWO_PI = Math.PI * 2;
 
 /** Quantize a heading (radians) to uint16 (0..65535 == 0..2π). */

@@ -3,20 +3,27 @@ import {
   decodeCenti,
   decodeHeading,
   decodeModuleState,
+  decodeUnit,
+  flightStep,
+  ARRIVAL_STOP,
+  resolveShipStats,
   seekStep,
   MSG_ORDER,
   createLogger,
   type ArenaConfig,
   type ConfigService,
   type EntityId,
+  type FlightParams,
   type GamemodeConfig,
   type Order,
   type ShipConfig,
+  type ShipSnapshot,
   type SimEvent,
   type SimEventMessage,
   type Snapshot,
   type SteerState,
   type TuningConfig,
+  type UpgradeLevels,
 } from "@space-arena/shared";
 import { GameSession } from "../game/GameSession.js";
 import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
@@ -29,16 +36,39 @@ const PENDING_TOGGLE_MS = 800; // optimistic module-state overlay lifetime
 
 interface TimedSnapshot { time: number; snapshot: Snapshot }
 interface PendingToggle { sentAt: number; fromState: string; optimistic: "deploying" | "retracting" }
+/** The three axes of a `flight` order, as the predictor remembers them. */
+interface PredictedFlight { throttle: number; turn: number; boost: boolean }
+
+/**
+ * Client-side extras that must NOT travel to the server. `ArenaJoinOptions` is
+ * forwarded verbatim to `joinOrCreate`, so anything the client knows purely for
+ * its own prediction lives here instead (see `upgradeLevels`).
+ */
+export interface LocalPredictionHints {
+  /**
+   * The player's upgrade purchases for the ship they are joining on, as the
+   * Hangar last read them from `/api/ships`. Used ONLY to resolve the engine
+   * stats the predictor integrates with: the server loads its own copy from the
+   * DB at spawn (`ArenaRoom.loadUpgradeLevels`) and remains authoritative, so a
+   * wrong value here costs prediction accuracy and nothing else.
+   */
+  upgradeLevels?: UpgradeLevels;
+}
 
 /**
  * Online implementation of the GameSession surface (ROADMAP §7 2.4–2.6).
  *
  * Remote entities: snapshot-buffer interpolation `netRenderDelayMs` behind the
- * newest patch. Local player: optimistic prediction — move orders integrate
- * immediately via the shared `seekStep` math and the predicted position is
+ * newest patch. Local player: optimistic prediction — the held flight input
+ * integrates immediately through the shared `flightStep` math (the sim's own
+ * mirror, FLIGHT.md §1) using RESOLVED ship stats, and the predicted position is
  * pulled toward server truth with an exponential blend (snap above
  * SNAP_DISTANCE). Module toggles overlay an optimistic deploying/retracting
  * state until the server confirms or PENDING_TOGGLE_MS expires.
+ *
+ * The predictor advances on the RENDER delta, not the sim's fixed step, so at
+ * steady state it tracks the server exactly and during an accel ramp it differs
+ * only by the discretization of an identical curve — well inside the blend.
  */
 export class NetGameSession extends GameSession {
   readonly net = new NetClient();
@@ -59,8 +89,30 @@ export class NetGameSession extends GameSession {
   private predActive = false; // becomes true once seeded from a server snapshot
   private predTarget: { x: number; z: number } | null = null;
   private predBoost = false;
+  /**
+   * The flight input the SERVER is believed to be integrating — i.e. the last
+   * flight order we sent, kept until another replaces it. `flight` orders are
+   * level-triggered (FLIGHT.md §1): the sim keeps applying the stored
+   * `FlightState` every tick, so the predictor must do the same rather than
+   * consuming the order once.
+   */
+  private predFlight: PredictedFlight | null = null;
+  /** Flight state of the last ACCEPTED order — what a rejection rolls back to. */
+  private acceptedFlight: PredictedFlight | null = null;
+  /** In-flight flight orders by seq, so an ack knows which state it confirmed. */
+  private readonly seqFlight = new Map<number, PredictedFlight>();
   private errX = 0; // server − predicted, decayed into pred each frame
   private errZ = 0;
+
+  // Resolved engine stats for the local ship, cached against what produced them.
+  private statsKey = "";
+  private statsEngine: FlightParams | null = null;
+  /**
+   * The player's persisted upgrade purchases, if the client knows them (Hangar
+   * read them from `/api/ships`). Prediction-only: the server resolves its own
+   * copy at spawn and stays authoritative — see {@link NetGameSession.join}.
+   */
+  private upgradeLevels: UpgradeLevels | undefined;
 
   private readonly pendingToggles = new Map<number, PendingToggle>();
   private readonly seqSentAt = new Map<number, number>();
@@ -97,10 +149,15 @@ export class NetGameSession extends GameSession {
     this.fakeLagMs = Number(new URLSearchParams(location.search).get("fakelag")) || 0;
   }
 
-  static async join(configs: ConfigService, options: ArenaJoinOptions): Promise<NetGameSession> {
+  static async join(
+    configs: ConfigService,
+    options: ArenaJoinOptions,
+    local: LocalPredictionHints = {},
+  ): Promise<NetGameSession> {
     const arenaId =
       options.arena ?? configs.get<GamemodeConfig>("gamemode", options.gamemode)?.defaultArena ?? "arena.ring-nebula";
     const session = new NetGameSession(configs, arenaId, options.gamemode);
+    session.upgradeLevels = local.upgradeLevels;
     session.net.onOrderAck = (ack) =>
       session.deferred(() => {
         const sentAt = session.seqSentAt.get(ack.seq);
@@ -111,13 +168,21 @@ export class NetGameSession extends GameSession {
         }
         const kind = session.seqKinds.get(ack.seq);
         session.seqKinds.delete(ack.seq);
-        if (ack.accepted) session.ordersAcked++;
-        else {
+        const flight = session.seqFlight.get(ack.seq);
+        session.seqFlight.delete(ack.seq);
+        if (ack.accepted) {
+          session.ordersAcked++;
+          if (flight) session.acceptedFlight = flight;
+        } else {
           session.ordersRejected++;
           log.warn(`order ${ack.seq} rejected: ${ack.reason ?? "unknown"}`);
           // A rejected move must stop the local predictor, or it seeks a target
           // the server refused and out-runs the correction blend indefinitely.
           if (kind === "move") session.predTarget = null;
+          // A rejected FLIGHT order never reached the sim's FlightState, so the
+          // server is still integrating the last accepted one — roll the
+          // predictor back to it rather than flying an input nobody has.
+          if (kind === "flight") session.predFlight = session.acceptedFlight;
           if (kind === "moduleToggle") session.pendingToggles.clear();
           session.onOrderRejected?.(ack.reason ?? "rejected");
         }
@@ -185,6 +250,15 @@ export class NetGameSession extends GameSession {
       this.predTarget = { x: order.target.x, z: order.target.z };
       this.predBoost = order.boost;
       this.events.push({ type: "moveOrderSet", entityId: this.playerId, target: { ...order.target }, boost: order.boost });
+    } else if (order.kind === "flight") {
+      // Level-triggered: this state is what the sim integrates every tick from
+      // now on, so the predictor holds it (rather than consuming it once) until
+      // the next order replaces it — or an ack rejects it (see `join`).
+      const flight: PredictedFlight = { throttle: order.throttle, turn: order.turn, boost: order.boost };
+      this.predFlight = flight;
+      this.seqFlight.set(seq, flight);
+      // Flight replaces move control in the sim, and must here too.
+      this.predTarget = null;
     } else if (order.kind === "target") {
       this.events.push({ type: "targetSet", entityId: this.playerId, targetId: order.targetId });
     } else if (order.kind === "moduleToggle") {
@@ -214,6 +288,7 @@ export class NetGameSession extends GameSession {
     this.snapshots.length = 0;
     this.events.length = 0;
     this.lagQueue.length = 0;
+    this.seqFlight.clear();
   }
 
   get correctionError(): number { return Math.hypot(this.errX, this.errZ); }
@@ -285,18 +360,34 @@ export class NetGameSession extends GameSession {
       this.predActive = true;
     }
 
-    if (this.predTarget) {
+    // RESOLVED engine stats, never `cfg.core.engine`: a module or upgrade that
+    // changes nominalSpeed/accel/turnRate makes a base-stats predictor wrong on
+    // EVERY tick under continuous flight, which no correction blend can hide
+    // (FLIGHT.md §5).
+    const engine = this.resolvedEngine(cfg, player);
+
+    if (this.predFlight) {
+      flightStep(
+        this.pred,
+        {
+          throttle: this.predFlight.throttle,
+          turn: this.predFlight.turn,
+          boostMult: this.predFlight.boost ? this.predBoostMult(player) : 1,
+        },
+        engine,
+        dt,
+      );
+    } else if (this.predTarget) {
+      // Legacy tap-to-move prediction; retires with move orders (FLIGHT.md §7).
       const tuning = this.netConfigs.getAll<TuningConfig>("tuning")[0];
       const arrived = seekStep(
         this.pred,
         this.predTarget,
         {
-          nominalSpeed: cfg.core.engine.nominalSpeed,
-          accel: cfg.core.engine.accel,
-          turnRate: cfg.core.engine.turnRate,
+          ...engine,
           arrivalRadius: tuning?.arrivalRadius ?? 10,
-          arrivalStop: 1.5,
-          speedMult: this.predBoost ? boostMult(this.netConfigs, player.modules.map((m) => m.moduleId)) : 1,
+          arrivalStop: ARRIVAL_STOP,
+          speedMult: this.predBoost ? this.predBoostMult(player) : 1,
         },
         dt,
       );
@@ -313,19 +404,64 @@ export class NetGameSession extends GameSession {
       this.errX = 0;
       this.errZ = 0;
       // Diverging this far means the server is steering differently (avoidance
-      // detour, rejected order raced the ack) — defer to server motion.
+      // detour, collision, rejected order racing the ack) — defer to server
+      // motion. `predFlight` is deliberately NOT cleared: the server is still
+      // integrating that state, so dropping it would leave the predictor inert
+      // while the real ship keeps flying (the exact opposite of the fix).
       this.predTarget = null;
     } else {
       const pull = 1 - Math.exp(-this.correctionRate * dt);
       this.pred.pos.x += this.errX * pull;
       this.pred.pos.z += this.errZ * pull;
-      this.pred.heading = lerpHeading(this.pred.heading, player.heading, this.predTarget ? 0.15 : pull);
+      // While the local player is driving (flight or move), heading is a client
+      // input — pull it gently so a patch cannot jerk the nose (and the camera).
+      const steering = this.predFlight !== null || this.predTarget !== null;
+      this.pred.heading = lerpHeading(this.pred.heading, player.heading, steering ? 0.15 : pull);
     }
 
     // Render the local player from the predictor.
     player.pos.x = this.pred.pos.x;
     player.pos.z = this.pred.pos.z;
     player.heading = this.pred.heading;
+  }
+
+  /**
+   * The local ship's RESOLVED engine stats — the same {@link resolveShipStats}
+   * stack the sim ran at spawn, fed the replicated fitting plus the client's
+   * known upgrade levels. Cached against ship id + fitted module ids + upgrade
+   * levels, because that is everything the resolution depends on and none of it
+   * changes on a typical frame.
+   */
+  private resolvedEngine(cfg: ShipConfig, player: ShipSnapshot): FlightParams {
+    const levels = this.upgradeLevels;
+    let key = cfg.id;
+    for (const m of player.modules) key += `|${m.moduleId}`;
+    if (levels) key += `|${levels.hull},${levels.engine},${levels.energy},${levels.heat}`;
+    if (key !== this.statsKey || !this.statsEngine) {
+      const fittedModuleIds = player.modules.map((m) => m.moduleId);
+      const core = resolveShipStats(cfg, this.netConfigs, { fittedModuleIds, upgradeLevels: levels });
+      this.statsEngine = {
+        nominalSpeed: core.engine.nominalSpeed,
+        accel: core.engine.accel,
+        turnRate: core.engine.turnRate,
+      };
+      this.statsKey = key;
+    }
+    return this.statsEngine;
+  }
+
+  /**
+   * Boost multiplier for the predictor. The sim only grants boost while the
+   * module is `active` WITH energy and heat headroom (`resolveBoostMult`), so
+   * gate on the replicated module state too — an unspent boost request would
+   * otherwise predict a speed the server never gives. Energy/heat headroom is
+   * left to the correction blend: it is a per-tick server-side condition, and
+   * predicting it wrong costs a fraction of a tick, not a persistent offset.
+   */
+  private predBoostMult(player: ShipSnapshot): number {
+    const active: string[] = [];
+    for (const m of player.modules) if (m.state === "active") active.push(m.moduleId);
+    return boostMult(this.netConfigs, active);
   }
 
   /** Optimistic module button feedback until the server echoes the change. */
@@ -364,14 +500,13 @@ export class NetGameSession extends GameSession {
         hullMax: p.hullMax,
         energy: { cur: p.energyCur, max: p.energyMax },
         heat: { cur: p.heatCur, capacity: p.heatCapacity },
-        targetId: null,
-        // Not replicated yet — ArenaState gains quantized `throttle` / lock fields
-        // with the rest of the flight netcode (FLIGHT.md §5); 0 keeps the signal
-        // layer on its displacement fallback until then, and a neutral lock keeps
-        // the online HUD from claiming a lock the server never sent.
-        throttle: 0,
-        lockProgress: 0,
-        locked: false,
+        // Flight + sensor state, quantized server-side by `encodeUnit`
+        // (FLIGHT.md §5). `targetId` travels as -1 for "none" because the
+        // schema field is a plain number.
+        targetId: p.targetId === undefined || p.targetId < 0 ? null : Number(p.targetId),
+        throttle: decodeUnit(p.throttle ?? 0),
+        lockProgress: decodeUnit(p.lockProgress ?? 0),
+        locked: Boolean(p.locked),
         modules: decodeModules(p.modules),
       };
     });

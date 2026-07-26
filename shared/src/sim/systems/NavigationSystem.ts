@@ -3,7 +3,12 @@ import type { EntityId, ShipCore } from "../components.js";
 import { clamp, headingOf, len, turnToward, wrapAngle } from "../math.js";
 import type { World } from "../World.js";
 
-const ARRIVAL_STOP = 1.5; // world units; order cleared inside this radius
+/**
+ * World units; a move order is cleared inside this radius. Exported so the
+ * client predictor's `seekStep` mirror uses the sim's own value instead of a
+ * copied literal. Dies with move orders (FLIGHT.md §7).
+ */
+export const ARRIVAL_STOP = 1.5;
 const TARGET_MARGIN = 1.0; // extra gap kept between a clamped target and a rock
 
 /**

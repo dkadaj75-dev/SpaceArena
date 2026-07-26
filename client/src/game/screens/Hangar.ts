@@ -29,6 +29,14 @@ const log = createLogger("Hangar");
 
 const LS_SHIP = "hangar.shipId";
 const LS_FITTING = "hangar.fittingId";
+/**
+ * The selected ship's upgrade levels as `/api/ships` last reported them. Cached
+ * here because a MATCH needs them (client prediction resolves the same engine
+ * stats the sim does — FLIGHT.md §5) and the match path has no authenticated
+ * REST call of its own. Purely a local hint: it is never sent to the server,
+ * which loads the authoritative levels from the DB at spawn.
+ */
+const LS_UPGRADES = "hangar.upgrades";
 const STAGE_POS = new Vector3(0, 5, 300); // far from the arena (radius 90) — nothing else renders out here
 const UPGRADE_TRACKS: readonly UpgradeTrackName[] = ["hull", "engine", "energy", "heat"];
 const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine: "Engine", energy: "Capacitor", heat: "Heat Sink" };
@@ -36,14 +44,38 @@ const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine:
 export interface HangarSelection {
   shipId: string | null;
   fittingId: string | null;
+  /** Upgrade levels cached for {@link HangarSelection.shipId}; null when unknown (never logged in / never opened Hangar). */
+  upgradeLevels: UpgradeLevels | null;
 }
 
 /** Reads the player's last Hangar ship/fitting choice — Lobby passes this as NetGameSession join options. */
 export function loadHangarSelection(): HangarSelection {
-  return { shipId: localStorage.getItem(LS_SHIP), fittingId: localStorage.getItem(LS_FITTING) };
+  const shipId = localStorage.getItem(LS_SHIP);
+  return { shipId, fittingId: localStorage.getItem(LS_FITTING), upgradeLevels: loadCachedUpgrades(shipId) };
 }
 
 const ZERO_LEVELS: UpgradeLevels = { hull: 0, engine: 0, energy: 0, heat: 0 };
+
+/**
+ * The cached upgrade levels, but only if they were stored for `shipId` — levels
+ * from a different hull would resolve the wrong engine stats, which is worse
+ * than not knowing them at all (the resolver then falls back to base).
+ */
+function loadCachedUpgrades(shipId: string | null): UpgradeLevels | null {
+  if (!shipId) return null;
+  const raw = localStorage.getItem(LS_UPGRADES);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { shipId?: string; levels?: Partial<UpgradeLevels> };
+    if (parsed.shipId !== shipId || !parsed.levels) return null;
+    const levels = parsed.levels;
+    const track = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0);
+    return { hull: track(levels.hull), engine: track(levels.engine), energy: track(levels.energy), heat: track(levels.heat) };
+  } catch {
+    // Corrupt/hand-edited storage is not worth a crash on the way into a match.
+    return null;
+  }
+}
 
 /**
  * Hangar / Fitting screen (ROADMAP §9 4.5). Reuses the MAIN Babylon scene and
@@ -220,6 +252,10 @@ export class Hangar {
       this.apiModules = modulesRes.modules;
       this.fittings = fittingsRes.fittings;
       this.error = "";
+      // Freshly-read upgrade levels: re-cache them for the match predictor, or
+      // a purchase made this visit would stay invisible to it until the player
+      // happened to re-pick a ship.
+      this.persistSelection();
     } catch (err) {
       this.error = errorMessage(err, "Failed to load hangar data");
       log.warn("refreshFromServer failed", err);
@@ -411,6 +447,14 @@ export class Hangar {
     else localStorage.removeItem(LS_SHIP);
     if (this.selectedFittingId) localStorage.setItem(LS_FITTING, this.selectedFittingId);
     else localStorage.removeItem(LS_FITTING);
+    // Stored WITH the ship id: `loadCachedUpgrades` refuses levels belonging to
+    // another hull. Dropped entirely for an unauthenticated visitor, whose
+    // `apiShips` list is empty and whose levels are therefore unknown, not zero.
+    if (shipId && this.apiShips.some((s) => s.id === shipId)) {
+      localStorage.setItem(LS_UPGRADES, JSON.stringify({ shipId, levels: this.currentUpgradeLevels() }));
+    } else {
+      localStorage.removeItem(LS_UPGRADES);
+    }
   }
 
   // --- rendering ---------------------------------------------------------

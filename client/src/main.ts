@@ -574,12 +574,19 @@ async function bootstrap(): Promise<void> {
               practiceArena(choice.gamemode) ?? FALLBACK_ARENA_ID,
               choice.gamemode ?? "gamemode.practice",
             )
-          : await NetGameSession.join(configService, {
-              gamemode: choice.gamemode,
-              ...hangarJoinOptions(),
-              ...choice.options,
-              token: authService.getAccessToken() ?? undefined,
-            });
+          : await NetGameSession.join(
+              configService,
+              {
+                gamemode: choice.gamemode,
+                ...hangarJoinOptions(),
+                ...choice.options,
+                token: authService.getAccessToken() ?? undefined,
+              },
+              // Client-only prediction hint — deliberately NOT part of the join
+              // options (those go over the wire); the server resolves its own
+              // upgrade levels from the DB. See LocalPredictionHints.
+              { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
+            );
       // Render the arena the SESSION resolved, before the runtime (and its HUD
       // minimap) is built around it.
       setArena(session.arenaId);

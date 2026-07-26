@@ -5,6 +5,7 @@ import { orderSchema } from "../net/protocol.js";
 import type { BotprofileConfig } from "../schemas/botprofile.js";
 import type { GamemodeConfig } from "../schemas/gamemode.js";
 import type { ShipConfig } from "../schemas/ship.js";
+import type { TuningConfig } from "../schemas/tuning.js";
 import { ArenaSimulation } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import type { SimEvent } from "../sim/events.js";
@@ -55,6 +56,10 @@ interface RunResult {
   impactDamage: number;
   /** Sim seconds elapsed when the run stopped (match end or the time cap). */
   duration: number;
+  /** Highest orders-in-one-second any single bot reached (all kinds). */
+  peakOrdersPerSec: number;
+  /** Highest `flight` orders-in-one-second any single bot reached. */
+  peakFlightPerSec: number;
 }
 
 /**
@@ -90,6 +95,11 @@ function runMatch(profileIds: string[], seed: number): RunResult {
   let weaponDamage = 0;
   let impactDamage = 0;
   let duration = 0;
+  // Orders per bot per whole sim second — the same shape as ArenaRoom's
+  // `rateLimited()` window, so the peak is directly comparable to the cap.
+  const perSecond = new Map<string, { all: number; flight: number }>();
+  let peakOrdersPerSec = 0;
+  let peakFlightPerSec = 0;
 
   for (let i = 0; i < SECONDS / DT; i++) {
     if (sim.isEnded) break;
@@ -119,6 +129,13 @@ function runMatch(profileIds: string[], seed: number): RunResult {
         }
         orders++;
         orderKinds[order.kind] = (orderKinds[order.kind] ?? 0) + 1;
+        const bucketKey = `${entityId}:${Math.floor(duration)}`;
+        const bucket = perSecond.get(bucketKey) ?? { all: 0, flight: 0 };
+        bucket.all++;
+        if (order.kind === "flight") bucket.flight++;
+        perSecond.set(bucketKey, bucket);
+        peakOrdersPerSec = Math.max(peakOrdersPerSec, bucket.all);
+        peakFlightPerSec = Math.max(peakFlightPerSec, bucket.flight);
         sim.applyOrder(entityId, order);
       }
     }
@@ -151,6 +168,8 @@ function runMatch(profileIds: string[], seed: number): RunResult {
     weaponDamage,
     impactDamage,
     duration,
+    peakOrdersPerSec,
+    peakFlightPerSec,
   };
 }
 
@@ -224,6 +243,41 @@ describe("bots in a live ArenaSimulation", () => {
     // never switched anything on.
     expect(result.seenStates.has("active")).toBe(true);
     expect(result.weaponDamage).toBeGreaterThan(0);
+  });
+
+  /**
+   * FLIGHT.md §5 / stage-5 review item. Bot orders reach the sim through
+   * `ArenaRoom.driveBots`, which calls `validateOrder` but deliberately NOT
+   * `rateLimited()` (there is no `Client` to rate-limit, and a bot cannot be
+   * kicked). The only thing keeping a bot inside the cap a human is held to is
+   * therefore {@link BotDriver.shouldSendFlight}'s epsilon gate plus the
+   * decision cadence — so assert the resulting rate directly, over a full 30 s
+   * match, per bot, in the same one-second window `rateLimited()` uses.
+   */
+  it("keeps every bot's order rate inside tuning.maxOrdersPerSec without the rate limiter", () => {
+    // Cap resolution mirrors ArenaRoom: tuning value, else its 20/s default.
+    const cap = configs.getAll<TuningConfig>("tuning")[0]?.maxOrdersPerSec ?? 20;
+
+    for (const [a, b, seed] of [
+      ["bot.aggressive", "bot.aggressive", 3],
+      ["bot.aggressive", "bot.cautious", 7],
+      ["bot.cautious", "bot.cautious", 11],
+    ] as const) {
+      const label = `${a} vs ${b} @${seed}`;
+      const r = runMatch([a, b], seed);
+      // The gate is only meaningful if the bots were actually flying.
+      expect(r.orderKinds["flight"], label).toBeGreaterThan(0);
+      expect(r.duration, label).toBeGreaterThan(5);
+      // Flight traffic alone, and total traffic including target/module orders,
+      // both stay under the cap — a human client sending this would never be
+      // rate-limited, let alone kicked.
+      expect(r.peakFlightPerSec, label).toBeLessThan(cap);
+      expect(r.peakOrdersPerSec, label).toBeLessThan(cap);
+      // A decision every `decisionIntervalMs` could emit ~1 flight order each;
+      // the epsilon gate is what keeps it far below even that. Cross-check the
+      // sustained average, so a single quiet second cannot carry the assertion.
+      expect(r.orderKinds["flight"]! / r.duration, label).toBeLessThan(cap);
+    }
   });
 
   it("is fully deterministic given the same seeds", () => {

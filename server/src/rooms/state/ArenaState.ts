@@ -61,6 +61,24 @@ export class PlayerState extends Schema {
   @type("float32") heatCur = 0;
   /** Resolved heat capacity (ship class + upgrades + module passives). */
   @type("float32") heatCapacity = 0;
+  /**
+   * Commanded throttle (the ship's live `FlightState` value, 0 when it has
+   * none), normalized 0..1 as uint8 — decode with shared `decodeUnit`. Clients
+   * read the REAL value for engine trails/boost curves instead of inferring one
+   * from displacement (FLIGHT.md §1/§5).
+   */
+  @type("uint8") throttle = 0;
+  /** Sensor lock warm-up, normalized 0..1 as uint8 (shared `decodeUnit`). */
+  @type("uint8") lockProgress = 0;
+  /** True once the lock completed — the sim's weapons gate (FLIGHT.md §2). */
+  @type("boolean") locked = false;
+  /**
+   * Entity the sensors are warming/holding, or -1 for none. Replicated with the
+   * two fields above because they are one reading: `lockProgress` alone cannot
+   * tell the HUD which enemy to bracket, and the reticle is the whole point of
+   * sending lock state to a client (FLIGHT.md §4).
+   */
+  @type("number") targetId = -1;
   @type([ModuleState]) modules = new ArraySchema<ModuleState>();
   /** Highest client order seq applied for this player (reconciliation). */
   @type("number") lastProcessedSeq = 0;

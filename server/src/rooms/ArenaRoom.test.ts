@@ -145,6 +145,149 @@ describe("ArenaRoom", () => {
     await c1.leave();
   });
 
+  // -------------------------------------------------------------------------
+  // Flight netcode (FLIGHT.md §5)
+  // -------------------------------------------------------------------------
+
+  it("flies a ship from wire flight orders and replicates the throttle it is holding", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+    expect(room.state.matchPhase).toBe("live");
+
+    const p1 = room.state.players.get(c1.sessionId)!;
+    const startX = p1.x;
+    const startZ = p1.z;
+    const startHeading = p1.heading;
+    expect(p1.throttle).toBe(0); // no FlightState yet
+
+    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0.5, boost: false } });
+    expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
+
+    await advance(room, 30);
+    // Level-triggered: ONE order, integrated every tick — position and heading
+    // both moved, and the held throttle is replicated (encodeUnit(1) === 255).
+    expect(p1.x !== startX || p1.z !== startZ).toBe(true);
+    expect(p1.heading).not.toBe(startHeading);
+    expect(p1.throttle).toBe(255);
+    expect(p1.lastProcessedSeq).toBe(1);
+
+    // Cutting the throttle is another single order; the ship decelerates.
+    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 0, turn: 0, boost: false } });
+    expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 2, accepted: true });
+    await advance(room, 5);
+    expect(p1.throttle).toBe(0);
+
+    await c1.leave();
+  });
+
+  it("replicates sensor lock progress, locked and targetId to the client", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+
+    const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
+      sim: {
+        world: { transforms: Map<number, { pos: { x: number; z: number }; heading: number }> };
+        spawnPlayerAt: (shipId: string, fitting: (string | null)[], team: number, pos: { x: number; z: number }, heading: number) => number;
+      };
+    };
+    const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+    const p1 = room.state.players.get(c1.sessionId)!;
+    expect(p1.locked).toBe(false);
+    expect(p1.lockProgress).toBe(0);
+    expect(p1.targetId).toBe(-1);
+
+    // Park an enemy straight down the player's nose — inside the heading-relative
+    // sensor cone, which is the only thing that fills lockProgress (FLIGHT.md §2).
+    const pTf = serverRoom.sim.world.transforms.get(p1.entityId)!;
+    const enemyId = serverRoom.sim.spawnPlayerAt(
+      "ship.interceptor",
+      [...ship.defaultFitting],
+      1,
+      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
+      Math.PI,
+    );
+
+    for (let i = 0; i < 120 && !p1.locked; i++) await advance(room, 1);
+    expect(p1.locked).toBe(true);
+    expect(p1.lockProgress).toBe(255); // encodeUnit(1) — a completed lock
+    expect(p1.targetId).toBe(enemyId);
+
+    await c1.leave();
+  });
+
+  it("rejects malformed flight orders as malformed without disturbing a legitimate client", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
+    const cheat = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    const honest = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+    expect(room.state.matchPhase).toBe("live");
+
+    const cheatState = room.state.players.get(cheat.sessionId)!;
+    const before = { x: cheatState.x, z: cheatState.z, heading: cheatState.heading };
+
+    // Non-finite and out-of-range axes are refused at the trust boundary
+    // (orderSchema) — the sim never sees them, so no heading/position poisoning.
+    const bad = [
+      { throttle: Number.NaN, turn: 0, boost: false },
+      { throttle: 0.5, turn: Number.POSITIVE_INFINITY, boost: false },
+      { throttle: Number.NEGATIVE_INFINITY, turn: 0, boost: false },
+      { throttle: 5, turn: 0, boost: false },
+      { throttle: -0.5, turn: 0, boost: false },
+      { throttle: 0.5, turn: -3, boost: false },
+      { throttle: 0.5, turn: 1.5, boost: false },
+    ];
+    for (let i = 0; i < bad.length; i++) {
+      cheat.send("order", { seq: i + 1, order: { kind: "flight", ...bad[i] } });
+      expect(await cheat.waitForMessage("orderAck"), JSON.stringify(bad[i])).toMatchObject({
+        seq: i + 1,
+        accepted: false,
+        reason: "malformed",
+      });
+    }
+
+    await advance(room, 10);
+    // Nothing was applied: the ship never acquired a FlightState.
+    expect(cheatState.throttle).toBe(0);
+    expect(Number.isFinite(cheatState.x)).toBe(true);
+    expect(cheatState.x).toBe(before.x);
+    expect(cheatState.z).toBe(before.z);
+    expect(cheatState.heading).toBe(before.heading);
+
+    // The other client is untouched and still flies.
+    const honestState = room.state.players.get(honest.sessionId)!;
+    honest.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
+    expect(await honest.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
+    await advance(room, 20);
+    expect(honestState.throttle).toBe(255);
+    expect(honestState.x !== before.x || honestState.z !== before.z).toBe(true);
+
+    await cheat.leave();
+    await honest.leave();
+  });
+
+  it("kicks a client that floods flight orders past the rate limit", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+
+    const acks: Array<{ accepted: boolean; reason?: string }> = [];
+    c1.onMessage("orderAck", (m) => acks.push(m as { accepted: boolean; reason?: string }));
+    const closed = new Promise<number>((resolve) => c1.onLeave((code) => resolve(code)));
+
+    // maxOrdersPerSec (20) + ABUSE_KICK_THRESHOLD (40) rate-limited orders, all
+    // inside one window: every order here is individually VALID, so this is the
+    // rate limiter doing the work, not validation.
+    for (let i = 0; i < 150; i++) {
+      c1.send("order", { seq: i + 1, order: { kind: "flight", throttle: 0.5, turn: 0, boost: false } });
+    }
+
+    const code = await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 4000))]);
+    expect(code).toBe(4290); // custom close code: rate-limit kick
+    expect(acks.some((a) => !a.accepted && a.reason === "rate-limited")).toBe(true);
+  });
+
   it("rejects an order targeting a friendly and orders when not yet live", async () => {
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
     const c1 = await colyseus.connectTo(room);
