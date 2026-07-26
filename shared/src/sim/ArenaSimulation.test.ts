@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../core/ConfigService.js";
+import type { TuningConfig } from "../schemas/index.js";
 import { ArenaSimulation } from "./ArenaSimulation.js";
 import { applyDamageToShip } from "./damage.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "./spawn.js";
@@ -401,6 +402,22 @@ describe("Win conditions", () => {
     sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 });
     for (let i = 0; i < 40 && !sim.isEnded; i++) sim.tick(DT); // 40 ticks > 1s
     expect(sim.isEnded).toBe(true);
+  });
+});
+
+describe("Offline tuning hot reload", () => {
+  it("makes an existing practice world re-read replaced tuning", () => {
+    const original = configs.getAll<TuningConfig>("tuning")[0]!;
+    const world = makeWorld(configs);
+    const changed = { ...structuredClone(original), globalDamageMult: 1.75, spatialCellSize: 23 };
+
+    try {
+      expect(configs.replace(changed).ok).toBe(true);
+      expect(world.tuning.globalDamageMult).toBe(1.75);
+      expect(world.tuning.spatialCellSize).toBe(23);
+    } finally {
+      expect(configs.replace(original).ok).toBe(true);
+    }
   });
 });
 

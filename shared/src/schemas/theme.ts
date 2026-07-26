@@ -104,8 +104,41 @@ export const gaugesSchema = z.object({
   offsetYPx: z.number().nonnegative().optional(),
   gapPx: z.number().nonnegative().optional(),
   trackHeightPx: z.number().positive().optional(),
+  /**
+   * Number of segment cells a gauge bar is divided into (the holographic
+   * "cell bar" look). The fill is still continuous — the segments are a
+   * repeating gap overlay, so a value change never quantizes. 1 = a solid bar.
+   */
+  segments: z.number().int().positive().optional(),
 });
 export type GaugesConfig = z.infer<typeof gaugesSchema>;
+
+/**
+ * Look-only knobs shared by every HUD widget frame (the sci-fi shape language).
+ * Deliberately separate from the geometry blocks above: these never move a
+ * control, so a designer can dial the whole HUD between "clean" and "heavy
+ * hologram" without re-auditing the one-thumb reach.
+ */
+export const hudStyleSchema = z.object({
+  /**
+   * Corner chamfer on HUD panels, gauge frames and module buttons, in px.
+   * Drives the `clip-path` cut — 0 gives ordinary square/round corners.
+   */
+  chamferPx: z.number().nonnegative().optional(),
+  /** Outer-glow strength 0..1 on luminous borders and active states. 0 = flat. */
+  glow: z.number().min(0).max(1).optional(),
+  /** Fill opacity 0..1 of the translucent panel behind framed widgets. */
+  panelOpacity: z.number().min(0).max(1).optional(),
+  /** Opacity 0..1 of the fine tick marks on gauges/throttle/minimap. 0 hides them. */
+  tickOpacity: z.number().min(0).max(1).optional(),
+  /**
+   * Backdrop blur radius behind translucent panels, in px. 0 disables the
+   * filter entirely — it is the one genuinely expensive knob here, so a low-end
+   * pack can switch it off without losing the rest of the look.
+   */
+  blurPx: z.number().nonnegative().optional(),
+});
+export type HudStyleConfig = z.infer<typeof hudStyleSchema>;
 
 /**
  * Throttle strip (FLIGHT.md §4, right edge, vertical). 0 % at the bottom, 100 %
@@ -134,6 +167,11 @@ export const throttleStripSchema = z.object({
    * one-notch fallback for players who never grab the lever.
    */
   wheelStepPerNotch: z.number().positive().optional(),
+  /**
+   * Number of scale ticks drawn beside the track (look only — the lever is
+   * continuous and a tick is never a stop). 0 hides the scale.
+   */
+  tickCount: z.number().int().nonnegative().optional(),
 });
 export type ThrottleStripConfig = z.infer<typeof throttleStripSchema>;
 
@@ -466,6 +504,21 @@ export const menuSchema = z.object({
       glow: z.number().min(0).max(1).optional(),
     })
     .optional(),
+  /**
+   * Panel/button shape language for the menus — the screen-side twin of
+   * {@link hudStyleSchema}, so the Lobby, Settings and Results panels can be
+   * dialled to the same chamfer and glow as the in-match widgets.
+   */
+  style: z
+    .object({
+      /** Corner chamfer on menu panels and buttons, in px. 0 = plain rounded corners. */
+      chamferPx: z.number().nonnegative().optional(),
+      /** Outer-glow strength 0..1 on panel borders and primary buttons. */
+      glow: z.number().min(0).max(1).optional(),
+      /** Panel fill opacity 0..1 over the nebula backdrop. */
+      panelOpacity: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
 });
 export type MenuConfig = z.infer<typeof menuSchema>;
 
@@ -507,6 +560,8 @@ export const themeSchema = z.object({
       gaugeWidthPx: z.number().positive().optional(),
       /** Status-gauge placement and bar geometry. */
       gauges: gaugesSchema.optional(),
+      /** Chamfer / glow / panel-fill knobs shared by every HUD widget frame. */
+      style: hudStyleSchema.optional(),
       /** Max simultaneously visible toast notifications. */
       notificationMaxVisible: z.number().int().positive().optional(),
       /**

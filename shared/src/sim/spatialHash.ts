@@ -8,7 +8,12 @@ import type { EntityId } from "./components.js";
 export class SpatialHash {
   private readonly cells = new Map<number, EntityId[]>();
 
-  constructor(private readonly cellSize: number) {}
+  constructor(private cellSize: number) {}
+
+  /** Swap the grid resolution before a rebuild (used by offline tuning hot-reload). */
+  setCellSize(cellSize: number): void {
+    if (Number.isFinite(cellSize) && cellSize > 0) this.cellSize = cellSize;
+  }
 
   clear(): void {
     this.cells.clear();

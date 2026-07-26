@@ -2,6 +2,7 @@ import { asteroidSchema, type AsteroidConfig } from "@space-arena/shared";
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
+import { applicationNotice } from "./applicationScope.js";
 
 function nextId(existing: string[]): string {
   let n = 1;
@@ -41,7 +42,7 @@ export class AssetEditor implements EditorPanel {
     add.textContent = "New asteroid";
     add.addEventListener("click", () => this.createFrom(configs));
     toolbar.append(select, add);
-    this.element.append(toolbar);
+    this.element.append(toolbar, applicationNotice("asteroid"));
 
     const selected = configs.find((c) => c.id === this.selectedId);
     if (!selected) return;

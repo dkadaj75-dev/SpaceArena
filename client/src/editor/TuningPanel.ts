@@ -2,6 +2,7 @@ import { cameraSchema, tuningSchema, type CameraConfig, type TuningConfig } from
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
+import { applicationNotice } from "./applicationScope.js";
 
 /** Node label used for substring filtering: a field's own text, or null for plain containers. */
 function nodeLabel(el: HTMLElement): string | null {
@@ -30,7 +31,13 @@ class ConfigSection<T extends TuningConfig | CameraConfig> {
   private readonly form: HTMLElement;
   private query = "";
 
-  constructor(host: EditorHost, report: (message: string | null) => void, label: string, form: SchemaFormGen<T>) {
+  constructor(
+    host: EditorHost,
+    report: (message: string | null) => void,
+    label: string,
+    form: SchemaFormGen<T>,
+    type: "tuning" | "camera",
+  ) {
     this.element = document.createElement("details");
     this.element.open = true;
     const summary = document.createElement("summary");
@@ -42,21 +49,22 @@ class ConfigSection<T extends TuningConfig | CameraConfig> {
     save.addEventListener("click", () => void this.save());
     this.form = form.element;
     this.getValue = () => form.getValue();
-    this.element.append(summary, this.form, save);
+    this.element.append(summary, applicationNotice(type), this.form, save);
     // SchemaFormGen rebuilds its field tree on every successful edit, which
     // would otherwise wipe any active filter until the next keystroke.
     this.observer = new MutationObserver(() => this.refresh());
     this.observer.observe(this.form, { childList: true });
     void host; // host reserved for future live-preview hooks
-    void report;
+    this.report = report;
   }
 
   private readonly observer: MutationObserver;
+  private readonly report: (message: string | null) => void;
   getValue: () => T;
 
   private async save(): Promise<void> {
     const error = await saveConfig(this.getValue());
-    if (error) console.error(error);
+    this.report(error);
   }
 
   setFilter(query: string): void {
@@ -96,7 +104,7 @@ export class TuningPanel implements EditorPanel {
         configService: host.configService,
         onProblem: (p) => report(p ? `${tuning.id} ${p.path}: ${p.message}` : null),
       });
-      const section = new ConfigSection(host, report, tuning.name ?? tuning.id, form);
+      const section = new ConfigSection(host, report, tuning.name ?? tuning.id, form, "tuning");
       this.sections.push(section);
       this.element.append(section.element);
     }
@@ -107,7 +115,7 @@ export class TuningPanel implements EditorPanel {
         configService: host.configService,
         onProblem: (p) => report(p ? `${camera.id} ${p.path}: ${p.message}` : null),
       });
-      const section = new ConfigSection(host, report, camera.name ?? camera.id, form);
+      const section = new ConfigSection(host, report, camera.name ?? camera.id, form, "camera");
       this.sections.push(section);
       this.element.append(section.element);
     }

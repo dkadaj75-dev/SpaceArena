@@ -44,4 +44,12 @@ describe("saveConfig", () => {
 
     expect(error).toContain("bad path");
   });
+
+  it("returns a UI-safe error string when fetch itself rejects", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new Error("dev server disconnected"))));
+
+    const config = { id: "camera.default", type: "camera", version: 1 } as unknown as AnyConfig;
+
+    await expect(saveConfig(config)).resolves.toContain("dev server disconnected");
+  });
 });

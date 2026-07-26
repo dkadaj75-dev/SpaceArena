@@ -58,6 +58,7 @@ import {
   type SocketKind,
 } from "./socketOps.js";
 import { StickyWarnings } from "./stickyWarnings.js";
+import { applicationNotice } from "./applicationScope.js";
 
 const ALL_SIGNALS = signalId.options as readonly SignalId[];
 const ALL_FAMILIES = moduleFamily.options as readonly ModuleFamily[];
@@ -180,7 +181,7 @@ export class ShipManager implements EditorPanel {
     const newBtn = button("New ship", () => this.createShip());
     const saveBtn = button("Save to disk", () => void this.save());
     const topRow = row(text("Ship "), select, newBtn, saveBtn);
-    this.element.append(topRow);
+    this.element.append(topRow, applicationNotice("ship"));
 
     const ship = this.ship();
     if (!ship) {

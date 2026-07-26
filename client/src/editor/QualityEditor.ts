@@ -8,6 +8,7 @@ import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
 import { QUALITY_STORAGE_KEY, parseStoredTier } from "../core/qualityTier.js";
+import { applicationNotice } from "./applicationScope.js";
 
 /**
  * ROADMAP §10 5.6 — Quality tool: SchemaFormGen over every `quality` config
@@ -23,7 +24,7 @@ export class QualityEditor implements EditorPanel {
   private readonly forms: SchemaFormGen<QualityConfig>[] = [];
 
   constructor(host: EditorHost, report: (message: string | null) => void) {
-    this.element.append(this.buildOverrideBar());
+    this.element.append(this.buildOverrideBar(), applicationNotice("quality"));
 
     const configs = host.configService.getAll<QualityConfig>("quality");
     if (configs.length === 0) {

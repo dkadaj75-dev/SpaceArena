@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./editor-persistence": "./src/content/editorPersistence.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {

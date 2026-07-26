@@ -16,6 +16,7 @@ import { QualityEditor } from "./QualityEditor.js";
 import { ConsolePanel } from "./ConsolePanel.js";
 import { EditorStage } from "./EditorStage.js";
 import "./editor.css";
+import { applicationNotice } from "./applicationScope.js";
 
 export interface EditorHost {
   scene: Scene;
@@ -318,5 +319,7 @@ function arenaInspector(host: EditorHost, report: (message: string | null) => vo
   const arena = host.configService.getAll<ArenaConfig>("arena")[0];
   if (!arena) return placeholder("No arena config loaded.");
   const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: host.configService, onProblem: (p) => report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => host.rebuildArena() });
-  return { element: form.element, dispose() {} };
+  const element = document.createElement("div");
+  element.append(applicationNotice("arena"), form.element);
+  return { element, dispose() {} };
 }

@@ -215,6 +215,7 @@ export class ArenaSimulation {
     }
 
     // Rebuild broadphase (ships + asteroids) from current positions.
+    w.spatial.setCellSize(w.tuning.spatialCellSize ?? 16);
     w.spatial.clear();
     for (const id of w.asteroidIds()) {
       const t = w.transforms.get(id)!;

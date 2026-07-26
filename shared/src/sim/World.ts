@@ -46,6 +46,7 @@ export class World {
 
   readonly rng: Rng;
   readonly spatial: SpatialHash;
+  private readonly initialTuning: TuningConfig;
 
   /** Per-tick LoS cache keyed by ordered entity-pair. Cleared each tick. */
   readonly losCache = new Map<number, boolean>();
@@ -58,13 +59,24 @@ export class World {
 
   constructor(
     readonly configs: ConfigService,
-    readonly tuning: TuningConfig,
+    tuning: TuningConfig,
     readonly arena: ArenaConfig,
     readonly gamemode: GamemodeConfig,
     seed = 1,
   ) {
+    this.initialTuning = tuning;
     this.rng = new Rng(seed);
     this.spatial = new SpatialHash(tuning.spatialCellSize ?? 16);
+  }
+
+  /**
+   * Offline editor changes use the same ConfigService instance as the practice
+   * sim, so re-resolve tuning by id instead of pinning the startup object.
+   * Server rooms pin an entire ConfigService instance, preserving online pack
+   * coherence while still allowing offline hot tuning.
+   */
+  get tuning(): TuningConfig {
+    return this.configs.get<TuningConfig>("tuning", this.initialTuning.id) ?? this.initialTuning;
   }
 
   createEntity(): EntityId {

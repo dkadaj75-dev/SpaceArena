@@ -1156,3 +1156,22 @@
 body.sa-editor-open .game-screen {
   display: none !important;
 }
+
+.sa-editor .ed-apply-scope {
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--ed-border-soft);
+  border-left: 3px solid var(--ed-accent-dim);
+  background: color-mix(in srgb, var(--ed-panel) 88%, transparent);
+  color: var(--ed-text-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.sa-editor .ed-apply-scope--next-match {
+  border-left-color: #f2a93b;
+}
+
+.sa-editor .ed-apply-scope--partial {
+  border-left-color: #57d8ff;
+}

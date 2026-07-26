@@ -1,6 +1,7 @@
 import { CONFIG_SCHEMAS, type AnyConfig, type ConfigType } from "@space-arena/shared";
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { saveConfig } from "./saveConfig.js";
+import { APPLICATION_POLICY } from "./applicationScope.js";
 
 const MAX_LOG_LINES = 150;
 const CONFIG_TYPE_NAMES = Object.keys(CONFIG_SCHEMAS) as ConfigType[];
@@ -137,6 +138,7 @@ export class ConsolePanel implements EditorPanel {
     }
 
     this.print(`${id}.${path} = ${JSON.stringify(readPath(parsed.data, segments))}`, "info");
+    this.print(APPLICATION_POLICY[found.type].message, "info");
     const error = await saveConfig(parsed.data as AnyConfig);
     if (error) { this.print(error, "err"); this.report(error); }
     else this.print("saved to disk", "info");

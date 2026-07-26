@@ -48,6 +48,14 @@ describe("GameLoop", () => {
     expect(loop.alpha).toBeLessThan(1);
   });
 
+  it("applies a hot-reloaded max-tick clamp without rebuilding the loop", () => {
+    const loop = new GameLoop(() => {}, { tickRate: 30, maxTicksPerStep: 5 });
+    loop.setMaxTicksPerStep(2);
+
+    expect(loop.step(100000)).toBe(2);
+    expect(() => loop.setMaxTicksPerStep(0)).toThrow(/positive integer/);
+  });
+
   it("ignores non-positive / non-finite dt", () => {
     const tick = vi.fn();
     const loop = new GameLoop(tick);

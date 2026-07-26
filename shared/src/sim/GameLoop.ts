@@ -26,7 +26,7 @@ export class GameLoop {
   readonly tickRate: number;
   readonly fixedDtMs: number;
   readonly fixedDtSeconds: number;
-  private readonly maxTicksPerStep: number;
+  private maxTicksPerStep: number;
 
   private accumulatorMs = 0;
   private tickCount = 0;
@@ -53,6 +53,12 @@ export class GameLoop {
    */
   get alpha(): number {
     return this.accumulatorMs / this.fixedDtMs;
+  }
+
+  /** Reconfigure the spiral-of-death clamp without resetting accumulated time. */
+  setMaxTicksPerStep(value: number): void {
+    if (!Number.isInteger(value) || value <= 0) throw new Error("maxTicksPerStep must be a positive integer");
+    this.maxTicksPerStep = value;
   }
 
   /**

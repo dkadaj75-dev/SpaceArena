@@ -71,7 +71,21 @@ export const moduleSchema = z.object({
   onActivate: z.array(z.string()).optional(),
   onDeactivate: z.array(z.string()).optional(),
   ui: z.object({
+    /**
+     * Author-facing icon reference. Carries the tagged placeholder form
+     * (`[ICON: laser]`) until a real glyph exists, exactly like `[SOUND: …]` —
+     * the client strips the tag and looks the bare id up in its inline SVG set
+     * (`client/src/game/hud/moduleIcons.ts`).
+     */
     icon: z.string(),
+    /**
+     * Explicit icon-set id, overriding whatever `icon` and `family` would
+     * resolve to. Set it when a module wants a sibling family's glyph (a
+     * kinetic-family flak launcher drawn as a missile, say) without inventing a
+     * new placeholder string. An id the client does not ship falls back to the
+     * generic module glyph — never to an empty button.
+     */
+    iconId: z.string().optional(),
     label: z.string(),
   }),
   price: z.number().int().nonnegative(),

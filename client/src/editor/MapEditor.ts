@@ -4,6 +4,7 @@ import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
 import { bindGizmoCameraSuspend } from "./EditorStage.js";
+import { applicationNotice } from "./applicationScope.js";
 
 /** Lightweight, editor-owned preview because live asteroids belong to ViewManager. */
 export class MapEditor implements EditorPanel {
@@ -46,7 +47,7 @@ export class MapEditor implements EditorPanel {
     select.addEventListener("change", () => { this.arenaId = select.value; this.rebuildPreview(); this.renderUi(); });
     toolbar.append(label("Arena"), select);
     const save = document.createElement("button"); save.className = "ed-btn ed-btn--primary"; save.textContent = "Save to disk"; save.addEventListener("click", () => void this.save()); toolbar.append(save);
-    this.element.append(toolbar);
+    this.element.append(toolbar, applicationNotice("arena"));
 
     const palette = document.createElement("div"); palette.className = "ed-row";
     palette.append(label("Asteroid palette"));

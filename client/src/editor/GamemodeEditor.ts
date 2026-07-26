@@ -2,6 +2,7 @@ import { gamemodeSchema, type GamemodeConfig } from "@space-arena/shared";
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
+import { applicationNotice } from "./applicationScope.js";
 
 /** First free `gamemode.custom-N` id. */
 export function nextGamemodeId(existing: readonly string[]): string {
@@ -67,7 +68,7 @@ export class GamemodeEditor implements EditorPanel {
     title.className = "ed-label";
     title.textContent = "Mode";
     toolbar.append(title, select, add, save);
-    this.element.append(toolbar);
+    this.element.append(toolbar, applicationNotice("gamemode"));
 
     const selected = configs.find((c) => c.id === this.selectedId);
     if (!selected) {
