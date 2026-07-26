@@ -7,6 +7,7 @@ import type { AsteroidSnapshot, ProjectileSnapshot, ShipSnapshot, Snapshot } fro
 import { angleDelta, wrapAngle } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
 import { loadTestConfigs } from "../sim/testutil.js";
+import { DEFAULT_MAX_PITCH_RAD, DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
 import type { BotBehavior } from "./behaviors.js";
 import { BotDriver } from "./BotDriver.js";
 
@@ -19,6 +20,8 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
     id,
     team,
     pos: { x, y: 0, z },
+    // `pos`/`pitch` are overridable through `over`, which is how the bubble cases
+    // below put an enemy above or below the bot.
     pitch: 0,
     heading: 0,
     hull: 100,
@@ -68,6 +71,9 @@ function profile(over: Record<string, unknown>): BotprofileConfig {
 
 /** RNG that always returns 0 — deterministic, and makes chance rolls fire. */
 const zeroRng = (): number => 0;
+
+/** The pitch clamp a driver with no `tuning` config resolves (BUBBLE.md §A). */
+const MAX_PITCH = DEFAULT_MAX_PITCH_RAD;
 
 /** Run a driver to its first decision (the first update only seeds the cadence). */
 function decide(driver: BotDriver, snapshot: Snapshot): void {
@@ -183,7 +189,12 @@ describe("BotDriver utility scoring", () => {
     decide(jinking, s);
 
     expect(jinking.lastDecision?.behavior).toBe("engage"); // overlay never wins
-    expect(jinking.lastDecision!.flight!.turn).not.toBe(plain.lastDecision!.flight!.turn);
+    // The weave alternates yaw/pitch per period (BUBBLE.md §D), so assert that
+    // SOME axis moved rather than pinning the test to whichever one this instant
+    // happens to land on.
+    const base = plain.lastDecision!.flight!;
+    const woven = jinking.lastDecision!.flight!;
+    expect(woven.turn !== base.turn || woven.pitchStick !== base.pitchStick).toBe(true);
     expect(jinking.lastDecision!.plannedMove).toEqual(plain.lastDecision!.plannedMove);
   });
 });
@@ -266,6 +277,161 @@ describe("BotDriver flight orders", () => {
     // (bearing from the origin to (0, 40) is +PI/2).
     expect(sticks.some((t) => Math.abs(t) > 0 && Math.abs(t) < 1)).toBe(true);
     expect(Math.abs(angleDelta(heading, Math.PI / 2))).toBeLessThan(0.05);
+  });
+
+  it("measures the hull PITCH rate the same way, and then aims proportionally", () => {
+    // BUBBLE.md §A: `pitch += pitchStick * turnRate * pitchRateMult * dt`, clamped.
+    // Nothing else changes a ship's pitch, so the quotient is the rate exactly.
+    const turnRate = 2.4;
+    const pitchRate = turnRate * DEFAULT_PITCH_RATE_MULT;
+    const dt = 1 / 30;
+    const p = profile({
+      decisionIntervalMs: 200,
+      orderJitterMs: 0,
+      behaviors: { engage: { baseWeight: 1 } },
+      flight: { turnHorizonMult: 1, aimToleranceRad: 0.02 },
+    });
+    const driver = makeDriver(p, emptyConfigs);
+
+    // Enemy 40 out and 27.4 up: an elevation of 0.6 rad, well inside the clamp and
+    // deliberately NOT a whole multiple of what one horizon of full stick buys, so
+    // the run has to pass through a proportional command to get there.
+    const enemy = ship(2, 1, 40, 0, { pos: { x: 40, y: 27.37, z: 0 } });
+    const desired = Math.atan2(27.37, 40);
+    let pitch = 0;
+    let stick = 0;
+    let elapsed = 0;
+    const sticks: number[] = [];
+    for (let i = 0; i < 200; i++) {
+      const s = snap([ship(1, 0, 0, 0, { heading: 0, pitch }), enemy], [], [], elapsed);
+      const flight = flightOrder(driver.update(s, elapsed * 1000));
+      if (flight) {
+        // The axis is optional on the wire (an absent one means "centred"), so
+        // read it exactly the way the sim does.
+        stick = flight.pitchStick ?? 0;
+        sticks.push(stick);
+      }
+      // The sim's pitch integration, verbatim (clamp included).
+      pitch = Math.min(Math.max(pitch + stick * pitchRate * dt, -MAX_PITCH), MAX_PITCH);
+      elapsed += dt;
+    }
+
+    expect(driver.measuredPitchRate).toBeCloseTo(pitchRate, 6);
+    expect(Math.abs(sticks[0]!)).toBe(1); // uncalibrated fallback: full deflection
+    expect(sticks.some((t) => Math.abs(t) > 0 && Math.abs(t) < 1)).toBe(true);
+    expect(Math.abs(pitch - desired)).toBeLessThan(0.05); // nose ends up on it
+  });
+
+  it("skips calibration samples taken while the nose was pinned at the pitch clamp", () => {
+    // The poisoning case, and the reason it needs its own rejection: a long
+    // decision interval means the uncalibrated first command (full deflection)
+    // is held past the clamp. The tick that CROSSES ±maxPitchRad rotates only
+    // part of what the stick asked for, so its quotient is a fraction of the true
+    // rate, and every tick after it rotates nothing at all. Those samples arrive
+    // LAST, so without the skip they are what the driver ends up believing.
+    const trueRate = 2.4;
+    const dt = 1 / 30;
+    const p = profile({ decisionIntervalMs: 400, orderJitterMs: 0, behaviors: { engage: { baseWeight: 1 } } });
+    const driver = makeDriver(p, emptyConfigs);
+    // Enemy straight overhead, nose already high: one interval of full stick
+    // carries 0.96 rad, which from 0.8 runs straight into the 1.4 clamp.
+    const enemy = ship(2, 1, 0, 0, { pos: { x: 0, y: 60, z: 0 } });
+    let pitch = 0.8;
+    let stick = 0;
+    let elapsed = 0;
+    let pinnedTicks = 0;
+    let truncatedTicks = 0;
+    for (let i = 0; i < 30; i++) {
+      const s = snap([ship(1, 0, 0, 0, { pitch }), enemy], [], [], elapsed);
+      const flight = flightOrder(driver.update(s, elapsed * 1000));
+      if (flight) stick = flight.pitchStick ?? 0;
+      const free = pitch + stick * trueRate * dt;
+      const next = Math.min(Math.max(free, -MAX_PITCH), MAX_PITCH);
+      if (next !== free) truncatedTicks++;
+      pitch = next;
+      if (Math.abs(pitch) >= MAX_PITCH) pinnedTicks++;
+      elapsed += dt;
+    }
+    // The scenario really did truncate the integration, repeatedly.
+    expect(truncatedTicks).toBeGreaterThan(3);
+    expect(pinnedTicks).toBeGreaterThan(10);
+    // ...and the rate the driver believes is still exactly the hull's, taken from
+    // the free ticks before the clamp. Keeping the pinned samples would leave it
+    // believing half that (the crossing tick) — a permanently saturating axis.
+    expect(driver.measuredPitchRate).toBeCloseTo(trueRate, 6);
+    // Once pinned the bot also stops pushing: the desired elevation is clamped to
+    // what the hull can reach, so the axis centres instead of holding full stick.
+    expect(driver.lastDecision!.flight!.pitchStick).toBe(0);
+  });
+
+  it("leaves the pitch rate unmeasured through a perfectly level fight", () => {
+    // No signal, no measurement — and no divide-by-zero either. The first pitch
+    // command a level bot ever needs uses the documented full-deflection fallback,
+    // exactly as the yaw axis does on its first decision.
+    const p = profile({ decisionIntervalMs: 100, orderJitterMs: 0, behaviors: { engage: { baseWeight: 1 } } });
+    const driver = makeDriver(p, emptyConfigs);
+    let elapsed = 0;
+    for (let i = 0; i < 60; i++) {
+      driver.update(snap([ship(1, 0, 0, 0), ship(2, 1, 40, 0)], [], [], elapsed), elapsed * 1000);
+      elapsed += 1 / 30;
+    }
+    expect(driver.measuredTurnRate).toBe(0); // dead ahead: no yaw signal either
+    expect(driver.measuredPitchRate).toBe(0);
+    expect(driver.lastDecision!.flight!.pitchStick).toBe(0);
+  });
+
+  it("emits a real pitch axis for an enemy at another altitude, and holds it level otherwise", () => {
+    const p = profile({ behaviors: { engage: { baseWeight: 1 } } });
+    const level = makeDriver(p, emptyConfigs);
+    decide(level, snap([ship(1, 0, 0, 0), ship(2, 1, 30, 0)]));
+    expect(flightOrder(level.lastDecision!.orders)!.pitchStick).toBe(0);
+
+    const climbing = makeDriver(p, emptyConfigs);
+    decide(climbing, snap([ship(1, 0, 0, 0), ship(2, 1, 30, 0, { pos: { x: 30, y: 25, z: 0 } })]));
+    const up = flightOrder(climbing.lastDecision!.orders)!;
+    expect(up.pitchStick).toBeGreaterThan(0);
+    expect(orderSchema.safeParse(up).success).toBe(true);
+    // The aim point the overlay draws carries the altitude it flew at.
+    expect(climbing.lastDecision!.plannedMove!.y).toBe(25);
+
+    const diving = makeDriver(p, emptyConfigs);
+    decide(diving, snap([ship(1, 0, 0, 0), ship(2, 1, 30, 0, { pos: { x: 30, y: -25, z: 0 } })]));
+    expect(flightOrder(diving.lastDecision!.orders)!.pitchStick).toBeLessThan(0);
+  });
+
+  it("re-sends on a pitch-only change, and holds the standing state inside the epsilon", () => {
+    const p = profile({
+      decisionIntervalMs: 100,
+      orderJitterMs: 0,
+      behaviors: { engage: { baseWeight: 1 } },
+      flight: { pitchEpsilon: 0.2 },
+    });
+    const driver = makeDriver(p, emptyConfigs);
+    const at = (y: number, ms: number): Extract<Order, { kind: "flight" }> | undefined =>
+      flightOrder(driver.update(snap([ship(1, 0, 0, 0), ship(2, 1, 30, 0, { pos: { x: 30, y, z: 0 } })]), ms));
+    driver.update(snap([ship(1, 0, 0, 0), ship(2, 1, 30, 0)]), 0);
+    expect(at(0, 1_000)).toBeDefined(); // first stick always ships
+    // A tiny elevation change is inside the epsilon: keep flying the last command.
+    expect(at(0.05, 2_000)).toBeUndefined();
+    // A real climb ships, on the pitch axis alone (yaw and throttle unchanged).
+    const climb = at(25, 3_000);
+    expect(climb).toBeDefined();
+    expect(climb!.pitchStick).toBeGreaterThan(0);
+    expect(climb!.turn).toBe(0);
+  });
+
+  it("ranks targets by 3D range, so altitude cannot make a distant enemy look nearest", () => {
+    const p = profile({ behaviors: { engage: { baseWeight: 1 } } });
+    const driver = makeDriver(p, emptyConfigs);
+    decide(
+      driver,
+      snap([
+        ship(1, 0, 0, 0),
+        ship(2, 1, 10, 0, { pos: { x: 10, y: 90, z: 0 } }), // planar-nearest, 90.5 away
+        ship(3, 1, 40, 0), // planar-farther, 40 away
+      ]),
+    );
+    expect(driver.lastDecision?.targetId).toBe(3);
   });
 
   it("does not re-target while sensor lock progress is on the books", () => {

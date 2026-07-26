@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { botprofileSchema, type BotprofileConfig } from "../schemas/botprofile.js";
 import type { AsteroidSnapshot, ProjectileSnapshot, ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
+import { hasLineOfSightAmong } from "../sim/los.js";
 import { angleDelta } from "../sim/math.js";
 import { botBehaviors, BUILTIN_BEHAVIOR_KEYS, type BotPlan, type FlightCommand } from "./behaviors.js";
 import { buildBotContext, type BehaviorParams, type BotContext } from "./context.js";
-import { bearing } from "./flight.js";
+import { bearing3 } from "./flight.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures — a behaviour only ever sees a BotContext built from a Snapshot.
@@ -31,8 +32,8 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
   };
 }
 
-function rock(id: number, x: number, z: number, radius = 8): AsteroidSnapshot {
-  return { id, configId: "asteroid.large-hazard", pos: { x, y: 0, z }, radius, state: "intact" };
+function rock(id: number, x: number, z: number, radius = 8, y = 0): AsteroidSnapshot {
+  return { id, configId: "asteroid.large-hazard", pos: { x, y, z }, radius, state: "intact" };
 }
 
 const PROFILE: BotprofileConfig = botprofileSchema.parse({
@@ -53,7 +54,8 @@ const PROFILE: BotprofileConfig = botprofileSchema.parse({
 
 interface CtxOptions {
   self?: Partial<ShipSnapshot>;
-  enemyAt?: { x: number; z: number };
+  /** `y` defaults to 0, so a planar case reads exactly as it did before the bubble. */
+  enemyAt?: { x: number; y?: number; z: number };
   enemy?: Partial<ShipSnapshot>;
   asteroids?: AsteroidSnapshot[];
   projectiles?: ProjectileSnapshot[];
@@ -66,7 +68,7 @@ interface CtxOptions {
 function context(opts: CtxOptions = {}): BotContext {
   const self = ship(1, 0, 0, 0, { targetId: 2, ...opts.self });
   const at = opts.enemyAt ?? { x: 30, z: 0 };
-  const enemy = ship(2, 1, at.x, at.z, opts.enemy);
+  const enemy = ship(2, 1, at.x, at.z, { pos: { x: at.x, y: at.y ?? 0, z: at.z }, ...opts.enemy });
   const snapshot: Snapshot = {
     tick: 1,
     elapsed: opts.elapsed ?? 1,
@@ -86,6 +88,7 @@ function context(opts: CtxOptions = {}): BotContext {
     orbitSign: opts.orbitSign ?? 1,
     rng: () => 0,
     turnRate: 3,
+    pitchRate: 2.4,
     turnHorizonSec: 0.25,
   });
 }
@@ -104,13 +107,19 @@ function score(key: string, params: Record<string, unknown>, ctx: BotContext): n
   return behavior(key).score(ctx, params as unknown as BehaviorParams);
 }
 
-/** Signed heading error from the ship's nose to a plan's aim point. */
+/** Signed YAW error from the ship's nose to a plan's aim point. */
 function aimDelta(ctx: BotContext, p: BotPlan): number {
   expect(p.aim).not.toBeNull();
-  return angleDelta(ctx.self.heading, bearing(ctx.self.pos, p.aim!));
+  return angleDelta(ctx.self.heading, bearing3(ctx.self.pos, p.aim!).yaw);
 }
 
-const BASE: FlightCommand = { turn: 0.1, throttle: 0.5, boost: false };
+/** Elevation of a plan's aim point relative to the ship (radians, + is above). */
+function aimPitch(ctx: BotContext, p: BotPlan): number {
+  expect(p.aim).not.toBeNull();
+  return bearing3(ctx.self.pos, p.aim!).pitch;
+}
+
+const BASE: FlightCommand = { turn: 0.1, pitchStick: -0.2, throttle: 0.5, boost: false };
 
 // ---------------------------------------------------------------------------
 
@@ -124,10 +133,35 @@ describe("engage", () => {
   it("puts the nose on the target — the only geometry that fills a lock", () => {
     const ctx = context({ enemyAt: { x: 20, z: 20 } });
     const p = plan("engage", {}, ctx);
-    // Bots stay planar until stage T4; the aim point carries the enemy's y verbatim.
+    // The aim point IS the target: pursuit needs no derived geometry.
     expect(p.aim).toEqual({ x: 20, y: 0, z: 20 });
     expect(p.engaged).toBe(true);
     expect(aimDelta(ctx, p)).toBeCloseTo(Math.PI / 4, 6);
+  });
+
+  it("noses onto the 3D bearing of a target at a different altitude", () => {
+    // The whole point of T4: the sim's lock cone is a true 3D cone, so an enemy
+    // 30 units above has to be pursued in elevation as well as bearing.
+    const above = context({ enemyAt: { x: 40, y: 30, z: 0 } });
+    const p = plan("engage", {}, above);
+    expect(p.aim).toEqual({ x: 40, y: 30, z: 0 });
+    expect(aimPitch(above, p)).toBeCloseTo(Math.atan2(30, 40), 6);
+    // ...and downward for one below.
+    const below = context({ enemyAt: { x: 40, y: -30, z: 0 } });
+    expect(aimPitch(below, plan("engage", {}, below))).toBeCloseTo(Math.atan2(-30, 40), 6);
+  });
+
+  it("measures range and turn effort in 3D, so altitude cannot fake a range band", () => {
+    // Planar (x,z) separation 10, true separation 50: the bot is well outside its
+    // preferred band (20..40) even though the top-down projection says otherwise.
+    const steep = context({ enemyAt: { x: 10, y: 48.99, z: 0 } });
+    expect(steep.distance).toBeCloseTo(50, 1);
+    // (hardTurnRad out of the way: this case is about the range band, and the
+    // steep climb would otherwise trip the reversal throttle — see below.)
+    expect(plan("engage", { throttleApproach: 1, throttleBand: 0.5, hardTurnRad: 3 }, steep).throttle).toBe(1);
+    // And a target dead ahead in yaw but 80° up is a hard turn, not a straight run.
+    const overhead = context({ enemyAt: { x: 5, y: 28, z: 0 } });
+    expect(plan("engage", { throttleBand: 0.9, hardTurnRad: 1, throttleTurn: 0.3 }, overhead).throttle).toBe(0.3);
   });
 
   it("modulates the throttle across the range band instead of the heading", () => {
@@ -190,10 +224,37 @@ describe("kite", () => {
     const away = Math.PI; // enemy is at +x, so "away" is -x
     for (const orbitSign of [1, -1] as const) {
       const ctx = context({ enemyAt: { x: 8, z: 0 }, orbitSign });
-      const p = plan("kite", { breakRange: 14, standoffFrac: 0.75, slipRad: 0.5 }, ctx);
-      const heading = bearing(ctx.self.pos, p.aim!);
+      const p = plan("kite", { breakRange: 14, standoffFrac: 0.75, slipRad: 0.5, verticalSlipRad: 0 }, ctx);
+      const heading = bearing3(ctx.self.pos, p.aim!).yaw;
       expect(angleDelta(away, heading)).toBeCloseTo(0.5 * orbitSign, 6);
     }
+  });
+
+  it("tilts the extend leg out of the enemy's plane by verticalSlipRad", () => {
+    // The vertical is the cheap direction to un-merge in: the hull pitches slower
+    // than it yaws, so an enemy forced to follow vertically pays more than we do.
+    for (const orbitSign of [1, -1] as const) {
+      const ctx = context({ enemyAt: { x: 8, z: 0 }, orbitSign });
+      const p = plan("kite", { breakRange: 14, standoffFrac: 0.75, slipRad: 0, verticalSlipRad: 0.4 }, ctx);
+      expect(aimPitch(ctx, p)).toBeCloseTo(0.4 * orbitSign, 6);
+    }
+  });
+
+  it("carries the enemy's elevation into the away bearing", () => {
+    // Jumped from above ⇒ the extend leg runs DOWN and out, not level.
+    const ctx = context({ enemyAt: { x: 6, y: 8, z: 0 } });
+    const p = plan("kite", { breakRange: 14, standoffFrac: 0.75, slipRad: 0, verticalSlipRad: 0 }, ctx);
+    expect(aimPitch(ctx, p)).toBeCloseTo(Math.atan2(-8, 6), 6);
+  });
+
+  it("never flips the extend leg back through the enemy on a near-vertical bearing", () => {
+    // A steep away bearing plus verticalSlipRad can exceed vertical; past PI/2 a
+    // naive spherical placement lands on the OPPOSITE yaw, i.e. straight back at
+    // the shooter. The aim point must stay on the away side.
+    const ctx = context({ enemyAt: { x: 1, y: -9, z: 0 } });
+    const p = plan("kite", { breakRange: 14, standoffFrac: 0.75, slipRad: 0, verticalSlipRad: 1.4 }, ctx);
+    expect(p.aim!.x).toBeLessThanOrEqual(0); // away from an enemy at +x
+    expect(p.aim!.y!).toBeGreaterThan(0); // and climbing, away from one below
   });
 
   it("stops bidding at breakRange, leaving the re-perch to engage", () => {
@@ -219,6 +280,25 @@ describe("breakLoS", () => {
     expect(p.aim!.x).toBeLessThan(15);
   });
 
+  it("takes cover on the far side of a rock in 3D, not merely beside it", () => {
+    // LoS is a segment-vs-SPHERE test, so the point that actually eclipses a
+    // threat BELOW the rock sits below the rock.
+    const rocks = [rock(9, 20, 0, 8, 0)];
+    const ctx = context({ enemyAt: { x: 60, y: -60, z: 0 }, asteroids: rocks, self: { hull: 20, targetId: 2 } });
+    const p = plan("breakLoS", { triggerHullBelow: 0.4, coverOffset: 3 }, ctx);
+    expect(p.aim).not.toBeNull();
+    expect(p.aim!.y!).toBeGreaterThan(0); // opposite the threat's elevation
+    // ...and it genuinely breaks LoS, which the planar point below it would not.
+    expect(hasLineOfSightAmong(p.aim!, ctx.target!.pos, ctx.blockers)).toBe(false);
+  });
+
+  it("rejects cover whose 3D distance is outside the search radius", () => {
+    // A rock 200 units straight up is planar-adjacent and utterly unreachable.
+    const high = [rock(9, 20, 0, 8, 200)];
+    const ctx = context({ enemyAt: { x: 60, z: 0 }, asteroids: high, self: { hull: 20, targetId: 2 } });
+    expect(score("breakLoS", { triggerHullBelow: 0.4, coverSearchRadius: 80 }, ctx)).toBe(0);
+  });
+
   it("scores 0 with no cover, with no LoS to break, or above the hull trigger", () => {
     const hurt = { hull: 20, targetId: 2 };
     expect(score("breakLoS", { triggerHullBelow: 0.4 }, context({ enemyAt: { x: 60, z: 0 }, self: hurt }))).toBe(0);
@@ -240,6 +320,40 @@ describe("retreat", () => {
     expect(p.boost).toBe(true);
     expect(p.engaged).toBe(false);
     expect(Math.abs(aimDelta(ctx, p))).toBeCloseTo(Math.PI, 6);
+  });
+
+  it("runs away in 3D: jumped from above, it dives out instead of levelling off", () => {
+    const ctx = context({ enemyAt: { x: 30, y: 40, z: 0 }, self: { hull: 10, targetId: 2 } });
+    const p = plan("retreat", { triggerHullBelow: 0.3 }, ctx);
+    expect(aimPitch(ctx, p)).toBeCloseTo(Math.atan2(-40, 30), 6);
+    expect(p.aim!.y!).toBeLessThan(0);
+  });
+
+  it("averages the enemy centroid in all three axes", () => {
+    // Two shooters, one high one low, both at +x: the escape is level and -x.
+    const self = ship(1, 0, 0, 0, { hull: 10, targetId: 2 });
+    const snapshot: Snapshot = {
+      tick: 1,
+      elapsed: 1,
+      phase: "live",
+      winnerTeam: null,
+      ships: [self, ship(2, 1, 20, 0, { pos: { x: 20, y: 30, z: 0 } }), ship(3, 1, 20, 0, { pos: { x: 20, y: -30, z: 0 } })],
+      asteroids: [],
+      projectiles: [],
+    };
+    const ctx = buildBotContext({
+      snapshot,
+      self,
+      profile: PROFILE,
+      weaponRange: 40,
+      targetId: 2,
+      missileScanRadius: 80,
+      orbitSign: 1,
+      rng: () => 0,
+    });
+    const p = plan("retreat", { triggerHullBelow: 0.3 }, ctx);
+    expect(aimPitch(ctx, p)).toBeCloseTo(0, 6);
+    expect(p.aim!.x).toBeLessThan(0);
   });
 
   it("never eases off the engine to swing the nose around", () => {
@@ -268,6 +382,20 @@ describe("dodge", () => {
     expect(Math.abs(aimDelta(ctx, p))).toBeCloseTo(Math.PI / 2, 6);
   });
 
+  it("breaks out of the missile's plane as well as across its track", () => {
+    for (const orbitSign of [1, -1] as const) {
+      const ctx = context({ projectiles: [missile], enemyAt: { x: 40, z: 0 }, orbitSign });
+      const p = plan("dodge", { dodgeRadius: 20, dodgeDistance: 12, dodgeClimbRad: 0.5 }, ctx);
+      // Same yaw break as before, now with an elevation on the same side — a
+      // seeker forced to rotate through two axes at once pays more than one.
+      expect(Math.abs(aimDelta(ctx, p))).toBeCloseTo(Math.PI / 2, 6);
+      expect(aimPitch(ctx, p)).toBeCloseTo(0.5 * orbitSign, 6);
+    }
+    // A level break is still expressible.
+    const level = context({ projectiles: [missile] });
+    expect(aimPitch(level, plan("dodge", { dodgeRadius: 20, dodgeClimbRad: 0 }, level))).toBeCloseTo(0, 6);
+  });
+
   it("ignores missiles beyond the dodge radius", () => {
     const far: ProjectileSnapshot = { ...missile, pos: { x: 60, y: 0, z: 0 } };
     expect(score("dodge", { dodgeRadius: 20 }, context({ projectiles: [far] }))).toBe(0);
@@ -275,43 +403,80 @@ describe("dodge", () => {
   });
 
   it("layers a deterministic jink onto another behaviour's stick", () => {
-    const params = { jinkAmp: 0.4, jinkPeriodSec: 0.8, jinkPhasePerId: 0.618 };
-    const at = (elapsed: number, id: number): number =>
+    const params = { jinkAmp: 0.4, jinkPitchAmp: 0.4, jinkPeriodSec: 0.8, jinkPhasePerId: 0.618 };
+    const at = (elapsed: number, id: number): FlightCommand =>
       behavior("dodge").overlay!(
         context({ projectiles: [missile], elapsed, self: { id, targetId: 2 } }),
         params as unknown as BehaviorParams,
         BASE,
-      ).turn;
+      );
+    /** Total deflection away from the base stick, whichever axis carries it. */
+    const offset = (elapsed: number, id: number): number => {
+      const c = at(elapsed, id);
+      return c.turn - BASE.turn + (c.pitchStick - BASE.pitchStick);
+    };
 
     // Same sim time + same entity ⇒ same stick, always (no Math.random anywhere).
-    expect(at(1.0, 1)).toBe(at(1.0, 1));
+    expect(at(1.0, 1)).toEqual(at(1.0, 1));
     // The weave actually moves, and two bots weave out of phase.
-    expect(at(1.0, 1)).not.toBe(at(1.2, 1));
-    expect(at(1.0, 1)).not.toBe(at(1.0, 2));
-    // Half a period apart the wave is mirrored about the base command.
-    expect(at(1.0, 1) - BASE.turn).toBeCloseTo(-(at(1.4, 1) - BASE.turn), 10);
-    // Amplitude is bounded by jinkAmp, and the axis never leaves [-1, 1].
-    for (let t = 0; t < 2; t += 0.05) {
-      expect(Math.abs(at(t, 1) - BASE.turn)).toBeLessThanOrEqual(0.4 + 1e-9);
-      expect(Math.abs(at(t, 1))).toBeLessThanOrEqual(1);
+    expect(offset(1.0, 1)).not.toBe(offset(1.2, 1));
+    expect(offset(1.0, 1)).not.toBe(offset(1.0, 2));
+    // Amplitude is bounded, exactly one axis is ever touched, and neither axis
+    // leaves [-1, 1].
+    for (let t = 0; t < 4; t += 0.05) {
+      const c = at(t, 1);
+      const movedTurn = c.turn !== BASE.turn;
+      const movedPitch = c.pitchStick !== BASE.pitchStick;
+      expect(movedTurn && movedPitch).toBe(false);
+      expect(Math.abs(offset(t, 1))).toBeLessThanOrEqual(0.4 + 1e-9);
+      expect(Math.abs(c.turn)).toBeLessThanOrEqual(1);
+      expect(Math.abs(c.pitchStick)).toBeLessThanOrEqual(1);
     }
     // Throttle and boost are the base maneuver's business, not the jink's.
-    const layered = behavior("dodge").overlay!(
-      context({ projectiles: [missile] }),
-      params as unknown as BehaviorParams,
-      BASE,
-    );
+    const layered = at(1.0, 1);
     expect(layered.throttle).toBe(BASE.throttle);
     expect(layered.boost).toBe(BASE.boost);
   });
 
-  it("is a no-op overlay at zero amplitude", () => {
-    const out = behavior("dodge").overlay!(
-      context({ projectiles: [missile] }),
-      { jinkAmp: 0 } as unknown as BehaviorParams,
-      BASE,
-    );
-    expect(out).toEqual(BASE);
+  it("alternates the weave between the yaw and pitch axes, one whole period each", () => {
+    // BUBBLE.md §D: jinks alternate axes deterministically. Derived from sim time
+    // and entity id, so a replay reproduces it and neighbours are out of step.
+    const params = { jinkAmp: 0.4, jinkPitchAmp: 0.4, jinkPeriodSec: 0.8, jinkPhasePerId: 0.618 };
+    const cmdAt = (elapsed: number, id: number): FlightCommand =>
+      behavior("dodge").overlay!(
+        context({ projectiles: [missile], elapsed, self: { id, targetId: 2 } }),
+        params as unknown as BehaviorParams,
+        BASE,
+      );
+    const axisAt = (elapsed: number, id: number): "yaw" | "pitch" => {
+      const c = cmdAt(elapsed, id);
+      return c.turn !== BASE.turn ? "yaw" : "pitch";
+    };
+
+    // Sample the middle of successive periods for bot 1 (period 0.8, phase 0.618
+    // ⇒ boundaries at elapsed 0.306, 1.106, 1.906, 2.706) and watch it flip.
+    expect([0.7, 1.5, 2.3, 3.1].map((t) => axisAt(t, 1))).toEqual(["pitch", "yaw", "pitch", "yaw"]);
+    // Two bots are not locked to one axis: the per-id phase offset that already
+    // takes them out of step takes them off each other's axis too.
+    expect(axisAt(0.7, 1)).not.toBe(axisAt(0.7, 2));
+    // The handoff is clean: the wave is 0 at every period boundary, so an axis is
+    // released at centre rather than abandoned mid-deflection.
+    const boundary = cmdAt((2 - 0.618) * 0.8, 1);
+    expect(Math.abs(boundary.turn - BASE.turn)).toBeLessThan(1e-9);
+    expect(Math.abs(boundary.pitchStick - BASE.pitchStick)).toBeLessThan(1e-9);
+  });
+
+  it("is a no-op overlay at zero amplitude, on either axis", () => {
+    // `jinkPitchAmp` is absent here on purpose: it inherits `jinkAmp`, so a
+    // pre-bubble profile that switched the weave off stays switched off.
+    for (const elapsed of [0.7, 1.5]) {
+      const out = behavior("dodge").overlay!(
+        context({ projectiles: [missile], elapsed }),
+        { jinkAmp: 0 } as unknown as BehaviorParams,
+        BASE,
+      );
+      expect(out).toEqual(BASE);
+    }
   });
 });
 
@@ -339,6 +504,15 @@ describe("avoidRocks", () => {
   it("passes the command through untouched with a clear corridor", () => {
     expect(overlay(context({ asteroids: [rock(9, 0, 40, 5)] }))).toEqual(BASE);
     expect(overlay(context({ asteroids: [rock(9, 4, -3, 5)] }), { ...params, lookahead: 0 })).toEqual(BASE);
+  });
+
+  it("ignores a rock the bot is flying comfortably over", () => {
+    // The corridor is a 3D cylinder now: scenery 40 units below a level nose is
+    // not a collision course, and the planar test used to swerve off it.
+    expect(overlay(context({ asteroids: [rock(9, 6, -1, 5, -40)] }))).toEqual(BASE);
+    // Nose down at it and it is a threat again.
+    const diving = context({ asteroids: [rock(9, 6, -1, 5, -40)], self: { pitch: -1.4 } });
+    expect(overlay(diving, { ...params, lookahead: 60 }).turn).not.toBe(BASE.turn);
   });
 
   it("scores as live purely on the corridor, so baseWeight 0 makes it a pure overlay", () => {

@@ -36,11 +36,20 @@ export const HAPTICS_KEY = "sa.haptics";
 export const CAMERA_PAN_SENS_KEY = "sa.camera.panSens";
 /** `"off"` disables camera micro-shake locally even when `camera.shake.enabled` is true. */
 export const CAMERA_SHAKE_KEY = "sa.camera.shake";
+/**
+ * `"on"` inverts the flight stick's pitch axis (BUBBLE.md §C). The odd one out
+ * among the flags here: every other key stores `"off"` because content is the
+ * baseline, but there is no content baseline for "which way does a thumb read" —
+ * push-up-to-climb is the default and this key is the opt-IN away from it.
+ */
+export const INVERT_PITCH_KEY = "sa.controls.invertPitch";
 
 export { QUALITY_STORAGE_KEY, VOLUME_MASTER_KEY, VOLUME_SFX_KEY };
 
 /** The value written to a boolean key when the player turns a feature OFF. */
 export const OFF_VALUE = "off";
+/** The value written to an opt-IN key when the player turns a feature ON. */
+export const ON_VALUE = "on";
 
 /** Bounds on the pan-sensitivity multiplier — a slider, not a footgun. */
 export const PAN_SENS_MIN = 0.25;
@@ -57,6 +66,8 @@ export interface UserSettings {
   cameraPanSens: number;
   /** False only when the player disabled it locally; `camera.shake.enabled` still gates it. */
   cameraShake: boolean;
+  /** True flips the flight stick's pitch axis (BUBBLE.md §C); default is push-up-to-climb. */
+  invertPitch: boolean;
   renderer: RendererPref;
 }
 
@@ -68,6 +79,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   haptics: true,
   cameraPanSens: 1,
   cameraShake: true,
+  invertPitch: false,
   renderer: "webgl",
 };
 
@@ -98,6 +110,11 @@ function readFlag(storage: SettingsStorage | null, key: string): boolean {
   return storage?.getItem(key)?.trim().toLowerCase() !== OFF_VALUE;
 }
 
+/** An opt-IN key: only the literal `"on"` enables — absent/anything else is off. */
+function readOptIn(storage: SettingsStorage | null, key: string): boolean {
+  return storage?.getItem(key)?.trim().toLowerCase() === ON_VALUE;
+}
+
 function parseRenderer(raw: string | null | undefined): RendererPref | null {
   const value = raw?.trim().toLowerCase();
   return value === "webgpu" ? "webgpu" : value === "webgl" ? "webgl" : null;
@@ -120,6 +137,7 @@ export function readUserSettings(
     haptics: readFlag(storage, HAPTICS_KEY),
     cameraPanSens: clampPanSens(readNumber(storage, CAMERA_PAN_SENS_KEY, DEFAULT_USER_SETTINGS.cameraPanSens)),
     cameraShake: readFlag(storage, CAMERA_SHAKE_KEY),
+    invertPitch: readOptIn(storage, INVERT_PITCH_KEY),
     renderer: parseRenderer(storage?.getItem(RENDERER_KEY)) ?? DEFAULT_USER_SETTINGS.renderer,
   };
 }
@@ -141,6 +159,8 @@ export function settingsToStorage(patch: Partial<UserSettings>): [string, string
     out.push([CAMERA_PAN_SENS_KEY, sens === 1 ? null : String(round2(sens))]);
   }
   if (patch.cameraShake !== undefined) out.push([CAMERA_SHAKE_KEY, patch.cameraShake ? null : OFF_VALUE]);
+  // Opt-in: "not inverted" is the default, so it is stored as an ABSENT key.
+  if (patch.invertPitch !== undefined) out.push([INVERT_PITCH_KEY, patch.invertPitch ? ON_VALUE : null]);
   if (patch.renderer !== undefined) out.push([RENDERER_KEY, patch.renderer]);
   return out;
 }
@@ -219,6 +239,7 @@ function shallowEqual(a: UserSettings, b: UserSettings): boolean {
     a.haptics === b.haptics &&
     a.cameraPanSens === b.cameraPanSens &&
     a.cameraShake === b.cameraShake &&
+    a.invertPitch === b.invertPitch &&
     a.renderer === b.renderer
   );
 }

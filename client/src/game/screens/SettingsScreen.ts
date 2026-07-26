@@ -256,26 +256,56 @@ export class SettingsScreen {
   }
 
   /**
-   * Read-only view of the flight-control feel knobs. They are designer-owned:
-   * the stick/throttle geometry and response live in `theme.hud.flight`, the
-   * lock-break grace in `tuning.json`. (The old tap-to-move readouts retired
-   * with move orders — FLIGHT.md §7.)
+   * The one flight-control PREFERENCE (pitch invert — BUBBLE.md §C), the desktop
+   * key map, and a read-only view of the feel knobs. The knobs are
+   * designer-owned: the stick/throttle geometry and response live in
+   * `theme.hud.flight`, the lock-break grace in `tuning.json`. (The old
+   * tap-to-move readouts retired with move orders — FLIGHT.md §7.)
+   *
+   * Invert is a settings toggle rather than a theme field for the same reason
+   * handedness never belongs in content: it describes the player, not the game.
    */
   private controlsGroup(): HTMLElement {
     const group = settingsGroup("Controls");
     const flight = this.host.configs.get<ThemeConfig>("theme", THEME_ID)?.hud?.flight;
     const tuning = this.host.configs.getAll<TuningConfig>("tuning")[0];
+
+    const invert = toggleButton("Invert pitch (stick / W-S)", (next) =>
+      this.host.settings.set({ invertPitch: next }),
+    );
+    invert.el.dataset["setting"] = "controls.invertPitch";
+    this.refreshers.push((values) => invert.set(values.invertPitch));
+
+    const bindings = document.createElement("div");
+    bindings.className = "sa-settings-readonly";
+    bindings.dataset["setting"] = "bindings";
+    bindings.append(
+      kv("Turn", "A / D  ·  ← / →"),
+      kv("Pitch", "W / S  ·  ↑ / ↓"),
+      kv("Throttle", "R / F  ·  wheel or drag on the strip"),
+      kv("Boost", "Shift  ·  hold the boost button"),
+    );
+
     const list = document.createElement("div");
     list.className = "sa-settings-readonly";
     list.dataset["setting"] = "controls";
     const deadzone = flight?.joystick?.deadzone;
     const ramp = flight?.throttle?.keyRampPerSec;
+    const wheel = flight?.throttle?.wheelStepPerNotch;
     list.append(
       kv("Stick deadzone", deadzone === undefined ? "—" : `${Math.round(deadzone * 100)}%`),
       kv("Throttle key ramp", ramp === undefined ? "—" : `${ramp}/s`),
+      kv("Throttle wheel step", wheel === undefined ? "—" : `${Math.round(wheel * 100)}%/notch`),
       kv("Lock-break grace", tuning?.lockDecayMult ? `${tuning.lockDecayMult}× drain` : "—"),
     );
-    group.append(list, note("These live in the theme and tuning configs and are tuned once for the whole game — not per player in the MVP."));
+
+    group.append(
+      invert.el,
+      note("Off means pushing the stick UP (or holding W / ↑) raises the nose."),
+      bindings,
+      list,
+      note("The bindings are fixed in the MVP; the feel knobs below live in the theme and tuning configs and are tuned once for the whole game — not per player."),
+    );
     return group;
   }
 

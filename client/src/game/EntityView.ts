@@ -31,12 +31,18 @@ import { resolveSoundId } from "../audio/soundIds.js";
 import { ExplosionFx } from "./juice/ExplosionFx.js";
 import { HitFlashPool } from "./juice/HitFlash.js";
 import { explosionEffectIdFor, juiceSettingsOf, type JuiceSettings } from "./juice/juiceSettings.js";
+import {
+  approachRoll,
+  bankRollFor,
+  headingRatePerSec,
+  meshPitchFor,
+  meshYawFor,
+  pitchForDirection,
+  yawForDirection,
+} from "./shipOrientation.js";
 
 const log = createLogger("ViewManager");
 
-const SHIP_Y = 0.3;
-const PROJECTILE_Y = 0.3;
-const BEAM_Y = 0.35;
 const ASTEROID_DEATH_MS = 260;
 
 /** Resolves a sim ship entity to its ship-config id (owned by GameSession). */
@@ -59,6 +65,14 @@ interface ShipView {
   node: InstancedMesh;
   /** Hardpoint module meshes + emitter particle systems (§9 4.6); null if the ship config had none. */
   rig: ShipSocketRig | null;
+  /** Drawn visual bank (radians), smoothed toward `rollTarget` (BUBBLE.md §C). */
+  roll: number;
+  /**
+   * Bank the current turn rate asks for. Kept across frames so a render frame
+   * that lands between two identical snapshots (or a paused sim) HOLDS the lean
+   * instead of letting it decay to level.
+   */
+  rollTarget: number;
 }
 
 interface AsteroidView {
@@ -307,7 +321,8 @@ export class ViewManager {
     const view = this.ships.get(targetId);
     if (!view) return;
     const radius = this.shipConfigFor(targetId)?.collider.radius ?? 1.5;
-    this.hitFlash.flash(view.node.position.x, SHIP_Y, view.node.position.z, radius);
+    // The live view node already carries the ship's altitude (BUBBLE.md §C).
+    this.hitFlash.flash(view.node.position.x, view.node.position.y, view.node.position.z, radius);
   }
 
   /**
@@ -330,24 +345,28 @@ export class ViewManager {
     }
     const pos = this.deathPosition(entityId, isAsteroid, cur);
     if (!pos) return;
-    this.explosions.burst(effect, pos.x, pos.z);
+    this.explosions.burst(effect, pos.x, pos.z, pos.y);
     // Audio is not a quality-tier concern: a low tier drops particles, never the bang.
     const soundId = resolveSoundId(effect.sound);
     if (soundId) this.playSound?.(soundId);
   }
 
   /** Last known world position of a (possibly already removed) entity. */
-  private deathPosition(entityId: EntityId, isAsteroid: boolean, cur: Snapshot): { x: number; z: number } | null {
+  private deathPosition(
+    entityId: EntityId,
+    isAsteroid: boolean,
+    cur: Snapshot,
+  ): { x: number; y: number; z: number } | null {
     if (isAsteroid) {
       const view = this.asteroids.get(entityId);
-      if (view) return { x: view.instance.position.x, z: view.instance.position.z };
+      if (view) return view.instance.position;
       const snap = findAsteroid(cur, entityId);
-      return snap ? { x: snap.pos.x, z: snap.pos.z } : null;
+      return snap ? snap.pos : null;
     }
     const view = this.ships.get(entityId);
-    if (view) return { x: view.node.position.x, z: view.node.position.z };
+    if (view) return view.node.position;
     const snap = findShip(cur, entityId);
-    return snap ? { x: snap.pos.x, z: snap.pos.z } : null;
+    return snap ? snap.pos : null;
   }
 
   /** Ship config behind a sim entity id, if the session still knows it. */
@@ -363,20 +382,27 @@ export class ViewManager {
     if (!from || !to) return;
     const slot = firstFreeBeam(this.beamPool);
     if (!slot) return; // pool exhausted this frame — acceptable, no alloc
-    this.sFrom.set(from.pos.x, BEAM_Y, from.pos.z);
-    this.sTo.set(to.pos.x, BEAM_Y, to.pos.z);
+    this.sFrom.set(from.pos.x, from.pos.y, from.pos.z);
+    this.sTo.set(to.pos.x, to.pos.y, to.pos.z);
     this.orientBeam(slot.mesh, this.sFrom, this.sTo);
     slot.life = slot.maxLife;
     slot.mesh.setEnabled(true);
     (slot.mesh.material as StandardMaterial).alpha = 1;
   }
 
+  /**
+   * Stretch a pooled beam box (nose +Z, unit depth) between two world points.
+   * Fully 3D since the bubble: shooter and target sit at their own altitudes, so
+   * a planar beam would visibly miss whatever it just damaged.
+   */
   private orientBeam(mesh: Mesh, from: Vector3, to: Vector3): void {
     const dx = to.x - from.x;
+    const dy = to.y - from.y;
     const dz = to.z - from.z;
-    const len = Math.hypot(dx, dz);
-    mesh.position.set((from.x + to.x) / 2, BEAM_Y, (from.z + to.z) / 2);
-    mesh.rotation.y = Math.atan2(dx, dz);
+    const len = Math.hypot(dx, dy, dz);
+    mesh.position.set((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
+    mesh.rotation.y = yawForDirection(dx, dz);
+    mesh.rotation.x = pitchForDirection(dx, dy, dz);
     mesh.scaling.z = Math.max(0.01, len);
   }
 
@@ -393,6 +419,11 @@ export class ViewManager {
   }
 
   private syncShips(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
+    // Sim seconds between the two snapshots — the honest basis for a turn RATE.
+    // `frameDtMs` is render time and would report a wildly different rate at 30
+    // vs 144 fps for the very same manoeuvre.
+    const snapDt = cur.elapsed - prev.elapsed;
+    const frameDt = frameDtMs / 1000;
     // Remove views whose ship no longer exists. Both the map walk and the
     // membership test are allocation-free — `Array.some(cb)` here would build a
     // closure per live view per frame.
@@ -417,11 +448,26 @@ export class ViewManager {
       const prevShip = findShip(prev, s.id);
       const p = prevShip ?? s;
       const x = p.pos.x + (s.pos.x - p.pos.x) * alpha;
+      // The hull sits at its own altitude — there is no arena floor to lift it
+      // off any more (BUBBLE.md §C retires the old constant y).
+      const y = p.pos.y + (s.pos.y - p.pos.y) * alpha;
       const z = p.pos.z + (s.pos.z - p.pos.z) * alpha;
-      view.node.position.set(x, SHIP_Y, z);
-      // Sim heading is math-convention (0 = +X, atan2(z,x)); Babylon yaw 0
-      // faces +Z (the models' nose axis), so yaw = π/2 − heading.
-      view.node.rotation.y = Math.PI / 2 - lerpAngle(p.heading, s.heading, alpha);
+      view.node.position.set(x, y, z);
+      // Yaw + pitch from the sim, roll from the client's own bank — all three
+      // conventions live in `shipOrientation.ts`. Pitch interpolates LINEARLY
+      // (it is clamped to ±maxPitchRad and never wraps); heading takes the short
+      // way round.
+      view.node.rotation.y = meshYawFor(lerpAngle(p.heading, s.heading, alpha));
+      view.node.rotation.x = meshPitchFor(p.pitch + (s.pitch - p.pitch) * alpha);
+      if (snapDt > 0) {
+        view.rollTarget = bankRollFor(
+          headingRatePerSec(p.heading, s.heading, snapDt),
+          this.juice.bank.maxRad,
+          this.juice.bank.referenceRateRadPerSec,
+        );
+      }
+      view.roll = approachRoll(view.roll, view.rollTarget, this.juice.bank.lag, frameDt);
+      view.node.rotation.z = view.roll;
 
       view.rig?.updateModules(s.modules);
       view.rig?.updateShield(s, frameDtMs);
@@ -458,7 +504,7 @@ export class ViewManager {
       this.juice,
     );
 
-    return { node, rig };
+    return { node, rig, roll: 0, rollTarget: 0 };
   }
 
   private syncAsteroids(cur: Snapshot, frameDtMs: number): void {
@@ -504,7 +550,9 @@ export class ViewManager {
     const scale = a.radius * radiusScale;
     const instance = master.createInstance(`asteroid.${a.id}`);
     instance.scaling.setAll(scale);
-    instance.position.set(a.pos.x, 0, a.pos.z);
+    // Authored altitude (BUBBLE.md §E gives placements a `y`); asteroids never
+    // move, so this is the one and only time it is written.
+    instance.position.set(a.pos.x, a.pos.y, a.pos.z);
     instance.isPickable = false;
     instance.parent = this.root;
     return { instance, baseScale: scale, dying: false, dyingMs: 0 };
@@ -521,10 +569,26 @@ export class ViewManager {
       if (!mesh) continue; // pool exhausted; skip extras
       const p = findProjectile(prev, pr.id) ?? pr;
       const x = p.pos.x + (pr.pos.x - p.pos.x) * alpha;
+      const y = p.pos.y + (pr.pos.y - p.pos.y) * alpha;
       const z = p.pos.z + (pr.pos.z - p.pos.z) * alpha;
-      mesh.position.set(x, PROJECTILE_Y, z);
-      // Same sim-heading → Babylon-yaw conversion as ships (nose +Z).
-      mesh.rotation.y = Math.PI / 2 - lerpAngle(p.heading, pr.heading, alpha);
+      mesh.position.set(x, y, z);
+      // Oriented along the 3D VELOCITY, not the replicated heading (BUBBLE.md
+      // §C): a projectile's snapshot carries a scalar heading, which says nothing
+      // about the vertical component a shot fired in a climb — or a homing
+      // missile steering in 3D — actually has. The displacement between the two
+      // snapshots does. A projectile that has not moved yet (its very first
+      // snapshot) keeps the pool node's last pose for one frame, which is
+      // invisible at muzzle speed and cheaper than a special case.
+      const dx = pr.pos.x - p.pos.x;
+      const dy = pr.pos.y - p.pos.y;
+      const dz = pr.pos.z - p.pos.z;
+      if (dx !== 0 || dy !== 0 || dz !== 0) {
+        mesh.rotation.y = yawForDirection(dx, dz);
+        mesh.rotation.x = pitchForDirection(dx, dy, dz);
+      } else {
+        mesh.rotation.y = meshYawFor(pr.heading);
+        mesh.rotation.x = 0;
+      }
       mesh.setEnabled(true);
     }
     for (let i = k; i < this.kineticPool.length; i++) this.kineticPool[i]!.setEnabled(false);

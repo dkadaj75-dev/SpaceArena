@@ -3,8 +3,11 @@ import { segmentIntersectsSphere } from "./math.js";
 import type { World } from "./World.js";
 
 /**
- * A point on the sight line. `y` is optional so a caller that has not gone 3D
- * yet (the bots, until stage T4) keeps working unchanged on the ground plane.
+ * A point on the sight line. `y` is optional so a caller holding a content-shaped
+ * {@link import("../schemas/common.js").Vec3} (where `y` is optional, because a
+ * flat arena omits it) can pass it straight in and have the missing axis read as
+ * the arena plane. Every sim-side caller carries a real `y`; the bots have since
+ * stage T4 too.
  */
 export interface LosPoint {
   x: number;

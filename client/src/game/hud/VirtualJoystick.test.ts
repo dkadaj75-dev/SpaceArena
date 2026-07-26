@@ -74,6 +74,59 @@ describe("VirtualJoystick (FLIGHT.md §4)", () => {
     joystick.dispose();
   });
 
+  it("maps a thumb pushed UP the screen to a climb, and down to a dive (BUBBLE.md §C)", () => {
+    const { base, joystick } = mount();
+    base.dispatchEvent(pointer("pointerdown", 1, CENTRE.x, CENTRE.y - 62));
+    expect(joystick.deflectionY).toBeCloseTo(-1, 6);
+    expect(joystick.pitch).toBeCloseTo(1, 6);
+
+    base.dispatchEvent(pointer("pointermove", 1, CENTRE.x, CENTRE.y + 62));
+    expect(joystick.deflectionY).toBeCloseTo(1, 6);
+    expect(joystick.pitch).toBeCloseTo(-1, 6);
+    joystick.dispose();
+  });
+
+  it("flips the pitch axis (and only the pitch axis) when the player inverts it", () => {
+    const { base, joystick } = mount();
+    joystick.setInvertPitch(true);
+    base.dispatchEvent(pointer("pointerdown", 1, CENTRE.x + 62, CENTRE.y - 62));
+    const invertedPitch = joystick.pitch;
+    const invertedTurn = joystick.turn;
+    expect(invertedPitch).toBeLessThan(0); // pushed up ⇒ nose DOWN once inverted
+
+    joystick.setInvertPitch(false);
+    expect(joystick.pitch).toBeCloseTo(-invertedPitch, 12);
+    expect(joystick.turn).toBe(invertedTurn); // steering is untouched
+    joystick.dispose();
+  });
+
+  it("applies the theme's deadzone to the pitch axis too", () => {
+    const { base, joystick } = mount();
+    // Default deadzone is 0.12 of the base radius (62 px) ⇒ ~7.4 px.
+    base.dispatchEvent(pointer("pointerdown", 1, CENTRE.x, CENTRE.y - 5));
+    expect(joystick.deflectionY).toBeLessThan(0);
+    expect(joystick.pitch).toBe(0);
+    joystick.dispose();
+  });
+
+  it("springs the pitch axis back to centre on release, like the turn axis", () => {
+    const { base, joystick } = mount();
+    base.dispatchEvent(pointer("pointerdown", 1, CENTRE.x, CENTRE.y - 62));
+    expect(joystick.pitch).toBeGreaterThan(0);
+    base.dispatchEvent(pointer("pointerup", 1, CENTRE.x, CENTRE.y - 62));
+    // "Stop pitching", not "level out" — the sim holds the nose where it is.
+    expect(joystick.pitch).toBe(0);
+    joystick.dispose();
+  });
+
+  it("drives both axes at once from one diagonal push", () => {
+    const { base, joystick } = mount();
+    base.dispatchEvent(pointer("pointerdown", 1, CENTRE.x + 44, CENTRE.y - 44));
+    expect(Math.abs(joystick.turn)).toBeGreaterThan(0);
+    expect(joystick.pitch).toBeGreaterThan(0);
+    joystick.dispose();
+  });
+
   it("clamps to the unit disc, so a diagonal drag is not a harder turn than a sideways one", () => {
     const { base, joystick } = mount();
     // 200 px out on both axes: way outside the ring, at 45°.

@@ -138,8 +138,17 @@ export const qualitySchema = z.object({
   scene: z.object({
     /** Starfield point count in the skybox `PointsCloudSystem`. */
     starfieldPoints: z.number().int().nonnegative(),
-    /** Draw the faint polar grid disc under the arena. */
-    groundGrid: z.boolean(),
+    /**
+     * Draw the latitude/longitude wire rings on the arena's bounds shell.
+     *
+     * Renamed from `groundGrid` in BUBBLE.md §C: the arena floor is gone —
+     * ships fly through the whole bubble, so a disc at y=0 was a lie about the
+     * play space. The spatial reference it used to provide moved onto the
+     * bounds SHELL, and this switch moved with it. The cost profile is the
+     * same (a pile of thin extra line geometry), which is why the cheapest
+     * tier still turns it off.
+     */
+    boundsGrid: z.boolean(),
     /** Draw the colored team spawn-point gizmos. */
     spawnMarkers: z.boolean(),
   }),

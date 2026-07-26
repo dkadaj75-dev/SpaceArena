@@ -5,6 +5,8 @@ import type { FlightInputState } from "./flightInput.js";
 export interface FlightOrderPolicy {
   throttleEpsilon: number;
   turnEpsilon: number;
+  /** |ΔpitchStick| threshold; resolved from `turnEpsilon` when content omits it. */
+  pitchEpsilon: number;
   heartbeatMs: number;
   /** Hard floor between two sends — the server rate-limit guard. */
   minIntervalMs: number;
@@ -18,6 +20,8 @@ export interface FlightOrderPolicy {
  * A send happens when, and only when:
  *  - `|Δthrottle| > throttleEpsilon`, or
  *  - `|Δturn| > turnEpsilon`, or
+ *  - `|ΔpitchStick| > pitchEpsilon` (BUBBLE.md §C — the third axis is treated
+ *    exactly like turn: same −1..1 scale, same trailing-send guarantee), or
  *  - the boost flag flipped (edge-triggered, no epsilon), or
  *  - `heartbeatMs` elapsed while the input keeps drifting inside the epsilons —
  *    which is also the TRAILING send: a slow stick return that never crosses an
@@ -34,7 +38,7 @@ export interface FlightOrderPolicy {
  */
 export class FlightOrderSender {
   /** Last state actually sent — the baseline every epsilon is measured against. */
-  private readonly sent: FlightInputState = { throttle: 0, turn: 0, boost: false };
+  private readonly sent: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false };
   private lastSentMs = 0;
   /** False until the first order lands, which is never delayed. */
   private started = false;
@@ -67,13 +71,17 @@ export class FlightOrderSender {
   update(input: FlightInputState, nowMs: number): void {
     const dThrottle = Math.abs(input.throttle - this.sent.throttle);
     const dTurn = Math.abs(input.turn - this.sent.turn);
+    const dPitch = Math.abs(input.pitchStick - this.sent.pitchStick);
     const boostEdge = input.boost !== this.sent.boost;
     // "Differs at all" is the pending flag: `sent` IS the baseline, so nothing is
     // dropped by the floor below — an order suppressed this frame still differs
     // next frame and goes out then.
-    const differs = dThrottle > 0 || dTurn > 0 || boostEdge;
+    const differs = dThrottle > 0 || dTurn > 0 || dPitch > 0 || boostEdge;
     const significant =
-      dThrottle > this.policy.throttleEpsilon || dTurn > this.policy.turnEpsilon || boostEdge;
+      dThrottle > this.policy.throttleEpsilon ||
+      dTurn > this.policy.turnEpsilon ||
+      dPitch > this.policy.pitchEpsilon ||
+      boostEdge;
 
     // The first order of a match is never delayed: until one arrives the sim has
     // no FlightState at all and the ship sits inert.
@@ -88,10 +96,22 @@ export class FlightOrderSender {
 
     this.sent.throttle = input.throttle;
     this.sent.turn = input.turn;
+    this.sent.pitchStick = input.pitchStick;
     this.sent.boost = input.boost;
     this.lastSentMs = nowMs;
     this.started = true;
     this.ordersSent += 1;
-    this.send({ kind: "flight", throttle: input.throttle, turn: input.turn, boost: input.boost });
+    // `pitchStick` is always present, even centred: the axis is optional on the
+    // wire (BUBBLE.md §B) so an old client can omit it, but a client that HAS a
+    // pitch axis must state it — dropping the field at zero would make "stick
+    // returned to centre" indistinguishable from "no pitch axis at all" only
+    // because the value happened to be 0.
+    this.send({
+      kind: "flight",
+      throttle: input.throttle,
+      turn: input.turn,
+      pitchStick: input.pitchStick,
+      boost: input.boost,
+    });
   }
 }

@@ -2,7 +2,7 @@ import type { BotprofileConfig } from "../schemas/botprofile.js";
 import type { ProjectileSnapshot, ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong, type LosCircle } from "../sim/los.js";
-import { dist } from "../sim/math.js";
+import { dist3 } from "../sim/math.js";
 
 /** Per-behaviour tunables straight out of the botprofile config (`baseWeight` + catchall). */
 export type BehaviorParams = BotprofileConfig["behaviors"][string];
@@ -26,7 +26,12 @@ export interface BotContext {
   readonly allies: readonly ShipSnapshot[];
   /** Currently intended target (see {@link pickTarget}), or null. */
   readonly target: ShipSnapshot | null;
-  /** Distance to {@link target}; `Infinity` when there is none. */
+  /**
+   * TRUE 3D distance to {@link target}; `Infinity` when there is none. Planar
+   * would lie in the bubble (BUBBLE.md §D) — the sim's lock range, weapon range
+   * and collisions are all 3D since T1, so a range band measured on (x,z) would
+   * have a bot "in the band" while the enemy sits 40 units above it.
+   */
   readonly distance: number;
   /** Line of sight to {@link target} (same segment-vs-circle math as the sim). */
   readonly hasLoS: boolean;
@@ -47,6 +52,12 @@ export interface BotContext {
    * but it is here so an overlay can reason about how sharp a stick input is.
    */
   readonly turnRate: number;
+  /**
+   * Hull PITCH rate in rad/s per unit stick, as the driver currently knows it
+   * (`turnRate × tuning.pitchRateMult` in the sim, measured the same way);
+   * 0 means "not measured yet".
+   */
+  readonly pitchRate: number;
   /** Control horizon in seconds the driver plans a turn over (its decision interval). */
   readonly turnHorizonSec: number;
   /** Live asteroid colliders usable as cover / LoS blockers. */
@@ -75,6 +86,8 @@ export interface BuildContextInput {
   rng: () => number;
   /** Measured hull turn rate (rad/s); 0 when the driver has not calibrated yet. */
   turnRate?: number;
+  /** Measured hull pitch rate (rad/s per unit stick); 0 when not calibrated yet. */
+  pitchRate?: number;
   /** Seconds the driver plans a turn over; defaults to the profile decision interval. */
   turnHorizonSec?: number;
 }
@@ -97,7 +110,7 @@ export function buildBotContext(input: BuildContextInput): BotContext {
   }
 
   const target = input.targetId !== null ? (enemies.find((e) => e.id === input.targetId) ?? null) : null;
-  const distance = target ? dist(self.pos, target.pos) : Infinity;
+  const distance = target ? dist3(self.pos, target.pos) : Infinity;
   const hasLoS = target ? hasLineOfSightAmong(self.pos, target.pos, blockers) : false;
 
   const [rawMin, rawMax] = profile.preferredRange;
@@ -107,9 +120,11 @@ export function buildBotContext(input: BuildContextInput): BotContext {
   const incomingMissiles: IncomingMissile[] = [];
   for (const p of snapshot.projectiles) {
     if (p.kind !== "missile") continue;
-    const d = dist(self.pos, p.pos);
+    const d = dist3(self.pos, p.pos);
     if (d > input.missileScanRadius) continue;
-    // Heading toward us? (Our own outbound missiles point away.)
+    // Heading toward us? (Our own outbound missiles point away.) The cone test
+    // stays planar because `ProjectileSnapshot` carries no pitch — the distance
+    // gate above is the 3D part, and a missile climbing at us still passes it.
     const toSelf = Math.atan2(self.pos.z - p.pos.z, self.pos.x - p.pos.x);
     let delta = toSelf - p.heading;
     delta = Math.atan2(Math.sin(delta), Math.cos(delta));
@@ -137,6 +152,7 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     preferredMax,
     weaponRange: input.weaponRange,
     turnRate: input.turnRate ?? 0,
+    pitchRate: input.pitchRate ?? 0,
     turnHorizonSec: input.turnHorizonSec ?? profile.decisionIntervalMs / 1000,
     blockers,
     incomingMissiles,

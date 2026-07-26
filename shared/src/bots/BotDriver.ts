@@ -1,13 +1,15 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import type { BotprofileConfig } from "../schemas/botprofile.js";
-import type { Vec2 } from "../schemas/common.js";
+import type { Vec3 } from "../schemas/common.js";
 import type { ModuleConfig } from "../schemas/module.js";
+import type { TuningConfig } from "../schemas/tuning.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong } from "../sim/los.js";
-import { angleDelta, clamp, dist } from "../sim/math.js";
+import { angleDelta, clamp, dist3 } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
 import { deriveRng } from "../sim/rng.js";
+import { DEFAULT_MAX_PITCH_RAD } from "../sim/tuningDefaults.js";
 import {
   botBehaviors,
   type BehaviorRegistry,
@@ -16,7 +18,7 @@ import {
   type FlightCommand,
 } from "./behaviors.js";
 import { boolParam, buildBotContext, numParam, strParam, type BehaviorParams, type BotContext } from "./context.js";
-import { turnForPoint } from "./flight.js";
+import { steerForPoint } from "./flight.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";
 
 /**
@@ -35,15 +37,19 @@ export interface BotDecisionSnapshot {
    * Aim point behind the `flight` order actually emitted this decision, or null
    * when the standing flight state was close enough to keep (level-triggered
    * orders mean "no order" is the normal case, not an error).
+   *
+   * `y` is the bubble altitude (BUBBLE.md §D). It is OPTIONAL rather than
+   * required so an overlay or fixture that only cares about the top-down
+   * projection keeps compiling; the driver always fills it in.
    */
-  movePoint: { x: number; z: number } | null;
+  movePoint: { x: number; y?: number; z: number } | null;
   /**
    * Aim point the winning behaviour *chose* this decision, whether or not the
    * resulting stick input differed enough to be re-issued. This is the point the
    * 5.3 debug overlay draws — {@link movePoint} only tells you which decisions
    * produced traffic.
    */
-  plannedMove: { x: number; z: number } | null;
+  plannedMove: { x: number; y?: number; z: number } | null;
   /**
    * Stick state the driver settled on this decision (after overlays), whether or
    * not it was re-sent. Optional so the field can be added without disturbing
@@ -96,21 +102,33 @@ const MIN_DECISION_MS = 16;
 /** Missiles farther than this multiple of the preferred range are ignored. */
 const MISSILE_SCAN_MULT = 2;
 
-/** Rotation budget for one turn command, as a multiple of the decision interval. */
+/**
+ * Rotation budget for one stick command, as a multiple of the decision interval.
+ * Shared by yaw and pitch: it describes the control loop, not a hull, and the sim
+ * integrates both axes on the same tick.
+ */
 const DEFAULT_TURN_HORIZON_MULT = 1;
-/** Heading error treated as "nose on" — inside it the stick centres (radians). */
+/** Attitude error treated as "nose on" — inside it that axis centres (radians). */
 const DEFAULT_AIM_TOLERANCE_RAD = 0.02;
 /** Stick deltas below these keep the standing (level-triggered) flight state. */
 const DEFAULT_TURN_EPSILON = 0.05;
+const DEFAULT_PITCH_EPSILON = 0.05;
 const DEFAULT_THROTTLE_EPSILON = 0.02;
-/** Commanded |turn| below which a heading sample is too small to calibrate from. */
+/** Commanded |axis| below which a rotation sample is too small to calibrate from. */
 const CALIBRATION_MIN_TURN = 0.05;
+const CALIBRATION_MIN_PITCH_STICK = 0.05;
 /**
  * Longest sample window accepted for a turn-rate measurement (seconds). Over a
  * longer span a fast hull could sweep past ±PI and `angleDelta` would alias the
  * rotation down; one sim tick is ~0.033 s, so this only rejects pathological gaps.
  */
 const CALIBRATION_MAX_SPAN_SEC = 0.2;
+/**
+ * Slack when deciding a pitch sample was clamp-pinned. The sim's clamp returns
+ * ±`maxPitchRad` exactly and the driver resolves the same tuning value, so this
+ * only absorbs float noise — it is not a tolerance band.
+ */
+const CLAMP_PINNED_EPSILON = 1e-9;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -127,11 +145,12 @@ const CALIBRATION_MAX_SPAN_SEC = 0.2;
  * behaviour set. Behaviours that are situationally live but lost still get to
  * {@link BotBehavior.overlay} the winner's stick (jinks, rock avoidance).
  *
- * **Flight**: a plan is an aim point plus a throttle. {@link turnForPoint}
- * converts the aim point into the `turn` axis, which needs the hull's turn rate
- * — a stat the snapshot deliberately does not carry. The driver therefore
- * *measures* it (see {@link BotDriver.calibrate}): heading integration is exactly
- * `turn * turnRate * dt`, so one tick of a known non-zero stick reveals the rate
+ * **Flight**: a plan is an aim point plus a throttle. {@link steerForPoint}
+ * converts the aim point into the `turn` AND `pitchStick` axes (BUBBLE.md §D),
+ * which needs the hull's turn and pitch rates — stats the snapshot deliberately
+ * does not carry. The driver therefore *measures* both (see
+ * {@link BotDriver.calibrate}): each axis integrates as exactly
+ * `axis * rate * dt`, so one tick of a known non-zero stick reveals the rate
  * exactly, and it then tracks modules/upgrades that change it for free.
  *
  * Cadence, jitter, ranges, weights, stick feel and thresholds all come from the
@@ -153,9 +172,14 @@ export class BotDriver {
   private lastFlight: FlightCommand | null = null;
   private decision: BotDecisionSnapshot | null = null;
   private weaponRangeCache = -1;
+  /** `tuning.maxPitchRad`, resolved once (see {@link BotDriver.maxPitch}). */
+  private maxPitchCache = -1;
   /** Measured hull turn rate in rad/s; 0 until the first usable sample. */
   private turnRateEst = 0;
+  /** Measured hull pitch rate in rad/s per unit stick; 0 until measured. */
+  private pitchRateEst = 0;
   private lastHeading: number | null = null;
+  private lastPitch: number | null = null;
   private lastElapsed = 0;
 
   constructor(options: BotDriverOptions) {
@@ -191,6 +215,15 @@ export class BotDriver {
     return this.turnRateEst;
   }
 
+  /**
+   * Measured hull pitch rate in rad/s per unit stick (0 before the first usable
+   * sample — samples taken while the nose was pinned at `tuning.maxPitchRad` do
+   * not count, see {@link BotDriver.calibrate}).
+   */
+  get measuredPitchRate(): number {
+    return this.pitchRateEst;
+  }
+
   /** Forget cadence, calibration and issued-order memory (e.g. after a respawn). */
   reset(): void {
     this.started = false;
@@ -198,7 +231,9 @@ export class BotDriver {
     this.lastFlight = null;
     this.decision = null;
     this.turnRateEst = 0;
+    this.pitchRateEst = 0;
     this.lastHeading = null;
+    this.lastPitch = null;
     this.lastElapsed = 0;
   }
 
@@ -230,28 +265,73 @@ export class BotDriver {
   }
 
   /**
-   * Recover the hull's `turnRate` from what the ship actually did with the last
-   * stick we sent. NavigationSystem integrates `heading += turn * turnRate * dt`
-   * and nothing else rotates a ship, so the quotient is the rate exactly — no
-   * estimator, no smoothing, and it re-measures every tick, which is what keeps a
-   * module/upgrade that changes `turnRate` mid-match working with zero extra code.
+   * Recover the hull's `turnRate` and pitch rate from what the ship actually did
+   * with the last stick we sent. NavigationSystem integrates
+   * `heading += turn * turnRate * dt` and
+   * `pitch = clamp(pitch + pitchStick * turnRate * pitchRateMult * dt)`, and
+   * nothing else rotates a ship, so each quotient is that axis's rate exactly —
+   * no estimator, no smoothing, and it re-measures every tick, which is what keeps
+   * a module/upgrade that changes `turnRate` mid-match working with zero extra
+   * code. The two axes are measured INDEPENDENTLY rather than deriving pitch as
+   * `turnRate × tuning.pitchRateMult`: measuring what the hull did is the same
+   * trick that already makes the yaw axis free of ship stats, and it survives a
+   * future pitch stat or a pitch-only module without touching this file.
    *
-   * Samples are skipped when the stick was ~centred (no signal), when sim time did
-   * not advance (a replayed snapshot) or when the window is long enough that the
-   * hull could have swept past ±PI and aliased.
+   * Samples are skipped when that stick was ~centred (no signal), when sim time
+   * did not advance (a replayed snapshot) or when the window is long enough that
+   * the hull could have swept past ±PI and aliased.
+   *
+   * **Pitch has one extra rejection, and it matters** (BUBBLE.md §A): the pitch
+   * integration is CLAMPED at ±`tuning.maxPitchRad`. A tick that ends with the
+   * nose pinned there rotated less than the stick asked for, so its quotient
+   * under-reports the rate — sometimes by an order of magnitude, sometimes to
+   * exactly 0. Either poisons the estimate permanently in the direction that
+   * makes {@link steerForPoint} saturate the pitch axis on every later
+   * correction, which is precisely the oscillation the proportional rule exists
+   * to avoid. So a pinned sample is not a slightly-wrong measurement to be
+   * smoothed; it is no measurement at all, and is dropped.
    */
   private calibrate(self: ShipSnapshot, elapsed: number): void {
     const prevHeading = this.lastHeading;
+    const prevPitch = this.lastPitch;
     const span = elapsed - this.lastElapsed;
     this.lastHeading = self.heading;
+    this.lastPitch = self.pitch;
     this.lastElapsed = elapsed;
 
-    const turn = this.lastFlight?.turn ?? 0;
-    if (prevHeading === null) return;
+    if (prevHeading === null || prevPitch === null) return;
     if (span <= 0 || span > CALIBRATION_MAX_SPAN_SEC) return;
-    if (Math.abs(turn) < CALIBRATION_MIN_TURN) return;
-    const rate = angleDelta(prevHeading, self.heading) / (turn * span);
-    if (Number.isFinite(rate) && rate > 0) this.turnRateEst = rate;
+
+    const turn = this.lastFlight?.turn ?? 0;
+    if (Math.abs(turn) >= CALIBRATION_MIN_TURN) {
+      const rate = angleDelta(prevHeading, self.heading) / (turn * span);
+      if (Number.isFinite(rate) && rate > 0) this.turnRateEst = rate;
+    }
+
+    const stick = this.lastFlight?.pitchStick ?? 0;
+    if (Math.abs(stick) < CALIBRATION_MIN_PITCH_STICK) return;
+    // Nose pinned at the clamp at the END of the window ⇒ the observed delta is
+    // truncated (or zero) — see the note above. Checking only the end state is
+    // enough and is deliberately not extended to the start: leaving the clamp is
+    // a perfectly clean, fully observed rotation.
+    if (Math.abs(self.pitch) >= this.maxPitch() - CLAMP_PINNED_EPSILON) return;
+    const rate = (self.pitch - prevPitch) / (stick * span);
+    if (Number.isFinite(rate) && rate > 0) this.pitchRateEst = rate;
+  }
+
+  /**
+   * `tuning.maxPitchRad` — the hull's pitch clamp, needed both to reject pinned
+   * calibration samples and to keep {@link steerForPoint} from asking for an
+   * elevation the sim will not give. Resolved from the registry exactly as the sim
+   * and the client predictor do (`getAll("tuning")[0]`, documented default) and
+   * cached: unlike the botprofile this is not an editor-hot-reload surface, and
+   * `calibrate` runs every tick for every bot.
+   */
+  private maxPitch(): number {
+    if (this.maxPitchCache >= 0) return this.maxPitchCache;
+    const tuning = this.configs.getAll<TuningConfig>("tuning")[0];
+    this.maxPitchCache = tuning?.maxPitchRad ?? DEFAULT_MAX_PITCH_RAD;
+    return this.maxPitchCache;
   }
 
   private jitteredInterval(): number {
@@ -280,6 +360,7 @@ export class BotDriver {
         orbitSign: this.orbitSign,
         rng: this.rng,
         turnRate: this.turnRateEst,
+        pitchRate: this.pitchRateEst,
         turnHorizonSec: horizonSec,
       });
     const preliminary = build(self.targetId);
@@ -312,11 +393,21 @@ export class BotDriver {
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
 
-    // --- flight order: aim point -> stick, then overlays, then epsilon gate ---
+    // --- flight order: aim point -> both sticks, then overlays, then epsilon gate ---
     const aim = bestPlan?.aim ?? null;
     const tolerance = profile.flight?.aimToleranceRad ?? DEFAULT_AIM_TOLERANCE_RAD;
+    const steer = aim
+      ? steerForPoint(self.pos, self.heading, self.pitch, aim, {
+          turnRate: this.turnRateEst,
+          pitchRate: this.pitchRateEst,
+          horizonSec,
+          toleranceRad: tolerance,
+          maxPitchRad: this.maxPitch(),
+        })
+      : null;
     let cmd: FlightCommand = {
-      turn: aim ? turnForPoint(self.pos, self.heading, aim, this.turnRateEst, horizonSec, tolerance) : 0,
+      turn: steer?.turn ?? 0,
+      pitchStick: steer?.pitchStick ?? 0,
       throttle: clamp(bestPlan?.throttle ?? 0, 0, 1),
       boost: bestPlan?.boost ?? false,
     };
@@ -325,24 +416,29 @@ export class BotDriver {
       cmd = l.behavior.overlay!(ctx, l.params, cmd);
     }
     // `clamp` passes NaN straight through, and a non-finite axis would poison the
-    // ship's heading for the rest of the match (flight orders are level-triggered).
+    // ship's attitude for the rest of the match (flight orders are level-triggered).
     // A mistyped content param is the realistic source, so neutralise it here
     // rather than shipping an order the sim would have to drop.
     cmd = {
       turn: Number.isFinite(cmd.turn) ? clamp(cmd.turn, -1, 1) : 0,
+      pitchStick: Number.isFinite(cmd.pitchStick) ? clamp(cmd.pitchStick, -1, 1) : 0,
       throttle: Number.isFinite(cmd.throttle) ? clamp(cmd.throttle, 0, 1) : 0,
       boost: cmd.boost,
     };
 
-    let issuedAim: Vec2 | null = null;
+    let issuedAim: Required<Vec3> | null = null;
     if (this.shouldSendFlight(cmd, profile)) {
-      // Same shape, same validation, same pipeline as the human joystick.
-      // pitchStick 0: bots fly the ground plane until stage T4 gives their
-      // steering a vertical axis (BUBBLE.md §D). Stated rather than omitted so
-      // the planar flying is a decision, not an oversight.
-      orders.push({ kind: "flight", throttle: cmd.throttle, turn: cmd.turn, pitchStick: 0, boost: cmd.boost });
+      // Same shape, same validation, same pipeline as the human joystick — now
+      // including the pitch axis a human gets from the joystick's y (BUBBLE.md §C).
+      orders.push({
+        kind: "flight",
+        throttle: cmd.throttle,
+        turn: cmd.turn,
+        pitchStick: cmd.pitchStick,
+        boost: cmd.boost,
+      });
       this.lastFlight = cmd;
-      issuedAim = aim ? { x: aim.x, z: aim.z } : null;
+      issuedAim = aim ? aimPoint(aim) : null;
     }
 
     // --- module discipline ---
@@ -355,7 +451,7 @@ export class BotDriver {
       behavior: bestKey,
       scores,
       movePoint: issuedAim,
-      plannedMove: aim ? { x: aim.x, z: aim.z } : null,
+      plannedMove: aim ? aimPoint(aim) : null,
       flight: cmd,
       boost: cmd.boost,
       targetId,
@@ -377,6 +473,13 @@ export class BotDriver {
     if (!last) return true;
     if (last.boost !== cmd.boost) return true;
     if (Math.abs(last.turn - cmd.turn) > (profile.flight?.turnEpsilon ?? DEFAULT_TURN_EPSILON)) return true;
+    // Pitch gets its own epsilon: it is the axis a bot holds STILL for long
+    // stretches (a level fight never touches it), so folding it into the turn
+    // threshold would either add traffic on the yaw axis or make a genuine climb
+    // command wait for the next decision that happened to move the yaw too.
+    if (Math.abs(last.pitchStick - cmd.pitchStick) > (profile.flight?.pitchEpsilon ?? DEFAULT_PITCH_EPSILON)) {
+      return true;
+    }
     return Math.abs(last.throttle - cmd.throttle) > (profile.flight?.throttleEpsilon ?? DEFAULT_THROTTLE_EPSILON);
   }
 
@@ -409,8 +512,11 @@ export class BotDriver {
     let best: EntityId | null = null;
     let bestCost = Infinity;
     for (const e of ctx.enemies) {
+      // 3D range, like every other distance a bot reasons about in the bubble:
+      // the nearest enemy on the (x,z) projection can be the FARTHEST one to fly
+      // at once altitude is in play (BUBBLE.md §D).
       const base =
-        preference === "lowestHull" ? (e.hullMax > 0 ? e.hull / e.hullMax : 0) : dist(ctx.self.pos, e.pos);
+        preference === "lowestHull" ? (e.hullMax > 0 ? e.hull / e.hullMax : 0) : dist3(ctx.self.pos, e.pos);
       const visible = hasLineOfSightAmong(ctx.self.pos, e.pos, ctx.blockers);
       const cost = visible ? base : base * losPenalty + 1;
       if (cost < bestCost) {
@@ -432,6 +538,15 @@ export class BotDriver {
     this.weaponRangeCache = max;
     return max;
   }
+}
+
+/**
+ * Copy an aim point for the debug record. A plan may legally omit `y` (a
+ * behaviour that means "my own altitude"), so this normalises it — the overlay
+ * should never have to guess whether a missing `y` meant zero or "unknown".
+ */
+function aimPoint(aim: Vec3): Required<Vec3> {
+  return { x: aim.x, y: aim.y ?? 0, z: aim.z };
 }
 
 /** Indexed ship lookup — runs every sim tick per bot, so no predicate closure. */

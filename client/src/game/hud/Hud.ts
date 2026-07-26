@@ -258,6 +258,14 @@ export class Hud {
     this.haptics.setUserEnabled(enabled);
   }
 
+  /**
+   * Player-level pitch-axis invert (5.8 settings, BUBBLE.md §C). A no-op when the
+   * HUD was mounted without flight controls.
+   */
+  setInvertPitch(invert: boolean): void {
+    this.flight?.setInvertPitch(invert);
+  }
+
   /** Forwards a match's credit/xp/level-up summary to the results overlay. */
   showMatchRewards(rewards: MatchRewards): void {
     this.resultsOverlay.showRewards(rewards);

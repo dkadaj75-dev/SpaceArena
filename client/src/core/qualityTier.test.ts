@@ -38,7 +38,7 @@ function tier(
     particles: { enabled: true, budgetMultiplier: 1, maxEmitterCapacity: 80 },
     asteroids: { lodMediumDistance: 60, lodLowDistance: 100, lodCullDistance: 0, thinInstances: false },
     projectiles: { useInstances: true },
-    scene: { starfieldPoints: 400, groundGrid: true, spawnMarkers: true },
+    scene: { starfieldPoints: 400, boundsGrid: true, spawnMarkers: true },
   });
 }
 

@@ -30,11 +30,12 @@ const log = createLogger("GameSession");
  */
 /**
  * Practice-dummy placement, expressed in the PLAYER'S SPAWN FRAME: `ahead` is
- * along the spawn heading, `abeam` is to its left. Resolved against whatever
- * spawn point the arena actually handed the player, so the dummies land in the
- * sensor cone at lock range on any arena — an absolute position only worked
- * while every arena was ring-nebula-sized (FLIGHT.md §6 makes the practice
- * default a radius-300 field).
+ * along the spawn's 3D facing (heading AND pitch, BUBBLE.md §C), `abeam` is to
+ * its left. Resolved against whatever spawn point the arena actually handed the
+ * player, so the dummies land in the sensor cone at lock range on any arena — an
+ * absolute position only worked while every arena was ring-nebula-sized
+ * (FLIGHT.md §6 makes the practice default a radius-300 field), and a planar
+ * frame would only work while every spawn sat on y = 0.
  */
 const DUMMY_OFFSETS = [
   { ahead: 30, abeam: 0 },
@@ -135,11 +136,16 @@ export class GameSession {
     const spawn = this.sim.world.transforms.get(this.playerId)!;
     const cos = Math.cos(spawn.heading);
     const sin = Math.sin(spawn.heading);
+    // `ahead` follows the nose in 3D; `abeam` stays horizontal, which keeps the
+    // trio on one level instead of tilting the whole firing line with the spawn.
+    const cosPitch = Math.cos(spawn.pitch);
+    const sinPitch = Math.sin(spawn.pitch);
     for (let i = 0; i < dummyCount; i++) {
       const off = DUMMY_OFFSETS[i % DUMMY_OFFSETS.length]!;
       const pos = {
-        x: spawn.pos.x + cos * off.ahead - sin * off.abeam,
-        z: spawn.pos.z + sin * off.ahead + cos * off.abeam,
+        x: spawn.pos.x + cos * cosPitch * off.ahead - sin * off.abeam,
+        y: spawn.pos.y + sinPitch * off.ahead,
+        z: spawn.pos.z + sin * cosPitch * off.ahead + cos * off.abeam,
       };
       const id = this.sim.spawnPlayerAt(shipId, fitting, 1, pos, spawn.heading);
       this.shipConfigIds.set(id, shipId);

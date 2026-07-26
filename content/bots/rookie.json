@@ -10,6 +10,7 @@
     "turnHorizonMult": 1.0,
     "aimToleranceRad": 0.08,
     "turnEpsilon": 0.12,
+    "pitchEpsilon": 0.12,
     "throttleEpsilon": 0.1
   },
   "behaviors": {

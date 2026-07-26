@@ -58,11 +58,25 @@ export interface ExplosionSettings {
   poolPerEffect: number;
 }
 
+/**
+ * Visual bank roll (BUBBLE.md §C) — the hull leaning into a turn. Client-only
+ * decoration: the sim's orientation model is yaw + pitch with no roll.
+ */
+export interface BankSettings {
+  /** Peak lean in radians at (or past) `referenceRateRadPerSec`; 0 disables banking. */
+  maxRad: number;
+  /** Turn rate that produces the full lean. */
+  referenceRateRadPerSec: number;
+  /** Roll smoothing 0..1 per 60 Hz frame (higher = snappier); 1 snaps. */
+  lag: number;
+}
+
 export interface JuiceSettings {
   hitFlash: HitFlashSettings;
   shieldRipple: ShieldRippleSettings;
   deploy: DeploySettings;
   explosions: ExplosionSettings;
+  bank: BankSettings;
 }
 
 export const DEFAULT_JUICE_SETTINGS: JuiceSettings = {
@@ -84,6 +98,9 @@ export const DEFAULT_JUICE_SETTINGS: JuiceSettings = {
     maxAlpha: 0.26,
   },
   deploy: { extendDistance: 0.18, overshoot: 0.9, spinDegrees: 45 },
+  // ~26° at a 1.5 rad/s turn: readable as a lean, well short of the barrel roll
+  // the sim would never agree to.
+  bank: { maxRad: 0.45, referenceRateRadPerSec: 1.5, lag: 0.12 },
   explosions: {
     defaultEffect: null,
     asteroidEffect: null,
@@ -119,6 +136,11 @@ export function juiceSettingsOf(theme: ThemeConfig | undefined): JuiceSettings {
       extendDistance: j?.deploy?.extendDistance ?? d.deploy.extendDistance,
       overshoot: j?.deploy?.overshoot ?? d.deploy.overshoot,
       spinDegrees: j?.deploy?.spinDegrees ?? d.deploy.spinDegrees,
+    },
+    bank: {
+      maxRad: j?.bank?.maxRad ?? d.bank.maxRad,
+      referenceRateRadPerSec: j?.bank?.referenceRateRadPerSec ?? d.bank.referenceRateRadPerSec,
+      lag: j?.bank?.lag ?? d.bank.lag,
     },
     explosions: {
       defaultEffect: j?.explosions?.default ?? d.explosions.defaultEffect,

@@ -345,6 +345,33 @@ const CSS = `
   50% { opacity: 0.55; }
 }
 
+/* --- Off-screen enemy arrows (BUBBLE.md §C) ---
+   Pooled nodes parked on an elliptical track; EnemyArrows.ts writes each one's
+   translate+rotate inline from the math in flightHudLayout.ts. The glyph is a
+   CSS triangle pointing along +x, so a rotation of 0 points screen-right and the
+   placement's rotationRad needs no offset. Tints reuse the reticle's own
+   properties: danger for a plain enemy, primary for the lock candidate. */
+.hud-enemy-arrows {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.hud-enemy-arrow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  width: var(--hud-enemy-arrow-size, 20px);
+  height: var(--hud-enemy-arrow-size, 20px);
+  /* Triangle: full height on the left edge, apex at the middle of the right. */
+  clip-path: polygon(0% 0%, 100% 50%, 0% 100%);
+  background: var(--hud-danger, #ff4d5e);
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.6));
+  will-change: transform;
+}
+.hud-enemy-arrow.visible { display: block; }
+.hud-enemy-arrow.candidate { background: var(--hud-primary, #57d8ff); }
+
 /* --- Notifications (top-center toast stack) --- */
 .hud-notifications {
   position: absolute;

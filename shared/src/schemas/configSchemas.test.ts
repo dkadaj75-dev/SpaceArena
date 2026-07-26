@@ -246,7 +246,7 @@ const quality = {
   particles: { enabled: true, budgetMultiplier: 0.7, maxEmitterCapacity: 400 },
   asteroids: { lodMediumDistance: 60, lodLowDistance: 120, lodCullDistance: 0, thinInstances: false },
   projectiles: { useInstances: true },
-  scene: { starfieldPoints: 1500, groundGrid: true, spawnMarkers: true },
+  scene: { starfieldPoints: 1500, boundsGrid: true, spawnMarkers: true },
 };
 
 /** One canonical valid fixture per content type. Keys MUST cover CONFIG_TYPES. */

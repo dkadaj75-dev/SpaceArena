@@ -39,10 +39,12 @@ export const moduleClusterSchema = z.object({
 export type ModuleClusterConfig = z.infer<typeof moduleClusterSchema>;
 
 /**
- * Virtual joystick (FLIGHT.md §4, left thumb). Steer-only: the horizontal axis
- * becomes the flight order's `turn`, the vertical axis is unused for now.
- * Geometry is pivot-relative in the same convention as {@link
- * moduleClusterSchema} — px before `hud.scale`.
+ * Virtual joystick (FLIGHT.md §4, left thumb). Two axes since the bubble
+ * (BUBBLE.md §C): the horizontal axis becomes the flight order's `turn`, the
+ * vertical axis its `pitchStick` (push up = climb, flipped by the player's
+ * `sa.controls.invertPitch` setting — a preference, never content). Geometry is
+ * pivot-relative in the same convention as {@link moduleClusterSchema} — px
+ * before `hud.scale`.
  */
 export const joystickSchema = z.object({
   anchor: hudAnchor.optional(),
@@ -54,11 +56,17 @@ export const joystickSchema = z.object({
   offsetXPx: z.number().nonnegative().optional(),
   /** Extra push away from the anchored horizontal edge. */
   offsetYPx: z.number().nonnegative().optional(),
-  /** Stick travel (0..1 of the base radius) treated as centre — kills thumb drift. */
+  /**
+   * Stick travel (0..1 of the base radius) treated as centre — kills thumb
+   * drift. Shared by BOTH axes: the pitch axis is the same physical thumb on
+   * the same base ring, so a separate vertical deadzone would only make the
+   * stick feel lopsided.
+   */
   deadzone: z.number().min(0).max(0.9).optional(),
   /**
    * Response curve exponent on the de-deadzoned magnitude (1 = linear, >1 =
-   * finer control near centre). Never changes the SIGN of the turn.
+   * finer control near centre). Applies to turn and pitch alike, and never
+   * changes either axis's SIGN.
    */
   expo: z.number().positive().optional(),
 });
@@ -81,8 +89,17 @@ export const throttleStripSchema = z.object({
   offsetXPx: z.number().nonnegative().optional(),
   /** Extra push away from the anchored horizontal edge. */
   offsetYPx: z.number().nonnegative().optional(),
-  /** Desktop W/S + ↑/↓ ramp rate, in throttle fraction per second while held. */
+  /**
+   * Desktop throttle-key ramp rate, in throttle fraction per second while held.
+   * The keys are R/F since the bubble took W/S + ↑/↓ for pitch (BUBBLE.md §C).
+   */
   keyRampPerSec: z.number().positive().optional(),
+  /**
+   * Throttle change per mouse-wheel notch over the strip — the pointer-side
+   * replacement for the W/S nudge. The strip DRAG is unchanged; this is the
+   * one-notch fallback for players who never grab the lever.
+   */
+  wheelStepPerNotch: z.number().positive().optional(),
 });
 export type ThrottleStripConfig = z.infer<typeof throttleStripSchema>;
 
@@ -126,6 +143,13 @@ export const flightOrdersSchema = z.object({
   throttleEpsilon: z.number().positive().optional(),
   /** Minimum |Δturn| that justifies an order. */
   turnEpsilon: z.number().positive().optional(),
+  /**
+   * Minimum |ΔpitchStick| that justifies an order (BUBBLE.md §C). OMITTED ⇒ the
+   * sender reuses `turnEpsilon`: both axes are the same physical thumb on the
+   * same −1..1 scale, so a pack that never asked for a separate pitch feel gets
+   * an identical one instead of an invented number.
+   */
+  pitchEpsilon: z.number().positive().optional(),
   /** Resend interval while the input keeps changing (also the trailing-send delay). */
   heartbeatMs: z.number().positive().optional(),
   /**
@@ -136,12 +160,54 @@ export const flightOrdersSchema = z.object({
 });
 export type FlightOrdersConfig = z.infer<typeof flightOrdersSchema>;
 
-/** The whole flight HUD block: joystick + throttle + boost + reticle + order feel. */
+/**
+ * Off-screen enemy direction arrows (BUBBLE.md §C, the bubble's headline HUD
+ * feature). In 3D an enemy leaves the frame in any direction — including
+ * straight behind — so each one that is not inside the safe viewport rect gets
+ * an arrow parked on an elliptical track inset from the screen edges, rotated
+ * along the screen-space bearing to it.
+ *
+ * Tints are NOT here: they reuse the reticle's own custom properties
+ * (`--hud-danger` for a plain enemy, `--hud-primary` for the current lock
+ * candidate) so a repaint of the lock visuals repaints the arrows with it.
+ */
+export const enemyArrowsSchema = z.object({
+  /** Master switch — false mounts nothing at all. */
+  enabled: z.boolean().optional(),
+  /** Track inset from the LEFT/RIGHT viewport edges to the ellipse's x radius. */
+  insetXPx: z.number().nonnegative().optional(),
+  /** Track inset from the TOP/BOTTOM viewport edges to the ellipse's y radius. */
+  insetYPx: z.number().nonnegative().optional(),
+  /** Arrow glyph side length (it is drawn pointing along +x and rotated). */
+  sizePx: z.number().positive().optional(),
+  /**
+   * Margin inside the viewport an enemy must clear before its arrow appears.
+   * Larger values hand the arrow over before the ship visually touches the
+   * edge, which stops a blip on the rim from flickering between the two.
+   */
+  safeMarginPx: z.number().nonnegative().optional(),
+  /**
+   * Pool ceiling: at most this many arrows exist, ever. Sized for the arena's
+   * ship count — the DOM nodes are created once and reused, never per frame.
+   */
+  maxCount: z.number().int().positive().optional(),
+  /** Distance (world units) at or under which an arrow is fully opaque. */
+  fadeNearUnits: z.number().nonnegative().optional(),
+  /** Distance at or past which an arrow sits at `minOpacity`. Must exceed `fadeNearUnits`. */
+  fadeFarUnits: z.number().nonnegative().optional(),
+  /** Opacity floor for the most distant enemy — 1 disables the distance fade. */
+  minOpacity: z.number().min(0).max(1).optional(),
+});
+export type EnemyArrowsConfig = z.infer<typeof enemyArrowsSchema>;
+
+/** The whole flight HUD block: joystick + throttle + boost + reticle + arrows + order feel. */
 export const flightHudSchema = z.object({
   joystick: joystickSchema.optional(),
   throttle: throttleStripSchema.optional(),
   boost: boostButtonSchema.optional(),
   reticle: lockReticleSchema.optional(),
+  /** Off-screen enemy direction arrows (BUBBLE.md §C). */
+  enemyArrows: enemyArrowsSchema.optional(),
   orders: flightOrdersSchema.optional(),
 });
 export type FlightHudConfig = z.infer<typeof flightHudSchema>;
@@ -155,6 +221,7 @@ export const hudOrientationSchema = z.object({
   scale: z.number().positive().optional(),
   safeAreaInsetPx: z.number().nonnegative().optional(),
   minimapSizePx: z.number().positive().optional(),
+  minimapAltitudeTickPx: z.number().nonnegative().optional(),
   gaugeWidthPx: z.number().positive().optional(),
   thumbZoneFraction: z.number().gt(0).max(1).optional(),
   moduleCluster: moduleClusterSchema.optional(),
@@ -267,6 +334,23 @@ export const juiceSchema = z.object({
       spinDegrees: z.number().optional(),
     })
     .optional(),
+  /**
+   * Visual bank roll — the hull leaning into a turn (BUBBLE.md §C). Purely a
+   * CLIENT decoration: the sim's orientation model is yaw + pitch with no roll,
+   * so nothing here can ever change where a ship flies or what it can shoot.
+   * Derived from the heading delta between snapshots, not from stick input, so
+   * it reads the same for the local player, a remote pilot and a bot.
+   */
+  bank: z
+    .object({
+      /** Peak lean in radians at (or past) `referenceRateRadPerSec`. 0 disables banking. */
+      maxRad: z.number().nonnegative().optional(),
+      /** Turn rate that produces the full `maxRad` lean. */
+      referenceRateRadPerSec: z.number().positive().optional(),
+      /** Roll smoothing 0..1 per 60 Hz frame (higher = snappier); 1 snaps. */
+      lag: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
   /** Explosion variant selection for `entityDestroyed` (effect ids, `fx.*`). */
   explosions: z
     .object({
@@ -375,6 +459,14 @@ export const themeSchema = z.object({
        * FLIGHT.md §6). Set it only to deliberately crop or zoom out.
        */
       minimapRangeUnits: z.number().positive().optional(),
+      /**
+       * Length of the relative-altitude tick drawn beside each minimap blip
+       * (BUBBLE.md §C). The map stays a top-down (x,z) projection, so the tick
+       * is the only thing carrying the bubble's third axis: it grows upward for
+       * a contact above the player and downward for one below, saturating at
+       * this many px. 0 hides the ticks.
+       */
+      minimapAltitudeTickPx: z.number().nonnegative().optional(),
       /** Width of the hull/shield/energy/heat gauge bars. */
       gaugeWidthPx: z.number().positive().optional(),
       /** Max simultaneously visible toast notifications. */

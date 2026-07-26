@@ -11,5 +11,5 @@
   "particles": { "enabled": true, "budgetMultiplier": 0.6, "maxEmitterCapacity": 60 },
   "asteroids": { "lodMediumDistance": 85, "lodLowDistance": 200, "lodCullDistance": 620, "thinInstances": false },
   "projectiles": { "useInstances": true },
-  "scene": { "starfieldPoints": 320, "groundGrid": true, "spawnMarkers": true }
+  "scene": { "starfieldPoints": 320, "boundsGrid": true, "spawnMarkers": true }
 }

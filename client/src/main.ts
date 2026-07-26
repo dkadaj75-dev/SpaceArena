@@ -37,7 +37,7 @@ import { audioSettingsOf } from "./audio/soundIds.js";
 import { ScreenShake } from "./game/juice/ScreenShake.js";
 import { angleDeltaTo } from "./game/chaseCamera.js";
 import type { FlightHudBinding } from "./game/hud/FlightControls.js";
-import type { CameraView } from "./game/hud/flightHudLayout.js";
+import type { CameraView, ProjectedPoint } from "./game/hud/flightHudLayout.js";
 
 const log = createLogger("Client");
 
@@ -266,16 +266,30 @@ async function bootstrap(): Promise<void> {
   const projectWorld = new Vector3();
   const projectResult = new Vector3();
   const flightBinding: FlightHudBinding = {
-    project(x: number, y: number, z: number, out: { x: number; y: number }): boolean {
+    project(x: number, y: number, z: number, out: ProjectedPoint): boolean {
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width <= 0 || height <= 0) return false;
+      // The HUD updates BEFORE `scene.render()` each frame, so on the very first
+      // frame of a match the scene has never computed a view matrix — every later
+      // frame reuses the previous one, which is a frame of lag nobody can see.
+      // Babylon hands back an undefined matrix in that window, and a HUD marker
+      // is not worth a crash.
+      const viewMatrix = scene.getViewMatrix() as Matrix | undefined;
+      if (!viewMatrix) return false;
       projectWorld.set(x, y, z);
-      // Behind-camera check first: `Project` divides by w, so a point behind the
-      // near plane comes back mirrored onto the screen instead of absent. Babylon
-      // is left-handed by default, so view-space +z is in front of the camera.
-      Vector3.TransformCoordinatesToRef(projectWorld, scene.getViewMatrix(), projectResult);
-      if (projectResult.z <= 0.01) return false;
+      // Depth first: `Project` divides by w, so a point behind the camera comes
+      // back MIRRORED through the screen centre rather than absent. Babylon is
+      // left-handed by default, so view-space +z is in front of the camera.
+      //
+      // The mirroring is reported, not rejected (BUBBLE.md §C): the off-screen
+      // arrows undo it to recover the true bearing, which is the only way to
+      // point at an enemy dead astern. Only the degenerate band right at the
+      // camera plane, where the divide blows up, is refused outright.
+      Vector3.TransformCoordinatesToRef(projectWorld, viewMatrix, projectResult);
+      const viewZ = projectResult.z;
+      if (Math.abs(viewZ) <= 0.01) return false;
+      out.behind = viewZ < 0;
       Vector3.ProjectToRef(projectWorld, projectIdentity, scene.getTransformMatrix(), projectViewport, projectResult);
       out.x = projectResult.x * width;
       out.y = projectResult.y * height;
@@ -340,7 +354,7 @@ async function bootstrap(): Promise<void> {
       import.meta.env.DEV && session.bots.size > 0 ? new BotDebugOverlay(scene, session) : null;
 
     const initial = playerShip(session.curSnapshot.ships, session.playerId);
-    if (initial) playerFollow.position.set(initial.pos.x, 0.3, initial.pos.z);
+    if (initial) playerFollow.position.set(initial.pos.x, initial.pos.y, initial.pos.z);
     // Re-arm the follow rig: the Hangar's orbit mode (and the editor's) drop the
     // follow target, and 5.8 lets a player reach the Hangar straight from the
     // results screen — without this a post-Hangar match left the camera parked.
@@ -349,9 +363,11 @@ async function bootstrap(): Promise<void> {
     tacticalCamera.camera.setTarget(tacticalCamera.camera.target);
     // In-match view IS the chase rig (FLIGHT.md §3). Enabled AFTER the setTarget
     // above, which recomputes alpha/beta/radius from the camera position and
-    // would otherwise be undone by (and undo) the chase clamps. Seed its yaw from
-    // the spawn heading so the first frame is already behind the ship.
+    // would otherwise be undone by (and undo) the chase clamps. Seed its yaw AND
+    // tilt from the spawn pose so the first frame is already behind the ship,
+    // looking the way its nose points (BUBBLE.md §C).
     tacticalCamera.setChaseHeading(initial ? initial.heading : 0);
+    tacticalCamera.setChasePitch(initial ? initial.pitch : 0);
     tacticalCamera.setChaseMode(true);
 
     const audioFeedback = new AudioFeedback(configService, session.playerId, audio);
@@ -396,6 +412,7 @@ async function bootstrap(): Promise<void> {
     tacticalCamera.setPanSensitivityScale(values.cameraPanSens);
     runtime?.screenShake.setUserEnabled(values.cameraShake);
     runtime?.hud.setHapticsEnabled(values.haptics);
+    runtime?.hud.setInvertPitch(values.invertPitch);
   }
 
   applyUserSettings();
@@ -616,13 +633,25 @@ async function bootstrap(): Promise<void> {
       const pc = playerShip(cur.ships, runtime.session.playerId);
       if (pc) {
         const bx = pp ? pp.pos.x : pc.pos.x;
+        // The follow point tracks the ship's ALTITUDE too (BUBBLE.md §C) — it
+        // used to be pinned to the old ground-plane offset, which would have left
+        // the camera at sea level while the player climbed the bubble.
+        const by = pp ? pp.pos.y : pc.pos.y;
         const bz = pp ? pp.pos.z : pc.pos.z;
-        playerFollow.position.set(bx + (pc.pos.x - bx) * alpha, 0.3, bz + (pc.pos.z - bz) * alpha);
+        playerFollow.position.set(
+          bx + (pc.pos.x - bx) * alpha,
+          by + (pc.pos.y - by) * alpha,
+          bz + (pc.pos.z - bz) * alpha,
+        );
         // Chase yaw follows the same interpolated ship the view draws. Lerped
         // the SHORT way round so a wrap past ±π never spins the camera a full
         // turn; `chase.yawLag` inside the rig does the actual smoothing.
         const base = pp ? pp.heading : pc.heading;
         tacticalCamera.setChaseHeading(base + angleDeltaTo(base, pc.heading) * alpha);
+        // Pitch interpolates linearly: it is clamped to ±maxPitchRad and never
+        // wraps, so there is no short way round to take.
+        const basePitch = pp ? pp.pitch : pc.pitch;
+        tacticalCamera.setChasePitch(basePitch + (pc.pitch - basePitch) * alpha);
       }
 
       // Consume this frame's sim events, then render dynamic views + markers + HUD.

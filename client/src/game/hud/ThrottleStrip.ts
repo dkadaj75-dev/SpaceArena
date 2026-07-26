@@ -1,6 +1,6 @@
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { anchoredBoxOffset, type FlightHudLayout } from "./flightHudLayout.js";
-import { clamp, throttleFromPointer, thumbTopPx } from "./flightInput.js";
+import { clamp, throttleFromPointer, throttleFromWheel, thumbTopPx } from "./flightInput.js";
 
 /**
  * Right-edge vertical throttle lever (FLIGHT.md §4). Same shape as
@@ -17,6 +17,12 @@ import { clamp, throttleFromPointer, thumbTopPx } from "./flightInput.js";
  * {@link import("./flightInput.js").throttleFromPointer}): the thumb centre
  * follows the finger except within half a thumb of either end, where it clamps
  * — so 0 % and 100 % are always reachable by dragging past the end.
+ *
+ * A mouse WHEEL over the track nudges the lever by `wheelStepPerNotch`
+ * (BUBBLE.md §C): the desktop W/S nudge moved to the pitch axis, and a wheel is
+ * the pointer-hand equivalent for a player who never grabs the lever. The drag
+ * is unchanged, and a wheel arriving mid-drag is ignored for the same reason the
+ * keys are — whatever the player is holding wins.
  */
 export class ThrottleStrip {
   private readonly container: HTMLDivElement;
@@ -56,6 +62,17 @@ export class ThrottleStrip {
     // Deliberately no reset: the lever holds its last position.
   };
 
+  private readonly onWheel = (ev: WheelEvent): void => {
+    if (this.pointerId !== null) return;
+    const next = throttleFromWheel(this.value, ev.deltaY, this.layout.throttle.wheelStepPerNotch);
+    // Consumed either way: a wheel over a flight control must never scroll the
+    // page, even at the ends of the lever's travel.
+    ev.preventDefault();
+    if (next === this.value) return;
+    this.value = next;
+    this.render();
+  };
+
   constructor(root: HTMLElement, layout: FlightHudLayout) {
     this.layout = layout;
 
@@ -85,6 +102,9 @@ export class ThrottleStrip {
     this.track.addEventListener("pointerup", this.onPointerUp);
     this.track.addEventListener("pointercancel", this.onPointerUp);
     this.track.addEventListener("lostpointercapture", this.onPointerUp);
+    // Not passive: the handler calls preventDefault() so the page never scrolls
+    // under a wheel aimed at the lever.
+    this.track.addEventListener("wheel", this.onWheel, { passive: false });
 
     this.applyLayout(layout);
   }
@@ -116,7 +136,7 @@ export class ThrottleStrip {
   }
 
   /**
-   * Set the lever from outside the widget — the desktop W/S ramp and the
+   * Set the lever from outside the widget — the desktop R/F ramp and the
    * per-match reset. Ignored mid-drag so a stuck key cannot fight the thumb.
    */
   setThrottle(value: number): void {
@@ -160,6 +180,7 @@ export class ThrottleStrip {
     this.track.removeEventListener("pointerup", this.onPointerUp);
     this.track.removeEventListener("pointercancel", this.onPointerUp);
     this.track.removeEventListener("lostpointercapture", this.onPointerUp);
+    this.track.removeEventListener("wheel", this.onWheel);
     this.container.remove();
   }
 }

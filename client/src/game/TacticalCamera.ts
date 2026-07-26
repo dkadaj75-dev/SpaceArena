@@ -16,8 +16,11 @@ import {
 } from "@space-arena/shared";
 import {
   approachHeading,
+  approachPitch,
   chaseAlphaFor,
+  chaseBetaFor,
   chaseSettingsOf,
+  CHASE_BETA_POLE_MARGIN,
   DEFAULT_CHASE_SETTINGS,
   type ChaseSettings,
 } from "./chaseCamera.js";
@@ -82,6 +85,10 @@ export class TacticalCamera {
   private chaseHeading = 0;
   /** Smoothed heading the orbit alpha is derived from; null until the first frame seeds it. */
   private chaseSmoothHeading: number | null = null;
+  /** Latest sim pitch pushed in by the render loop (radians, positive climbing). */
+  private chasePitch = 0;
+  /** Smoothed pitch the orbit beta is derived from; null until the first frame seeds it. */
+  private chaseSmoothPitch: number | null = null;
   /** Engine default FOV, captured at construction so leaving chase mode restores it. */
   private readonly defaultFov: number;
   private pointersInput: { buttons: number[] } | undefined;
@@ -266,8 +273,10 @@ export class TacticalCamera {
    *
    *  - `alpha` is derived every frame from the SHIP's heading
    *    ({@link chaseCamera.chaseAlphaFor}) after `chase.yawLag` smoothing;
-   *  - `beta`/`radius` are pinned to the `chase` block, and the orbit limits are
-   *    collapsed onto those values so wheel/pinch zoom cannot fight them;
+   *  - `beta` is derived from the ship's PITCH ({@link chaseCamera.chaseBetaFor})
+   *    after `chase.pitchLag` smoothing — the bubble's vertical half of the same
+   *    idea (BUBBLE.md §C); `radius` is pinned to the `chase` block and the
+   *    radius limits are collapsed onto it so wheel/pinch zoom cannot fight it;
    *  - the follow point is lifted by `chase.height` so the rig looks over the
    *    ship's shoulder instead of through it.
    *
@@ -278,6 +287,7 @@ export class TacticalCamera {
     this.chaseMode = enabled;
     this.activeTouches.clear();
     this.chaseSmoothHeading = null;
+    this.chaseSmoothPitch = null;
     if (enabled) {
       this.applyChaseLimits();
       return;
@@ -302,10 +312,26 @@ export class TacticalCamera {
   }
 
   /**
-   * Collapse the orbit clamps onto the chase block's beta/radius. Babylon clamps
-   * `radius`/`beta` inside its own input handling, so equal lower/upper limits
-   * is what makes wheel zoom and pinch inert without detaching the inputs (the
+   * Push this frame's ship pitch (radians, sim convention: positive = climbing).
+   * Called once per render frame alongside {@link setChaseHeading}; the
+   * `pitchLag` smoothing in {@link update} turns it into orbit beta.
+   */
+  setChasePitch(pitch: number): void {
+    this.chasePitch = pitch;
+  }
+
+  /**
+   * Collapse the orbit clamps for chase mode. Babylon clamps `radius`/`beta`
+   * inside its own per-frame `_checkLimits()`, so equal lower/upper limits is
+   * what makes wheel zoom and pinch inert without detaching the inputs (the
    * wheel input is shared with the editor/hangar modes).
+   *
+   * Radius is pinned outright. Beta is NOT: since the bubble it follows the
+   * ship's pitch (BUBBLE.md §C), so the limits open onto the full legal band and
+   * {@link chaseCamera.chaseBetaFor}'s own pole margin is what bounds it. Pinning
+   * beta here would have Babylon clamp every climb straight back to the base
+   * tilt. Nothing is given back to the player by widening it — chase mode has no
+   * beta input at all (`onPointer` returns early, and the wheel only zooms).
    *
    * `chase.fov` is optional and an ABSENT value means "keep the engine default",
    * so a null restores the captured `defaultFov` instead of leaving whatever a
@@ -313,11 +339,11 @@ export class TacticalCamera {
    * actually take effect.
    */
   private applyChaseLimits(): void {
-    this.camera.lowerBetaLimit = this.chase.beta;
-    this.camera.upperBetaLimit = this.chase.beta;
+    this.camera.lowerBetaLimit = CHASE_BETA_POLE_MARGIN;
+    this.camera.upperBetaLimit = Math.PI - CHASE_BETA_POLE_MARGIN;
     this.camera.lowerRadiusLimit = this.chase.radius;
     this.camera.upperRadiusLimit = this.chase.radius;
-    this.camera.beta = this.chase.beta;
+    this.camera.beta = chaseBetaFor(this.chase.beta, this.chasePitch, this.chase.pitchFollow);
     this.camera.radius = this.chase.radius;
     this.camera.fov = this.chase.fov ?? this.defaultFov;
   }
@@ -490,8 +516,14 @@ export class TacticalCamera {
           ? this.chaseHeading
           : approachHeading(this.chaseSmoothHeading, this.chaseHeading, this.chase.yawLag, dt);
       this.camera.alpha = chaseAlphaFor(this.chaseSmoothHeading);
+      // Tilt follows the ship's pitch the same way (BUBBLE.md §C), on its own lag
+      // and WITHOUT the shortest-way-round step — pitch does not wrap.
+      this.chaseSmoothPitch =
+        this.chaseSmoothPitch === null
+          ? this.chasePitch
+          : approachPitch(this.chaseSmoothPitch, this.chasePitch, this.chase.pitchLag, dt);
       // Re-asserted every frame so a hot-reloaded chase block applies live.
-      this.camera.beta = this.chase.beta;
+      this.camera.beta = chaseBetaFor(this.chase.beta, this.chaseSmoothPitch, this.chase.pitchFollow);
       this.camera.radius = this.chase.radius;
       this.camera.target.copyFrom(this.followPoint);
       this.camera.target.y += this.chase.height;

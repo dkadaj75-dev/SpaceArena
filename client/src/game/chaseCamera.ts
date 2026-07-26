@@ -40,8 +40,13 @@ import type { CameraConfig } from "@space-arena/shared";
 export interface ChaseSettings {
   radius: number;
   height: number;
+  /** BASE tilt — the tilt seen while flying LEVEL; the ship's pitch is added to it. */
   beta: number;
   yawLag: number;
+  /** How much of the ship's pitch the tilt follows, 0..1 (see {@link chaseBetaFor}). */
+  pitchFollow: number;
+  /** Tilt smoothing, 0..1 like `yawLag`. */
+  pitchLag: number;
   /**
    * Vertical FOV in radians, or **null to keep the engine default** — an absent
    * `fov` is a genuine "don't touch it", not a substituted number. The rig
@@ -53,15 +58,25 @@ export interface ChaseSettings {
 
 /**
  * Built-in chase feel, used when a content pack ships no `camera.chase` block.
- * Deliberately the same numbers as `content/camera/default.json` — except `fov`,
- * which is null here for the same reason it is optional in the schema: there is
- * no defensible FOV to invent for a pack that never asked for one.
+ * Deliberately the same numbers as `content/camera/default.json`, with two
+ * documented exceptions:
+ *
+ *  - `fov` is null here for the same reason it is optional in the schema: there
+ *    is no defensible FOV to invent for a pack that never asked for one;
+ *  - `pitchFollow` is a FULL 1 — "no follow configured" can only honestly mean
+ *    "look down the nose", and softening it is a feel choice the shipped pack
+ *    makes (0.85) rather than something to bake in as the fallback.
+ *
+ * `pitchLag` has no built-in of its own: an omitted value resolves to `yawLag`,
+ * which keeps both axes matched for a pack that never asked for a pitch feel.
  */
 export const DEFAULT_CHASE_SETTINGS: ChaseSettings = {
   radius: 14,
   height: 1.4,
   beta: 1.34,
   yawLag: 0.12,
+  pitchFollow: 1,
+  pitchLag: 0.12,
   fov: null,
 };
 
@@ -69,11 +84,15 @@ export const DEFAULT_CHASE_SETTINGS: ChaseSettings = {
 export function chaseSettingsOf(camera: CameraConfig | undefined): ChaseSettings {
   const c = camera?.chase;
   const d = DEFAULT_CHASE_SETTINGS;
+  const yawLag = c?.yawLag ?? d.yawLag;
   return {
     radius: c?.radius ?? d.radius,
     height: c?.height ?? d.height,
     beta: c?.beta ?? d.beta,
-    yawLag: c?.yawLag ?? d.yawLag,
+    yawLag,
+    pitchFollow: c?.pitchFollow ?? d.pitchFollow,
+    // Omitted ⇒ the tilt smooths exactly like the yaw does.
+    pitchLag: c?.pitchLag ?? yawLag,
     fov: c?.fov ?? d.fov, // both null-by-default: absent everywhere ⇒ engine default
   };
 }
@@ -86,6 +105,54 @@ export function chaseSettingsOf(camera: CameraConfig | undefined): ChaseSettings
  */
 export function chaseAlphaFor(heading: number): number {
   return heading + Math.PI;
+}
+
+/**
+ * Angular margin the orbit tilt keeps from both poles (radians).
+ *
+ * `ArcRotateCamera` degenerates at `beta = 0` and `beta = π`: the orbit offset
+ * collapses onto ±Y, the look-at basis loses its right vector and the view rolls
+ * or flips. The bubble's own `tuning.maxPitchRad` (~80°) plus a base tilt under
+ * π/2 keeps a shipped pack clear of that, but the margin is what makes the rig
+ * unbreakable by content — an arena that raises the pitch clamp cannot spin the
+ * camera through a pole, it just stops following the last few degrees.
+ */
+export const CHASE_BETA_POLE_MARGIN = 0.05;
+
+/**
+ * Orbit `beta` for a ship at `pitch` (BUBBLE.md §C).
+ *
+ * `beta = base + pitch × pitchFollow`, clamped {@link CHASE_BETA_POLE_MARGIN}
+ * short of both poles. The `+` is derived, not chosen: to sit behind a ship
+ * flying along `(cos p·cos h, sin p, cos p·sin h)` the camera offset must point
+ * along the NEGATIVE of that, so its y component is `−R·sin p`; the orbit's y
+ * offset is `R·cos β`, and `cos β = −sin p` gives `β = π/2 + p`. A base tilt
+ * below π/2 (which is what lifts the camera above the ship in level flight)
+ * simply rides along with that.
+ *
+ * `pitchFollow` interpolates between a fixed frame (0 — the ship pitches inside
+ * a level view) and looking straight down the nose (1).
+ */
+export function chaseBetaFor(baseBeta: number, pitch: number, pitchFollow: number): number {
+  const beta = baseBeta + pitch * pitchFollow;
+  const lo = CHASE_BETA_POLE_MARGIN;
+  const hi = Math.PI - CHASE_BETA_POLE_MARGIN;
+  return beta < lo ? lo : beta > hi ? hi : beta;
+}
+
+/**
+ * Frame-rate-independent exponential approach on a NON-WRAPPING angle — the
+ * ship's pitch, which is clamped to ±`tuning.maxPitchRad` and never crosses ±π.
+ * Same `1 − (1 − lag)^(dt·60)` curve as {@link approachHeading}, deliberately
+ * WITHOUT its shortest-way-round step: pitch has no wrap to take a short cut
+ * across, and treating −0.5 and +6.0 as neighbours would be a bug, not a
+ * feature. `lag >= 1` snaps.
+ */
+export function approachPitch(current: number, target: number, lag: number, dt: number): number {
+  if (lag >= 1 || dt <= 0) return target;
+  if (lag <= 0) return current;
+  const t = 1 - Math.pow(1 - lag, dt * 60);
+  return current + (target - current) * t;
 }
 
 /**

@@ -20,7 +20,8 @@
     "safeAreaInsetPx": 12,
     "moduleButtonGapPx": 10,
     "minimapSizePx": 128,
-      "gaugeWidthPx": 132,
+    "minimapAltitudeTickPx": 6,
+    "gaugeWidthPx": 132,
     "notificationMaxVisible": 3,
     "thumbZoneFraction": 0.4,
     "moduleCluster": {
@@ -52,7 +53,8 @@
         "thumbHeightPx": 26,
         "offsetXPx": 6,
         "offsetYPx": 212,
-        "keyRampPerSec": 0.9
+        "keyRampPerSec": 0.9,
+        "wheelStepPerNotch": 0.06
       },
       "boost": {
         "anchor": "bottom-right",
@@ -66,6 +68,17 @@
         "strokePx": 2,
         "bracketSizePx": 54,
         "ringStrokePx": 4
+      },
+      "enemyArrows": {
+        "enabled": true,
+        "insetXPx": 34,
+        "insetYPx": 46,
+        "sizePx": 20,
+        "safeMarginPx": 26,
+        "maxCount": 8,
+        "fadeNearUnits": 60,
+        "fadeFarUnits": 320,
+        "minOpacity": 0.35
       },
       "orders": {
         "throttleEpsilon": 0.02,
@@ -162,6 +175,11 @@
       "extendDistance": 0.18,
       "overshoot": 0.9,
       "spinDegrees": 45
+    },
+    "bank": {
+      "maxRad": 0.45,
+      "referenceRateRadPerSec": 1.5,
+      "lag": 0.12
     },
     "explosions": {
       "default": "fx.explosion-medium",

@@ -3,15 +3,20 @@ import type { ThemeConfig } from "@space-arena/shared";
 import {
   anchoredBoxOffset,
   anchoredOffset,
+  arrowOpacity,
   flightCssVars,
   FLIGHT_HUD_DEFAULTS,
   FLIGHT_ORDER_BUDGET_SHARE,
   joystickReachPx,
+  offScreenArrowPlacement,
   orderMinIntervalMs,
   resolveFlightHudLayout,
   reticleRadiusPx,
+  type ArrowPlacement,
   type CameraView,
+  type EnemyArrowsLayout,
   type FlightHudLayout,
+  type ProjectedPoint,
 } from "./flightHudLayout.js";
 
 /** The shipped theme's flight block, inlined so the test pins behaviour, not content. */
@@ -61,6 +66,50 @@ describe("resolveFlightHudLayout", () => {
     expect(layout.throttle.heightPx).toBe(200);
     expect(layout.boost.icon).toBe("»");
     expect(layout.orders.heartbeatMs).toBe(250);
+  });
+
+  it("reuses turnEpsilon for an omitted pitchEpsilon, so both stick axes match", () => {
+    const layout = resolveFlightHudLayout(theme(), PORTRAIT);
+    expect(layout.orders.turnEpsilon).toBe(0.05);
+    expect(layout.orders.pitchEpsilon).toBe(0.05);
+
+    const decoupled = theme({
+      flight: { orders: { turnEpsilon: 0.2, pitchEpsilon: 0.01 } },
+    });
+    const resolved = resolveFlightHudLayout(decoupled, PORTRAIT);
+    expect(resolved.orders.turnEpsilon).toBe(0.2);
+    expect(resolved.orders.pitchEpsilon).toBe(0.01);
+    // Still derived when only the turn side moves.
+    const shifted = resolveFlightHudLayout(theme({ flight: { orders: { turnEpsilon: 0.2 } } }), PORTRAIT);
+    expect(shifted.orders.pitchEpsilon).toBe(0.2);
+  });
+
+  it("resolves the enemy-arrow block, scaling geometry but not counts or distances", () => {
+    const arrows = theme({
+      flight: {
+        enemyArrows: { insetXPx: 40, insetYPx: 50, sizePx: 20, safeMarginPx: 30, maxCount: 6, fadeFarUnits: 300 },
+      },
+      scale: 2,
+    });
+    const layout = resolveFlightHudLayout(arrows, PORTRAIT);
+    expect(layout.enemyArrows.insetXPx).toBe(80);
+    expect(layout.enemyArrows.sizePx).toBe(40);
+    expect(layout.enemyArrows.safeMarginPx).toBe(60);
+    // Counts are ships and distances are world units — neither is screen geometry.
+    expect(layout.enemyArrows.maxCount).toBe(6);
+    expect(layout.enemyArrows.fadeFarUnits).toBe(300);
+    // Absent knobs fall back per field, master switch included.
+    expect(layout.enemyArrows.enabled).toBe(FLIGHT_HUD_DEFAULTS.enemyArrows.enabled);
+    expect(layout.enemyArrows.minOpacity).toBe(FLIGHT_HUD_DEFAULTS.enemyArrows.minOpacity);
+  });
+
+  it("resolves the throttle's wheel step (the pointer-side nudge)", () => {
+    expect(resolveFlightHudLayout(theme(), PORTRAIT).throttle.wheelStepPerNotch).toBe(
+      FLIGHT_HUD_DEFAULTS.throttle.wheelStepPerNotch,
+    );
+    const custom = theme({ flight: { throttle: { wheelStepPerNotch: 0.25 } } });
+    // Feel, not geometry: never scaled.
+    expect(resolveFlightHudLayout(custom, LANDSCAPE).throttle.wheelStepPerNotch).toBe(0.25);
   });
 
   it("falls back to the built-in defaults for a theme with no flight block at all", () => {
@@ -132,8 +181,9 @@ describe("joystickReachPx / flightCssVars", () => {
 });
 
 /**
- * FLIGHT.md §4: the circle must be an honest envelope of the sim's ground-plane
- * lock cone under the live chase camera, not a decorative ring.
+ * FLIGHT.md §4: the circle must be an honest envelope of the sim's facing-relative
+ * lock cone under the live chase camera, not a decorative ring. BUBBLE.md §C adds
+ * the pitch axis, which is why the ship's own pitch is part of the geometry.
  */
 describe("reticleRadiusPx", () => {
   // A roomy viewport and narrow cones, so the honest projection is exercised
@@ -197,6 +247,230 @@ describe("reticleRadiusPx", () => {
     const portrait = reticleRadiusPx(178, level, { width: 400, height: 800 }, RETICLE);
     const landscape = reticleRadiusPx(178, level, { width: 800, height: 400 }, RETICLE);
     expect(landscape.radiusPx).toBe(portrait.radiusPx);
+  });
+
+  /**
+   * BUBBLE.md §C — the cone follows the nose and so does the camera, so the tilt
+   * this projection cares about is the DIFFERENCE. Getting this wrong would swell
+   * the reticle through every climb and shrink it through every dive, while the
+   * sim's zone never moved at all.
+   */
+  describe("with the ship pitched (BUBBLE.md §C)", () => {
+    const BASE = 1.34;
+
+    it("holds the circle steady through a climb when the camera follows pitch fully", () => {
+      const levelSize = reticleRadiusPx(20, { fovRad: 1.05, betaRad: BASE }, VIEWPORT, RETICLE, 0);
+      for (const pitch of [-1.4, -0.5, 0.5, 1.4]) {
+        // pitchFollow 1 ⇒ beta = base + pitch, so the effective tilt is `base`.
+        const climbing = reticleRadiusPx(
+          20,
+          { fovRad: 1.05, betaRad: BASE + pitch },
+          VIEWPORT,
+          RETICLE,
+          pitch,
+        );
+        expect(climbing.radiusPx).toBeCloseTo(levelSize.radiusPx, 9);
+      }
+    });
+
+    it("uses beta − pitch, not beta", () => {
+      // A nose-up ship under a camera that did NOT follow it is viewed further off
+      // its own axis, i.e. more side-on — which puts MORE of the cone in frame,
+      // the same way lifting the camera off level does.
+      const ignoredPitch = reticleRadiusPx(20, { fovRad: 1.05, betaRad: BASE }, VIEWPORT, RETICLE, 0);
+      const pitchedUp = reticleRadiusPx(20, { fovRad: 1.05, betaRad: BASE }, VIEWPORT, RETICLE, 0.6);
+      expect(pitchedUp.radiusPx).toBeGreaterThan(ignoredPitch.radiusPx);
+      // Equivalence with the un-pitched case at the same effective tilt.
+      const equivalent = reticleRadiusPx(
+        20,
+        { fovRad: 1.05, betaRad: BASE - 0.6 },
+        VIEWPORT,
+        RETICLE,
+        0,
+      );
+      expect(pitchedUp.radiusPx).toBeCloseTo(equivalent.radiusPx, 9);
+    });
+
+    it("clamps rather than inverting when the effective tilt leaves the front hemisphere", () => {
+      // A pitch past the camera's tilt would put the cone axis behind the view
+      // axis; the pole margin in chaseBetaFor keeps a real rig out of this, and
+      // the clamp is the answer if content ever gets there anyway.
+      const degenerate = reticleRadiusPx(20, { fovRad: 1.05, betaRad: 0.4 }, VIEWPORT, RETICLE, 1.4);
+      expect(degenerate.clamped).toBe(true);
+      expect(Number.isFinite(degenerate.radiusPx)).toBe(true);
+    });
+
+    it("defaults to a level ship when no pitch is supplied", () => {
+      expect(reticleRadiusPx(20, level, VIEWPORT, RETICLE)).toEqual(
+        reticleRadiusPx(20, level, VIEWPORT, RETICLE, 0),
+      );
+    });
+  });
+});
+
+/**
+ * BUBBLE.md §C — the off-screen enemy arrows. Three things have to be right or
+ * the feature actively misleads: WHEN an arrow appears, WHERE on the track it
+ * lands, and which way the glyph points once a contact is behind the camera.
+ */
+describe("offScreenArrowPlacement", () => {
+  const VIEWPORT = { width: 800, height: 600 };
+  const CENTRE = { x: 400, y: 300 };
+  const ARROWS: EnemyArrowsLayout = {
+    enabled: true,
+    insetXPx: 40, // ⇒ x radius 360
+    insetYPx: 50, // ⇒ y radius 250
+    sizePx: 20,
+    safeMarginPx: 30,
+    maxCount: 8,
+    fadeNearUnits: 60,
+    fadeFarUnits: 320,
+    minOpacity: 0.35,
+  };
+  const RX = VIEWPORT.width / 2 - ARROWS.insetXPx;
+  const RY = VIEWPORT.height / 2 - ARROWS.insetYPx;
+
+  function place(x: number, y: number, behind = false): ArrowPlacement | null {
+    const out: ArrowPlacement = { x: 0, y: 0, rotationRad: 0 };
+    const point: ProjectedPoint = { x, y, behind };
+    return offScreenArrowPlacement(point, VIEWPORT, ARROWS, out) ? out : null;
+  }
+
+  /** Every track point must satisfy the ellipse equation — that IS the track. */
+  function onEllipse(p: ArrowPlacement): number {
+    return ((p.x - CENTRE.x) / RX) ** 2 + ((p.y - CENTRE.y) / RY) ** 2;
+  }
+
+  it("draws nothing for an enemy comfortably inside the safe rect", () => {
+    expect(place(CENTRE.x, CENTRE.y)).toBeNull();
+    expect(place(ARROWS.safeMarginPx + 1, ARROWS.safeMarginPx + 1)).toBeNull();
+    expect(place(VIEWPORT.width - ARROWS.safeMarginPx - 1, VIEWPORT.height - ARROWS.safeMarginPx - 1)).toBeNull();
+  });
+
+  it("hands the arrow over at the safe margin, before the blip touches the edge", () => {
+    // The margin is what stops a contact on the rim flickering between the ship
+    // and its own arrow.
+    expect(place(CENTRE.x, ARROWS.safeMarginPx + 1)).toBeNull();
+    expect(place(CENTRE.x, ARROWS.safeMarginPx - 1)).not.toBeNull();
+    expect(place(ARROWS.safeMarginPx - 1, CENTRE.y)).not.toBeNull();
+  });
+
+  it("parks the arrow on the ellipse, pointing along the bearing to the enemy", () => {
+    // Straight up: the track's top, glyph rotated to -90°.
+    const up = place(CENTRE.x, -500)!;
+    expect(up.x).toBeCloseTo(CENTRE.x, 6);
+    expect(up.y).toBeCloseTo(CENTRE.y - RY, 6);
+    expect(up.rotationRad).toBeCloseTo(-Math.PI / 2, 6);
+
+    // Straight right: the track's right edge, rotation 0 (the glyph's own axis).
+    const right = place(2000, CENTRE.y)!;
+    expect(right.x).toBeCloseTo(CENTRE.x + RX, 6);
+    expect(right.y).toBeCloseTo(CENTRE.y, 6);
+    expect(right.rotationRad).toBeCloseTo(0, 6);
+
+    const down = place(CENTRE.x, 5000)!;
+    expect(down.rotationRad).toBeCloseTo(Math.PI / 2, 6);
+    const left = place(-900, CENTRE.y)!;
+    expect(Math.abs(left.rotationRad)).toBeCloseTo(Math.PI, 6);
+  });
+
+  it("stays ON the ellipse at every bearing — no rectangular corner jump", () => {
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 16) {
+      const p = place(CENTRE.x + Math.cos(a) * 5000, CENTRE.y + Math.sin(a) * 5000)!;
+      expect(p).not.toBeNull();
+      expect(onEllipse(p)).toBeCloseTo(1, 9);
+      // The glyph always points the way the enemy is.
+      expect(p.rotationRad).toBeCloseTo(Math.atan2(Math.sin(a), Math.cos(a)), 6);
+    }
+  });
+
+  it("respects the inset: the track never touches the viewport edge", () => {
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 12) {
+      const p = place(CENTRE.x + Math.cos(a) * 5000, CENTRE.y + Math.sin(a) * 5000)!;
+      expect(p.x).toBeGreaterThanOrEqual(ARROWS.insetXPx);
+      expect(p.x).toBeLessThanOrEqual(VIEWPORT.width - ARROWS.insetXPx);
+      expect(p.y).toBeGreaterThanOrEqual(ARROWS.insetYPx);
+      expect(p.y).toBeLessThanOrEqual(VIEWPORT.height - ARROWS.insetYPx);
+    }
+  });
+
+  it("FLIPS a behind-camera contact, because its projection is mirrored", () => {
+    // Babylon's projection divides by a negative w, so an enemy behind and to the
+    // player's left comes back on the RIGHT of the screen. Pointing at the raw
+    // projection would send the pilot exactly the wrong way.
+    const front = place(CENTRE.x - 900, CENTRE.y)!;
+    const mirrored = place(CENTRE.x + 900, CENTRE.y, true)!;
+    expect(mirrored.x).toBeCloseTo(front.x, 6);
+    expect(mirrored.y).toBeCloseTo(front.y, 6);
+    // Straight left is the branch cut: `atan2` reports it as +π one way round and
+    // −π the other. Same direction, so compare the cosine/sine, not the number.
+    expect(Math.cos(mirrored.rotationRad)).toBeCloseTo(Math.cos(front.rotationRad), 6);
+    expect(Math.sin(mirrored.rotationRad)).toBeCloseTo(Math.sin(front.rotationRad), 6);
+
+    const diagonal = place(CENTRE.x + 300, CENTRE.y - 200, true)!;
+    expect(diagonal.rotationRad).toBeCloseTo(Math.atan2(200, -300), 6);
+  });
+
+  it("draws an arrow for a behind-camera enemy even when it projects ON SCREEN", () => {
+    // The whole reason `behind` had to reach the HUD: the mirrored projection can
+    // land dead centre, where the "is it off screen" test would say "no arrow".
+    const p = place(CENTRE.x + 10, CENTRE.y + 10, true);
+    expect(p).not.toBeNull();
+    expect(onEllipse(p!)).toBeCloseTo(1, 9);
+  });
+
+  it("points DOWN for an enemy dead astern, which has no screen bearing at all", () => {
+    const p = place(CENTRE.x, CENTRE.y, true)!;
+    expect(p.rotationRad).toBeCloseTo(Math.PI / 2, 9);
+    expect(p.x).toBeCloseTo(CENTRE.x, 9);
+    expect(p.y).toBeCloseTo(CENTRE.y + RY, 9);
+  });
+
+  it("survives a viewport smaller than its own insets instead of inverting", () => {
+    const out: ArrowPlacement = { x: 0, y: 0, rotationRad: 0 };
+    const tiny = { width: 60, height: 40 };
+    expect(offScreenArrowPlacement({ x: 500, y: 20, behind: false }, tiny, ARROWS, out)).toBe(true);
+    expect(Number.isFinite(out.x)).toBe(true);
+    expect(Number.isFinite(out.y)).toBe(true);
+    // A degenerate viewport (pre-layout) draws nothing rather than NaN.
+    expect(offScreenArrowPlacement({ x: 5, y: 5, behind: true }, { width: 0, height: 0 }, ARROWS, out)).toBe(false);
+  });
+
+  it("writes into the caller's object and leaves it untouched when there is no arrow", () => {
+    const out: ArrowPlacement = { x: -1, y: -1, rotationRad: -1 };
+    expect(offScreenArrowPlacement({ x: CENTRE.x, y: CENTRE.y, behind: false }, VIEWPORT, ARROWS, out)).toBe(false);
+    expect(out).toEqual({ x: -1, y: -1, rotationRad: -1 });
+  });
+});
+
+describe("arrowOpacity", () => {
+  const ARROWS: EnemyArrowsLayout = {
+    enabled: true,
+    insetXPx: 34,
+    insetYPx: 46,
+    sizePx: 20,
+    safeMarginPx: 26,
+    maxCount: 8,
+    fadeNearUnits: 60,
+    fadeFarUnits: 320,
+    minOpacity: 0.35,
+  };
+
+  it("is opaque up to the near distance and floors at the far one", () => {
+    expect(arrowOpacity(0, ARROWS)).toBe(1);
+    expect(arrowOpacity(60, ARROWS)).toBe(1);
+    expect(arrowOpacity(320, ARROWS)).toBe(0.35);
+    expect(arrowOpacity(9999, ARROWS)).toBe(0.35);
+  });
+
+  it("interpolates linearly between them", () => {
+    expect(arrowOpacity(190, ARROWS)).toBeCloseTo(0.675, 9);
+  });
+
+  it("disables the fade for minOpacity 1 or a non-increasing band", () => {
+    expect(arrowOpacity(500, { ...ARROWS, minOpacity: 1 })).toBe(1);
+    expect(arrowOpacity(500, { ...ARROWS, fadeFarUnits: ARROWS.fadeNearUnits })).toBe(1);
+    expect(arrowOpacity(500, { ...ARROWS, fadeFarUnits: 0 })).toBe(1);
   });
 });
 

@@ -28,9 +28,14 @@ interface RunResult {
   orders: number;
   /** Order counts by kind, so "bots fly like humans" is checkable. */
   orderKinds: Record<string, number>;
-  start: Map<EntityId, { x: number; z: number }>;
-  end: Map<EntityId, { x: number; z: number }>;
+  start: Map<EntityId, { x: number; y: number; z: number }>;
+  end: Map<EntityId, { x: number; y: number; z: number; pitch: number }>;
   botIds: EntityId[];
+  /** Largest |pitch| any bot ever held — 0 would mean the vertical axis was dead. */
+  peakPitch: number;
+  /** Widest and tightest |Δy| between the two bots over the match. */
+  peakVerticalGap: number;
+  minVerticalGap: number;
   /** Every module state a bot ship was ever seen in. */
   seenStates: Set<string>;
   /** Highest normalized lock progress any bot reached (FLIGHT.md §2). */
@@ -68,6 +73,13 @@ function runMatch(
      * there is no `Math.random` fallback any more (review Finding 2).
      */
     seedDrivers?: boolean;
+    /**
+     * Altitude to place bot `i` at immediately after spawn (BUBBLE.md §D). Both
+     * shipped arenas still author `y: 0` spawns — that is T5's job — so a test that
+     * wants a genuinely vertical engagement has to displace the ships itself. It
+     * writes the transform the same way a spawn point would, before the first tick.
+     */
+    spawnY?: number[];
   } = {},
 ): RunResult {
   const sim = new ArenaSimulation(configs, arenaId, "gamemode.practice-bots", seed);
@@ -79,6 +91,8 @@ function runMatch(
     const shipId = "ship.interceptor";
     const ship = configs.get<ShipConfig>("ship", shipId)!;
     const id = sim.spawnPlayer(shipId, ship.defaultFitting, i);
+    const y = opts.spawnY?.[i];
+    if (y !== undefined) sim.world.transforms.get(id)!.pos.y = y;
     drivers.set(
       id,
       opts.seedDrivers === false
@@ -88,7 +102,7 @@ function runMatch(
     botIds.push(id);
   });
 
-  const start = new Map<EntityId, { x: number; z: number }>();
+  const start = new Map<EntityId, { x: number; y: number; z: number }>();
   for (const s of sim.snapshot().ships) start.set(s.id, { ...s.pos });
 
   const events: SimEvent[] = [];
@@ -107,6 +121,9 @@ function runMatch(
   const perSecond = new Map<string, { all: number; flight: number }>();
   let peakOrdersPerSec = 0;
   let peakFlightPerSec = 0;
+  let peakPitch = 0;
+  let peakVerticalGap = 0;
+  let minVerticalGap = Infinity;
 
   for (let i = 0; i < SECONDS / DT; i++) {
     if (sim.isEnded) break;
@@ -117,7 +134,13 @@ function runMatch(
       if (!drivers.has(s.id)) continue;
       for (const m of s.modules) seenStates.add(m.state);
       peakLockProgress = Math.max(peakLockProgress, s.lockProgress);
+      peakPitch = Math.max(peakPitch, Math.abs(s.pitch));
       if (s.locked && firstLockAt === Infinity) firstLockAt = snapshot.elapsed;
+    }
+    if (snapshot.ships.length >= 2) {
+      const gap = Math.abs(snapshot.ships[0]!.pos.y - snapshot.ships[1]!.pos.y);
+      peakVerticalGap = Math.max(peakVerticalGap, gap);
+      minVerticalGap = Math.min(minVerticalGap, gap);
     }
     for (const [entityId, driver] of drivers) {
       if (!sim.hasShip(entityId)) {
@@ -155,8 +178,10 @@ function runMatch(
     events.push(...sim.getEvents());
   }
 
-  const end = new Map<EntityId, { x: number; z: number }>();
-  for (const s of sim.snapshot().ships) end.set(s.id, { ...s.pos });
+  // `pitch` travels with the end state so the determinism assertions cover the
+  // attitude the bots flew, not only where they ended up.
+  const end = new Map<EntityId, { x: number; y: number; z: number; pitch: number }>();
+  for (const s of sim.snapshot().ships) end.set(s.id, { ...s.pos, pitch: s.pitch });
 
   return {
     events,
@@ -174,6 +199,9 @@ function runMatch(
     duration,
     peakOrdersPerSec,
     peakFlightPerSec,
+    peakPitch,
+    peakVerticalGap,
+    minVerticalGap,
   };
 }
 
@@ -263,6 +291,59 @@ describe("bots in a live ArenaSimulation", () => {
       expect(r.events.filter((e) => e.type === "projectileFired").length, label).toBeGreaterThan(0);
       expect(r.weaponDamage, label).toBeGreaterThan(20);
     }
+  });
+
+  /**
+   * The T4 acceptance test (BUBBLE.md §D). Both shipped arenas still spawn every
+   * ship on `y: 0`, so a bots-vs-bots match can look entirely healthy while the
+   * pitch axis is dead — a planar bot would pass every assertion above. This one
+   * starts the two teams 80 units apart VERTICALLY: the sim's lock cone is a true
+   * 3D cone and weapon range is a 3D distance, so nothing here is reachable unless
+   * the bots genuinely nose up and down.
+   */
+  it("locks and lands damage on an enemy at a completely different altitude", () => {
+    const result = runMatch(["bot.aggressive", "bot.cautious"], 7, "arena.ring-nebula", { spawnY: [40, -40] });
+
+    // The engagement really did start vertical.
+    expect(Math.abs(result.start.get(result.botIds[0]!)!.y - result.start.get(result.botIds[1]!)!.y)).toBeCloseTo(80, 6);
+    // Bots flew the vertical axis to get there — a planar bot's pitch stays 0.
+    expect(result.peakPitch).toBeGreaterThan(0.3);
+    // ...and they actually CLOSED that 80-unit gap rather than circling under one
+    // another in plan view. (The gap widens again late in the match: the loser's
+    // `retreat` runs flat out and the practice-bots boundary rule is `warning`, so
+    // nothing turns it around. That predates the bubble — a planar retreat ran off
+    // the same way — and it is the gamemode's rule to change, not the bots'.)
+    expect(result.minVerticalGap).toBeLessThan(15);
+
+    // The payoff: a completed 3D lock converted into shots and real damage.
+    expect(result.peakLockProgress).toBe(1);
+    expect(result.events.some((e) => e.type === "lockAcquired")).toBe(true);
+    expect(result.firstLockAt).toBeLessThan(15);
+    expect(result.events.filter((e) => e.type === "projectileFired").length).toBeGreaterThan(0);
+    expect(result.weaponDamage).toBeGreaterThan(20);
+    // Still the human order vocabulary, still inside the order cap.
+    expect(result.orderKinds["flight"]).toBeGreaterThan(0);
+    expect(result.orderKinds["move"]).toBeUndefined();
+    expect(result.peakOrdersPerSec).toBeLessThan(configs.getAll<TuningConfig>("tuning")[0]?.maxOrdersPerSec ?? 20);
+  });
+
+  it("is byte-for-byte deterministic with pitched flight in play", () => {
+    // Determinism has to survive the new axis: the pitch calibration reads back
+    // simulated state, the jink axis alternates off sim time, and `pointOnSphere`
+    // is trigonometric. Same seed ⇒ identical event stream, positions AND pitches.
+    const opts = { spawnY: [40, -40] };
+    const a = runMatch(["bot.aggressive", "bot.cautious"], 3, "arena.ring-nebula", opts);
+    const b = runMatch(["bot.aggressive", "bot.cautious"], 3, "arena.ring-nebula", opts);
+    expect(JSON.stringify(a.events)).toBe(JSON.stringify(b.events));
+    expect(JSON.stringify([...a.end])).toBe(JSON.stringify([...b.end]));
+    expect(a.orderKinds).toEqual(b.orderKinds);
+    expect(a.weaponDamage).toBe(b.weaponDamage);
+    // Not determinism by inertia: the bots pitched, fought and re-converged.
+    expect(a.peakPitch).toBeGreaterThan(0.3);
+    expect(a.orderKinds["flight"]).toBeGreaterThan(0);
+    // A different seed still diverges, so the seed reaches the 3D flying too.
+    const other = runMatch(["bot.aggressive", "bot.cautious"], 9, "arena.ring-nebula", opts);
+    expect(JSON.stringify(other.events)).not.toBe(JSON.stringify(a.events));
   });
 
   it("never lets a disciplined profile force-overheat a module", () => {

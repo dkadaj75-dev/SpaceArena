@@ -5,6 +5,7 @@ import {
   clampPanSens,
   DEFAULT_USER_SETTINGS,
   HAPTICS_KEY,
+  INVERT_PITCH_KEY,
   PAN_SENS_MAX,
   PAN_SENS_MIN,
   QUALITY_STORAGE_KEY,
@@ -59,6 +60,16 @@ describe("readUserSettings", () => {
     expect(readUserSettings(fakeStorage({ [CAMERA_SHAKE_KEY]: "off" })).cameraShake).toBe(false);
   });
 
+  it("treats pitch invert as an opt-IN: only the literal \"on\" flips the axis", () => {
+    // The odd one out among the flags: there is no content baseline for which way
+    // a thumb reads, so push-up-to-climb is the default and this is the opt-in.
+    expect(readUserSettings(fakeStorage()).invertPitch).toBe(false);
+    expect(readUserSettings(fakeStorage({ [INVERT_PITCH_KEY]: "on" })).invertPitch).toBe(true);
+    expect(readUserSettings(fakeStorage({ [INVERT_PITCH_KEY]: "ON" })).invertPitch).toBe(true);
+    expect(readUserSettings(fakeStorage({ [INVERT_PITCH_KEY]: "off" })).invertPitch).toBe(false);
+    expect(readUserSettings(fakeStorage({ [INVERT_PITCH_KEY]: "yes" })).invertPitch).toBe(false);
+  });
+
   it("clamps a hand-edited pan sensitivity and ignores garbage", () => {
     expect(readUserSettings(fakeStorage({ [CAMERA_PAN_SENS_KEY]: "9" })).cameraPanSens).toBe(PAN_SENS_MAX);
     expect(readUserSettings(fakeStorage({ [CAMERA_PAN_SENS_KEY]: "0" })).cameraPanSens).toBe(PAN_SENS_MIN);
@@ -89,11 +100,14 @@ describe("settingsToStorage", () => {
     expect(settingsToStorage({ haptics: true })).toEqual([[HAPTICS_KEY, null]]);
     expect(settingsToStorage({ cameraShake: true })).toEqual([[CAMERA_SHAKE_KEY, null]]);
     expect(settingsToStorage({ cameraPanSens: 1 })).toEqual([[CAMERA_PAN_SENS_KEY, null]]);
+    // ...and so does a non-inverted pitch axis, which is the default.
+    expect(settingsToStorage({ invertPitch: false })).toEqual([[INVERT_PITCH_KEY, null]]);
   });
 
-  it("writes 'off' for disabled flags", () => {
+  it("writes 'off' for disabled flags and 'on' for the opt-in one", () => {
     expect(settingsToStorage({ haptics: false })).toEqual([[HAPTICS_KEY, "off"]]);
     expect(settingsToStorage({ cameraShake: false })).toEqual([[CAMERA_SHAKE_KEY, "off"]]);
+    expect(settingsToStorage({ invertPitch: true })).toEqual([[INVERT_PITCH_KEY, "on"]]);
   });
 
   it("clamps and rounds pan sensitivity before storing it", () => {

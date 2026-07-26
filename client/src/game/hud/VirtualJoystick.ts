@@ -1,20 +1,24 @@
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { anchoredOffset, type FlightHudLayout } from "./flightHudLayout.js";
-import { clamp, turnFromStick } from "./flightInput.js";
+import { clamp, pitchFromStick, turnFromStick } from "./flightInput.js";
 
 /**
- * Left-thumb steering stick (FLIGHT.md §4). Same shape as
- * {@link import("./ModuleButtons.js").ModuleButtons}: it owns its DOM, is tagged
- * {@link HUD_CONTROL_ATTR} so the 5.4 edge palm-rejection never eats it, takes
- * all geometry from the resolved theme layout, and only writes to the DOM when a
- * value actually changed.
+ * Left-thumb flight stick (FLIGHT.md §4, two axes since BUBBLE.md §C). Same
+ * shape as {@link import("./ModuleButtons.js").ModuleButtons}: it owns its DOM,
+ * is tagged {@link HUD_CONTROL_ATTR} so the 5.4 edge palm-rejection never eats
+ * it, takes all geometry from the resolved theme layout, and only writes to the
+ * DOM when a value actually changed.
  *
- * Steer-only by design: the horizontal axis becomes the flight order's `turn`
- * (sign derived in `flightInput.turnFromStick`), the vertical axis is captured
- * for the thumb visual but deliberately unused — throttle is the strip's job.
+ * The horizontal axis becomes the flight order's `turn` (sign derived in
+ * `flightInput.turnFromStick`) and the vertical axis its `pitchStick` — push up
+ * to climb, flipped by the player's invert preference
+ * ({@link setInvertPitch}). Throttle stays the strip's job: it is held state,
+ * and a spring axis cannot hold anything.
  *
- * The stick is a spring: releasing snaps it back to centre (turn 0), which is
- * exactly opposite to the throttle thumb's hold behaviour.
+ * The stick is a spring: releasing snaps it back to centre (turn 0, pitch 0),
+ * which is exactly opposite to the throttle thumb's hold behaviour. Pitch itself
+ * is still held state — the SIM keeps the nose where the stick left it
+ * (BUBBLE.md), so a centred axis means "stop pitching", not "level out".
  */
 export class VirtualJoystick {
   private readonly container: HTMLDivElement;
@@ -30,6 +34,8 @@ export class VirtualJoystick {
   private lastThumbX = Number.NaN;
   private lastThumbY = Number.NaN;
   private lastActive = false;
+  /** Player preference (`sa.controls.invertPitch`), pushed in by the HUD. */
+  private invertPitch = false;
 
   private readonly onPointerDown = (ev: PointerEvent): void => {
     if (this.pointerId !== null) return;
@@ -101,6 +107,28 @@ export class VirtualJoystick {
     return turnFromStick(this.stickX, this.layout.joystick.deadzone, this.layout.joystick.expo);
   }
 
+  /**
+   * Sim `pitchStick` for the current deflection (-1..1, positive noses up).
+   * Push up = climb unless the player inverted the axis; see
+   * `flightInput.pitchFromStick`.
+   */
+  get pitch(): number {
+    return pitchFromStick(
+      this.stickY,
+      this.layout.joystick.deadzone,
+      this.layout.joystick.expo,
+      this.invertPitch,
+    );
+  }
+
+  /**
+   * Adopt the player's pitch-invert preference (5.8 settings). A preference, not
+   * content: the theme never decides which way a thumb reads.
+   */
+  setInvertPitch(invert: boolean): void {
+    this.invertPitch = invert;
+  }
+
   /** True while a thumb/mouse is on the stick. */
   get active(): boolean {
     return this.pointerId !== null;
@@ -109,6 +137,11 @@ export class VirtualJoystick {
   /** Raw horizontal deflection (-1..1, +1 = screen right) — debug/tests. */
   get deflectionX(): number {
     return this.stickX;
+  }
+
+  /** Raw vertical deflection (-1..1, +1 = screen DOWN) — debug/tests. */
+  get deflectionY(): number {
+    return this.stickY;
   }
 
   /** Screen-space pointer position → clamped stick deflection. */

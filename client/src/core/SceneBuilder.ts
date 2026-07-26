@@ -54,14 +54,14 @@ export type SceneQuality = Pick<QualityConfig, "glow" | "scene" | "render">;
 /** Conservative defaults for callers that predate the quality system. */
 const DEFAULT_QUALITY: SceneQuality = {
   glow: { enabled: true, intensity: 0.5 },
-  scene: { starfieldPoints: 400, groundGrid: true, spawnMarkers: true },
+  scene: { starfieldPoints: 400, boundsGrid: true, spawnMarkers: true },
   render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: false },
 };
 
 /**
- * Builds (and rebuilds, on hot-reload) the arena scene: bounds, ground plane,
- * skybox, light rig, asteroid placements, spawn markers, and the player ship.
- * Every node/material it creates is tracked so a rebuild leaves nothing behind.
+ * Builds (and rebuilds, on hot-reload) the arena scene: the bounds shell,
+ * skybox, light rig, spawn markers and the editor's pick plane. Every
+ * node/material it creates is tracked so a rebuild leaves nothing behind.
  *
  * Perf (§10 5.6): the arena is entirely static, so once built its meshes get
  * `freezeWorldMatrix()` and their materials `freeze()`. Both are correctly
@@ -104,7 +104,7 @@ export class SceneBuilder {
     if (!this.root) return;
     const needsRebuild =
       previous.scene.starfieldPoints !== quality.scene.starfieldPoints ||
-      previous.scene.groundGrid !== quality.scene.groundGrid ||
+      previous.scene.boundsGrid !== quality.scene.boundsGrid ||
       previous.scene.spawnMarkers !== quality.scene.spawnMarkers;
     if (needsRebuild && this.arenaId) {
       const arena = this.configService.get<ArenaConfig>("arena", this.arenaId);
@@ -158,14 +158,14 @@ export class SceneBuilder {
     this.buildLighting(arena, root);
     this.buildSkybox(arena, root, generation);
     this.buildBounds(arena, root);
-    this.buildGroundPlane(arena, root);
+    this.buildPickPlane(arena, root);
     if (this.quality.scene.spawnMarkers) this.buildSpawnMarkers(arena, root);
 
     if (this.visible) this.freezeStatics();
   }
 
   /**
-   * Show/hide the whole static arena — bounds, skybox, ground, spawn markers
+   * Show/hide the whole static arena — bounds shell, skybox, spawn markers
    * AND the light rig, which is parented to the same root. Callers that hide it
    * to stage something else must supply their own lighting (see EditorStage).
    * Latched so a hot-reload rebuild keeps the current visibility.
@@ -247,17 +247,22 @@ export class SceneBuilder {
     // The shell is sized off the ARENA, not a literal: at ring-nebula's radius
     // 90 the floor keeps the old 300-550 band, and on a radius-300 field
     // (FLIGHT.md §6) it opens out so the "distant stars" are not scattered
-    // through the play space the player is flying in.
+    // through the play space the player is flying in. 1.8× the bubble's radius
+    // keeps every star outside it however far a ship climbs.
     const shellInner = Math.max(300, boundsRadiusOf(arena) * 1.8);
     const shellSpan = shellInner * 0.85;
     const pcs = new PointsCloudSystem("stars", 1, this.scene);
     pcs.addPoints(starCount, (particle: CloudPoint) => {
       const radius = shellInner + Math.random() * shellSpan;
       const theta = Math.random() * Math.PI * 2;
+      // Uniform on the full sphere. This used to fold y to the upper hemisphere
+      // and squash it — correct for a camera that only ever looked down at a
+      // floor, a visible hole in the sky the moment a ship can dive and look up
+      // from underneath (BUBBLE.md §C).
       const phi = Math.acos(2 * Math.random() - 1);
       particle.position = new Vector3(
         radius * Math.sin(phi) * Math.cos(theta),
-        Math.abs(radius * Math.cos(phi)) * 0.6 + 20,
+        radius * Math.cos(phi),
         radius * Math.sin(phi) * Math.sin(theta),
       );
       const b = 0.5 + Math.random() * 0.5;
@@ -280,24 +285,55 @@ export class SceneBuilder {
     });
   }
 
+  /**
+   * The arena's edge. For a bubble that is a **shell**, not a ring (BUBBLE.md
+   * §C): ships leave the play space in any direction, so the boundary has to read
+   * as a surface the player can approach from the inside at any latitude.
+   *
+   * Two meshes, both seen from within:
+   *
+   *  - `boundsShell` — a barely-there translucent sphere. It is what makes the
+   *    edge feel like a wall when you fly at it, and it is drawn BACKSIDE so the
+   *    inside faces render and the far half never occludes the view forward.
+   *  - `boundsGrid` — the same sphere as WIREFRAME, i.e. the latitude/longitude
+   *    lines the segment count already implies. This is the spatial reference the
+   *    retired ground grid used to provide, and the same quality switch turns it
+   *    off (`scene.boundsGrid`): it is a pile of extra line geometry, which is why
+   *    the cheapest tier drops it.
+   */
   private buildBounds(arena: ArenaConfig, root: TransformNode): void {
     this.applyGlowQuality();
 
     if (arena.bounds.shape === "sphere") {
-      // TODO(T3): the bubble wants a bounds SHELL, not an equatorial ring — the
-      // ring is the radius-correct placeholder until the client stage lands.
-      const ring = MeshBuilder.CreateTorus(
-        "boundsRing",
-        { diameter: arena.bounds.radius * 2, thickness: 0.6, tessellation: 96 },
+      const diameter = arena.bounds.radius * 2;
+      const shell = MeshBuilder.CreateSphere(
+        "boundsShell",
+        { diameter, segments: 24, sideOrientation: Mesh.BACKSIDE },
         this.scene,
       );
-      ring.isPickable = false;
-      const mat = new StandardMaterial("mat.boundsRing", this.scene);
-      mat.diffuseColor = Color3.Black();
-      mat.specularColor = Color3.Black();
-      mat.emissiveColor = new Color3(0.2, 0.85, 1.0);
-      ring.material = mat;
-      ring.parent = root;
+      shell.isPickable = false;
+      const shellMat = new StandardMaterial("mat.boundsShell", this.scene);
+      shellMat.diffuseColor = Color3.Black();
+      shellMat.specularColor = Color3.Black();
+      shellMat.emissiveColor = new Color3(0.2, 0.85, 1.0);
+      shellMat.disableLighting = true;
+      shellMat.alpha = 0.05;
+      shell.material = shellMat;
+      shell.parent = root;
+
+      if (this.quality.scene.boundsGrid) {
+        const grid = MeshBuilder.CreateSphere("boundsGrid", { diameter, segments: 16 }, this.scene);
+        grid.isPickable = false;
+        const gridMat = new StandardMaterial("mat.boundsGrid", this.scene);
+        gridMat.diffuseColor = Color3.Black();
+        gridMat.specularColor = Color3.Black();
+        gridMat.emissiveColor = new Color3(0.12, 0.45, 0.6);
+        gridMat.disableLighting = true;
+        gridMat.wireframe = true;
+        gridMat.alpha = 0.16;
+        grid.material = gridMat;
+        grid.parent = root;
+      }
     } else {
       // Rect stub: four thin boxes forming the perimeter.
       const { width, height } = arena.bounds;
@@ -344,26 +380,24 @@ export class SceneBuilder {
     this.glowLayer.intensity = glow.intensity;
   }
 
-  private buildGroundPlane(arena: ArenaConfig, root: TransformNode): void {
+  /**
+   * The invisible `y = 0` plane the dev Map editor picks against when placing
+   * asteroids (`MapEditor.ts` matches it by name). All that survives of the old
+   * ground: the faint grid disc that used to sit on it retired with the floor
+   * (BUBBLE.md §C — ships fly through the whole bubble, so a disc at y=0 was a
+   * lie about the play space) and the spatial reference it gave moved onto the
+   * bounds shell.
+   *
+   * It stays part of the arena rather than the editor's own stage because the
+   * editor authors placements in ARENA coordinates and needs the plane sized to
+   * whichever arena is loaded.
+   */
+  private buildPickPlane(arena: ArenaConfig, root: TransformNode): void {
     const size = boundsRadiusOf(arena) * 2.1;
-
     const ground = MeshBuilder.CreateGround("groundPlane", { width: size, height: size }, this.scene);
     ground.isVisible = false;
     ground.isPickable = true;
     ground.parent = root;
-
-    // Faint polar grid disc so depth reads without being visually loud.
-    if (!this.quality.scene.groundGrid) return;
-    const disc = MeshBuilder.CreateDisc("groundDisc", { radius: size / 2, tessellation: 64 }, this.scene);
-    disc.rotation.x = Math.PI / 2;
-    disc.isPickable = false;
-    const discMat = new StandardMaterial("mat.groundDisc", this.scene);
-    discMat.diffuseColor = new Color3(0.15, 0.25, 0.35);
-    discMat.emissiveColor = new Color3(0.05, 0.09, 0.13);
-    discMat.alpha = 0.06;
-    discMat.specularColor = Color3.Black();
-    disc.material = discMat;
-    disc.parent = root;
   }
 
   private buildSpawnMarkers(arena: ArenaConfig, root: TransformNode): void {
@@ -377,7 +411,9 @@ export class SceneBuilder {
     for (const sp of arena.spawnPoints) {
       const disc = MeshBuilder.CreateDisc(`spawnMarker.${sp.id}`, { radius: 2, tessellation: 24 }, this.scene);
       disc.rotation.x = Math.PI / 2;
-      disc.position.set(sp.position.x, 0.05, sp.position.z);
+      // Authored altitude (BUBBLE.md §E gives spawns a `y`), nudged clear of the
+      // exact spawn point so the marker never z-fights the hull sitting on it.
+      disc.position.set(sp.position.x, (sp.position.y ?? 0) + 0.05, sp.position.z);
       disc.material = sp.team === 0 ? material0 : material1;
       disc.isPickable = false;
       disc.parent = root;

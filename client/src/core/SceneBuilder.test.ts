@@ -24,7 +24,7 @@ function quality(overrides: Partial<SceneQuality> = {}): SceneQuality {
     glow: { enabled: true, intensity: 0.5 },
     // Zero starfield points: the PointsCloudSystem builds its mesh
     // asynchronously and would land after a test finishes.
-    scene: { starfieldPoints: 0, groundGrid: true, spawnMarkers: true },
+    scene: { starfieldPoints: 0, boundsGrid: true, spawnMarkers: true },
     render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: true },
     ...overrides,
   };
@@ -149,15 +149,41 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
   it("rebuilds when a tier changes geometry-baked decoration", () => {
     const builder = new SceneBuilder(scene, configs, bus, quality());
     builder.buildArena("arena.test");
-    expect(scene.getMeshByName("groundDisc")).not.toBeNull();
+    expect(scene.getMeshByName("boundsGrid")).not.toBeNull();
     expect(scene.getMeshByName("spawnMarker.sp-a")).not.toBeNull();
 
     builder.setQuality(
-      quality({ scene: { starfieldPoints: 0, groundGrid: false, spawnMarkers: false } }),
+      quality({ scene: { starfieldPoints: 0, boundsGrid: false, spawnMarkers: false } }),
     );
-    expect(scene.getMeshByName("groundDisc")).toBeNull();
+    expect(scene.getMeshByName("boundsGrid")).toBeNull();
     expect(scene.getMeshByName("spawnMarker.sp-a")).toBeNull();
     expect(builder.staticsFrozen).toBe(true);
+
+    builder.dispose();
+  });
+
+  /**
+   * BUBBLE.md §C: the arena floor is gone. What used to be an equatorial ring
+   * (and, before that, a grid disc at y=0) is now a shell around the whole
+   * bubble, because a ship can approach the boundary at any latitude.
+   */
+  it("builds a bounds SHELL at the bubble's radius, not a ring or a floor", () => {
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+
+    const shell = scene.getMeshByName("boundsShell");
+    expect(shell).not.toBeNull();
+    // The shell spans the arena in y as well as x/z — a ring would be flat.
+    const extent = shell!.getBoundingInfo().boundingBox.extendSize;
+    expect(extent.x).toBeCloseTo(90, 4);
+    expect(extent.y).toBeCloseTo(90, 4);
+    expect(extent.z).toBeCloseTo(90, 4);
+
+    // Retired with the floor; the invisible pick plane the Map editor needs stays.
+    expect(scene.getMeshByName("groundDisc")).toBeNull();
+    expect(scene.getMeshByName("boundsRing")).toBeNull();
+    expect(scene.getMeshByName("groundPlane")).not.toBeNull();
+    expect(scene.getMeshByName("groundPlane")!.isVisible).toBe(false);
 
     builder.dispose();
   });

@@ -6,9 +6,13 @@ import type { FlightInputState } from "./flightInput.js";
 const POLICY: FlightOrderPolicy = {
   throttleEpsilon: 0.02,
   turnEpsilon: 0.05,
+  pitchEpsilon: 0.05,
   heartbeatMs: 250,
   minIntervalMs: 120,
 };
+
+/** A centred-stick flight order — the payload every assertion below starts from. */
+const NEUTRAL = { kind: "flight", throttle: 0, turn: 0, pitchStick: 0, boost: false } as const;
 
 interface Harness {
   sender: FlightOrderSender;
@@ -22,7 +26,7 @@ interface Harness {
 function harness(policy: FlightOrderPolicy = POLICY): Harness {
   const orders: Order[] = [];
   const sender = new FlightOrderSender((o) => orders.push(o), policy);
-  const state: FlightInputState = { throttle: 0, turn: 0, boost: false };
+  const state: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false };
   return {
     sender,
     orders,
@@ -52,7 +56,7 @@ describe("FlightOrderSender", () => {
   it("sends the very first order immediately — until it lands the ship is inert", () => {
     const h = harness();
     h.feed({});
-    expect(h.orders).toEqual([{ kind: "flight", throttle: 0, turn: 0, boost: false }]);
+    expect(h.orders).toEqual([NEUTRAL]);
   });
 
   it("stays silent while nothing changes, however many frames go by", () => {
@@ -74,7 +78,7 @@ describe("FlightOrderSender", () => {
     h.tick(200);
     h.feed({ throttle: 0.4 });
     expect(h.orders).toHaveLength(2);
-    expect(h.orders[1]).toEqual({ kind: "flight", throttle: 0.4, turn: 0, boost: false });
+    expect(h.orders[1]).toEqual({ ...NEUTRAL, throttle: 0.4 });
   });
 
   it("sends on a turn change past the epsilon", () => {
@@ -87,6 +91,74 @@ describe("FlightOrderSender", () => {
     h.feed({ turn: -0.6 });
     expect(h.orders).toHaveLength(2);
     expect(h.orders[1]).toMatchObject({ turn: -0.6 });
+  });
+
+  it("carries the pitch axis on every order, centred or not (BUBBLE.md §C)", () => {
+    const h = harness();
+    h.feed({});
+    // Always present: an omitted axis and a centred one mean the same thing to
+    // the sim, but a client that HAS the axis states it rather than letting a
+    // zero look like an old client.
+    expect(h.orders[0]).toHaveProperty("pitchStick", 0);
+    h.tick(200);
+    h.feed({ pitchStick: -0.8 });
+    expect(h.orders).toHaveLength(2);
+    expect(h.orders[1]).toEqual({ ...NEUTRAL, pitchStick: -0.8 });
+  });
+
+  it("sends on a pitch change past the epsilon, not on sub-epsilon drift", () => {
+    const h = harness();
+    h.feed({});
+    h.tick(200);
+    h.feed({ pitchStick: 0.04 }); // under pitchEpsilon
+    expect(h.orders).toHaveLength(1);
+    h.tick(200);
+    h.feed({ pitchStick: 0.5 });
+    expect(h.orders).toHaveLength(2);
+    expect(h.orders[1]).toMatchObject({ pitchStick: 0.5 });
+  });
+
+  it("lands a trailing pitch send: a slow stick return reaches the sim too", () => {
+    const h = harness();
+    h.feed({ pitchStick: 0.6 });
+    h.tick(200);
+    // Settling by 0.01 never crosses the epsilon...
+    h.feed({ pitchStick: 0.59 });
+    expect(h.orders).toHaveLength(1);
+    // ...but the heartbeat guarantees the nose stops where the player let go,
+    // which for HELD pitch state is the difference between level and a slow roll
+    // into the boundary.
+    h.tick(60);
+    h.feed({ pitchStick: 0.59 });
+    expect(h.orders).toHaveLength(2);
+    expect(h.orders[1]).toMatchObject({ pitchStick: 0.59 });
+  });
+
+  it("keeps the two stick axes independent", () => {
+    const h = harness();
+    h.feed({});
+    h.tick(200);
+    h.feed({ turn: 0.9 });
+    expect(h.orders).toHaveLength(2);
+    expect(h.orders[1]).toMatchObject({ turn: 0.9, pitchStick: 0 });
+    h.tick(200);
+    h.feed({ pitchStick: -0.7 });
+    expect(h.orders).toHaveLength(3);
+    // The turn is still whatever the player is holding — a pitch order does not
+    // silently re-centre the other axis.
+    expect(h.orders[2]).toMatchObject({ turn: 0.9, pitchStick: -0.7 });
+  });
+
+  it("takes a re-resolved pitch epsilon (a theme that decouples the axes)", () => {
+    const h = harness();
+    h.feed({});
+    h.sender.setPolicy({ ...POLICY, pitchEpsilon: 0.5 });
+    h.tick(200);
+    h.feed({ pitchStick: 0.2 }); // significant under the old epsilon, not the new one
+    expect(h.orders).toHaveLength(1);
+    h.tick(200);
+    h.feed({ pitchStick: 0.8 });
+    expect(h.orders).toHaveLength(2);
   });
 
   it("sends on either boost edge with no epsilon at all", () => {
@@ -164,7 +236,7 @@ describe("FlightOrderSender", () => {
 
   it("reports the last state it handed to the sim", () => {
     const h = harness();
-    h.feed({ throttle: 0.7, turn: -0.3, boost: true });
-    expect(h.sender.lastSent).toEqual({ throttle: 0.7, turn: -0.3, boost: true });
+    h.feed({ throttle: 0.7, turn: -0.3, pitchStick: 0.45, boost: true });
+    expect(h.sender.lastSent).toEqual({ throttle: 0.7, turn: -0.3, pitchStick: 0.45, boost: true });
   });
 });

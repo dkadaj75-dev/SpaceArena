@@ -1,6 +1,15 @@
-import type { ArenaConfig, ConfigService, EventBus, ConfigEvents, Snapshot, ThemeConfig } from "@space-arena/shared";
+import type {
+  ArenaConfig,
+  ConfigService,
+  EntityId,
+  EventBus,
+  ConfigEvents,
+  Snapshot,
+  ThemeConfig,
+} from "@space-arena/shared";
 import { createLogger } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
+import { altitudeTickPx, DEFAULT_ALTITUDE_TICK_PX } from "./minimapAltitude.js";
 
 const log = createLogger("HudMinimap");
 
@@ -8,8 +17,9 @@ const REDRAW_INTERVAL_MS = 100; // ~10 Hz, per spec
 
 /**
  * The bubble's radius, or a `rect` arena approximated by its half-diagonal, so the
- * minimap scale still fits it. The minimap keeps its top-down (x,z) projection
- * (BUBBLE.md §C adds a relative-altitude tick in stage T3).
+ * minimap scale still fits it. The minimap keeps its top-down (x,z) projection;
+ * the third axis arrives as a per-blip altitude tick (BUBBLE.md §C, see
+ * {@link altitudeTickPx}).
  */
 function boundsRadius(arena: ArenaConfig | undefined): number | undefined {
   if (!arena) return undefined;
@@ -31,6 +41,8 @@ export class Minimap {
   private arena: ArenaConfig | undefined;
   private rangeUnits = 100;
   private sizePx = 128;
+  /** Saturation length of the relative-altitude ticks (0 hides them). */
+  private altitudeTickMaxPx = DEFAULT_ALTITUDE_TICK_PX;
   private accMs = REDRAW_INTERVAL_MS; // draw immediately on first frame
 
   constructor(
@@ -71,6 +83,7 @@ export class Minimap {
     const theme = this.configs.get<ThemeConfig>("theme", "theme.default");
     this.sizePx = theme?.hud?.minimapSizePx ?? 128;
     this.rangeUnits = theme?.hud?.minimapRangeUnits ?? boundsRadius(this.arena) ?? 100;
+    this.altitudeTickMaxPx = theme?.hud?.minimapAltitudeTickPx ?? DEFAULT_ALTITUDE_TICK_PX;
   }
 
   private resizeCanvas(): void {
@@ -117,23 +130,23 @@ export class Minimap {
       ctx.fill();
     }
 
-    // Ships: team-colored triangles; player gets a heading wedge.
+    // Ships: team-colored triangles; player gets a heading wedge, everyone else
+    // an altitude tick relative to the player (BUBBLE.md §C).
+    const player = findShipPos(cur, this.session.playerId);
     for (let i = 0; i < cur.ships.length; i++) {
       const s = cur.ships[i]!;
       const px = half + s.pos.x * scale;
       const py = half + s.pos.z * scale;
       const isPlayer = s.id === this.session.playerId;
+      const color = isPlayer || s.team === this.session.playerTeam ? "#57d8ff" : "#ff4d5e";
+      const r = isPlayer ? 5 : 4;
+
       ctx.save();
       ctx.translate(px, py);
       // Sim heading is math-convention (0 = +X). The triangle points up
       // (canvas −y = world −z) at rotation 0, so rotate by π/2 + heading.
       ctx.rotate(Math.PI / 2 + s.heading);
-      ctx.fillStyle = isPlayer
-        ? "#57d8ff"
-        : s.team === this.session.playerTeam
-          ? "#57d8ff"
-          : "#ff4d5e";
-      const r = isPlayer ? 5 : 4;
+      ctx.fillStyle = color;
       ctx.beginPath();
       ctx.moveTo(0, -r);
       ctx.lineTo(r * 0.7, r * 0.8);
@@ -141,10 +154,29 @@ export class Minimap {
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+
+      // Drawn OUTSIDE the rotated frame: the tick is a screen-space up/down cue,
+      // not part of the blip's facing. Nothing to draw for the player (its own
+      // altitude is the reference) or for a contact on the same level.
+      if (isPlayer || !player) continue;
+      const tick = altitudeTickPx(s.pos.y - player.y, scale, this.altitudeTickMaxPx);
+      if (tick === 0) continue;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + r, py);
+      ctx.lineTo(px + r, py + tick);
+      ctx.stroke();
     }
   }
 
   dispose(): void {
     this.container.remove();
   }
+}
+
+/** Indexed scan (no per-draw closure) for a ship's position by id. */
+function findShipPos(snap: Snapshot, id: EntityId): { x: number; y: number; z: number } | undefined {
+  for (let i = 0; i < snap.ships.length; i++) if (snap.ships[i]!.id === id) return snap.ships[i]!.pos;
+  return undefined;
 }

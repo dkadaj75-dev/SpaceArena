@@ -188,7 +188,7 @@ describe("hasLineOfSight in the bubble (BUBBLE.md §A)", () => {
       const b = { x: 20, y, z: 0 };
       expect(hasLineOfSight(world, a, b)).toBe(hasLineOfSightAmong(a, b, blockers));
     }
-    // …and a caller that has not gone 3D yet (bots, until T4) still reads the plane.
+    // …and a caller passing content-shaped points with no `y` still reads the plane.
     expect(hasLineOfSightAmong({ x: -20, z: 0 }, { x: 20, z: 0 }, [{ pos: { x: 5, z: 0 }, radius: 8 }])).toBe(false);
   });
 });
