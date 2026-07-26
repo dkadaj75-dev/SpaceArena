@@ -2,7 +2,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { boot, ColyseusTestServer } from "@colyseus/testing";
-import { setGlobalLogLevel, type ConfigService, type ShipConfig } from "@space-arena/shared";
+import {
+  setGlobalLogLevel,
+  type BotprofileConfig,
+  type ConfigService,
+  type ShipConfig,
+  type TuningConfig,
+} from "@space-arena/shared";
 import { loadContent, setConfigService } from "../configService.js";
 import { getDb, openDatabase, setDb } from "../db/index.js";
 import { getMetrics } from "../telemetry/metrics.js";
@@ -288,6 +294,70 @@ describe("ArenaRoom", () => {
     expect(acks.some((a) => !a.accepted && a.reason === "rate-limited")).toBe(true);
   });
 
+  it("counts MALFORMED order messages against the rate limit and kicks the flooder (review Finding 1)", async () => {
+    // The limiter used to run AFTER Zod parsing, so an unparseable message was
+    // answered with a `malformed` ack and never charged to the budget: an
+    // authenticated client could hold the server in an unbounded parse-and-reply
+    // loop forever, never incrementing the abuse counter, never being kicked.
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+
+    const acks: Array<{ accepted: boolean; reason?: string }> = [];
+    c1.onMessage("orderAck", (m) => acks.push(m as { accepted: boolean; reason?: string }));
+    const closed = new Promise<number>((resolve) => c1.onLeave((code) => resolve(code)));
+
+    // Every message here is structurally invalid (unknown discriminant, bogus
+    // axis types) — the exact traffic the old ordering served for free.
+    for (let i = 0; i < 150; i++) {
+      c1.send("order", { seq: i + 1, order: { kind: "warp", axis: "sideways" } });
+    }
+
+    const code = await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 4000))]);
+    expect(code).toBe(4290); // same rate-limit kick a valid-order flood earns
+    expect(acks.some((a) => !a.accepted && a.reason === "rate-limited")).toBe(true);
+  });
+
+  it("relays lockAcquired over the wire so online clients get the lock cue (review Finding 7)", async () => {
+    // `toSimEventMessage` dropped both lock events, so the reticle's audio and
+    // haptic cue (soundIds.ts / Haptics.ts) only ever fired in practice mode.
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+
+    const simEvents: Array<{ type: string; entityId?: number; targetId?: number }> = [];
+    c1.onMessage("simEvent", (m) => simEvents.push(m as { type: string; entityId?: number; targetId?: number }));
+
+    const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
+      sim: {
+        world: { transforms: Map<number, { pos: { x: number; z: number }; heading: number }> };
+        spawnPlayerAt: (shipId: string, fitting: (string | null)[], team: number, pos: { x: number; z: number }, heading: number) => number;
+      };
+    };
+    const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+    const p1 = room.state.players.get(c1.sessionId)!;
+    // Straight down the nose, inside the sensor cone — the only thing that fills
+    // lock progress (FLIGHT.md §2).
+    const pTf = serverRoom.sim.world.transforms.get(p1.entityId)!;
+    const enemyId = serverRoom.sim.spawnPlayerAt(
+      "ship.interceptor",
+      [...ship.defaultFitting],
+      1,
+      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
+      Math.PI,
+    );
+
+    for (let i = 0; i < 120 && !p1.locked; i++) await advance(room, 1);
+    expect(p1.locked).toBe(true);
+    await new Promise((r) => setTimeout(r, 200)); // let the broadcast flush
+
+    const acquired = simEvents.find((e) => e.type === "lockAcquired");
+    expect(acquired).toBeDefined();
+    expect(acquired).toMatchObject({ entityId: p1.entityId, targetId: enemyId });
+
+    await c1.leave();
+  });
+
   it("rejects orders sent before the match goes live", async () => {
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
     const c1 = await colyseus.connectTo(room);
@@ -480,6 +550,68 @@ describe("ArenaRoom", () => {
     await advance(room, 60);
     const movedOrArmed = bot.x !== 0 || bot.z !== 0 || bot.modules.some((m) => m.state > 0);
     expect(movedOrArmed).toBe(true);
+
+    await c1.leave();
+  });
+
+  it("holds a content-edited hot-rod bot to the same order budget as a human (review Finding 3)", async () => {
+    // `driveBots` validated bot orders but never charged them to the rate
+    // budget, on the grounds that the shipped profiles are slow. The schema
+    // permits a 16 ms decision interval, though, and one decision can emit a
+    // flight order plus a toggle per hardpoint — so a Behavior Editor tweak
+    // alone could put a bot far above the cap a player is held to.
+    const base = configs.get<BotprofileConfig>("botprofile", "bot.aggressive")!;
+    const hotRod = {
+      ...base,
+      id: "bot.hotrod-test",
+      name: "Hot Rod",
+      decisionIntervalMs: 16, // one sim tick: the fastest the schema allows
+      orderJitterMs: 0,
+      // Re-send on the tiniest stick change, defeating the driver's own gate.
+      flight: { ...base.flight, turnEpsilon: 0, throttleEpsilon: 0 },
+    };
+    expect(configs.replace(hotRod).ok).toBe(true);
+
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.duel-1v1",
+      minPlayers: 2,
+      botBackfillMs: 0,
+      botProfile: "bot.hotrod-test",
+    });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await advance(room, 1);
+    expect(room.state.matchPhase).toBe("live");
+
+    // Count what actually reaches the sim. The human client sends nothing, so
+    // every applied order is the bot's.
+    const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
+      sim: { applyOrder: (id: number, order: unknown) => void };
+    };
+    const appliedAt: number[] = [];
+    const original = serverRoom.sim.applyOrder.bind(serverRoom.sim);
+    serverRoom.sim.applyOrder = (id: number, order: unknown): void => {
+      appliedAt.push(Date.now());
+      original(id, order);
+    };
+
+    const startedAt = Date.now();
+    await advance(room, 90); // ~3 s of sim at 30 Hz
+    serverRoom.sim.applyOrder = original;
+    const elapsedS = (Date.now() - startedAt) / 1000;
+
+    // The bot was genuinely trying to flood: a 16 ms cadence with zero epsilons
+    // wants a flight order on nearly every decision, ~62/s.
+    expect(appliedAt.length).toBeGreaterThan(10);
+    expect(elapsedS).toBeGreaterThan(1);
+
+    // The budget is the human one — a fixed one-second window, so the honest
+    // bound is the same one a human client gets: at most `cap` per window, with
+    // a window's worth of slack for the partial windows at each end.
+    const cap = configs.getAll<TuningConfig>("tuning")[0]?.maxOrdersPerSec ?? 20;
+    expect(appliedAt.length).toBeLessThanOrEqual(Math.ceil(elapsedS) * cap + cap);
+    // ...and far below what the profile asked for, which is the actual point.
+    expect(appliedAt.length / elapsedS).toBeLessThan(1000 / 16);
 
     await c1.leave();
   });

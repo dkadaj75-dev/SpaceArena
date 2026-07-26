@@ -30,3 +30,21 @@ export class Rng {
     return Math.floor(this.next() * n);
   }
 }
+
+/**
+ * A named child stream of a master seed — `deriveRng(matchSeed, botEntityId)`.
+ *
+ * Anything outside the sim proper that needs "random" behaviour (bot decision
+ * jitter, orbit direction, boost rolls) must still replay identically for a
+ * given match, but must NOT share `World.rng`: consuming from the world stream
+ * from a caller that only exists on some hosts (a server bot driver, say) would
+ * desync the sim itself. Hashing the two inputs into an independent
+ * {@link Rng} gives every participant its own reproducible stream, decorrelated
+ * from its neighbours' and from the world's.
+ */
+export function deriveRng(seed: number, salt = 0): () => number {
+  let h = (seed >>> 0) ^ Math.imul((salt >>> 0) ^ 0x9e3779b9, 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  const rng = new Rng((h ^ (h >>> 16)) >>> 0);
+  return () => rng.next();
+}

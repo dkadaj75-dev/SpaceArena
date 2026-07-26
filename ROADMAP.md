@@ -3,7 +3,28 @@
 > **Fast-paced arcade 3D space arena combat in the browser — one finger is enough.**
 > 1v1 & 2v2 PvP inside bounded arenas with hazardous asteroids — built as a **data-driven engine plus a constellation of designer-facing editors**, not a hardcoded game.
 
-**Visual reference:** `examplescreenshot.jpg` (updated concept) — **3/4 tactical camera** (RTS / MOBA style, like League of Legends) looking down into a ring-station arena; blue player ship with a dashed **move-order path**, red enemy with laser fire; asteroids as cover; minimap top-left, hull/shield bars left, heat/energy gauge top-right; **all gameplay buttons in a radial cluster at the bottom-right**: Kinetic, Laser, Missile, Shield, Boost — one thumb reaches everything.
+**Visual reference:** `examplescreenshot.jpg` — the ORIGINAL tactical concept; the camera, the move-order path and the target ring in it are retired (see the superseded note below). The HUD furniture it shows — minimap top-left, hull/shield bars left, heat/energy gauge top-right, module cluster bottom-right — is still the layout. As drawn: **3/4 tactical camera** (RTS / MOBA style, like League of Legends) looking down into a ring-station arena; blue player ship with a dashed **move-order path**, red enemy with laser fire; asteroids as cover; minimap top-left, hull/shield bars left, heat/energy gauge top-right; **all gameplay buttons in a radial cluster at the bottom-right**: Kinetic, Laser, Missile, Shield, Boost — one thumb reaches everything.
+
+---
+
+> ## ⚠️ PARTIALLY SUPERSEDED — read `docs/FLIGHT.md` first
+>
+> The **flight overhaul** (2026-07-25) replaced the one-finger RTS control model
+> with continuous forward flight. For anything touching **movement, targeting,
+> input or camera**, `docs/FLIGHT.md` is the contract and this document is
+> history. In particular these are **retired, not deferred**:
+>
+> | Retired | Replaced by (FLIGHT.md) |
+> |---|---|
+> | Tap-to-move, `move` orders, `MoveOrder`, seek/arrival steering, asteroid avoidance | Level-triggered `flight` order (throttle / turn / boost), §1 |
+> | `target` orders, tap-to-focus a ship | Fully automatic sticky targeting + timed sensor lock, §2 |
+> | 3/4 tactical `ArcRotateCamera`, in-match pan/orbit | Chase camera behind the ship, §3 |
+> | `OrderInput.ts`, double-tap boost, dashed path line + destination marker | Virtual joystick + throttle strip + boost button + lock reticle, §4 |
+>
+> Everything else here — modules/energy/heat, LoS, arenas, bots-as-config,
+> progression, the editor constellation, the data-driven philosophy — is
+> unchanged and still current. Sections below that describe retired systems are
+> flagged inline; they are kept for the reasoning, not as instructions.
 
 ---
 
@@ -50,8 +71,8 @@ The AI agents implement each *system* once (movement orders, module state machin
 ### 1.3 MVP Goals
 
 - ✅ Core loop: **menu → hangar (fitting) → matchmaking → arena combat → results → progression**
-- ✅ **One-finger control**: tap-to-move, double-tap afterburner, module toggle buttons bottom-right
-- ✅ **3/4 tactical camera** with pinch zoom and angle adjust, practical on a phone
+- ✅ **One-thumb control**: ~~tap-to-move, double-tap afterburner~~ → virtual joystick + throttle strip + boost, module toggle buttons bottom-right (FLIGHT.md §4)
+- ✅ ~~**3/4 tactical camera** with pinch zoom and angle adjust~~ → **chase camera** behind the ship, practical on a phone (FLIGHT.md §3)
 - ✅ **2–3 ship classes** with upgradeable core systems (hull / engine / energy / heat capacity) — all config-defined
 - ✅ **Module system**: lasers, kinetic, missiles, shield, boost — activation states, energy draw (idle vs active), heat & overheat, deploy/retract timers, **auto-fire on target in range + line of sight**
 - ✅ **1–2 arenas** with asteroid cover/hazards — built with the Map Editor
@@ -82,14 +103,28 @@ Shop/monetization UI, ranked ladders, clans, spectator mode, custom 3D art pipel
 
 This section is the design contract every phase implements. **Every number named "tunable" lives in config, editable in the Tuning Panel.**
 
-### 2.1 Camera — 3/4 Tactical View
+### 2.1 Camera — 3/4 Tactical View ⚠️ RETIRED (see FLIGHT.md §3)
+
+> The in-match camera is a **chase rig** behind the ship: alpha is driven from
+> smoothed ship heading, beta/radius/height come from `camera.chase`, and there
+> is no in-match pan or orbit. The tactical `ArcRotateCamera` below survives
+> only as the dev editor's stage. Everything in this subsection describes the
+> retired rig.
 
 - `ArcRotateCamera` locked to a comfortable RTS band: beta (tilt) clamped ~35–65°, radius (zoom) clamped per arena config, alpha (orbit) freely adjustable but with a **snap-back-to-default** option.
 - Follows the player ship with smoothed lag; slight look-ahead toward current move order.
 - **Touch:** pinch = zoom, two-finger drag = orbit/tilt. **One finger never moves the camera** — single-finger input is 100 % reserved for gameplay.
 - All limits/speeds in `camera.json` (tunable).
 
-### 2.2 Movement — Order-Based, One Finger
+### 2.2 Movement — Order-Based, One Finger ⚠️ RETIRED (see FLIGHT.md §1/§2/§4)
+
+> Movement is now **continuous flight**: one level-triggered
+> `{ kind: "flight", throttle, turn, boost }` order that the sim keeps
+> integrating until it is replaced, steered from a left virtual joystick and a
+> right-edge throttle strip. There are no move orders, no arrival steering, no
+> asteroid avoidance (ships eat `impactDamage`), no path markers, and no
+> `target` order — targeting is automatic and gated by a timed sensor lock.
+> The one surviving claim below is the **2.5D planar sim**, which flight kept.
 
 - **Tap on arena ground plane** → ship travels to that point at nominal speed (seek + arrival steering, asteroid avoidance).
 - **Double-tap** → same, but with **afterburner/boost** engaged (if a boost module is fitted and has energy/heat headroom); boost params from the module config.
@@ -178,16 +213,16 @@ space-arena/
 │       ├── core/                 # ConfigService, EntityFactory, SceneBuilder,
 │       │                         # EventBus, AssetRegistry, ThemeService
 │       ├── ecs/
-│       │   ├── components/       # Transform, MoveOrder, Hull, Shield, Capacitor,
+│       │   ├── components/       # Transform, FlightState, Hull, Shield, Capacitor,
 │       │   │                     # HeatSink, Hardpoints, ModuleState[], Collider, AIProfile
 │       │   └── systems/          # NavigationSystem, ModuleSystem, EnergySystem,
 │       │                         # HeatSystem, TargetingSystem (LoS), CombatSystem,
 │       │                         # CollisionSystem
 │       ├── game/
-│       │   ├── OrderInput.ts     # tap/double-tap/pinch state machine → orders
-│       │   ├── TacticalCamera.ts # clamped ArcRotate rig
-│       │   ├── hud/              # module radial buttons, energy/heat gauges,
-│       │   │                     # minimap, path lines, target rings, notifications
+│       │   ├── TacticalCamera.ts # chase rig in match; ArcRotate for the editor
+│       │   ├── hud/              # joystick, throttle strip, boost, lock reticle,
+│       │   │                     # module buttons, energy/heat gauges, minimap,
+│       │   │                     # target brackets, notifications
 │       │   └── screens/          # MainMenu, Hangar(Fitting), Matchmaking, Arena, Results
 │       ├── net/                  # NetClient, OrderReplication, Interpolation
 │       └── editor/               # 🛠 EDITOR CONSTELLATION (lazy chunk, F10)
@@ -342,13 +377,13 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
 
 ## 6. Phase 1 — Core Single-Player Loop + Editor Tools
 
-**Goal:** The full one-finger combat model working single-player: tap-to-move, module state machine, energy/heat, LoS auto-fire, destructible asteroids, target dummies — plus the first editors.
+**Goal:** The full one-thumb combat model working single-player: movement, module state machine, energy/heat, LoS auto-fire, destructible asteroids, target dummies — plus the first editors. *(Tasks 1.1 and 1.2 shipped as written and were later replaced by the flight model — see FLIGHT.md.)*
 **Agent mix:** **Opus** for navigation/module/energy-heat systems, **Codex** for the editor framework, **Sonnet** for HUD.
 
 ### 6A — Orders, Modules & Combat (all values from config)
 
-- [ ] **1.1 Order input system** — tap/double-tap/pinch/two-finger state machine (`OrderInput`): ground-plane pick (`scene.pick` vs invisible arena plane) → `MoveOrder{target, boost}`; tap-on-ship → `TargetOrder`; module button tap → `ModuleToggleOrder`. Double-tap window & tap-slop tunable. Works with mouse (click/dbl-click) identically. *(Opus)*
-- [ ] **1.2 NavigationSystem** — seek + arrival steering to move target on arena plane, turn-rate-limited banking visuals, **asteroid avoidance** (lookahead against spatial hash), boost flag consumes boost module energy/heat. Dashed path line + destination marker rendering (per reference image). *(Opus)*
+- [ ] **1.1 Order input system** ⚠️ **RETIRED — superseded by FLIGHT.md §4.** The current input path is a virtual joystick (`turn`) + throttle strip + boost button + desktop key bindings, all emitting the single `flight` order; the module button tap → `ModuleToggleOrder` half of this task survives unchanged. `OrderInput.ts`, the ground-plane pick and the double-tap window are deleted. *(Opus)*
+- [ ] **1.2 NavigationSystem** ⚠️ **PARTIALLY RETIRED — see FLIGHT.md §1.** NavigationSystem now integrates a persistent `FlightState`: `heading += turn * turnRate * dt`, `desiredSpeed = throttle * nominalSpeed * boostMult` approached at `accel`. Seek/arrival steering, asteroid avoidance and path/destination rendering are gone (ships take `impactDamage` from CollisionSystem instead); turn-rate-limited banking visuals and the boost energy/heat cost survive. *(Opus)*
 - [ ] **1.3 Module state machine ⭐** — generic `ModuleSystem` implementing §2.3 exactly: retracted/deploying/active/retracting/overheated, timers from config, per-family behavior blocks (`fire`, `mitigation`, `boost`) interpreted generically; `onFire/onOverheat/on*` hooks dispatch **Action Editor actions by id**. *(Opus — the heart of combat, build once, never fork)*
 - [ ] **1.4 Energy & Heat systems** — capacitor drain (idle vs active draws), regen, brown-out priority; heat accumulation/dissipation, module overheat shutdown, ship critical-heat hull damage. Deterministic, in `shared/sim`. *(Opus)*
 - [ ] **1.5 TargetingSystem + LoS** — focused/auto target selection (tunable policy); **line-of-sight raycasts** against asteroid colliders on the arena plane (cheap 2D segment-vs-circle, not Babylon raycast, so it's identical server-side); LoS state drives auto-fire and target ring style. *(Opus)*
@@ -474,7 +509,7 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
                           "energyReserve": 0.15, "shieldOnlyWhenEngaged": true } }
   ```
   `moduleDiscipline` makes bot skill = same skill axis as players (heat/energy judgement), and difficulty = config. *(Opus)*
-- [x] **5.2 Bot tactics** — arrival/orbit-at-range steering via move orders, cover-seeking = pick points that break enemy LoS (sample points behind asteroids using the same LoS math), missile-dodge repositioning. *(Opus)*
+- [x] **5.2 Bot tactics** — *(rewritten for flight, FLIGHT.md §7: bots emit the same `flight` orders a player does — aim point → `turn` axis via a measured hull turn rate — and hold no target order at all.)* orbit-at-range steering, cover-seeking = pick points that break enemy LoS (sample points behind asteroids using the same LoS math), missile-dodge repositioning. *(Opus)*
 - [x] **5.3 Behavior Editor (dev)** — SchemaFormGen over botprofile + **live debug overlay** (current behavior, utility scores, chosen move point, LoS lines) during practice; **win-condition/rule builder** for gamemodes (dropdown-driven conditions, timers, scoring, boundary rules). *(Codex)*
 
 ### 10B — Mobile & One-Thumb UX
@@ -603,3 +638,5 @@ Per-task assignments marked in *(italics)* throughout. Pre-flagged escalation ho
 ---
 
 *Space Arena MVP Roadmap v2.0 — 2026-07-21. Control model changed to one-finger tactical (tap-to-move, module toggles, auto-fire with LoS). This is a living document: check off tasks as they land, amend estimates at phase exits.*
+
+*Amended 2026-07-25: the flight overhaul superseded the movement/targeting/input/camera model — `docs/FLIGHT.md` is the contract for those, see the note at the top.*

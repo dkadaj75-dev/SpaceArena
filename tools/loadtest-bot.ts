@@ -25,10 +25,13 @@
 import { cli, type Options } from "@colyseus/loadtest";
 import { Client, type Room } from "colyseus.js";
 
-/** Matches tools/loadtest.ts, so the two generators produce the same load. */
-const ARENA_RADIUS = 90;
-const ORDER_RADIUS = ARENA_RADIUS * 0.8;
-const MOVE_INTERVAL_MS = 2000;
+/**
+ * Matches tools/loadtest.ts, so the two generators produce the same load.
+ * `flight` orders are level-triggered (FLIGHT.md §1), so this is the ORDER
+ * rate, not the input rate: between two of them the server keeps integrating
+ * the last state, which is the traffic profile a real client produces.
+ */
+const FLIGHT_INTERVAL_MS = 2000;
 const TOGGLE_INTERVAL_MS = 8000;
 
 /**
@@ -53,11 +56,18 @@ export async function main(options: Options): Promise<void> {
     }
   };
 
-  const move = setInterval(() => {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = Math.sqrt(Math.random()) * ORDER_RADIUS;
-    send({ kind: "move", target: { x: Math.cos(angle) * radius, z: Math.sin(angle) * radius }, boost: Math.random() < 0.2 });
-  }, MOVE_INTERVAL_MS);
+  // Throttle up and hold a turn. The ship keeps flying (and keeps colliding,
+  // and keeps entering other pilots' sensor cones) between orders, so the
+  // server does the same per-tick work a real match does. No target orders —
+  // targeting is the sim's, automatically (FLIGHT.md §2).
+  const flight = setInterval(() => {
+    send({
+      kind: "flight",
+      throttle: 0.4 + Math.random() * 0.6,
+      turn: Math.random() * 2 - 1,
+      boost: Math.random() < 0.2,
+    });
+  }, FLIGHT_INTERVAL_MS);
 
   const toggle = setInterval(() => {
     send({ kind: "moduleToggle", hardpointIndex: Math.floor(Math.random() * 3) });
@@ -66,7 +76,7 @@ export async function main(options: Options): Promise<void> {
   // The room disconnects everyone a few seconds after the match ends; stop the
   // timers with it rather than sending into a closed socket forever.
   room.onLeave(() => {
-    clearInterval(move);
+    clearInterval(flight);
     clearInterval(toggle);
   });
 }

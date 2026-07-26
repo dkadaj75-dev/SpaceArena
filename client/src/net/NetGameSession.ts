@@ -35,7 +35,108 @@ const PENDING_TOGGLE_MS = 800; // optimistic module-state overlay lifetime
 interface TimedSnapshot { time: number; snapshot: Snapshot }
 interface PendingToggle { sentAt: number; fromState: string; optimistic: "deploying" | "retracting" }
 /** The three axes of a `flight` order, as the predictor remembers them. */
-interface PredictedFlight { throttle: number; turn: number; boost: boolean }
+export interface PredictedFlight { throttle: number; turn: number; boost: boolean }
+
+/**
+ * Sequence-aware bookkeeping for the level-triggered `flight` orders in flight
+ * between this client and the server (FLIGHT.md §1). Pure and socket-free, so
+ * the ack orderings that matter can be exercised directly.
+ *
+ * `flight` orders are STATE, not impulses: the server integrates the last one it
+ * accepted, every tick, until another replaces it. A rejection therefore has to
+ * roll the predictor back to the last state the server actually holds — but only
+ * when the rejected order is still the newest thing we sent. Accept(A),
+ * reject(B), accept(C) is an ordinary sequence under any loss or validation
+ * hiccup, and a naive rollback on B would put the predictor back on A while the
+ * server flies C, with nothing left to correct it: the predictor would sit
+ * wrong until the next input, blending against a ship that is steering
+ * elsewhere.
+ */
+export class FlightReconciler {
+  /** State the predictor integrates: the newest flight order believed to be live. */
+  private predicted: PredictedFlight | null = null;
+  /** State of the newest ACCEPTED order — what a rollback falls back to. */
+  private accepted: PredictedFlight | null = null;
+  private acceptedSeq = -1;
+  /** Sent-but-unacked flight states by seq. */
+  private readonly inFlight = new Map<number, PredictedFlight>();
+  /** Newest flight seq sent, acked or not. */
+  private newestSeq = -1;
+
+  /** The flight state the predictor should be integrating right now. */
+  get current(): PredictedFlight | null {
+    return this.predicted;
+  }
+
+  /** Record a flight order handed to the transport. */
+  sent(seq: number, flight: PredictedFlight): void {
+    this.predicted = flight;
+    this.inFlight.set(seq, flight);
+    if (seq > this.newestSeq) this.newestSeq = seq;
+  }
+
+  /**
+   * Fold in an ack. Safe to call for every ack: a seq that was not a flight
+   * order is a no-op.
+   */
+  acked(seq: number, accepted: boolean): void {
+    const flight = this.inFlight.get(seq);
+    if (flight === undefined) return;
+    this.inFlight.delete(seq);
+    if (accepted) {
+      // Newest accepted wins: a straggling ack for an older seq must not
+      // resurrect a state the server has already superseded.
+      if (seq >= this.acceptedSeq) {
+        this.accepted = flight;
+        this.acceptedSeq = seq;
+      }
+      return;
+    }
+    // Rejected: the server never stored this state, so it is still integrating
+    // the last accepted one — unless we have since sent something newer, which
+    // is what it is really flying. Rolling back then would be the bug.
+    if (seq === this.newestSeq) this.predicted = this.accepted;
+  }
+
+  clear(): void {
+    this.inFlight.clear();
+  }
+}
+
+/**
+ * Move the predictor bodily onto an authoritative sample. Velocity is REPLACED,
+ * never carried over: a snap happens precisely when the server is steering
+ * differently from the prediction — an asteroid impact cancels most of the
+ * ship's velocity, say — and keeping the predictor's nominal speed makes it
+ * race away from the corrected position on the very next frame, snap back, and
+ * oscillate for as long as the input is held.
+ */
+export function snapPrediction(
+  pred: SteerState,
+  pos: { x: number; z: number },
+  heading: number,
+  vel: { x: number; z: number },
+): void {
+  pred.pos.x = pos.x;
+  pred.pos.z = pos.z;
+  pred.heading = heading;
+  pred.vel.x = vel.x;
+  pred.vel.z = vel.z;
+}
+
+/**
+ * Velocity implied by two authoritative samples of the same ship (units/s).
+ * Zero when the samples are not separated in time — the honest answer, and the
+ * safe one for {@link snapPrediction}, which would otherwise inherit a divide.
+ */
+export function sampledVelocity(
+  from: { x: number; z: number },
+  to: { x: number; z: number },
+  dtSeconds: number,
+): { x: number; z: number } {
+  if (!(dtSeconds > 0)) return { x: 0, z: 0 };
+  return { x: (to.x - from.x) / dtSeconds, z: (to.z - from.z) / dtSeconds };
+}
 
 /**
  * Client-side extras that must NOT travel to the server. `ArenaJoinOptions` is
@@ -87,16 +188,18 @@ export class NetGameSession extends GameSession {
   private predActive = false; // becomes true once seeded from a server snapshot
   /**
    * The flight input the SERVER is believed to be integrating — i.e. the last
-   * flight order we sent, kept until another replaces it. `flight` orders are
-   * level-triggered (FLIGHT.md §1): the sim keeps applying the stored
-   * `FlightState` every tick, so the predictor must do the same rather than
-   * consuming the order once.
+   * flight order we sent, kept until another replaces it, and rolled back by
+   * sequence when a rejection lands. `flight` orders are level-triggered
+   * (FLIGHT.md §1): the sim keeps applying the stored `FlightState` every tick,
+   * so the predictor must do the same rather than consuming the order once.
    */
-  private predFlight: PredictedFlight | null = null;
-  /** Flight state of the last ACCEPTED order — what a rejection rolls back to. */
-  private acceptedFlight: PredictedFlight | null = null;
-  /** In-flight flight orders by seq, so an ack knows which state it confirmed. */
-  private readonly seqFlight = new Map<number, PredictedFlight>();
+  private readonly flight = new FlightReconciler();
+  /**
+   * Local player's velocity as the last two authoritative samples imply it —
+   * what a prediction snap adopts (see {@link snapPrediction}). `ShipSnapshot`
+   * carries no velocity, so it is differenced from replicated positions.
+   */
+  private readonly serverVel = { x: 0, z: 0 };
   private errX = 0; // server − predicted, decayed into pred each frame
   private errZ = 0;
 
@@ -164,18 +267,15 @@ export class NetGameSession extends GameSession {
         }
         const kind = session.seqKinds.get(ack.seq);
         session.seqKinds.delete(ack.seq);
-        const flight = session.seqFlight.get(ack.seq);
-        session.seqFlight.delete(ack.seq);
+        // A rejected FLIGHT order never reached the sim's FlightState — the
+        // reconciler decides, by sequence, whether that means rolling the
+        // predictor back (see FlightReconciler).
+        session.flight.acked(ack.seq, ack.accepted);
         if (ack.accepted) {
           session.ordersAcked++;
-          if (flight) session.acceptedFlight = flight;
         } else {
           session.ordersRejected++;
           log.warn(`order ${ack.seq} rejected: ${ack.reason ?? "unknown"}`);
-          // A rejected FLIGHT order never reached the sim's FlightState, so the
-          // server is still integrating the last accepted one — roll the
-          // predictor back to it rather than flying an input nobody has.
-          if (kind === "flight") session.predFlight = session.acceptedFlight;
           if (kind === "moduleToggle") session.pendingToggles.clear();
           session.onOrderRejected?.(ack.reason ?? "rejected");
         }
@@ -242,9 +342,7 @@ export class NetGameSession extends GameSession {
       // Level-triggered: this state is what the sim integrates every tick from
       // now on, so the predictor holds it (rather than consuming it once) until
       // the next order replaces it — or an ack rejects it (see `join`).
-      const flight: PredictedFlight = { throttle: order.throttle, turn: order.turn, boost: order.boost };
-      this.predFlight = flight;
-      this.seqFlight.set(seq, flight);
+      this.flight.sent(seq, { throttle: order.throttle, turn: order.turn, boost: order.boost });
     } else if (order.kind === "moduleToggle") {
       // Keyed by hardpointIndex, not array position — the modules array is
       // sparse-safe (spawn.ts) so a fitting like {0: laser, 2: shield} never
@@ -272,7 +370,7 @@ export class NetGameSession extends GameSession {
     this.snapshots.length = 0;
     this.events.length = 0;
     this.lagQueue.length = 0;
-    this.seqFlight.clear();
+    this.flight.clear();
   }
 
   get correctionError(): number { return Math.hypot(this.errX, this.errZ); }
@@ -319,8 +417,23 @@ export class NetGameSession extends GameSession {
 
     this.previous = this.current;
     this.current = interpolate(a.snapshot, z.snapshot, t);
+    this.trackServerVelocity(a, z);
     this.applyPrediction(dt, now);
     this.applyPendingToggles(now);
+  }
+
+  /**
+   * Keep the local player's authoritative velocity up to date by differencing
+   * the two snapshots currently being interpolated between. Only a snap reads
+   * it, but it has to be measured continuously: at the moment of a snap the
+   * interesting sample pair is already in the past.
+   */
+  private trackServerVelocity(a: TimedSnapshot, z: TimedSnapshot): void {
+    const from = a.snapshot.ships.find((s) => s.id === this.playerId);
+    const to = z.snapshot.ships.find((s) => s.id === this.playerId);
+    const v = from && to ? sampledVelocity(from.pos, to.pos, (z.time - a.time) / 1000) : { x: 0, z: 0 };
+    this.serverVel.x = v.x;
+    this.serverVel.z = v.z;
   }
 
   /** Advance the local predictor and pull it toward server truth (2.5). */
@@ -350,13 +463,14 @@ export class NetGameSession extends GameSession {
     // (FLIGHT.md §5).
     const engine = this.resolvedEngine(cfg, player);
 
-    if (this.predFlight) {
+    const held = this.flight.current;
+    if (held) {
       flightStep(
         this.pred,
         {
-          throttle: this.predFlight.throttle,
-          turn: this.predFlight.turn,
-          boostMult: this.predFlight.boost ? this.predBoostMult(player) : 1,
+          throttle: held.throttle,
+          turn: held.turn,
+          boostMult: held.boost ? this.predBoostMult(player) : 1,
         },
         engine,
         dt,
@@ -367,23 +481,25 @@ export class NetGameSession extends GameSession {
     this.errX = player.pos.x - this.pred.pos.x;
     this.errZ = player.pos.z - this.pred.pos.z;
     if (Math.hypot(this.errX, this.errZ) > SNAP_DISTANCE) {
-      this.pred.pos.x = player.pos.x;
-      this.pred.pos.z = player.pos.z;
-      this.pred.heading = player.heading;
-      this.errX = 0;
-      this.errZ = 0;
       // Diverging this far means the server is steering differently (a
       // collision, or an order rejection racing its ack) — defer to server
-      // motion. `predFlight` is deliberately NOT cleared: the server is still
-      // integrating that state, so dropping it would leave the predictor inert
-      // while the real ship keeps flying (the exact opposite of the fix).
+      // motion, VELOCITY INCLUDED. Adopting the position while keeping the
+      // predictor's own speed is what makes a post-collision snap oscillate:
+      // the server has shed most of the ship's velocity, the predictor has not,
+      // so it sprints past the corrected position and snaps back next frame.
+      // The held flight state is deliberately NOT cleared: the server is still
+      // integrating it, so dropping it would leave the predictor inert while
+      // the real ship keeps flying (the exact opposite of the fix).
+      snapPrediction(this.pred, player.pos, player.heading, this.serverVel);
+      this.errX = 0;
+      this.errZ = 0;
     } else {
       const pull = 1 - Math.exp(-this.correctionRate * dt);
       this.pred.pos.x += this.errX * pull;
       this.pred.pos.z += this.errZ * pull;
       // While the local player is flying, heading is a client input — pull it
       // gently so a patch cannot jerk the nose (and the camera with it).
-      const steering = this.predFlight !== null;
+      const steering = held !== null;
       this.pred.heading = lerpHeading(this.pred.heading, player.heading, steering ? 0.15 : pull);
     }
 

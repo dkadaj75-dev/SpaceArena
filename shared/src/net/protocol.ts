@@ -87,11 +87,20 @@ export interface FireEventMessage {
 /**
  * Passthrough subset of {@link import("../sim/events.js").SimEvent} that clients
  * need but that isn't derivable from schema state: damage numbers, shield
- * absorbs, destructions, boundary hits. Missiles are schema entities; beams and
- * kinetics travel via {@link FireEventMessage}.
+ * absorbs, destructions, boundary hits, lock flips. Missiles are schema
+ * entities; beams and kinetics travel via {@link FireEventMessage}.
  */
 export type SimEventMessage =
   | { type: "damage"; targetId: EntityId; sourceId: EntityId | null; amount: number; damageType: string; isAsteroid: boolean }
+  /**
+   * Sensor lock completed / broke. `PlayerState.locked` replicates the STATE, but
+   * the audio cue and the haptic buzz are edges, and an edge recovered by diffing
+   * a 20 Hz patch stream is one that fires late and can be missed entirely across
+   * a dropped frame. These are exactly-once-per-flip and low-rate, so they travel
+   * as events like every other cue (client/src/audio/soundIds.ts, Haptics.ts).
+   */
+  | { type: "lockAcquired"; entityId: EntityId; targetId: EntityId }
+  | { type: "lockLost"; entityId: EntityId }
   | { type: "shieldAbsorb"; targetId: EntityId; hardpointIndex: number; amount: number }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "warning" }

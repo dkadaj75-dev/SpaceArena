@@ -2,6 +2,7 @@ import {
   ArenaSimulation,
   BotDriver,
   createLogger,
+  deriveRng,
   resolveBotRoster,
   type ConfigService,
   type EntityId,
@@ -50,7 +51,11 @@ export interface GameSessionOptions {
    * come from server state).
    */
   bots?: null;
-  /** Deterministic RNG for bot decisions (defaults to `Math.random`). */
+  /**
+   * Override for bot decision randomness. Omitted ⇒ each bot gets its own
+   * stream derived from the session seed + its entity id, which is already
+   * deterministic — this exists so a test can pin a specific sequence.
+   */
   botRng?: () => number;
 }
 
@@ -111,9 +116,13 @@ export class GameSession {
       if (!botShip) continue;
       const id = this.sim.spawnPlayer(slot.shipId, botShip.defaultFitting, slot.team);
       this.shipConfigIds.set(id, slot.shipId);
+      // Seeded from the SESSION seed + the bot's entity id, so a practice match
+      // replayed on the same seed produces the same opponents rather than a
+      // fresh `Math.random` roll of orbit signs and decision jitter.
+      // `options.botRng` still wins, for tests that want a specific stream.
       this.bots.set(
         id,
-        new BotDriver({ entityId: id, profile: slot.profile, configs, rng: options.botRng }),
+        new BotDriver({ entityId: id, profile: slot.profile, configs, rng: options.botRng ?? deriveRng(seed, id) }),
       );
     }
 

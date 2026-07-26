@@ -2,6 +2,7 @@ import { Room, type Client } from "@colyseus/core";
 import {
   ArenaSimulation,
   BotDriver,
+  deriveRng,
   resolveBackfillBot,
   teamSizeOf,
   SIM_TICK_RATE,
@@ -113,6 +114,12 @@ export class ArenaRoom extends Room<ArenaState> {
   private maxOrdersPerSec = DEFAULT_MAX_ORDERS_PER_SEC;
   private minPlayers = 2;
   /**
+   * The match seed, kept because the sim is not its only consumer: every bot
+   * driver derives its own RNG stream from it (see {@link backfillBots}), so a
+   * room re-created with the same seed replays the same bot behaviour.
+   */
+  private seed = 1;
+  /**
    * Whether this match grants progression. Client-supplied `practiceTarget` or
    * `minPlayers` overrides (which enable trivially-winnable solo rooms) mark the
    * match ineligible — results are still recorded, but no credits/XP are granted.
@@ -197,7 +204,8 @@ export class ArenaRoom extends Room<ArenaState> {
     // Anti-farming: overrides that enable trivial solo wins forfeit rewards.
     this.rewardsEligible = options.practiceTarget !== true && options.minPlayers === undefined;
 
-    this.sim = new ArenaSimulation(configs, arenaId, options.gamemode, options.seed ?? 1);
+    this.seed = options.seed ?? 1;
+    this.sim = new ArenaSimulation(configs, arenaId, options.gamemode, this.seed);
 
     const state = new ArenaState();
     state.matchPhase = "waiting";
@@ -483,7 +491,14 @@ export class ArenaRoom extends Room<ArenaState> {
         this.keyToEntity.set(key, entityId);
         this.entityToKey.set(entityId, key);
         this.fragsByEntity.set(entityId, 0);
-        this.botDrivers.set(entityId, new BotDriver({ entityId, profile: backfill.profile, configs }));
+        // Seeded per bot: `Math.random` here would make two rooms created with
+        // the same seed diverge on the very first decision (orbit sign, jitter,
+        // boost rolls), which is exactly what a repro or a replay needs not to
+        // happen. Entity id salts the stream so co-spawned bots differ.
+        this.botDrivers.set(
+          entityId,
+          new BotDriver({ entityId, profile: backfill.profile, configs, rng: deriveRng(this.seed, entityId) }),
+        );
         this.syncShipState(entityId, ps);
         spawned++;
       }
@@ -496,8 +511,15 @@ export class ArenaRoom extends Room<ArenaState> {
 
   /**
    * Drive every live bot: feed it the read-only snapshot and push its orders
-   * through the **same validation + apply path** a human order takes, so bots
-   * can never issue an order a player could not.
+   * through the **same validation + rate budget + apply path** a human order
+   * takes, so bots can never issue an order a player could not.
+   *
+   * The budget matters even though every shipped profile is far below it: the
+   * botprofile schema accepts a `decisionIntervalMs` as low as one sim tick, and
+   * a single decision can emit a flight order plus one toggle per hardpoint, so
+   * a content edit alone could put a bot above the human cap. Bots have no
+   * `Client` and cannot be kicked, so an over-budget bot order is just dropped —
+   * the ship keeps flying its last (level-triggered) flight state.
    */
   private driveBots(): void {
     this.botClockMs += FIXED_DT * 1000;
@@ -505,27 +527,36 @@ export class ArenaRoom extends Room<ArenaState> {
     for (const [entityId, driver] of this.botDrivers) {
       if (!this.sim.hasShip(entityId)) {
         this.botDrivers.delete(entityId);
+        this.orderRates.delete(botRateKey(entityId));
         continue;
       }
       for (const order of driver.update(snapshot, this.botClockMs)) {
         if (this.validateOrder(entityId, order)) continue; // same rules as humans
+        if (this.overBudget(botRateKey(entityId))) continue; // same cap as humans
         this.sim.applyOrder(entityId, order);
       }
     }
   }
 
   private handleOrder(client: Client, raw: unknown): void {
-    const parsed = orderMessageSchema.safeParse(raw);
-    if (!parsed.success) {
-      this.ack(client, typeof (raw as { seq?: number })?.seq === "number" ? (raw as { seq: number }).seq : -1, false, "malformed");
-      return;
-    }
-    const { seq, order } = parsed.data;
-
+    // Rate-limit BEFORE parsing. A malformed message costs the server a Zod
+    // parse and an ack exactly like a valid one, so counting only the orders
+    // that parse hands an authenticated client a free, unbounded channel: spam
+    // an unknown discriminant and every message is served, none counted, and
+    // the abuse counter never reaches the kick threshold. Every inbound order
+    // message counts against the same budget, whatever its shape.
+    const seq = typeof (raw as { seq?: number })?.seq === "number" ? (raw as { seq: number }).seq : -1;
     if (this.rateLimited(client)) {
       this.ack(client, seq, false, "rate-limited");
       return;
     }
+
+    const parsed = orderMessageSchema.safeParse(raw);
+    if (!parsed.success) {
+      this.ack(client, seq, false, "malformed");
+      return;
+    }
+    const { order } = parsed.data;
 
     if (this.state.matchPhase !== "live") {
       this.ack(client, seq, false, "not-live");
@@ -576,23 +607,32 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   private rateLimited(client: Client): boolean {
+    if (!this.overBudget(client.sessionId)) return false;
+    const rate = this.orderRates.get(client.sessionId)!;
+    rate.abuse++;
+    if (rate.abuse >= ABUSE_KICK_THRESHOLD) {
+      log.warn("kicking client for sustained order spam", { sessionId: client.sessionId });
+      client.leave(4290); // custom close code: rate-limit kick
+    }
+    return true;
+  }
+
+  /**
+   * Charge one order to `key`'s one-second budget and report whether it blew it.
+   * The window logic is shared by humans and bots so the two are held to the
+   * SAME cap; only the consequences differ (a client can be kicked, a bot's
+   * order is simply dropped).
+   */
+  private overBudget(key: string): boolean {
     const now = Date.now();
-    const rate = this.orderRates.get(client.sessionId) ?? { windowStart: now, count: 0, abuse: 0 };
+    const rate = this.orderRates.get(key) ?? { windowStart: now, count: 0, abuse: 0 };
     if (now - rate.windowStart >= 1000) {
       rate.windowStart = now;
       rate.count = 0;
     }
     rate.count++;
-    this.orderRates.set(client.sessionId, rate);
-    if (rate.count > this.maxOrdersPerSec) {
-      rate.abuse++;
-      if (rate.abuse >= ABUSE_KICK_THRESHOLD) {
-        log.warn("kicking client for sustained order spam", { sessionId: client.sessionId });
-        client.leave(4290); // custom close code: rate-limit kick
-      }
-      return true;
-    }
-    return false;
+    this.orderRates.set(key, rate);
+    return rate.count > this.maxOrdersPerSec;
   }
 
   private ack(client: Client, seq: number, accepted: boolean, reason?: OrderRejectReason): void {
@@ -914,6 +954,11 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 }
 
+/** Order-budget key for a bot ship. Distinct namespace from client session ids. */
+function botRateKey(entityId: EntityId): string {
+  return `bot-rate-${entityId}`;
+}
+
 /** Convert a positional `defaultFitting` into a validate-able hardpoint map (skip empties). */
 function defaultFittingToHardpointMap(defaultFitting: readonly (string | null)[]): HardpointMap {
   const map: HardpointMap = {};
@@ -936,6 +981,13 @@ function toSimEventMessage(ev: SimEvent): SimEventMessage | null {
       };
     case "shieldAbsorb":
       return { type: "shieldAbsorb", targetId: ev.targetId, hardpointIndex: ev.hardpointIndex, amount: ev.amount };
+    // Lock flips: one message per acquire/break, which is the rate a lock can
+    // physically change at. Without them the online client never plays the
+    // lock cue that practice mode plays (FLIGHT.md §2/§4).
+    case "lockAcquired":
+      return { type: "lockAcquired", entityId: ev.entityId, targetId: ev.targetId };
+    case "lockLost":
+      return { type: "lockLost", entityId: ev.entityId };
     case "entityDestroyed":
       return { type: "entityDestroyed", entityId: ev.entityId, killerId: ev.killerId, isAsteroid: ev.isAsteroid, team: ev.team };
     case "boundaryHit":

@@ -29,6 +29,15 @@ export const tuningSchema = z.object({
   impactSpeedThreshold: z.number().nonnegative().optional(),
   /** CollisionSystem: seconds a ship/asteroid pair is immune to further impact damage. */
   impactDamageCooldown: z.number().nonnegative().optional(),
+  /**
+   * ProjectileSystem: how far past the arena bounds a projectile may travel
+   * before it is culled (world units). A missile that outlives its target flies
+   * straight until its lifetime expires, which on a radius-300 field can carry
+   * it hundreds of units past the rim — beyond the ±327.67 int16 centi wire
+   * range, where the replicated position silently clamps and the client renders
+   * a missile frozen on a wall while the authoritative one flies on. Default 20.
+   */
+  projectileBoundsMargin: z.number().nonnegative().optional(),
   /** Max simulation ticks processed per frame (spiral-of-death clamp). */
   maxTicksPerFrame: z.number().int().positive().optional(),
   /** Client render: beam (laser) fade-out duration in ms. */

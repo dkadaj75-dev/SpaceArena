@@ -7,6 +7,7 @@ import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong } from "../sim/los.js";
 import { angleDelta, clamp, dist } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
+import { deriveRng } from "../sim/rng.js";
 import {
   botBehaviors,
   type BehaviorRegistry,
@@ -68,7 +69,14 @@ export interface BotDriverOptions {
   entityId: EntityId;
   profile: BotprofileConfig;
   configs: ConfigService;
-  /** Injectable RNG for determinism in tests. Defaults to `Math.random`. */
+  /**
+   * Stream this driver draws its jitter/orbit/roll decisions from. Production
+   * callers derive it from the MATCH seed plus the bot's entity id
+   * (`deriveRng(seed, entityId)`) so a replayed match produces a byte-identical
+   * bot; tests may inject any function. Omitted ⇒ derived from the entity id
+   * alone, which is still deterministic — there is no `Math.random` default,
+   * because one nondeterministic driver desyncs the whole match.
+   */
   rng?: () => number;
   /** Behaviour registry override (defaults to the global built-in registry). */
   behaviors?: BehaviorRegistry;
@@ -154,7 +162,7 @@ export class BotDriver {
     this.entityId = options.entityId;
     this.spawnProfile = options.profile;
     this.configs = options.configs;
-    this.rng = options.rng ?? Math.random;
+    this.rng = options.rng ?? deriveRng(options.entityId);
     this.behaviors = options.behaviors ?? botBehaviors();
     this.orbitSign = options.orbitSign ?? (this.rng() < 0.5 ? -1 : 1);
   }

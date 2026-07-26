@@ -13,7 +13,14 @@ import {
   type SteerState,
   type UpgradeLevels,
 } from "@space-arena/shared";
-import { boostMult, decodeModules } from "./NetGameSession.js";
+import {
+  boostMult,
+  decodeModules,
+  sampledVelocity,
+  snapPrediction,
+  FlightReconciler,
+  type PredictedFlight,
+} from "./NetGameSession.js";
 
 /**
  * Sol review Finding 2 (HIGH) regression coverage: the replicated
@@ -96,6 +103,117 @@ describe("boostMult (Finding 4)", () => {
     // Hangar-saved fit without a boost module must not get its speed bonus.
     const configs = fakeConfigs({ "module.boost-mk1": { boost: { speedMult: 1.8, heatPerSec: 5 } } });
     expect(boostMult(configs, ["module.laser-mk1"])).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ack reconciliation (review Finding 4)
+// ---------------------------------------------------------------------------
+
+describe("FlightReconciler (Finding 4)", () => {
+  const A: PredictedFlight = { throttle: 0.2, turn: 0, boost: false };
+  const B: PredictedFlight = { throttle: 0.6, turn: 0.5, boost: false };
+  const C: PredictedFlight = { throttle: 1, turn: -1, boost: true };
+
+  it("keeps the newest accepted state when an OLDER order is rejected after it", () => {
+    // The reported bug: A accepted, B rejected, C accepted — B's rejection used
+    // to roll the predictor back to A, and C's ack only touched the "last
+    // accepted" slot, so prediction sat on A forever while the server flew C.
+    const r = new FlightReconciler();
+    r.sent(1, A);
+    r.acked(1, true);
+    r.sent(2, B);
+    r.sent(3, C);
+    r.acked(3, true);
+    r.acked(2, false); // late rejection of a superseded order
+    expect(r.current).toBe(C);
+  });
+
+  it("still rolls back when the REJECTED order is the newest one sent", () => {
+    // The case the rollback exists for: nothing newer is in flight, so the
+    // server really is still integrating the last accepted state.
+    const r = new FlightReconciler();
+    r.sent(1, A);
+    r.acked(1, true);
+    r.sent(2, B);
+    r.acked(2, false);
+    expect(r.current).toBe(A);
+  });
+
+  it("rolls back to null when the very first order is rejected", () => {
+    const r = new FlightReconciler();
+    r.sent(1, A);
+    r.acked(1, false);
+    expect(r.current).toBeNull();
+  });
+
+  it("rolls back to the newest accepted state, not the oldest", () => {
+    const r = new FlightReconciler();
+    r.sent(1, A);
+    r.acked(1, true);
+    r.sent(2, B);
+    r.acked(2, true);
+    r.sent(3, C);
+    r.acked(3, false);
+    expect(r.current).toBe(B);
+  });
+
+  it("ignores acks for seqs that were not flight orders", () => {
+    const r = new FlightReconciler();
+    r.sent(1, A);
+    r.acked(1, true);
+    r.acked(2, false); // a moduleToggle rejection, say
+    expect(r.current).toBe(A);
+  });
+
+  it("does not let a straggling older acceptance overwrite a newer one", () => {
+    const r = new FlightReconciler();
+    r.sent(1, A);
+    r.sent(2, B);
+    r.acked(2, true);
+    r.acked(1, true);
+    r.sent(3, C);
+    r.acked(3, false); // newest sent → roll back to the newest ACCEPTED
+    expect(r.current).toBe(B);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prediction snap (review Finding 5)
+// ---------------------------------------------------------------------------
+
+describe("snapPrediction (Finding 5)", () => {
+  function state(): SteerState {
+    // Cruising at nominal speed along +x, as the predictor would be mid-flight.
+    return { pos: { x: 10, z: 0 }, vel: { x: 40, z: 0 }, heading: 0 };
+  }
+
+  it("replaces velocity instead of carrying the predictor's stale speed across a snap", () => {
+    // The oscillation: an asteroid collision cancels the server's velocity, the
+    // predictor snaps onto the corrected position but keeps flying at 40 u/s,
+    // races back outside SNAP_DISTANCE and snaps again, every frame.
+    const pred = state();
+    snapPrediction(pred, { x: 4, z: 1 }, 1.2, { x: 0, z: 0 });
+    expect(pred.pos).toEqual({ x: 4, z: 1 });
+    expect(pred.heading).toBe(1.2);
+    expect(pred.vel).toEqual({ x: 0, z: 0 });
+  });
+
+  it("adopts the authoritative velocity when one can be derived", () => {
+    const pred = state();
+    snapPrediction(pred, { x: 4, z: 1 }, 0, { x: -3, z: 7 });
+    expect(pred.vel).toEqual({ x: -3, z: 7 });
+  });
+});
+
+describe("sampledVelocity (Finding 5)", () => {
+  it("differences two authoritative samples into units per second", () => {
+    expect(sampledVelocity({ x: 0, z: 0 }, { x: 2, z: -1 }, 0.05)).toEqual({ x: 40, z: -20 });
+  });
+
+  it("reports zero rather than a divide when the samples share a timestamp", () => {
+    // `bracket` returns [s, s, 0] while only one snapshot has arrived.
+    expect(sampledVelocity({ x: 0, z: 0 }, { x: 2, z: -1 }, 0)).toEqual({ x: 0, z: 0 });
   });
 });
 

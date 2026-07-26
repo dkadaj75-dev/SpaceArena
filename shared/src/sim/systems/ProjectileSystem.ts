@@ -3,13 +3,18 @@ import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { headingOf, segmentIntersectsCircle, turnToward } from "../math.js";
 import type { World } from "../World.js";
 
+/** Fallback for `tuning.projectileBoundsMargin` (world units). */
+const DEFAULT_BOUNDS_MARGIN = 20;
+
 /**
  * ProjectileSystem — advances travelling ordnance, homes missiles toward their
- * target (turn-rate-limited), expires by lifetime, and does swept circle hit
- * detection (old→new segment vs collider) against enemy ships and asteroids so
- * fast projectiles cannot tunnel. First hit along the path wins.
+ * target (turn-rate-limited), expires by lifetime or by leaving the arena, and
+ * does swept circle hit detection (old→new segment vs collider) against enemy
+ * ships and asteroids so fast projectiles cannot tunnel. First hit along the
+ * path wins.
  */
 export function projectileSystem(world: World, dt: number): void {
+  const margin = world.tuning.projectileBoundsMargin ?? DEFAULT_BOUNDS_MARGIN;
   for (const id of world.projectileIds()) {
     const proj = world.projectiles.get(id)!;
     const tf = world.transforms.get(id)!;
@@ -38,6 +43,18 @@ export function projectileSystem(world: World, dt: number): void {
     tf.pos.x = to.x;
     tf.pos.z = to.z;
 
+    // Out-of-arena cull. Ships are held inside the boundary by CollisionSystem,
+    // but ordnance is not: a missile that loses its target keeps flying straight
+    // for the rest of its lifetime and can end up hundreds of units outside the
+    // rim. Nothing out there can be hit, and the wire encoding cannot even
+    // represent the position (see `tuning.projectileBoundsMargin`), so despawn.
+    // Done HERE rather than in the room so the rule is deterministic and
+    // identical offline and online.
+    if (!hit && outsideBounds(world, to, margin)) {
+      world.destroyEntity(id);
+      continue;
+    }
+
     if (hit) {
       if (hit.isAsteroid) {
         applyDamageToAsteroid(world, hit.id, proj.ownerId, proj.damage, proj.damageType);
@@ -47,6 +64,16 @@ export function projectileSystem(world: World, dt: number): void {
       world.destroyEntity(id);
     }
   }
+}
+
+/** Whether `pos` sits more than `margin` outside the arena's own bounds shape. */
+function outsideBounds(world: World, pos: { x: number; z: number }, margin: number): boolean {
+  const bounds = world.arena.bounds;
+  if (bounds.shape === "circle") {
+    const limit = bounds.radius + margin;
+    return pos.x * pos.x + pos.z * pos.z > limit * limit;
+  }
+  return Math.abs(pos.x) > bounds.width / 2 + margin || Math.abs(pos.z) > bounds.height / 2 + margin;
 }
 
 interface Hit {

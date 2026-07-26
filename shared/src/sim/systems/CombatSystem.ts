@@ -40,7 +40,14 @@ export function combatSystem(world: World, dt: number): void {
       // whether or not the pilot is holding a lock).
       if (!ref?.locked) continue;
       const targetId = ref.targetId;
-      if (targetId === null || !world.shipCores.has(targetId)) continue;
+      if (targetId === null) continue;
+      // Hull, not mere existence. CleanupSystem removes the wreck at the END of
+      // the tick, so between the shot that kills a ship and that removal the
+      // entity is still present with hull ≤ 0 — and every attacker with a higher
+      // entity id runs later in this same loop. Checking existence alone let all
+      // of them spend a cycle timer and a tick of energy shooting a corpse.
+      const tgtCore = world.shipCores.get(targetId);
+      if (!tgtCore || tgtCore.hull <= 0) continue;
       const tgtTf = world.transforms.get(targetId)!;
 
       const dx = tgtTf.pos.x - myTf.pos.x;
