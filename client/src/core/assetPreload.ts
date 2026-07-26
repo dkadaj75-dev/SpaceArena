@@ -1,4 +1,10 @@
-import type { ArenaConfig, AsteroidConfig, ConfigService, RenderRecipe } from "@space-arena/shared";
+import type {
+  ArenaConfig,
+  AsteroidConfig,
+  ConfigService,
+  RenderRecipe,
+  ShipConfig,
+} from "@space-arena/shared";
 import type { AssetRegistry } from "./AssetRegistry.js";
 
 /**
@@ -45,4 +51,21 @@ export function arenaModelRenders(configs: ConfigService, arenaId: string): Rend
  */
 export function preloadArenaModels(assets: AssetRegistry, configs: ConfigService, arenaId: string): void {
   for (const render of arenaModelRenders(configs, arenaId)) void assets.ensureModel(render);
+}
+
+/** Every authored ship GLB, independent of the active quality tier. */
+export function shipModelRenders(configs: ConfigService): RenderRecipe[] {
+  return configs
+    .getAll<ShipConfig>("ship")
+    .map((ship) => ship.render)
+    .filter((render) => typeof render.model === "string");
+}
+
+/**
+ * Ship views choose their master synchronously and keep it for their lifetime,
+ * so bootstrap must await these loads. Asteroids intentionally remain
+ * fire-and-forget and may be quality-gated; ships never are.
+ */
+export async function preloadShipModels(assets: AssetRegistry, configs: ConfigService): Promise<void> {
+  await Promise.all(shipModelRenders(configs).map((render) => assets.ensureModel(render)));
 }

@@ -124,3 +124,20 @@ Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchang
 4. **T4 bots** (D) — landed.
 5. **T5 arena/content + audits** (E) + retirement of circle-bounds code — landed.
 6. **T6 external review + fixes + final validation.**
+
+## Boundary shield + skybox follow-up (2026-07-26)
+
+- Arena presentation now lives in `arena.render`: each shipped arena owns its
+  `/content/skyboxes/*.webp` equirect panorama plus intensity/tint, and its
+  boundary-shield proximity thresholds, blue/red colors, opacity, hex density,
+  and warning-notification id. These belong to the arena because they scale
+  against that arena's physical boundary; the global HUD theme does not.
+- The spherical boundary is a proximity-driven procedural hex shield. It is
+  nearly invisible beyond `glowStartDistance`, brightens toward contact, and
+  blends blue to red inside `redTransitionDistance`. Low quality keeps the
+  panorama but selects the schema-driven plain-shell fallback.
+- `damageAndBounce` composes the existing damage magnitude with velocity
+  reflection. Every shipped mode uses it, preserving its prior `damagePerSec`.
+- The authored boundary notification fires on warning-zone entry and rearms
+  only after the player leaves, using the existing notification duration/style
+  pipeline.

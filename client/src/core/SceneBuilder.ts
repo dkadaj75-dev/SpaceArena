@@ -7,7 +7,9 @@ import {
   Mesh,
   MeshBuilder,
   PointsCloudSystem,
+  ShaderMaterial,
   StandardMaterial,
+  Texture,
   TransformNode,
   Vector3,
   type CloudPoint,
@@ -18,11 +20,16 @@ import {
 import {
   createLogger,
   type ArenaConfig,
+  type ArenaRender,
   type ConfigService,
   type EventBus,
   type ConfigEvents,
   type QualityConfig,
 } from "@space-arena/shared";
+import {
+  boundaryShieldOpacity,
+  boundaryShieldRedMix,
+} from "./boundaryProximity.js";
 
 const log = createLogger("SceneBuilder");
 
@@ -54,7 +61,13 @@ export type SceneQuality = Pick<QualityConfig, "glow" | "scene" | "render">;
 /** Conservative defaults for callers that predate the quality system. */
 const DEFAULT_QUALITY: SceneQuality = {
   glow: { enabled: true, intensity: 0.5 },
-  scene: { starfieldPoints: 400, boundsGrid: true, spawnMarkers: true },
+  scene: {
+    skyboxEnabled: true,
+    boundaryShieldShader: true,
+    starfieldPoints: 400,
+    boundsGrid: true,
+    spawnMarkers: true,
+  },
   render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: false },
 };
 
@@ -83,6 +96,11 @@ export class SceneBuilder {
   private quality: SceneQuality;
   private frozen = false;
   private arenaId: string | null = null;
+  private arena: ArenaConfig | null = null;
+  private boundaryMaterial: StandardMaterial | ShaderMaterial | null = null;
+  private readonly boundaryBlue = new Color3();
+  private readonly boundaryRed = new Color3();
+  private readonly boundaryColor = new Color3();
 
   constructor(
     private readonly scene: Scene,
@@ -105,7 +123,9 @@ export class SceneBuilder {
     const needsRebuild =
       previous.scene.starfieldPoints !== quality.scene.starfieldPoints ||
       previous.scene.boundsGrid !== quality.scene.boundsGrid ||
-      previous.scene.spawnMarkers !== quality.scene.spawnMarkers;
+      previous.scene.spawnMarkers !== quality.scene.spawnMarkers ||
+      previous.scene.skyboxEnabled !== quality.scene.skyboxEnabled ||
+      previous.scene.boundaryShieldShader !== quality.scene.boundaryShieldShader;
     if (needsRebuild && this.arenaId) {
       const arena = this.configService.get<ArenaConfig>("arena", this.arenaId);
       if (arena) {
@@ -150,6 +170,8 @@ export class SceneBuilder {
     this.disposeSceneNodes();
     this.frozen = false;
     const generation = ++this.generation;
+    this.arena = arena;
+    this.boundaryMaterial = null;
 
     const root = new TransformNode("arenaRoot", this.scene);
     this.root = root;
@@ -198,6 +220,9 @@ export class SceneBuilder {
     forEachMesh(this.root, (mesh) => {
       if (mesh.infiniteDistance) return;
       mesh.freezeWorldMatrix();
+      // Its world matrix is static, but opacity/color are driven every frame by
+      // player proximity, so the boundary material must stay mutable.
+      if (mesh.name === "boundsShell") return;
       if (mesh.material) materials.add(mesh.material);
     });
     for (const material of materials) material.freeze();
@@ -226,19 +251,24 @@ export class SceneBuilder {
   }
 
   private buildSkybox(arena: ArenaConfig, root: TransformNode, generation: number): void {
-    const palette = arena.skybox?.palette ?? {};
-    const primary = colorFromHex(palette.primary, new Color3(0.02, 0.03, 0.06));
-
-    const skybox = MeshBuilder.CreateSphere("skybox", { diameter: 900, segments: 8, sideOrientation: Mesh.BACKSIDE }, this.scene);
-    const skyMat = new StandardMaterial("mat.skybox", this.scene);
-    skyMat.diffuseColor = Color3.Black();
-    skyMat.specularColor = Color3.Black();
-    skyMat.emissiveColor = primary;
-    skyMat.disableLighting = true;
-    skybox.material = skyMat;
-    skybox.infiniteDistance = true;
-    skybox.isPickable = false;
-    skybox.parent = root;
+    const authored = arena.render?.skybox;
+    if (authored && this.quality.scene.skyboxEnabled) {
+      const skybox = MeshBuilder.CreateSphere(
+        "skybox",
+        { diameter: boundsRadiusOf(arena) * 6, segments: 32, sideOrientation: Mesh.BACKSIDE },
+        this.scene,
+      );
+      const skyMat = new StandardMaterial("mat.skybox", this.scene);
+      skyMat.diffuseColor = Color3.Black();
+      skyMat.specularColor = Color3.Black();
+      skyMat.emissiveColor = colorFromHex(authored.tint, Color3.White()).scale(authored.intensity);
+      skyMat.emissiveTexture = new Texture(`/content/${authored.texture}`, this.scene);
+      skyMat.disableLighting = true;
+      skybox.material = skyMat;
+      skybox.infiniteDistance = true;
+      skybox.isPickable = false;
+      skybox.parent = root;
+    }
 
     // Cheap starfield: a few hundred points via PointsCloudSystem, density per
     // quality tier (the point count is baked into the mesh at build time).
@@ -306,20 +336,38 @@ export class SceneBuilder {
 
     if (arena.bounds.shape === "sphere") {
       const diameter = arena.bounds.radius * 2;
-      const shell = MeshBuilder.CreateSphere(
-        "boundsShell",
-        { diameter, segments: 24, sideOrientation: Mesh.BACKSIDE },
-        this.scene,
-      );
-      shell.isPickable = false;
-      const shellMat = new StandardMaterial("mat.boundsShell", this.scene);
-      shellMat.diffuseColor = Color3.Black();
-      shellMat.specularColor = Color3.Black();
-      shellMat.emissiveColor = new Color3(0.2, 0.85, 1.0);
-      shellMat.disableLighting = true;
-      shellMat.alpha = 0.05;
-      shell.material = shellMat;
-      shell.parent = root;
+      const shield = arena.render?.boundaryShield;
+      if (shield) {
+        const shell = MeshBuilder.CreateSphere(
+          "boundsShell",
+          { diameter, segments: 48, sideOrientation: Mesh.BACKSIDE },
+          this.scene,
+        );
+        shell.isPickable = false;
+        this.boundaryBlue.copyFrom(colorFromHex(shield.blueColor, Color3.Blue()));
+        this.boundaryRed.copyFrom(colorFromHex(shield.redColor, Color3.Red()));
+        this.boundaryColor.copyFrom(this.boundaryBlue);
+
+        if (this.quality.scene.boundaryShieldShader) {
+          const shellMat = createBoundaryShader(this.scene);
+          shellMat.setFloat("hexDensity", shield.hexDensity);
+          shellMat.setFloat("opacity", shield.baseOpacity);
+          shellMat.setColor3("shieldColor", this.boundaryBlue);
+          shell.material = shellMat;
+          this.boundaryMaterial = shellMat;
+        } else {
+          const shellMat = new StandardMaterial("mat.boundsShell", this.scene);
+          shellMat.diffuseColor = Color3.Black();
+          shellMat.specularColor = Color3.Black();
+          shellMat.emissiveColor.copyFrom(this.boundaryBlue);
+          shellMat.disableLighting = true;
+          shellMat.alpha = shield.baseOpacity;
+          shellMat.backFaceCulling = false;
+          shell.material = shellMat;
+          this.boundaryMaterial = shellMat;
+        }
+        shell.parent = root;
+      }
 
       if (this.quality.scene.boundsGrid) {
         const grid = MeshBuilder.CreateSphere("boundsGrid", { diameter, segments: 16 }, this.scene);
@@ -358,6 +406,45 @@ export class SceneBuilder {
         seg.parent = root;
       }
     }
+  }
+
+  /**
+   * Update the boundary shield from the local player's position. Returns the
+   * signed distance to the nearest boundary (positive inside) so the HUD can
+   * drive its independently latched warning without recomputing geometry.
+   */
+  updatePlayerPosition(x: number, y: number, z: number): number {
+    const arena = this.arena;
+    if (!arena) return Number.POSITIVE_INFINITY;
+    const bounds = arena.bounds;
+    const distance =
+      bounds.shape === "sphere"
+        ? bounds.radius - Math.hypot(x, y, z)
+        : Math.min(
+            bounds.width / 2 - Math.abs(x),
+            bounds.verticalExtent / 2 - Math.abs(y),
+            bounds.height / 2 - Math.abs(z),
+          );
+    const shield = arena.render?.boundaryShield;
+    const material = this.boundaryMaterial;
+    if (!shield || !material) return distance;
+
+    const opacity = boundaryShieldOpacity(distance, shield.glowStartDistance, shield.baseOpacity);
+    const redMix = boundaryShieldRedMix(distance, shield.redTransitionDistance);
+    Color3.LerpToRef(this.boundaryBlue, this.boundaryRed, redMix, this.boundaryColor);
+    if (material instanceof ShaderMaterial) {
+      material.setFloat("opacity", opacity);
+      material.setColor3("shieldColor", this.boundaryColor);
+    } else {
+      material.alpha = opacity;
+      material.emissiveColor.copyFrom(this.boundaryColor);
+    }
+    return distance;
+  }
+
+  /** Stable authored warning knobs for the active arena; no per-frame object. */
+  get boundaryWarning(): ArenaRender["boundaryShield"] | null {
+    return this.arena?.render?.boundaryShield ?? null;
   }
 
   /**
@@ -433,6 +520,7 @@ export class SceneBuilder {
       disposeRecursive(this.root);
       this.root = null;
     }
+    this.boundaryMaterial = null;
   }
 
   /** Full teardown: subscriptions, scene nodes, glow layer, and cached asset masters. */
@@ -452,9 +540,51 @@ function disposeRecursive(node: Node): void {
   if (node instanceof Mesh) {
     // A frozen material refuses to dispose its effect cleanly — thaw first.
     node.material?.unfreeze();
-    node.material?.dispose();
+    node.material?.dispose(false, true);
   }
   node.dispose();
+}
+
+const BOUNDARY_VERTEX = `
+precision highp float;
+attribute vec3 position;
+attribute vec2 uv;
+uniform mat4 worldViewProjection;
+varying vec2 vUV;
+void main(void) {
+  vUV = uv;
+  gl_Position = worldViewProjection * vec4(position, 1.0);
+}`;
+
+const BOUNDARY_FRAGMENT = `
+precision highp float;
+varying vec2 vUV;
+uniform vec3 shieldColor;
+uniform float opacity;
+uniform float hexDensity;
+void main(void) {
+  vec2 p = vUV * vec2(hexDensity * 2.0, hexDensity);
+  p.x += mod(floor(p.y), 2.0) * 0.5;
+  vec2 cell = abs(fract(p) - 0.5);
+  float hexEdge = max(cell.y, cell.x * 0.8660254 + cell.y * 0.5);
+  float line = smoothstep(0.40, 0.49, hexEdge);
+  float cellPulse = 0.18 + line * 0.82;
+  gl_FragColor = vec4(shieldColor, opacity * cellPulse);
+}`;
+
+function createBoundaryShader(scene: Scene): ShaderMaterial {
+  const material = new ShaderMaterial(
+    "mat.boundsShell.hex",
+    scene,
+    { vertexSource: BOUNDARY_VERTEX, fragmentSource: BOUNDARY_FRAGMENT },
+    {
+      attributes: ["position", "uv"],
+      uniforms: ["worldViewProjection", "shieldColor", "opacity", "hexDensity"],
+      needAlphaBlending: true,
+    },
+  );
+  material.backFaceCulling = false;
+  return material;
 }
 
 /** Depth-first walk over every `Mesh` under `node` (inclusive). */

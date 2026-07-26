@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { NullEngine, Scene, type Mesh } from "@babylonjs/core";
+import { NullEngine, Scene, ShaderMaterial, StandardMaterial, type Mesh } from "@babylonjs/core";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
 import { SceneBuilder, type SceneQuality } from "./SceneBuilder.js";
 
@@ -15,7 +15,19 @@ const ARENA = {
     { id: "sp-b", team: 1, position: { x: 20, z: 0 }, heading: 3.14 },
   ],
   lighting: { ambientColor: "#1a2233", ambientIntensity: 0.4, directionalIntensity: 0.9 },
-  skybox: { recipe: "procedural.nebula", palette: { primary: "#0a0e1a", accent: "#2a1c4a" } },
+  render: {
+    skybox: { texture: "skyboxes/test.webp", intensity: 0.8, tint: "#ffffff" },
+    boundaryShield: {
+      baseOpacity: 0.02,
+      glowStartDistance: 30,
+      redTransitionDistance: 10,
+      warnDistance: 20,
+      blueColor: "#39bfff",
+      redColor: "#ff405c",
+      hexDensity: 30,
+      warningNotification: "notification.boundary-warning",
+    },
+  },
   zones: [],
 } satisfies Record<string, unknown>;
 
@@ -24,7 +36,13 @@ function quality(overrides: Partial<SceneQuality> = {}): SceneQuality {
     glow: { enabled: true, intensity: 0.5 },
     // Zero starfield points: the PointsCloudSystem builds its mesh
     // asynchronously and would land after a test finishes.
-    scene: { starfieldPoints: 0, boundsGrid: true, spawnMarkers: true },
+    scene: {
+      skyboxEnabled: true,
+      boundaryShieldShader: true,
+      starfieldPoints: 0,
+      boundsGrid: true,
+      spawnMarkers: true,
+    },
     render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: true },
     ...overrides,
   };
@@ -46,6 +64,16 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     scene = new Scene(engine);
     bus = new EventBus<ConfigEvents>();
     configs = new ConfigService(() => Promise.resolve(null), bus);
+    expect(
+      configs.replace({
+        id: "notification.boundary-warning",
+        type: "notification",
+        version: 1,
+        text: "Boundary",
+        style: "critical",
+        durationMs: 1000,
+      }).ok,
+    ).toBe(true);
     expect(configs.replace(ARENA).ok).toBe(true);
     await Promise.resolve();
   });
@@ -63,7 +91,9 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     const meshes = freezableMeshes(scene);
     expect(meshes.length).toBeGreaterThan(0);
     for (const mesh of meshes) expect(mesh.isWorldMatrixFrozen).toBe(true);
-    for (const mesh of meshes) if (mesh.material) expect(mesh.material.isFrozen).toBe(true);
+    for (const mesh of meshes) {
+      if (mesh.material && mesh.name !== "boundsShell") expect(mesh.material.isFrozen).toBe(true);
+    }
 
     builder.dispose();
   });
@@ -76,6 +106,16 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(skybox).not.toBeNull();
     expect(skybox!.isWorldMatrixFrozen).toBe(false);
 
+    builder.dispose();
+  });
+
+  it("wires the arena panorama through the /content path", () => {
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+
+    const material = scene.getMeshByName("skybox")!.material as StandardMaterial;
+    expect(material.emissiveTexture?.name).toBe("/content/skyboxes/test.webp");
+    expect(material.emissiveColor.r).toBeCloseTo(0.8);
     builder.dispose();
   });
 
@@ -153,7 +193,15 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(scene.getMeshByName("spawnMarker.sp-a")).not.toBeNull();
 
     builder.setQuality(
-      quality({ scene: { starfieldPoints: 0, boundsGrid: false, spawnMarkers: false } }),
+      quality({
+        scene: {
+          skyboxEnabled: false,
+          boundaryShieldShader: false,
+          starfieldPoints: 0,
+          boundsGrid: false,
+          spawnMarkers: false,
+        },
+      }),
     );
     expect(scene.getMeshByName("boundsGrid")).toBeNull();
     expect(scene.getMeshByName("spawnMarker.sp-a")).toBeNull();
@@ -186,5 +234,36 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(scene.getMeshByName("groundPlane")!.isVisible).toBe(false);
 
     builder.dispose();
+  });
+
+  it("uses the hex shader normally and the live plain-shell fallback on low", () => {
+    const shaderBuilder = new SceneBuilder(scene, configs, bus, quality());
+    shaderBuilder.buildArena("arena.test");
+    expect(scene.getMeshByName("boundsShell")!.material).toBeInstanceOf(ShaderMaterial);
+    shaderBuilder.dispose();
+
+    const lowBuilder = new SceneBuilder(
+      scene,
+      configs,
+      bus,
+      quality({
+        scene: {
+          skyboxEnabled: true,
+          boundaryShieldShader: false,
+          starfieldPoints: 0,
+          boundsGrid: false,
+          spawnMarkers: false,
+        },
+      }),
+    );
+    lowBuilder.buildArena("arena.test");
+    const material = scene.getMeshByName("boundsShell")!.material as StandardMaterial;
+    expect(material).toBeInstanceOf(StandardMaterial);
+    expect(lowBuilder.updatePlayerPosition(0, 0, 0)).toBe(90);
+    expect(material.alpha).toBeCloseTo(0.02);
+    expect(lowBuilder.updatePlayerPosition(89, 0, 0)).toBe(1);
+    expect(material.alpha).toBeGreaterThan(0.9);
+    expect(material.emissiveColor.r).toBeGreaterThan(material.emissiveColor.b);
+    lowBuilder.dispose();
   });
 });

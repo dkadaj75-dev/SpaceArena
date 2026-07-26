@@ -59,7 +59,12 @@ describe("GamemodeEditor", () => {
     expect(panel.element.querySelector('[name="winCondition.seconds"]')).toBeNull();
 
     const boundary = panel.element.querySelector<HTMLSelectElement>('[name="boundaryRule.type"]')!;
-    expect(Array.from(boundary.options).map((o) => o.textContent)).toEqual(["bounce", "damage", "warning"]);
+    expect(Array.from(boundary.options).map((o) => o.textContent)).toEqual([
+      "bounce",
+      "damage",
+      "damageAndBounce",
+      "warning",
+    ]);
     expect(panel.element.querySelector('[name="boundaryRule.graceSeconds"]')).not.toBeNull();
 
     // Toggles for booleans, roster rows with add/remove for the bots block.

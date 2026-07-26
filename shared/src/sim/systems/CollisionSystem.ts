@@ -192,7 +192,7 @@ function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number):
   tf.pos.y -= outward.y * penetration;
   tf.pos.z -= outward.z * penetration;
 
-  if (rule.type === "bounce") {
+  if (rule.type === "bounce" || rule.type === "damageAndBounce") {
     const restitution = rule.restitution ?? 1;
     const vn = vel.x * outward.x + vel.y * outward.y + vel.z * outward.z;
     if (vn > 0) {
@@ -200,7 +200,8 @@ function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number):
       vel.y -= (1 + restitution) * vn * outward.y;
       vel.z -= (1 + restitution) * vn * outward.z;
     }
-  } else if (rule.type === "damage") {
+  }
+  if (rule.type === "damage" || rule.type === "damageAndBounce") {
     applyRaw(world, sid, core, rule.damagePerSec * dt);
   }
 }

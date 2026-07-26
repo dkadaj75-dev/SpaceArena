@@ -156,6 +156,18 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     assets.dispose();
   });
 
+  it("never applies the asteroid procedural-only quality gate to ship GLBs", async () => {
+    stubModelImport();
+    const assets = new AssetRegistry(scene);
+    assets.setAsteroidLod({ ...LOD, proceduralOnly: true });
+    await assets.ensureModel(MODEL_RENDER);
+
+    expect(assets.getShipMaster(MODEL_RENDER).name).toBe("master.model.asteroids/small_a.glb");
+    // The same render used as an asteroid still respects the low-tier gate.
+    expect(assets.getAsteroidMaster(MODEL_RENDER).mesh.name).toBe("master.procedural.rock-small");
+    assets.dispose();
+  });
+
   it("detaches its LOD levels from the shared model master on dispose", async () => {
     stubModelImport();
     const assets = new AssetRegistry(scene);

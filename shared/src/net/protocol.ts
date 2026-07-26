@@ -103,7 +103,7 @@ export type SimEventMessage =
   | { type: "lockLost"; entityId: EntityId }
   | { type: "shieldAbsorb"; targetId: EntityId; hardpointIndex: number; amount: number }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
-  | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "warning" }
+  | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
   | { type: "matchEnded"; winnerTeam: number | null; reason: "winCondition" | "elimination" }
   /**
    * Per-player progression summary sent individually (client.send) after a match

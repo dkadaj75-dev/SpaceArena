@@ -1,6 +1,7 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
-import { arenaModelRenders } from "./assetPreload.js";
+import { arenaModelRenders, preloadShipModels, shipModelRenders } from "./assetPreload.js";
+import type { AssetRegistry } from "./AssetRegistry.js";
 
 const SMALL_ROCK = {
   id: "asteroid.small-rock",
@@ -89,5 +90,25 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
 
   it("returns nothing for an arena the pack does not have", () => {
     expect(arenaModelRenders(configs, "arena.missing")).toEqual([]);
+  });
+});
+
+describe("ship model preloading", () => {
+  it("collects and awaits every ship model without consulting quality", async () => {
+    const renders = [
+      { recipe: "procedural.arrowhead", model: "ships/a.glb" },
+      { recipe: "procedural.brawler" },
+      { recipe: "procedural.support", model: "ships/c.glb" },
+    ];
+    const configs = {
+      getAll: vi.fn(() => renders.map((render, i) => ({ id: `ship.${i}`, render }))),
+    } as unknown as ConfigService;
+    const ensureModel = vi.fn(async () => null);
+    const assets = { ensureModel } as unknown as AssetRegistry;
+
+    expect(shipModelRenders(configs).map((render) => render.model)).toEqual(["ships/a.glb", "ships/c.glb"]);
+    await preloadShipModels(assets, configs);
+    expect(ensureModel).toHaveBeenCalledTimes(2);
+    expect(ensureModel.mock.results.every((result) => result.type === "return")).toBe(true);
   });
 });

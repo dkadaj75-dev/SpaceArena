@@ -1,0 +1,9 @@
+{
+  "id": "notification.boundary-warning",
+  "type": "notification",
+  "version": 1,
+  "name": "Arena Boundary Warning",
+  "text": "Too close to boundaries! Turn back into the Arena!",
+  "style": "critical",
+  "durationMs": 3200
+}

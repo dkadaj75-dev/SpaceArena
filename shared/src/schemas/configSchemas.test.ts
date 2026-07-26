@@ -137,6 +137,19 @@ const arena = {
   bounds: { shape: "sphere", radius: 90 },
   asteroidPlacements: [{ asteroidId: "asteroid.fixture", position: { x: 10, z: -4 } }],
   spawnPoints: [{ id: "s0", team: 0, position: { x: -30, z: 0 }, heading: 0 }],
+  render: {
+    skybox: { texture: "skyboxes/fixture.webp", intensity: 0.8, tint: "#ffffff" },
+    boundaryShield: {
+      baseOpacity: 0.02,
+      glowStartDistance: 30,
+      redTransitionDistance: 10,
+      warnDistance: 20,
+      blueColor: "#39bfff",
+      redColor: "#ff405c",
+      hexDensity: 30,
+      warningNotification: "notification.fixture",
+    },
+  },
 };
 
 const asteroid = {
@@ -246,7 +259,13 @@ const quality = {
   particles: { enabled: true, budgetMultiplier: 0.7, maxEmitterCapacity: 400 },
   asteroids: { lodMediumDistance: 60, lodLowDistance: 120, lodCullDistance: 0, thinInstances: false },
   projectiles: { useInstances: true },
-  scene: { starfieldPoints: 1500, boundsGrid: true, spawnMarkers: true },
+  scene: {
+    skyboxEnabled: true,
+    boundaryShieldShader: true,
+    starfieldPoints: 1500,
+    boundsGrid: true,
+    spawnMarkers: true,
+  },
 };
 
 /** One canonical valid fixture per content type. Keys MUST cover CONFIG_TYPES. */
@@ -626,12 +645,12 @@ describe("arena schema", () => {
     ).toBe(false);
   });
 
-  it("accepts an empty asteroid list, lighting, skybox and zones (edge)", () => {
+  it("accepts an empty asteroid list, lighting, arena render knobs and zones (edge)", () => {
     expect(mutated("arena", (d) => (d["asteroidPlacements"] = []))).toBe(true);
     expect(
       mutated("arena", (d) => {
         d["lighting"] = { ambientColor: "#101820", ambientIntensity: 0.4, directionalIntensity: 1.2 };
-        d["skybox"] = { recipe: "procedural.nebula", palette: { a: "#123456" } };
+        d["render"] = clone(arena.render);
         d["zones"] = [{ id: "z0", shape: "circle", position: { x: 0, z: 0 }, radius: 12 }];
       }),
     ).toBe(true);
@@ -646,6 +665,24 @@ describe("arena schema", () => {
     expect(
       mutated("arena", (d) => {
         (d["asteroidPlacements"] as Array<Record<string, unknown>>)[0]!["scale"] = 0;
+      }),
+    ).toBe(false);
+  });
+
+  it("validates boundary shield threshold ordering and opacity", () => {
+    expect(
+      mutated("arena", (d) => {
+        (d["render"] as typeof arena.render).boundaryShield.baseOpacity = 1.1;
+      }),
+    ).toBe(false);
+    expect(
+      mutated("arena", (d) => {
+        (d["render"] as typeof arena.render).boundaryShield.redTransitionDistance = 31;
+      }),
+    ).toBe(false);
+    expect(
+      mutated("arena", (d) => {
+        (d["render"] as typeof arena.render).boundaryShield.warnDistance = 31;
       }),
     ).toBe(false);
   });
@@ -690,8 +727,18 @@ describe("gamemode schema", () => {
     expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "bounce", restitution: 1 }))).toBe(true);
     expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "bounce" }))).toBe(true);
     expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "damage", damagePerSec: 8 }))).toBe(true);
+    expect(
+      mutated("gamemode", (d) => {
+        d["boundaryRule"] = { type: "damageAndBounce", damagePerSec: 8, restitution: 0.8 };
+      }),
+    ).toBe(true);
     expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "bounce", restitution: 1.5 }))).toBe(false);
     expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "damage", damagePerSec: -1 }))).toBe(false);
+    expect(
+      mutated("gamemode", (d) => {
+        d["boundaryRule"] = { type: "damageAndBounce", damagePerSec: -1, restitution: 0.8 };
+      }),
+    ).toBe(false);
     expect(mutated("gamemode", (d) => (d["boundaryRule"] = { type: "teleport" }))).toBe(false);
   });
 
@@ -1079,7 +1126,10 @@ describe("collectReferences", () => {
   });
 
   it("extracts arena asteroid placements, event actions and notification triggers", () => {
-    expect(refsOf("arena", clone(arena))).toEqual({ "asteroidPlacements[0].asteroidId": "asteroid.fixture" });
+    expect(refsOf("arena", clone(arena))).toEqual({
+      "asteroidPlacements[0].asteroidId": "asteroid.fixture",
+      "render.boundaryShield.warningNotification": "notification.fixture",
+    });
     expect(refsOf("event", clone(event))).toEqual({ "actions[0]": "action.fixture-sound" });
     expect(refsOf("notification", { ...clone(notification), triggerEvent: "event.fixture" })).toEqual({
       triggerEvent: "event.fixture",

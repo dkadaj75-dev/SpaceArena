@@ -37,6 +37,33 @@ describe("CollisionSystem boundary", () => {
     expect(world.events.some((e) => e.type === "boundaryHit")).toBe(true);
   });
 
+  it("composite contact deals damage and reflects outward velocity", () => {
+    const world = makeWorld(configs, {
+      gamemodeOverride: {
+        boundaryRule: { type: "damageAndBounce", damagePerSec: 30, restitution: 0.8 },
+      },
+    });
+    const id = spawnShipFromConfig(
+      world,
+      configs,
+      "ship.interceptor",
+      INTERCEPTOR_FITTING,
+      0,
+      { x: 100, z: 0 },
+      0,
+    );
+    world.velocities.get(id)!.x = 30;
+    const before = world.shipCores.get(id)!.hull;
+
+    collisionSystem(world, DT);
+
+    expect(world.shipCores.get(id)!.hull).toBeCloseTo(before - 1);
+    expect(world.velocities.get(id)!.x).toBeLessThan(0);
+    expect(world.events).toContainEqual(
+      expect.objectContaining({ type: "boundaryHit", entityId: id, rule: "damageAndBounce" }),
+    );
+  });
+
   it("bounces off the TOP of the bubble, reflecting the vertical velocity", () => {
     // The whole point of a sphere: climbing out is bounded exactly like flying
     // out sideways, and the reflection is 3D (BUBBLE.md §A).

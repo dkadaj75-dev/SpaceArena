@@ -136,6 +136,13 @@ export const qualitySchema = z.object({
   }),
 
   scene: z.object({
+    /** Draw the arena's equirectangular panorama (one inside-out sphere). */
+    skyboxEnabled: z.boolean().default(true),
+    /**
+     * Use the procedural hex shader for spherical boundaries. False keeps the
+     * allocation-free proximity/color curve but renders it on a plain shell.
+     */
+    boundaryShieldShader: z.boolean().default(true),
     /** Starfield point count in the skybox `PointsCloudSystem`. */
     starfieldPoints: z.number().int().nonnegative(),
     /**

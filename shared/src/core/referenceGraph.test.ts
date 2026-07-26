@@ -140,6 +140,19 @@ function pack(): Record<string, Record<string, unknown>> {
       bounds: { shape: "sphere", radius: 50 },
       asteroidPlacements: [{ asteroidId: "asteroid.rock", position: { x: 0, z: 0 } }],
       spawnPoints: [{ id: "s1", team: 0, position: { x: -10, z: 0 }, heading: 0 }],
+      render: {
+        skybox: { texture: "skyboxes/ref.webp", intensity: 0.8, tint: "#ffffff" },
+        boundaryShield: {
+          baseOpacity: 0.02,
+          glowStartDistance: 20,
+          redTransitionDistance: 8,
+          warnDistance: 12,
+          blueColor: "#39bfff",
+          redColor: "#ff405c",
+          hexDensity: 24,
+          warningNotification: "notification.overheat",
+        },
+      },
     },
     "notification.json": {
       id: "notification.overheat",
@@ -265,6 +278,19 @@ describe("reference resolution — arena / action / event / notification edges",
     await expectDangling("asteroidPlacements[0].asteroidId", "asteroid.ghost", (f) => {
       f["arena.json"]!["asteroidPlacements"] = [{ asteroidId: "asteroid.ghost", position: { x: 0, z: 0 } }];
     });
+  });
+
+  it("flags a dangling boundary warning notification", async () => {
+    await expectDangling(
+      "render.boundaryShield.warningNotification",
+      "notification.ghost",
+      (f) => {
+        const render = f["arena.json"]!["render"] as {
+          boundaryShield: Record<string, unknown>;
+        };
+        render.boundaryShield["warningNotification"] = "notification.ghost";
+      },
+    );
   });
 
   it("flags a dangling notification id inside an action's free-form params", async () => {

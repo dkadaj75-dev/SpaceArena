@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
-import { palette, vec2, vec3 } from "./common.js";
+import { vec2, vec3 } from "./common.js";
 
 /** Largest positive coordinate representable by the signed int16 centi wire. */
 export const WIRE_POSITION_LIMIT = 327.67;
@@ -95,6 +95,39 @@ const zone = z.object({
   height: z.number().positive().optional(),
 });
 
+/**
+ * Arena-owned presentation. Sky imagery and the boundary shield both describe
+ * this particular play space (including its physical radius), so they live
+ * beside `bounds` rather than in the global theme or gameplay tuning.
+ */
+export const arenaRender = z.object({
+  skybox: z.object({
+    /** Content-relative equirectangular panorama, served from `/content/*`. */
+    texture: z.string().min(1),
+    /** Emissive multiplier applied to the panorama. */
+    intensity: z.number().nonnegative(),
+    /** RGB tint multiplied into the panorama. */
+    tint: z.string().min(1),
+  }),
+  boundaryShield: z.object({
+    /** Opacity while the player is farther away than `glowStartDistance`. */
+    baseOpacity: z.number().min(0).max(1),
+    /** Distance inside the boundary where the shield begins brightening. */
+    glowStartDistance: z.number().positive(),
+    /** Distance inside the boundary where blue begins blending toward red. */
+    redTransitionDistance: z.number().positive(),
+    /** Distance inside the boundary that triggers the HUD warning. */
+    warnDistance: z.number().positive(),
+    blueColor: z.string().min(1),
+    redColor: z.string().min(1),
+    /** Number of procedural hex cells around the shield. */
+    hexDensity: z.number().positive(),
+    /** Existing notification-pipeline config shown on first warning-zone entry. */
+    warningNotification: z.string().min(1),
+  }),
+});
+export type ArenaRender = z.infer<typeof arenaRender>;
+
 export const arenaSchema = z
   .object({
     ...baseShape("arena"),
@@ -108,12 +141,7 @@ export const arenaSchema = z
         directionalIntensity: z.number().nonnegative().optional(),
       })
       .optional(),
-    skybox: z
-      .object({
-        recipe: z.string(),
-        palette: palette.optional(),
-      })
-      .optional(),
+    render: arenaRender.optional(),
     zones: z.array(zone).optional(),
   })
   .superRefine((arena, ctx) => {
@@ -141,6 +169,24 @@ export const arenaSchema = z
         });
       }
     });
+
+    const shield = arena.render?.boundaryShield;
+    if (shield) {
+      if (shield.redTransitionDistance > shield.glowStartDistance) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["render", "boundaryShield", "redTransitionDistance"],
+          message: "red transition distance must not exceed glow start distance",
+        });
+      }
+      if (shield.warnDistance > shield.glowStartDistance) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["render", "boundaryShield", "warnDistance"],
+          message: "warning distance must not exceed glow start distance",
+        });
+      }
+    }
   });
 
 export type ArenaConfig = z.infer<typeof arenaSchema>;

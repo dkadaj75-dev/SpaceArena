@@ -22,6 +22,7 @@ import { hudCssVars, resolveHudLayout, type HudLayout } from "./hudLayout.js";
 import { FlightControls, type FlightHudBinding } from "./FlightControls.js";
 import { flightCssVars, resolveFlightHudLayout, type FlightHudLayout } from "./flightHudLayout.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
+import { BoundaryWarningLatch } from "../../core/boundaryProximity.js";
 
 const log = createLogger("Hud");
 
@@ -93,6 +94,7 @@ export class Hud {
   private readonly haptics: Haptics;
   /** Flight controls (FLIGHT.md §4), or null when the caller passed no 3D binding. */
   private readonly flight: FlightControls | null;
+  private readonly boundaryWarning = new BoundaryWarningLatch();
   private readonly fpsEl: HTMLDivElement;
   private readonly unsubscribeTheme: () => void;
   private readonly unsubscribeShipConfig: () => void;
@@ -246,6 +248,20 @@ export class Hud {
   /** Direct toast for client-side feedback (e.g. rejected online orders). */
   showToast(text: string): void {
     this.notifications.showText(text);
+  }
+
+  /**
+   * Fire the authored warning only on entry. The per-match latch rearms after
+   * the player leaves the warning zone, so sustained proximity cannot spam.
+   */
+  updateBoundaryProximity(
+    distanceToBoundary: number,
+    warnDistance: number,
+    notificationId: string,
+  ): void {
+    if (this.boundaryWarning.update(distanceToBoundary, warnDistance)) {
+      this.notifications.showConfig(this.configs, notificationId);
+    }
   }
 
   /**

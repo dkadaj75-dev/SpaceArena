@@ -44,7 +44,7 @@ export type SimEvent =
     }
   | { type: "shieldAbsorb"; targetId: EntityId; hardpointIndex: number; amount: number }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
-  | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "warning" }
+  | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
   | { type: "matchEnded"; winnerTeam: number | null; reason: "winCondition" | "elimination" };
 
 export type SimEventType = SimEvent["type"];

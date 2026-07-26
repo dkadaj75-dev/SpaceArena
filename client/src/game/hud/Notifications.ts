@@ -60,6 +60,16 @@ export class NotificationCenter {
     this.show({ text, style, durationMs } as NotificationConfig);
   }
 
+  /** Resolve and show one authored notification through the same toast path. */
+  showConfig(configs: ConfigService, notificationId: string): void {
+    const notif = configs.get<NotificationConfig>("notification", notificationId);
+    if (!notif) {
+      log.warn(`unknown notification config ${notificationId}`);
+      return;
+    }
+    this.show(notif);
+  }
+
   private show(notif: NotificationConfig): void {
     if (this.toasts.length >= this.maxVisible) {
       const oldest = this.toasts.shift();

@@ -66,9 +66,22 @@
     "ambientIntensity": 0.32,
     "directionalIntensity": 1.05
   },
-  "skybox": {
-    "recipe": "procedural.nebula",
-    "palette": { "primary": "#060810", "accent": "#1b2f4a" }
+  "render": {
+    "skybox": {
+      "texture": "skyboxes/deep-field.webp",
+      "intensity": 0.78,
+      "tint": "#dbeaff"
+    },
+    "boundaryShield": {
+      "baseOpacity": 0.018,
+      "glowStartDistance": 55,
+      "redTransitionDistance": 18,
+      "warnDistance": 30,
+      "blueColor": "#39bfff",
+      "redColor": "#ff405c",
+      "hexDensity": 42,
+      "warningNotification": "notification.boundary-warning"
+    }
   },
   "zones": []
 }

@@ -8,7 +8,7 @@
   "winCondition": { "type": "fragLimit", "count": 5 },
   "eliminationEndsMatch": true,
   "respawn": { "enabled": true, "delay": 4 },
-  "boundaryRule": { "type": "damage", "damagePerSec": 8 },
+  "boundaryRule": { "type": "damageAndBounce", "damagePerSec": 8, "restitution": 0.82 },
   "rewards": { "win": 100, "loss": 25, "perKill": 10 },
   "bots": {
     "defaultProfile": "bot.rookie",

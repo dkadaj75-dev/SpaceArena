@@ -8,6 +8,6 @@
   "winCondition": { "type": "destroyTargets", "count": 3 },
   "eliminationEndsMatch": true,
   "respawn": { "enabled": true, "delay": 3 },
-  "boundaryRule": { "type": "damage", "damagePerSec": 6 },
+  "boundaryRule": { "type": "damageAndBounce", "damagePerSec": 6, "restitution": 0.82 },
   "rewards": { "win": 0, "loss": 0, "perKill": 0 }
 }

@@ -216,6 +216,14 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
       config.asteroidPlacements.forEach((p, i) =>
         refs.push({ path: `asteroidPlacements[${i}].asteroidId`, id: p.asteroidId, expects: "asteroid" }),
       );
+      const warning = config.render?.boundaryShield.warningNotification;
+      if (warning) {
+        refs.push({
+          path: "render.boundaryShield.warningNotification",
+          id: warning,
+          expects: "notification",
+        });
+      }
       break;
     }
     case "action": {

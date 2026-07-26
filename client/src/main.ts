@@ -14,7 +14,7 @@ import {
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
-import { preloadArenaModels } from "./core/assetPreload.js";
+import { preloadArenaModels, preloadShipModels } from "./core/assetPreload.js";
 import { QualityManager } from "./core/QualityManager.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
@@ -192,11 +192,10 @@ async function bootstrap(): Promise<void> {
 
   // Preload GLB hulls for every ship that configures one (render.model), so
   // the sync view/hangar/editor paths can pick them up from the shared cache.
-  // Fire-and-forget with per-model fallback to the procedural recipe.
+  // Awaited because a ship view synchronously selects and retains one master;
+  // letting the first frame race this load can lock in the procedural fallback.
   const preloadAssets = new AssetRegistry(scene);
-  for (const ship of configService.getAll<ShipConfig>("ship")) {
-    if (ship.render.model) void preloadAssets.ensureModel(ship.render);
-  }
+  await preloadShipModels(preloadAssets, configService);
   bus.on("config:changed", (evt) => {
     if (evt.id.startsWith("ship.")) {
       const ship = configService.get<ShipConfig>("ship", evt.id);
@@ -644,6 +643,19 @@ async function bootstrap(): Promise<void> {
           by + (pc.pos.y - by) * alpha,
           bz + (pc.pos.z - bz) * alpha,
         );
+        const boundaryDistance = sceneBuilder.updatePlayerPosition(
+          playerFollow.position.x,
+          playerFollow.position.y,
+          playerFollow.position.z,
+        );
+        const boundaryWarning = sceneBuilder.boundaryWarning;
+        if (boundaryWarning) {
+          runtime.hud.updateBoundaryProximity(
+            boundaryDistance,
+            boundaryWarning.warnDistance,
+            boundaryWarning.warningNotification,
+          );
+        }
         // Chase yaw follows the same interpolated ship the view draws. Lerped
         // the SHORT way round so a wrap past ±π never spins the camera a full
         // turn; `chase.yawLag` inside the rig does the actual smoothing.

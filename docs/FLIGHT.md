@@ -240,3 +240,15 @@ the rig restores that default on a hot-reload that deletes the key.
 7. Cleanup (retirement list) + docs + Sol review + browser/loadtest validation.
 
 Stages 6 and 7 landed together as stage S6.
+
+## LOD retune follow-up (2026-07-26)
+
+Designer feedback moved asteroid swaps materially farther from the chase camera.
+The Quality editor exposes these and every other quality scene knob through the
+normal schema/save/hot-reload path.
+
+| Tier | Medium before → after | Low before → after | Cull before → after |
+| --- | ---: | ---: | ---: |
+| low | 55 → 95 | 130 → 220 | 380 → 600 |
+| med | 85 → 150 | 200 → 340 | 620 → 900 |
+| high | 120 → 210 | 280 → 480 | 0 → 0 (never cull) |

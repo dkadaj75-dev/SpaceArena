@@ -51,6 +51,7 @@
     "modules/utility-capacitor-battery.json",
     "modules/utility-heat-sink.json",
     "notifications/overheat-warning.json",
+    "notifications/boundary-warning.json",
     "actions/notify-overheat.json",
     "actions/play-sound-laser.json",
     "actions/play-sound-kinetic.json",

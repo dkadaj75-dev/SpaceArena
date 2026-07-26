@@ -13,6 +13,11 @@ export type WinCondition = z.infer<typeof winCondition>;
 export const boundaryRule = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bounce"), restitution: z.number().min(0).max(1).optional() }),
   z.object({ type: z.literal("damage"), damagePerSec: z.number().nonnegative() }),
+  z.object({
+    type: z.literal("damageAndBounce"),
+    damagePerSec: z.number().nonnegative(),
+    restitution: z.number().min(0).max(1).optional(),
+  }),
   z.object({ type: z.literal("warning"), graceSeconds: z.number().nonnegative().optional() }),
 ]);
 export type BoundaryRule = z.infer<typeof boundaryRule>;
