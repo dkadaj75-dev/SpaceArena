@@ -1,16 +1,16 @@
 {
-  "id": "asteroid.small-rock",
+  "id": "asteroid.small-rock-b",
   "type": "asteroid",
   "version": 1,
-  "name": "Small Rock",
+  "name": "Small Rock B",
   "radius": 3.5,
   "hp": 40,
   "destructible": true,
   "impactDamage": 6,
   "render": {
     "recipe": "procedural.rock-small",
-    "palette": { "primary": "#5b5148", "accent": "#7d7266" },
-    "model": "asteroids/small_a.glb",
+    "palette": { "primary": "#544a42", "accent": "#786d61" },
+    "model": "asteroids/small_b.glb",
     "modelScale": 3.5
   },
   "states": [

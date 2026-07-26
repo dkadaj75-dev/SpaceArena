@@ -14,6 +14,7 @@ import {
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
+import { preloadArenaModels } from "./core/assetPreload.js";
 import { QualityManager } from "./core/QualityManager.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
@@ -212,6 +213,18 @@ async function bootstrap(): Promise<void> {
   const sceneBuilder = new SceneBuilder(scene, configService, bus, quality.current);
   let currentArenaId = FALLBACK_ARENA_ID;
   sceneBuilder.buildArena(currentArenaId);
+  // Asteroid hulls are preloaded per-ARENA (unlike ship hulls, which are all
+  // preloaded up front): which rocks a match needs is a property of its arena,
+  // and they are ~1 MB each. Kicked off here for the fallback arena and again
+  // in `setArena` as soon as a match resolves the real one, so the loads are in
+  // flight well before the first snapshot creates any asteroid view.
+  preloadArenaModels(preloadAssets, configService, currentArenaId);
+  bus.on("config:changed", (evt) => {
+    // Authoring a rock model in the dev editor should not need a page reload.
+    if (evt.type === "arena" || evt.type === "asteroid") {
+      preloadArenaModels(preloadAssets, configService, currentArenaId);
+    }
+  });
 
   // One subscription fans the active tier out to every consumer.
   quality.onChange((cfg) => {
@@ -230,6 +243,7 @@ async function bootstrap(): Promise<void> {
     if (arenaId === currentArenaId) return;
     currentArenaId = arenaId;
     sceneBuilder.buildArena(currentArenaId);
+    preloadArenaModels(preloadAssets, configService, currentArenaId);
   }
 
   // Camera follows a lightweight node tracking the (moving) player ship

@@ -258,6 +258,30 @@ Writing the files in place was rejected: `/content/*` is live traffic, and a
 half-written pack is a *served* pack. There must be no window in which a client
 can fetch an arena referencing an asteroid that has not landed yet.
 
+### Binary assets (`.glb`) do **not** ride along in a pack
+
+A bundle carries JSON only — `files` is a map of path → parsed JSON, the path
+sanitizer accepts `.json` and nothing else, and `writePackTo` materializes a
+**fresh** directory from the bundle before the swap. So every non-JSON file in
+`content/` — today `content/ships/*.glb` and `content/asteroids/*.glb` — is
+absent from the staged directory and is gone once it is swapped in.
+
+Consequences to plan around:
+
+- **Models ship with the deployment, not with the pack.** They are part of the
+  image / the volume's content tree (`server` serves the whole content dir
+  statically, `.glb` → `model/gltf-binary`), and they are versioned in git.
+  Authoring a new rock or hull is a deploy, not a content import.
+- **An import into a live deployment drops them.** Re-place the `.glb` files
+  under `content/` after importing, or import into a directory you then restore
+  the binaries into. Rollback has the same shape: `content.previous/` only holds
+  what the previous *pack* wrote.
+- A config whose `render.model` file is missing is **not** a validation error and
+  does not break the client: `AssetRegistry.ensureModel` logs a warning and the
+  entity falls back to its procedural `render.recipe`. That fallback is the
+  reason this is a rough edge and not an outage — but it does mean a missing
+  model shows up as "the rocks look wrong", never as a failed import.
+
 ### Windows caveat
 
 `rename()` on a directory fails with `EPERM`/`EBUSY`/`EACCES` on Windows if

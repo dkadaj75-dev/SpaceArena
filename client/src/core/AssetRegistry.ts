@@ -8,6 +8,7 @@ import {
   StandardMaterial,
   VertexBuffer,
   type AbstractMesh,
+  type Material,
   type Scene,
 } from "@babylonjs/core";
 import { createLogger, type Palette, type RenderRecipe } from "@space-arena/shared";
@@ -388,26 +389,74 @@ export interface AsteroidLod {
   lodMediumDistance: number;
   lodLowDistance: number;
   lodCullDistance: number;
+  /**
+   * Ignore `render.model` and draw the procedural recipe (quality tier knob —
+   * see `quality.asteroids.proceduralOnly`). Omitted = models are used.
+   */
+  proceduralOnly?: boolean;
 }
 
 /**
- * Recipes that get asteroid LOD levels attached, mapped to the icosphere
- * subdivision counts used for their medium/low variants. Keyed by recipe id so
- * a content pack adding a rock recipe opts in by name, not by code change.
+ * A master to instance an asteroid from, plus the factor turning the sim's
+ * world-unit collider radius into instance scaling. Procedural rock masters are
+ * unit-radius (`radiusScale` 1); a GLB master has its `modelScale` already baked
+ * into its vertices, so it scales by `radius / modelScale` — with the authored
+ * convention that a model is normalized to max radial extent 1 and `modelScale`
+ * equals the config's collider radius, that lands at 1 for an unscaled placement.
  */
-const ASTEROID_LOD_SUBDIVISIONS: Record<string, { medium: number; low: number }> = {
-  "procedural.rock-small": { medium: 1, low: 1 },
-  "procedural.rock-large": { medium: 2, low: 1 },
+export interface AsteroidMaster {
+  mesh: Mesh;
+  radiusScale: number;
+}
+
+/**
+ * The rock recipes, and everything needed to rebuild one at a lower
+ * subdivision count for an LOD level. Keyed by recipe id, so a content pack
+ * adding a rock recipe opts into asteroid LOD by NAME — and an asteroid
+ * config with a `render.model` opts in through its own fallback `recipe`,
+ * which is exactly the palette-matched stand-in we want at distance.
+ */
+interface RockRecipe {
+  subdivisions: number;
+  displacement: number;
+  seed: number;
+  /** Subdivision counts for the lodMedium / lodLow stand-ins. */
+  lodMedium: number;
+  lodLow: number;
+}
+
+const ROCK_RECIPES: Record<string, RockRecipe> = {
+  "procedural.rock-small": { subdivisions: 2, displacement: 0.18, seed: 1337, lodMedium: 1, lodLow: 1 },
+  "procedural.rock-large": { subdivisions: 3, displacement: 0.28, seed: 9001, lodMedium: 2, lodLow: 1 },
 };
+
+/** A shared GLB master this registry hung asteroid LOD levels on. */
+interface ModelLodTarget {
+  master: Mesh;
+  /** The config's fallback rock recipe — the source of the LOD stand-ins. */
+  recipeId: string;
+  palette: Palette;
+  /** The master's baked `modelScale`. */
+  unitRadius: number;
+}
+
+/** Cache key for a GLB master: one entry per (path, baked scale, baked yaw). */
+function modelKey(render: RenderRecipe): string {
+  return `${render.model}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}`;
+}
+
+/** Builds a rock recipe at its authored detail, or at an explicit LOD subdivision count. */
+function buildRockRecipe(scene: Scene, palette: Palette, recipeId: string, subdivisions?: number): Mesh {
+  const rock = ROCK_RECIPES[recipeId]!;
+  return buildRock(scene, palette, recipeId, subdivisions ?? rock.subdivisions, rock.displacement, rock.seed);
+}
 
 const RECIPES: Record<string, RecipeBuilder> = {
   "procedural.arrowhead": buildArrowhead,
   "procedural.brawler": buildBrawler,
   "procedural.support": buildSupport,
-  "procedural.rock-small": (scene, palette) =>
-    buildRock(scene, palette, "procedural.rock-small", 2, 0.18, 1337),
-  "procedural.rock-large": (scene, palette) =>
-    buildRock(scene, palette, "procedural.rock-large", 3, 0.28, 9001),
+  "procedural.rock-small": (scene, palette) => buildRockRecipe(scene, palette, "procedural.rock-small"),
+  "procedural.rock-large": (scene, palette) => buildRockRecipe(scene, palette, "procedural.rock-large"),
   "procedural.module.laser": (scene, palette) => buildModuleFamily(scene, palette, "laser"),
   "procedural.module.kinetic": (scene, palette) => buildModuleFamily(scene, palette, "kinetic"),
   "procedural.module.missile": (scene, palette) => buildModuleFamily(scene, palette, "missile"),
@@ -426,6 +475,13 @@ export class AssetRegistry {
   private readonly cache = new Map<string, Mesh>();
   /** LOD variants built alongside a master, disposed with it. */
   private readonly lodMeshes = new Map<string, Mesh[]>();
+  /**
+   * GLB asteroid masters this registry has attached LOD levels to. They are NOT
+   * in `cache` — model masters are shared per-scene across every registry — so
+   * they need their own list for re-applying on a tier switch and for detaching
+   * on dispose (a dangling LOD level would outlive us on a mesh we don't own).
+   */
+  private readonly modelLodTargets = new Map<string, ModelLodTarget>();
   private asteroidLod: AsteroidLod | null = null;
 
   /**
@@ -457,7 +513,7 @@ export class AssetRegistry {
   ensureModel(render: RenderRecipe): Promise<Mesh | null> {
     const path = render.model;
     if (!path) return Promise.resolve(null);
-    const key = `${path}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}`;
+    const key = modelKey(render);
     const masters = AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene);
     const existing = masters.get(key);
     if (existing !== undefined) return Promise.resolve(existing);
@@ -547,12 +603,46 @@ export class AssetRegistry {
    * preloads every ship model), otherwise the procedural recipe.
    */
   getShipMaster(render: RenderRecipe): Mesh {
-    if (render.model) {
-      const key = `${render.model}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}`;
-      const master = AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene).get(key);
-      if (master) return master;
-    }
+    const master = this.loadedModel(render);
+    if (master) return master;
     return this.getMesh(render.recipe, render.palette ?? {});
+  }
+
+  /**
+   * Master mesh for an asteroid render config, on the same "model when loaded,
+   * procedural otherwise" rule as {@link getShipMaster} — kick the load off
+   * early via {@link ensureModel} (see `core/assetPreload`) so a match never
+   * starts on the fallback. The active quality tier can opt out of models
+   * entirely (`asteroids.proceduralOnly`).
+   *
+   * A model master picks up the same LOD ladder the procedural masters get,
+   * with the config's fallback recipe supplying the palette-matched
+   * medium/low stand-ins — see {@link applyAsteroidLod}.
+   */
+  getAsteroidMaster(render: RenderRecipe): AsteroidMaster {
+    const model = this.asteroidLod?.proceduralOnly === true ? null : this.loadedModel(render);
+    if (model) {
+      const unitRadius = render.modelScale ?? 1;
+      const key = `model::${modelKey(render)}`;
+      if (!this.modelLodTargets.has(key)) {
+        const target: ModelLodTarget = {
+          master: model,
+          recipeId: render.recipe,
+          palette: render.palette ?? {},
+          unitRadius,
+        };
+        this.modelLodTargets.set(key, target);
+        this.applyAsteroidLod(key, target.recipeId, target.palette, model, unitRadius, false);
+      }
+      return { mesh: model, radiusScale: 1 / unitRadius };
+    }
+    return { mesh: this.getMesh(render.recipe, render.palette ?? {}), radiusScale: 1 };
+  }
+
+  /** The already-loaded GLB master for a render config, if it has one and it landed. */
+  private loadedModel(render: RenderRecipe): Mesh | null {
+    if (!render.model) return null;
+    return AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene).get(modelKey(render)) ?? null;
   }
 
   /** Returns the cached master mesh for a recipe+palette, building it on first use. */
@@ -588,6 +678,10 @@ export class AssetRegistry {
       this.clearLod(key, master);
       this.applyAsteroidLod(key, recipeId, paletteFromKey(key), master);
     }
+    for (const [key, target] of this.modelLodTargets) {
+      this.clearLod(key, target.master);
+      this.applyAsteroidLod(key, target.recipeId, target.palette, target.master, target.unitRadius, false);
+    }
   }
 
   /**
@@ -595,48 +689,83 @@ export class AssetRegistry {
    * one, then (optionally) `null` to stop drawing entirely past the cull
    * distance. `InstancedMesh.getLOD` defers to its source mesh, so every
    * asteroid instance picks up these levels for free.
+   *
+   * This is also the whole LOD story for MODEL asteroids (§10 5.6): the GLB is
+   * the near master and the config's fallback rock recipe — same palette —
+   * supplies the medium/low stand-ins, so a 7.7k-tri rock collapses to a
+   * ~80-tri icosphere at `lodMediumDistance` and stops drawing at
+   * `lodCullDistance`. Two things differ from the procedural case, both passed
+   * in rather than sniffed: `unitRadius` bakes the master's `modelScale` into
+   * the stand-in so one instance scaling fits both, and `shareMasterMaterial`
+   * is false because the model's PBR material is textured against the GLB's own
+   * UVs and would map as noise onto an icosphere.
    */
-  private applyAsteroidLod(key: string, recipeId: string, palette: Palette, master: Mesh): void {
+  private applyAsteroidLod(
+    key: string,
+    recipeId: string,
+    palette: Palette,
+    master: Mesh,
+    unitRadius = 1,
+    shareMasterMaterial = true,
+  ): void {
     const lod = this.asteroidLod;
-    const subdivisions = ASTEROID_LOD_SUBDIVISIONS[recipeId];
-    if (!lod || !subdivisions) return;
+    const rock = ROCK_RECIPES[recipeId];
+    if (!lod || !rock) return;
 
     const levels: Mesh[] = [];
+    // Both stand-ins run on ONE material: the master's when it is a procedural
+    // rock, otherwise the palette material the first stand-in built. Either way
+    // an LOD swap cannot change the look, and no level adds a material.
+    let standIn: Material | null = shareMasterMaterial ? master.material : null;
     const addLevel = (distance: number, subs: number, suffix: string): void => {
       if (distance <= 0) return;
-      const variant = buildRock(
-        this.scene,
-        palette,
-        `${recipeId}.lod-${suffix}`,
-        subs,
-        recipeId === "procedural.rock-large" ? 0.28 : 0.18,
-        recipeId === "procedural.rock-large" ? 9001 : 1337,
-      );
-      // Share the master's material so an LOD swap can't change the look or
-      // add a second material to the scene.
-      variant.material?.dispose();
-      variant.material = master.material;
+      const variant = buildRockRecipe(this.scene, palette, recipeId, subs);
+      variant.name = `master.${recipeId}.lod-${suffix}`;
+      if (standIn) {
+        variant.material?.dispose();
+        variant.material = standIn;
+      } else {
+        standIn = variant.material;
+      }
+      if (unitRadius !== 1) {
+        // The stand-in is unit-radius; the model master has its modelScale
+        // baked in. Bake the same factor here so both answer to one scaling.
+        variant.scaling.setAll(unitRadius);
+        variant.bakeCurrentTransformIntoVertices();
+      }
       master.addLODLevel(distance, variant);
       levels.push(variant);
     };
-    addLevel(lod.lodMediumDistance, subdivisions.medium, "med");
-    addLevel(lod.lodLowDistance, subdivisions.low, "low");
+    addLevel(lod.lodMediumDistance, rock.lodMedium, "med");
+    addLevel(lod.lodLowDistance, rock.lodLow, "low");
     if (lod.lodCullDistance > 0) master.addLODLevel(lod.lodCullDistance, null);
-    if (levels.length > 0) this.lodMeshes.set(key, levels);
+    this.lodMeshes.set(key, levels);
   }
 
   private clearLod(key: string, master: Mesh): void {
     const levels = this.lodMeshes.get(key);
     if (!levels) return;
+    // Stand-ins for a MODEL master own the one palette material they share; ones
+    // for a procedural master borrow the master's and must not dispose it.
+    const owned = new Set<Material>();
     for (const level of levels) {
       master.removeLODLevel(level);
+      if (level.material && level.material !== master.material) owned.add(level.material);
       level.dispose();
     }
+    for (const material of owned) material.dispose();
+    // The cull level has no mesh of its own; `removeLODLevel(null)` matches it.
+    // Without this a tier switch would stack a second cull level on the master.
+    master.removeLODLevel(null);
     this.lodMeshes.delete(key);
   }
 
   /** Disposes every cached master mesh, its LOD variants, and its material. */
   dispose(): void {
+    // Model masters are shared per-scene and outlive this registry — detach the
+    // LOD levels we hung on them before dropping the variant meshes.
+    for (const [key, target] of this.modelLodTargets) this.clearLod(key, target.master);
+    this.modelLodTargets.clear();
     for (const levels of this.lodMeshes.values()) for (const level of levels) level.dispose();
     this.lodMeshes.clear();
     for (const mesh of this.cache.values()) {

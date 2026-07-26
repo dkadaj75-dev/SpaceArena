@@ -9,7 +9,7 @@
   "render": { "hardwareScalingMultiplier": 1.33, "maxDevicePixelRatio": 1.5, "freezeStatics": true },
   "glow": { "enabled": false, "intensity": 0 },
   "particles": { "enabled": true, "budgetMultiplier": 0.35, "maxEmitterCapacity": 40 },
-  "asteroids": { "lodMediumDistance": 55, "lodLowDistance": 130, "lodCullDistance": 380, "thinInstances": false },
+  "asteroids": { "lodMediumDistance": 55, "lodLowDistance": 130, "lodCullDistance": 380, "thinInstances": false, "proceduralOnly": true },
   "projectiles": { "useInstances": true },
   "scene": { "starfieldPoints": 150, "groundGrid": false, "spawnMarkers": true }
 }

@@ -6,14 +6,14 @@
   "bounds": { "shape": "circle", "radius": 90 },
   "asteroidPlacements": [
     { "asteroidId": "asteroid.large-hazard", "position": { "x": 0, "z": 0 }, "scale": 1.2 },
-    { "asteroidId": "asteroid.large-hazard", "position": { "x": 34, "z": 18 } },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 34, "z": 18 } },
     { "asteroidId": "asteroid.large-hazard", "position": { "x": -34, "z": -18 } },
     { "asteroidId": "asteroid.small-rock", "position": { "x": 20, "z": -40 }, "rotation": 0.5 },
-    { "asteroidId": "asteroid.small-rock", "position": { "x": -20, "z": 40 }, "rotation": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -20, "z": 40 }, "rotation": 1.1 },
     { "asteroidId": "asteroid.small-rock", "position": { "x": 52, "z": -12 } },
-    { "asteroidId": "asteroid.small-rock", "position": { "x": -52, "z": 12 } },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -52, "z": 12 } },
     { "asteroidId": "asteroid.small-rock", "position": { "x": 12, "z": 55 }, "scale": 1.3 },
-    { "asteroidId": "asteroid.small-rock", "position": { "x": -12, "z": -55 }, "scale": 1.3 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -12, "z": -55 }, "scale": 1.3 },
     { "asteroidId": "asteroid.small-rock", "position": { "x": 62, "z": 40 } }
   ],
   "spawnPoints": [

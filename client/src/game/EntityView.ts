@@ -63,7 +63,8 @@ interface ShipView {
 
 interface AsteroidView {
   instance: InstancedMesh;
-  baseRadius: number;
+  /** Instance scaling at full size — NOT the collider radius, see `getAsteroidMaster`. */
+  baseScale: number;
   dying: boolean;
   dyingMs: number;
 }
@@ -480,7 +481,7 @@ export class ViewManager {
       if (!view.dying) continue;
       view.dyingMs -= frameDtMs;
       const t = Math.max(0, view.dyingMs / ASTEROID_DEATH_MS);
-      const s = view.baseRadius * t;
+      const s = view.baseScale * t;
       view.instance.scaling.set(s, s, s);
       if (view.dyingMs <= 0) {
         view.instance.dispose();
@@ -495,13 +496,18 @@ export class ViewManager {
       log.warn(`unknown asteroid config ${a.configId}`);
       return undefined;
     }
-    const master = this.assets.getMesh(cfg.render.recipe, cfg.render.palette ?? {});
+    // GLB master when the model has landed, procedural rock otherwise; the
+    // registry hands back the factor that turns the sim's collider radius into
+    // instance scaling either way, because a model master already has its
+    // authored `modelScale` baked into its vertices.
+    const { mesh: master, radiusScale } = this.assets.getAsteroidMaster(cfg.render);
+    const scale = a.radius * radiusScale;
     const instance = master.createInstance(`asteroid.${a.id}`);
-    instance.scaling.set(a.radius, a.radius, a.radius);
+    instance.scaling.setAll(scale);
     instance.position.set(a.pos.x, 0, a.pos.z);
     instance.isPickable = false;
     instance.parent = this.root;
-    return { instance, baseRadius: a.radius, dying: false, dyingMs: 0 };
+    return { instance, baseScale: scale, dying: false, dyingMs: 0 };
   }
 
   private syncProjectiles(prev: Snapshot, cur: Snapshot, alpha: number): void {

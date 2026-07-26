@@ -110,6 +110,14 @@ export const qualitySchema = z.object({
     /** Distance past which asteroids stop drawing entirely (0 = never cull). */
     lodCullDistance: z.number().nonnegative(),
     /**
+     * Ignore `render.model` on asteroid configs and draw the procedural recipe
+     * instead. The escape hatch for the cheapest tier: the authored rocks are
+     * 3.2k-7.7k tris each and a dense belt puts ~360k of them in frustum, which
+     * is comfortable on a mid GPU and not on a budget phone. Optional so an
+     * already-published pack stays valid; omitted = use the models.
+     */
+    proceduralOnly: z.boolean().optional(),
+    /**
      * Render asteroids as thin instances instead of hardware `InstancedMesh`.
      * Measured on the practice arena: 10 asteroids across 2 masters already
      * batch to 2 draw calls as InstancedMesh, so this buys ~0 there — kept as

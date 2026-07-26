@@ -1,15 +1,15 @@
 {
-  "id": "asteroid.large-hazard",
+  "id": "asteroid.large-hazard-b",
   "type": "asteroid",
   "version": 1,
-  "name": "Large Hazard",
+  "name": "Large Hazard B",
   "radius": 8,
   "destructible": false,
   "impactDamage": 18,
   "render": {
     "recipe": "procedural.rock-large",
-    "palette": { "primary": "#463b34", "accent": "#8a5a3c" },
-    "model": "asteroids/large_a.glb",
+    "palette": { "primary": "#41372f", "accent": "#7d5537" },
+    "model": "asteroids/large_b.glb",
     "modelScale": 8
   }
 }
