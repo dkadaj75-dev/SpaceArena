@@ -296,10 +296,10 @@ function driftOverRun(
   const fitting = [...cfg.defaultFitting];
   const id = sim.spawnPlayer(SHIP_ID, fitting, 0, upgradeLevels);
 
-  // Fly a clear corridor (ring-nebula's rocks sit at the centre and at ±(34,18)
-  // / ±(52,12)) well inside the radius-90 boundary. Collisions and boundary
-  // rules are server-side events prediction is NOT expected to mirror, so the
-  // run is placed where neither happens — `hits` proves that held.
+  // Fly a clear lower-latitude corridor beneath ring-nebula's volumetric rock
+  // clusters. Collisions and boundary rules are server-side events prediction
+  // is NOT expected to mirror, so the run is placed where neither happens —
+  // `hits` proves that held.
   const tf = sim.world.transforms.get(id)!;
   tf.pos.x = START.x;
   tf.pos.y = 0;
@@ -392,10 +392,9 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
   // -------------------------------------------------------------------------
 
   it("tracks a PITCHED corridor in three dimensions with the same zero drift", () => {
-    // ring-nebula deliberately, not deep-field: BUBBLE.md §E gives the big arena
-    // asteroid y-bands, and the point of this run is prediction error, not a
-    // collision course. Climbing also carries the ship off the y=0 plane the
-    // rocks sit on, so the corridor only gets clearer as it goes.
+    // ring-nebula deliberately, not deep-field: the point of this run is
+    // prediction error, not a collision course. BUBBLE.md §E's authored
+    // corridor leaves room through the volumetric placement field.
     const { drift, hits, climb, pitch, pitchDrift } = driftOverRun(
       { hull: 0, engine: 0, energy: 0, heat: 0 },
       "resolved",

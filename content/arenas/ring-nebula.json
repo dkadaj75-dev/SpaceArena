@@ -5,16 +5,16 @@
   "name": "Ring Nebula",
   "bounds": { "shape": "sphere", "radius": 90 },
   "asteroidPlacements": [
-    { "asteroidId": "asteroid.large-hazard", "position": { "x": 0, "y": 0, "z": 0 }, "scale": 1.2 },
-    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 34, "y": 12, "z": 18 } },
-    { "asteroidId": "asteroid.large-hazard", "position": { "x": -34, "y": -12, "z": -18 } },
-    { "asteroidId": "asteroid.small-rock", "position": { "x": 20, "y": 18, "z": -40 }, "rotation": 0.5 },
-    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -20, "y": -18, "z": 40 }, "rotation": 1.1 },
-    { "asteroidId": "asteroid.small-rock", "position": { "x": 52, "y": -9, "z": -12 } },
-    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -52, "y": 9, "z": 12 } },
-    { "asteroidId": "asteroid.small-rock", "position": { "x": 12, "y": 22, "z": 55 }, "scale": 1.3 },
-    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -12, "y": -22, "z": -55 }, "scale": 1.3 },
-    { "asteroidId": "asteroid.small-rock", "position": { "x": 62, "y": 15, "z": 40 } }
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -39.7, "y": 42.1, "z": -2 }, "rotation": 0.2, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -16.3, "y": 57.8, "z": 20 }, "rotation": 2, "scale": 1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": 18.2, "y": 44.5, "z": -31.7 }, "rotation": 1.8, "scale": 1.2 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 40.1, "y": -42, "z": 0.7 }, "rotation": 0.5, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 11.5, "y": -53.9, "z": -24.2 }, "rotation": 2.7, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -21.4, "y": -49.1, "z": 34.1 }, "rotation": 0.6, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 59, "y": 32.1, "z": 12.7 }, "rotation": 2.7, "scale": 1.3 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -56.3, "y": -31.4, "z": -18.3 }, "rotation": 0.1, "scale": 1.2 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 3.1, "y": 53.3, "z": 45.3 }, "rotation": 0.9, "scale": 1.3 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -6.5, "y": -50.3, "z": -49.2 }, "rotation": 0.8, "scale": 0.9 }
   ],
   "spawnPoints": [
     { "id": "sp-a1", "team": 0, "position": { "x": -55, "y": 10, "z": -55 }, "heading": 0.785, "pitch": 0 },

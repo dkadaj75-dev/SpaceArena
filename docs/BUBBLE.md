@@ -95,14 +95,22 @@ Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchang
 
 ### E. Content/tests
 - Arena schema: sphere bounds, placement y, spawn y+pitch; both arenas authored with
-  vertical structure (deep-field belts get y-bands so the bubble is used).
+  truly volumetric structure rather than planar belts. Deep-field keeps recognizable
+  dense clusters, rising/falling strings, and sparse fill across the bubble; most
+  rocks are far above or below the old y=0 plane, while a few lower-latitude singles
+  preserve navigational variety. Ring-nebula uses the same clustered 3D language at
+  its smaller scale.
 - Balance/regression fixtures: y=0 starts keep most recorded numbers meaningful;
   scripts that relied on planar geometry re-verified. e2e smoke unchanged in spirit.
-- **T5 landed (2026-07-26):** deep-field's core ring spans y=-13..14; its north and
-  south mid belts occupy y=+46..68 and y=-68..-46; east/west flank knots occupy
-  y=+76..94 and y=-94..-76; rim debris ranges y=-52..55. Its spawn pairs mirror
-  y=±10/±6. Ring-nebula has y=-22..22 asteroid variation and mirror-fair spawn
-  offsets y=±10, with all authored spawn pitches at 0.
+- **Volumetric re-author (2026-07-26):** deep-field has 47 placements spanning
+  low, middle, and polar latitudes, with |y| routinely in the 150–250 range.
+  Ring-nebula's 10 placements reach roughly |y|=55. For both arenas, scaled
+  collider surfaces have at least 12 units of pairwise separation and at least
+  25 units of clearance from the capsule around the straight centroid-to-centroid
+  spawn corridor. Deep-field also enforces the wire-safe
+  `distance(origin) + scaled collider radius <= 315` cap placement by placement;
+  ring-nebula keeps the same quantity within its radius-90 bubble. Spawn offsets
+  and authored pitch values remain unchanged.
 
 ## Stage plan (test-gated, per the flight-overhaul rhythm)
 1. **T1 sim 3D core** (A) — landed.

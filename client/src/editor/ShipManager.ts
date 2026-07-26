@@ -84,6 +84,7 @@ export class ShipManager implements EditorPanel {
   private readonly previewRoot: TransformNode;
   private readonly gizmos: GizmoManager;
   private readonly unbindGizmoSuspend: () => void;
+  private readonly unbindGizmoCommit: () => void;
   private readonly assets: AssetRegistry;
   private readonly labelLayer: HTMLDivElement;
 
@@ -119,6 +120,9 @@ export class ShipManager implements EditorPanel {
     // A gizmo drag must move the socket marker only — freeze the editor
     // camera's orbit/pan gestures for the duration of the drag.
     this.unbindGizmoSuspend = bindGizmoCameraSuspend(this.gizmos, (on) => host.suspendCameraGestures(on));
+    this.unbindGizmoCommit = bindGizmoSocketCommit(this.gizmos, () => {
+      if (this.selectedIndex !== null) this.commitFromMarker(this.selectedIndex);
+    });
 
     this.labelLayer = document.createElement("div");
     Object.assign(this.labelLayer.style, { position: "fixed", left: "0", top: "0", pointerEvents: "none", zIndex: "999" });
@@ -617,9 +621,6 @@ export class ShipManager implements EditorPanel {
     const marker = this.markers.get(index);
     if (marker) {
       this.gizmos.attachToMesh(marker);
-      this.gizmos.gizmos.positionGizmo?.onDragEndObservable.addOnce(() => this.commitFromMarker(index));
-      this.gizmos.gizmos.rotationGizmo?.onDragEndObservable.addOnce(() => this.commitFromMarker(index));
-      this.gizmos.gizmos.scaleGizmo?.onDragEndObservable.addOnce(() => this.commitFromMarker(index));
     }
     this.renderUi();
   }
@@ -845,6 +846,7 @@ export class ShipManager implements EditorPanel {
   }
 
   dispose(): void {
+    this.unbindGizmoCommit();
     this.unbindGizmoSuspend();
     this.stopParticles();
     this.particleTexture?.dispose();
@@ -861,6 +863,23 @@ export class ShipManager implements EditorPanel {
 }
 
 // ------------------------------------------------------------- helpers ----
+
+/**
+ * Keep socket commits wired across marker rebuilds. ShipManager replaces every
+ * marker after a successful edit, but the GizmoManager (and its observables)
+ * live for the panel's whole lifetime.
+ */
+export function bindGizmoSocketCommit(gizmos: GizmoManager, commit: () => void): () => void {
+  const observables = [
+    gizmos.gizmos.positionGizmo?.onDragEndObservable,
+    gizmos.gizmos.rotationGizmo?.onDragEndObservable,
+    gizmos.gizmos.scaleGizmo?.onDragEndObservable,
+  ].filter((observable) => observable !== undefined);
+  const observers = observables.map((observable) => ({ observable, observer: observable.add(commit) }));
+  return () => {
+    for (const { observable, observer } of observers) observable.remove(observer);
+  };
+}
 
 function applyParam(ps: ParticleSystem, param: string, value: number): void {
   switch (param) {
