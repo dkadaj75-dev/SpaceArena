@@ -281,6 +281,11 @@ export class Hud {
     this.flight?.setInvertPitch(invert);
   }
 
+  /** Player multipliers over the theme-owned relative-steer baselines. */
+  setSteerSensitivity(mouseMultiplier: number, touchMultiplier: number): void {
+    this.flight?.setSteerSensitivity(mouseMultiplier, touchMultiplier);
+  }
+
   /** Forwards a match's credit/xp/level-up summary to the results overlay. */
   showMatchRewards(rewards: MatchRewards): void {
     this.resultsOverlay.showRewards(rewards);

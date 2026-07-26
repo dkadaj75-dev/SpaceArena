@@ -43,6 +43,8 @@ export const CAMERA_SHAKE_KEY = "sa.camera.shake";
  * push-up-to-climb is the default and this key is the opt-IN away from it.
  */
 export const INVERT_PITCH_KEY = "sa.controls.invertPitch";
+export const MOUSE_STEER_SENS_KEY = "sa.controls.mouseSteerSens";
+export const TOUCH_STEER_SENS_KEY = "sa.controls.touchSteerSens";
 
 export { QUALITY_STORAGE_KEY, VOLUME_MASTER_KEY, VOLUME_SFX_KEY };
 
@@ -54,6 +56,8 @@ export const ON_VALUE = "on";
 /** Bounds on the pan-sensitivity multiplier — a slider, not a footgun. */
 export const PAN_SENS_MIN = 0.25;
 export const PAN_SENS_MAX = 2.5;
+export const STEER_SENS_MIN = 0.4;
+export const STEER_SENS_MAX = 2.5;
 
 export interface UserSettings {
   /** `null` = Auto (device probe + first-seconds FPS decide). */
@@ -68,6 +72,10 @@ export interface UserSettings {
   cameraShake: boolean;
   /** True flips the flight stick's pitch axis (BUBBLE.md §C); default is push-up-to-climb. */
   invertPitch: boolean;
+  /** Multiplier over the theme's desktop relative-steer baseline. */
+  mouseSteerSens: number;
+  /** Multiplier over the theme's touch drag-distance mapping. */
+  touchSteerSens: number;
   renderer: RendererPref;
 }
 
@@ -80,6 +88,8 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   cameraPanSens: 1,
   cameraShake: true,
   invertPitch: false,
+  mouseSteerSens: 1,
+  touchSteerSens: 1,
   renderer: "webgl",
 };
 
@@ -92,6 +102,11 @@ export interface UserSettingsDefaults {
 export function clampPanSens(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_USER_SETTINGS.cameraPanSens;
   return Math.min(PAN_SENS_MAX, Math.max(PAN_SENS_MIN, value));
+}
+
+export function clampSteerSens(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(STEER_SENS_MAX, Math.max(STEER_SENS_MIN, value));
 }
 
 function clamp01(value: number): number {
@@ -138,6 +153,8 @@ export function readUserSettings(
     cameraPanSens: clampPanSens(readNumber(storage, CAMERA_PAN_SENS_KEY, DEFAULT_USER_SETTINGS.cameraPanSens)),
     cameraShake: readFlag(storage, CAMERA_SHAKE_KEY),
     invertPitch: readOptIn(storage, INVERT_PITCH_KEY),
+    mouseSteerSens: clampSteerSens(readNumber(storage, MOUSE_STEER_SENS_KEY, 1)),
+    touchSteerSens: clampSteerSens(readNumber(storage, TOUCH_STEER_SENS_KEY, 1)),
     renderer: parseRenderer(storage?.getItem(RENDERER_KEY)) ?? DEFAULT_USER_SETTINGS.renderer,
   };
 }
@@ -161,6 +178,14 @@ export function settingsToStorage(patch: Partial<UserSettings>): [string, string
   if (patch.cameraShake !== undefined) out.push([CAMERA_SHAKE_KEY, patch.cameraShake ? null : OFF_VALUE]);
   // Opt-in: "not inverted" is the default, so it is stored as an ABSENT key.
   if (patch.invertPitch !== undefined) out.push([INVERT_PITCH_KEY, patch.invertPitch ? ON_VALUE : null]);
+  if (patch.mouseSteerSens !== undefined) {
+    const sens = clampSteerSens(patch.mouseSteerSens);
+    out.push([MOUSE_STEER_SENS_KEY, sens === 1 ? null : String(round2(sens))]);
+  }
+  if (patch.touchSteerSens !== undefined) {
+    const sens = clampSteerSens(patch.touchSteerSens);
+    out.push([TOUCH_STEER_SENS_KEY, sens === 1 ? null : String(round2(sens))]);
+  }
   if (patch.renderer !== undefined) out.push([RENDERER_KEY, patch.renderer]);
   return out;
 }
@@ -240,6 +265,8 @@ function shallowEqual(a: UserSettings, b: UserSettings): boolean {
     a.cameraPanSens === b.cameraPanSens &&
     a.cameraShake === b.cameraShake &&
     a.invertPitch === b.invertPitch &&
+    a.mouseSteerSens === b.mouseSteerSens &&
+    a.touchSteerSens === b.touchSteerSens &&
     a.renderer === b.renderer
   );
 }

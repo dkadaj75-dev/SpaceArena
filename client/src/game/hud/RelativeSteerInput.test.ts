@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { resolveFlightHudLayout } from "./flightHudLayout.js";
 import {
+  applySteerSensitivity,
   RelativeSteerInput,
   startsOnHudControl,
   startsOnSteerSurface,
@@ -42,6 +43,11 @@ function mount() {
 }
 
 describe("RelativeSteerInput", () => {
+  it("applies the player multiplier to the input mapping", () => {
+    expect(applySteerSensitivity(24, 0.5)).toBe(12);
+    expect(applySteerSensitivity(-24, 2.5)).toBe(-60);
+  });
+
   it("accumulates RMB mouse deltas and recentres both axes on release", () => {
     const { canvas, input } = mount();
     canvas.dispatchEvent(pointer("pointerdown", { id: 1, pointerType: "mouse", button: 2, x: 100, y: 100 }));
@@ -126,6 +132,33 @@ describe("RelativeSteerInput", () => {
     const next = resolveFlightHudLayout(undefined, { width: 400, height: 300 });
     input.applyLayout(next);
     expect(input.turn).toBeCloseTo(before, 6);
+    input.dispose();
+    canvas.remove();
+  });
+
+  it("applies sensitivity changes live to active mouse and touch gestures", () => {
+    const { canvas, input } = mount();
+    canvas.dispatchEvent(pointer("pointerdown", { id: 9, pointerType: "mouse", button: 2 }));
+    document.dispatchEvent(pointer("pointermove", {
+      id: 9,
+      pointerType: "mouse",
+      movementX: 30,
+    }));
+    const mouseBefore = input.turn;
+    input.setSensitivityMultipliers(2, 1);
+    expect(Math.abs(input.turn)).toBeGreaterThan(Math.abs(mouseBefore));
+    document.dispatchEvent(pointer("pointerup", { id: 9, pointerType: "mouse" }));
+
+    canvas.dispatchEvent(pointer("pointerdown", { id: 10, pointerType: "touch", x: 100, y: 100 }));
+    document.dispatchEvent(pointer("pointermove", {
+      id: 10,
+      pointerType: "touch",
+      x: 120,
+      y: 100,
+    }));
+    const touchBefore = input.turn;
+    input.setSensitivityMultipliers(2, 2);
+    expect(Math.abs(input.turn)).toBeGreaterThan(Math.abs(touchBefore));
     input.dispose();
     canvas.remove();
   });

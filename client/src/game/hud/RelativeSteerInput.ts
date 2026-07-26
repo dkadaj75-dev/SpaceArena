@@ -21,6 +21,8 @@ export class RelativeSteerInput {
   private dy = 0;
   private enabled = true;
   private invertPitch = false;
+  private mouseSensitivityMultiplier = 1;
+  private touchSensitivityMultiplier = 1;
   private readonly axesValue: RelativeSteerAxes = { turn: 0, pitchStick: 0 };
 
   private readonly onPointerDown = (ev: PointerEvent): void => {
@@ -62,8 +64,16 @@ export class RelativeSteerInput {
       const movementX = locked ? ev.movementX : ev.movementX || ev.clientX - this.lastX;
       const movementY = locked ? ev.movementY : ev.movementY || ev.clientY - this.lastY;
       const radius = this.layout.relativeSteer.maxRadiusPx;
-      this.dx += movementX * this.layout.relativeSteer.mouseSensitivity * radius;
-      this.dy += movementY * this.layout.relativeSteer.mouseSensitivity * radius;
+      this.dx +=
+        movementX *
+        this.layout.relativeSteer.mouseSensitivity *
+        this.mouseSensitivityMultiplier *
+        radius;
+      this.dy +=
+        movementY *
+        this.layout.relativeSteer.mouseSensitivity *
+        this.mouseSensitivityMultiplier *
+        radius;
       const magnitude = Math.hypot(this.dx, this.dy);
       if (magnitude > radius) {
         this.dx = (this.dx / magnitude) * radius;
@@ -145,6 +155,19 @@ export class RelativeSteerInput {
     this.updateAxes();
   }
 
+  /** Apply player multipliers live, including an already-active drag. */
+  setSensitivityMultipliers(mouse: number, touch: number): void {
+    if (this.pointerId !== null && this.pointerType === "mouse" && this.mouseSensitivityMultiplier > 0) {
+      const ratio = mouse / this.mouseSensitivityMultiplier;
+      this.dx *= ratio;
+      this.dy *= ratio;
+    }
+    this.mouseSensitivityMultiplier = mouse;
+    this.touchSensitivityMultiplier = touch;
+    this.updateAxes();
+    this.render();
+  }
+
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) this.release();
@@ -164,7 +187,15 @@ export class RelativeSteerInput {
 
   private updateAxes(): void {
     const s = this.layout.relativeSteer;
-    const axes = mapRelativeSteer(this.dx, this.dy, s.deadzonePx, s.maxRadiusPx, s.expo, this.invertPitch);
+    const multiplier = this.pointerType === "mouse" ? 1 : this.touchSensitivityMultiplier;
+    const axes = mapRelativeSteer(
+      applySteerSensitivity(this.dx, multiplier),
+      applySteerSensitivity(this.dy, multiplier),
+      s.deadzonePx,
+      s.maxRadiusPx,
+      s.expo,
+      this.invertPitch,
+    );
     this.axesValue.turn = axes.turn;
     this.axesValue.pitchStick = axes.pitchStick;
   }
@@ -198,10 +229,12 @@ export class RelativeSteerInput {
     this.visual.classList.toggle("active", touchActive);
     if (!touchActive) return;
     const radius = this.layout.relativeSteer.maxRadiusPx;
-    const magnitude = Math.hypot(this.dx, this.dy);
+    const effectiveDx = applySteerSensitivity(this.dx, this.touchSensitivityMultiplier);
+    const effectiveDy = applySteerSensitivity(this.dy, this.touchSensitivityMultiplier);
+    const magnitude = Math.hypot(effectiveDx, effectiveDy);
     const scale = magnitude > radius ? radius / magnitude : 1;
-    const dx = this.dx * scale;
-    const dy = this.dy * scale;
+    const dx = effectiveDx * scale;
+    const dy = effectiveDy * scale;
     this.originDot.style.transform = `translate(${this.originX}px, ${this.originY}px)`;
     this.currentDot.style.transform = `translate(${this.originX + dx}px, ${this.originY + dy}px)`;
     this.vector.style.width = `${Math.hypot(dx, dy)}px`;
@@ -219,6 +252,11 @@ export class RelativeSteerInput {
     window.removeEventListener("blur", this.onBlur);
     this.visual.remove();
   }
+}
+
+/** Pure mapping used by both touch axes and their live visual. */
+export function applySteerSensitivity(deltaPx: number, multiplier: number): number {
+  return deltaPx * multiplier;
 }
 
 export function startsOnHudControl(target: EventTarget | null): boolean {

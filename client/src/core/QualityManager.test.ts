@@ -31,7 +31,6 @@ function quality(): QualityConfig {
       skyboxEnabled: true,
       boundaryShieldShader: false,
       starfieldPoints: 150,
-      boundsGrid: false,
       spawnMarkers: true,
     },
   });

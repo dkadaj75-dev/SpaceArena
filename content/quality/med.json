@@ -4,12 +4,45 @@
   "version": 1,
   "name": "Medium (mid-range mobile)",
   "tier": "med",
-  "probe": { "minCores": 4, "minMemoryGb": 3, "allowMobile": true },
-  "autoTier": { "sampleAfterMs": 5000, "sampleWindowMs": 3000, "demoteBelowFps": 26, "promoteAboveFps": 56 },
-  "render": { "hardwareScalingMultiplier": 1.15, "maxDevicePixelRatio": 2, "freezeStatics": true },
-  "glow": { "enabled": true, "intensity": 0.35, "blurKernelSize": 16 },
-  "particles": { "enabled": true, "budgetMultiplier": 0.6, "maxEmitterCapacity": 60 },
-  "asteroids": { "lodMediumDistance": 150, "lodLowDistance": 340, "lodCullDistance": 900, "thinInstances": false },
-  "projectiles": { "useInstances": true },
-  "scene": { "skyboxEnabled": true, "boundaryShieldShader": true, "starfieldPoints": 320, "boundsGrid": true, "spawnMarkers": true }
+  "probe": {
+    "minCores": 4,
+    "minMemoryGb": 3,
+    "allowMobile": true
+  },
+  "autoTier": {
+    "sampleAfterMs": 5000,
+    "sampleWindowMs": 3000,
+    "demoteBelowFps": 26,
+    "promoteAboveFps": 56
+  },
+  "render": {
+    "hardwareScalingMultiplier": 1.15,
+    "maxDevicePixelRatio": 2,
+    "freezeStatics": true
+  },
+  "glow": {
+    "enabled": true,
+    "intensity": 0.35,
+    "blurKernelSize": 16
+  },
+  "particles": {
+    "enabled": true,
+    "budgetMultiplier": 0.6,
+    "maxEmitterCapacity": 60
+  },
+  "asteroids": {
+    "lodMediumDistance": 150,
+    "lodLowDistance": 600,
+    "lodCullDistance": 3000,
+    "thinInstances": false
+  },
+  "projectiles": {
+    "useInstances": true
+  },
+  "scene": {
+    "skyboxEnabled": true,
+    "boundaryShieldShader": true,
+    "starfieldPoints": 320,
+    "spawnMarkers": true
+  }
 }

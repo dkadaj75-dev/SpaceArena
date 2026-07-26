@@ -40,7 +40,6 @@ function quality(overrides: Partial<SceneQuality> = {}): SceneQuality {
       skyboxEnabled: true,
       boundaryShieldShader: true,
       starfieldPoints: 0,
-      boundsGrid: true,
       spawnMarkers: true,
     },
     render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: true },
@@ -191,7 +190,6 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
   it("rebuilds when a tier changes geometry-baked decoration", () => {
     const builder = new SceneBuilder(scene, configs, bus, quality());
     builder.buildArena("arena.test");
-    expect(scene.getMeshByName("boundsGrid")).not.toBeNull();
     expect(scene.getMeshByName("spawnMarker.sp-a")).not.toBeNull();
 
     builder.setQuality(
@@ -200,12 +198,10 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
           skyboxEnabled: false,
           boundaryShieldShader: false,
           starfieldPoints: 0,
-          boundsGrid: false,
           spawnMarkers: false,
         },
       }),
     );
-    expect(scene.getMeshByName("boundsGrid")).toBeNull();
     expect(scene.getMeshByName("spawnMarker.sp-a")).toBeNull();
     expect(builder.staticsFrozen).toBe(true);
 
@@ -264,7 +260,6 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
           skyboxEnabled: true,
           boundaryShieldShader: false,
           starfieldPoints: 0,
-          boundsGrid: false,
           spawnMarkers: false,
         },
       }),

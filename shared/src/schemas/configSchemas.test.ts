@@ -263,7 +263,6 @@ const quality = {
     skyboxEnabled: true,
     boundaryShieldShader: true,
     starfieldPoints: 1500,
-    boundsGrid: true,
     spawnMarkers: true,
   },
 };
@@ -704,6 +703,16 @@ describe("asteroid schema", () => {
         d["states"] = [{ id: "cracked", render: { recipe: "procedural.rock-cracked" }, onEnter: ["action.fixture-sound"] }];
       }),
     ).toBe(true);
+  });
+
+  it("accepts an optional render spin range and rejects inverted or negative ranges", () => {
+    const setSpin = (minDegPerSec: number, maxDegPerSec: number) =>
+      mutated("asteroid", (d) => {
+        (d["render"] as Record<string, unknown>)["spin"] = { minDegPerSec, maxDegPerSec };
+      });
+    expect(setSpin(2, 8)).toBe(true);
+    expect(setSpin(8, 2)).toBe(false);
+    expect(setSpin(-1, 2)).toBe(false);
   });
 });
 

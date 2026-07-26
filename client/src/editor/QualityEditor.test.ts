@@ -21,7 +21,6 @@ function tier(name: QualityTier): QualityConfig {
       skyboxEnabled: true,
       boundaryShieldShader: true,
       starfieldPoints: 300,
-      boundsGrid: true,
       spawnMarkers: true,
     },
   });

@@ -10,6 +10,7 @@
     "recipe": "procedural.rock-large",
     "palette": { "primary": "#463b34", "accent": "#8a5a3c" },
     "model": "asteroids/large_a.glb",
-    "modelScale": 8
+    "modelScale": 8,
+    "spin": { "minDegPerSec": 1, "maxDegPerSec": 4 }
   }
 }

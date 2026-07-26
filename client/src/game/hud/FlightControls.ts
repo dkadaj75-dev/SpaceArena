@@ -210,6 +210,10 @@ export class FlightControls {
     this.relativeSteer.setInvertPitch(invert);
   }
 
+  setSteerSensitivity(mouseMultiplier: number, touchMultiplier: number): void {
+    this.relativeSteer.setSensitivityMultipliers(mouseMultiplier, touchMultiplier);
+  }
+
   /** Orders emitted so far this match — debug overlays and the rate-limit test. */
   get ordersSent(): number {
     return this.sender.sentCount;

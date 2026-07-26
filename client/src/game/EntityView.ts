@@ -2,6 +2,7 @@ import {
   Color3,
   Mesh,
   MeshBuilder,
+  Quaternion,
   StandardMaterial,
   TransformNode,
   Vector3,
@@ -40,6 +41,11 @@ import {
   pitchForDirection,
   yawForDirection,
 } from "./shipOrientation.js";
+import {
+  advanceAsteroidSpin,
+  asteroidSpinFor,
+  type AsteroidSpin,
+} from "./asteroidSpin.js";
 
 const log = createLogger("ViewManager");
 
@@ -79,6 +85,8 @@ interface AsteroidView {
   instance: InstancedMesh;
   /** Instance scaling at full size — NOT the collider radius, see `getAsteroidMaster`. */
   baseScale: number;
+  /** Stable id-derived axis, pace, and direction; allocated once with the view. */
+  spin: AsteroidSpin;
   dying: boolean;
   dyingMs: number;
 }
@@ -521,6 +529,11 @@ export class ViewManager {
         view.dying = true;
         view.dyingMs = ASTEROID_DEATH_MS;
       }
+      // Destruction owns the pose once the shrink/debris puff begins, so spin
+      // stops at that transition. All values here are mutated in place.
+      if (!view.dying) {
+        advanceAsteroidSpin(view.instance.rotationQuaternion!, view.spin, frameDtMs / 1000);
+      }
     }
     // Advance death puffs; dispose when finished.
     for (const [id, view] of this.asteroids) {
@@ -550,12 +563,19 @@ export class ViewManager {
     const scale = a.radius * radiusScale;
     const instance = master.createInstance(`asteroid.${a.id}`);
     instance.scaling.setAll(scale);
+    instance.rotationQuaternion = Quaternion.Identity();
     // Authored altitude (BUBBLE.md §E gives placements a `y`); asteroids never
     // move, so this is the one and only time it is written.
     instance.position.set(a.pos.x, a.pos.y, a.pos.z);
     instance.isPickable = false;
     instance.parent = this.root;
-    return { instance, baseScale: scale, dying: false, dyingMs: 0 };
+    return {
+      instance,
+      baseScale: scale,
+      spin: asteroidSpinFor(a.id, cfg.render.spin),
+      dying: false,
+      dyingMs: 0,
+    };
   }
 
   private syncProjectiles(prev: Snapshot, cur: Snapshot, alpha: number): void {

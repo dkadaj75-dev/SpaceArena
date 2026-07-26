@@ -42,7 +42,6 @@ function tier(
       skyboxEnabled: true,
       boundaryShieldShader: true,
       starfieldPoints: 400,
-      boundsGrid: true,
       spawnMarkers: true,
     },
   });

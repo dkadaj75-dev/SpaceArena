@@ -65,7 +65,6 @@ const DEFAULT_QUALITY: SceneQuality = {
     skyboxEnabled: true,
     boundaryShieldShader: true,
     starfieldPoints: 400,
-    boundsGrid: true,
     spawnMarkers: true,
   },
   render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: false },
@@ -122,7 +121,6 @@ export class SceneBuilder {
     if (!this.root) return;
     const needsRebuild =
       previous.scene.starfieldPoints !== quality.scene.starfieldPoints ||
-      previous.scene.boundsGrid !== quality.scene.boundsGrid ||
       previous.scene.spawnMarkers !== quality.scene.spawnMarkers ||
       previous.scene.skyboxEnabled !== quality.scene.skyboxEnabled ||
       previous.scene.boundaryShieldShader !== quality.scene.boundaryShieldShader;
@@ -343,16 +341,9 @@ export class SceneBuilder {
    * §C): ships leave the play space in any direction, so the boundary has to read
    * as a surface the player can approach from the inside at any latitude.
    *
-   * Two meshes, both seen from within:
-   *
-   *  - `boundsShell` — a barely-there translucent sphere. It is what makes the
+   * `boundsShell` is a barely-there translucent sphere. It is what makes the
    *    edge feel like a wall when you fly at it, and it is drawn BACKSIDE so the
    *    inside faces render and the far half never occludes the view forward.
-   *  - `boundsGrid` — the same sphere as WIREFRAME, i.e. the latitude/longitude
-   *    lines the segment count already implies. This is the spatial reference the
-   *    retired ground grid used to provide, and the same quality switch turns it
-   *    off (`scene.boundsGrid`): it is a pile of extra line geometry, which is why
-   *    the cheapest tier drops it.
    */
   private buildBounds(arena: ArenaConfig, root: TransformNode): void {
     this.applyGlowQuality();
@@ -392,19 +383,6 @@ export class SceneBuilder {
         shell.parent = root;
       }
 
-      if (this.quality.scene.boundsGrid) {
-        const grid = MeshBuilder.CreateSphere("boundsGrid", { diameter, segments: 16 }, this.scene);
-        grid.isPickable = false;
-        const gridMat = new StandardMaterial("mat.boundsGrid", this.scene);
-        gridMat.diffuseColor = Color3.Black();
-        gridMat.specularColor = Color3.Black();
-        gridMat.emissiveColor = new Color3(0.12, 0.45, 0.6);
-        gridMat.disableLighting = true;
-        gridMat.wireframe = true;
-        gridMat.alpha = 0.16;
-        grid.material = gridMat;
-        grid.parent = root;
-      }
     } else {
       // Box arena: six translucent walls matching the sim's finite y bounds.
       const { width, height, verticalExtent } = arena.bounds;

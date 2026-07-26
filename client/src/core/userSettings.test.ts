@@ -3,15 +3,20 @@ import {
   CAMERA_PAN_SENS_KEY,
   CAMERA_SHAKE_KEY,
   clampPanSens,
+  clampSteerSens,
   DEFAULT_USER_SETTINGS,
   HAPTICS_KEY,
   INVERT_PITCH_KEY,
+  MOUSE_STEER_SENS_KEY,
   PAN_SENS_MAX,
   PAN_SENS_MIN,
+  STEER_SENS_MAX,
+  STEER_SENS_MIN,
   QUALITY_STORAGE_KEY,
   readUserSettings,
   RENDERER_KEY,
   settingsToStorage,
+  TOUCH_STEER_SENS_KEY,
   UserSettingsStore,
   VOLUME_MASTER_KEY,
   VOLUME_SFX_KEY,
@@ -76,6 +81,15 @@ describe("readUserSettings", () => {
     expect(readUserSettings(fakeStorage({ [CAMERA_PAN_SENS_KEY]: "abc" })).cameraPanSens).toBe(1);
   });
 
+  it("reads and clamps the independent steering multipliers", () => {
+    const settings = readUserSettings(fakeStorage({
+      [MOUSE_STEER_SENS_KEY]: "9",
+      [TOUCH_STEER_SENS_KEY]: "0.2",
+    }));
+    expect(settings.mouseSteerSens).toBe(STEER_SENS_MAX);
+    expect(settings.touchSteerSens).toBe(STEER_SENS_MIN);
+  });
+
   it("reads the renderer preference, defaulting to webgl", () => {
     expect(readUserSettings(fakeStorage({ [RENDERER_KEY]: "webgpu" })).renderer).toBe("webgpu");
     expect(readUserSettings(fakeStorage({ [RENDERER_KEY]: "vulkan" })).renderer).toBe("webgl");
@@ -92,6 +106,8 @@ describe("settingsToStorage", () => {
     expect(settingsToStorage({ masterVolume: 0.5 })).toEqual([[VOLUME_MASTER_KEY, "0.5"]]);
     expect(settingsToStorage({ sfxVolume: 0.5 })).toEqual([[VOLUME_SFX_KEY, "0.5"]]);
     expect(settingsToStorage({ renderer: "webgpu" })).toEqual([[RENDERER_KEY, "webgpu"]]);
+    expect(settingsToStorage({ mouseSteerSens: 1.5 })).toEqual([[MOUSE_STEER_SENS_KEY, "1.5"]]);
+    expect(settingsToStorage({ touchSteerSens: 0.75 })).toEqual([[TOUCH_STEER_SENS_KEY, "0.75"]]);
   });
 
   it("removes the key for every 'use the config baseline' choice", () => {
@@ -102,6 +118,8 @@ describe("settingsToStorage", () => {
     expect(settingsToStorage({ cameraPanSens: 1 })).toEqual([[CAMERA_PAN_SENS_KEY, null]]);
     // ...and so does a non-inverted pitch axis, which is the default.
     expect(settingsToStorage({ invertPitch: false })).toEqual([[INVERT_PITCH_KEY, null]]);
+    expect(settingsToStorage({ mouseSteerSens: 1 })).toEqual([[MOUSE_STEER_SENS_KEY, null]]);
+    expect(settingsToStorage({ touchSteerSens: 1 })).toEqual([[TOUCH_STEER_SENS_KEY, null]]);
   });
 
   it("writes 'off' for disabled flags and 'on' for the opt-in one", () => {
@@ -123,11 +141,20 @@ describe("settingsToStorage", () => {
 describe("writeUserSettings", () => {
   it("round-trips through storage", () => {
     const storage = fakeStorage();
-    writeUserSettings(storage, { quality: "med", haptics: false, cameraPanSens: 1.5, sfxVolume: 0.2 });
+    writeUserSettings(storage, {
+      quality: "med",
+      haptics: false,
+      cameraPanSens: 1.5,
+      mouseSteerSens: 1.8,
+      touchSteerSens: 0.6,
+      sfxVolume: 0.2,
+    });
     expect(readUserSettings(storage)).toMatchObject({
       quality: "med",
       haptics: false,
       cameraPanSens: 1.5,
+      mouseSteerSens: 1.8,
+      touchSteerSens: 0.6,
       sfxVolume: 0.2,
     });
   });
@@ -191,5 +218,14 @@ describe("clampPanSens", () => {
     expect(clampPanSens(1)).toBe(1);
     expect(clampPanSens(-3)).toBe(PAN_SENS_MIN);
     expect(clampPanSens(Number.NaN)).toBe(1);
+  });
+});
+
+describe("clampSteerSens", () => {
+  it("keeps player multipliers inside the slider range", () => {
+    expect(clampSteerSens(1.25)).toBe(1.25);
+    expect(clampSteerSens(0)).toBe(STEER_SENS_MIN);
+    expect(clampSteerSens(99)).toBe(STEER_SENS_MAX);
+    expect(clampSteerSens(Number.NaN)).toBe(1);
   });
 });

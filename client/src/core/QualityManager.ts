@@ -248,7 +248,6 @@ const FALLBACK_TIER: QualityConfig = {
     skyboxEnabled: true,
     boundaryShieldShader: true,
     starfieldPoints: 250,
-    boundsGrid: true,
     spawnMarkers: true,
   },
 };

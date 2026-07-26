@@ -432,6 +432,7 @@ async function bootstrap(): Promise<void> {
     runtime?.screenShake.setUserEnabled(values.cameraShake);
     runtime?.hud.setHapticsEnabled(values.haptics);
     runtime?.hud.setInvertPitch(values.invertPitch);
+    runtime?.hud.setSteerSensitivity(values.mouseSteerSens, values.touchSteerSens);
   }
 
   applyUserSettings();

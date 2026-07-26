@@ -18,6 +18,7 @@ const PALETTES = {
     dustB: { col: [48, 36, 18], hot: [160, 126, 66], lo: 0.74, hi: 1.05 },
     core: [255, 214, 160],
     warp: 1.25, starGain: 1.0, seed: 7,
+    bandN: [0.28, 0.86, 0.42], bandWidth: 0.32,
   },
   "ring-nebula": {
     base: [6, 6, 14],
@@ -25,6 +26,7 @@ const PALETTES = {
     dustB: { col: [22, 42, 82], hot: [66, 106, 175], lo: 0.74, hi: 1.05 },
     core: [224, 208, 255],
     warp: 1.5, starGain: 1.0, seed: 23,
+    bandN: [-0.5, 0.75, 0.43], bandWidth: 0.38,
   },
 };
 
@@ -84,6 +86,14 @@ function makeNebula(W, H, P) {
       const ax = dx + wx * P.warp, ay = dy + wy * P.warp, az = dz + (wx - wy) * 0.5 * P.warp;
 
       const c = [P.base[0], P.base[1], P.base[2]];
+      // Faint broad haze so "empty" sky reads as deep space, not a void.
+      const haze = fbm(dx * 0.9 + 71, dy * 0.9, dz * 0.9, 4, 0.6);
+      for (let ch = 0; ch < 3; ch++) c[ch] += P.dustA.col[ch] * haze * haze * 0.10;
+      // Galactic band: dust + stars concentrate along a tilted great circle.
+      const bandDist = Math.abs(dx * P.bandN[0] + dy * P.bandN[1] + dz * P.bandN[2]);
+      const band = Math.exp(-(bandDist * bandDist) / (P.bandWidth * P.bandWidth));
+      const bandDust = fbm(ax * 2.6 + 97, ay * 2.6, az * 2.6, 5, 0.55);
+      for (let ch = 0; ch < 3; ch++) c[ch] += P.dustB.col[ch] * band * bandDust * 0.55 + P.dustA.col[ch] * band * 0.12;
       const nA = fbm(ax * 1.9, ay * 1.9, az * 1.9, 6, 0.55);
       rampMix(nA, P.dustA.lo, P.dustA.hi, P.dustA.col, P.dustA.hot, c);
       const nB = fbm(ax * 3.4 + 31, ay * 3.4, az * 3.4, 6, 0.5);
@@ -105,10 +115,23 @@ function makeNebula(W, H, P) {
         const b = hash(cx * 3 + 1, cy * 3 + 2, cz * 3 + 3);
         star = Math.max(0, 1 - d2 / 0.004) ** 3 * (0.35 + 1.4 * b * b) * 255 * P.starGain;
       }
+      // Rare bright glow stars (density boosted inside the band).
+      const S2 = 26;
+      const c2x = Math.floor(dx * S2), c2y = Math.floor(dy * S2), c2z = Math.floor(dz * S2);
+      let bright = 0, warmth = 0.5;
+      if (hash(c2x * 5 + 11, c2y * 5 + 12, c2z * 5 + 13) < 0.10 + band * 0.12) {
+        const j2x = c2x + hash(c2x, c2y, c2z), j2y = c2y + hash(c2y, c2z, c2x), j2z = c2z + hash(c2z, c2x, c2y);
+        const e2x = dx * S2 - j2x, e2y = dy * S2 - j2y, e2z = dz * S2 - j2z;
+        const dd2 = e2x * e2x + e2y * e2y + e2z * e2z;
+        const b2 = hash(c2x * 7 + 1, c2y * 7 + 2, c2z * 7 + 3);
+        // Tight core + wide soft glow
+        bright = (Math.exp(-dd2 / 0.0006) * 1.1 + Math.exp(-dd2 / 0.012) * 0.16) * 255 * (0.5 + b2);
+        warmth = hash(c2x + 9, c2y + 9, c2z + 9);
+      }
       const i = (py * W + px) * 4;
-      img[i] = Math.min(255, c[0] + star);
-      img[i + 1] = Math.min(255, c[1] + star);
-      img[i + 2] = Math.min(255, c[2] + star * 0.95);
+      img[i] = Math.min(255, c[0] + star + bright * (0.85 + 0.3 * warmth));
+      img[i + 1] = Math.min(255, c[1] + star + bright * 0.92);
+      img[i + 2] = Math.min(255, c[2] + star * 0.95 + bright * (1.15 - 0.3 * warmth));
       img[i + 3] = 255;
     }
   }

@@ -10,6 +10,8 @@ import type { AudioManager } from "../../audio/AudioManager.js";
 import {
   PAN_SENS_MAX,
   PAN_SENS_MIN,
+  STEER_SENS_MAX,
+  STEER_SENS_MIN,
   type RendererPref,
   type UserSettings,
   type UserSettingsStore,
@@ -256,14 +258,10 @@ export class SettingsScreen {
   }
 
   /**
-   * The one flight-control PREFERENCE (pitch invert — BUBBLE.md §C), the desktop
-   * key map, and a read-only view of the feel knobs. The knobs are
-   * designer-owned: the stick/throttle geometry and response live in
-   * `theme.hud.flight`, the lock-break grace in `tuning.json`. (The old
-   * tap-to-move readouts retired with move orders — FLIGHT.md §7.)
-   *
-   * Invert is a settings toggle rather than a theme field for the same reason
-   * handedness never belongs in content: it describes the player, not the game.
+   * Player-owned pitch direction and per-device steering multipliers, followed
+   * by the fixed bindings and a read-only view of designer-owned feel knobs.
+   * Geometry/response baselines stay in `theme.hud.flight`; lock timing stays
+   * in `tuning.json`.
    */
   private controlsGroup(): HTMLElement {
     const group = settingsGroup("Controls");
@@ -275,6 +273,47 @@ export class SettingsScreen {
     );
     invert.el.dataset["setting"] = "controls.invertPitch";
     this.refreshers.push((values) => invert.set(values.invertPitch));
+
+    const steerSlider = (
+      label: string,
+      setting: string,
+      read: (values: UserSettings) => number,
+      write: (value: number) => void,
+    ): HTMLElement => {
+      const row = settingsRow(label);
+      const valueEl = row.querySelector<HTMLSpanElement>(".value")!;
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.className = "sa-slider";
+      slider.min = String(STEER_SENS_MIN);
+      slider.max = String(STEER_SENS_MAX);
+      slider.step = "0.05";
+      slider.dataset["setting"] = setting;
+      slider.addEventListener("input", () => {
+        const value = Number(slider.value);
+        valueEl.textContent = `${value.toFixed(2)}×`;
+        write(value);
+      });
+      this.refreshers.push((values) => {
+        const value = read(values);
+        slider.value = String(value);
+        valueEl.textContent = `${value.toFixed(2)}×`;
+      });
+      row.append(slider);
+      return row;
+    };
+    const mouseSensitivity = steerSlider(
+      "Mouse-look sensitivity",
+      "controls.mouseSteerSens",
+      (values) => values.mouseSteerSens,
+      (value) => this.host.settings.set({ mouseSteerSens: value }),
+    );
+    const touchSensitivity = steerSlider(
+      "Touch-steer sensitivity",
+      "controls.touchSteerSens",
+      (values) => values.touchSteerSens,
+      (value) => this.host.settings.set({ touchSteerSens: value }),
+    );
 
     const bindings = document.createElement("div");
     bindings.className = "sa-settings-readonly";
@@ -301,9 +340,12 @@ export class SettingsScreen {
     group.append(
       invert.el,
       note("Off means moving up raises the nose."),
+      mouseSensitivity,
+      touchSensitivity,
+      note("These multiply the current theme's steering feel; 1.00× is the designer baseline."),
       bindings,
       list,
-      note("The bindings are fixed in the MVP; the feel knobs below live in the theme and tuning configs and are tuned once for the whole game — not per player."),
+      note("The bindings are fixed in the MVP. Deadzone, throttle response, and lock timing remain designer-owned theme/tuning knobs."),
     );
     return group;
   }
