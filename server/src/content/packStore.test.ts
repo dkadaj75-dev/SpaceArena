@@ -45,7 +45,7 @@ function arena(id: string, name: string, radius: number): unknown {
     type: "arena",
     version: 1,
     name,
-    bounds: { shape: "circle", radius },
+    bounds: { shape: "sphere", radius },
     asteroidPlacements: [{ asteroidId: "asteroid.rock", position: { x: 0, z: 0 } }],
     spawnPoints: [
       { id: "sp-a", team: 0, position: { x: -20, z: -20 }, heading: 0 },

@@ -44,7 +44,7 @@ function miniPack(): { manifest: unknown; files: Record<string, unknown> } {
         type: "arena",
         version: 1,
         name: "Test Arena",
-        bounds: { shape: "circle", radius: 80 },
+        bounds: { shape: "sphere", radius: 80 },
         asteroidPlacements: [{ asteroidId: "asteroid.rock", position: { x: 0, z: 0 } }],
         spawnPoints: [
           { id: "sp-a", team: 0, position: { x: -20, z: -20 }, heading: 0 },
@@ -144,7 +144,7 @@ describe("content bundle — validation", () => {
         ...bundle.files,
         "arenas/test.json": {
           ...(bundle.files["arenas/test.json"] as Record<string, unknown>),
-          bounds: { shape: "circle", radius: -5 },
+          bounds: { shape: "sphere", radius: -5 },
         },
       },
     };

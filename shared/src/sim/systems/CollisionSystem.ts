@@ -1,8 +1,11 @@
 import type { ShipCore } from "../components.js";
+import { len3 } from "../math.js";
 import type { World } from "../World.js";
 
 /**
- * CollisionSystem (1.7) — planar circle resolution using the world spatial hash:
+ * CollisionSystem (1.7) — SPHERE resolution using the world spatial hash as a
+ * planar (x,z) broadphase (BUBBLE.md §A: the hash stays 2D, every narrowphase
+ * distance is 3D):
  *   - ship vs asteroid: push the ship out; if closing speed > tuning
  *     `impactSpeedThreshold`, the asteroid's `impactDamage` is dealt to hull.
  *   - ship vs ship: symmetric push-out (no damage).
@@ -34,28 +37,35 @@ export function collisionSystem(world: World, dt: number): void {
       if (!ast || ast.state === "destroyed") continue;
       const at = world.transforms.get(aid)!;
       const ac = world.colliders.get(aid)!;
-      let nx = st.pos.x - at.pos.x;
-      let nz = st.pos.z - at.pos.z;
-      let d = Math.sqrt(nx * nx + nz * nz);
       const sumR = sc.radius + ac.radius;
+      // |Δy| prefilter: the broadphase is planar, so a rock directly below the
+      // ship is a candidate no matter how deep it sits.
+      if (Math.abs(st.pos.y - at.pos.y) >= sumR) continue;
+      let nx = st.pos.x - at.pos.x;
+      let ny = st.pos.y - at.pos.y;
+      let nz = st.pos.z - at.pos.z;
+      let d = len3(nx, ny, nz);
       if (d >= sumR) continue;
       if (d === 0) {
         nx = 1;
+        ny = 0;
         nz = 0;
         d = 1;
       }
       const inv = 1 / d;
       nx *= inv;
+      ny *= inv;
       nz *= inv;
       const push = sumR - d;
       st.pos.x += nx * push;
+      st.pos.y += ny * push;
       st.pos.z += nz * push;
 
       // Impact damage only on a genuine high-speed collision: the closing speed
       // along the contact normal must exceed the threshold, and the pair must not
       // be on cooldown. Push-out on sustained overlap (low closing speed) deals no
       // damage, so a ship grinding against a rock is not ground to death.
-      const vn = vel.x * nx + vel.z * nz; // >0 = separating, <0 = closing
+      const vn = vel.x * nx + vel.y * ny + vel.z * nz; // >0 = separating, <0 = closing
       const closingSpeed = -vn;
       const pairKey = sid * 0x100000 + aid;
       if (
@@ -70,6 +80,7 @@ export function collisionSystem(world: World, dt: number): void {
       // Cancel inward velocity component.
       if (vn < 0) {
         vel.x -= vn * nx;
+        vel.y -= vn * ny;
         vel.z -= vn * nz;
       }
     }
@@ -88,23 +99,30 @@ export function collisionSystem(world: World, dt: number): void {
       if (cb.hull <= 0) continue;
       const tb = world.transforms.get(b)!;
       const colb = world.colliders.get(b)!;
-      let nx = ta.pos.x - tb.pos.x;
-      let nz = ta.pos.z - tb.pos.z;
-      let d = Math.sqrt(nx * nx + nz * nz);
       const sumR = cola.radius + colb.radius;
+      // Vertically separated ships pass each other cleanly in the bubble.
+      if (Math.abs(ta.pos.y - tb.pos.y) >= sumR) continue;
+      let nx = ta.pos.x - tb.pos.x;
+      let ny = ta.pos.y - tb.pos.y;
+      let nz = ta.pos.z - tb.pos.z;
+      let d = len3(nx, ny, nz);
       if (d >= sumR) continue;
       if (d === 0) {
         nx = 1;
+        ny = 0;
         nz = 0;
         d = 1;
       }
       const inv = 1 / d;
       nx *= inv;
+      ny *= inv;
       nz *= inv;
       const half = (sumR - d) / 2;
       ta.pos.x += nx * half;
+      ta.pos.y += ny * half;
       ta.pos.z += nz * half;
       tb.pos.x -= nx * half;
+      tb.pos.y -= ny * half;
       tb.pos.z -= nz * half;
     }
   }
@@ -124,31 +142,34 @@ function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number):
   const col = world.colliders.get(sid)!;
   const vel = world.velocities.get(sid)!;
 
-  let outward: { x: number; z: number } | null = null;
+  let outward: { x: number; y: number; z: number } | null = null;
   let penetration = 0;
 
-  if (bounds.shape === "circle") {
-    const d = Math.sqrt(tf.pos.x * tf.pos.x + tf.pos.z * tf.pos.z);
+  if (bounds.shape === "sphere") {
+    // The bubble: one radial test, so climbing out through the "top" is bounded
+    // exactly like flying out sideways (BUBBLE.md §A).
+    const d = len3(tf.pos.x, tf.pos.y, tf.pos.z);
     const limit = bounds.radius - col.radius;
     if (d > limit) {
       const inv = d === 0 ? 0 : 1 / d;
-      outward = { x: tf.pos.x * inv, z: tf.pos.z * inv };
+      outward = { x: tf.pos.x * inv, y: tf.pos.y * inv, z: tf.pos.z * inv };
       penetration = d - limit;
     }
   } else {
+    // Rect walls are vertical and unbounded in y (no ceiling authored today).
     const halfW = bounds.width / 2 - col.radius;
     const halfH = bounds.height / 2 - col.radius;
     if (tf.pos.x > halfW) {
-      outward = { x: 1, z: 0 };
+      outward = { x: 1, y: 0, z: 0 };
       penetration = tf.pos.x - halfW;
     } else if (tf.pos.x < -halfW) {
-      outward = { x: -1, z: 0 };
+      outward = { x: -1, y: 0, z: 0 };
       penetration = -halfW - tf.pos.x;
     } else if (tf.pos.z > halfH) {
-      outward = { x: 0, z: 1 };
+      outward = { x: 0, y: 0, z: 1 };
       penetration = tf.pos.z - halfH;
     } else if (tf.pos.z < -halfH) {
-      outward = { x: 0, z: -1 };
+      outward = { x: 0, y: 0, z: -1 };
       penetration = -halfH - tf.pos.z;
     }
   }
@@ -161,13 +182,15 @@ function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number):
 
   // Reposition to the boundary.
   tf.pos.x -= outward.x * penetration;
+  tf.pos.y -= outward.y * penetration;
   tf.pos.z -= outward.z * penetration;
 
   if (rule.type === "bounce") {
     const restitution = rule.restitution ?? 1;
-    const vn = vel.x * outward.x + vel.z * outward.z;
+    const vn = vel.x * outward.x + vel.y * outward.y + vel.z * outward.z;
     if (vn > 0) {
       vel.x -= (1 + restitution) * vn * outward.x;
+      vel.y -= (1 + restitution) * vn * outward.y;
       vel.z -= (1 + restitution) * vn * outward.z;
     }
   } else if (rule.type === "damage") {

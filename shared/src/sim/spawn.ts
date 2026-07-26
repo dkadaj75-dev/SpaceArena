@@ -32,6 +32,10 @@ export function resolveShipCore(
  *
  * `upgradeLevels` (optional, additive) are the player's DB upgrade purchase
  * counts; omitted ⇒ base stats. Fitted module passives are always folded in.
+ *
+ * `pos.y` and `pitch` are the bubble's vertical seams (BUBBLE.md §A) and both
+ * default to 0, so an arena authored without vertical structure spawns exactly
+ * where it always did.
  */
 export function spawnShipFromConfig(
   world: World,
@@ -39,16 +43,17 @@ export function spawnShipFromConfig(
   shipId: string,
   fittingModuleIds: readonly (string | null)[],
   team: number,
-  pos: { x: number; z: number },
+  pos: { x: number; y?: number; z: number },
   heading: number,
   upgradeLevels?: UpgradeLevels,
+  pitch = 0,
 ): EntityId {
   const ship = configs.get<ShipConfig>("ship", shipId);
   if (!ship) throw new Error(`unknown ship config: ${shipId}`);
 
   const id = world.createEntity();
-  world.transforms.set(id, { pos: { x: pos.x, z: pos.z }, heading });
-  world.velocities.set(id, { x: 0, z: 0 });
+  world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading, pitch });
+  world.velocities.set(id, { x: 0, y: 0, z: 0 });
   world.shipCores.set(id, resolveShipStats(ship, configs, { upgradeLevels, fittedModuleIds: fittingModuleIds }));
   world.colliders.set(id, { radius: ship.collider.radius });
   world.teams.set(id, { team });
@@ -95,14 +100,14 @@ export function spawnAsteroid(
   world: World,
   configs: ConfigService,
   asteroidId: string,
-  pos: { x: number; z: number },
+  pos: { x: number; y?: number; z: number },
   scale = 1,
 ): EntityId {
   const cfg = configs.get<AsteroidConfig>("asteroid", asteroidId);
   if (!cfg) throw new Error(`unknown asteroid config: ${asteroidId}`);
 
   const id = world.createEntity();
-  world.transforms.set(id, { pos: { x: pos.x, z: pos.z }, heading: 0 });
+  world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading: 0, pitch: 0 });
   world.colliders.set(id, { radius: cfg.radius * scale });
   const hp = cfg.hp ?? Infinity;
   world.asteroids.set(id, {
@@ -129,15 +134,24 @@ export function spawnProjectile(
     ownerId: EntityId;
     ownerTeam: number;
     targetId?: EntityId;
-    pos: { x: number; z: number };
+    pos: { x: number; y?: number; z: number };
     heading: number;
+    /** Launch elevation (BUBBLE.md §A); defaults to level. */
+    pitch?: number;
   },
 ): EntityId {
   const id = world.createEntity();
-  world.transforms.set(id, { pos: { x: params.pos.x, z: params.pos.z }, heading: params.heading });
+  const pitch = params.pitch ?? 0;
+  world.transforms.set(id, {
+    pos: { x: params.pos.x, y: params.pos.y ?? 0, z: params.pos.z },
+    heading: params.heading,
+    pitch,
+  });
+  const cosPitch = Math.cos(pitch);
   world.velocities.set(id, {
-    x: Math.cos(params.heading) * params.speed,
-    z: Math.sin(params.heading) * params.speed,
+    x: cosPitch * Math.cos(params.heading) * params.speed,
+    y: Math.sin(pitch) * params.speed,
+    z: cosPitch * Math.sin(params.heading) * params.speed,
   });
   world.colliders.set(id, { radius: PROJECTILE_RADIUS });
   world.projectiles.set(id, {

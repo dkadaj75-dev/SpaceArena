@@ -5,6 +5,8 @@
   "name": "Default Tuning",
   "targetingPolicy": "nearest",
   "lockDecayMult": 1.5,
+  "pitchRateMult": 0.8,
+  "maxPitchRad": 1.4,
   "globalDamageMult": 1.0,
   "dragCoefficient": 0.02,
   "spatialCellSize": 16,

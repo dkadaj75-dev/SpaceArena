@@ -21,8 +21,9 @@ export type { SignalId };
  * orders are the only thing that moves a ship, so this is exactly what the pilot
  * asked for, with no inference.
  *
- * `speedFraction` and `boostActive` deliberately STAY on per-snapshot planar
- * displacement (FLIGHT.md §7 decision): they describe *actual* motion, not the
+ * `speedFraction` and `boostActive` deliberately STAY on per-snapshot
+ * displacement (FLIGHT.md §7 decision), now measured in 3D (BUBBLE.md §A) so a
+ * climbing ship does not read as coasting: they describe *actual* motion, not the
  * command, and nothing in `ShipSnapshot` carries velocity — only position and
  * the commanded throttle travel over the wire. Deriving them from `throttle`
  * would make them lie during the accel ramp, while a rammed ship was bleeding
@@ -31,7 +32,7 @@ export type { SignalId };
  * editor's signal simulator can override the normalization later.
  */
 
-/** Reference planar displacement treated as absolute top speed (boosted). */
+/** Reference displacement treated as absolute top speed (boosted). */
 export const REFERENCE_TOP_STEP = 2.2;
 /** Displacement above this reads as an active afterburner. */
 export const BOOST_STEP_THRESHOLD = 1.35;
@@ -40,12 +41,13 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-/** Planar distance moved between the previous and current snapshot (0 if no prev). */
-function planarStep(ship: ShipSnapshot, prev?: ShipSnapshot): number {
+/** Distance moved in 3D between the previous and current snapshot (0 if no prev). */
+function frameStep(ship: ShipSnapshot, prev?: ShipSnapshot): number {
   if (!prev) return 0;
   const dx = ship.pos.x - prev.pos.x;
+  const dy = ship.pos.y - prev.pos.y;
   const dz = ship.pos.z - prev.pos.z;
-  return Math.hypot(dx, dz);
+  return Math.hypot(dx, dy, dz);
 }
 
 /** Signal-compute function: pure over (current, previous) snapshot. */
@@ -55,7 +57,7 @@ export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
   /** Commanded engine output, 0..1 — the pilot's own throttle, verbatim. */
   throttle: (s) => clamp01(s.throttle),
   /** 1 while moving fast enough to imply afterburner, else 0 (measured, see above). */
-  boostActive: (s, p) => (planarStep(s, p) > BOOST_STEP_THRESHOLD ? 1 : 0),
+  boostActive: (s, p) => (frameStep(s, p) > BOOST_STEP_THRESHOLD ? 1 : 0),
   /** Remaining hull as a fraction of max, 0..1. */
   hullFraction: (s) => (s.hullMax > 0 ? clamp01(s.hull / s.hullMax) : 0),
   /** 1 while any shield module has an absorb reservoir, else 0. */
@@ -65,7 +67,7 @@ export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
   /** 1 while any active module is mid weapon cycle (a proxy for firing), else 0. */
   firing: (s) => (s.modules.some((m) => m.state === "active" && m.cycleTimer > 0) ? 1 : 0),
   /** Absolute speed as a fraction of a reference top speed, 0..1. */
-  speedFraction: (s, p) => clamp01(planarStep(s, p) / REFERENCE_TOP_STEP),
+  speedFraction: (s, p) => clamp01(frameStep(s, p) / REFERENCE_TOP_STEP),
 };
 
 /** Evaluate one signal by id. */

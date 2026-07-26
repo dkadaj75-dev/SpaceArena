@@ -337,7 +337,10 @@ export class BotDriver {
     let issuedAim: Vec2 | null = null;
     if (this.shouldSendFlight(cmd, profile)) {
       // Same shape, same validation, same pipeline as the human joystick.
-      orders.push({ kind: "flight", throttle: cmd.throttle, turn: cmd.turn, boost: cmd.boost });
+      // pitchStick 0: bots fly the ground plane until stage T4 gives their
+      // steering a vertical axis (BUBBLE.md §D). Stated rather than omitted so
+      // the planar flying is a decision, not an oversight.
+      orders.push({ kind: "flight", throttle: cmd.throttle, turn: cmd.turn, pitchStick: 0, boost: cmd.boost });
       this.lastFlight = cmd;
       issuedAim = aim ? { x: aim.x, z: aim.z } : null;
     }

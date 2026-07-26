@@ -25,10 +25,27 @@ beforeAll(async () => {
   configs = await loadTestConfigs();
 });
 
-/** Shooter at the origin facing +x (heading 0) plus one enemy at `enemyPos`. */
-function scene(enemyPos: { x: number; z: number }): { world: World; me: EntityId; foe: EntityId } {
+/**
+ * Shooter at the origin facing (heading, pitch) plus one enemy at `enemyPos`.
+ * `enemyPos.y` defaults to the old ground plane, so the planar cases below read
+ * exactly as they did before the bubble.
+ */
+function scene(
+  enemyPos: { x: number; y?: number; z: number },
+  self: { heading?: number; pitch?: number } = {},
+): { world: World; me: EntityId; foe: EntityId } {
   const world = makeWorld(configs);
-  const me = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+  const me = spawnShipFromConfig(
+    world,
+    configs,
+    "ship.interceptor",
+    INTERCEPTOR_FITTING,
+    0,
+    { x: 0, z: 0 },
+    self.heading ?? 0,
+    undefined,
+    self.pitch ?? 0,
+  );
   const foe = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, enemyPos, Math.PI);
   rebuildSpatial(world);
   return { world, me, foe };
@@ -302,7 +319,7 @@ describe("sticky candidate (FLIGHT.md §2)", () => {
 
     // The incumbent slides abeam, out of the cone. There IS another candidate in
     // the zone, so this is a switch, not a drain: no grace, progress from zero.
-    world.transforms.get(held)!.pos = { x: 0, z: 40 };
+    world.transforms.get(held)!.pos = { x: 0, y: 0, z: 40 };
     const events = run(world, 1);
     expect(ref.targetId).toBe(other);
     expect(ref.locked).toBe(false);
@@ -453,5 +470,101 @@ describe("sensors come from the resolver", () => {
     // Beyond the ship's base lockRange, inside the fitted one.
     run(world, 1);
     expect(world.targets.get(me)!.targetId).toBe(foe);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3D cone + range (BUBBLE.md §A)
+// ---------------------------------------------------------------------------
+
+describe("lock zone in the bubble (3D cone, 3D range)", () => {
+  /** Half the ship's own cone, in radians — nothing here hardcodes a cone width. */
+  function halfCone(world: World, id: EntityId): number {
+    return (sensorsOf(world, id).coneDeg * Math.PI) / 360;
+  }
+
+  it("locks an enemy above the nose while it is inside the cone, and not once it climbs out", () => {
+    const probe = scene({ x: 30, z: 0 });
+    const half = halfCone(probe.world, probe.me);
+    const range = sensorsOf(probe.world, probe.me).lockRange;
+    const dist = Math.min(30, range - 5);
+
+    // Elevation well inside the half-cone: still a target for a level ship.
+    const inside = scene({ x: dist * Math.cos(half * 0.5), y: dist * Math.sin(half * 0.5), z: 0 });
+    run(inside.world, 1);
+    expect(inside.world.targets.get(inside.me)!.targetId).toBe(inside.foe);
+
+    // Same distance, elevated past the cone edge: the planar angleDelta this
+    // replaces saw a bearing of exactly 0 here and would have locked it.
+    const outside = scene({ x: dist * Math.cos(half * 1.4), y: dist * Math.sin(half * 1.4), z: 0 });
+    run(outside.world, 1);
+    expect(outside.world.targets.get(outside.me)!.targetId).toBeNull();
+  });
+
+  it("locks an enemy below the nose symmetrically", () => {
+    const half = halfCone(scene({ x: 1, z: 0 }).world, 1);
+    const dist = 30;
+    const below = scene({ x: dist * Math.cos(half * 0.5), y: -dist * Math.sin(half * 0.5), z: 0 });
+    run(below.world, 1);
+    expect(below.world.targets.get(below.me)!.targetId).toBe(below.foe);
+
+    const tooLow = scene({ x: dist * Math.cos(half * 1.4), y: -dist * Math.sin(half * 1.4), z: 0 });
+    run(tooLow.world, 1);
+    expect(tooLow.world.targets.get(tooLow.me)!.targetId).toBeNull();
+  });
+
+  it("follows the ship's own pitch: a climbing nose sees what a level one cannot", () => {
+    const dist = 30;
+    const steep = 1.0; // radians up — outside any shipped half-cone from level
+    const target = { x: dist * Math.cos(steep), y: dist * Math.sin(steep), z: 0 };
+
+    const level = scene(target);
+    run(level.world, 1);
+    expect(level.world.targets.get(level.me)!.targetId).toBeNull();
+
+    // Nose pitched onto the same enemy: dead ahead in 3D.
+    const climbing = scene(target, { pitch: steep });
+    run(climbing.world, 1);
+    expect(climbing.world.targets.get(climbing.me)!.targetId).toBe(climbing.foe);
+  });
+
+  it("measures range in 3D — altitude counts as distance", () => {
+    const probe = scene({ x: 1, z: 0 });
+    const range = sensorsOf(probe.world, probe.me).lockRange;
+
+    // Directly ahead but high enough that the 3D distance exceeds lockRange,
+    // while the planar distance alone would be comfortably inside it. Pitched
+    // onto the target so the cone is never the reason it fails.
+    const y = range * 1.2;
+    const x = 5;
+    const far = scene({ x, y, z: 0 }, { pitch: Math.atan2(y, x) });
+    expect(Math.hypot(x, y)).toBeGreaterThan(range);
+    run(far.world, 1);
+    expect(far.world.targets.get(far.me)!.targetId).toBeNull();
+
+    const near = scene({ x, y: range * 0.5, z: 0 }, { pitch: Math.atan2(range * 0.5, x) });
+    run(near.world, 1);
+    expect(near.world.targets.get(near.me)!.targetId).toBe(near.foe);
+  });
+
+  it("holds at wrap-around headings with the nose at the pitch extremes", () => {
+    // heading π is the wrap seam, where a planar angleDelta had to be careful;
+    // the 3D dot product has no seam at all. Nose steeply down, enemy on the
+    // same line: locked. Enemy on the mirror line: not.
+    const dist = 25;
+    const pitch = -1.2;
+    const heading = Math.PI;
+    const ahead = {
+      x: dist * Math.cos(pitch) * Math.cos(heading),
+      y: dist * Math.sin(pitch),
+      z: dist * Math.cos(pitch) * Math.sin(heading),
+    };
+    const locked = scene(ahead, { heading, pitch });
+    run(locked.world, 1);
+    expect(locked.world.targets.get(locked.me)!.targetId).toBe(locked.foe);
+
+    const behind = scene({ x: -ahead.x, y: -ahead.y, z: -ahead.z }, { heading, pitch });
+    run(behind.world, 1);
+    expect(behind.world.targets.get(behind.me)!.targetId).toBeNull();
   });
 });

@@ -15,12 +15,22 @@ export const moduleFamily = z.enum([
 ]);
 export type ModuleFamily = z.infer<typeof moduleFamily>;
 
-/** Planar coordinate on the arena ground plane (2.5D sim). */
+/** Planar coordinate on the arena ground plane (trigger zones, minimap projection). */
 export const vec2 = z.object({
   x: z.number(),
   z: z.number(),
 });
 export type Vec2 = z.infer<typeof vec2>;
+
+/**
+ * Arena-space coordinate inside the bubble (BUBBLE.md). `y` is the vertical axis
+ * and is OPTIONAL in content: an arena authored flat omits it everywhere and
+ * every consumer reads `y ?? 0`. It is deliberately not a zod `.default(0)` —
+ * fixtures that build configs without going through the parser would then be
+ * typed `number` while holding `undefined`.
+ */
+export const vec3 = vec2.extend({ y: z.number().optional() });
+export type Vec3 = z.infer<typeof vec3>;
 
 /** Named color palette: role -> hex-ish color string. Kept loose on purpose. */
 export const palette = z.record(z.string(), z.string());

@@ -721,8 +721,9 @@ function idleSnapshot(): ShipSnapshot {
   return {
     id: -1,
     team: 0,
-    pos: { x: 0, z: 0 },
+    pos: { x: 0, y: 0, z: 0 },
     heading: 0,
+    pitch: 0, // parked and level; the bubble's vertical axis is unused here
     hull: 1,
     hullMax: 1,
     energy: { cur: 1, max: 1 },

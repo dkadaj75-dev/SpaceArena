@@ -587,12 +587,17 @@ export class ArenaRoom extends Room<ArenaState> {
         // Range guard only, and deliberately redundant with `orderSchema`: bots
         // reach this path without ever crossing the wire (FLIGHT.md §7 — same
         // validation for bot and human), so the axis bounds are enforced here too.
+        // `pitchStick` is optional until stage T2 puts it on the wire; when a
+        // caller does supply it (bots today, the HUD from T3) it is held to the
+        // same bounds as `turn`.
         return Number.isFinite(order.throttle) &&
           Number.isFinite(order.turn) &&
           order.throttle >= 0 &&
           order.throttle <= 1 &&
           order.turn >= -1 &&
-          order.turn <= 1
+          order.turn <= 1 &&
+          (order.pitchStick === undefined ||
+            (Number.isFinite(order.pitchStick) && order.pitchStick >= -1 && order.pitchStick <= 1))
           ? null
           : "malformed";
       case "moduleToggle": {

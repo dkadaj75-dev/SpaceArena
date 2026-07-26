@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../../core/ConfigService.js";
-import { angleDelta, len } from "../math.js";
+import { angleDelta, len, len3 } from "../math.js";
 import { spawnAsteroid, spawnShipFromConfig } from "../spawn.js";
 import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
 import type { World } from "../World.js";
@@ -13,13 +13,13 @@ beforeAll(async () => {
   configs = await loadTestConfigs();
 });
 
-function spawnPilot(world: World, pos = { x: 0, z: 0 }, heading = 0): number {
-  return spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, pos, heading);
+function spawnPilot(world: World, pos = { x: 0, z: 0 }, heading = 0, pitch = 0): number {
+  return spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, pos, heading, undefined, pitch);
 }
 
 function speedOf(world: World, id: number): number {
   const v = world.velocities.get(id)!;
-  return len(v.x, v.z);
+  return len3(v.x, v.y, v.z);
 }
 
 describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
@@ -31,22 +31,28 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
     // ONE order, many ticks: level-triggered state is never auto-cleared.
     for (let i = 0; i < 60; i++) navigationSystem(world, DT);
 
-    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, boost: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, pitchStick: 0, boost: false });
     const tf = world.transforms.get(id)!;
     expect(tf.pos.x).toBeGreaterThan(10); // flew forward along heading 0 (+X)
     expect(tf.pos.z).toBeCloseTo(0, 6);
   });
 
-  it("clamps throttle to 0..1 and turn to -1..1 on the way in", () => {
+  it("clamps throttle to 0..1 and turn/pitch to -1..1 on the way in", () => {
     const world = makeWorld(configs);
     const id = spawnPilot(world);
-    world.queueOrder(id, { kind: "flight", throttle: 7, turn: -9, boost: true });
+    world.queueOrder(id, { kind: "flight", throttle: 7, turn: -9, pitchStick: 6, boost: true });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: -1, boost: true });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: -1, pitchStick: 1, boost: true });
 
-    world.queueOrder(id, { kind: "flight", throttle: -3, turn: 4, boost: false });
+    world.queueOrder(id, { kind: "flight", throttle: -3, turn: 4, pitchStick: -8, boost: false });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 0, turn: 1, boost: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0, turn: 1, pitchStick: -1, boost: false });
+
+    // An order with no pitch axis at all (the pre-T2 wire shape) reads as a
+    // centred stick, which for held pitch means "leave the nose alone".
+    world.queueOrder(id, { kind: "flight", throttle: 0.5, turn: 0, boost: false });
+    navigationSystem(world, DT);
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0.5, turn: 0, pitchStick: 0, boost: false });
   });
 
   it("drops a flight order with a non-finite axis instead of poisoning FlightState", () => {
@@ -57,10 +63,11 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
 
     world.queueOrder(id, { kind: "flight", throttle: Number.NaN, turn: 0, boost: false });
     world.queueOrder(id, { kind: "flight", throttle: 1, turn: Number.POSITIVE_INFINITY, boost: false });
+    world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, pitchStick: Number.NaN, boost: false });
     navigationSystem(world, DT);
 
     // Malformed orders were dropped; the previous state keeps driving the ship.
-    expect(world.flightStates.get(id)).toEqual({ throttle: 0.5, turn: 0, boost: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0.5, turn: 0, pitchStick: 0, boost: false });
     const tf = world.transforms.get(id)!;
     expect(Number.isFinite(tf.pos.x) && Number.isFinite(tf.heading)).toBe(true);
   });
@@ -170,17 +177,17 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
 
     world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, boost: false });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, boost: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, pitchStick: 0, boost: false });
 
     world.queueOrder(id, { kind: "flight", throttle: 0.4, turn: -1, boost: true });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 0.4, turn: -1, boost: true });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0.4, turn: -1, pitchStick: 0, boost: true });
   });
 
   it("coasts a ship that has never been given a flight order (drag, no drive)", () => {
     const world = makeWorld(configs);
     const id = spawnPilot(world);
-    world.velocities.set(id, { x: 10, z: 0 });
+    world.velocities.set(id, { x: 10, y: 0, z: 0 });
 
     for (let i = 0; i < 30; i++) navigationSystem(world, DT);
 
@@ -197,5 +204,98 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
     navigationSystem(world, DT);
     world.destroyEntity(id);
     expect(world.flightStates.has(id)).toBe(false);
+  });
+});
+
+describe("NavigationSystem — pitch and 3D integration (BUBBLE.md §A)", () => {
+  it("integrates pitch at pitchStick * turnRate * tuning.pitchRateMult", () => {
+    const world = makeWorld(configs);
+    const full = spawnPilot(world);
+    const half = spawnPilot(world);
+    const turnRate = world.shipCores.get(full)!.engine.turnRate;
+    const mult = world.tuning.pitchRateMult!;
+    world.queueOrder(full, { kind: "flight", throttle: 0, turn: 0, pitchStick: 1, boost: false });
+    world.queueOrder(half, { kind: "flight", throttle: 0, turn: 0, pitchStick: -0.5, boost: false });
+
+    const ticks = 15;
+    for (let i = 0; i < ticks; i++) navigationSystem(world, DT);
+
+    expect(world.transforms.get(full)!.pitch).toBeCloseTo(turnRate * mult * DT * ticks, 6);
+    expect(world.transforms.get(half)!.pitch).toBeCloseTo(-turnRate * mult * DT * ticks * 0.5, 6);
+  });
+
+  it("holds pitch when the stick returns to centre (held state, no auto-level)", () => {
+    const world = makeWorld(configs);
+    const id = spawnPilot(world);
+    world.queueOrder(id, { kind: "flight", throttle: 0, turn: 0, pitchStick: 1, boost: false });
+    for (let i = 0; i < 10; i++) navigationSystem(world, DT);
+    const climbing = world.transforms.get(id)!.pitch;
+    expect(climbing).toBeGreaterThan(0);
+
+    world.queueOrder(id, { kind: "flight", throttle: 0, turn: 0, pitchStick: 0, boost: false });
+    for (let i = 0; i < 60; i++) navigationSystem(world, DT);
+    expect(world.transforms.get(id)!.pitch).toBe(climbing);
+  });
+
+  it("clamps pitch to ±tuning.maxPitchRad in both directions", () => {
+    const world = makeWorld(configs);
+    const up = spawnPilot(world);
+    const down = spawnPilot(world);
+    const maxPitch = world.tuning.maxPitchRad!;
+    world.queueOrder(up, { kind: "flight", throttle: 0, turn: 0, pitchStick: 1, boost: false });
+    world.queueOrder(down, { kind: "flight", throttle: 0, turn: 0, pitchStick: -1, boost: false });
+
+    for (let i = 0; i < 600; i++) navigationSystem(world, DT);
+
+    expect(world.transforms.get(up)!.pitch).toBe(maxPitch);
+    expect(world.transforms.get(down)!.pitch).toBe(-maxPitch);
+    // The clamp is what keeps world-up unambiguous: the nose never passes vertical.
+    expect(maxPitch).toBeLessThan(Math.PI / 2);
+  });
+
+  it("flies along the 3D facing vector (cos p cos h, sin p, cos p sin h)", () => {
+    const world = makeWorld(configs);
+    const heading = 0.6;
+    const pitch = 0.4;
+    const id = spawnPilot(world, { x: 0, z: 0 }, heading, pitch);
+    world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, pitchStick: 0, boost: false });
+
+    for (let i = 0; i < 200; i++) navigationSystem(world, DT);
+
+    const vel = world.velocities.get(id)!;
+    const speed = speedOf(world, id);
+    expect(speed).toBeCloseTo(world.shipCores.get(id)!.engine.nominalSpeed, 6);
+    expect(vel.x).toBeCloseTo(Math.cos(pitch) * Math.cos(heading) * speed, 6);
+    expect(vel.y).toBeCloseTo(Math.sin(pitch) * speed, 6);
+    expect(vel.z).toBeCloseTo(Math.cos(pitch) * Math.sin(heading) * speed, 6);
+    // Climbing costs planar speed rather than adding free vertical speed.
+    const tf = world.transforms.get(id)!;
+    expect(tf.pos.y).toBeGreaterThan(5);
+    expect(len(tf.pos.x, tf.pos.z)).toBeLessThan(len3(tf.pos.x, tf.pos.y, tf.pos.z));
+  });
+
+  it("keeps the total speed curve identical whatever the pitch is", () => {
+    const world = makeWorld(configs);
+    const level = spawnPilot(world);
+    const steep = spawnPilot(world, { x: 0, z: 0 }, 0, 1.0);
+    world.queueOrder(level, { kind: "flight", throttle: 0.7, turn: 0, pitchStick: 0, boost: false });
+    world.queueOrder(steep, { kind: "flight", throttle: 0.7, turn: 0, pitchStick: 0, boost: false });
+
+    for (let i = 0; i < 40; i++) {
+      navigationSystem(world, DT);
+      // Speed/accel are exactly as in the planar model — pitch only redirects it.
+      expect(speedOf(world, steep)).toBeCloseTo(speedOf(world, level), 12);
+    }
+  });
+
+  it("coasts in 3D (drag bleeds a vertical drift too)", () => {
+    const world = makeWorld(configs);
+    const id = spawnPilot(world);
+    world.velocities.set(id, { x: 0, y: 10, z: 0 });
+
+    for (let i = 0; i < 30; i++) navigationSystem(world, DT);
+
+    expect(world.transforms.get(id)!.pos.y).toBeGreaterThan(0);
+    expect(speedOf(world, id)).toBeLessThan(10);
   });
 });

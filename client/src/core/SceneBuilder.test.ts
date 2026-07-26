@@ -8,7 +8,7 @@ const ARENA = {
   type: "arena",
   version: 1,
   name: "Test Arena",
-  bounds: { shape: "circle", radius: 90 },
+  bounds: { shape: "sphere", radius: 90 },
   asteroidPlacements: [],
   spawnPoints: [
     { id: "sp-a", team: 0, position: { x: -20, z: 0 }, heading: 0 },

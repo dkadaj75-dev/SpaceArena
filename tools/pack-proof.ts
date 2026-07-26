@@ -481,7 +481,7 @@ function mutateBundle(bundle: Bundle): Bundle {
     ...structuredClone(sourceArena),
     id: PROOF_ARENA_ID,
     name: "Proof Arena (imported without a redeploy)",
-    bounds: { shape: "circle", radius: PROOF_ARENA_RADIUS },
+    bounds: { shape: "sphere", radius: PROOF_ARENA_RADIUS },
   };
   next.files["arenas/proof.json"] = proofArena;
 

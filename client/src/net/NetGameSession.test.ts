@@ -6,11 +6,13 @@ import {
   ArenaSimulation,
   ConfigService as ConfigServiceImpl,
   flightStep,
+  pitchTuningOf,
   resolveShipStats,
   type ConfigService,
   type ModuleConfig,
   type ShipConfig,
   type SteerState,
+  type TuningConfig,
   type UpgradeLevels,
 } from "@space-arena/shared";
 import {
@@ -111,9 +113,11 @@ describe("boostMult (Finding 4)", () => {
 // ---------------------------------------------------------------------------
 
 describe("FlightReconciler (Finding 4)", () => {
-  const A: PredictedFlight = { throttle: 0.2, turn: 0, boost: false };
-  const B: PredictedFlight = { throttle: 0.6, turn: 0.5, boost: false };
-  const C: PredictedFlight = { throttle: 1, turn: -1, boost: true };
+  // Bots and the current HUD fly planar (pitchStick 0) — the axis rides along
+  // so the reconciler is exercised on the real predicted-state shape.
+  const A: PredictedFlight = { throttle: 0.2, turn: 0, pitchStick: 0, boost: false };
+  const B: PredictedFlight = { throttle: 0.6, turn: 0.5, pitchStick: 0, boost: false };
+  const C: PredictedFlight = { throttle: 1, turn: -1, pitchStick: 0.5, boost: true };
 
   it("keeps the newest accepted state when an OLDER order is rejected after it", () => {
     // The reported bug: A accepted, B rejected, C accepted — B's rejection used
@@ -185,7 +189,7 @@ describe("FlightReconciler (Finding 4)", () => {
 describe("snapPrediction (Finding 5)", () => {
   function state(): SteerState {
     // Cruising at nominal speed along +x, as the predictor would be mid-flight.
-    return { pos: { x: 10, z: 0 }, vel: { x: 40, z: 0 }, heading: 0 };
+    return { pos: { x: 10, y: 0, z: 0 }, vel: { x: 40, y: 0, z: 0 }, heading: 0, pitch: 0 };
   }
 
   it("replaces velocity instead of carrying the predictor's stale speed across a snap", () => {
@@ -193,27 +197,28 @@ describe("snapPrediction (Finding 5)", () => {
     // predictor snaps onto the corrected position but keeps flying at 40 u/s,
     // races back outside SNAP_DISTANCE and snaps again, every frame.
     const pred = state();
-    snapPrediction(pred, { x: 4, z: 1 }, 1.2, { x: 0, z: 0 });
-    expect(pred.pos).toEqual({ x: 4, z: 1 });
+    snapPrediction(pred, { x: 4, y: -2, z: 1 }, 1.2, 0.3, { x: 0, y: 0, z: 0 });
+    expect(pred.pos).toEqual({ x: 4, y: -2, z: 1 });
     expect(pred.heading).toBe(1.2);
-    expect(pred.vel).toEqual({ x: 0, z: 0 });
+    expect(pred.pitch).toBe(0.3);
+    expect(pred.vel).toEqual({ x: 0, y: 0, z: 0 });
   });
 
   it("adopts the authoritative velocity when one can be derived", () => {
     const pred = state();
-    snapPrediction(pred, { x: 4, z: 1 }, 0, { x: -3, z: 7 });
-    expect(pred.vel).toEqual({ x: -3, z: 7 });
+    snapPrediction(pred, { x: 4, y: 0, z: 1 }, 0, 0, { x: -3, y: 2, z: 7 });
+    expect(pred.vel).toEqual({ x: -3, y: 2, z: 7 });
   });
 });
 
 describe("sampledVelocity (Finding 5)", () => {
   it("differences two authoritative samples into units per second", () => {
-    expect(sampledVelocity({ x: 0, z: 0 }, { x: 2, z: -1 }, 0.05)).toEqual({ x: 40, z: -20 });
+    expect(sampledVelocity({ x: 0, y: 0, z: 0 }, { x: 2, y: 1, z: -1 }, 0.05)).toEqual({ x: 40, y: 20, z: -20 });
   });
 
   it("reports zero rather than a divide when the samples share a timestamp", () => {
     // `bracket` returns [s, s, 0] while only one snapshot has arrived.
-    expect(sampledVelocity({ x: 0, z: 0 }, { x: 2, z: -1 }, 0)).toEqual({ x: 0, z: 0 });
+    expect(sampledVelocity({ x: 0, y: 0, z: 0 }, { x: 2, y: 1, z: -1 }, 0)).toEqual({ x: 0, y: 0, z: 0 });
   });
 });
 
@@ -262,7 +267,11 @@ const START = { x: 0, z: -70 };
 function driftOverRun(
   upgradeLevels: UpgradeLevels,
   predictorStats: "resolved" | "base",
-  input = { throttle: 1, turn: 0.25, boost: false },
+  input: { throttle: number; turn: number; pitchStick?: number; boost: boolean } = {
+    throttle: 1,
+    turn: 0.25,
+    boost: false,
+  },
 ): { drift: number; hits: number } {
   const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice", 1);
   const cfg = configs.get<ShipConfig>("ship", SHIP_ID)!;
@@ -275,16 +284,24 @@ function driftOverRun(
   // run is placed where neither happens — `hits` proves that held.
   const tf = sim.world.transforms.get(id)!;
   tf.pos.x = START.x;
+  tf.pos.y = 0;
   tf.pos.z = START.z;
   tf.heading = 0;
+  tf.pitch = 0;
 
-  const pred: SteerState = { pos: { x: START.x, z: START.z }, vel: { x: 0, z: 0 }, heading: 0 };
+  const pred: SteerState = {
+    pos: { x: START.x, y: 0, z: START.z },
+    vel: { x: 0, y: 0, z: 0 },
+    heading: 0,
+    pitch: 0,
+  };
   const fittedModuleIds = fitting.filter((m): m is string => m !== null);
   const core = resolveShipStats(cfg, configs, {
     fittedModuleIds,
     upgradeLevels: predictorStats === "resolved" ? upgradeLevels : undefined,
   });
   const engine = predictorStats === "resolved" ? core.engine : cfg.core.engine;
+  const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
 
   sim.applyOrder(id, { kind: "flight", ...input });
 
@@ -294,14 +311,22 @@ function driftOverRun(
     for (const ev of sim.getEvents()) if (ev.type === "damage" || ev.type === "boundaryHit") hits++;
     flightStep(
       pred,
-      { throttle: input.throttle, turn: input.turn, boostMult: 1 },
-      { nominalSpeed: engine.nominalSpeed, accel: engine.accel, turnRate: engine.turnRate },
+      { throttle: input.throttle, turn: input.turn, pitchStick: input.pitchStick ?? 0, boostMult: 1 },
+      {
+        nominalSpeed: engine.nominalSpeed,
+        accel: engine.accel,
+        turnRate: engine.turnRate,
+        ...pitchTuningOf(tuning),
+      },
       DT,
     );
   }
 
   const truth = sim.world.transforms.get(id)!;
-  return { drift: Math.hypot(truth.pos.x - pred.pos.x, truth.pos.z - pred.pos.z), hits };
+  return {
+    drift: Math.hypot(truth.pos.x - pred.pos.x, truth.pos.y - pred.pos.y, truth.pos.z - pred.pos.z),
+    hits,
+  };
 }
 
 describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {

@@ -1,6 +1,6 @@
 import type { ModuleConfig } from "../../schemas/index.js";
 import { applyDamageToShip } from "../damage.js";
-import { headingOf } from "../math.js";
+import { headingOf, len3, pitchOf } from "../math.js";
 import { hasLineOfSightBetween } from "../los.js";
 import { spawnProjectile } from "../spawn.js";
 import type { World } from "../World.js";
@@ -51,8 +51,11 @@ export function combatSystem(world: World, dt: number): void {
       const tgtTf = world.transforms.get(targetId)!;
 
       const dx = tgtTf.pos.x - myTf.pos.x;
+      const dy = tgtTf.pos.y - myTf.pos.y;
       const dz = tgtTf.pos.z - myTf.pos.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+      // True 3D range (BUBBLE.md §A): a target 40 units overhead is 40 units away,
+      // not co-located.
+      const dist = len3(dx, dy, dz);
       if (dist > cfg.fire.range) continue;
       if (cfg.fire.requiresLineOfSight && !hasLineOfSightBetween(world, id, targetId)) continue;
       if (core.capacitor.cur <= cfg.energy.drawActive * dt) continue;
@@ -61,6 +64,9 @@ export function combatSystem(world: World, dt: number): void {
       m.cycleTimer = cfg.fire.cycleTime;
       m.workedThisTick = true;
       const heading = headingOf(dx, dz);
+      // Ordnance leaves along the 3D bearing, so a shot at a climbing enemy
+      // actually climbs (dumb kinetics included — they still lead nothing).
+      const launchPitch = pitchOf(dx, dy, dz);
 
       if (cfg.fire.projectile === null) {
         applyDamageToShip(world, targetId, id, cfg.fire.damage, cfg.fire.damageType);
@@ -85,8 +91,9 @@ export function combatSystem(world: World, dt: number): void {
           ownerId: id,
           ownerTeam: myTeam,
           targetId: kind === "missile" ? targetId : undefined,
-          pos: { x: myTf.pos.x, z: myTf.pos.z },
+          pos: { x: myTf.pos.x, y: myTf.pos.y, z: myTf.pos.z },
           heading,
+          pitch: launchPitch,
         });
         world.emit({
           type: "projectileFired",

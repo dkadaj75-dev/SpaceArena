@@ -1,17 +1,37 @@
 import type { EntityId } from "./components.js";
-import { segmentIntersectsCircle } from "./math.js";
+import { segmentIntersectsSphere } from "./math.js";
 import type { World } from "./World.js";
 
 /**
- * Pure 2D line-of-sight: segment `a`→`b` vs every (non-destroyed) asteroid
- * collider. Broadphase via the world spatial hash (segment AABB query), narrow
- * phase segment-vs-circle. Identical on client + server (no engine raycasts).
+ * A point on the sight line. `y` is optional so a caller that has not gone 3D
+ * yet (the bots, until stage T4) keeps working unchanged on the ground plane.
  */
-export function hasLineOfSight(
-  world: World,
-  a: { x: number; z: number },
-  b: { x: number; z: number },
-): boolean {
+export interface LosPoint {
+  x: number;
+  y?: number;
+  z: number;
+}
+
+/** Scratch points so the narrow phase stays allocation-free per candidate. */
+const losA = { x: 0, y: 0, z: 0 };
+const losB = { x: 0, y: 0, z: 0 };
+const losC = { x: 0, y: 0, z: 0 };
+
+function load(out: { x: number; y: number; z: number }, p: LosPoint): { x: number; y: number; z: number } {
+  out.x = p.x;
+  out.y = p.y ?? 0;
+  out.z = p.z;
+  return out;
+}
+
+/**
+ * Line-of-sight in the bubble: segment `a`→`b` vs every (non-destroyed) asteroid
+ * collider, as spheres (BUBBLE.md §A) — a rock 20 units below the sight line no
+ * longer blocks a shot the way the old planar test said it did. Broadphase via
+ * the world spatial hash (planar segment AABB query), narrow phase
+ * segment-vs-sphere. Identical on client + server (no engine raycasts).
+ */
+export function hasLineOfSight(world: World, a: LosPoint, b: LosPoint): boolean {
   const minX = Math.min(a.x, b.x);
   const maxX = Math.max(a.x, b.x);
   const minZ = Math.min(a.z, b.z);
@@ -23,14 +43,17 @@ export function hasLineOfSight(
     const t = world.transforms.get(id);
     const col = world.colliders.get(id);
     if (!t || !col) continue;
-    if (segmentIntersectsCircle(a, b, t.pos, col.radius)) return false;
+    if (segmentIntersectsSphere(load(losA, a), load(losB, b), t.pos, col.radius)) return false;
   }
   return true;
 }
 
-/** A circular LoS blocker (an asteroid) expressed without World access. */
+/**
+ * A spherical LoS blocker (an asteroid) expressed without World access. `pos.y`
+ * is optional for the same reason {@link LosPoint}'s is.
+ */
 export interface LosCircle {
-  pos: { x: number; z: number };
+  pos: LosPoint;
   radius: number;
 }
 
@@ -41,14 +64,12 @@ export interface LosCircle {
  * import("./ArenaSimulation.js").Snapshot} (bots, debug overlays) rather than a
  * live World. Keeping it here means there is exactly one LoS implementation.
  */
-export function hasLineOfSightAmong(
-  a: { x: number; z: number },
-  b: { x: number; z: number },
-  blockers: readonly LosCircle[],
-): boolean {
+export function hasLineOfSightAmong(a: LosPoint, b: LosPoint, blockers: readonly LosCircle[]): boolean {
+  load(losA, a);
+  load(losB, b);
   for (let i = 0; i < blockers.length; i++) {
     const c = blockers[i]!;
-    if (segmentIntersectsCircle(a, b, c.pos, c.radius)) return false;
+    if (segmentIntersectsSphere(losA, losB, load(losC, c.pos), c.radius)) return false;
   }
   return true;
 }

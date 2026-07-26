@@ -27,13 +27,14 @@ import {
 const log = createLogger("SceneBuilder");
 
 /**
- * The arena's playable radius (a rect arena is approximated by its half-
- * diagonal, matching the minimap's rule). The one place scene geometry learns
- * how big the world is, so nothing downstream needs an arena-sized literal.
+ * The arena's playable radius — the bubble's radius (BUBBLE.md), or a rect
+ * arena's half-diagonal, matching the minimap's rule. The one place scene
+ * geometry learns how big the world is, so nothing downstream needs an
+ * arena-sized literal.
  */
 function boundsRadiusOf(arena: ArenaConfig): number {
   const b = arena.bounds;
-  return b.shape === "circle" ? b.radius : Math.hypot(b.width, b.height) / 2;
+  return b.shape === "sphere" ? b.radius : Math.hypot(b.width, b.height) / 2;
 }
 
 function colorFromHex(hex: string | undefined, fallback: Color3): Color3 {
@@ -282,7 +283,9 @@ export class SceneBuilder {
   private buildBounds(arena: ArenaConfig, root: TransformNode): void {
     this.applyGlowQuality();
 
-    if (arena.bounds.shape === "circle") {
+    if (arena.bounds.shape === "sphere") {
+      // TODO(T3): the bubble wants a bounds SHELL, not an equatorial ring — the
+      // ring is the radius-correct placeholder until the client stage lands.
       const ring = MeshBuilder.CreateTorus(
         "boundsRing",
         { diameter: arena.bounds.radius * 2, thickness: 0.6, tessellation: 96 },

@@ -15,8 +15,9 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
   return {
     id,
     team,
-    pos: { x, z },
+    pos: { x, y: 0, z },
     heading: 0,
+    pitch: 0,
     hull: 100,
     hullMax: 100,
     energy: { cur: 100, max: 100 },
@@ -31,7 +32,7 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
 }
 
 function rock(id: number, x: number, z: number, radius = 8): AsteroidSnapshot {
-  return { id, configId: "asteroid.large-hazard", pos: { x, z }, radius, state: "intact" };
+  return { id, configId: "asteroid.large-hazard", pos: { x, y: 0, z }, radius, state: "intact" };
 }
 
 const PROFILE: BotprofileConfig = botprofileSchema.parse({
@@ -123,7 +124,8 @@ describe("engage", () => {
   it("puts the nose on the target — the only geometry that fills a lock", () => {
     const ctx = context({ enemyAt: { x: 20, z: 20 } });
     const p = plan("engage", {}, ctx);
-    expect(p.aim).toEqual({ x: 20, z: 20 });
+    // Bots stay planar until stage T4; the aim point carries the enemy's y verbatim.
+    expect(p.aim).toEqual({ x: 20, y: 0, z: 20 });
     expect(p.engaged).toBe(true);
     expect(aimDelta(ctx, p)).toBeCloseTo(Math.PI / 4, 6);
   });
@@ -256,7 +258,7 @@ describe("retreat", () => {
 });
 
 describe("dodge", () => {
-  const missile: ProjectileSnapshot = { id: 50, kind: "missile", pos: { x: 10, z: 0 }, heading: Math.PI };
+  const missile: ProjectileSnapshot = { id: 50, kind: "missile", pos: { x: 10, y: 0, z: 0 }, heading: Math.PI };
 
   it("breaks across an inbound missile's track", () => {
     const ctx = context({ projectiles: [missile], enemyAt: { x: 40, z: 0 } });
@@ -267,7 +269,7 @@ describe("dodge", () => {
   });
 
   it("ignores missiles beyond the dodge radius", () => {
-    const far: ProjectileSnapshot = { ...missile, pos: { x: 60, z: 0 } };
+    const far: ProjectileSnapshot = { ...missile, pos: { x: 60, y: 0, z: 0 } };
     expect(score("dodge", { dodgeRadius: 20 }, context({ projectiles: [far] }))).toBe(0);
     expect(score("dodge", { dodgeRadius: 20 }, context())).toBe(0);
   });

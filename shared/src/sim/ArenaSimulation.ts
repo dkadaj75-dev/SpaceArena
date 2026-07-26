@@ -31,8 +31,11 @@ export interface ModuleSnapshot {
 export interface ShipSnapshot {
   id: EntityId;
   team: number;
-  pos: { x: number; z: number };
+  /** Bubble position; `y` is the vertical axis (BUBBLE.md §A). */
+  pos: { x: number; y: number; z: number };
   heading: number;
+  /** Nose elevation in radians, positive climbing. */
+  pitch: number;
   hull: number;
   hullMax: number;
   energy: { cur: number; max: number };
@@ -58,7 +61,7 @@ export interface ShipSnapshot {
 export interface AsteroidSnapshot {
   id: EntityId;
   configId: string;
-  pos: { x: number; z: number };
+  pos: { x: number; y: number; z: number };
   radius: number;
   state: string;
 }
@@ -66,7 +69,7 @@ export interface AsteroidSnapshot {
 export interface ProjectileSnapshot {
   id: EntityId;
   kind: "kinetic" | "missile";
-  pos: { x: number; z: number };
+  pos: { x: number; y: number; z: number };
   heading: number;
 }
 
@@ -140,20 +143,34 @@ export class ArenaSimulation {
     const used = this.world.shipIds().length;
     const sp = spawns[used % Math.max(1, spawns.length)] ?? this.world.arena.spawnPoints[0]!;
     this.teamsEverPresent.add(team);
-    return spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, sp.position, sp.heading, upgradeLevels);
+    return spawnShipFromConfig(
+      this.world,
+      this.configs,
+      shipId,
+      fitting,
+      team,
+      sp.position,
+      sp.heading,
+      upgradeLevels,
+      sp.pitch ?? 0,
+    );
   }
 
-  /** Spawn a ship at an explicit position (used by tests/practice placement). */
+  /**
+   * Spawn a ship at an explicit position (used by tests/practice placement).
+   * `pos.y` and `pitch` default to the old ground-plane, level values.
+   */
   spawnPlayerAt(
     shipId: string,
     fitting: readonly (string | null)[],
     team: number,
-    pos: { x: number; z: number },
+    pos: { x: number; y?: number; z: number },
     heading = 0,
     upgradeLevels?: UpgradeLevels,
+    pitch = 0,
   ): EntityId {
     this.teamsEverPresent.add(team);
-    return spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, pos, heading, upgradeLevels);
+    return spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, pos, heading, upgradeLevels, pitch);
   }
 
   applyOrder(entityId: EntityId, order: Order): void {
@@ -317,8 +334,9 @@ export class ArenaSimulation {
       return {
         id,
         team: w.teams.get(id)!.team,
-        pos: { x: tf.pos.x, z: tf.pos.z },
+        pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
         heading: tf.heading,
+        pitch: tf.pitch,
         hull: core.hull,
         hullMax: core.hullMax,
         energy: { cur: core.capacitor.cur, max: core.capacitor.max },
@@ -346,11 +364,22 @@ export class ArenaSimulation {
       const tf = w.transforms.get(id)!;
       const col = w.colliders.get(id)!;
       const tag = w.asteroids.get(id)!;
-      return { id, configId: tag.configId, pos: { x: tf.pos.x, z: tf.pos.z }, radius: col.radius, state: tag.state };
+      return {
+        id,
+        configId: tag.configId,
+        pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
+        radius: col.radius,
+        state: tag.state,
+      };
     });
     const projectiles: ProjectileSnapshot[] = w.projectileIds().map((id) => {
       const tf = w.transforms.get(id)!;
-      return { id, kind: w.projectiles.get(id)!.kind, pos: { x: tf.pos.x, z: tf.pos.z }, heading: tf.heading };
+      return {
+        id,
+        kind: w.projectiles.get(id)!.kind,
+        pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
+        heading: tf.heading,
+      };
     });
     return {
       tick: this.tickNo,

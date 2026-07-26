@@ -52,7 +52,8 @@ function shipWith(
   return {
     id: 1,
     team: 0,
-    pos: { x: 0, z: 0 },
+    pos: { x: 0, y: 0, z: 0 },
+    pitch: 0,
     heading: 0,
     hull: 100,
     hullMax: 100,
@@ -67,7 +68,7 @@ function shipWith(
 }
 
 function contextFor(self: ShipSnapshot) {
-  const enemy: ShipSnapshot = { ...shipWith([]), id: 2, team: 1, pos: { x: 25, z: 0 }, targetId: 1 };
+  const enemy: ShipSnapshot = { ...shipWith([]), id: 2, team: 1, pos: { x: 25, y: 0, z: 0 }, targetId: 1 };
   const snapshot: Snapshot = {
     tick: 1,
     elapsed: 1,

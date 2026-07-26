@@ -10,7 +10,7 @@ import type {
   ShipCore,
   TargetRef,
   Team,
-  Transform2D,
+  Transform3D,
   Velocity,
 } from "./components.js";
 import type { SimEvent } from "./events.js";
@@ -29,7 +29,7 @@ export class World {
   readonly entities = new Set<EntityId>();
 
   // Component stores (plain maps; fine at arena scale).
-  readonly transforms = new Map<EntityId, Transform2D>();
+  readonly transforms = new Map<EntityId, Transform3D>();
   readonly velocities = new Map<EntityId, Velocity>();
   /** Persistent flight input per ship (level-triggered; see {@link FlightState}). */
   readonly flightStates = new Map<EntityId, FlightState>();

@@ -18,7 +18,8 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
   return {
     id,
     team,
-    pos: { x, z },
+    pos: { x, y: 0, z },
+    pitch: 0,
     heading: 0,
     hull: 100,
     hullMax: 100,
@@ -43,7 +44,7 @@ function snap(
 }
 
 function rock(id: number, x: number, z: number, radius = 8): AsteroidSnapshot {
-  return { id, configId: "asteroid.large-hazard", pos: { x, z }, radius, state: "intact" };
+  return { id, configId: "asteroid.large-hazard", pos: { x, y: 0, z }, radius, state: "intact" };
 }
 
 function profile(over: Record<string, unknown>): BotprofileConfig {
@@ -156,7 +157,7 @@ describe("BotDriver utility scoring", () => {
       behaviors: { engage: { baseWeight: 1 }, dodge: { baseWeight: 1.5, dodgeRadius: 20, dodgeDistance: 12 } },
     });
     const driver = makeDriver(p, emptyConfigs);
-    const missile: ProjectileSnapshot = { id: 50, kind: "missile", pos: { x: 10, z: 0 }, heading: Math.PI };
+    const missile: ProjectileSnapshot = { id: 50, kind: "missile", pos: { x: 10, y: 0, z: 0 }, heading: Math.PI };
     decide(driver, snap([ship(1, 0, 0, 0), ship(2, 1, 30, 0)], [], [missile]));
     const d = driver.lastDecision!;
     expect(d.behavior).toBe("dodge");
@@ -167,7 +168,7 @@ describe("BotDriver utility scoring", () => {
   it("layers a losing-but-live behaviour's overlay onto the winner's stick", () => {
     // dodge cannot win (baseWeight 0) but is situationally live, so its jink
     // rides on top of the pursuit — the flight-model version of "layered dodging".
-    const missile: ProjectileSnapshot = { id: 50, kind: "missile", pos: { x: 6, z: 0 }, heading: Math.PI };
+    const missile: ProjectileSnapshot = { id: 50, kind: "missile", pos: { x: 6, y: 0, z: 0 }, heading: Math.PI };
     const s = snap([ship(1, 0, 0, 0), ship(2, 1, 27, 0)], [], [missile], 0.9);
 
     const plain = makeDriver(profile({ behaviors: { engage: { baseWeight: 1 } } }), emptyConfigs);

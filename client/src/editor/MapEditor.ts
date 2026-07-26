@@ -83,7 +83,7 @@ export class MapEditor implements EditorPanel {
   private commitTransform(): void {
     if (!this.selected) return; const arena = structuredClone(this.arena()); if (!arena) return;
     const pos = this.selected.mesh.position; const x = this.snap ? Math.round(pos.x / this.grid) * this.grid : pos.x; const z = this.snap ? Math.round(pos.z / this.grid) * this.grid : pos.z;
-    if (this.selected.kind === "asteroid") { const p = arena.asteroidPlacements[this.selected.index]!; p.position = { x, z }; p.rotation = this.selected.mesh.rotation.y; p.scale = this.selected.mesh.scaling.x; }
+    if (this.selected.kind === "asteroid") { const p = arena.asteroidPlacements[this.selected.index]!; p.position = { x, y: p.position.y, z }; p.rotation = this.selected.mesh.rotation.y; p.scale = this.selected.mesh.scaling.x; }
     else arena.spawnPoints[this.selected.index]!.position = { x, z };
     this.replace(arena);
   }

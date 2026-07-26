@@ -19,6 +19,19 @@ export const tuningSchema = z.object({
    * `lockTimeSec` outside the cone before the target is dropped. Default 1.5.
    */
   lockDecayMult: z.number().positive().optional(),
+  /**
+   * NavigationSystem/flightStep: pitch rate as a fraction of the ship's own
+   * `engine.turnRate` (BUBBLE.md §A) — `pitchStick * turnRate * pitchRateMult`.
+   * A config knob rather than a new ship stat, so no ship JSON carries a pitch
+   * number until balance actually asks for one. Default 0.8.
+   */
+  pitchRateMult: z.number().nonnegative().optional(),
+  /**
+   * Hard clamp on |pitch| in radians (BUBBLE.md §A). Keeps world-up unambiguous:
+   * the nose can never pass vertical, so the chase cam never crosses a pole and
+   * the sim needs no roll/quaternion surface. Default 1.4 (~80°).
+   */
+  maxPitchRad: z.number().positive().optional(),
   /** Global damage multiplier (balance knob). */
   globalDamageMult: z.number().positive(),
   /** Planar linear drag coefficient. */

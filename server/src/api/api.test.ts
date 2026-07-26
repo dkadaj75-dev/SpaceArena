@@ -131,7 +131,7 @@ describe("user configs API", () => {
       type: "arena",
       version: 1,
       name: "Mine",
-      bounds: { shape: "circle", radius: 60 },
+      bounds: { shape: "sphere", radius: 60 },
       spawnPoints: [{ id: "sp1", team: 0, position: { x: 0, z: 0 }, heading: 0 }],
       asteroidPlacements: [],
     };

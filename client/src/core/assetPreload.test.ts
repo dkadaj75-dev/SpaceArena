@@ -46,7 +46,7 @@ function arena(asteroidIds: readonly string[]): Record<string, unknown> {
     type: "arena",
     version: 1,
     name: "Test Arena",
-    bounds: { shape: "circle", radius: 90 },
+    bounds: { shape: "sphere", radius: 90 },
     asteroidPlacements: asteroidIds.map((asteroidId, i) => ({
       asteroidId,
       position: { x: i * 10, z: 0 },

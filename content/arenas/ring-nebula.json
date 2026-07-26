@@ -3,7 +3,7 @@
   "type": "arena",
   "version": 1,
   "name": "Ring Nebula",
-  "bounds": { "shape": "circle", "radius": 90 },
+  "bounds": { "shape": "sphere", "radius": 90 },
   "asteroidPlacements": [
     { "asteroidId": "asteroid.large-hazard", "position": { "x": 0, "z": 0 }, "scale": 1.2 },
     { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 34, "z": 18 } },

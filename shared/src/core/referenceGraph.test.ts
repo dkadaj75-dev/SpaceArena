@@ -137,7 +137,7 @@ function pack(): Record<string, Record<string, unknown>> {
       id: "arena.ref",
       type: "arena",
       version: 1,
-      bounds: { shape: "circle", radius: 50 },
+      bounds: { shape: "sphere", radius: 50 },
       asteroidPlacements: [{ asteroidId: "asteroid.rock", position: { x: 0, z: 0 } }],
       spawnPoints: [{ id: "s1", team: 0, position: { x: -10, z: 0 }, heading: 0 }],
     },

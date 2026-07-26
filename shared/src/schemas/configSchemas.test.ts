@@ -134,7 +134,7 @@ const arena = {
   id: "arena.fixture",
   type: "arena",
   version: 1,
-  bounds: { shape: "circle", radius: 90 },
+  bounds: { shape: "sphere", radius: 90 },
   asteroidPlacements: [{ asteroidId: "asteroid.fixture", position: { x: 10, z: -4 } }],
   spawnPoints: [{ id: "s0", team: 0, position: { x: -30, z: 0 }, heading: 0 }],
 };
@@ -558,9 +558,32 @@ describe("upgrade schema", () => {
 describe("arena schema", () => {
   it("accepts both bounds shapes and rejects unknown/degenerate ones", () => {
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "rect", width: 120, height: 80 }))).toBe(true);
-    expect(mutated("arena", (d) => (d["bounds"] = { shape: "circle", radius: 0 }))).toBe(false);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 0 }))).toBe(false);
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "hex", radius: 90 }))).toBe(false);
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "rect", width: 120 }))).toBe(false);
+    // `circle` is RETIRED, not deprecated (BUBBLE.md): an arena still authored
+    // flat must fail loudly rather than silently losing its bounds.
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "circle", radius: 90 }))).toBe(false);
+  });
+
+  it("takes optional y on placements and spawns, and an optional spawn pitch", () => {
+    expect(
+      mutated("arena", (d) => {
+        d["asteroidPlacements"] = [{ asteroidId: "asteroid.fixture", position: { x: 10, y: -18, z: -4 } }];
+        d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: -30, y: 24, z: 0 }, heading: 0, pitch: -0.4 }];
+      }),
+    ).toBe(true);
+    // Omitted everywhere is the flat arena that shipped before the bubble.
+    expect(
+      mutated("arena", (d) => {
+        d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: -30, z: 0 }, heading: 0 }];
+      }),
+    ).toBe(true);
+    expect(
+      mutated("arena", (d) => {
+        d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: -30, y: "high", z: 0 }, heading: 0 }];
+      }),
+    ).toBe(false);
   });
 
   it("requires at least one spawn point with a non-negative integer team", () => {
@@ -750,11 +773,18 @@ describe("tuning schema", () => {
           netCorrectionRate: 8,
           maxOrdersPerSec: 20,
           lockDecayMult: 1.5,
+          pitchRateMult: 0.8,
+          maxPitchRad: 1.4,
           featureFlags: { botDebug: true },
         });
       }),
     ).toBe(true);
     expect(mutated("tuning", (d) => (d["maxTicksPerFrame"] = 5.5))).toBe(false);
+    // Pitch knobs (BUBBLE.md §A): a zero rate is a legal "no pitch" pack, a zero
+    // clamp is not — it would make the axis exist and do nothing.
+    expect(mutated("tuning", (d) => (d["pitchRateMult"] = 0))).toBe(true);
+    expect(mutated("tuning", (d) => (d["pitchRateMult"] = -0.1))).toBe(false);
+    expect(mutated("tuning", (d) => (d["maxPitchRad"] = 0))).toBe(false);
     expect(mutated("tuning", (d) => (d["projectilePoolSize"] = 0))).toBe(false);
     expect(mutated("tuning", (d) => (d["featureFlags"] = { botDebug: "yes" }))).toBe(false);
   });

@@ -5,6 +5,7 @@ import {
   decodeModuleState,
   decodeUnit,
   flightStep,
+  pitchTuningOf,
   resolveShipStats,
   MSG_ORDER,
   createLogger,
@@ -35,7 +36,17 @@ const PENDING_TOGGLE_MS = 800; // optimistic module-state overlay lifetime
 interface TimedSnapshot { time: number; snapshot: Snapshot }
 interface PendingToggle { sentAt: number; fromState: string; optimistic: "deploying" | "retracting" }
 /** The three axes of a `flight` order, as the predictor remembers them. */
-export interface PredictedFlight { throttle: number; turn: number; boost: boolean }
+export interface PredictedFlight {
+  throttle: number;
+  turn: number;
+  /**
+   * Pitch stick, -1..1 (BUBBLE.md §A). The HUD does not produce it yet (stage
+   * T3) and it is not on the wire yet (T2), so it reads 0 today — the predictor
+   * integrates it regardless so this stays a true mirror of the sim.
+   */
+  pitchStick: number;
+  boost: boolean;
+}
 
 /**
  * Sequence-aware bookkeeping for the level-triggered `flight` orders in flight
@@ -113,14 +124,18 @@ export class FlightReconciler {
  */
 export function snapPrediction(
   pred: SteerState,
-  pos: { x: number; z: number },
+  pos: { x: number; y: number; z: number },
   heading: number,
-  vel: { x: number; z: number },
+  pitch: number,
+  vel: { x: number; y: number; z: number },
 ): void {
   pred.pos.x = pos.x;
+  pred.pos.y = pos.y;
   pred.pos.z = pos.z;
   pred.heading = heading;
+  pred.pitch = pitch;
   pred.vel.x = vel.x;
+  pred.vel.y = vel.y;
   pred.vel.z = vel.z;
 }
 
@@ -130,12 +145,16 @@ export function snapPrediction(
  * safe one for {@link snapPrediction}, which would otherwise inherit a divide.
  */
 export function sampledVelocity(
-  from: { x: number; z: number },
-  to: { x: number; z: number },
+  from: { x: number; y: number; z: number },
+  to: { x: number; y: number; z: number },
   dtSeconds: number,
-): { x: number; z: number } {
-  if (!(dtSeconds > 0)) return { x: 0, z: 0 };
-  return { x: (to.x - from.x) / dtSeconds, z: (to.z - from.z) / dtSeconds };
+): { x: number; y: number; z: number } {
+  if (!(dtSeconds > 0)) return { x: 0, y: 0, z: 0 };
+  return {
+    x: (to.x - from.x) / dtSeconds,
+    y: (to.y - from.y) / dtSeconds,
+    z: (to.z - from.z) / dtSeconds,
+  };
 }
 
 /**
@@ -182,9 +201,16 @@ export class NetGameSession extends GameSession {
   private readonly shipIds = new Map<EntityId, string>();
   private readonly arena: ArenaConfig;
   private readonly netConfigs: ConfigService;
+  /** Pitch knobs for the predictor, read from the same tuning pack as the sim. */
+  private readonly pitchTuning: { pitchRateMult: number; maxPitchRad: number };
 
   // --- local-player prediction ---
-  private readonly pred: SteerState = { pos: { x: 0, z: 0 }, vel: { x: 0, z: 0 }, heading: 0 };
+  private readonly pred: SteerState = {
+    pos: { x: 0, y: 0, z: 0 },
+    vel: { x: 0, y: 0, z: 0 },
+    heading: 0,
+    pitch: 0,
+  };
   private predActive = false; // becomes true once seeded from a server snapshot
   /**
    * The flight input the SERVER is believed to be integrating — i.e. the last
@@ -199,8 +225,9 @@ export class NetGameSession extends GameSession {
    * what a prediction snap adopts (see {@link snapPrediction}). `ShipSnapshot`
    * carries no velocity, so it is differenced from replicated positions.
    */
-  private readonly serverVel = { x: 0, z: 0 };
+  private readonly serverVel = { x: 0, y: 0, z: 0 };
   private errX = 0; // server − predicted, decayed into pred each frame
+  private errY = 0;
   private errZ = 0;
 
   // Resolved engine stats for the local ship, cached against what produced them.
@@ -243,6 +270,7 @@ export class NetGameSession extends GameSession {
     this.arena = configs.get<ArenaConfig>("arena", arenaId)!;
     this.netConfigs = configs;
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
+    this.pitchTuning = pitchTuningOf(tuning ?? ({} as TuningConfig));
     this.renderDelay = tuning?.netRenderDelayMs ?? 100;
     this.correctionRate = tuning?.netCorrectionRate ?? 12;
     this.fakeLagMs = Number(new URLSearchParams(location.search).get("fakelag")) || 0;
@@ -342,7 +370,12 @@ export class NetGameSession extends GameSession {
       // Level-triggered: this state is what the sim integrates every tick from
       // now on, so the predictor holds it (rather than consuming it once) until
       // the next order replaces it — or an ack rejects it (see `join`).
-      this.flight.sent(seq, { throttle: order.throttle, turn: order.turn, boost: order.boost });
+      this.flight.sent(seq, {
+        throttle: order.throttle,
+        turn: order.turn,
+        pitchStick: order.pitchStick ?? 0,
+        boost: order.boost,
+      });
     } else if (order.kind === "moduleToggle") {
       // Keyed by hardpointIndex, not array position — the modules array is
       // sparse-safe (spawn.ts) so a fitting like {0: laser, 2: shield} never
@@ -431,8 +464,9 @@ export class NetGameSession extends GameSession {
   private trackServerVelocity(a: TimedSnapshot, z: TimedSnapshot): void {
     const from = a.snapshot.ships.find((s) => s.id === this.playerId);
     const to = z.snapshot.ships.find((s) => s.id === this.playerId);
-    const v = from && to ? sampledVelocity(from.pos, to.pos, (z.time - a.time) / 1000) : { x: 0, z: 0 };
+    const v = from && to ? sampledVelocity(from.pos, to.pos, (z.time - a.time) / 1000) : { x: 0, y: 0, z: 0 };
     this.serverVel.x = v.x;
+    this.serverVel.y = v.y;
     this.serverVel.z = v.z;
   }
 
@@ -450,10 +484,13 @@ export class NetGameSession extends GameSession {
     if (!this.predActive) {
       // Seed from the first authoritative sample.
       this.pred.pos.x = player.pos.x;
+      this.pred.pos.y = player.pos.y;
       this.pred.pos.z = player.pos.z;
       this.pred.vel.x = 0;
+      this.pred.vel.y = 0;
       this.pred.vel.z = 0;
       this.pred.heading = player.heading;
+      this.pred.pitch = player.pitch;
       this.predActive = true;
     }
 
@@ -470,6 +507,7 @@ export class NetGameSession extends GameSession {
         {
           throttle: held.throttle,
           turn: held.turn,
+          pitchStick: held.pitchStick,
           boostMult: held.boost ? this.predBoostMult(player) : 1,
         },
         engine,
@@ -479,8 +517,9 @@ export class NetGameSession extends GameSession {
 
     // Blend server error into the prediction; snap when badly wrong.
     this.errX = player.pos.x - this.pred.pos.x;
+    this.errY = player.pos.y - this.pred.pos.y;
     this.errZ = player.pos.z - this.pred.pos.z;
-    if (Math.hypot(this.errX, this.errZ) > SNAP_DISTANCE) {
+    if (Math.hypot(this.errX, this.errY, this.errZ) > SNAP_DISTANCE) {
       // Diverging this far means the server is steering differently (a
       // collision, or an order rejection racing its ack) — defer to server
       // motion, VELOCITY INCLUDED. Adopting the position while keeping the
@@ -490,12 +529,14 @@ export class NetGameSession extends GameSession {
       // The held flight state is deliberately NOT cleared: the server is still
       // integrating it, so dropping it would leave the predictor inert while
       // the real ship keeps flying (the exact opposite of the fix).
-      snapPrediction(this.pred, player.pos, player.heading, this.serverVel);
+      snapPrediction(this.pred, player.pos, player.heading, player.pitch, this.serverVel);
       this.errX = 0;
+      this.errY = 0;
       this.errZ = 0;
     } else {
       const pull = 1 - Math.exp(-this.correctionRate * dt);
       this.pred.pos.x += this.errX * pull;
+      this.pred.pos.y += this.errY * pull;
       this.pred.pos.z += this.errZ * pull;
       // While the local player is flying, heading is a client input — pull it
       // gently so a patch cannot jerk the nose (and the camera with it).
@@ -505,8 +546,10 @@ export class NetGameSession extends GameSession {
 
     // Render the local player from the predictor.
     player.pos.x = this.pred.pos.x;
+    player.pos.y = this.pred.pos.y;
     player.pos.z = this.pred.pos.z;
     player.heading = this.pred.heading;
+    player.pitch = this.pred.pitch;
   }
 
   /**
@@ -528,6 +571,9 @@ export class NetGameSession extends GameSession {
         nominalSpeed: core.engine.nominalSpeed,
         accel: core.engine.accel,
         turnRate: core.engine.turnRate,
+        // Pitch knobs come from tuning, not the ship: the same source the sim
+        // reads, defaulted in one place so the mirrors cannot drift.
+        ...this.pitchTuning,
       };
       this.statsKey = key;
     }
@@ -575,8 +621,11 @@ export class NetGameSession extends GameSession {
       return {
         id,
         team: p.team,
-        pos: { x: decodeCenti(p.x), z: decodeCenti(p.z) },
+        // TODO(T2): y/pitch are not on the wire yet, so decode them as the
+        // neutral ground-plane values; the rest of the client already speaks 3D.
+        pos: { x: decodeCenti(p.x), y: 0, z: decodeCenti(p.z) },
         heading: decodeHeading(p.heading),
+        pitch: 0,
         hull: p.hull,
         // Server-resolved maxima (upgrade + passive-resolved), replicated verbatim —
         // never reconstructed from the base ship config, which would ignore
@@ -597,14 +646,15 @@ export class NetGameSession extends GameSession {
     const asteroids = this.arena.asteroidPlacements.map((p, i) => ({
       id: i,
       configId: p.asteroidId,
-      pos: p.position,
+      pos: { x: p.position.x, y: p.position.y ?? 0, z: p.position.z },
       radius: p.scale ?? 1,
       state: mapGet(state.asteroids, String(i))?.destroyed ? ("destroyed" as const) : ("intact" as const),
     }));
     const projectiles = mapValues(state.projectiles).map((p: any) => ({
       id: p.entityId,
       kind: "missile" as const,
-      pos: { x: decodeCenti(p.x), z: decodeCenti(p.z) },
+      // TODO(T2): projectile y joins the wire with the ship fields.
+      pos: { x: decodeCenti(p.x), y: 0, z: decodeCenti(p.z) },
       heading: decodeHeading(p.heading),
     }));
     return {
@@ -670,8 +720,13 @@ function interpolate(a: Snapshot, b: Snapshot, t: number): Snapshot {
     const p = a.ships.find((x) => x.id === s.id) ?? s;
     return {
       ...s,
-      pos: { x: p.pos.x + (s.pos.x - p.pos.x) * t, z: p.pos.z + (s.pos.z - p.pos.z) * t },
+      pos: {
+        x: p.pos.x + (s.pos.x - p.pos.x) * t,
+        y: p.pos.y + (s.pos.y - p.pos.y) * t,
+        z: p.pos.z + (s.pos.z - p.pos.z) * t,
+      },
       heading: lerpHeading(p.heading, s.heading, t),
+      pitch: p.pitch + (s.pitch - p.pitch) * t,
       modules: s.modules.map((m) => ({ ...m })),
     };
   });

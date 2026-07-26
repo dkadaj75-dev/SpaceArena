@@ -6,11 +6,15 @@ const log = createLogger("HudMinimap");
 
 const REDRAW_INTERVAL_MS = 100; // ~10 Hz, per spec
 
-/** Approximates a `rect` arena as its half-diagonal so the minimap scale still fits it. */
+/**
+ * The bubble's radius, or a `rect` arena approximated by its half-diagonal, so the
+ * minimap scale still fits it. The minimap keeps its top-down (x,z) projection
+ * (BUBBLE.md §C adds a relative-altitude tick in stage T3).
+ */
 function boundsRadius(arena: ArenaConfig | undefined): number | undefined {
   if (!arena) return undefined;
   const b = arena.bounds;
-  return b.shape === "circle" ? b.radius : Math.hypot(b.width, b.height) / 2;
+  return b.shape === "sphere" ? b.radius : Math.hypot(b.width, b.height) / 2;
 }
 
 /**

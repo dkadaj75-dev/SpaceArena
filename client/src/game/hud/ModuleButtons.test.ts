@@ -21,8 +21,9 @@ function snapshotWithModules(modules: { hardpointIndex: number; moduleId: string
       {
         id: 1,
         team: 0,
-        pos: { x: 0, z: 0 },
+        pos: { x: 0, y: 0, z: 0 },
         heading: 0,
+        pitch: 0,
         hull: 100,
         hullMax: 100,
         energy: { cur: 100, max: 100 },

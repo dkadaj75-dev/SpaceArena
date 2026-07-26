@@ -2,9 +2,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../core/ConfigService.js";
 import { ArenaSimulation } from "./ArenaSimulation.js";
 import { applyDamageToShip } from "./damage.js";
-import { spawnShipFromConfig } from "./spawn.js";
+import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld } from "./testutil.js";
+import { projectileSystem } from "./systems/ProjectileSystem.js";
+import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "./testutil.js";
 
 const DT = 1 / 30;
 
@@ -14,7 +15,7 @@ beforeAll(async () => {
 });
 
 describe("CollisionSystem boundary", () => {
-  it("bounces a ship off a circular boundary", () => {
+  it("bounces a ship off the bubble", () => {
     const world = makeWorld(configs, {
       gamemodeOverride: { boundaryRule: { type: "bounce", restitution: 1 } },
     });
@@ -33,6 +34,191 @@ describe("CollisionSystem boundary", () => {
     collisionSystem(world, DT);
     expect(world.shipCores.get(id)!.hull).toBeLessThan(before);
     expect(world.events.some((e) => e.type === "boundaryHit")).toBe(true);
+  });
+
+  it("bounces off the TOP of the bubble, reflecting the vertical velocity", () => {
+    // The whole point of a sphere: climbing out is bounded exactly like flying
+    // out sideways, and the reflection is 3D (BUBBLE.md §A).
+    const world = makeWorld(configs, {
+      gamemodeOverride: { boundaryRule: { type: "bounce", restitution: 1 } },
+    });
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    world.transforms.get(id)!.pos.y = radius - 1;
+    world.velocities.get(id)!.y = 30;
+
+    collisionSystem(world, DT);
+
+    expect(world.velocities.get(id)!.y).toBeLessThan(0); // reflected back down
+    const p = world.transforms.get(id)!.pos;
+    expect(Math.hypot(p.x, p.y, p.z)).toBeLessThanOrEqual(radius);
+  });
+
+  it("damages a ship that climbs out of a damaging bubble, not just one that flies out flat", () => {
+    const world = makeWorld(configs, { gamemodeId: "gamemode.duel-1v1" }); // boundary: damage
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    world.transforms.get(id)!.pos.y = radius + 10;
+    const before = world.shipCores.get(id)!.hull;
+
+    collisionSystem(world, DT);
+
+    expect(world.shipCores.get(id)!.hull).toBeLessThan(before);
+    expect(world.transforms.get(id)!.pos.y).toBeLessThanOrEqual(radius);
+  });
+
+  it("leaves a ship alone while it is deep inside the bubble but far off the plane", () => {
+    const world = makeWorld(configs, { gamemodeId: "gamemode.duel-1v1" });
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    world.transforms.get(id)!.pos.y = radius * 0.5;
+    const before = world.shipCores.get(id)!.hull;
+
+    collisionSystem(world, DT);
+
+    expect(world.shipCores.get(id)!.hull).toBe(before);
+    expect(world.events.some((e) => e.type === "boundaryHit")).toBe(false);
+  });
+});
+
+describe("CollisionSystem 3D narrowphase (BUBBLE.md §A)", () => {
+  it("does not collide two ships that share an (x,z) cell but are vertically separated", () => {
+    const world = makeWorld(configs);
+    const a = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const b = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 0, z: 0 }, 0);
+    // Same column, well clear vertically. The planar broadphase still offers the
+    // pair; only the 3D narrowphase keeps them apart.
+    const gap = (world.colliders.get(a)!.radius + world.colliders.get(b)!.radius) * 3;
+    world.transforms.get(b)!.pos.y = gap;
+    rebuildSpatial(world);
+
+    collisionSystem(world, DT);
+
+    expect(world.transforms.get(a)!.pos).toEqual({ x: 0, y: 0, z: 0 });
+    expect(world.transforms.get(b)!.pos).toEqual({ x: 0, y: gap, z: 0 });
+  });
+
+  it("pushes two overlapping ships apart along the 3D contact normal", () => {
+    const world = makeWorld(configs);
+    const a = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const b = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 0, z: 0 }, 0);
+    const sumR = world.colliders.get(a)!.radius + world.colliders.get(b)!.radius;
+    world.transforms.get(b)!.pos.y = sumR * 0.5; // overlapping, purely vertically
+    rebuildSpatial(world);
+
+    collisionSystem(world, DT);
+
+    const pa = world.transforms.get(a)!.pos;
+    const pb = world.transforms.get(b)!.pos;
+    expect(Math.hypot(pb.x - pa.x, pb.y - pa.y, pb.z - pa.z)).toBeCloseTo(sumR, 6);
+    expect(pa.y).toBeLessThan(0); // separated along y, not along an arbitrary axis
+    expect(pb.y).toBeGreaterThan(sumR * 0.5);
+  });
+
+  it("flies a ship clean over a rock it would have hit on the plane", () => {
+    const world = makeWorld(configs);
+    const rock = spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 });
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const clearance = world.colliders.get(rock)!.radius + world.colliders.get(id)!.radius + 1;
+    world.transforms.get(id)!.pos.y = clearance;
+    const hullBefore = world.shipCores.get(id)!.hull;
+    rebuildSpatial(world);
+
+    collisionSystem(world, DT);
+
+    expect(world.transforms.get(id)!.pos.y).toBe(clearance); // no push-out at all
+    expect(world.shipCores.get(id)!.hull).toBe(hullBefore);
+  });
+});
+
+describe("ProjectileSystem in 3D (BUBBLE.md §A)", () => {
+  it("misses a target that is only planar-aligned, and hits one it truly passes through", () => {
+    for (const [dy, expectHit] of [
+      [12, false],
+      [0, true],
+    ] as const) {
+      const world = makeWorld(configs);
+      const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+      const foe = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 10, z: 0 }, 0);
+      world.transforms.get(foe)!.pos.y = dy;
+      const pid = spawnProjectile(world, {
+        kind: "kinetic",
+        damage: 10,
+        damageType: "kinetic",
+        speed: 200,
+        lifetime: 5,
+        ownerId: shooter,
+        ownerTeam: 0,
+        pos: { x: 0, z: 0 },
+        heading: 0,
+      });
+      rebuildSpatial(world);
+      const hullBefore = world.shipCores.get(foe)!.hull;
+
+      // A few ticks: long enough for the sweep to cover the 10 units to the foe.
+      for (let t = 0; t < 4 && world.projectiles.has(pid); t++) projectileSystem(world, DT);
+
+      expect(world.shipCores.get(foe)!.hull < hullBefore).toBe(expectHit);
+      expect(world.projectiles.has(pid)).toBe(!expectHit);
+    }
+  });
+
+  it("homes a missile onto a climbing target", () => {
+    const world = makeWorld(configs);
+    const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const foe = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 40, z: 0 }, 0);
+    const target = world.transforms.get(foe)!;
+    const pid = spawnProjectile(world, {
+      kind: "missile",
+      damage: 10,
+      damageType: "kinetic",
+      speed: 60,
+      turnRate: 3,
+      lifetime: 6,
+      ownerId: shooter,
+      ownerTeam: 0,
+      targetId: foe,
+      pos: { x: 0, z: 0 },
+      heading: 0,
+    });
+    const hullBefore = world.shipCores.get(foe)!.hull;
+
+    // The target climbs steadily; the missile launched level and must pitch up.
+    for (let t = 0; t < 120 && world.projectiles.has(pid); t++) {
+      target.pos.y += 20 * DT;
+      rebuildSpatial(world);
+      projectileSystem(world, DT);
+    }
+
+    expect(target.pos.y).toBeGreaterThan(10); // it really did climb away from the plane
+    expect(world.shipCores.get(foe)!.hull).toBeLessThan(hullBefore);
+    expect(world.projectiles.has(pid)).toBe(false);
+  });
+
+  it("culls ordnance on 3D radial distance, so a shot fired straight up expires", () => {
+    const world = makeWorld(configs);
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
+    const margin = world.tuning.projectileBoundsMargin ?? 20;
+    const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const pid = spawnProjectile(world, {
+      kind: "kinetic",
+      damage: 10,
+      damageType: "kinetic",
+      speed: 100,
+      lifetime: 60,
+      ownerId: shooter,
+      ownerTeam: 0,
+      pos: { x: 0, y: radius + margin - 1, z: 0 },
+      heading: 0,
+      pitch: Math.PI / 2, // straight up, inside the bubble by a whisker
+    });
+    rebuildSpatial(world);
+
+    projectileSystem(world, DT);
+
+    // One tick carries it past radius + margin measured radially, not planar
+    // (its x/z never leave the origin).
+    expect(world.projectiles.has(pid)).toBe(false);
   });
 });
 
@@ -119,6 +305,41 @@ describe("Snapshots", () => {
       expect(shipOf(id).targetId).toBe(id === a ? b : a);
     }
   });
+
+  it("carries y and pitch for ships, and y for asteroids and projectiles", () => {
+    const sim = new ArenaSimulation(configs, "arena.deep-field", "gamemode.duel-1v1");
+    const flyer = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, y: 12, z: 0 }, 0, undefined, 0.3);
+
+    let snap = sim.snapshot();
+    const ship = snap.ships.find((s) => s.id === flyer)!;
+    expect(ship.pos.y).toBe(12);
+    expect(ship.pitch).toBeCloseTo(0.3, 9);
+
+    // The deep field authors a y-banded belt, so the arena's own content proves
+    // asteroid y survives the placement → transform → snapshot path.
+    expect(snap.asteroids.some((a) => a.pos.y !== 0)).toBe(true);
+
+    // Climb under power and the replicated altitude follows.
+    sim.applyOrder(flyer, { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false });
+    for (let t = 0; t < 30; t++) sim.tick(DT);
+    snap = sim.snapshot();
+    const climbed = snap.ships.find((s) => s.id === flyer)!;
+    expect(climbed.pos.y).toBeGreaterThan(12);
+    expect(climbed.pitch).toBeGreaterThan(0.3);
+
+    const projectile = spawnProjectile(sim.world, {
+      kind: "missile",
+      damage: 1,
+      damageType: "kinetic",
+      speed: 10,
+      lifetime: 5,
+      ownerId: flyer,
+      ownerTeam: 0,
+      pos: { x: 1, y: -7, z: 2 },
+      heading: 0,
+    });
+    expect(sim.snapshot().projectiles.find((p) => p.id === projectile)!.pos.y).toBe(-7);
+  });
 });
 
 describe("Determinism", () => {
@@ -137,9 +358,12 @@ describe("Determinism", () => {
           sim.applyOrder(b, { kind: "moduleToggle", hardpointIndex: 0 });
         }
         if (t === 3) {
-          sim.applyOrder(a, { kind: "flight", throttle: 0.5, turn: 0.25, boost: false });
-          sim.applyOrder(b, { kind: "flight", throttle: 0.5, turn: -0.25, boost: false });
+          // Pitched input on both ships: the vertical axis has to be as
+          // reproducible as the planar one (BUBBLE.md §A).
+          sim.applyOrder(a, { kind: "flight", throttle: 0.5, turn: 0.25, pitchStick: 0.6, boost: false });
+          sim.applyOrder(b, { kind: "flight", throttle: 0.5, turn: -0.25, pitchStick: -1, boost: false });
         }
+        if (t === 120) sim.applyOrder(a, { kind: "flight", throttle: 0.9, turn: 0, pitchStick: -0.35, boost: false });
         // Flight is level-triggered: two orders drive 900+ ticks of motion, and
         // the integration must stay bit-identical across runs.
         if (t === 200) sim.applyOrder(a, { kind: "flight", throttle: 0.7, turn: -0.4, boost: true });
@@ -152,6 +376,9 @@ describe("Determinism", () => {
     const s1 = run(build());
     const s2 = run(build());
     expect(JSON.stringify(s1)).toEqual(JSON.stringify(s2));
+    // The run has to have USED the bubble, or this proves determinism of a
+    // planar sim with a spare field.
+    expect(s1.ships.some((s) => Math.abs(s.pos.y) > 1 && s.pitch !== 0)).toBe(true);
   });
 });
 

@@ -54,7 +54,7 @@ beforeAll(async () => {
     ...source,
     id: SECOND_ARENA_ID,
     name: "S0 Routing Test",
-    bounds: { shape: "circle", radius: SECOND_ARENA_RADIUS },
+    bounds: { shape: "sphere", radius: SECOND_ARENA_RADIUS },
   };
   expect(configs.replace(second).ok).toBe(true);
 });
@@ -63,7 +63,7 @@ describe("GameSession.arenaId", () => {
   it("reports the arena the sim actually resolved", () => {
     const session = new GameSession(configs, SECOND_ARENA_ID, "gamemode.practice");
     expect(session.arenaId).toBe(SECOND_ARENA_ID);
-    expect(session.sim.world.arena.bounds).toEqual({ shape: "circle", radius: SECOND_ARENA_RADIUS });
+    expect(session.sim.world.arena.bounds).toEqual({ shape: "sphere", radius: SECOND_ARENA_RADIUS });
   });
 });
 
@@ -107,9 +107,9 @@ const EMPTY_SNAPSHOT: Snapshot = {
   projectiles: [],
 };
 
-function circleRadiusOf(arenaId: string): number {
+function bubbleRadiusOf(arenaId: string): number {
   const bounds = configs.get<ArenaConfig>("arena", arenaId)!.bounds;
-  if (bounds.shape !== "circle") throw new Error(`${arenaId} is not a circular arena`);
+  if (bounds.shape !== "sphere") throw new Error(`${arenaId} is not a spherical arena`);
   return bounds.radius;
 }
 
@@ -126,7 +126,7 @@ describe("Minimap arena resolution", () => {
     const session = { arenaId, playerId: 1, playerTeam: 0 } as unknown as GameSession;
     const minimap = new Minimap(document.createElement("div"), configs, bus, session);
     minimap.update(
-      { ...EMPTY_SNAPSHOT, asteroids: [{ id: 0, configId: "a", pos: { x: worldX, z: 0 }, radius: 1, state: "intact" }] },
+      { ...EMPTY_SNAPSHOT, asteroids: [{ id: 0, configId: "a", pos: { x: worldX, y: 0, z: 0 }, radius: 1, state: "intact" }] },
       200,
     );
     minimap.dispose();
@@ -145,7 +145,7 @@ describe("Minimap arena resolution", () => {
     // Guard: the old hardcoded arena has a different radius, hence a different
     // scale, hence a visibly different dot position for the same world point.
     expect(plotAsteroidAt("arena.ring-nebula", 25)).toBeCloseTo(
-      half + 25 * (half / circleRadiusOf("arena.ring-nebula")),
+      half + 25 * (half / bubbleRadiusOf("arena.ring-nebula")),
       6,
     );
     expect(plotAsteroidAt(SECOND_ARENA_ID, 25)).not.toBeCloseTo(plotAsteroidAt("arena.ring-nebula", 25), 3);

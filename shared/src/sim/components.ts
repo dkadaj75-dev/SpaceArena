@@ -3,14 +3,22 @@ import type { DamageType } from "../schemas/common.js";
 /** Entity handle. Plain integer allocated by the World. */
 export type EntityId = number;
 
-/** Planar transform on the arena ground plane (2.5D sim). */
-export interface Transform2D {
-  pos: { x: number; z: number };
+/**
+ * Full 3D transform inside the arena bubble (BUBBLE.md §A). Orientation is
+ * yaw + pitch with no roll: `heading` wraps, `pitch` is clamped to
+ * ±`tuning.maxPitchRad` so world-up never flips. Roll is a purely visual client
+ * bank and never exists here.
+ */
+export interface Transform3D {
+  pos: { x: number; y: number; z: number };
   heading: number;
+  /** Nose elevation in radians; positive climbs. 0 for asteroids. */
+  pitch: number;
 }
 
 export interface Velocity {
   x: number;
+  y: number;
   z: number;
 }
 
@@ -29,6 +37,13 @@ export interface FlightState {
    * as screen-right under the chase cam).
    */
   turn: number;
+  /**
+   * Pitch-rate fraction, -1..1. Positive raises the nose. Pitch is HELD state
+   * like throttle (BUBBLE.md): a released stick (0) leaves the nose where it is,
+   * it does not auto-level. Rate is
+   * `pitchStick * engine.turnRate * tuning.pitchRateMult`.
+   */
+  pitchStick: number;
   /** True while the pilot holds boost (resolved against a fitted boost module). */
   boost: boolean;
 }

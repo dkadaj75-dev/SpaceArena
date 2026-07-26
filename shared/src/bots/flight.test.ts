@@ -40,14 +40,20 @@ describe("turnForHeading", () => {
   it("lands the nose on the desired heading after one horizon of the sim's own integration", () => {
     // The contract that makes the whole bot flight model work: hold the returned
     // axis for `horizon` through the real integrator and the error is gone.
-    const s: SteerState = { pos: { x: 0, z: 0 }, vel: { x: 0, z: 0 }, heading: 0 };
+    // Bots still fly planar (pitchStick 0) until stage T4.
+    const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0, pitch: 0 };
     const dt = 1 / 30;
     const ticks = 12;
     const horizon = ticks * dt; // a whole number of sim ticks, so no residue
     const desired = 0.6;
     const turn = turnForHeading(s.heading, desired, RATE, horizon);
     for (let i = 0; i < ticks; i++) {
-      flightStep(s, { throttle: 0, turn, boostMult: 1 }, { nominalSpeed: 0, accel: 0, turnRate: RATE }, dt);
+      flightStep(
+        s,
+        { throttle: 0, turn, pitchStick: 0, boostMult: 1 },
+        { nominalSpeed: 0, accel: 0, turnRate: RATE, pitchRateMult: 0.8, maxPitchRad: 1.4 },
+        dt,
+      );
     }
     expect(s.heading).toBeCloseTo(desired, 6);
   });

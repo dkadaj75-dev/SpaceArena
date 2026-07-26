@@ -53,7 +53,7 @@ beforeAll(async () => {
       type: "arena",
       version: 1,
       name: "Balance Bench",
-      bounds: { shape: "circle", radius: 400 },
+      bounds: { shape: "sphere", radius: 400 },
       asteroidPlacements: [],
       spawnPoints: [
         { id: "b0", team: 0, position: { x: 0, z: 0 }, heading: 0 },

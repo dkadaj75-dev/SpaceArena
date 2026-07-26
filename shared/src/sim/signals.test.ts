@@ -6,8 +6,9 @@ function ship(overrides: Partial<ShipSnapshot> = {}): ShipSnapshot {
   return {
     id: 1,
     team: 0,
-    pos: { x: 0, z: 0 },
+    pos: { x: 0, y: 0, z: 0 },
     heading: 0,
+    pitch: 0,
     hull: 100,
     hullMax: 100,
     energy: { cur: 50, max: 100 },
@@ -86,10 +87,10 @@ describe("signal registry", () => {
   });
 
   it("throttle reads the snapshot's real commanded throttle", () => {
-    const prev = ship({ pos: { x: 0, z: 0 } });
+    const prev = ship({ pos: { x: 0, y: 0, z: 0 } });
     // A flight-driven ship reports what the pilot asked for, regardless of how
     // far it moved this snapshot (mid accel-ramp, or shoved by a collision).
-    expect(evalSignal("throttle", ship({ throttle: 0.4, pos: { x: 5, z: 0 } }), prev)).toBeCloseTo(0.4, 6);
+    expect(evalSignal("throttle", ship({ throttle: 0.4, pos: { x: 5, y: 0, z: 0 } }), prev)).toBeCloseTo(0.4, 6);
     expect(evalSignal("throttle", ship({ throttle: 1 }), prev)).toBe(1);
     expect(evalSignal("throttle", ship({ throttle: 1 }))).toBe(1); // no prev needed
     expect(evalSignal("throttle", ship({ throttle: 5 }), prev)).toBe(1); // clamped
@@ -99,14 +100,19 @@ describe("signal registry", () => {
     // These two deliberately stay on displacement (FLIGHT.md §7): the snapshot
     // carries no velocity, and a ship mid accel-ramp or one whose boost request
     // was denied for want of energy is not moving at what it asked for.
-    const prev = ship({ pos: { x: 0, z: 0 } });
-    const moving = ship({ throttle: 1, pos: { x: 1.2, z: 0 } });
-    const boosting = ship({ throttle: 1, pos: { x: 2.5, z: 0 } });
+    const prev = ship({ pos: { x: 0, y: 0, z: 0 } });
+    const moving = ship({ throttle: 1, pos: { x: 1.2, y: 0, z: 0 } });
+    const boosting = ship({ throttle: 1, pos: { x: 2.5, y: 0, z: 0 } });
     expect(evalSignal("boostActive", boosting, prev)).toBe(1);
     expect(evalSignal("boostActive", moving, prev)).toBe(0);
     // Full throttle, not moving yet (or rammed to a stop) ⇒ no boost signal.
     expect(evalSignal("boostActive", ship({ throttle: 1 }), prev)).toBe(0);
     expect(evalSignal("speedFraction", boosting, prev)).toBeGreaterThan(evalSignal("speedFraction", moving, prev));
     expect(evalSignal("speedFraction", moving)).toBe(0); // no prev ⇒ 0
+
+    // Measured in 3D (BUBBLE.md §A): a ship that spent the frame climbing is
+    // moving exactly as fast as one that spent it running flat.
+    const climbing = ship({ throttle: 1, pos: { x: 0, y: 1.2, z: 0 } });
+    expect(evalSignal("speedFraction", climbing, prev)).toBeCloseTo(evalSignal("speedFraction", moving, prev), 12);
   });
 });

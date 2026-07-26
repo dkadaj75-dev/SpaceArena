@@ -1,9 +1,16 @@
-import type { EntityId, ShipCore, TargetRef, Transform2D } from "../components.js";
-import { angleDelta, distSq, headingOf } from "../math.js";
+import type { EntityId, ShipCore, TargetRef, Transform3D } from "../components.js";
+import { angleBetween3, distSq3, facingVec } from "../math.js";
 import type { World } from "../World.js";
 
 /** Fallback drain multiplier when `tuning.lockDecayMult` is absent. */
 const DEFAULT_LOCK_DECAY_MULT = 1.5;
+
+/**
+ * Scratch vectors for the cone test. The zone check runs for every
+ * ship × candidate pair every tick; these keep it allocation-free.
+ */
+const facingScratch = { x: 0, y: 0, z: 0 };
+const bearingScratch = { x: 0, y: 0, z: 0 };
 
 /**
  * TargetingSystem (1.5 + FLIGHT.md §2) — resolves each ship's TargetRef and runs
@@ -11,9 +18,10 @@ const DEFAULT_LOCK_DECAY_MULT = 1.5;
  * order and no manual pin, so the same rule produces every ship's candidate,
  * player and bot alike.
  *
- * The lock zone is a heading-relative world-space cone from the ship's resolved
- * sensors: `dist <= sensors.lockRange` and
- * `|angleDelta(heading, bearingToTarget)| <= sensors.coneDeg/2`. Per tick:
+ * The lock zone is an orientation-relative world-space cone from the ship's
+ * resolved sensors, and it is a true 3D cone in the bubble (BUBBLE.md §A):
+ * `dist3 <= sensors.lockRange` and the angle between the ship's 3D facing vector
+ * and the 3D bearing to the target `<= sensors.coneDeg/2`. Per tick:
  *   - candidate = **the current target if it is still in the zone** (the sticky
  *     rule, see below), otherwise the best fresh enemy in the zone under
  *     `tuning.targetingPolicy`;
@@ -114,13 +122,18 @@ function dropTarget(world: World, entityId: EntityId, ref: TargetRef): void {
 }
 
 /**
- * True if `targetId` is inside the ship's sensor range AND heading-relative
- * cone. Team is NOT re-checked: only {@link pickCandidate} ever sets a target,
- * it only ever picks an enemy, and teams are fixed for the life of a ship.
+ * True if `targetId` is inside the ship's sensor range AND its 3D cone. Team is
+ * NOT re-checked: only {@link pickCandidate} ever sets a target, it only ever
+ * picks an enemy, and teams are fixed for the life of a ship.
+ *
+ * Both tests are fully 3D (BUBBLE.md §A): range on the true distance, and the
+ * cone as the angle between the ship's facing vector and the bearing vector. The
+ * planar `angleDelta(heading, bearing)` this replaces would have locked an enemy
+ * hanging straight overhead as if it were dead ahead.
  */
 function inLockZone(
   world: World,
-  tf: Transform2D,
+  tf: Transform3D,
   core: ShipCore,
   halfCone: number,
   targetId: EntityId,
@@ -128,12 +141,16 @@ function inLockZone(
   const tgt = world.transforms.get(targetId);
   if (!tgt) return false;
   const dx = tgt.pos.x - tf.pos.x;
+  const dy = tgt.pos.y - tf.pos.y;
   const dz = tgt.pos.z - tf.pos.z;
   const range = core.sensors.lockRange;
-  if (dx * dx + dz * dz > range * range) return false;
+  if (dx * dx + dy * dy + dz * dz > range * range) return false;
   // Co-located ships have no meaningful bearing; treat that as in-cone.
-  if (dx === 0 && dz === 0) return true;
-  return Math.abs(angleDelta(tf.heading, headingOf(dx, dz))) <= halfCone;
+  if (dx === 0 && dy === 0 && dz === 0) return true;
+  bearingScratch.x = dx;
+  bearingScratch.y = dy;
+  bearingScratch.z = dz;
+  return angleBetween3(facingVec(tf.heading, tf.pitch, facingScratch), bearingScratch) <= halfCone;
 }
 
 /**
@@ -148,7 +165,7 @@ function pickCandidate(
   myTeam: number,
   ships: EntityId[],
   policy: string,
-  tf: Transform2D,
+  tf: Transform3D,
   core: ShipCore,
   halfCone: number,
 ): EntityId | null {
@@ -161,7 +178,7 @@ function pickCandidate(
     const score =
       policy === "lowestHp"
         ? world.shipCores.get(other)!.hull
-        : distSq(tf.pos, world.transforms.get(other)!.pos);
+        : distSq3(tf.pos, world.transforms.get(other)!.pos);
     if (score < bestScore) {
       bestScore = score;
       best = other;
