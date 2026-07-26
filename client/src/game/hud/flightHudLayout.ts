@@ -6,6 +6,7 @@ import type {
   HudAnchorName,
   JoystickConfig,
   LockReticleConfig,
+  RelativeSteerConfig,
   ThemeConfig,
   ThrottleStripConfig,
 } from "@space-arena/shared";
@@ -20,6 +21,7 @@ import { anchorSigns, orientationOf, type Orientation, type Viewport } from "./h
  */
 
 export interface JoystickLayout {
+  enabled: boolean;
   anchor: HudAnchorName;
   baseRadiusPx: number;
   thumbRadiusPx: number;
@@ -27,6 +29,16 @@ export interface JoystickLayout {
   offsetYPx: number;
   deadzone: number;
   expo: number;
+}
+
+export interface RelativeSteerLayout {
+  maxRadiusPx: number;
+  deadzonePx: number;
+  expo: number;
+  mouseSensitivity: number;
+  originRadiusPx: number;
+  currentRadiusPx: number;
+  vectorWidthPx: number;
 }
 
 export interface ThrottleLayout {
@@ -81,6 +93,7 @@ export interface FlightHudLayout {
   viewport: Viewport;
   scale: number;
   joystick: JoystickLayout;
+  relativeSteer: RelativeSteerLayout;
   throttle: ThrottleLayout;
   boost: BoostLayout;
   reticle: ReticleLayout;
@@ -91,6 +104,7 @@ export interface FlightHudLayout {
 /** Fallbacks for a theme with no (or a partial) `hud.flight` block. */
 export const FLIGHT_HUD_DEFAULTS = {
   joystick: {
+    enabled: true,
     anchor: "bottom-left",
     baseRadiusPx: 62,
     thumbRadiusPx: 28,
@@ -98,6 +112,15 @@ export const FLIGHT_HUD_DEFAULTS = {
     offsetYPx: 22,
     deadzone: 0.12,
     expo: 1.35,
+  },
+  relativeSteer: {
+    maxRadiusPx: 72,
+    deadzonePx: 9,
+    expo: 1.35,
+    mouseSensitivity: 0.012,
+    originRadiusPx: 7,
+    currentRadiusPx: 12,
+    vectorWidthPx: 2,
   },
   throttle: {
     anchor: "bottom-right",
@@ -178,6 +201,7 @@ export function resolveFlightHudLayout(
   const base: FlightHudConfig = hud?.flight ?? {};
   const over: FlightHudConfig = override.flight ?? {};
   const joystick: JoystickConfig = merge(base.joystick, over.joystick);
+  const relativeSteer: RelativeSteerConfig = merge(base.relativeSteer, over.relativeSteer);
   const throttle: ThrottleStripConfig = merge(base.throttle, over.throttle);
   const boost: BoostButtonConfig = merge(base.boost, over.boost);
   const reticle: LockReticleConfig = merge(base.reticle, over.reticle);
@@ -191,6 +215,7 @@ export function resolveFlightHudLayout(
     viewport,
     scale,
     joystick: {
+      enabled: joystick.enabled ?? d.joystick.enabled,
       anchor: joystick.anchor ?? d.joystick.anchor,
       baseRadiusPx: (joystick.baseRadiusPx ?? d.joystick.baseRadiusPx) * scale,
       thumbRadiusPx: (joystick.thumbRadiusPx ?? d.joystick.thumbRadiusPx) * scale,
@@ -198,6 +223,15 @@ export function resolveFlightHudLayout(
       offsetYPx: (joystick.offsetYPx ?? d.joystick.offsetYPx) * scale,
       deadzone: joystick.deadzone ?? d.joystick.deadzone,
       expo: joystick.expo ?? d.joystick.expo,
+    },
+    relativeSteer: {
+      maxRadiusPx: (relativeSteer.maxRadiusPx ?? d.relativeSteer.maxRadiusPx) * scale,
+      deadzonePx: (relativeSteer.deadzonePx ?? d.relativeSteer.deadzonePx) * scale,
+      expo: relativeSteer.expo ?? d.relativeSteer.expo,
+      mouseSensitivity: relativeSteer.mouseSensitivity ?? d.relativeSteer.mouseSensitivity,
+      originRadiusPx: (relativeSteer.originRadiusPx ?? d.relativeSteer.originRadiusPx) * scale,
+      currentRadiusPx: (relativeSteer.currentRadiusPx ?? d.relativeSteer.currentRadiusPx) * scale,
+      vectorWidthPx: (relativeSteer.vectorWidthPx ?? d.relativeSteer.vectorWidthPx) * scale,
     },
     throttle: {
       anchor: throttle.anchor ?? d.throttle.anchor,
@@ -243,17 +277,6 @@ export function resolveFlightHudLayout(
       minIntervalMs: orders.minIntervalMs ?? d.orders.minIntervalMs,
     },
   };
-}
-
-/**
- * How far up the screen the left-hand flight controls reach, button rim
- * included. The gauges are bottom-left too, so the HUD pushes them above this
- * (`--hud-gauge-lift`) instead of anyone hardcoding a magic offset.
- */
-export function joystickReachPx(layout: FlightHudLayout): number {
-  const j = layout.joystick;
-  if (!j.anchor.startsWith("bottom")) return 0;
-  return j.offsetYPx + j.baseRadiusPx * 2;
 }
 
 /**
@@ -485,6 +508,9 @@ export function flightCssVars(layout: FlightHudLayout): Record<string, string> {
   return {
     "--hud-joy-base-radius": `${layout.joystick.baseRadiusPx}px`,
     "--hud-joy-thumb-radius": `${layout.joystick.thumbRadiusPx}px`,
+    "--hud-steer-origin-radius": `${layout.relativeSteer.originRadiusPx}px`,
+    "--hud-steer-current-radius": `${layout.relativeSteer.currentRadiusPx}px`,
+    "--hud-steer-vector-width": `${layout.relativeSteer.vectorWidthPx}px`,
     "--hud-throttle-width": `${layout.throttle.widthPx}px`,
     "--hud-throttle-height": `${layout.throttle.heightPx}px`,
     "--hud-throttle-thumb-height": `${layout.throttle.thumbHeightPx}px`,
@@ -492,8 +518,5 @@ export function flightCssVars(layout: FlightHudLayout): Record<string, string> {
     "--hud-reticle-stroke": `${layout.reticle.strokePx}px`,
     "--hud-reticle-ring-stroke": `${layout.reticle.ringStrokePx}px`,
     "--hud-enemy-arrow-size": `${layout.enemyArrows.sizePx}px`,
-    // Keeps the bottom-left gauges clear of the joystick without either widget
-    // knowing the other's geometry.
-    "--hud-gauge-lift": `${joystickReachPx(layout)}px`,
   };
 }

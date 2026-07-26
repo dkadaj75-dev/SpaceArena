@@ -19,7 +19,7 @@ import { clamp, throttleFromPointer, throttleFromWheel, thumbTopPx } from "./fli
  * — so 0 % and 100 % are always reachable by dragging past the end.
  *
  * A mouse WHEEL over the track nudges the lever by `wheelStepPerNotch`
- * (BUBBLE.md §C): the desktop W/S nudge moved to the pitch axis, and a wheel is
+ * The desktop W/S keys ramp the same held value, and a wheel is
  * the pointer-hand equivalent for a player who never grabs the lever. The drag
  * is unchanged, and a wheel arriving mid-drag is ignored for the same reason the
  * keys are — whatever the player is holding wins.
@@ -136,7 +136,7 @@ export class ThrottleStrip {
   }
 
   /**
-   * Set the lever from outside the widget — the desktop R/F ramp and the
+   * Set the lever from outside the widget — the desktop W/S ramp and the
    * per-match reset. Ignored mid-drag so a stuck key cannot fight the thumb.
    */
   setThrottle(value: number): void {

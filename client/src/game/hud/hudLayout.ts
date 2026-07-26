@@ -1,4 +1,10 @@
-import type { HudAnchorName, HudOrientationConfig, ModuleClusterConfig, ThemeConfig } from "@space-arena/shared";
+import type {
+  GaugesConfig,
+  HudAnchorName,
+  HudOrientationConfig,
+  ModuleClusterConfig,
+  ThemeConfig,
+} from "@space-arena/shared";
 
 /**
  * Pure layout math for the DOM HUD (5.4 / 5.5).
@@ -38,9 +44,18 @@ export interface HudLayout {
   minimapSizePx: number;
   minimapRangeUnits: number | undefined;
   gaugeWidthPx: number;
+  gauges: GaugeLayout;
   notificationMaxVisible: number;
   thumbZoneFraction: number;
   cluster: ClusterLayout;
+}
+
+export interface GaugeLayout {
+  anchor: HudAnchorName;
+  offsetXPx: number;
+  offsetYPx: number;
+  gapPx: number;
+  trackHeightPx: number;
 }
 
 /** One button's centre, in px offsets from the cluster's anchor pivot (x right, y down). */
@@ -55,6 +70,13 @@ export const HUD_DEFAULTS = {
   safeAreaInsetPx: 12,
   minimapSizePx: 128,
   gaugeWidthPx: 140,
+  gauges: {
+    anchor: "bottom-left",
+    offsetXPx: 0,
+    offsetYPx: 0,
+    gapPx: 6,
+    trackHeightPx: 10,
+  },
   notificationMaxVisible: 3,
   thumbZoneFraction: 0.4,
   cluster: {
@@ -88,6 +110,10 @@ function mergeCluster(base: ModuleClusterConfig | undefined, over: ModuleCluster
   return { ...(base ?? {}), ...stripUndefined(over ?? {}) };
 }
 
+function mergeGauges(base: GaugesConfig | undefined, over: GaugesConfig | undefined): GaugesConfig {
+  return { ...(base ?? {}), ...stripUndefined(over ?? {}) };
+}
+
 function stripUndefined<T extends object>(value: T): T {
   const out: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(value)) if (v !== undefined) out[key] = v;
@@ -107,6 +133,7 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
 
   const scale = override.scale ?? hud?.scale ?? HUD_DEFAULTS.scale;
   const rawCluster = mergeCluster(hud?.moduleCluster, override.moduleCluster);
+  const rawGauges = mergeGauges(hud?.gauges, override.gauges);
 
   // Legacy flat fields stay authoritative when the cluster block omits them, so
   // themes written before 5.4 keep their button size/gap.
@@ -121,6 +148,13 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
     minimapSizePx: (override.minimapSizePx ?? hud?.minimapSizePx ?? HUD_DEFAULTS.minimapSizePx) * scale,
     minimapRangeUnits: hud?.minimapRangeUnits,
     gaugeWidthPx: (override.gaugeWidthPx ?? hud?.gaugeWidthPx ?? HUD_DEFAULTS.gaugeWidthPx) * scale,
+    gauges: {
+      anchor: rawGauges.anchor ?? HUD_DEFAULTS.gauges.anchor,
+      offsetXPx: (rawGauges.offsetXPx ?? HUD_DEFAULTS.gauges.offsetXPx) * scale,
+      offsetYPx: (rawGauges.offsetYPx ?? HUD_DEFAULTS.gauges.offsetYPx) * scale,
+      gapPx: (rawGauges.gapPx ?? HUD_DEFAULTS.gauges.gapPx) * scale,
+      trackHeightPx: (rawGauges.trackHeightPx ?? HUD_DEFAULTS.gauges.trackHeightPx) * scale,
+    },
     notificationMaxVisible: hud?.notificationMaxVisible ?? HUD_DEFAULTS.notificationMaxVisible,
     thumbZoneFraction: override.thumbZoneFraction ?? hud?.thumbZoneFraction ?? HUD_DEFAULTS.thumbZoneFraction,
     cluster: {
@@ -243,6 +277,10 @@ export function hudCssVars(layout: HudLayout): Record<string, string> {
     "--hud-safe-inset": `${layout.safeAreaInsetPx}px`,
     "--hud-minimap-size": `${layout.minimapSizePx}px`,
     "--hud-gauge-width": `${layout.gaugeWidthPx}px`,
+    "--hud-gauge-offset-x": `${layout.gauges.offsetXPx}px`,
+    "--hud-gauge-offset-y": `${layout.gauges.offsetYPx}px`,
+    "--hud-gauge-gap": `${layout.gauges.gapPx}px`,
+    "--hud-gauge-track-height": `${layout.gauges.trackHeightPx}px`,
     "--hud-module-btn-radius": `${layout.cluster.buttonRadiusPx}px`,
     "--hud-module-gap": `${layout.cluster.gapPx}px`,
   };

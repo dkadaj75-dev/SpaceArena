@@ -14,6 +14,7 @@ import { ThrottleStrip } from "./ThrottleStrip.js";
 import { BoostButton } from "./BoostButton.js";
 import { LockReticle } from "./LockReticle.js";
 import { EnemyArrows } from "./EnemyArrows.js";
+import { RelativeSteerInput } from "./RelativeSteerInput.js";
 import {
   orderMinIntervalMs,
   reticleRadiusPx,
@@ -24,9 +25,7 @@ import {
 import {
   flightKeyOf,
   keyAxesFrom,
-  pitchFromStick,
   rampThrottle,
-  turnFromStick,
   type FlightInputState,
 } from "./flightInput.js";
 import { FlightOrderSender } from "./flightOrders.js";
@@ -38,6 +37,8 @@ const log = createLogger("FlightControls");
  * never imports Babylon (and so every widget below stays testable in jsdom).
  */
 export interface FlightHudBinding {
+  /** Live game canvas; desktop RMB steering must begin on it. */
+  inputSurface: HTMLElement;
   /**
    * World position → CSS px inside the HUD root, written into `out`. Returns
    * false only when the point is genuinely UNPROJECTABLE (no canvas yet, or the
@@ -54,9 +55,8 @@ export interface FlightHudBinding {
 }
 
 /**
- * The flight HUD (FLIGHT.md §4, three axes since BUBBLE.md §C): joystick +
- * throttle lever + boost button + lock reticle + off-screen enemy arrows, the
- * desktop key bindings, and the order sender that turns all of it into `flight`
+ * The flight HUD: relative steering + reusable joystick, throttle, boost,
+ * reticle, enemy arrows, desktop keys, and the `flight` order sender.
  * orders.
  *
  * It owns the *aggregation*, not the feel: every threshold, dimension and curve
@@ -71,6 +71,7 @@ export interface FlightHudBinding {
 export class FlightControls {
   private readonly container: HTMLDivElement;
   private readonly joystick: VirtualJoystick;
+  private readonly relativeSteer: RelativeSteerInput;
   private readonly throttleStrip: ThrottleStrip;
   private readonly boostButton: BoostButton;
   private readonly reticle: LockReticle;
@@ -82,11 +83,8 @@ export class FlightControls {
   /** Keys currently held, normalized by {@link flightKeyOf}. */
   private readonly heldKeys = new Set<string>();
   /**
-   * Player pitch-invert preference (`sa.controls.invertPitch`, 5.8). Held here as
-   * well as on the stick because the KEY path maps its own axis through the same
-   * {@link pitchFromStick} — exactly how `turnFromStick` is shared today.
+   * Player pitch-invert preference (`sa.controls.invertPitch`, 5.8).
    */
-  private invertPitch = false;
 
   // Per-frame scratch — this runs every render frame, so nothing here allocates.
   private readonly input: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false };
@@ -146,6 +144,7 @@ export class FlightControls {
     root.appendChild(this.container);
 
     this.joystick = new VirtualJoystick(this.container, layout);
+    this.relativeSteer = new RelativeSteerInput(this.container, binding.inputSurface, layout);
     this.throttleStrip = new ThrottleStrip(this.container, layout);
     this.boostButton = new BoostButton(this.container, layout);
     this.reticle = new LockReticle(this.container, layout);
@@ -165,6 +164,7 @@ export class FlightControls {
   applyLayout(layout: FlightHudLayout): void {
     this.layout = layout;
     this.joystick.applyLayout(layout);
+    this.relativeSteer.applyLayout(layout);
     this.throttleStrip.applyLayout(layout);
     this.boostButton.applyLayout(layout);
     this.reticle.applyLayout(layout);
@@ -198,6 +198,7 @@ export class FlightControls {
       // with last frame's arrows parked around a screen that has moved on.
       this.enemyArrows.clear();
     }
+    this.relativeSteer.setEnabled(enabled);
   }
 
   /**
@@ -205,8 +206,8 @@ export class FlightControls {
    * Applies to the thumb and the W/S + ↑/↓ keys alike.
    */
   setInvertPitch(invert: boolean): void {
-    this.invertPitch = invert;
     this.joystick.setInvertPitch(invert);
+    this.relativeSteer.setInvertPitch(invert);
   }
 
   /** Orders emitted so far this match — debug overlays and the rate-limit test. */
@@ -246,19 +247,11 @@ export class FlightControls {
       );
     }
 
-    // Turn: a held stick wins; otherwise the keys act as a full deflection. Both
-    // go through `turnFromStick`, so there is exactly ONE place that knows which
-    // sign reads as a screen-right turn under the chase cam.
-    const turn = this.joystick.active
-      ? this.joystick.turn
-      : turnFromStick(keys.turnScreenX, 0, 1);
+    // The reusable fixed stick wins when enabled/held; otherwise relative input
+    // supplies both axes.
+    const turn = this.joystick.active ? this.joystick.turn : this.relativeSteer.turn;
 
-    // Pitch: same precedence as turn — a held stick wins, otherwise the keys are
-    // a full deflection through the same mapping (so the invert preference and
-    // the "up = climb" convention live in exactly one place).
-    const pitchStick = this.joystick.active
-      ? this.joystick.pitch
-      : pitchFromStick(keys.pitchScreenY, 0, 1, this.invertPitch);
+    const pitchStick = this.joystick.active ? this.joystick.pitch : this.relativeSteer.pitchStick;
 
     const boost = this.boostButton.held || keys.boost;
     this.boostButton.setKeyActive(keys.boost);
@@ -406,6 +399,7 @@ export class FlightControls {
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
     this.joystick.dispose();
+    this.relativeSteer.dispose();
     this.throttleStrip.dispose();
     this.boostButton.dispose();
     this.reticle.dispose();

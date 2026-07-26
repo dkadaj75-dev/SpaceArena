@@ -108,8 +108,12 @@ New theme.hud blocks (portrait + landscape geometry like the module cluster), ne
 HUD subcomponents per the ModuleButtons pattern (DOM, `data-hud-control` attr so
 edge palm-rejection ignores them):
 
-- **Virtual joystick** (left thumb): steer only — `turn = stick.x` (deadzone from
-  theme/tuning). Vertical axis unused for now.
+- **Relative steering**: desktop holds RMB on the game canvas and moves the
+  mouse; touch starts on any free area and drags from a floating origin. The
+  radial deadzone, max radius, response curve, mouse sensitivity, and feedback
+  geometry are theme-driven. Release recentres turn + pitchStick.
+- **Virtual joystick** remains a reusable component behind
+  `theme.hud.flight.joystick.enabled`; the shipped theme disables it.
 - **Throttle strip** (right edge, vertical): drag thumb 0% (bottom) → 100% (top);
   the thumb STAYS where released (held state). Shows % readout. Emits flight orders.
 - **Boost button** (module-cluster area): hold = `boost: true`.
@@ -118,8 +122,8 @@ edge palm-rejection ignores them):
   locked/locking enemy (main.ts passes a `project(worldPos) → cssPx` callback into
   Hud) with a lock-progress ring; locked state = color change + haptic pattern
   (new themeSchema haptic field + Haptics.ts branch) + audio event.
-- **Desktop bindings**: A/D or ←/→ = turn, W/S or ↑/↓ = throttle nudge (hold to
-  ramp), Shift = boost, mouse drag works on both widgets.
+- **Desktop bindings**: W/S = throttle nudge (hold to ramp), Shift = boost,
+  hold RMB + mouse movement = turn/pitch. A/D, arrows, and R/F are unbound.
 - Order sending: client keeps latest input state; sends a flight order when
   `|Δthrottle| > 0.02`, `|Δturn| > 0.05`, boost edge, or 250ms heartbeat while
   changing — comfortably inside maxOrdersPerSec, with a trailing send so the final

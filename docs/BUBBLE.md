@@ -64,10 +64,11 @@ Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchang
   works on 3D positions.
 
 ### C. Client
-- Virtual joystick: **y-axis becomes pitch** (was unused — FLIGHT.md §4 reserved it);
-  push up = climb (invert via a settings toggle, sa.controls.invertPitch). Desktop:
-  W/S or ↑/↓ = pitch (throttle nudge moves to R/F + wheel over the strip; keep the
-  strip drag). Deadzone/theme geometry unchanged.
+- Relative steering drives yaw + pitch together. Desktop holds RMB on the canvas
+  and accumulates mouse deltas; touch begins on any free HUD area and drags from
+  a floating origin. Release recentres both command axes (the sim still holds the
+  resulting ship pitch). `sa.controls.invertPitch` flips only pitch. W/S ramps
+  throttle; wheel/strip drag remain available. A/D, arrows, and R/F are retired.
 - Chase camera: beta follows ship pitch (config lag, clamped so it never crosses the
   poles); alpha logic unchanged. Shake/allocation invariants unchanged.
 - EntityView: orient meshes by heading+pitch, add visual bank roll from turn input

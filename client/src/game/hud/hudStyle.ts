@@ -68,19 +68,30 @@ const CSS = `
   display: block;
 }
 
-/* --- Gauges (left side): hull, shield, energy, heat --- */
+/* --- Gauges: hull, shield, energy, heat --- */
 .hud-gauges {
   position: absolute;
-  left: var(--hud-inset-left);
-  /* --hud-gauge-lift is the flight joystick's reach (flightHudLayout.ts): the
-     stick is bottom-left too, so the gauges ride above it without either widget
-     knowing the other's geometry. 0 when there is no flight HUD. */
-  bottom: calc(var(--hud-inset-bottom) + var(--hud-gauge-lift, 0px));
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--hud-gauge-gap, 6px);
   width: var(--hud-gauge-width, 140px);
   max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
+}
+.hud-gauges[data-anchor="bottom-left"] {
+  left: calc(var(--hud-inset-left) + var(--hud-gauge-offset-x, 0px));
+  bottom: calc(var(--hud-inset-bottom) + var(--hud-gauge-offset-y, 0px));
+}
+.hud-gauges[data-anchor="bottom-right"] {
+  right: calc(var(--hud-inset-right) + var(--hud-gauge-offset-x, 0px));
+  bottom: calc(var(--hud-inset-bottom) + var(--hud-gauge-offset-y, 0px));
+}
+.hud-gauges[data-anchor="top-left"] {
+  left: calc(var(--hud-inset-left) + var(--hud-gauge-offset-x, 0px));
+  top: calc(var(--hud-inset-top) + var(--hud-gauge-offset-y, 0px));
+}
+.hud-gauges[data-anchor="top-right"] {
+  right: calc(var(--hud-inset-right) + var(--hud-gauge-offset-x, 0px));
+  top: calc(var(--hud-inset-top) + var(--hud-gauge-offset-y, 0px));
 }
 .hud-gauge {
   display: flex;
@@ -96,7 +107,7 @@ const CSS = `
 .hud-gauge-track {
   position: relative;
   width: 100%;
-  height: 10px;
+  height: var(--hud-gauge-track-height, 10px);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 3px;
@@ -187,6 +198,45 @@ const CSS = `
   position: absolute;
   width: 0;
   height: 0;
+}
+.hud-joystick.disabled { display: none; }
+
+/* Floating touch-steer feedback. It never receives events itself. */
+.hud-relative-steer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+.hud-relative-steer.active { display: block; }
+.hud-relative-steer-origin,
+.hud-relative-steer-current,
+.hud-relative-steer-vector {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  transform-origin: left center;
+}
+.hud-relative-steer-origin {
+  width: calc(var(--hud-steer-origin-radius, 7px) * 2);
+  height: calc(var(--hud-steer-origin-radius, 7px) * 2);
+  margin: calc(var(--hud-steer-origin-radius, 7px) * -1);
+  border-radius: 50%;
+  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, #57d8ff) 62%, transparent);
+  background: color-mix(in srgb, var(--hud-bg, #0a0e1a) 45%, transparent);
+}
+.hud-relative-steer-current {
+  width: calc(var(--hud-steer-current-radius, 12px) * 2);
+  height: calc(var(--hud-steer-current-radius, 12px) * 2);
+  margin: calc(var(--hud-steer-current-radius, 12px) * -1);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--hud-primary, #57d8ff) 32%, transparent);
+  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, #57d8ff) 72%, transparent);
+}
+.hud-relative-steer-vector {
+  height: var(--hud-steer-vector-width, 2px);
+  background: color-mix(in srgb, var(--hud-primary, #57d8ff) 48%, transparent);
 }
 .hud-joystick[data-anchor="bottom-right"],
 .hud-throttle[data-anchor="bottom-right"],

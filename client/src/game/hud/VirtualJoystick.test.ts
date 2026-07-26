@@ -32,6 +32,17 @@ describe("VirtualJoystick (FLIGHT.md §4)", () => {
     joystick.dispose();
   });
 
+  it("stays mounted but hides when the reusable joystick flag is disabled", () => {
+    const { root, joystick } = mount();
+    joystick.applyLayout({
+      ...LAYOUT,
+      joystick: { ...LAYOUT.joystick, enabled: false },
+    });
+    expect(root.querySelector(".hud-joystick")?.classList.contains("disabled")).toBe(true);
+    expect(root.querySelector(".hud-joystick-base")).not.toBeNull();
+    joystick.dispose();
+  });
+
   it("maps a thumb pushed to the RIGHT of the base onto the screen-right turn sign", () => {
     const { base, joystick } = mount();
     base.dispatchEvent(pointer("pointerdown", 1, CENTRE.x + 62, CENTRE.y));

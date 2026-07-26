@@ -7,6 +7,7 @@ import type {
   ShipSnapshot,
   Snapshot,
 } from "@space-arena/shared";
+import type { HudLayout } from "./hudLayout.js";
 
 interface GaugeEntry {
   fill: HTMLDivElement;
@@ -21,7 +22,7 @@ interface GaugeEntry {
 const HEAT_WARN_FRACTION = 0.75;
 
 /**
- * Hull, shield-pool, energy and heat gauge bars (left side, §2.3/§6 1.8).
+ * Hull, shield-pool, energy and heat gauge bars (bottom-left, theme-positioned).
  * Shield-pool is the sum of active shield modules' `shieldPool` reservoirs
  * (there is no innate ship shield stat in MVP — shielding comes entirely from
  * fitted shield modules). Heat gets a warning color near the overheat range.
@@ -47,6 +48,10 @@ export class Gauges {
     this.shield = this.buildRow("SHIELD", "shield");
     this.energy = this.buildRow("ENERGY", "energy");
     this.heat = this.buildRow("HEAT", "heat");
+  }
+
+  applyLayout(layout: HudLayout): void {
+    this.container.dataset["anchor"] = layout.gauges.anchor;
   }
 
   private buildRow(labelText: string, cls: string): GaugeEntry {

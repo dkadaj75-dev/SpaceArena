@@ -47,6 +47,8 @@ export type ModuleClusterConfig = z.infer<typeof moduleClusterSchema>;
  * before `hud.scale`.
  */
 export const joystickSchema = z.object({
+  /** Mount the reusable fixed joystick. Shipped false while floating touch steering is active. */
+  enabled: z.boolean().optional(),
   anchor: hudAnchor.optional(),
   /** Radius of the fixed base ring the thumb travels inside. */
   baseRadiusPx: z.number().positive().optional(),
@@ -73,6 +75,39 @@ export const joystickSchema = z.object({
 export type JoystickConfig = z.infer<typeof joystickSchema>;
 
 /**
+ * Relative steering shared by desktop RMB mouse deltas and free-area touch
+ * drags. Touch distances are CSS pixels; mouse sensitivity converts one mouse
+ * delta pixel into a fraction of full stick deflection.
+ */
+export const relativeSteerSchema = z.object({
+  /** CSS-pixel drag radius that produces full steering deflection. */
+  maxRadiusPx: z.number().positive().optional(),
+  /** CSS-pixel radial deadzone around a touch origin / accumulated mouse origin. */
+  deadzonePx: z.number().nonnegative().optional(),
+  /** Response exponent after removing the radial deadzone. */
+  expo: z.number().positive().optional(),
+  /** Normalized stick deflection added per desktop mouse-delta pixel. */
+  mouseSensitivity: z.number().positive().optional(),
+  /** Radius of the floating origin marker. */
+  originRadiusPx: z.number().positive().optional(),
+  /** Radius of the marker at the current drag position. */
+  currentRadiusPx: z.number().positive().optional(),
+  /** Width of the floating vector line. */
+  vectorWidthPx: z.number().positive().optional(),
+});
+export type RelativeSteerConfig = z.infer<typeof relativeSteerSchema>;
+
+/** Theme-driven status-gauge placement and geometry. */
+export const gaugesSchema = z.object({
+  anchor: hudAnchor.optional(),
+  offsetXPx: z.number().nonnegative().optional(),
+  offsetYPx: z.number().nonnegative().optional(),
+  gapPx: z.number().nonnegative().optional(),
+  trackHeightPx: z.number().positive().optional(),
+});
+export type GaugesConfig = z.infer<typeof gaugesSchema>;
+
+/**
  * Throttle strip (FLIGHT.md §4, right edge, vertical). 0 % at the bottom, 100 %
  * at the top; the thumb stays where it is released, so throttle is a held
  * state, not a spring.
@@ -90,8 +125,7 @@ export const throttleStripSchema = z.object({
   /** Extra push away from the anchored horizontal edge. */
   offsetYPx: z.number().nonnegative().optional(),
   /**
-   * Desktop throttle-key ramp rate, in throttle fraction per second while held.
-   * The keys are R/F since the bubble took W/S + ↑/↓ for pitch (BUBBLE.md §C).
+   * Desktop W/S throttle-key ramp rate, in throttle fraction per second held.
    */
   keyRampPerSec: z.number().positive().optional(),
   /**
@@ -200,9 +234,10 @@ export const enemyArrowsSchema = z.object({
 });
 export type EnemyArrowsConfig = z.infer<typeof enemyArrowsSchema>;
 
-/** The whole flight HUD block: joystick + throttle + boost + reticle + arrows + order feel. */
+/** The whole flight HUD block: steering, throttle, boost, reticle, arrows, and order feel. */
 export const flightHudSchema = z.object({
   joystick: joystickSchema.optional(),
+  relativeSteer: relativeSteerSchema.optional(),
   throttle: throttleStripSchema.optional(),
   boost: boostButtonSchema.optional(),
   reticle: lockReticleSchema.optional(),
@@ -223,6 +258,7 @@ export const hudOrientationSchema = z.object({
   minimapSizePx: z.number().positive().optional(),
   minimapAltitudeTickPx: z.number().nonnegative().optional(),
   gaugeWidthPx: z.number().positive().optional(),
+  gauges: gaugesSchema.optional(),
   thumbZoneFraction: z.number().gt(0).max(1).optional(),
   moduleCluster: moduleClusterSchema.optional(),
   /** Flight-control geometry for this orientation (merged per sub-block). */
@@ -469,6 +505,8 @@ export const themeSchema = z.object({
       minimapAltitudeTickPx: z.number().nonnegative().optional(),
       /** Width of the hull/shield/energy/heat gauge bars. */
       gaugeWidthPx: z.number().positive().optional(),
+      /** Status-gauge placement and bar geometry. */
+      gauges: gaugesSchema.optional(),
       /** Max simultaneously visible toast notifications. */
       notificationMaxVisible: z.number().int().positive().optional(),
       /**

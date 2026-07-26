@@ -191,12 +191,11 @@ export class Hud {
     }
     this.root.dataset["orientation"] = this.layout.orientation;
     this.moduleButtons.applyLayout(this.layout);
+    this.gauges.applyLayout(this.layout);
 
     // Flight geometry resolves from the same theme + viewport, through its own
     // portrait/landscape block (FLIGHT.md §4). Its CSS vars land on the same
-    // root, including `--hud-gauge-lift` which keeps the gauges off the stick —
-    // which is exactly why they are only published when the controls exist. A
-    // HUD mounted without them must not shove the gauges up over empty space.
+    // root. Gauges now resolve their own orientation-aware bottom-left geometry.
     this.flightLayout = resolveFlightHudLayout(theme, viewportSize());
     if (this.flight) {
       for (const [prop, value] of Object.entries(flightCssVars(this.flightLayout))) {

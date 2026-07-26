@@ -17,6 +17,33 @@ export interface FlightInputState {
   boost: boolean;
 }
 
+export interface RelativeSteerAxes {
+  turn: number;
+  pitchStick: number;
+}
+
+/** Map a screen-space drag vector through a circular deadzone/radius/curve. */
+export function mapRelativeSteer(
+  dxPx: number,
+  dyPx: number,
+  deadzonePx: number,
+  maxRadiusPx: number,
+  expo = 1,
+  invertPitch = false,
+): RelativeSteerAxes {
+  if (maxRadiusPx <= 0) return { turn: 0, pitchStick: 0 };
+  const magnitude = Math.hypot(dxPx, dyPx);
+  const deadzone = clamp(deadzonePx, 0, maxRadiusPx * 0.9);
+  if (magnitude <= deadzone || magnitude === 0) return { turn: 0, pitchStick: 0 };
+  const live = (Math.min(magnitude, maxRadiusPx) - deadzone) / (maxRadiusPx - deadzone);
+  const shaped = clamp(expo === 1 ? live : Math.pow(live, expo), 0, 1);
+  return {
+    turn: (dxPx / magnitude) * shaped * TURN_SIGN_FOR_SCREEN_RIGHT,
+    pitchStick:
+      (dyPx / magnitude) * shaped * PITCH_SIGN_FOR_STICK_DOWN * (invertPitch ? -1 : 1),
+  };
+}
+
 export function clamp(value: number, lo: number, hi: number): number {
   return value < lo ? lo : value > hi ? hi : value;
 }
@@ -98,43 +125,21 @@ export function thumbTopPx(throttle: number, trackHeight: number, thumbHeight: n
 
 /** Desktop keys currently held, already collapsed to axes. */
 export interface KeyAxes {
-  /** -1 = left key(s) held, +1 = right, 0 = neither or both. */
-  turnScreenX: number;
-  /**
-   * Screen-space pitch axis: **+1 = a key pushing the nose toward the BOTTOM of
-   * the screen** held, -1 = toward the top, 0 = neither or both. Same convention
-   * as the stick's `stickY`, so both feed {@link pitchFromStick} unchanged and
-   * the invert preference applies to keys and thumb alike.
-   */
-  pitchScreenY: number;
   /** -1 = throttle-down held, +1 = throttle-up, 0 = neither or both. */
   throttleRamp: number;
   boost: boolean;
 }
 
 /**
- * Desktop bindings (FLIGHT.md §4, rebound for the bubble in BUBBLE.md §C):
- * A/D and ←/→ steer, **W/S and ↑/↓ pitch** (up = climb), **R/F ramp the
- * throttle** while held, Shift boosts. Keys are matched on `KeyboardEvent.key`
- * lower-cased, so layout-independent arrows work and letters are case-agnostic.
- *
- * The throttle keys moved rather than doubling up: pitch is a continuous flight
- * axis that wants the primary hand position, and the throttle already has a
- * draggable lever plus (since the bubble) a mouse wheel over the strip.
+ * Desktop keys: W/S ramp throttle and Shift boosts. Steering is exclusively
+ * hold-RMB mouse movement; A/D, arrows, and R/F are intentionally unbound.
  *
  * Opposite keys cancel rather than fighting over the last press — holding A and
  * D is a straight line, which is what a pilot mashing both expects.
  */
 export function keyAxesFrom(held: ReadonlySet<string>): KeyAxes {
-  const left = held.has("a") || held.has("arrowleft");
-  const right = held.has("d") || held.has("arrowright");
-  const noseUp = held.has("w") || held.has("arrowup");
-  const noseDown = held.has("s") || held.has("arrowdown");
   return {
-    turnScreenX: (right ? 1 : 0) - (left ? 1 : 0),
-    // Nose-up is a push toward the TOP of the screen, i.e. the negative screen axis.
-    pitchScreenY: (noseDown ? 1 : 0) - (noseUp ? 1 : 0),
-    throttleRamp: (held.has("r") ? 1 : 0) - (held.has("f") ? 1 : 0),
+    throttleRamp: (held.has("w") ? 1 : 0) - (held.has("s") ? 1 : 0),
     boost: held.has("shift"),
   };
 }
@@ -146,21 +151,13 @@ export function flightKeyOf(key: string): string | null {
 }
 
 const FLIGHT_KEYS: ReadonlySet<string> = new Set([
-  "a",
-  "d",
   "w",
   "s",
-  "r",
-  "f",
-  "arrowleft",
-  "arrowright",
-  "arrowup",
-  "arrowdown",
   "shift",
 ]);
 
 /**
- * Advance a key-held throttle by `dtMs`. Held R ramps up, F ramps down at
+ * Advance a key-held throttle by `dtMs`. Held W ramps up, S ramps down at
  * `ratePerSec` of full travel per second; releasing both HOLDS the value (the
  * throttle is a lever, not a spring — same contract as the touch thumb).
  */
@@ -170,8 +167,7 @@ export function rampThrottle(current: number, ramp: number, ratePerSec: number, 
 }
 
 /**
- * Mouse wheel over the throttle strip → a new lever value (BUBBLE.md §C, the
- * pointer-side replacement for the W/S nudge the pitch axis took).
+ * Mouse wheel over the throttle strip → a new lever value.
  *
  * Only the SIGN of `deltaY` is used, never its magnitude: browsers report wildly
  * different deltas for one physical notch (pixels, lines, pages, and a trackpad

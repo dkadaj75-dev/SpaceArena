@@ -3,6 +3,7 @@ import { TURN_SIGN_FOR_SCREEN_RIGHT } from "../chaseCamera.js";
 import {
   flightKeyOf,
   keyAxesFrom,
+  mapRelativeSteer,
   pitchFromStick,
   rampThrottle,
   throttleFromPointer,
@@ -142,48 +143,54 @@ describe("thumbTopPx", () => {
 });
 
 describe("keyAxesFrom / flightKeyOf", () => {
-  const NONE = { turnScreenX: 0, pitchScreenY: 0, throttleRamp: 0, boost: false };
+  const NONE = { throttleRamp: 0, boost: false };
 
-  it("binds A/D and ←/→ to turn, W/S and ↑/↓ to PITCH, R/F to throttle, Shift to boost", () => {
-    expect(keyAxesFrom(new Set(["d"]))).toEqual({ ...NONE, turnScreenX: 1 });
-    expect(keyAxesFrom(new Set(["arrowleft"]))).toEqual({ ...NONE, turnScreenX: -1 });
-    // W/↑ is a push toward the TOP of the screen — the negative screen axis, which
-    // pitchFromStick then reads as a climb.
-    expect(keyAxesFrom(new Set(["w"]))).toEqual({ ...NONE, pitchScreenY: -1 });
-    expect(keyAxesFrom(new Set(["arrowdown"]))).toEqual({ ...NONE, pitchScreenY: 1 });
-    expect(keyAxesFrom(new Set(["r"]))).toEqual({ ...NONE, throttleRamp: 1 });
-    expect(keyAxesFrom(new Set(["f"]))).toEqual({ ...NONE, throttleRamp: -1 });
+  it("binds W/S to throttle and Shift to boost", () => {
+    expect(keyAxesFrom(new Set(["w"]))).toEqual({ ...NONE, throttleRamp: 1 });
+    expect(keyAxesFrom(new Set(["s"]))).toEqual({ ...NONE, throttleRamp: -1 });
     expect(keyAxesFrom(new Set(["shift"])).boost).toBe(true);
   });
 
-  it("W/↑ raises the nose once the screen axis goes through pitchFromStick", () => {
-    // The pair that would silently invert the whole vertical axis if either half
-    // were backwards, pinned end to end.
-    expect(pitchFromStick(keyAxesFrom(new Set(["w"])).pitchScreenY, 0, 1)).toBe(1);
-    expect(pitchFromStick(keyAxesFrom(new Set(["s"])).pitchScreenY, 0, 1)).toBe(-1);
-    expect(pitchFromStick(keyAxesFrom(new Set(["arrowup"])).pitchScreenY, 0, 1, true)).toBe(-1);
-  });
-
-  it("no longer treats W/S as throttle — that moved to R/F for the bubble", () => {
-    expect(keyAxesFrom(new Set(["w", "s"])).throttleRamp).toBe(0);
-    expect(keyAxesFrom(new Set(["arrowup"])).throttleRamp).toBe(0);
+  it("retires A/D, arrows, and R/F completely", () => {
+    for (const key of ["a", "d", "r", "f", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
+      expect(flightKeyOf(key)).toBeNull();
+      expect(keyAxesFrom(new Set([key.toLowerCase()]))).toEqual(NONE);
+    }
   });
 
   it("cancels opposite keys instead of letting the last press win", () => {
-    expect(keyAxesFrom(new Set(["a", "d"])).turnScreenX).toBe(0);
-    expect(keyAxesFrom(new Set(["w", "s"])).pitchScreenY).toBe(0);
-    expect(keyAxesFrom(new Set(["arrowup", "arrowdown"])).pitchScreenY).toBe(0);
-    expect(keyAxesFrom(new Set(["r", "f"])).throttleRamp).toBe(0);
+    expect(keyAxesFrom(new Set(["w", "s"])).throttleRamp).toBe(0);
   });
 
   it("normalizes keys case-insensitively and ignores unbound ones", () => {
-    expect(flightKeyOf("D")).toBe("d");
-    expect(flightKeyOf("ArrowLeft")).toBe("arrowleft");
+    expect(flightKeyOf("W")).toBe("w");
+    expect(flightKeyOf("S")).toBe("s");
     expect(flightKeyOf("Shift")).toBe("shift");
-    expect(flightKeyOf("R")).toBe("r");
-    expect(flightKeyOf("F")).toBe("f");
     expect(flightKeyOf("q")).toBeNull();
     expect(flightKeyOf("Enter")).toBeNull();
+  });
+});
+
+describe("mapRelativeSteer", () => {
+  it("maps the drag vector radially through deadzone and max radius", () => {
+    expect(mapRelativeSteer(5, 0, 10, 100)).toEqual({ turn: 0, pitchStick: 0 });
+    expect(Math.abs(mapRelativeSteer(55, 0, 10, 100).turn)).toBeCloseTo(0.5, 9);
+    expect(Math.abs(mapRelativeSteer(500, 0, 10, 100).turn)).toBe(1);
+  });
+
+  it("preserves circular direction and applies expo to the shared magnitude", () => {
+    const linear = mapRelativeSteer(50, -50, 0, 100, 1);
+    const curved = mapRelativeSteer(50, -50, 0, 100, 2);
+    expect(Math.hypot(linear.turn, linear.pitchStick)).toBeCloseTo(Math.SQRT1_2, 9);
+    expect(Math.hypot(curved.turn, curved.pitchStick)).toBeCloseTo(0.5, 9);
+    expect(linear.pitchStick).toBeGreaterThan(0);
+  });
+
+  it("inverts pitch only", () => {
+    const normal = mapRelativeSteer(40, -60, 8, 72, 1.35, false);
+    const inverted = mapRelativeSteer(40, -60, 8, 72, 1.35, true);
+    expect(inverted.turn).toBe(normal.turn);
+    expect(inverted.pitchStick).toBeCloseTo(-normal.pitchStick, 12);
   });
 });
 

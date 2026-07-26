@@ -22,6 +22,13 @@
     "minimapSizePx": 128,
     "minimapAltitudeTickPx": 6,
     "gaugeWidthPx": 132,
+    "gauges": {
+      "anchor": "bottom-left",
+      "offsetXPx": 10,
+      "offsetYPx": 12,
+      "gapPx": 5,
+      "trackHeightPx": 10
+    },
     "notificationMaxVisible": 3,
     "thumbZoneFraction": 0.4,
     "moduleCluster": {
@@ -38,6 +45,7 @@
     },
     "flight": {
       "joystick": {
+        "enabled": false,
         "anchor": "bottom-left",
         "baseRadiusPx": 62,
         "thumbRadiusPx": 28,
@@ -45,6 +53,15 @@
         "offsetYPx": 22,
         "deadzone": 0.12,
         "expo": 1.35
+      },
+      "relativeSteer": {
+        "maxRadiusPx": 72,
+        "deadzonePx": 9,
+        "expo": 1.35,
+        "mouseSensitivity": 0.012,
+        "originRadiusPx": 7,
+        "currentRadiusPx": 12,
+        "vectorWidthPx": 2
       },
       "throttle": {
         "anchor": "bottom-right",
@@ -87,11 +104,27 @@
         "minIntervalMs": 120
       }
     },
+    "portrait": {
+      "gauges": {
+        "anchor": "bottom-left",
+        "offsetXPx": 10,
+        "offsetYPx": 12,
+        "gapPx": 5,
+        "trackHeightPx": 10
+      }
+    },
     "landscape": {
       "scale": 0.85,
       "safeAreaInsetPx": 10,
       "minimapSizePx": 104,
       "gaugeWidthPx": 120,
+      "gauges": {
+        "anchor": "bottom-left",
+        "offsetXPx": 8,
+        "offsetYPx": 8,
+        "gapPx": 4,
+        "trackHeightPx": 9
+      },
       "moduleCluster": {
         "buttonRadiusPx": 28,
         "gapPx": 8,

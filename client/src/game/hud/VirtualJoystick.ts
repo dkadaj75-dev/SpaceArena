@@ -91,6 +91,7 @@ export class VirtualJoystick {
   applyLayout(layout: FlightHudLayout): void {
     this.layout = layout;
     const j = layout.joystick;
+    this.container.classList.toggle("disabled", !j.enabled);
     this.container.dataset["anchor"] = j.anchor;
     const { dx, dy } = anchoredOffset(j.anchor, j.offsetXPx, j.offsetYPx, j.baseRadiusPx);
     this.base.style.left = `${dx - j.baseRadiusPx}px`;

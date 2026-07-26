@@ -266,6 +266,7 @@ async function bootstrap(): Promise<void> {
   const projectWorld = new Vector3();
   const projectResult = new Vector3();
   const flightBinding: FlightHudBinding = {
+    inputSurface: canvas,
     project(x: number, y: number, z: number, out: ProjectedPoint): boolean {
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;

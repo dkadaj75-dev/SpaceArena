@@ -23,6 +23,7 @@ function theme(overrides: Partial<ThemeConfig["hud"]> = {}): ThemeConfig {
       safeAreaInsetPx: 12,
       minimapSizePx: 128,
       gaugeWidthPx: 132,
+      gauges: { anchor: "bottom-left", offsetXPx: 10, offsetYPx: 12, gapPx: 5, trackHeightPx: 10 },
       thumbZoneFraction: 0.4,
       moduleCluster: {
         anchor: "bottom-right",
@@ -41,6 +42,7 @@ function theme(overrides: Partial<ThemeConfig["hud"]> = {}): ThemeConfig {
         safeAreaInsetPx: 10,
         minimapSizePx: 104,
         gaugeWidthPx: 120,
+        gauges: { anchor: "bottom-left", offsetXPx: 8, offsetYPx: 8, gapPx: 4, trackHeightPx: 9 },
         moduleCluster: { buttonRadiusPx: 28, gapPx: 8, arcRadiusPx: 126, offsetXPx: 22, offsetYPx: 30 },
       },
       ...overrides,
@@ -87,6 +89,22 @@ describe("resolveHudLayout — portrait/landscape blocks", () => {
     expect(layout.gaugeWidthPx).toBe(264);
     expect(layout.safeAreaInsetPx).toBe(12);
     expect(hudCssVars(layout)["--hud-scale"]).toBe("2");
+  });
+
+  it("resolves bottom-left gauge relocation independently in portrait and landscape", () => {
+    const p = resolveHudLayout(theme(), PORTRAIT);
+    expect(p.gauges).toEqual({
+      anchor: "bottom-left",
+      offsetXPx: 10,
+      offsetYPx: 12,
+      gapPx: 5,
+      trackHeightPx: 10,
+    });
+    const l = resolveHudLayout(theme(), LANDSCAPE);
+    expect(l.gauges.anchor).toBe("bottom-left");
+    expect(l.gauges.offsetXPx).toBeCloseTo(8 * 0.85, 9);
+    expect(l.gauges.offsetYPx).toBeCloseTo(8 * 0.85, 9);
+    expect(hudCssVars(l)["--hud-gauge-offset-y"]).toBe(`${8 * 0.85}px`);
   });
 
   it("falls back to the legacy flat moduleButton* fields for pre-5.4 themes", () => {

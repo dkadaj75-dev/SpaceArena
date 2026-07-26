@@ -270,7 +270,7 @@ export class SettingsScreen {
     const flight = this.host.configs.get<ThemeConfig>("theme", THEME_ID)?.hud?.flight;
     const tuning = this.host.configs.getAll<TuningConfig>("tuning")[0];
 
-    const invert = toggleButton("Invert pitch (stick / W-S)", (next) =>
+    const invert = toggleButton("Invert pitch (mouse / touch)", (next) =>
       this.host.settings.set({ invertPitch: next }),
     );
     invert.el.dataset["setting"] = "controls.invertPitch";
@@ -280,9 +280,8 @@ export class SettingsScreen {
     bindings.className = "sa-settings-readonly";
     bindings.dataset["setting"] = "bindings";
     bindings.append(
-      kv("Turn", "A / D  ·  ← / →"),
-      kv("Pitch", "W / S  ·  ↑ / ↓"),
-      kv("Throttle", "R / F  ·  wheel or drag on the strip"),
+      kv("Steer", "Hold right mouse + move  ·  touch and drag"),
+      kv("Throttle", "W / S  ·  wheel or drag on the strip"),
       kv("Boost", "Shift  ·  hold the boost button"),
     );
 
@@ -301,7 +300,7 @@ export class SettingsScreen {
 
     group.append(
       invert.el,
-      note("Off means pushing the stick UP (or holding W / ↑) raises the nose."),
+      note("Off means moving up raises the nose."),
       bindings,
       list,
       note("The bindings are fixed in the MVP; the feel knobs below live in the theme and tuning configs and are tuned once for the whole game — not per player."),

@@ -7,7 +7,6 @@ import {
   flightCssVars,
   FLIGHT_HUD_DEFAULTS,
   FLIGHT_ORDER_BUDGET_SHARE,
-  joystickReachPx,
   offScreenArrowPlacement,
   orderMinIntervalMs,
   resolveFlightHudLayout,
@@ -55,6 +54,7 @@ describe("resolveFlightHudLayout", () => {
     const layout = resolveFlightHudLayout(theme(), PORTRAIT);
     expect(layout.orientation).toBe("portrait");
     expect(layout.joystick).toEqual({
+      enabled: true,
       anchor: "bottom-left",
       baseRadiusPx: 62,
       thumbRadiusPx: 28,
@@ -160,23 +160,13 @@ describe("anchor offsets", () => {
   });
 });
 
-describe("joystickReachPx / flightCssVars", () => {
-  it("reports how far a bottom-anchored stick reaches, rim included", () => {
-    const layout = resolveFlightHudLayout(theme(), PORTRAIT);
-    expect(joystickReachPx(layout)).toBe(22 + 62 * 2);
-  });
-
-  it("reports no reach for a top-anchored stick (nothing to lift the gauges over)", () => {
-    const top = theme({ flight: { joystick: { anchor: "top-left", baseRadiusPx: 60, offsetYPx: 10 } } });
-    expect(joystickReachPx(resolveFlightHudLayout(top, PORTRAIT))).toBe(0);
-  });
-
+describe("flightCssVars", () => {
   it("publishes the geometry the stylesheet consumes", () => {
     const vars = flightCssVars(resolveFlightHudLayout(theme(), PORTRAIT));
     expect(vars["--hud-joy-base-radius"]).toBe("62px");
     expect(vars["--hud-throttle-height"]).toBe("200px");
     expect(vars["--hud-boost-radius"]).toBe("34px");
-    expect(vars["--hud-gauge-lift"]).toBe("146px");
+    expect(vars["--hud-steer-origin-radius"]).toBe("7px");
   });
 });
 
