@@ -54,12 +54,6 @@ async function main(): Promise<void> {
   const sampler = new TelemetrySampler();
   if (env.telemetryEnabled) sampler.start();
 
-  await gameServer.listen(env.port);
-  log.info(`listening on :${env.port}`, {
-    dev: env.devTools,
-    serving: env.clientDir ? "client + api + content" : "api + content",
-  });
-
   const shutdown = (signal: string): void => {
     log.info(`received ${signal}, shutting down`);
     sampler.stop();
@@ -74,6 +68,23 @@ async function main(): Promise<void> {
         process.exit(1);
       });
   };
+
+  // Playwright cannot deliver SIGINT/SIGTERM to its webServer child tree on
+  // Windows. This route exists only in the disposable E2E process and lets
+  // global teardown close Colyseus/SQLite before Playwright reaps the wrapper.
+  if (process.env["SPACE_ARENA_E2E_SHUTDOWN"] === "1") {
+    app.post("/__e2e/shutdown", (_req, res) => {
+      res.status(204).end();
+      setImmediate(() => shutdown("E2E teardown"));
+    });
+  }
+
+  await gameServer.listen(env.port);
+  log.info(`listening on :${env.port}`, {
+    dev: env.devTools,
+    serving: env.clientDir ? "client + api + content" : "api + content",
+  });
+
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 }

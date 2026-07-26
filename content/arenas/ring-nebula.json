@@ -37,7 +37,7 @@
       "baseOpacity": 0.022,
       "glowStartDistance": 28,
       "redTransitionDistance": 10,
-      "warnDistance": 8,
+      "warnDistance": 14,
       "blueColor": "#45c8ff",
       "redColor": "#ff405c",
       "hexDensity": 30,

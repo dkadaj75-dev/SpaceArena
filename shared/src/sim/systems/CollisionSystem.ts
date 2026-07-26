@@ -128,14 +128,23 @@ export function collisionSystem(world: World, dt: number): void {
   }
 
   // Ship vs boundary.
+  const boundaryContactsThisTick = new Set<number>();
   for (const sid of ships) {
     const core = world.shipCores.get(sid)!;
     if (core.hull <= 0) continue;
-    resolveBoundary(world, sid, core, dt);
+    resolveBoundary(world, sid, core, dt, boundaryContactsThisTick);
   }
+  world.boundaryContacts.clear();
+  for (const sid of boundaryContactsThisTick) world.boundaryContacts.add(sid);
 }
 
-function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number): void {
+function resolveBoundary(
+  world: World,
+  sid: number,
+  core: ShipCore,
+  dt: number,
+  contactsThisTick: Set<number>,
+): void {
   const bounds = world.arena.bounds;
   const rule = world.gamemode.boundaryRule;
   const tf = world.transforms.get(sid)!;
@@ -183,7 +192,13 @@ function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number):
 
   if (!outward || penetration <= 0) return;
 
-  world.emit({ type: "boundaryHit", entityId: sid, rule: rule.type });
+  contactsThisTick.add(sid);
+  // Boundary contact is an edge event, not a per-tick event. Besides reducing
+  // network traffic, this guarantees warning audio cannot machine-gun while a
+  // ship remains pressed against a non-repositioning warning boundary.
+  if (!world.boundaryContacts.has(sid)) {
+    world.emit({ type: "boundaryHit", entityId: sid, rule: rule.type });
+  }
 
   if (rule.type === "warning") return;
 
@@ -199,6 +214,23 @@ function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number):
       vel.x -= (1 + restitution) * vn * outward.x;
       vel.y -= (1 + restitution) * vn * outward.y;
       vel.z -= (1 + restitution) * vn * outward.z;
+    }
+
+    // Powered flight reconstructs velocity from attitude on every navigation
+    // tick. Reflect the nose as well as the current velocity so a level-triggered
+    // throttle order continues inward instead of immediately overwriting the
+    // bounce and pinning the ship to the wall.
+    const cosPitch = Math.cos(tf.pitch);
+    const noseX = cosPitch * Math.cos(tf.heading);
+    const noseY = Math.sin(tf.pitch);
+    const noseZ = cosPitch * Math.sin(tf.heading);
+    const noseOutward = noseX * outward.x + noseY * outward.y + noseZ * outward.z;
+    if (noseOutward > 0) {
+      const reflectedX = noseX - 2 * noseOutward * outward.x;
+      const reflectedY = noseY - 2 * noseOutward * outward.y;
+      const reflectedZ = noseZ - 2 * noseOutward * outward.z;
+      tf.heading = Math.atan2(reflectedZ, reflectedX);
+      tf.pitch = Math.asin(Math.max(-1, Math.min(1, reflectedY)));
     }
   }
   if (rule.type === "damage" || rule.type === "damageAndBounce") {

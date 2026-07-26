@@ -53,6 +53,9 @@ export class World {
   /** Remaining impact-damage immunity per ship/asteroid pair (seconds). Persistent. */
   readonly impactCooldowns = new Map<number, number>();
 
+  /** Ships touching the arena boundary on the previous collision tick (event-edge latch). */
+  readonly boundaryContacts = new Set<EntityId>();
+
   constructor(
     readonly configs: ConfigService,
     readonly tuning: TuningConfig,
@@ -82,6 +85,7 @@ export class World {
     this.teams.delete(id);
     this.asteroids.delete(id);
     this.projectiles.delete(id);
+    this.boundaryContacts.delete(id);
   }
 
   isAlive(id: EntityId): boolean {

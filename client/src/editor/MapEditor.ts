@@ -17,6 +17,7 @@ export class MapEditor implements EditorPanel {
   private paletteId: string | null = null;
   private snap = true;
   private grid = 1;
+  private placementY = 0;
 
   constructor(private readonly host: EditorHost, private readonly report: (message: string | null) => void) {
     this.root = new TransformNode("editorMapPreview", this.host.scene);
@@ -58,7 +59,8 @@ export class MapEditor implements EditorPanel {
     const snapTrack = document.createElement("span"); snapTrack.className = "ed-toggle-track";
     snapToggle.append(snap, snapTrack);
     const grid = document.createElement("input"); grid.type = "number"; grid.className = "ed-input ed-num ed-num--sm"; grid.value = String(this.grid); grid.min = "0.1"; grid.addEventListener("change", () => { this.grid = Math.max(.1, Number(grid.value)); });
-    snapRow.append(label("Snap"), snapToggle, label("Grid"), grid);
+    const placementY = document.createElement("input"); placementY.type = "number"; placementY.className = "ed-input ed-num ed-num--sm"; placementY.value = String(this.placementY); placementY.step = String(this.grid); placementY.addEventListener("change", () => { const value = Number(placementY.value); if (Number.isFinite(value)) this.placementY = value; });
+    snapRow.append(label("Snap"), snapToggle, label("Grid"), grid, label("New asteroid Y"), placementY);
     this.element.append(snapRow);
     const arena = this.arena(); if (arena) {
       const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: this.host.configService, onProblem: (p) => this.report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => { this.host.rebuildArena(); this.rebuildPreview(); } });
@@ -70,7 +72,7 @@ export class MapEditor implements EditorPanel {
     const arena = this.arena(); if (!arena) return;
     arena.asteroidPlacements.forEach((placement, index) => {
       const mesh = MeshBuilder.CreateIcoSphere(`editorAsteroid.${index}`, { radius: 2.5 * (placement.scale ?? 1), subdivisions: 2 }, this.host.scene);
-      mesh.position.set(placement.position.x, 1.5, placement.position.z); mesh.rotation.y = placement.rotation ?? 0; mesh.parent = this.root; mesh.metadata = { kind: "asteroid", index }; mesh.material = material(this.host, `editorAsteroidMat${index}`, new Color3(.55, .44, .28));
+      mesh.position.set(placement.position.x, placement.position.y ?? 0, placement.position.z); mesh.rotation.y = placement.rotation ?? 0; mesh.parent = this.root; mesh.metadata = { kind: "asteroid", index }; mesh.material = material(this.host, `editorAsteroidMat${index}`, new Color3(.55, .44, .28));
     });
     arena.spawnPoints.forEach((spawn, index) => { const mesh = MeshBuilder.CreateCylinder(`editorSpawn.${index}`, { diameter: 3, height: .3 }, this.host.scene); mesh.position.set(spawn.position.x, .2, spawn.position.z); mesh.parent = this.root; mesh.metadata = { kind: "spawn", index }; mesh.material = material(this.host, `editorSpawnMat${index}`, spawn.team === 0 ? Color3.Blue() : Color3.Red()); });
   }
@@ -87,7 +89,7 @@ export class MapEditor implements EditorPanel {
     else arena.spawnPoints[this.selected.index]!.position = { x, z };
     this.replace(arena);
   }
-  private place(point: Vector3): void { const arena = structuredClone(this.arena()); if (!arena || !this.paletteId) return; const x = this.snap ? Math.round(point.x / this.grid) * this.grid : point.x; const z = this.snap ? Math.round(point.z / this.grid) * this.grid : point.z; arena.asteroidPlacements.push({ asteroidId: this.paletteId, position: { x, z } }); this.replace(arena); }
+  private place(point: Vector3): void { const arena = structuredClone(this.arena()); if (!arena || !this.paletteId) return; arena.asteroidPlacements.push({ asteroidId: this.paletteId, position: authorAsteroidPosition(point, this.placementY, this.snap, this.grid) }); this.replace(arena); }
   private removeSelected(): void { const arena = structuredClone(this.arena()); if (!arena || !this.selected) return; arena.asteroidPlacements.splice(this.selected.index, 1); this.selected = null; this.gizmos.attachToMesh(null); this.replace(arena); }
   private replace(arena: ArenaConfig): void { const result = this.host.configService.replace(arena); if (!result.ok) { this.report(result.errors.map((e) => e.message).join("; ")); return; } this.host.rebuildArena(); this.rebuildPreview(); this.renderUi(); }
   private async save(): Promise<void> { const arena = this.arena(); if (!arena) return; const error = await saveConfig(arena); if (error) this.report(error); }
@@ -96,3 +98,17 @@ export class MapEditor implements EditorPanel {
 /** Small uppercase caption used by the toolbar rows. */
 function label(value: string): HTMLSpanElement { const span = document.createElement("span"); span.className = "ed-label"; span.textContent = value; return span; }
 function material(host: EditorHost, name: string, color: Color3): StandardMaterial { const mat = new StandardMaterial(name, host.scene); mat.emissiveColor = color; return mat; }
+
+/** Pure placement authoring hook used by the editor and its volumetric regression. */
+export function authorAsteroidPosition(
+  point: Pick<Vector3, "x" | "z">,
+  y: number,
+  snap: boolean,
+  grid: number,
+): { x: number; y: number; z: number } {
+  return {
+    x: snap ? Math.round(point.x / grid) * grid : point.x,
+    y,
+    z: snap ? Math.round(point.z / grid) * grid : point.z,
+  };
+}

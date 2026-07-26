@@ -1,6 +1,6 @@
 import { Observable, type GizmoManager } from "@babylonjs/core";
 import { describe, expect, it, vi } from "vitest";
-import { bindGizmoSocketCommit } from "./ShipManager.js";
+import { bindGizmoSocketCommit, roundMarkerValue } from "./ShipManager.js";
 
 /** Minimal stand-in for the three gizmos a GizmoManager exposes. */
 function fakeGizmo(): { onDragEndObservable: Observable<unknown> } {
@@ -45,5 +45,13 @@ describe("bindGizmoSocketCommit", () => {
       expect(gizmo.onDragEndObservable.hasObservers()).toBe(false);
     }
     expect(commit).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("socket marker serialization", () => {
+  it("rounds float32 transform noise to four decimal places", () => {
+    expect(roundMarkerValue(-0.4000000059604645)).toBe(-0.4);
+    expect(roundMarkerValue(0.8294861316680908)).toBe(0.8295);
+    expect(roundMarkerValue(-1.3632718324661255)).toBe(-1.3633);
   });
 });

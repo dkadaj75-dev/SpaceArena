@@ -288,6 +288,15 @@ export class Hud {
 
   /** Forward this frame's drained sim events to whichever sub-components care. */
   consumeEvents(events: readonly SimEvent[]): void {
+    if (
+      events.some(
+        (event) => event.type === "entityDestroyed" && event.entityId === this.playerId,
+      )
+    ) {
+      // Respawns can occur inside the warning zone. Death is a new warning
+      // lifecycle even if no outside-zone frame occurred to rearm the latch.
+      this.boundaryWarning.reset();
+    }
     this.notifications.consumeEvents(events, this.configs);
     this.damageFx.consumeEvents(events);
     this.haptics.consumeEvents(events);

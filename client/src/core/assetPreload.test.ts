@@ -1,6 +1,11 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
-import { arenaModelRenders, preloadShipModels, shipModelRenders } from "./assetPreload.js";
+import {
+  arenaModelRenders,
+  preloadShipModels,
+  preloadShipModelsBeforeTimeout,
+  shipModelRenders,
+} from "./assetPreload.js";
 import type { AssetRegistry } from "./AssetRegistry.js";
 
 const SMALL_ROCK = {
@@ -110,5 +115,26 @@ describe("ship model preloading", () => {
     await preloadShipModels(assets, configs);
     expect(ensureModel).toHaveBeenCalledTimes(2);
     expect(ensureModel.mock.results.every((result) => result.type === "return")).toBe(true);
+  });
+
+  it("times out a stalled ship fetch so boot can use procedural fallbacks", async () => {
+    vi.useFakeTimers();
+    try {
+      const configs = {
+        getAll: vi.fn(() => [{
+          id: "ship.stalled",
+          render: { recipe: "procedural.arrowhead", model: "ships/stalled.glb" },
+        }]),
+      } as unknown as ConfigService;
+      const assets = {
+        ensureModel: vi.fn(() => new Promise(() => undefined)),
+      } as unknown as AssetRegistry;
+
+      const result = preloadShipModelsBeforeTimeout(assets, configs, 10_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(result).resolves.toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

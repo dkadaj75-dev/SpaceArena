@@ -11,6 +11,8 @@ export class RelativeSteerInput {
   private layout: FlightHudLayout;
   private pointerId: number | null = null;
   private pointerType = "";
+  private captureTarget: Element | null = null;
+  private pointerLocked = false;
   private originX = 0;
   private originY = 0;
   private lastX = 0;
@@ -25,8 +27,8 @@ export class RelativeSteerInput {
     if (!this.enabled || this.pointerId !== null) return;
     if (ev.pointerType === "mouse") {
       if (ev.button !== 2 || ev.currentTarget !== this.surface) return;
-    } else if (ev.pointerType === "touch") {
-      if (startsOnHudControl(ev.target)) return;
+    } else if (ev.pointerType === "touch" || ev.pointerType === "pen") {
+      if (!startsOnSteerSurface(ev.target, this.visual.parentElement, this.surface)) return;
     } else {
       return;
     }
@@ -36,7 +38,19 @@ export class RelativeSteerInput {
     this.originY = this.lastY = ev.clientY;
     this.dx = 0;
     this.dy = 0;
-    (ev.target as Element | null)?.setPointerCapture?.(ev.pointerId);
+    this.captureTarget = ev.target instanceof Element ? ev.target : null;
+    this.captureTarget?.setPointerCapture?.(ev.pointerId);
+    if (ev.pointerType === "mouse") {
+      // Pointer lock removes the screen-edge cap. Browsers that do not expose
+      // it (or deny the request) simply retain the existing client-coordinate
+      // fallback below.
+      try {
+        const request = this.surface.requestPointerLock?.();
+        void request?.catch?.(() => undefined);
+      } catch {
+        // Unsupported/denied synchronous implementations use the fallback.
+      }
+    }
     this.render();
     ev.preventDefault();
   };
@@ -44,8 +58,9 @@ export class RelativeSteerInput {
   private readonly onPointerMove = (ev: PointerEvent): void => {
     if (ev.pointerId !== this.pointerId) return;
     if (this.pointerType === "mouse") {
-      const movementX = ev.movementX || ev.clientX - this.lastX;
-      const movementY = ev.movementY || ev.clientY - this.lastY;
+      const locked = document.pointerLockElement === this.surface;
+      const movementX = locked ? ev.movementX : ev.movementX || ev.clientX - this.lastX;
+      const movementY = locked ? ev.movementY : ev.movementY || ev.clientY - this.lastY;
       const radius = this.layout.relativeSteer.maxRadiusPx;
       this.dx += movementX * this.layout.relativeSteer.mouseSensitivity * radius;
       this.dy += movementY * this.layout.relativeSteer.mouseSensitivity * radius;
@@ -70,6 +85,20 @@ export class RelativeSteerInput {
   };
 
   private readonly onBlur = (): void => this.release();
+  private readonly onPointerLockChange = (): void => {
+    const lockedToSurface = document.pointerLockElement === this.surface;
+    if (lockedToSurface) {
+      if (this.pointerId !== null && this.pointerType === "mouse") {
+        this.pointerLocked = true;
+      } else {
+        document.exitPointerLock?.();
+      }
+      return;
+    }
+    const lostActiveLock = this.pointerLocked && this.pointerId !== null && this.pointerType === "mouse";
+    this.pointerLocked = false;
+    if (lostActiveLock) this.release(false);
+  };
 
   constructor(
     root: HTMLElement,
@@ -93,10 +122,19 @@ export class RelativeSteerInput {
     document.addEventListener("pointermove", this.onPointerMove);
     document.addEventListener("pointerup", this.onPointerUp);
     document.addEventListener("pointercancel", this.onPointerUp);
+    document.addEventListener("pointerlockchange", this.onPointerLockChange);
     window.addEventListener("blur", this.onBlur);
   }
 
   applyLayout(layout: FlightHudLayout): void {
+    if (this.pointerId !== null && this.pointerType === "mouse") {
+      const oldRadius = this.layout.relativeSteer.maxRadiusPx;
+      const newRadius = layout.relativeSteer.maxRadiusPx;
+      if (oldRadius > 0) {
+        this.dx *= newRadius / oldRadius;
+        this.dy *= newRadius / oldRadius;
+      }
+    }
     this.layout = layout;
     this.updateAxes();
     this.render();
@@ -131,7 +169,22 @@ export class RelativeSteerInput {
     this.axesValue.pitchStick = axes.pitchStick;
   }
 
-  private release(): void {
+  private release(exitPointerLock = true): void {
+    const pointerId = this.pointerId;
+    if (pointerId !== null && this.captureTarget) {
+      try {
+        if (!this.captureTarget.hasPointerCapture || this.captureTarget.hasPointerCapture(pointerId)) {
+          this.captureTarget.releasePointerCapture?.(pointerId);
+        }
+      } catch {
+        // Capture may already have been released by the browser on cancel/blur.
+      }
+    }
+    this.captureTarget = null;
+    if (exitPointerLock && document.pointerLockElement === this.surface) {
+      document.exitPointerLock?.();
+    }
+    this.pointerLocked = false;
     this.pointerId = null;
     this.pointerType = "";
     this.dx = 0;
@@ -141,7 +194,7 @@ export class RelativeSteerInput {
   }
 
   private render(): void {
-    const touchActive = this.pointerId !== null && this.pointerType === "touch";
+    const touchActive = this.pointerId !== null && this.pointerType !== "mouse";
     this.visual.classList.toggle("active", touchActive);
     if (!touchActive) return;
     const radius = this.layout.relativeSteer.maxRadiusPx;
@@ -156,11 +209,13 @@ export class RelativeSteerInput {
   }
 
   dispose(): void {
+    this.release();
     this.surface.removeEventListener("pointerdown", this.onPointerDown);
     document.removeEventListener("pointerdown", this.onPointerDown);
     document.removeEventListener("pointermove", this.onPointerMove);
     document.removeEventListener("pointerup", this.onPointerUp);
     document.removeEventListener("pointercancel", this.onPointerUp);
+    document.removeEventListener("pointerlockchange", this.onPointerLockChange);
     window.removeEventListener("blur", this.onBlur);
     this.visual.remove();
   }
@@ -168,4 +223,17 @@ export class RelativeSteerInput {
 
 export function startsOnHudControl(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(`[${HUD_CONTROL_ATTR}]`) !== null;
+}
+
+/** Touch/pen steering is allow-listed to the canvas or free space in this HUD. */
+export function startsOnSteerSurface(
+  target: EventTarget | null,
+  hudRoot: Element | null,
+  surface: Element,
+): boolean {
+  return (
+    target instanceof Element &&
+    (target === surface || hudRoot?.contains(target) === true) &&
+    !startsOnHudControl(target)
+  );
 }

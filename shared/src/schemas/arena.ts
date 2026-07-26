@@ -12,6 +12,36 @@ export interface ArenaWireIssue {
   message: string;
 }
 
+/** Schema-local check: authored arena geometry itself must fit on the wire. */
+export function arenaWireBoundsIssues(
+  bounds:
+    | { shape: "sphere"; radius: number }
+    | { shape: "rect"; width: number; height: number; verticalExtent: number },
+): ArenaWireIssue[] {
+  if (bounds.shape === "sphere") {
+    return bounds.radius > WIRE_POSITION_LIMIT
+      ? [{
+          path: ["bounds", "radius"],
+          message: `radius must not exceed the wire limit ${WIRE_POSITION_LIMIT}`,
+        }]
+      : [];
+  }
+  const issues: ArenaWireIssue[] = [];
+  for (const [key, extent] of [
+    ["width", bounds.width],
+    ["height", bounds.height],
+    ["verticalExtent", bounds.verticalExtent],
+  ] as const) {
+    if (extent / 2 > WIRE_POSITION_LIMIT) {
+      issues.push({
+        path: ["bounds", key],
+        message: `half extent must not exceed the wire limit ${WIRE_POSITION_LIMIT}`,
+      });
+    }
+  }
+  return issues;
+}
+
 /**
  * Check every arena extent that replicated projectiles can reach. Kept separate
  * from the schema so pack validation can repeat it with an authored tuning
@@ -145,7 +175,10 @@ export const arenaSchema = z
     zones: z.array(zone).optional(),
   })
   .superRefine((arena, ctx) => {
-    for (const issue of arenaWireEnvelopeIssues(arena.bounds, DEFAULT_PROJECTILE_BOUNDS_MARGIN)) {
+    // The standalone schema owns only the intrinsic arena-coordinate limit.
+    // Projectile headroom depends on the pack's authored tuning margin and is
+    // therefore enforced by ConfigService's cross-config validation.
+    for (const issue of arenaWireBoundsIssues(arena.bounds)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: [...issue.path],

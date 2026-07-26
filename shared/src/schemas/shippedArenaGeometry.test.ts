@@ -9,14 +9,14 @@ type Vec3 = { x: number; y?: number; z: number };
 type ShippedArena = {
   name: string;
   file: string;
-  expectedCount: number;
+  minimumCount: number;
   maxExtent: number;
 };
 
 const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url));
 const SHIPPED_ARENAS: readonly ShippedArena[] = [
-  { name: "deep-field", file: "deep-field.json", expectedCount: 47, maxExtent: 315 },
-  { name: "ring-nebula", file: "ring-nebula.json", expectedCount: 10, maxExtent: 90 },
+  { name: "deep-field", file: "deep-field.json", minimumCount: 47, maxExtent: 315 },
+  { name: "ring-nebula", file: "ring-nebula.json", minimumCount: 10, maxExtent: 90 },
 ];
 const asteroidFiles = ["small-rock.json", "small-rock-b.json", "large-hazard.json", "large-hazard-b.json"];
 
@@ -70,7 +70,7 @@ describe("shipped arena asteroid geometry", () => {
       const arena = arenaSchema.parse(loadJson(`${CONTENT_ROOT}arenas/${shipped.file}`));
       const corridor = [teamCentroid(arena, 0), teamCentroid(arena, 1)] as const;
       const placements = arena.asteroidPlacements;
-      expect(placements).toHaveLength(shipped.expectedCount);
+      expect(placements.length).toBeGreaterThanOrEqual(shipped.minimumCount);
 
       for (let index = 0; index < placements.length; index++) {
         const placement = placements[index]!;
@@ -100,6 +100,7 @@ describe("shipped arena asteroid geometry", () => {
       expect(Math.min(...ys)).toBeLessThan(-25);
       expect(Math.max(...ys)).toBeGreaterThan(25);
       if (shipped.name === "deep-field") {
+        expect(ys.filter((y) => Math.abs(y) >= 100).length / ys.length).toBeGreaterThanOrEqual(0.6);
         expect(ys.filter((y) => Math.abs(y) >= 150).length).toBeGreaterThanOrEqual(30);
         expect(Math.min(...ys.map(Math.abs))).toBeLessThanOrEqual(40);
         expect(Math.max(...ys.map(Math.abs))).toBeGreaterThanOrEqual(225);

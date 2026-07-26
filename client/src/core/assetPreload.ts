@@ -69,3 +69,24 @@ export function shipModelRenders(configs: ConfigService): RenderRecipe[] {
 export async function preloadShipModels(assets: AssetRegistry, configs: ConfigService): Promise<void> {
   await Promise.all(shipModelRenders(configs).map((render) => assets.ensureModel(render)));
 }
+
+/**
+ * Await the correctness-critical ship preload without allowing one stalled
+ * fetch/decode to hang boot forever. The underlying loads may still settle into
+ * the cache later; callers proceed with the synchronous procedural fallback.
+ */
+export async function preloadShipModelsBeforeTimeout(
+  assets: AssetRegistry,
+  configs: ConfigService,
+  timeoutMs: number,
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const completed = await Promise.race([
+    preloadShipModels(assets, configs).then(() => true),
+    new Promise<false>((resolve) => {
+      timeout = setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+  if (timeout !== undefined) clearTimeout(timeout);
+  return completed;
+}

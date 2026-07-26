@@ -32,4 +32,12 @@ describe("BoundaryWarningLatch", () => {
     expect(latch.update(21, 20)).toBe(false);
     expect(latch.update(20, 20)).toBe(true);
   });
+
+  it("rearms explicitly for a respawn that remains inside the warning zone", () => {
+    const latch = new BoundaryWarningLatch();
+    expect(latch.update(10, 20)).toBe(true);
+    expect(latch.update(10, 20)).toBe(false);
+    latch.reset();
+    expect(latch.update(10, 20)).toBe(true);
+  });
 });

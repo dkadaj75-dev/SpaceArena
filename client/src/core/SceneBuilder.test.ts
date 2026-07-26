@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { NullEngine, Scene, ShaderMaterial, StandardMaterial, type Mesh } from "@babylonjs/core";
+import { Color3, NullEngine, Scene, ShaderMaterial, StandardMaterial, type Mesh } from "@babylonjs/core";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
 import { SceneBuilder, type SceneQuality } from "./SceneBuilder.js";
 
@@ -116,6 +116,8 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     const material = scene.getMeshByName("skybox")!.material as StandardMaterial;
     expect(material.emissiveTexture?.name).toBe("/content/skyboxes/test.webp");
     expect(material.emissiveColor.r).toBeCloseTo(0.8);
+    expect(material.disableDepthWrite).toBe(true);
+    expect(material.emissiveTexture?.isBlocking).toBe(false);
     builder.dispose();
   });
 
@@ -242,6 +244,17 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(scene.getMeshByName("boundsShell")!.material).toBeInstanceOf(ShaderMaterial);
     shaderBuilder.dispose();
 
+    expect(configs.replace({
+      ...ARENA,
+      version: 2,
+      render: {
+        ...ARENA.render,
+        boundaryShield: {
+          ...ARENA.render.boundaryShield,
+          redTransitionDistance: 18,
+        },
+      },
+    }).ok).toBe(true);
     const lowBuilder = new SceneBuilder(
       scene,
       configs,
@@ -264,6 +277,13 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(lowBuilder.updatePlayerPosition(89, 0, 0)).toBe(1);
     expect(material.alpha).toBeGreaterThan(0.9);
     expect(material.emissiveColor.r).toBeGreaterThan(material.emissiveColor.b);
+
+    // Exact operator report: at distance 10 with an 18-unit transition the
+    // fallback must already be visibly mixed, not remain pure authored blue.
+    expect(lowBuilder.updatePlayerPosition(80, 0, 0)).toBe(10);
+    const pureBlue = Color3.FromHexString(ARENA.render.boundaryShield.blueColor);
+    expect(material.emissiveColor.equals(pureBlue)).toBe(false);
+    expect(material.emissiveColor.r).toBeGreaterThan(pureBlue.r);
     lowBuilder.dispose();
   });
 });

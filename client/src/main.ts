@@ -14,7 +14,7 @@ import {
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
-import { preloadArenaModels, preloadShipModels } from "./core/assetPreload.js";
+import { preloadArenaModels, preloadShipModelsBeforeTimeout } from "./core/assetPreload.js";
 import { QualityManager } from "./core/QualityManager.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
@@ -195,7 +195,26 @@ async function bootstrap(): Promise<void> {
   // Awaited because a ship view synchronously selects and retains one master;
   // letting the first frame race this load can lock in the procedural fallback.
   const preloadAssets = new AssetRegistry(scene);
-  await preloadShipModels(preloadAssets, configService);
+  const loading = document.createElement("div");
+  loading.textContent = "LOADING SHIP SYSTEMS…";
+  loading.setAttribute("role", "status");
+  Object.assign(loading.style, {
+    position: "fixed",
+    inset: "50% auto auto 50%",
+    transform: "translate(-50%, -50%)",
+    zIndex: "100",
+    color: "#57d8ff",
+    font: "600 12px system-ui, sans-serif",
+    letterSpacing: "0.16em",
+    textShadow: "0 0 14px #39bfff",
+    pointerEvents: "none",
+  });
+  document.body.append(loading);
+  const shipModelsReady = await preloadShipModelsBeforeTimeout(preloadAssets, configService, 10_000);
+  loading.remove();
+  if (!shipModelsReady) {
+    log.warn("ship model preload timed out after 10s — booting with procedural fallbacks");
+  }
   bus.on("config:changed", (evt) => {
     if (evt.id.startsWith("ship.")) {
       const ship = configService.get<ShipConfig>("ship", evt.id);

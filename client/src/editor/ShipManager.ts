@@ -631,9 +631,17 @@ export class ShipManager implements EditorPanel {
     const marker = this.markers.get(index);
     if (!ship || !marker) return;
     const next = setSocketTransform(ship, index, {
-      pos: [marker.position.x, marker.position.y, marker.position.z],
-      rot: [marker.rotation.x, marker.rotation.y, marker.rotation.z],
-      scale: marker.scaling.x,
+      pos: [
+        roundMarkerValue(marker.position.x),
+        roundMarkerValue(marker.position.y),
+        roundMarkerValue(marker.position.z),
+      ],
+      rot: [
+        roundMarkerValue(marker.rotation.x),
+        roundMarkerValue(marker.rotation.y),
+        roundMarkerValue(marker.rotation.z),
+      ],
+      scale: roundMarkerValue(marker.scaling.x),
     });
     this.replace(next);
   }
@@ -879,6 +887,11 @@ export function bindGizmoSocketCommit(gizmos: GizmoManager, commit: () => void):
   return () => {
     for (const { observable, observer } of observers) observable.remove(observer);
   };
+}
+
+/** Trim Babylon's float32 marker round-trip noise before it reaches content JSON. */
+export function roundMarkerValue(value: number): number {
+  return Number(value.toFixed(4));
 }
 
 function applyParam(ps: ParticleSystem, param: string, value: number): void {

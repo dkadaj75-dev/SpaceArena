@@ -48,6 +48,7 @@ prepareThrowawayDb();
 
 export default defineConfig({
   testDir: "./e2e",
+  globalTeardown: "./e2e/globalTeardown.ts",
   // The two servers and the SQLite DB behind them are shared state: one worker,
   // no `.only` sneaking into CI, one retry there for genuine flake.
   workers: 1,
@@ -99,6 +100,7 @@ export default defineConfig({
         // Isolation: a fresh per-run SQLite file under the OS temp dir.
         // better-sqlite3 creates it and runs migrations at boot.
         SPACE_ARENA_DB: DB_PATH,
+        SPACE_ARENA_E2E_SHUTDOWN: "1",
       },
       reuseExistingServer: !CI,
       // First boot compiles TS through tsx and runs the SQLite migrations.

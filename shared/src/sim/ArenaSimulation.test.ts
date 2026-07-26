@@ -4,6 +4,7 @@ import { ArenaSimulation } from "./ArenaSimulation.js";
 import { applyDamageToShip } from "./damage.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
+import { navigationSystem } from "./systems/NavigationSystem.js";
 import { projectileSystem } from "./systems/ProjectileSystem.js";
 import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "./testutil.js";
 import { World } from "./World.js";
@@ -62,6 +63,69 @@ describe("CollisionSystem boundary", () => {
     expect(world.events).toContainEqual(
       expect.objectContaining({ type: "boundaryHit", entityId: id, rule: "damageAndBounce" }),
     );
+  });
+
+  it("reflects powered flight attitude so held thrust separates and boundary damage stops", () => {
+    const world = makeWorld(configs, {
+      gamemodeOverride: {
+        boundaryRule: { type: "damageAndBounce", damagePerSec: 30, restitution: 0.8 },
+      },
+    });
+    const id = spawnShipFromConfig(
+      world,
+      configs,
+      "ship.interceptor",
+      INTERCEPTOR_FITTING,
+      0,
+      { x: 88.5, z: 0 },
+      0,
+    );
+    world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, pitchStick: 0, boost: false });
+
+    let contactHull: number | null = null;
+    let contactRadius = 0;
+    for (let tick = 0; tick < 30 && contactHull === null; tick++) {
+      navigationSystem(world, DT);
+      collisionSystem(world, DT);
+      if (world.events.some((event) => event.type === "boundaryHit" && event.entityId === id)) {
+        contactHull = world.shipCores.get(id)!.hull;
+        const pos = world.transforms.get(id)!.pos;
+        contactRadius = Math.hypot(pos.x, pos.y, pos.z);
+      }
+      world.drainEvents();
+    }
+
+    expect(contactHull).not.toBeNull();
+    expect(Math.abs(world.transforms.get(id)!.heading)).toBeGreaterThan(Math.PI / 2);
+    for (let tick = 0; tick < 20; tick++) {
+      navigationSystem(world, DT);
+      collisionSystem(world, DT);
+      world.drainEvents();
+    }
+    const end = world.transforms.get(id)!.pos;
+    expect(Math.hypot(end.x, end.y, end.z)).toBeLessThan(contactRadius - 2);
+    expect(world.shipCores.get(id)!.hull).toBe(contactHull);
+  });
+
+  it("emits one boundary edge while a ship continuously grinds a warning wall", () => {
+    const world = makeWorld(configs, {
+      gamemodeOverride: { boundaryRule: { type: "warning" } },
+    });
+    const id = spawnShipFromConfig(
+      world,
+      configs,
+      "ship.interceptor",
+      INTERCEPTOR_FITTING,
+      0,
+      { x: 100, z: 0 },
+      0,
+    );
+
+    for (let tick = 0; tick < 30; tick++) collisionSystem(world, DT);
+
+    expect(
+      world.events.filter((event) => event.type === "boundaryHit" && event.entityId === id),
+    ).toHaveLength(1);
   });
 
   it("bounces off the TOP of the bubble, reflecting the vertical velocity", () => {

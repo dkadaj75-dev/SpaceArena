@@ -262,8 +262,31 @@ export class SceneBuilder {
       skyMat.diffuseColor = Color3.Black();
       skyMat.specularColor = Color3.Black();
       skyMat.emissiveColor = colorFromHex(authored.tint, Color3.White()).scale(authored.intensity);
-      skyMat.emissiveTexture = new Texture(`/content/${authored.texture}`, this.scene);
+      const panorama = new Texture(
+        `/content/${authored.texture}`,
+        this.scene,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        (message, exception) => {
+          log.warn(
+            `skybox texture failed for "${authored.texture}": ${message || String(exception)} — using solid authored tint`,
+          );
+          // A failed texture otherwise leaves the material permanently unready
+          // and the sky black. The emissive tint is the procedural fallback.
+          if (generation === this.generation) {
+            skyMat.emissiveTexture?.dispose();
+            skyMat.emissiveTexture = null;
+          }
+        },
+      );
+      panorama.isBlocking = false;
+      skyMat.emissiveTexture = panorama;
       skyMat.disableLighting = true;
+      // The panorama is only a backdrop. Writing its near sphere depth hid the
+      // farther point-cloud star shell even though both are visual sky layers.
+      skyMat.disableDepthWrite = true;
       skybox.material = skyMat;
       skybox.infiniteDistance = true;
       skybox.isPickable = false;
