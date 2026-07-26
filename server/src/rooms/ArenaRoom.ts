@@ -145,6 +145,8 @@ export class ArenaRoom extends Room<ArenaState> {
   private botBackfillTimer: ReturnType<typeof setTimeout> | null = null;
   private botBackfillMs = DEFAULT_BOT_BACKFILL_MS;
   private botProfileOverride: string | undefined;
+  /** Created by the matchmaking queue: both seats reserved for real players. */
+  private matchmade = false;
   /** Sim-clock milliseconds fed to the bot drivers (their decision cadence). */
   private botClockMs = 0;
 
@@ -226,6 +228,7 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.botProfileOverride = options.botProfile;
     this.botBackfillMs = options.botBackfillMs ?? gamemode.bots?.backfillWaitMs ?? DEFAULT_BOT_BACKFILL_MS;
+    this.matchmade = options.matchmaking === true;
 
     if (options.practiceTarget) this.spawnPracticeDummies();
 
@@ -442,6 +445,11 @@ export class ArenaRoom extends Room<ArenaState> {
    */
   private scheduleBotBackfill(): void {
     if (this.botBackfillTimer !== null) return;
+    // A matchmade room's second seat belongs to a real reserved player — a bot
+    // must never take it (a slow-connecting opponent would arrive mid-fight
+    // against a bot in their own chair). No-shows end via the reservation
+    // expiry + min-player flow instead.
+    if (this.matchmade) return;
     if (this.humanSessions.size === 0) return;
     if (!resolveBackfillBot(this.gamemode, this.configs, this.botProfileOverride)) return;
     this.botBackfillTimer = setTimeout(() => {

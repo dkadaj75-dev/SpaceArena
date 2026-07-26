@@ -156,11 +156,20 @@ export class AuthService {
     try {
       const pair = await this.request<TokenPair>("POST", "/api/auth/dev-login");
       this.setSession(pair);
+      // Marker so a LATER visit from a LAN hostname can tell this stored
+      // session came from the dev shortcut and drop it (see main.ts) — two
+      // devices silently sharing the dev-admin identity cannot matchmake.
+      localStorage.setItem("sa.devSession", "1");
       return true;
     } catch (err) {
       log.info("dev-login unavailable (server down or production build)", err);
       return false;
     }
+  }
+
+  /** True when the stored session was created by {@link devLogin}. */
+  isDevSession(): boolean {
+    return localStorage.getItem("sa.devSession") === "1";
   }
 
   async me(): Promise<Profile> {
@@ -187,6 +196,7 @@ export class AuthService {
   /** Clears all local session state, including the durable guest token. */
   logout(): void {
     localStorage.removeItem(LS_GUEST);
+    localStorage.removeItem("sa.devSession");
     this.clearSession();
   }
 

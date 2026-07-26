@@ -690,6 +690,29 @@ describe("ArenaRoom", () => {
     await c1.leave();
   });
 
+  it("never bot-backfills a matchmade room — the second seat belongs to a reserved player", async () => {
+    // Identical setup to the backfill test above, but created the way the
+    // matchmaking queue creates rooms (matchmaking: true). A slow-connecting
+    // opponent must find their chair empty, not occupied by a bot.
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.duel-1v1",
+      minPlayers: 2,
+      botBackfillMs: 0,
+      botProfile: "bot.aggressive",
+      matchmaking: true,
+    });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await advance(room, 40);
+
+    const botKeys = [...room.state.players.keys()].filter((k) => k.startsWith("bot-"));
+    expect(botKeys.length).toBe(0);
+    expect(room.state.matchPhase).not.toBe("live"); // still waiting for the real opponent
+
+    await c1.leave();
+  });
+
   it("holds a content-edited hot-rod bot to the same order budget as a human (review Finding 3)", async () => {
     // `driveBots` validated bot orders but never charged them to the rate
     // budget, on the grounds that the shipped profiles are slow. The schema

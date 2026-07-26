@@ -149,6 +149,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   const authService = new AuthService();
   await authService.restore();
 
+  // A dev-admin session STORED while the page was on localhost must not survive
+  // a visit via the LAN hostname: restore() would silently resurrect it and the
+  // phone + laptop would again collapse into one identity (see the dev-login
+  // localhost gate below — this closes the restored-session path it misses).
+  const onLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  if (import.meta.env.DEV && !onLocalhost && authService.getState().status === "authed" && authService.isDevSession()) {
+    log.info("dropping restored dev-admin session on a LAN hostname — use guest/login instead");
+    authService.logout();
+  }
+
   // DEV convenience: skip the login screen with an instant admin session
   // (server-side dev-login route; hard-absent in production). Escape hatches
   // for testing the real auth flow: `?login=1` for one boot, or
