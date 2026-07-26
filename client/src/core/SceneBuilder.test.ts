@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Color3, NullEngine, Scene, ShaderMaterial, StandardMaterial, type Mesh } from "@babylonjs/core";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
-import { SceneBuilder, type SceneQuality } from "./SceneBuilder.js";
+import { BOUNDARY_FRAGMENT, SceneBuilder, type SceneQuality } from "./SceneBuilder.js";
 
 const ARENA = {
   id: "arena.test",
@@ -280,5 +280,17 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(material.emissiveColor.equals(pureBlue)).toBe(false);
     expect(material.emissiveColor.r).toBeGreaterThan(pureBlue.r);
     lowBuilder.dispose();
+  });
+});
+
+describe("boundary shader float32 safety contract", () => {
+  it("wraps local UV before bounded cell math and clamps pattern before opacity", () => {
+    expect(BOUNDARY_FRAGMENT).toContain("precision highp float");
+    expect(BOUNDARY_FRAGMENT).toContain("vec2 unitDomain = fract(vUV)");
+    expect(BOUNDARY_FRAGMENT).toContain("clamp(hexDensity, 1.0, 128.0)");
+    expect(BOUNDARY_FRAGMENT).not.toMatch(/world(Pos|Position)|vWorld/i);
+    expect(BOUNDARY_FRAGMENT).toContain("float safePattern = clamp(");
+    expect(BOUNDARY_FRAGMENT).toContain("float safeOpacity = clamp(opacity, 0.0, 1.0)");
+    expect(BOUNDARY_FRAGMENT).toContain("safePattern * safeOpacity");
   });
 });

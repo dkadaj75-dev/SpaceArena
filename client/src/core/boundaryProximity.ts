@@ -1,6 +1,33 @@
 /** Clamp without allocating a vector/result object in the render loop. */
 function clamp01(value: number): number {
+  if (Number.isNaN(value)) return 0;
   return value <= 0 ? 0 : value >= 1 ? 1 : value;
+}
+
+/** Keep the shader's periodic domain small enough for reliable float32 cell math. */
+export const BOUNDARY_HEX_DENSITY_MIN = 1;
+export const BOUNDARY_HEX_DENSITY_MAX = 128;
+
+export interface BoundaryShieldRenderParams {
+  hexDensity: number;
+  opacity: number;
+}
+
+/**
+ * Last CPU-side guard before authored/live values reach either boundary
+ * material. The fragment shader repeats these clamps because uniforms and
+ * drivers are independent trust boundaries; the plain fallback uses this
+ * result directly.
+ */
+export function boundaryShieldRenderParams(
+  hexDensity: number,
+  proximityOpacity: number,
+): BoundaryShieldRenderParams {
+  const finiteDensity = Number.isFinite(hexDensity) ? hexDensity : BOUNDARY_HEX_DENSITY_MIN;
+  return {
+    hexDensity: Math.min(BOUNDARY_HEX_DENSITY_MAX, Math.max(BOUNDARY_HEX_DENSITY_MIN, finiteDensity)),
+    opacity: clamp01(proximityOpacity),
+  };
 }
 
 /**

@@ -27,8 +27,11 @@ import {
   type QualityConfig,
 } from "@space-arena/shared";
 import {
+  BOUNDARY_HEX_DENSITY_MAX,
+  BOUNDARY_HEX_DENSITY_MIN,
   boundaryShieldOpacity,
   boundaryShieldRedMix,
+  boundaryShieldRenderParams,
 } from "./boundaryProximity.js";
 
 const log = createLogger("SceneBuilder");
@@ -360,12 +363,15 @@ export class SceneBuilder {
         shell.isPickable = false;
         this.boundaryBlue.copyFrom(colorFromHex(shield.blueColor, Color3.Blue()));
         this.boundaryRed.copyFrom(colorFromHex(shield.redColor, Color3.Red()));
+        clampColorInPlace(this.boundaryBlue);
+        clampColorInPlace(this.boundaryRed);
         this.boundaryColor.copyFrom(this.boundaryBlue);
+        const renderParams = boundaryShieldRenderParams(shield.hexDensity, shield.baseOpacity);
 
         if (this.quality.scene.boundaryShieldShader) {
           const shellMat = createBoundaryShader(this.scene);
-          shellMat.setFloat("hexDensity", shield.hexDensity);
-          shellMat.setFloat("opacity", shield.baseOpacity);
+          shellMat.setFloat("hexDensity", renderParams.hexDensity);
+          shellMat.setFloat("opacity", renderParams.opacity);
           shellMat.setColor3("shieldColor", this.boundaryBlue);
           shell.material = shellMat;
           this.boundaryMaterial = shellMat;
@@ -375,7 +381,10 @@ export class SceneBuilder {
           shellMat.specularColor = Color3.Black();
           shellMat.emissiveColor.copyFrom(this.boundaryBlue);
           shellMat.disableLighting = true;
-          shellMat.alpha = shield.baseOpacity;
+          // Same hard bounds as the shader path: this material can never turn a
+          // malformed hot-reload value into an opaque or over-bright shell.
+          shellMat.alpha = renderParams.opacity;
+          clampColorInPlace(shellMat.emissiveColor);
           shellMat.backFaceCulling = false;
           shell.material = shellMat;
           this.boundaryMaterial = shellMat;
@@ -430,15 +439,21 @@ export class SceneBuilder {
     const material = this.boundaryMaterial;
     if (!shield || !material) return distance;
 
-    const opacity = boundaryShieldOpacity(distance, shield.glowStartDistance, shield.baseOpacity);
+    const renderParams = boundaryShieldRenderParams(
+      shield.hexDensity,
+      boundaryShieldOpacity(distance, shield.glowStartDistance, shield.baseOpacity),
+    );
     const redMix = boundaryShieldRedMix(distance, shield.redTransitionDistance);
     Color3.LerpToRef(this.boundaryBlue, this.boundaryRed, redMix, this.boundaryColor);
+    clampColorInPlace(this.boundaryColor);
     if (material instanceof ShaderMaterial) {
-      material.setFloat("opacity", opacity);
+      material.setFloat("opacity", renderParams.opacity);
+      material.setFloat("hexDensity", renderParams.hexDensity);
       material.setColor3("shieldColor", this.boundaryColor);
     } else {
-      material.alpha = opacity;
+      material.alpha = renderParams.opacity;
       material.emissiveColor.copyFrom(this.boundaryColor);
+      clampColorInPlace(material.emissiveColor);
     }
     return distance;
   }
@@ -557,20 +572,28 @@ void main(void) {
   gl_Position = worldViewProjection * vec4(position, 1.0);
 }`;
 
-const BOUNDARY_FRAGMENT = `
+/** Exported for a source-contract regression test; compiled verbatim by Babylon. */
+export const BOUNDARY_FRAGMENT = `
 precision highp float;
 varying vec2 vUV;
 uniform vec3 shieldColor;
 uniform float opacity;
 uniform float hexDensity;
 void main(void) {
-  vec2 p = vUV * vec2(hexDensity * 2.0, hexDensity);
+  // Mesh UV is interpolated in a unit domain. Wrap before scaling so arena
+  // radius/world translation never enters fract/floor; density is bounded so
+  // every periodic operand remains <= 256 even after a malformed live update.
+  vec2 unitDomain = fract(vUV);
+  float safeDensity = clamp(hexDensity, ${BOUNDARY_HEX_DENSITY_MIN.toFixed(1)}, ${BOUNDARY_HEX_DENSITY_MAX.toFixed(1)});
+  vec2 p = unitDomain * vec2(safeDensity * 2.0, safeDensity);
   p.x += mod(floor(p.y), 2.0) * 0.5;
   vec2 cell = abs(fract(p) - 0.5);
   float hexEdge = max(cell.y, cell.x * 0.8660254 + cell.y * 0.5);
   float line = smoothstep(0.40, 0.49, hexEdge);
-  float cellPulse = 0.18 + line * 0.82;
-  gl_FragColor = vec4(shieldColor, opacity * cellPulse);
+  float safePattern = clamp(0.18 + line * 0.82, 0.0, 1.0);
+  float safeOpacity = clamp(opacity, 0.0, 1.0);
+  // Apply proximity opacity last. A broken pattern result cannot exceed it.
+  gl_FragColor = vec4(clamp(shieldColor, 0.0, 1.0), safePattern * safeOpacity);
 }`;
 
 function createBoundaryShader(scene: Scene): ShaderMaterial {
@@ -586,6 +609,13 @@ function createBoundaryShader(scene: Scene): ShaderMaterial {
   );
   material.backFaceCulling = false;
   return material;
+}
+
+/** Component-wise finite [0,1] clamp shared by shader uniforms and fallback emissive. */
+function clampColorInPlace(color: Color3): void {
+  color.r = Number.isFinite(color.r) ? Math.min(1, Math.max(0, color.r)) : 0;
+  color.g = Number.isFinite(color.g) ? Math.min(1, Math.max(0, color.g)) : 0;
+  color.b = Number.isFinite(color.b) ? Math.min(1, Math.max(0, color.b)) : 0;
 }
 
 /** Depth-first walk over every `Mesh` under `node` (inclusive). */

@@ -26,8 +26,10 @@ const STYLE_ID = "sa-screen-style";
  * `--sa-menu-panel-pct`. The rim is built as *element background = rim colour*
  * plus a `::before` fill plate inset by the rim width, both clipped to the same
  * polygon: a plain `border` would have its corners cut off by `clip-path` and
- * leave the bevel unlined, and inline text naturally paints above `::before`, so
- * this needs no wrapper elements. Glow is `filter: drop-shadow()`, never
+ * leave the bevel unlined. The host isolates a stacking context and the fill
+ * plate sits at z=-1: bare text nodes cannot be positioned, so a non-negative
+ * pseudo-element would otherwise paint over opaque button labels. Glow is
+ * `filter: drop-shadow()`, never
  * `box-shadow`, because `clip-path` clips an outer box-shadow away entirely.
  */
 export function injectScreenStyle(): void {
@@ -205,6 +207,24 @@ const CSS = `
   clip-path: var(--sa-clip-btn);
   background: var(--sa-panel-fill);
   transition: background-color .12s linear;
+}
+
+/*
+ * Two-layer chamfer contract. Isolation keeps the negative plate above its
+ * host's background rim but below all in-flow content, including bare text
+ * nodes (which cannot receive position/z-index).
+ */
+.sa-screen-btn,
+.sa-menu-section,
+.sa-settings-group,
+.sa-matchmaking-panel {
+  isolation: isolate;
+}
+.sa-screen-btn::before,
+.sa-menu-section::before,
+.sa-settings-group::before,
+.sa-matchmaking-panel::before {
+  z-index: -1;
 }
 .sa-screen-btn:disabled { opacity: .45; cursor: default; }
 

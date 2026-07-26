@@ -19,8 +19,9 @@ const STYLE_ID = "hud-style";
  *  - **luminous rim + translucent fill** — a framed widget paints its rim on
  *    `::before` (a filled chamfered plate) and its fill on `::after` (the same
  *    plate inset by the rim width). Two layers rather than a `border`, because
- *    `clip-path` cuts a border's corners off and leaves the bevel unlined. Own
- *    content therefore sits at `z-index: 1`.
+ *    `clip-path` cuts a border's corners off and leaves the bevel unlined. Each
+ *    host isolates a stacking context and both plates sit at z=-1, below even
+ *    bare text nodes (which cannot themselves be positioned).
  *  - **glow** — `filter: drop-shadow()` on the rim layer, NOT `box-shadow`:
  *    `clip-path` would clip an outer box-shadow away entirely, while a filter is
  *    applied after clipping and traces the chamfered silhouette. Reserved for
@@ -90,6 +91,31 @@ const CSS = `
   --hud-tick-color: color-mix(in srgb, var(--hud-primary, #39bfff) 55%, transparent);
 }
 
+/*
+ * Shared two-layer chamfer contract. The isolated negative layer stays above
+ * the host background while it cannot cover in-flow children or bare text.
+ * Keep every rim/fill component on this list so its layering is constructional.
+ */
+.hud-frame,
+.hud-module-btn,
+.hud-throttle-track,
+.hud-boost-btn,
+.hud-results-panel {
+  isolation: isolate;
+}
+.hud-frame::before,
+.hud-frame::after,
+.hud-module-btn::before,
+.hud-module-btn::after,
+.hud-throttle-track::before,
+.hud-throttle-track::after,
+.hud-boost-btn::before,
+.hud-boost-btn::after,
+.hud-results-panel::before,
+.hud-results-panel::after {
+  z-index: -1;
+}
+
 /* ============================================================
    Shared frame: chamfered rim plate + translucent fill plate.
    Opt in with .hud-frame; override --hud-frame-rim for a tint.
@@ -105,7 +131,6 @@ const CSS = `
 .hud-frame::after {
   content: "";
   position: absolute;
-  z-index: 0;
   clip-path: var(--hud-clip);
   pointer-events: none;
 }
@@ -324,7 +349,6 @@ const CSS = `
 .hud-module-btn::after {
   content: "";
   position: absolute;
-  z-index: 0;
   clip-path: var(--hud-clip-hex);
   pointer-events: none;
 }
@@ -504,7 +528,6 @@ const CSS = `
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 0;
   clip-path: var(--hud-clip);
   pointer-events: none;
 }
@@ -600,7 +623,6 @@ const CSS = `
 .hud-boost-btn::after {
   content: "";
   position: absolute;
-  z-index: 0;
   clip-path: var(--hud-clip-hex);
   pointer-events: none;
 }
@@ -871,7 +893,6 @@ const CSS = `
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 0;
   clip-path: polygon(
     22px 0%, calc(100% - 22px) 0%, 100% 22px,
     100% calc(100% - 22px), calc(100% - 22px) 100%,

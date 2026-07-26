@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  BOUNDARY_HEX_DENSITY_MAX,
+  BOUNDARY_HEX_DENSITY_MIN,
   BoundaryWarningLatch,
   boundaryProximityFactor,
   boundaryShieldOpacity,
   boundaryShieldRedMix,
+  boundaryShieldRenderParams,
 } from "./boundaryProximity.js";
 
 describe("boundary shield proximity curves", () => {
@@ -20,6 +23,22 @@ describe("boundary shield proximity curves", () => {
     expect(boundaryShieldRedMix(12, 12)).toBe(0);
     expect(boundaryShieldRedMix(6, 12)).toBe(0.5);
     expect(boundaryShieldRedMix(0, 12)).toBe(1);
+  });
+
+  it("bounds every value sent to either boundary material", () => {
+    expect(boundaryShieldRenderParams(42, 0.018)).toEqual({ hexDensity: 42, opacity: 0.018 });
+    expect(boundaryShieldRenderParams(1e12, 4)).toEqual({
+      hexDensity: BOUNDARY_HEX_DENSITY_MAX,
+      opacity: 1,
+    });
+    expect(boundaryShieldRenderParams(Number.NaN, Number.NaN)).toEqual({
+      hexDensity: BOUNDARY_HEX_DENSITY_MIN,
+      opacity: 0,
+    });
+    expect(boundaryShieldRenderParams(-10, -2)).toEqual({
+      hexDensity: BOUNDARY_HEX_DENSITY_MIN,
+      opacity: 0,
+    });
   });
 });
 
