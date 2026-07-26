@@ -105,10 +105,10 @@ describe("ArenaRoom", () => {
     const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
       sim: {
         world: {
-          transforms: Map<number, { pos: { x: number; z: number }; heading: number }>;
+          transforms: Map<number, { pos: { x: number; y: number; z: number }; heading: number }>;
           shipCores: Map<number, { hull: number }>;
         };
-        spawnPlayerAt: (shipId: string, fitting: string[], team: number, pos: { x: number; z: number }, heading: number) => number;
+        spawnPlayerAt: (shipId: string, fitting: string[], team: number, pos: { x: number; y: number; z: number }, heading: number) => number;
       };
     };
     const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
@@ -122,7 +122,7 @@ describe("ArenaRoom", () => {
       "ship.interceptor",
       ship.defaultFitting,
       1,
-      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
+      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, y: pTf.pos.y, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
       Math.PI,
     );
     serverRoom.sim.world.shipCores.get(enemyId)!.hull = 8;
@@ -196,8 +196,8 @@ describe("ArenaRoom", () => {
 
     const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
       sim: {
-        world: { transforms: Map<number, { pos: { x: number; z: number }; heading: number }> };
-        spawnPlayerAt: (shipId: string, fitting: (string | null)[], team: number, pos: { x: number; z: number }, heading: number) => number;
+        world: { transforms: Map<number, { pos: { x: number; y: number; z: number }; heading: number }> };
+        spawnPlayerAt: (shipId: string, fitting: (string | null)[], team: number, pos: { x: number; y: number; z: number }, heading: number) => number;
       };
     };
     const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
@@ -213,7 +213,7 @@ describe("ArenaRoom", () => {
       "ship.interceptor",
       [...ship.defaultFitting],
       1,
-      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
+      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, y: pTf.pos.y, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
       Math.PI,
     );
 
@@ -286,9 +286,10 @@ describe("ArenaRoom", () => {
     expect(room.state.matchPhase).toBe("live");
 
     const p1 = room.state.players.get(c1.sessionId)!;
-    // Every shipped spawn is on the plane with a level nose, so a non-zero
-    // reading later can only have come from the order.
-    expect(p1.y).toBe(0);
+    // The authored spawn altitude is replicated before any order; the level nose
+    // keeps the following climb attributable to the pitch input.
+    const startY = decodeCenti(p1.y);
+    expect(startY).toBe(10);
     expect(p1.pitch).toBe(0);
 
     c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false } });
@@ -304,7 +305,7 @@ describe("ArenaRoom", () => {
       sim: { world: { transforms: Map<number, { pos: { x: number; y: number; z: number }; pitch: number }> } };
     };
     const tf = serverRoom.sim.world.transforms.get(p1.entityId)!;
-    expect(tf.pos.y).toBeGreaterThan(1);
+    expect(tf.pos.y).toBeGreaterThan(startY + 1);
     expect(tf.pitch).toBeGreaterThan(0);
     expect(decodeCenti(p1.y)).toBeCloseTo(tf.pos.y, 2);
     expect(decodePitch(p1.pitch)).toBeCloseTo(tf.pitch, 3);
@@ -328,6 +329,7 @@ describe("ArenaRoom", () => {
     await advance(room, 1);
 
     const p1 = room.state.players.get(c1.sessionId)!;
+    const spawnY = p1.y;
     let left = false;
     c1.onLeave(() => (left = true));
 
@@ -347,7 +349,7 @@ describe("ArenaRoom", () => {
     await advance(room, 10);
     expect(left).toBe(false);
     expect(p1.throttle).toBe(0); // no FlightState was ever stored
-    expect(p1.y).toBe(0);
+    expect(p1.y).toBe(spawnY);
     expect(p1.pitch).toBe(0);
 
     // Omitting the axis entirely is legal (pitch is held state — absent means
@@ -418,8 +420,8 @@ describe("ArenaRoom", () => {
 
     const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
       sim: {
-        world: { transforms: Map<number, { pos: { x: number; z: number }; heading: number }> };
-        spawnPlayerAt: (shipId: string, fitting: (string | null)[], team: number, pos: { x: number; z: number }, heading: number) => number;
+        world: { transforms: Map<number, { pos: { x: number; y: number; z: number }; heading: number }> };
+        spawnPlayerAt: (shipId: string, fitting: (string | null)[], team: number, pos: { x: number; y: number; z: number }, heading: number) => number;
       };
     };
     const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
@@ -431,7 +433,7 @@ describe("ArenaRoom", () => {
       "ship.interceptor",
       [...ship.defaultFitting],
       1,
-      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
+      { x: pTf.pos.x + Math.cos(pTf.heading) * 10, y: pTf.pos.y, z: pTf.pos.z + Math.sin(pTf.heading) * 10 },
       Math.PI,
     );
 

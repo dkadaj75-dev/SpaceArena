@@ -23,7 +23,7 @@ export class SpatialHash {
     return Math.floor(v / this.cellSize);
   }
 
-  /** Insert an entity whose circle covers [x±r, z±r]. */
+  /** Insert an entity whose spherical collider projects over [x±r, z±r]. */
   insert(id: EntityId, x: number, z: number, r: number): void {
     const minX = this.cellCoord(x - r);
     const maxX = this.cellCoord(x + r);

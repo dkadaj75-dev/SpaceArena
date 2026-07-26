@@ -28,8 +28,8 @@ function boundsRadius(arena: ArenaConfig | undefined): number | undefined {
 }
 
 /**
- * 2D canvas minimap (top-left, §2.3/§6 1.8): arena bounds circle, asteroid
- * dots, ships as team-colored blips, player heading tick. Cheap: redrawn at
+ * 2D canvas minimap (top-left, §2.3/§6 1.8): a top-down bubble silhouette,
+ * asteroid dots, ships as team-colored blips, player heading tick. Cheap: redrawn at
  * ~10 Hz regardless of render frame rate, fixed device-pixel canvas size.
  */
 export class Minimap {
@@ -108,7 +108,7 @@ export class Minimap {
 
     ctx.clearRect(0, 0, size, size);
 
-    // Bounds circle (subtle, matches the arena's overall radius fraction).
+    // Top-down bubble silhouette (subtle, matches the arena's overall radius fraction).
     const radius = boundsRadius(this.arena);
     if (radius !== undefined) {
       ctx.strokeStyle = "rgba(255,255,255,0.25)";

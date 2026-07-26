@@ -52,7 +52,7 @@ export const renderRecipe = z.object({
 });
 export type RenderRecipe = z.infer<typeof renderRecipe>;
 
-/** Circle collider on the arena plane. Only shape supported in MVP. */
+/** Radius-only collider config; sim narrow phases treat it as a sphere in the bubble. */
 export const collider = z.object({
   shape: z.literal("circle"),
   radius: z.number().positive(),

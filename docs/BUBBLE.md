@@ -98,11 +98,16 @@ Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchang
   vertical structure (deep-field belts get y-bands so the bubble is used).
 - Balance/regression fixtures: y=0 starts keep most recorded numbers meaningful;
   scripts that relied on planar geometry re-verified. e2e smoke unchanged in spirit.
+- **T5 landed (2026-07-26):** deep-field's core ring spans y=-13..14; its north and
+  south mid belts occupy y=+46..68 and y=-68..-46; east/west flank knots occupy
+  y=+76..94 and y=-94..-76; rim debris ranges y=-52..55. Its spawn pairs mirror
+  y=±10/±6. Ring-nebula has y=-22..22 asteroid variation and mirror-fair spawn
+  offsets y=±10, with all authored spawn pitches at 0.
 
 ## Stage plan (test-gated, per the flight-overhaul rhythm)
-1. **T1 sim 3D core** (A) — biggest; everything else hangs off it.
-2. **T2 net** (B).
-3. **T3 client** (C) incl. off-screen arrows; live browser verify.
-4. **T4 bots** (D).
-5. **T5 arena/content + audits** (E) + retirement of circle-bounds code.
+1. **T1 sim 3D core** (A) — landed.
+2. **T2 net** (B) — landed.
+3. **T3 client** (C) incl. off-screen arrows — landed.
+4. **T4 bots** (D) — landed.
+5. **T5 arena/content + audits** (E) + retirement of circle-bounds code — landed.
 6. **T6 external review + fixes + final validation.**

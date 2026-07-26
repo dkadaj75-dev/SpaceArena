@@ -62,7 +62,7 @@ export interface LosCircle {
 
 /**
  * World-free variant of {@link hasLineOfSight}: segment `a`→`b` vs an explicit
- * list of circular blockers. Same narrow-phase math (segment-vs-circle), no
+ * list of spherical blockers. Same narrow-phase math (segment-vs-sphere), no
  * broadphase — used by consumers that only hold a read-only {@link
  * import("./ArenaSimulation.js").Snapshot} (bots, debug overlays) rather than a
  * live World. Keeping it here means there is exactly one LoS implementation.

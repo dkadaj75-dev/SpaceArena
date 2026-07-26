@@ -74,10 +74,10 @@ function runMatch(
      */
     seedDrivers?: boolean;
     /**
-     * Altitude to place bot `i` at immediately after spawn (BUBBLE.md §D). Both
-     * shipped arenas still author `y: 0` spawns — that is T5's job — so a test that
-     * wants a genuinely vertical engagement has to displace the ships itself. It
-     * writes the transform the same way a spawn point would, before the first tick.
+     * Altitude to place bot `i` at immediately after spawn (BUBBLE.md §D). The
+     * shipped arenas now use modest authored vertical offsets; this override creates
+     * an intentionally extreme engagement that cannot arise by accident. It writes
+     * the transform the same way a spawn point would, before the first tick.
      */
     spawnY?: number[];
   } = {},
@@ -220,7 +220,7 @@ describe("bots in a live ArenaSimulation", () => {
         moved++; // destroyed ⇒ it definitely participated
         continue;
       }
-      if (Math.hypot(b.x - a.x, b.z - a.z) > 5) moved++;
+      if (Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) > 5) moved++;
     }
     expect(moved).toBe(result.botIds.length);
 
@@ -294,10 +294,10 @@ describe("bots in a live ArenaSimulation", () => {
   });
 
   /**
-   * The T4 acceptance test (BUBBLE.md §D). Both shipped arenas still spawn every
-   * ship on `y: 0`, so a bots-vs-bots match can look entirely healthy while the
-   * pitch axis is dead — a planar bot would pass every assertion above. This one
-   * starts the two teams 80 units apart VERTICALLY: the sim's lock cone is a true
+   * The T4 acceptance test (BUBBLE.md §D). The shipped offsets are intentionally
+   * modest, so a bots-vs-bots match can still look entirely healthy while the pitch
+   * axis is dead — a planar bot would pass every assertion above. This one starts
+   * the two teams 80 units apart VERTICALLY: the sim's lock cone is a true
    * 3D cone and weapon range is a 3D distance, so nothing here is reachable unless
    * the bots genuinely nose up and down.
    */
@@ -309,10 +309,8 @@ describe("bots in a live ArenaSimulation", () => {
     // Bots flew the vertical axis to get there — a planar bot's pitch stays 0.
     expect(result.peakPitch).toBeGreaterThan(0.3);
     // ...and they actually CLOSED that 80-unit gap rather than circling under one
-    // another in plan view. (The gap widens again late in the match: the loser's
-    // `retreat` runs flat out and the practice-bots boundary rule is `warning`, so
-    // nothing turns it around. That predates the bubble — a planar retreat ran off
-    // the same way — and it is the gamemode's rule to change, not the bots'.)
+    // another in plan view. The damage boundary keeps a losing retreat from fleeing
+    // unboundedly, while this assertion remains about closing the initial gap.
     expect(result.minVerticalGap).toBeLessThan(15);
 
     // The payoff: a completed 3D lock converted into shots and real damage.

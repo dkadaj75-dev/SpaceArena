@@ -108,7 +108,7 @@ function emptyRow(): BotOverlayRow {
 }
 
 /**
- * Refresh `blockers` (asteroid LoS circles) from a snapshot in place. Entry
+ * Refresh `blockers` (asteroid LoS spheres) from a snapshot in place. Entry
  * objects are reused; only a *growing* asteroid count allocates, which cannot
  * happen mid-match.
  */

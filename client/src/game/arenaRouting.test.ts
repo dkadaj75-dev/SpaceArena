@@ -118,7 +118,7 @@ describe("Minimap arena resolution", () => {
    * The view range follows the SESSION's arena (the shipped theme deliberately
    * declares no `minimapRangeUnits`, so a radius-90 nebula and a radius-300 deep
    * field each fill the same dial). That makes the plotted position of a known
-   * world point the discriminator: the bounds circle alone clamps to the dial
+   * world point the discriminator: the top-down bubble silhouette alone clamps to the dial
    * edge on every arena and would pass against a hardcoded id.
    */
   function plotAsteroidAt(arenaId: string, worldX: number): number {
@@ -131,7 +131,7 @@ describe("Minimap arena resolution", () => {
     );
     minimap.dispose();
     restore();
-    expect(arcs.length).toBe(2); // bounds circle + the one asteroid
+    expect(arcs.length).toBe(2); // bubble silhouette + the one asteroid
     return arcs[1]![0]!; // asteroid centre x, in canvas px
   }
 
@@ -151,7 +151,7 @@ describe("Minimap arena resolution", () => {
     expect(plotAsteroidAt(SECOND_ARENA_ID, 25)).not.toBeCloseTo(plotAsteroidAt("arena.ring-nebula", 25), 3);
   });
 
-  it("still draws the bounds circle from the arena config", () => {
+  it("still draws the top-down bubble silhouette from the arena config", () => {
     const { arcs, restore } = stubCanvas();
     const session = { arenaId: SECOND_ARENA_ID, playerId: 1, playerTeam: 0 } as unknown as GameSession;
     const minimap = new Minimap(document.createElement("div"), configs, bus, session);

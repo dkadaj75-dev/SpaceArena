@@ -39,7 +39,7 @@ const log = createLogger("GameSession");
  */
 const DUMMY_OFFSETS = [
   { ahead: 30, abeam: 0 },
-  { ahead: 34, abeam: 12 },
+  { ahead: 34, abeam: 12, up: 12 },
   { ahead: 34, abeam: -12 },
 ];
 
@@ -136,15 +136,15 @@ export class GameSession {
     const spawn = this.sim.world.transforms.get(this.playerId)!;
     const cos = Math.cos(spawn.heading);
     const sin = Math.sin(spawn.heading);
-    // `ahead` follows the nose in 3D; `abeam` stays horizontal, which keeps the
-    // trio on one level instead of tilting the whole firing line with the spawn.
+    // `ahead` follows the nose in 3D; `abeam` stays horizontal, while `up` gives
+    // one dummy a deliberate vertical offset from the spawn frame.
     const cosPitch = Math.cos(spawn.pitch);
     const sinPitch = Math.sin(spawn.pitch);
     for (let i = 0; i < dummyCount; i++) {
       const off = DUMMY_OFFSETS[i % DUMMY_OFFSETS.length]!;
       const pos = {
         x: spawn.pos.x + cos * cosPitch * off.ahead - sin * off.abeam,
-        y: spawn.pos.y + sinPitch * off.ahead,
+        y: spawn.pos.y + sinPitch * off.ahead + (off.up ?? 0),
         z: spawn.pos.z + sin * cosPitch * off.ahead + cos * off.abeam,
       };
       const id = this.sim.spawnPlayerAt(shipId, fitting, 1, pos, spawn.heading);
