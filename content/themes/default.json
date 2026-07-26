@@ -20,8 +20,7 @@
     "safeAreaInsetPx": 12,
     "moduleButtonGapPx": 10,
     "minimapSizePx": 128,
-    "minimapRangeUnits": 100,
-    "gaugeWidthPx": 132,
+      "gaugeWidthPx": 132,
     "notificationMaxVisible": 3,
     "thumbZoneFraction": 0.4,
     "moduleCluster": {

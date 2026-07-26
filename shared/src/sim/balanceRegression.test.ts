@@ -129,7 +129,7 @@ function round(v: number): number {
 interface ScriptStep {
   at: number;
   toggle?: number;
-  move?: { x: number; z: number; boost: boolean };
+  flight?: { throttle: number; turn: number; boost: boolean };
 }
 
 interface Trajectory {
@@ -163,8 +163,8 @@ function runEngagement(shipId: string, script: readonly ScriptStep[], opponentSh
   const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
   const subject = sim.spawnPlayerAt(shipId, fittingOf(shipId), 0, { x: 0, z: 0 }, 0);
   const opponent = sim.spawnPlayerAt(opponentShip, fittingOf(opponentShip), 1, { x: 22, z: 0 }, Math.PI);
-  sim.applyOrder(subject, { kind: "target", targetId: opponent });
-  sim.applyOrder(opponent, { kind: "target", targetId: subject });
+  // No target orders: targeting is automatic (FLIGHT.md §2). Both hulls are nose
+  // to nose inside each other's sensor cone, so each picks the other on tick 1.
 
   // Opponent fires from tick 0 — it is pressure, not a participant in the script.
   for (const m of sim.world.modules.get(opponent)!.modules) {
@@ -197,15 +197,14 @@ function runEngagement(shipId: string, script: readonly ScriptStep[], opponentSh
   for (let tick = 0; tick <= ENGAGEMENT_SECONDS * TPS; tick++) {
     for (const step of byTick.get(tick) ?? []) {
       if (step.toggle !== undefined) sim.applyOrder(subject, { kind: "moduleToggle", hardpointIndex: step.toggle });
-      if (step.move) sim.applyOrder(subject, { kind: "move", target: { x: step.move.x, z: step.move.z }, boost: step.move.boost });
+      if (step.flight) sim.applyOrder(subject, { kind: "flight", ...step.flight });
     }
     // Immortal sparring partners: the bench measures upkeep, not lethality.
     subjectCore.hull = subjectCore.hullMax;
     opponentCore.hull = opponentCore.hullMax;
-    // Locks pinned every tick (FLIGHT.md §2): the script's shuttle legs point the
-    // hull away from the opponent, which would swing it out of the sensor cone and
-    // silence the guns for reasons that have nothing to do with energy/heat upkeep.
-    // Lock behaviour has its own tests; this bench measures the upkeep curve.
+    // Locks pinned every tick (FLIGHT.md §2): this bench measures the upkeep
+    // curve, so the guns must never fall silent for a targeting reason. Lock
+    // behaviour has its own tests.
     pinLock(sim.world, subject);
     pinLock(sim.world, opponent);
 
@@ -258,8 +257,14 @@ const expectNear = (label: string, value: number, recorded: number, band = BAND)
 
 /**
  * Sustained brawl: every hardpoint up early and held, one cycled off and back
- * on, boost pulsed while shuttling between two points that stay inside laser
- * range. The "everything on" worst case for the capacitor.
+ * on, boost pulsed in three-second bursts. The "everything on" worst case for
+ * the capacitor.
+ *
+ * The burst legs used to be tap-to-move dashes whose length the arrival logic
+ * decided for us; move orders retired with FLIGHT.md §7, so the bursts are now
+ * explicit and the SUSTAINED anchors below were re-recorded against them. What
+ * the bench asserts is unchanged — upkeep curve, brown-out count, class
+ * ordering — only the script that produces it is written in flight vocabulary.
  *
  * Scripts address HARDPOINT INDICES, exactly like a player's thumb does, so the
  * same script runs on every hull; a toggle for an index a hull does not have is
@@ -271,9 +276,16 @@ const SUSTAINED: ScriptStep[] = [
   { at: 1, toggle: 1 },
   { at: 3, toggle: 2 },
   { at: 5, toggle: 4 },
-  { at: 6, toggle: 3, move: { x: 0, z: 14, boost: true } },
-  { at: 12, move: { x: 0, z: -14, boost: true } },
-  { at: 18, move: { x: 0, z: 14, boost: true } },
+  // Boost bursts, three seconds each. Throttle stays at 0 so the burst is a
+  // pure energy/heat event: `resolveBoostMult` charges `drawActive` + boost heat
+  // whenever boost is REQUESTED and the module is hot, and the bench wants that
+  // upkeep without the range/LoS drift a 40-unit dash would smuggle in.
+  { at: 6, toggle: 3, flight: { throttle: 0, turn: 0, boost: true } },
+  { at: 9, flight: { throttle: 0, turn: 0, boost: false } },
+  { at: 12, flight: { throttle: 0, turn: 0, boost: true } },
+  { at: 15, flight: { throttle: 0, turn: 0, boost: false } },
+  { at: 18, flight: { throttle: 0, turn: 0, boost: true } },
+  { at: 21, flight: { throttle: 0, turn: 0, boost: false } },
   { at: 24, toggle: 3 },
   { at: 30, toggle: 2 },
   { at: 42, toggle: 2 },
@@ -300,8 +312,8 @@ const DISCIPLINED: ScriptStep[] = [
 describe("scripted 60 s engagements — energy/heat regression bands", () => {
   it("interceptor, sustained brawl (all four hardpoints, boost pulses)", () => {
     const t = runEngagement("ship.interceptor", SUSTAINED);
-    expectWithinBand("interceptor sustained energy", t.energy, [0.994, 0.918, 0.595, 0.547, 0.999, 0.987, 0.997]);
-    expectNear("interceptor sustained energy floor", t.energyFloor, 0.546);
+    expectWithinBand("interceptor sustained energy", t.energy, [0.994, 0.791, 0.361, 0.249, 0.892, 0.987, 0.997]);
+    expectNear("interceptor sustained energy floor", t.energyFloor, 0.247);
     expectNear("interceptor sustained peak module heat", t.peakModuleHeat, 0.001, 0.03);
     expect(t.overheats).toBe(0);
     expect(t.brownOuts).toBe(0);
@@ -317,7 +329,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
 
   it("brawler, sustained brawl — five hardpoints out-draw one capacitor", () => {
     const t = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    expectWithinBand("brawler sustained energy", t.energy, [0.998, 0.757, 0.115, 0.133, 0.556, 0.877, 0.999]);
+    expectWithinBand("brawler sustained energy", t.energy, [0.998, 0.673, 0, 0.068, 0.491, 0.812, 0.999]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
     // The heavy CANNOT run everything at once: it browns out and sheds modules.
     // That tradeoff is the intended cost of five hardpoints — if this count moves,
@@ -328,8 +340,8 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
 
   it("support, sustained brawl (big capacitor, strong dissipation)", () => {
     const t = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
-    expectWithinBand("support sustained energy", t.energy, [0.997, 0.997, 0.962, 0.997, 0.999, 0.996, 0.998]);
-    expectNear("support sustained energy floor", t.energyFloor, 0.957);
+    expectWithinBand("support sustained energy", t.energy, [0.997, 0.98, 0.96, 0.997, 0.999, 0.996, 0.998]);
+    expectNear("support sustained energy floor", t.energyFloor, 0.941);
     expect(t.overheats).toBe(0);
     expect(t.brownOuts).toBe(0);
   });
@@ -388,7 +400,6 @@ describe("heat model stress (synthetic fitting that out-paces dissipation)", () 
     const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
     const subject = sim.spawnPlayerAt("ship.interceptor", HOT_FITTING, 0, { x: 0, z: 0 }, 0);
     const target = sim.spawnPlayerAt("ship.brawler", fittingOf("ship.brawler"), 1, { x: 22, z: 0 }, Math.PI);
-    sim.applyOrder(subject, { kind: "target", targetId: target });
     sim.applyOrder(subject, { kind: "moduleToggle", hardpointIndex: 0 });
 
     const targetCore = sim.world.shipCores.get(target)!;
@@ -475,7 +486,6 @@ function timeToKill(attackerShip: string, defenderShip: string, range: number): 
   const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
   const attacker = sim.spawnPlayerAt(attackerShip, fittingOf(attackerShip), 0, { x: 0, z: 0 }, 0);
   const defender = sim.spawnPlayerAt(defenderShip, fittingOf(defenderShip), 1, { x: range, z: 0 }, Math.PI);
-  sim.applyOrder(attacker, { kind: "target", targetId: defender });
   for (const m of sim.world.modules.get(attacker)!.modules) {
     if (isWeapon(m.moduleId)) m.state = "active";
   }
@@ -527,7 +537,6 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
     const attacker = sim.spawnPlayerAt("ship.interceptor", fittingOf("ship.interceptor"), 0, { x: 0, z: 0 }, 0);
     const defender = sim.spawnPlayerAt("ship.interceptor", fittingOf("ship.interceptor"), 1, { x: 22, z: 0 }, Math.PI);
-    sim.applyOrder(attacker, { kind: "target", targetId: defender });
     for (const m of sim.world.modules.get(attacker)!.modules) {
       if (isWeapon(m.moduleId)) m.state = "active";
     }

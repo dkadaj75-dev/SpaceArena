@@ -188,14 +188,17 @@ describe("BotDriver utility scoring", () => {
 });
 
 describe("BotDriver flight orders", () => {
-  it("emits only schema-valid orders and a target order for the chosen enemy", () => {
+  it("emits only schema-valid orders, and never a targeting one", () => {
     const p = profile({ behaviors: { engage: { baseWeight: 1 } } });
     const driver = new BotDriver({ entityId: 1, profile: p, configs: emptyConfigs, rng: zeroRng });
     const s = snap([ship(1, 0, 0, 0), ship(2, 1, 25, 0), ship(3, 1, 80, 0)]);
     driver.update(s, 0);
     const orders = driver.update(s, 10_000);
     for (const o of orders) expect(orderSchema.safeParse(o).success).toBe(true);
-    expect(orders).toContainEqual({ kind: "target", targetId: 2 }); // nearest enemy
+    // Targeting is the sim's (FLIGHT.md §2): the bot picks a MANOEUVRE focus and
+    // flies at it, but it has no order that could pin the sensors.
+    expect(orders.every((o) => o.kind === "flight" || o.kind === "moduleToggle")).toBe(true);
+    expect(driver.lastDecision?.targetId).toBe(2); // nearest enemy, local plan only
     const flight = flightOrder(orders);
     expect(flight).toBeDefined();
     expect(flight!.throttle).toBeGreaterThanOrEqual(0);

@@ -57,14 +57,22 @@ New ship stat block `core.sensors` (schema + all ship JSONs + resolveStats):
   the screen circle is only a visualization of the cone.
 - TargetRef gains `lockProgress: number` (seconds) and `locked: boolean`.
   TargetingSystem each tick:
-  - Candidate = nearest enemy inside the cone (manual `target` orders are retired
-    with move orders; targeting is fully automatic).
-    - **Interim, as landed in stage 2** (bots still issue `target` orders): a
-      manual pin only chooses WHICH enemy is the candidate, and only while that
-      enemy is inside the cone + range. It grants no lock of its own — the pinned
-      enemy warms up like any other candidate, drains when it leaves the zone, and
-      the pin clears when progress reaches 0 (immediately if it was already 0),
-      handing the ship back to auto targeting. Deleted with move orders in stage 7.
+  - Candidate selection is **fully automatic** — there is no `target` order and
+    no manual pin. One rule produces every ship's candidate, player and bot alike:
+    - **Sticky while lockable** (final, landed in stage 7): if the ship's current
+      target is still alive and still inside the cone + range, it REMAINS the
+      candidate, whatever the ranking now says. Fresh selection (nearest inside
+      the cone, or `tuning.targetingPolicy`) runs only when there is no such
+      incumbent — because it died, left the zone, or was never set.
+    - Why: a lock needs `lockTimeSec` of continuous progress on ONE candidate and
+      any change zeroes it, so re-ranking every tick means a second enemy drifting
+      a hair closer throws away a warm-up that was about to finish, and in a
+      two-on-one nobody ever fires. This is the sim-side version of what the bots'
+      `holdLockTarget` did while target orders existed — moved into the sim so it
+      covers human pilots too and so bots gain nothing the player does not have.
+    - An incumbent that leaves the zone with another enemy already in it switches
+      IMMEDIATELY (progress from zero, no drain grace); with nothing else in the
+      zone it drains as below, and the drop at 0 re-opens selection.
   - Candidate changed → `lockProgress = 0, locked = false`.
   - Candidate valid → `lockProgress += dt` capped at `lockTimeSec`;
     `locked = lockProgress >= lockTimeSec` (then stays true while progress > 0).
@@ -88,8 +96,9 @@ New ship stat block `core.sensors` (schema + all ship JSONs + resolveStats):
   node with configurable height. Preserve invariants: shake stays purely additive
   and applied last; allocation-free update(); mutate camera.target in place (never
   setTarget()).
-- Pan (right-drag/two-finger) and tap-to-move picking are disabled in chase mode;
-  OrderInput's ground-plane picking and double-tap-boost retire with move orders.
+- Pan (right-drag/two-finger) and tap-to-move picking are gone: OrderInput and
+  the whole in-match pan rig retired with move orders (§7). `camera.pan.sensitivity`
+  survives for the dev editor's stage; `lookAhead` and `pan.boundsMargin` do not.
 - Quality configs: asteroid LOD distances (lodMedium/lodLow/lodCull per tier) were
   tuned for orbit radius 30–90; retune for chase radius (~12–20) + far draw.
 
@@ -134,24 +143,86 @@ edge palm-rejection ignores them):
   several asteroid belts/clusters + open lanes, boundary `damage` (warning has no
   sim enforcement today). Manifest entry (classic silent failure) +
   gamemode.defaultArena.
-- Fix arena split-brain first: main.ts:203/613 hardcode
-  `buildArena("arena.ring-nebula")` and Minimap hardcodes ARENA_ID while the sim
-  resolves the arena from options — route ONE resolved arenaId into SceneBuilder,
-  Minimap, and setPanBounds.
+- **As landed:** 47 asteroids in four structures — a broken core ring at r 40-56,
+  two mid belts athwart the spawn axis at r 118-144, flank knots at r 176-208 and
+  sparse rim debris at r 240-270. Lanes are held open at 45°/135°/225°/315°
+  (±21°), so the spawn axis is a clear run through the middle. Nothing reaches
+  past 272 units including its collider — well inside the ±320 guard rail.
+- Spawns: three per team at r ~99, team 0 around (-70,-70) facing 0.785 and team 1
+  around (70,70) facing 3.927. That is 198 units apart — 2.5× the interceptor's
+  78-unit `lockRange` and 3.2× the brawler's 62 — so nobody spawns already
+  locked, and a head-on merge is ~2 s of closing at nominal speed. Spawns sit in
+  the gap between the core ring and the mid belts, in an open lane.
+- `defaultArena`: practice + duel-1v1 move to deep-field; practice-bots stays on
+  ring-nebula, which keeps the small arena a live, exercised code path.
+- Scene/quality follow-ups for the bigger space: the starfield shell is derived
+  from the arena bounds instead of a 300-550 literal (it used to sit *inside* a
+  radius-300 field); `theme.hud.minimapRangeUnits` is dropped from the shipped
+  theme so the minimap fits whatever arena the session resolved; asteroid
+  `lodCullDistance` on low/med (300/450) had been "never cull" at radius 90 and
+  silently became a real cull — re-set to 380/620, and starfield counts raised to
+  keep density across the larger shell.
+- Practice dummies are now placed in the player's SPAWN FRAME (ahead/abeam
+  offsets, `client/src/game/GameSession.ts`) rather than at absolute coordinates,
+  so they land in the sensor cone on any arena.
+- Arena split-brain (fixed in stage 0): main.ts used to hardcode
+  `buildArena("arena.ring-nebula")` and Minimap its own ARENA_ID while the sim
+  resolved the arena from options. ONE resolved `session.arenaId` now drives
+  SceneBuilder and Minimap; the third consumer, the camera pan clamp, retired
+  with the pan itself (§7).
 - Wire cap: positions quantize to int16 centi-units (±327.67). Radius 300 is safe;
   do not exceed ~320 without a protocol change (explicitly out of scope).
 
-## 7. Retirement list (final cleanup stage)
+## 7. Retirement list — DONE (landed as stage S6, with §6)
 
-move + target orders, MoveOrder component, seekStep, arrival tuning
-(arrivalRadius/arrivalStop), asteroid avoidance + clampTargetOutsideAsteroids,
-OrderInput tap-to-move + double-tap-boost, OrderMarkers path/destination rendering
-(keep/adapt target marker if the reticle doesn't fully replace it), displacement
-throttle inference in signals.ts, camera pan in match, protocol move/target cases,
-dead tuning fields. Bots (shared/src/bots/behaviors.ts): every behavior re-planned
-in flight terms (engage = hold target in cone at range band; kite = hover near max
-lockRange; breakLoS = put a rock between; retreat = throttle 1 + boost away;
-dodge = turn jinks) — same BotDriver plan() structure, same order path as humans.
+Everything below is removed from the tree; nothing in the list survives as a
+gated/dead path.
+
+**Sim** — `move` + `target` out of the `Order` union; `MoveOrder` component and
+`world.moveOrders`; `seekStep` + `SteerParams` (`steering.ts` keeps `flightStep`);
+NavigationSystem's move branch, `clampTargetOutsideAsteroids`, the avoidance
+block, `ARRIVAL_STOP` and the arrival tuning reads; TargetingSystem's manual-pin
+path and `TargetRef.manual` (replaced by the sticky-candidate rule, §2);
+`moveOrderSet` / `moveOrderCleared` events (`targetSet` stays — auto targeting
+still announces its candidate). `signals.ts`: the displacement fallback under
+`throttle` is gone (it reads the real commanded value). `speedFraction` and
+`boostActive` deliberately KEEP the displacement basis: they describe actual
+motion, `ShipSnapshot` carries no velocity, and deriving them from `throttle`
+would lie mid accel-ramp, after a collision, or when a boost request was denied
+for want of energy/heat.
+
+**Schemas / content** — `tuning`: `arrivalRadius`, `avoidLookahead`, `avoidWeight`,
+`orderMarkerDashLength`, `doubleTapWindowMs`, `tapSlopPx`, `edgeRejectMarginPx`
+(the last three had no consumer left once the canvas pointer machine went).
+`targetingPolicy` STAYS — it still ranks fresh candidates. `camera`: `lookAhead`
+and `pan.boundsMargin` gone, `pan.sensitivity` kept for the editor stage.
+`theme.hud.minimapRangeUnits` dropped from the shipped pack (still schema-legal).
+
+**Net** — `orderSchema` move/target cases and the now-unreachable `out-of-bounds`
+/ `bad-target` reject reasons; `ArenaRoom.validateOrder`'s move/target cases and
+its `inBounds` helper. `PROTOCOL_VERSION` is unchanged: it versions the CONTENT
+PACK bundle format (`shared/src/content/pack.ts`), which this stage does not
+touch, and there is no separate wire-protocol constant to bump.
+
+**Bots** — `BotDriver` no longer emits `target` orders (`lastTargetId` gone). It
+keeps `pickTarget`, renamed in intent: it chooses which enemy to MANOEUVRE
+against, which is local planning, not a sim privilege. `holdLockTarget` survives
+with that meaning — it keeps the bot's flying aligned with the sim's sticky
+candidate. `kite`'s perch leg is deleted: `score` only bids below `breakRange`,
+which sits inside `standoffRange` in every shipped profile, so the "at or beyond
+the standoff, nose back on" branch was unreachable by construction. Re-perching
+is `engage`'s job — once kite stops bidding, engage wins and holds the band.
+
+**Client** — `OrderInput.ts` (+ its test) and `OrderMarkers.ts` deleted outright;
+the ground-plane pick path, double-tap boost and path/destination rendering go
+with them (the lock reticle and the minimap cover what they showed). The
+canvas-level palm-rejection helpers in `inputGuards.ts` go too — no pointer path
+can be palm-rejected any more; `HUD_CONTROL_ATTR` stays. TacticalCamera loses the
+in-match pan entirely (`pan()`, `panOffset`, `setPanBounds`, `recenter`,
+`lookAhead`) and its pointer handler now serves only the dev editor.
+NetGameSession loses `predTarget`/`predBoost`/`seekStep`. `camera.chase.fov` is
+reconciled with its own doc: absent now genuinely keeps the engine default, and
+the rig restores that default on a hot-reload that deletes the key.
 
 ## 8. Build order (each stage lands with tests green)
 
@@ -163,3 +234,5 @@ dodge = turn jinks) — same BotDriver plan() structure, same order path as huma
 5. Net: protocol/validateOrder/ArenaState/prediction.
 6. Arena content + LOD/quality retune.
 7. Cleanup (retirement list) + docs + Sol review + browser/loadtest validation.
+
+Stages 6 and 7 landed together as stage S6.

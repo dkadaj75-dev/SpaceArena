@@ -7,12 +7,16 @@ const DEFAULT_LOCK_DECAY_MULT = 1.5;
 
 /**
  * TargetingSystem (1.5 + FLIGHT.md §2) — resolves each ship's TargetRef and runs
- * the time-based lock.
+ * the time-based lock. Targeting is **fully automatic**: there is no target
+ * order and no manual pin, so the same rule produces every ship's candidate,
+ * player and bot alike.
  *
  * The lock zone is a heading-relative world-space cone from the ship's resolved
  * sensors: `dist <= sensors.lockRange` and
  * `|angleDelta(heading, bearingToTarget)| <= sensors.coneDeg/2`. Per tick:
- *   - candidate = nearest enemy ship inside the zone (auto policy from tuning);
+ *   - candidate = **the current target if it is still in the zone** (the sticky
+ *     rule, see below), otherwise the best fresh enemy in the zone under
+ *     `tuning.targetingPolicy`;
  *   - candidate changed → progress reset to 0, lock dropped;
  *   - candidate in zone → `lockProgress += dt`, capped at `lockTimeSec`;
  *     `locked` flips true when it fills and STAYS true while progress > 0;
@@ -21,27 +25,25 @@ const DEFAULT_LOCK_DECAY_MULT = 1.5;
  * CombatSystem fires only while `locked`, so this gate applies to every ship
  * equally — bots included, whichever driver moves them.
  *
- * INTERIM manual targeting (retires with move orders, bots still use it): a
- * `target` order pins WHICH enemy is the candidate, but it does not bypass the
- * lock — the pinned enemy must sit in the cone + range for progress to accrue,
- * and when it leaves, progress drains exactly as an auto candidate's would. On
- * reaching 0 the pin clears and auto targeting takes back over. A pin issued
- * while the enemy is already outside the zone (progress 0, nothing to drain)
- * therefore clears on the same tick — deterministic, and it keeps "lock gating
- * applies to all ships equally" true regardless of who issued the order.
+ * ## Sticky candidate (why re-ranking every tick is not an option)
+ *
+ * A lock takes `lockTimeSec` of continuous progress on ONE candidate, and any
+ * change zeroes it. Re-running "nearest enemy in the cone" from scratch every
+ * tick means a second enemy drifting a hair closer — or two enemies trading
+ * places as everyone manoeuvres — throws away a warm-up that was about to
+ * complete, and in a two-on-one nobody ever fires. So the choice is sticky: as
+ * long as the current target is a live enemy still inside the cone AND range, it
+ * REMAINS the candidate regardless of how the ranking now reads. Selection only
+ * runs when there is no incumbent — because it died, left the zone (its progress
+ * then drains, and the drop at 0 re-opens selection), or was never set.
+ *
+ * That is deliberately the sim-side version of what the bots' `holdLockTarget`
+ * did while target orders still existed, moved here so it applies to human
+ * pilots too and so bots gain nothing the player does not have.
  *
  * LoS is NOT part of the lock; CombatSystem still checks it per weapon.
  */
 export function targetingSystem(world: World, dt: number): void {
-  for (const { entityId, order } of world.takeOrders("target")) {
-    const ref = world.targets.get(entityId);
-    if (!ref) continue;
-    if (order.targetId !== ref.targetId) resetLock(world, entityId, ref);
-    ref.targetId = order.targetId;
-    ref.manual = order.targetId !== null;
-    world.emit({ type: "targetSet", entityId, targetId: order.targetId });
-  }
-
   const policy = world.tuning.targetingPolicy;
   const decayMult = world.tuning.lockDecayMult ?? DEFAULT_LOCK_DECAY_MULT;
   const ships = world.shipIds();
@@ -60,11 +62,10 @@ export function targetingSystem(world: World, dt: number): void {
 
     // Half-cone in radians: coneDeg is the FULL width, so deg/2 → rad is /360*PI.
     const halfCone = (core.sensors.coneDeg * Math.PI) / 360;
+    // Sticky: hold the incumbent while it is still lockable; only then re-select.
     const candidate =
-      ref.manual && ref.targetId !== null
-        ? inLockZone(world, tf, core, halfCone, ref.targetId)
-          ? ref.targetId
-          : null
+      ref.targetId !== null && inLockZone(world, tf, core, halfCone, ref.targetId)
+        ? ref.targetId
         : pickCandidate(world, id, myTeam, ships, policy, tf, core, halfCone);
 
     if (candidate !== null) {
@@ -107,13 +108,16 @@ function resetLock(world: World, entityId: EntityId, ref: TargetRef): void {
 /** Drop the target and its lock, announcing both. */
 function dropTarget(world: World, entityId: EntityId, ref: TargetRef): void {
   resetLock(world, entityId, ref);
-  if (ref.targetId === null && !ref.manual) return;
+  if (ref.targetId === null) return;
   ref.targetId = null;
-  ref.manual = false;
   world.emit({ type: "targetSet", entityId, targetId: null });
 }
 
-/** True if `targetId` is inside the ship's sensor range AND heading-relative cone. */
+/**
+ * True if `targetId` is inside the ship's sensor range AND heading-relative
+ * cone. Team is NOT re-checked: only {@link pickCandidate} ever sets a target,
+ * it only ever picks an enemy, and teams are fixed for the life of a ship.
+ */
 function inLockZone(
   world: World,
   tf: Transform2D,
@@ -135,7 +139,8 @@ function inLockZone(
 /**
  * Nearest (or lowest-hp, per tuning policy) enemy ship inside the lock zone.
  * `attacker` falls back to nearest, as before. Iterates `ships` in sorted-id
- * order, so ties resolve deterministically.
+ * order, so ties resolve deterministically. Only consulted when the ship has no
+ * lockable incumbent — see the sticky rule on {@link targetingSystem}.
  */
 function pickCandidate(
   world: World,

@@ -9,8 +9,7 @@ import type { ModuleState } from "./components.js";
  * surfaced here as `actions` arrays — interpretation lives outside the sim.
  */
 export type SimEvent =
-  | { type: "moveOrderSet"; entityId: EntityId; target: { x: number; z: number }; boost: boolean }
-  | { type: "moveOrderCleared"; entityId: EntityId }
+  /** Auto-targeting picked (or dropped) a lock candidate — `targetId: null` means dropped. */
   | { type: "targetSet"; entityId: EntityId; targetId: EntityId | null }
   /** Lock completed on `targetId` — weapons are now free to fire (FLIGHT.md §2). */
   | { type: "lockAcquired"; entityId: EntityId; targetId: EntityId }

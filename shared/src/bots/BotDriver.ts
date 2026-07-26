@@ -50,6 +50,11 @@ export interface BotDecisionSnapshot {
    */
   flight?: FlightCommand;
   boost: boolean;
+  /**
+   * Enemy this decision manoeuvred against. A purely LOCAL planning focus — the
+   * sim owns targeting outright (FLIGHT.md §2), so this never travels as an
+   * order and never grants the bot a lock.
+   */
   targetId: EntityId | null;
   engaged: boolean;
   /** Module toggles emitted by `moduleDiscipline` this decision. */
@@ -101,8 +106,9 @@ const CALIBRATION_MAX_SPAN_SEC = 0.2;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
- * ship by emitting the **same orders a human client sends** (`flight` / `target`
- * / `moduleToggle`). It consumes a read-only {@link Snapshot} plus its
+ * ship by emitting the **same orders a human client sends** (`flight` /
+ * `moduleToggle`; those are the only two that exist). It consumes a read-only
+ * {@link Snapshot} plus its
  * `botprofile` config and returns orders; it never touches sim internals, so
  * every rule (lock gate, range, LoS, energy, heat, order validation) applies to
  * bots by construction. There is no bot aimbot and no sim-side privilege.
@@ -137,7 +143,6 @@ export class BotDriver {
   private started = false;
   /** Flight state the ship is currently integrating (what we last sent), if any. */
   private lastFlight: FlightCommand | null = null;
-  private lastTargetId: EntityId | null = null;
   private decision: BotDecisionSnapshot | null = null;
   private weaponRangeCache = -1;
   /** Measured hull turn rate in rad/s; 0 until the first usable sample. */
@@ -183,7 +188,6 @@ export class BotDriver {
     this.started = false;
     this.nextDecisionMs = 0;
     this.lastFlight = null;
-    this.lastTargetId = null;
     this.decision = null;
     this.turnRateEst = 0;
     this.lastHeading = null;
@@ -300,12 +304,6 @@ export class BotDriver {
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
 
-    // --- target order (interim manual pin, FLIGHT.md §2; retires in stage 7) ---
-    if (targetId !== self.targetId && targetId !== this.lastTargetId) {
-      orders.push({ kind: "target", targetId });
-      this.lastTargetId = targetId;
-    }
-
     // --- flight order: aim point -> stick, then overlays, then epsilon gate ---
     const aim = bestPlan?.aim ?? null;
     const tolerance = profile.flight?.aimToleranceRad ?? DEFAULT_AIM_TOLERANCE_RAD;
@@ -372,15 +370,19 @@ export class BotDriver {
   }
 
   /**
-   * Which enemy to focus. Policy comes from the profile's `engage` block
-   * (`targetPreference: "nearest" | "lowestHull"`, default `nearest`); enemies
-   * without line of sight are penalised by `losPenalty` so bots prefer someone
-   * they can actually shoot. Returns the current target when nothing is visible.
+   * Which enemy to MANOEUVRE against this decision. Purely local: targeting is
+   * automatic in the sim and the bot has no way to pin it (FLIGHT.md §2), so
+   * this only decides which enemy the behaviours plan around — put the nose on,
+   * kite away from, break line of sight with.
    *
-   * `holdLockTarget` (default on) is the flight-model addition: TargetingSystem
-   * zeroes `lockProgress` whenever the candidate changes, so a bot that re-ranks
-   * its enemies mid-warm-up throws its own lock away and never fires. While there
-   * is progress on the books the sensors keep whoever they are already warming.
+   * Policy comes from the profile's `engage` block (`targetPreference:
+   * "nearest" | "lowestHull"`, default `nearest`); enemies without line of sight
+   * are penalised by `losPenalty` so bots prefer someone they can actually shoot.
+   *
+   * `holdLockTarget` (default on) keeps the planning focus aligned with the
+   * sim's sticky lock candidate: while the sensors have progress on the books,
+   * fly against the enemy they are warming rather than re-ranking into a
+   * manoeuvre that walks the warm-up out of the cone.
    */
   private pickTarget(ctx: BotContext): EntityId | null {
     if (ctx.enemies.length === 0) return null;

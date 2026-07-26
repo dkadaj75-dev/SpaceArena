@@ -5,9 +5,7 @@ import {
   decodeModuleState,
   decodeUnit,
   flightStep,
-  ARRIVAL_STOP,
   resolveShipStats,
-  seekStep,
   MSG_ORDER,
   createLogger,
   type ArenaConfig,
@@ -87,8 +85,6 @@ export class NetGameSession extends GameSession {
   // --- local-player prediction ---
   private readonly pred: SteerState = { pos: { x: 0, z: 0 }, vel: { x: 0, z: 0 }, heading: 0 };
   private predActive = false; // becomes true once seeded from a server snapshot
-  private predTarget: { x: number; z: number } | null = null;
-  private predBoost = false;
   /**
    * The flight input the SERVER is believed to be integrating — i.e. the last
    * flight order we sent, kept until another replaces it. `flight` orders are
@@ -176,9 +172,6 @@ export class NetGameSession extends GameSession {
         } else {
           session.ordersRejected++;
           log.warn(`order ${ack.seq} rejected: ${ack.reason ?? "unknown"}`);
-          // A rejected move must stop the local predictor, or it seeks a target
-          // the server refused and out-runs the correction blend indefinitely.
-          if (kind === "move") session.predTarget = null;
           // A rejected FLIGHT order never reached the sim's FlightState, so the
           // server is still integrating the last accepted one — roll the
           // predictor back to it rather than flying an input nobody has.
@@ -245,22 +238,13 @@ export class NetGameSession extends GameSession {
     this.net.room?.send(MSG_ORDER, { seq, order });
     this.ordersSent++;
 
-    if (order.kind === "move") {
-      // Optimistic: begin seeking immediately; server correction absorbs drift.
-      this.predTarget = { x: order.target.x, z: order.target.z };
-      this.predBoost = order.boost;
-      this.events.push({ type: "moveOrderSet", entityId: this.playerId, target: { ...order.target }, boost: order.boost });
-    } else if (order.kind === "flight") {
+    if (order.kind === "flight") {
       // Level-triggered: this state is what the sim integrates every tick from
       // now on, so the predictor holds it (rather than consuming it once) until
       // the next order replaces it — or an ack rejects it (see `join`).
       const flight: PredictedFlight = { throttle: order.throttle, turn: order.turn, boost: order.boost };
       this.predFlight = flight;
       this.seqFlight.set(seq, flight);
-      // Flight replaces move control in the sim, and must here too.
-      this.predTarget = null;
-    } else if (order.kind === "target") {
-      this.events.push({ type: "targetSet", entityId: this.playerId, targetId: order.targetId });
     } else if (order.kind === "moduleToggle") {
       // Keyed by hardpointIndex, not array position — the modules array is
       // sparse-safe (spawn.ts) so a fitting like {0: laser, 2: shield} never
@@ -377,21 +361,6 @@ export class NetGameSession extends GameSession {
         engine,
         dt,
       );
-    } else if (this.predTarget) {
-      // Legacy tap-to-move prediction; retires with move orders (FLIGHT.md §7).
-      const tuning = this.netConfigs.getAll<TuningConfig>("tuning")[0];
-      const arrived = seekStep(
-        this.pred,
-        this.predTarget,
-        {
-          ...engine,
-          arrivalRadius: tuning?.arrivalRadius ?? 10,
-          arrivalStop: ARRIVAL_STOP,
-          speedMult: this.predBoost ? this.predBoostMult(player) : 1,
-        },
-        dt,
-      );
-      if (arrived) this.predTarget = null;
     }
 
     // Blend server error into the prediction; snap when badly wrong.
@@ -403,19 +372,18 @@ export class NetGameSession extends GameSession {
       this.pred.heading = player.heading;
       this.errX = 0;
       this.errZ = 0;
-      // Diverging this far means the server is steering differently (avoidance
-      // detour, collision, rejected order racing the ack) — defer to server
+      // Diverging this far means the server is steering differently (a
+      // collision, or an order rejection racing its ack) — defer to server
       // motion. `predFlight` is deliberately NOT cleared: the server is still
       // integrating that state, so dropping it would leave the predictor inert
       // while the real ship keeps flying (the exact opposite of the fix).
-      this.predTarget = null;
     } else {
       const pull = 1 - Math.exp(-this.correctionRate * dt);
       this.pred.pos.x += this.errX * pull;
       this.pred.pos.z += this.errZ * pull;
-      // While the local player is driving (flight or move), heading is a client
-      // input — pull it gently so a patch cannot jerk the nose (and the camera).
-      const steering = this.predFlight !== null || this.predTarget !== null;
+      // While the local player is flying, heading is a client input — pull it
+      // gently so a patch cannot jerk the nose (and the camera with it).
+      const steering = this.predFlight !== null;
       this.pred.heading = lerpHeading(this.pred.heading, player.heading, steering ? 0.15 : pull);
     }
 

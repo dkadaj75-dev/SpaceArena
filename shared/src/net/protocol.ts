@@ -62,9 +62,7 @@ export const MSG_SIM_EVENT = "simEvent";
 export type OrderRejectReason =
   | "malformed"
   | "no-entity"
-  | "out-of-bounds"
   | "bad-hardpoint"
-  | "bad-target"
   | "rate-limited"
   | "not-live";
 
@@ -109,12 +107,9 @@ export type SimEventMessage =
 // Order validation (trust boundary — the server never trusts client shape)
 // ---------------------------------------------------------------------------
 
-const vec2 = z.object({ x: z.number().finite(), z: z.number().finite() });
-
 /** Zod schema for a single sim {@link Order}. Structural validation only; */
-/* semantic checks (in-bounds, hardpoint count, enemy target) live in the room. */
+/* semantic checks (hardpoint count) live in the room. */
 export const orderSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("move"), target: vec2, boost: z.boolean() }),
   /** Continuous flight input (FLIGHT.md §1/§5) — the joystick/throttle/boost state. */
   z.object({
     kind: z.literal("flight"),
@@ -122,7 +117,6 @@ export const orderSchema = z.discriminatedUnion("kind", [
     turn: z.number().min(-1).max(1),
     boost: z.boolean(),
   }),
-  z.object({ kind: z.literal("target"), targetId: z.number().int().nullable() }),
   z.object({ kind: z.literal("moduleToggle"), hardpointIndex: z.number().int().nonnegative() }),
 ]);
 

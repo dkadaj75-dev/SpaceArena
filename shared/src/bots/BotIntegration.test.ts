@@ -67,8 +67,8 @@ interface RunResult {
  * driver order through `applyOrder` — the same entry point the room and the
  * practice session use for human orders.
  */
-function runMatch(profileIds: string[], seed: number): RunResult {
-  const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice-bots", seed);
+function runMatch(profileIds: string[], seed: number, arenaId = "arena.ring-nebula"): RunResult {
+  const sim = new ArenaSimulation(configs, arenaId, "gamemode.practice-bots", seed);
   const drivers = new Map<EntityId, BotDriver>();
   const botIds: EntityId[] = [];
 
@@ -123,9 +123,6 @@ function runMatch(profileIds: string[], seed: number): RunResult {
         if (order.kind === "moduleToggle") {
           const mods = sim.world.modules.get(entityId)!;
           expect(mods.modules.some((m) => m.hardpointIndex === order.hardpointIndex)).toBe(true);
-        }
-        if (order.kind === "target" && order.targetId !== null) {
-          expect(sim.teamOf(order.targetId)).not.toBe(sim.teamOf(entityId));
         }
         orders++;
         orderKinds[order.kind] = (orderKinds[order.kind] ?? 0) + 1;
@@ -216,6 +213,23 @@ describe("bots in a live ArenaSimulation", () => {
 
     // The invariant behind the gate: shots only ever exist alongside a lock.
     expect(fired.length === 0 || result.peakLockProgress === 1).toBe(true);
+  });
+
+  it("finds, closes and fights across the radius-300 deep field", () => {
+    // The deep field spawns teams ~198 units apart — well outside every hull's
+    // lockRange (FLIGHT.md §6), so this asserts the thing the small arena cannot:
+    // bots that have to FIND each other still merge, lock and trade inside a
+    // 30 s match. Automatic sticky targeting is what makes that survivable —
+    // there is no target order left for a bot to pin the sensors with.
+    const result = runMatch(["bot.aggressive", "bot.cautious"], 7, "arena.deep-field");
+
+    expect(result.orderKinds["flight"]).toBeGreaterThan(0);
+    expect(result.peakLockProgress).toBe(1);
+    expect(result.events.some((e) => e.type === "lockAcquired")).toBe(true);
+    // Closing 198 units at nominal speed is a couple of seconds, not a hunt.
+    expect(result.firstLockAt).toBeLessThan(15);
+    expect(result.weaponDamage).toBeGreaterThan(20);
+    expect(result.impactDamage).toBeLessThan(result.weaponDamage);
   });
 
   it("resolves bot-vs-bot matches across seeds and profile pairings", () => {

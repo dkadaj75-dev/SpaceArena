@@ -27,11 +27,18 @@ const log = createLogger("GameSession");
  * `alpha` advances, so the renderer always has a stable [prev, cur] pair to lerp
  * between. Events accumulate across all ticks in a frame and are drained once.
  */
-/** Spread positions for practice dummies, within the interceptor's weapon range of the player spawn. */
-const DUMMY_POSITIONS = [
-  { x: 20, z: 20 },
-  { x: 30, z: 4 },
-  { x: 6, z: 30 },
+/**
+ * Practice-dummy placement, expressed in the PLAYER'S SPAWN FRAME: `ahead` is
+ * along the spawn heading, `abeam` is to its left. Resolved against whatever
+ * spawn point the arena actually handed the player, so the dummies land in the
+ * sensor cone at lock range on any arena — an absolute position only worked
+ * while every arena was ring-nebula-sized (FLIGHT.md §6 makes the practice
+ * default a radius-300 field).
+ */
+const DUMMY_OFFSETS = [
+  { ahead: 30, abeam: 0 },
+  { ahead: 34, abeam: 12 },
+  { ahead: 34, abeam: -12 },
 ];
 
 /** Additive practice options (Phase 5 5.1 integration B). */
@@ -112,9 +119,20 @@ export class GameSession {
 
     const wc = this.sim.world.gamemode.winCondition;
     const dummyCount = roster.length > 0 ? 0 : wc.type === "destroyTargets" ? wc.count : 1;
+    // Read the spawn the sim actually gave the player and lay the dummies out
+    // relative to it (see DUMMY_OFFSETS). They face the same way the player
+    // does, so the player starts behind them and outside THEIR sensor cone —
+    // targeting is automatic now, and a dummy that opens fire is not a dummy.
+    const spawn = this.sim.world.transforms.get(this.playerId)!;
+    const cos = Math.cos(spawn.heading);
+    const sin = Math.sin(spawn.heading);
     for (let i = 0; i < dummyCount; i++) {
-      const pos = DUMMY_POSITIONS[i % DUMMY_POSITIONS.length]!;
-      const id = this.sim.spawnPlayerAt(shipId, fitting, 1, pos, Math.PI);
+      const off = DUMMY_OFFSETS[i % DUMMY_OFFSETS.length]!;
+      const pos = {
+        x: spawn.pos.x + cos * off.ahead - sin * off.abeam,
+        z: spawn.pos.z + sin * off.ahead + cos * off.abeam,
+      };
+      const id = this.sim.spawnPlayerAt(shipId, fitting, 1, pos, spawn.heading);
       this.shipConfigIds.set(id, shipId);
       this.dummyIds.push(id);
     }

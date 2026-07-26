@@ -4,7 +4,6 @@ import {
   ConfigService,
   GameLoop,
   EventBus,
-  type ArenaConfig,
   type ConfigEvents,
   type GamemodeConfig,
   type ShipConfig,
@@ -22,8 +21,6 @@ import { TelemetryClient } from "./core/TelemetryClient.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
 import { GameSession } from "./game/GameSession.js";
 import { ViewManager } from "./game/EntityView.js";
-import { OrderInput } from "./game/OrderInput.js";
-import { OrderMarkers } from "./game/OrderMarkers.js";
 import { Hud } from "./game/hud/Hud.js";
 import { Lobby, type LobbyChoice } from "./game/screens/Lobby.js";
 import { AuthScreen } from "./game/screens/AuthScreen.js";
@@ -87,8 +84,6 @@ function redirectToOfflinePageIfNeeded(): boolean {
 interface MatchRuntime {
   session: GameSession;
   viewManager: ViewManager;
-  orderInput: OrderInput;
-  orderMarkers: OrderMarkers;
   hud: Hud;
   /** Sim events → synthesized SFX (§10 5.7). */
   audioFeedback: AudioFeedback;
@@ -210,11 +205,10 @@ async function bootstrap(): Promise<void> {
 
   // --- Static arena (0.6/0.7/0.8): bounds/skybox/ground/lighting/spawns only ---
   //
-  // ONE resolved arena id drives the scene, the camera pan clamp and the minimap.
-  // The sim resolves the real arena from the gamemode/join options, so every
-  // consumer here reads `session.arenaId` through `setArena` once a match starts
-  // (FLIGHT.md §6) — hardcoding an id in any of the three split the client's view
-  // of the arena from the sim's.
+  // ONE resolved arena id drives the scene and the minimap. The sim resolves the
+  // real arena from the gamemode/join options, so every consumer here reads
+  // `session.arenaId` through `setArena` once a match starts (FLIGHT.md §6) —
+  // hardcoding an id in either split the client's view of the arena from the sim's.
   const sceneBuilder = new SceneBuilder(scene, configService, bus, quality.current);
   let currentArenaId = FALLBACK_ARENA_ID;
   sceneBuilder.buildArena(currentArenaId);
@@ -227,15 +221,6 @@ async function bootstrap(): Promise<void> {
 
   const tacticalCamera = new TacticalCamera(scene, canvas, configService, bus);
 
-  // Pan clamp follows the arena's playable bounds (re-applied on arena rebuild).
-  const applyArenaPanBounds = (): void => {
-    const bounds = configService.get<ArenaConfig>("arena", currentArenaId)?.bounds;
-    tacticalCamera.setPanBounds(
-      bounds?.shape === "circle" ? bounds.radius : bounds ? Math.hypot(bounds.width, bounds.height) / 2 : 90,
-    );
-  };
-  applyArenaPanBounds();
-
   /**
    * Point the scene at the arena a starting match resolved. A no-op when the id
    * is unchanged (the common case), so a rematch on the same arena never pays
@@ -245,7 +230,6 @@ async function bootstrap(): Promise<void> {
     if (arenaId === currentArenaId) return;
     currentArenaId = arenaId;
     sceneBuilder.buildArena(currentArenaId);
-    applyArenaPanBounds();
   }
 
   // Camera follows a lightweight node tracking the (moving) player ship
@@ -299,11 +283,6 @@ async function bootstrap(): Promise<void> {
       // already resolved per ship class — one variant lookup, visual + audio.
       { playSound: (id, volume) => audio.play(id, volume) },
     );
-    const orderInput = new OrderInput(scene, configService, session);
-    // Chase camera + virtual joystick own steering now (FLIGHT.md §3): tap-to-move
-    // and its double-tap boost are gated off, tap-to-target stays.
-    orderInput.setFlightMode(true);
-    const orderMarkers = new OrderMarkers(scene, session.playerId);
     const offline = !(session instanceof NetGameSession);
     const hud = new Hud(
       hudRoot,
@@ -367,16 +346,12 @@ async function bootstrap(): Promise<void> {
     return {
       session,
       viewManager,
-      orderInput,
-      orderMarkers,
       hud,
       audioFeedback,
       screenShake,
       netOverlay,
       botOverlay,
       dispose(): void {
-        orderInput.dispose();
-        orderMarkers.dispose();
         viewManager.dispose();
         hud.dispose();
         screenShake.dispose();
@@ -647,7 +622,6 @@ async function bootstrap(): Promise<void> {
         void telemetry.endMatch({ qualityTier: quality.currentTier, deviceProbe: quality.deviceProbe });
       }
       runtime.viewManager.consumeEvents(events, cur);
-      runtime.orderMarkers.consumeEvents(events);
       runtime.hud.consumeEvents(events);
       runtime.audioFeedback.consumeEvents(events);
       runtime.screenShake.consumeEvents(events);
@@ -655,7 +629,6 @@ async function bootstrap(): Promise<void> {
 
       runtime.screenShake.update(dtMs);
       runtime.viewManager.render(prev, cur, alpha, dtMs);
-      runtime.orderMarkers.render(cur, dtMs);
       runtime.hud.update(cur, prev, dtMs, engine.getFps(), alpha);
       runtime.netOverlay?.update();
       runtime.botOverlay?.update();
@@ -702,21 +675,17 @@ async function bootstrap(): Promise<void> {
       },
       rebuildArena: () => {
         sceneBuilder.buildArena(currentArenaId);
-        applyArenaPanBounds();
       },
-      // The editor takes over the canvas: the live match (HUD, entity views,
-      // order markers) is hidden and gameplay taps are gated off, so nothing of
-      // the running game shows through or reacts behind the editor's own stage.
-      // `runtime` is null on the menu screens — nothing to hide then.
+      // The editor takes over the canvas: the live match (HUD, entity views) is
+      // hidden so nothing of the running game shows through behind the editor's
+      // own stage. `runtime` is null on the menu screens — nothing to hide then.
       setGameVisible: (visible: boolean) => {
         hudRoot.style.display = visible ? "" : "none";
         // Menu/auth/hangar screens are body-level overlays — hide them too or
         // they float over the editor viewport (editor.css targets this class).
         document.body.classList.toggle("sa-editor-open", !visible);
         runtime?.viewManager.setVisible(visible);
-        runtime?.orderMarkers.setVisible(visible);
         runtime?.botOverlay?.setSuppressed(!visible);
-        runtime?.orderInput.setEnabled(visible);
       },
       setArenaVisible: (visible: boolean) => {
         sceneBuilder.setVisible(visible);

@@ -89,10 +89,10 @@ describe("Snapshots", () => {
     expect(ships.find((s) => s.id === drifter)!.throttle).toBe(0);
 
     // Level-triggered: the value persists across ticks with no further orders,
-    // and a move order hands the ship back to move control (throttle ⇒ 0).
+    // and only another flight order replaces it.
     for (let t = 0; t < 10; t++) sim.tick(DT);
     expect(sim.snapshot().ships.find((s) => s.id === flyer)!.throttle).toBeCloseTo(0.6, 6);
-    sim.applyOrder(flyer, { kind: "move", target: { x: 5, z: 5 }, boost: false });
+    sim.applyOrder(flyer, { kind: "flight", throttle: 0, turn: 0, boost: false });
     sim.tick(DT);
     expect(sim.snapshot().ships.find((s) => s.id === flyer)!.throttle).toBe(0);
   });
@@ -135,12 +135,10 @@ describe("Determinism", () => {
         if (t === 0) {
           sim.applyOrder(a, { kind: "moduleToggle", hardpointIndex: 0 });
           sim.applyOrder(b, { kind: "moduleToggle", hardpointIndex: 0 });
-          sim.applyOrder(a, { kind: "target", targetId: b });
-          sim.applyOrder(b, { kind: "target", targetId: a });
         }
         if (t === 3) {
-          sim.applyOrder(a, { kind: "move", target: { x: 10, z: 5 }, boost: false });
-          sim.applyOrder(b, { kind: "move", target: { x: -10, z: -5 }, boost: false });
+          sim.applyOrder(a, { kind: "flight", throttle: 0.5, turn: 0.25, boost: false });
+          sim.applyOrder(b, { kind: "flight", throttle: 0.5, turn: -0.25, boost: false });
         }
         // Flight is level-triggered: two orders drive 900+ ticks of motion, and
         // the integration must stay bit-identical across runs.
@@ -167,7 +165,6 @@ describe("Scripted 60s engagement (regression anchor)", () => {
     mods[0]!.state = "active";
     mods[1]!.state = "active";
     sim.world.targets.get(shooter)!.targetId = target;
-    sim.world.targets.get(shooter)!.manual = true;
 
     let diedTick = -1;
     for (let t = 0; t < 1800; t++) {

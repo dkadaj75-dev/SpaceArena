@@ -17,8 +17,6 @@ export const cameraSchema = z.object({
   radius: clamped,
   /** Follow smoothing 0..1 (higher = snappier). */
   followLag: z.number().min(0).max(1),
-  /** Look-ahead toward current move order (world units). */
-  lookAhead: z.number().nonnegative(),
   /**
    * Camera micro-shake (5.7). A purely ADDITIVE world-space offset on the orbit
    * target: it rides on top of the follow point and the player's pan, never
@@ -78,13 +76,15 @@ export const cameraSchema = z.object({
       fov: z.number().positive().optional(),
     })
     .optional(),
-  /** View panning (right-drag / two-finger drag). Client falls back to defaults when absent. */
+  /**
+   * Editor-stage panning (right-drag / two-finger drag). The in-match pan
+   * retired with move orders (FLIGHT.md §7): the chase rig owns the view, so
+   * there is no arena-bounds clamp left to configure either.
+   */
   pan: z
     .object({
       /** Multiplier on drag distance → world pan (1 = ground tracks the pointer 1:1). */
       sensitivity: z.number().positive(),
-      /** How far past the arena bounds radius the view may travel (world units). */
-      boundsMargin: z.number().nonnegative(),
     })
     .optional(),
 });

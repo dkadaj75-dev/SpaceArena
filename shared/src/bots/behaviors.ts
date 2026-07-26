@@ -161,8 +161,7 @@ const engage: BotBehavior = {
 // ---------------------------------------------------------------------------
 
 /**
- * Maneuver ("extend and re-perch"), and the throttle/geometry trade the flight
- * model forces:
+ * Maneuver ("extend"), and the throttle/geometry trade the flight model forces:
  *
  * The bearing rate of an enemy is `v_perp / range`, and a hull can only track what
  * its `turnRate` can follow. Far out that is free — at 50 units a crossing 34 u/s
@@ -174,20 +173,22 @@ const engage: BotBehavior = {
  * behaviour's entire job. `engage` holds the standoff band with its throttle;
  * kite only fires when the band has already collapsed.
  *
- *   - **Extend leg** (`distance < standoffRange`): nose `slipRad` off dead astern
- *     and run at `throttleRun`. The target leaves the cone and `lockProgress`
- *     drains at `tuning.lockDecayMult` — that is the honest, deliberate price of
- *     un-merging, and it is why `breakRange` should sit well inside the band
- *     rather than at its edge.
- *   - **Perch leg** (at or beyond the standoff): nose straight back on at
- *     `throttleHold`, which is where the lock refills and the guns reach. The
- *     slip offset means the bot arrives beside the enemy's nose rather than in
- *     front of it, so the re-perch starts with an aspect advantage.
+ * So kite is exactly one leg: inside `breakRange`, nose `slipRad` off dead astern
+ * and run at `throttleRun` out to `standoffRange`. The target leaves the cone and
+ * `lockProgress` drains at `tuning.lockDecayMult` — the honest, deliberate price
+ * of un-merging. The slip offset means the bot ends up beside the enemy's nose
+ * rather than in front of it, so whatever re-perches starts with an aspect
+ * advantage.
  *
- * `breakRange` (defaulting to the profile's `preferredMin`) is the trigger, kept
- * separate from `standoffRange` so a profile can say "break out at 12 units, but
- * do not stop running until 30" — a hysteresis band, without which the bot would
- * chatter across a single threshold.
+ * **There is no perch leg here, by construction.** `score` only bids while
+ * `distance < breakRange`, and `breakRange` sits *inside* `standoffRange` in
+ * every shipped profile (that hysteresis is the point: break out at 14, keep
+ * running to 22). A "at or beyond the standoff, nose back on" branch in `plan`
+ * could therefore only run in the range band where `score` already returned 0
+ * and kite never wins the decision — it was unreachable code. Re-perching is
+ * `engage`'s job and always was: once kite stops bidding, `engage` wins, puts the
+ * nose back on and holds the band with `throttleBand`. Kite breaks the merge;
+ * engage fights.
  */
 const kite: BotBehavior = {
   score(ctx, params) {
@@ -200,26 +201,14 @@ const kite: BotBehavior = {
   plan(ctx, params) {
     const target = ctx.target;
     if (!target) return IDLE_PLAN;
-    const standoff = standoffRange(ctx, params);
-
-    if (ctx.distance < standoff) {
-      // Extend: run out along a bearing offset from "straight away", so the bot
-      // ends up beside the enemy's guns rather than in front of them coming back.
-      const away = bearing(target.pos, ctx.self.pos);
-      const slip = numParam(params, "slipRad", 0.5) * ctx.orbitSign;
-      return {
-        aim: pointOnRing(ctx.self.pos, away + slip, Math.max(standoff, 1)),
-        throttle: numParam(params, "throttleRun", 1),
-        boost: rollBoost(ctx, numParam(params, "boostChance", 0)),
-        engaged: true,
-      };
-    }
-
-    // Perched: nose on, engine only as much as holding the range needs.
+    // Extend: run out along a bearing offset from "straight away", so the bot
+    // ends up beside the enemy's guns rather than in front of them coming back.
+    const away = bearing(target.pos, ctx.self.pos);
+    const slip = numParam(params, "slipRad", 0.5) * ctx.orbitSign;
     return {
-      aim: target.pos,
-      throttle: turnThrottle(numParam(params, "throttleHold", 0.25), aimError(ctx, target.pos), params),
-      boost: false,
+      aim: pointOnRing(ctx.self.pos, away + slip, Math.max(standoffRange(ctx, params), 1)),
+      throttle: numParam(params, "throttleRun", 1),
+      boost: rollBoost(ctx, numParam(params, "boostChance", 0)),
       engaged: true,
     };
   },
@@ -537,9 +526,6 @@ export const BEHAVIOR_PARAM_SPECS: Readonly<Record<string, readonly BehaviorPara
     { key: "standoffFrac", kind: "number", fallback: 0.9, min: 0, max: 1.5, doc: "Range the extend leg runs out to, as a fraction of the longest fitted weapon range." },
     { key: "slipRad", kind: "number", fallback: 0.5, min: 0, max: 1.6, doc: "Offset from straight-away while extending (0 = dead astern)." },
     { key: "throttleRun", kind: "number", fallback: 1, min: 0, max: 1, doc: "Throttle during the extend leg." },
-    { key: "throttleHold", kind: "number", fallback: 0.25, min: 0, max: 1, doc: "Throttle while perched at the standoff range with the nose back on." },
-    HARD_TURN,
-    THROTTLE_TURN,
     BOOST_CHANCE,
   ],
   breakLoS: [

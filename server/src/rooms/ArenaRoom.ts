@@ -552,8 +552,6 @@ export class ArenaRoom extends Room<ArenaState> {
 
   private validateOrder(entityId: EntityId, order: Order): OrderRejectReason | null {
     switch (order.kind) {
-      case "move":
-        return this.inBounds(order.target.x, order.target.z) ? null : "out-of-bounds";
       case "flight":
         // Range guard only, and deliberately redundant with `orderSchema`: bots
         // reach this path without ever crossing the wire (FLIGHT.md §7 — same
@@ -574,19 +572,7 @@ export class ArenaRoom extends Room<ArenaState> {
         }
         return null;
       }
-      case "target": {
-        if (order.targetId === null) return null;
-        if (!this.sim.hasShip(order.targetId)) return "bad-target";
-        if (this.sim.teamOf(order.targetId) === this.sim.teamOf(entityId)) return "bad-target";
-        return null;
-      }
     }
-  }
-
-  private inBounds(x: number, z: number): boolean {
-    const b = this.arena.bounds;
-    if (b.shape === "circle") return x * x + z * z <= b.radius * b.radius;
-    return Math.abs(x) <= b.width / 2 && Math.abs(z) <= b.height / 2;
   }
 
   private rateLimited(client: Client): boolean {

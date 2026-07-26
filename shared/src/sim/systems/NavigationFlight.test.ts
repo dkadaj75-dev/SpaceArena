@@ -164,26 +164,30 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
     }
   });
 
-  it("hands a ship from move control to flight control and back — never both", () => {
+  it("replaces the standing FlightState rather than accumulating drivers", () => {
     const world = makeWorld(configs);
     const id = spawnPilot(world);
 
-    world.queueOrder(id, { kind: "move", target: { x: 60, z: 0 }, boost: false });
+    world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, boost: false });
     navigationSystem(world, DT);
-    expect(world.moveOrders.has(id)).toBe(true);
-    expect(world.flightStates.has(id)).toBe(false);
+    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, boost: false });
 
-    world.drainEvents();
-    world.queueOrder(id, { kind: "flight", throttle: 0.4, turn: 0, boost: false });
+    world.queueOrder(id, { kind: "flight", throttle: 0.4, turn: -1, boost: true });
     navigationSystem(world, DT);
-    expect(world.moveOrders.has(id)).toBe(false);
-    expect(world.flightStates.has(id)).toBe(true);
-    expect(world.drainEvents()).toContainEqual({ type: "moveOrderCleared", entityId: id });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0.4, turn: -1, boost: true });
+  });
 
-    world.queueOrder(id, { kind: "move", target: { x: 60, z: 0 }, boost: false });
-    navigationSystem(world, DT);
+  it("coasts a ship that has never been given a flight order (drag, no drive)", () => {
+    const world = makeWorld(configs);
+    const id = spawnPilot(world);
+    world.velocities.set(id, { x: 10, z: 0 });
+
+    for (let i = 0; i < 30; i++) navigationSystem(world, DT);
+
     expect(world.flightStates.has(id)).toBe(false);
-    expect(world.moveOrders.has(id)).toBe(true);
+    // dragCoefficient bleeds it: still drifting +X, but slower than it started.
+    expect(world.transforms.get(id)!.pos.x).toBeGreaterThan(0);
+    expect(speedOf(world, id)).toBeLessThan(10);
   });
 
   it("drops the FlightState when the ship is destroyed", () => {

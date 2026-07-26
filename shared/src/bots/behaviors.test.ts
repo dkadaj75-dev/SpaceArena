@@ -194,12 +194,14 @@ describe("kite", () => {
     }
   });
 
-  it("noses back on at hold throttle once it has reached the standoff", () => {
-    // standoff = 0.5 * 40 = 20; enemy at 25 is already past it.
+  it("stops bidding at breakRange, leaving the re-perch to engage", () => {
+    // Kite is the merge-break, not a range keeper: the moment the bot is at or
+    // beyond `breakRange` its factor is 0, so it can never win a decision —
+    // which is why it has no "perched, nose back on" leg to reach.
     const ctx = context({ enemyAt: { x: 25, z: 0 }, weaponRange: 40 });
-    const p = plan("kite", { breakRange: 30, standoffFrac: 0.5, throttleHold: 0.25 }, ctx);
-    expect(p.aim).toEqual({ x: 25, z: 0 });
-    expect(p.throttle).toBe(0.25);
+    const params = { breakRange: 20, standoffFrac: 0.5 };
+    expect(score("kite", params, ctx)).toBe(0);
+    expect(score("engage", {}, ctx)).toBeGreaterThan(0);
   });
 });
 

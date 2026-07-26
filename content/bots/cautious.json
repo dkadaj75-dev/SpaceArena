@@ -31,7 +31,6 @@
       "standoffFrac": 0.85,
       "slipRad": 0.5,
       "throttleRun": 1.0,
-      "throttleHold": 0.25,
       "boostChance": 0.25
     },
     "breakLoS": {

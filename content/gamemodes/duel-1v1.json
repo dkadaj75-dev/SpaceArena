@@ -4,6 +4,7 @@
   "version": 1,
   "name": "Duel 1v1",
   "teams": "1v1",
+  "defaultArena": "arena.deep-field",
   "winCondition": { "type": "fragLimit", "count": 5 },
   "eliminationEndsMatch": true,
   "respawn": { "enabled": true, "delay": 4 },

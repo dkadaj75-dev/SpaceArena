@@ -255,19 +255,27 @@ export class SettingsScreen {
     return group;
   }
 
-  /** Read-only view of the input-feel knobs: designer-owned in `tuning.json`. */
+  /**
+   * Read-only view of the flight-control feel knobs. They are designer-owned:
+   * the stick/throttle geometry and response live in `theme.hud.flight`, the
+   * lock-break grace in `tuning.json`. (The old tap-to-move readouts retired
+   * with move orders — FLIGHT.md §7.)
+   */
   private controlsGroup(): HTMLElement {
     const group = settingsGroup("Controls");
+    const flight = this.host.configs.get<ThemeConfig>("theme", THEME_ID)?.hud?.flight;
     const tuning = this.host.configs.getAll<TuningConfig>("tuning")[0];
     const list = document.createElement("div");
     list.className = "sa-settings-readonly";
     list.dataset["setting"] = "controls";
+    const deadzone = flight?.joystick?.deadzone;
+    const ramp = flight?.throttle?.keyRampPerSec;
     list.append(
-      kv("Tap slop", tuning ? `${tuning.tapSlopPx} px` : "—"),
-      kv("Double-tap window", tuning ? `${tuning.doubleTapWindowMs} ms` : "—"),
-      kv("Edge palm rejection", tuning?.edgeRejectMarginPx ? `${tuning.edgeRejectMarginPx} px` : "off"),
+      kv("Stick deadzone", deadzone === undefined ? "—" : `${Math.round(deadzone * 100)}%`),
+      kv("Throttle key ramp", ramp === undefined ? "—" : `${ramp}/s`),
+      kv("Lock-break grace", tuning?.lockDecayMult ? `${tuning.lockDecayMult}× drain` : "—"),
     );
-    group.append(list, note("These live in the tuning config and are tuned once for the whole game — not per player in the MVP."));
+    group.append(list, note("These live in the theme and tuning configs and are tuned once for the whole game — not per player in the MVP."));
     return group;
   }
 

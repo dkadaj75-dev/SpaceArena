@@ -63,14 +63,14 @@ import {
 const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SERVER_ENTRY = path.join(REPO_ROOT, "server", "src", "index.ts");
 
-/** Arena radius of `arena.ring-nebula`; move orders outside it are rejected. */
-const ARENA_RADIUS = 90;
-/** Stay inside the boundary so orders are accepted and ships do not take edge damage. */
-const ORDER_RADIUS = ARENA_RADIUS * 0.8;
-
-const MOVE_INTERVAL_MS = 2000;
+/**
+ * How often a generated pilot changes its stick/throttle. `flight` orders are
+ * level-triggered (FLIGHT.md §1), so this is the ORDER rate, not the input
+ * rate: between two of these the server keeps integrating the last state, which
+ * is exactly the traffic profile a real client produces.
+ */
+const FLIGHT_INTERVAL_MS = 2000;
 const TOGGLE_INTERVAL_MS = 8000;
-const TARGET_INTERVAL_MS = 12000;
 /** Cadence of the driver scheduler. One timer for every room, not one per order. */
 const SCHEDULER_TICK_MS = 250;
 /** Backoff before re-creating a room after the previous match ended or a join failed. */
@@ -177,7 +177,10 @@ function prepareContentPack(options: Options): { dir: string; cleanup: () => voi
     version: 1,
     name: "Load Test",
     teams: "2v2",
-    defaultArena: "arena.ring-nebula",
+    // The big arena on purpose: 47 asteroids and a radius-300 spatial hash is
+    // the shape production actually runs (FLIGHT.md §6), and it is the case the
+    // per-tick collision/broadphase cost has to survive.
+    defaultArena: "arena.deep-field",
     // Backstop only: elimination normally ends the match first.
     winCondition: { type: "timeLimit", seconds: options.matchSeconds },
     eliminationEndsMatch: true,
@@ -345,9 +348,8 @@ class RoomDriver {
   private room: Room | null = null;
   private stopped = false;
   private seq = 1;
-  private nextMoveAt = 0;
+  private nextFlightAt = 0;
   private nextToggleAt = 0;
-  private nextTargetAt = 0;
   private reconnectAt = 0;
   readonly stats: DriverStats = { roomsCreated: 0, ordersSent: 0, joinFailures: 0 };
 
@@ -385,9 +387,8 @@ class RoomDriver {
       room.onMessage("*", () => {});
       // Stagger the first order so twenty rooms do not all fire on the same tick.
       const now = Date.now();
-      this.nextMoveAt = now + jitter(MOVE_INTERVAL_MS);
+      this.nextFlightAt = now + jitter(FLIGHT_INTERVAL_MS);
       this.nextToggleAt = now + jitter(TOGGLE_INTERVAL_MS);
-      this.nextTargetAt = now + jitter(TARGET_INTERVAL_MS);
 
       room.onLeave(() => {
         this.room = null;
@@ -414,13 +415,16 @@ class RoomDriver {
       }
       return;
     }
-    if (now >= this.nextMoveAt) {
-      this.nextMoveAt = now + jitter(MOVE_INTERVAL_MS);
-      const angle = Math.random() * Math.PI * 2;
-      const radius = Math.sqrt(Math.random()) * ORDER_RADIUS;
+    if (now >= this.nextFlightAt) {
+      this.nextFlightAt = now + jitter(FLIGHT_INTERVAL_MS);
+      // Throttle up and hold a turn: the ship keeps flying (and keeps colliding,
+      // and keeps entering other pilots' sensor cones) between orders, so the
+      // server does the same per-tick work a real match does. No target orders —
+      // targeting is the sim's, automatically (FLIGHT.md §2).
       this.send({
-        kind: "move",
-        target: { x: Math.cos(angle) * radius, z: Math.sin(angle) * radius },
+        kind: "flight",
+        throttle: 0.4 + Math.random() * 0.6,
+        turn: Math.random() * 2 - 1,
         boost: Math.random() < 0.2,
       });
     }
@@ -428,30 +432,6 @@ class RoomDriver {
       this.nextToggleAt = now + jitter(TOGGLE_INTERVAL_MS);
       this.send({ kind: "moduleToggle", hardpointIndex: Math.floor(Math.random() * 3) });
     }
-    if (now >= this.nextTargetAt) {
-      this.nextTargetAt = now + jitter(TARGET_INTERVAL_MS);
-      const enemy = this.pickEnemy();
-      if (enemy !== null) this.send({ kind: "target", targetId: enemy });
-    }
-  }
-
-  /**
-   * An enemy entity id read out of the replicated state — the same information a
-   * real client's targeting UI works from. Returns null before the first patch
-   * arrives or when the state has no opposing ship yet.
-   */
-  private pickEnemy(): number | null {
-    const room = this.room;
-    if (!room) return null;
-    const players = (room.state as { players?: PlayerStateLike } | undefined)?.players;
-    if (!players || typeof players.forEach !== "function") return null;
-    const mine = typeof players.get === "function" ? players.get(room.sessionId) : undefined;
-    if (!mine) return null;
-    let enemy: number | null = null;
-    players.forEach((ps) => {
-      if (enemy === null && ps.team !== mine.team && typeof ps.entityId === "number") enemy = ps.entityId;
-    });
-    return enemy;
   }
 
   private send(order: unknown): void {
@@ -474,12 +454,6 @@ class RoomDriver {
       // already gone
     }
   }
-}
-
-/** Minimal structural view of the decoded `players` map. */
-interface PlayerStateLike {
-  get?(key: string): { team: number; entityId: number } | undefined;
-  forEach(cb: (value: { team: number; entityId: number }) => void): void;
 }
 
 const ARENA_ROOM_NAME = "arena";

@@ -6,19 +6,11 @@ export type TargetingPolicy = z.infer<typeof targetingPolicy>;
 
 export const tuningSchema = z.object({
   ...baseShape("tuning"),
-  /** Max ms between taps to register a double-tap (boost order). */
-  doubleTapWindowMs: z.number().positive(),
-  /** Max pixel movement still treated as a tap (not a drag). */
-  tapSlopPx: z.number().nonnegative(),
   /**
-   * Palm rejection (5.4): touch contacts landing within this many px of any
-   * canvas edge are ignored by the order state machine unless they hit a HUD
-   * control. 0 disables rejection. Lives here rather than in `theme.json`
-   * because it is an input-feel knob measured on the *input surface*, right
-   * next to `tapSlopPx`/`doubleTapWindowMs` — not a HUD look/layout dimension.
+   * How TargetingSystem ranks fresh lock candidates inside the sensor cone. Only
+   * consulted when a ship has no lockable incumbent — the sticky-candidate rule
+   * (FLIGHT.md §2) holds the current target regardless of policy.
    */
-  edgeRejectMarginPx: z.number().nonnegative().optional(),
-  /** Auto-target selection policy when no focused target. */
   targetingPolicy,
   /**
    * TargetingSystem: how fast lock progress drains while the candidate is out of
@@ -31,12 +23,6 @@ export const tuningSchema = z.object({
   globalDamageMult: z.number().positive(),
   /** Planar linear drag coefficient. */
   dragCoefficient: z.number().nonnegative().optional(),
-  /** NavigationSystem: distance ahead of a ship scanned for asteroid avoidance. */
-  avoidLookahead: z.number().nonnegative().optional(),
-  /** NavigationSystem: strength of the asteroid-avoidance steering push. */
-  avoidWeight: z.number().nonnegative().optional(),
-  /** NavigationSystem: distance from target at which arrival deceleration begins. */
-  arrivalRadius: z.number().positive().optional(),
   /** CollisionSystem: spatial-hash cell size (world units). */
   spatialCellSize: z.number().positive().optional(),
   /** CollisionSystem: min closing speed (along the contact normal) for impact damage. */
@@ -49,8 +35,6 @@ export const tuningSchema = z.object({
   beamFadeMs: z.number().positive().optional(),
   /** Client render: per-kind projectile mesh pool size (no per-shot allocations). */
   projectilePoolSize: z.number().int().positive().optional(),
-  /** Client render: move-order path dash segment length (world units). */
-  orderMarkerDashLength: z.number().positive().optional(),
   /** Client netcode: milliseconds rendered behind the newest server patch. */
   netRenderDelayMs: z.number().nonnegative().optional(),
   /** Client netcode: exponential local correction rate, per second. */

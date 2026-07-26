@@ -17,20 +17,20 @@ export type { SignalId };
  * future server-side effect logic. **Extensible: adding a signal = add its id to
  * `signalId` (schema) and one entry here.**
  *
- * `throttle` reads the snapshot's real commanded throttle (FLIGHT.md §1) — a
- * flight-driven ship reports exactly what the pilot asked for. The remaining
- * motion signals (`speedFraction`, `boostActive`) measure *actual* motion, so
- * they stay derived from the per-snapshot planar displacement normalized by the
- * reference speeds below. That keeps them dependency-free (no core-stat lookup);
- * the editor's signal simulator can override the normalization later.
+ * `throttle` reads the snapshot's real commanded throttle (FLIGHT.md §1) — flight
+ * orders are the only thing that moves a ship, so this is exactly what the pilot
+ * asked for, with no inference.
+ *
+ * `speedFraction` and `boostActive` deliberately STAY on per-snapshot planar
+ * displacement (FLIGHT.md §7 decision): they describe *actual* motion, not the
+ * command, and nothing in `ShipSnapshot` carries velocity — only position and
+ * the commanded throttle travel over the wire. Deriving them from `throttle`
+ * would make them lie during the accel ramp, while a rammed ship was bleeding
+ * speed, or while boost was requested but denied for want of energy/heat. The
+ * displacement basis keeps them dependency-free (no core-stat lookup); the
+ * editor's signal simulator can override the normalization later.
  */
 
-/**
- * Reference planar displacement (world units between two snapshots) ≈ "full throttle".
- * Only used by the `throttle` FALLBACK for ships without a FlightState (move-order
- * driven); it retires with move orders (FLIGHT.md §7).
- */
-export const REFERENCE_THROTTLE_STEP = 1.2;
 /** Reference planar displacement treated as absolute top speed (boosted). */
 export const REFERENCE_TOP_STEP = 2.2;
 /** Displacement above this reads as an active afterburner. */
@@ -52,14 +52,9 @@ function planarStep(ship: ShipSnapshot, prev?: ShipSnapshot): number {
 export type SignalFn = (ship: ShipSnapshot, prev?: ShipSnapshot) => number;
 
 export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
-  /**
-   * Commanded engine output, 0..1. Reads the snapshot's real throttle
-   * (flight-driven ships); falls back to normalized planar displacement for
-   * ships with no FlightState (move-order driven, `throttle === 0`), which is
-   * what keeps engine trails alive until move orders retire (FLIGHT.md §7).
-   */
-  throttle: (s, p) => (s.throttle > 0 ? clamp01(s.throttle) : clamp01(planarStep(s, p) / REFERENCE_THROTTLE_STEP)),
-  /** 1 while moving fast enough to imply afterburner, else 0. */
+  /** Commanded engine output, 0..1 — the pilot's own throttle, verbatim. */
+  throttle: (s) => clamp01(s.throttle),
+  /** 1 while moving fast enough to imply afterburner, else 0 (measured, see above). */
   boostActive: (s, p) => (planarStep(s, p) > BOOST_STEP_THRESHOLD ? 1 : 0),
   /** Remaining hull as a fraction of max, 0..1. */
   hullFraction: (s) => (s.hullMax > 0 ? clamp01(s.hull / s.hullMax) : 0),

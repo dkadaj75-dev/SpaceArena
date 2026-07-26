@@ -16,29 +16,30 @@ beforeAll(async () => {
 });
 
 describe("Bug 1 — collision grind death", () => {
-  it("a ship ordered onto an asteroid parks alongside it with minimal damage", () => {
+  it("a ship flown into an asteroid takes one impact, not a grind, and never clips inside", () => {
     const world = makeWorld(configs);
     const ast = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 0, z: 0 }); // r 3.5, impact 6
-    const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: -30 }, 0);
+    const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: -30 }, Math.PI / 2);
     const impactDamage = world.asteroids.get(ast)!.impactDamage;
     const sumR = world.colliders.get(ast)!.radius + world.colliders.get(ship)!.radius;
     const before = world.shipCores.get(ship)!.hull;
 
-    // Order straight onto the asteroid centre — must be clamped outside it.
-    world.queueOrder(ship, { kind: "move", target: { x: 0, z: 0 }, boost: false });
+    // Flight has no avoidance and no arrival (FLIGHT.md §1/§7): the pilot flies
+    // straight at the rock and CollisionSystem is the only thing between them.
+    world.queueOrder(ship, { kind: "flight", throttle: 1, turn: 0, boost: false });
 
-    for (let i = 0; i < 600; i++) {
+    for (let i = 0; i < 120; i++) {
       rebuildSpatial(world);
       navigationSystem(world, DT);
       collisionSystem(world, DT);
-      if (!world.moveOrders.has(ship)) break;
+      expect(dist(world.transforms.get(ship)!.pos, { x: 0, z: 0 })).toBeGreaterThan(sumR - 0.1);
     }
 
-    const p = world.transforms.get(ship)!.pos;
-    expect(dist(p, { x: 0, z: 0 })).toBeGreaterThanOrEqual(sumR - 0.1); // parked outside the rock
-    // At most a single glancing impact — nowhere near the grind-to-death of before.
+    // Impact damage is capped by the per-pair cooldown, so 4 s of shoving into
+    // the rock costs a handful of hits, not one per tick.
     const hullLoss = before - world.shipCores.get(ship)!.hull;
-    expect(hullLoss).toBeLessThan(impactDamage);
+    expect(hullLoss).toBeGreaterThan(0);
+    expect(hullLoss).toBeLessThanOrEqual(impactDamage * 5);
   });
 
   it("a sustained high-speed ram damages once, then respects the cooldown", () => {

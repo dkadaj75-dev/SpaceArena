@@ -114,25 +114,53 @@ function circleRadiusOf(arenaId: string): number {
 }
 
 describe("Minimap arena resolution", () => {
-  it("draws the bounds of the session's arena, not a hardcoded one", () => {
+  /**
+   * The view range follows the SESSION's arena (the shipped theme deliberately
+   * declares no `minimapRangeUnits`, so a radius-90 nebula and a radius-300 deep
+   * field each fill the same dial). That makes the plotted position of a known
+   * world point the discriminator: the bounds circle alone clamps to the dial
+   * edge on every arena and would pass against a hardcoded id.
+   */
+  function plotAsteroidAt(arenaId: string, worldX: number): number {
+    const { arcs, restore } = stubCanvas();
+    const session = { arenaId, playerId: 1, playerTeam: 0 } as unknown as GameSession;
+    const minimap = new Minimap(document.createElement("div"), configs, bus, session);
+    minimap.update(
+      { ...EMPTY_SNAPSHOT, asteroids: [{ id: 0, configId: "a", pos: { x: worldX, z: 0 }, radius: 1, state: "intact" }] },
+      200,
+    );
+    minimap.dispose();
+    restore();
+    expect(arcs.length).toBe(2); // bounds circle + the one asteroid
+    return arcs[1]![0]!; // asteroid centre x, in canvas px
+  }
+
+  it("scales the view to the session's arena, not a hardcoded one", () => {
+    const theme = configs.get<ThemeConfig>("theme", "theme.default");
+    const half = (theme?.hud?.minimapSizePx ?? 128) / 2;
+    expect(theme?.hud?.minimapRangeUnits).toBeUndefined(); // else this proves nothing
+
+    const scale = half / SECOND_ARENA_RADIUS;
+    expect(plotAsteroidAt(SECOND_ARENA_ID, 25)).toBeCloseTo(half + 25 * scale, 6);
+    // Guard: the old hardcoded arena has a different radius, hence a different
+    // scale, hence a visibly different dot position for the same world point.
+    expect(plotAsteroidAt("arena.ring-nebula", 25)).toBeCloseTo(
+      half + 25 * (half / circleRadiusOf("arena.ring-nebula")),
+      6,
+    );
+    expect(plotAsteroidAt(SECOND_ARENA_ID, 25)).not.toBeCloseTo(plotAsteroidAt("arena.ring-nebula", 25), 3);
+  });
+
+  it("still draws the bounds circle from the arena config", () => {
     const { arcs, restore } = stubCanvas();
     const session = { arenaId: SECOND_ARENA_ID, playerId: 1, playerTeam: 0 } as unknown as GameSession;
     const minimap = new Minimap(document.createElement("div"), configs, bus, session);
-
     minimap.update(EMPTY_SNAPSHOT, 200);
 
-    // The theme owns size + view range; the ARENA owns the bounds circle radius.
-    const theme = configs.get<ThemeConfig>("theme", "theme.default");
-    const half = (theme?.hud?.minimapSizePx ?? 128) / 2;
-    const scale = half / (theme?.hud?.minimapRangeUnits ?? SECOND_ARENA_RADIUS);
-
-    expect(arcs.length).toBe(1); // the bounds circle (no asteroids, no ships)
-    const boundsArc = arcs[0]!;
-    expect(boundsArc[0]).toBe(half);
-    expect(boundsArc[1]).toBe(half);
-    expect(boundsArc[2]).toBeCloseTo(Math.min(half - 1, SECOND_ARENA_RADIUS * scale), 6);
-    // Guard: the old hardcoded arena would have produced a different circle.
-    expect(boundsArc[2]).not.toBeCloseTo(Math.min(half - 1, circleRadiusOf("arena.ring-nebula") * scale), 3);
+    const half = (configs.get<ThemeConfig>("theme", "theme.default")?.hud?.minimapSizePx ?? 128) / 2;
+    expect(arcs.length).toBe(1);
+    expect(arcs[0]![0]).toBe(half);
+    expect(arcs[0]![1]).toBe(half);
 
     minimap.dispose();
     restore();

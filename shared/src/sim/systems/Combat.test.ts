@@ -34,8 +34,9 @@ function duel(
   const mod = world.modules.get(shooter)!.modules[weapon]!;
   mod.state = "active";
   mod.cycleTimer = 0;
+  // Seed the sticky candidate directly: targeting is automatic (FLIGHT.md §2),
+  // and TargetingSystem holds whoever is already set while it stays lockable.
   world.targets.get(shooter)!.targetId = target;
-  world.targets.get(shooter)!.manual = true;
   warmLock(world, shooter);
   rebuildSpatial(world);
   return { world, shooter, target };

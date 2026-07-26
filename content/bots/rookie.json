@@ -30,8 +30,7 @@
       "breakRange": 12,
       "standoffFrac": 0.5,
       "slipRad": 0.4,
-      "throttleRun": 1.0,
-      "throttleHold": 0.4
+      "throttleRun": 1.0
     }
   },
   "moduleDiscipline": {

@@ -26,6 +26,16 @@ import {
 
 const log = createLogger("SceneBuilder");
 
+/**
+ * The arena's playable radius (a rect arena is approximated by its half-
+ * diagonal, matching the minimap's rule). The one place scene geometry learns
+ * how big the world is, so nothing downstream needs an arena-sized literal.
+ */
+function boundsRadiusOf(arena: ArenaConfig): number {
+  const b = arena.bounds;
+  return b.shape === "circle" ? b.radius : Math.hypot(b.width, b.height) / 2;
+}
+
 function colorFromHex(hex: string | undefined, fallback: Color3): Color3 {
   if (!hex) return fallback;
   try {
@@ -233,9 +243,15 @@ export class SceneBuilder {
     // quality tier (the point count is baked into the mesh at build time).
     const starCount = this.quality.scene.starfieldPoints;
     if (starCount <= 0) return;
+    // The shell is sized off the ARENA, not a literal: at ring-nebula's radius
+    // 90 the floor keeps the old 300-550 band, and on a radius-300 field
+    // (FLIGHT.md §6) it opens out so the "distant stars" are not scattered
+    // through the play space the player is flying in.
+    const shellInner = Math.max(300, boundsRadiusOf(arena) * 1.8);
+    const shellSpan = shellInner * 0.85;
     const pcs = new PointsCloudSystem("stars", 1, this.scene);
     pcs.addPoints(starCount, (particle: CloudPoint) => {
-      const radius = 300 + Math.random() * 250;
+      const radius = shellInner + Math.random() * shellSpan;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       particle.position = new Vector3(
@@ -326,8 +342,7 @@ export class SceneBuilder {
   }
 
   private buildGroundPlane(arena: ArenaConfig, root: TransformNode): void {
-    const size =
-      arena.bounds.shape === "circle" ? arena.bounds.radius * 2.1 : Math.max(arena.bounds.width, arena.bounds.height) * 1.1;
+    const size = boundsRadiusOf(arena) * 2.1;
 
     const ground = MeshBuilder.CreateGround("groundPlane", { width: size, height: size }, this.scene);
     ground.isVisible = false;

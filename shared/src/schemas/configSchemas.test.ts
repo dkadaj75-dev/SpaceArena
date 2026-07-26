@@ -168,15 +168,12 @@ const camera = {
   beta: { min: 0.6, max: 1.1, default: 0.9 },
   radius: { min: 30, max: 90, default: 55 },
   followLag: 0.2,
-  lookAhead: 5,
 };
 
 const tuning = {
   id: "tuning.fixture",
   type: "tuning",
   version: 1,
-  doubleTapWindowMs: 280,
-  tapSlopPx: 12,
   targetingPolicy: "nearest",
   globalDamageMult: 1,
 };
@@ -685,13 +682,11 @@ describe("gamemode schema", () => {
 });
 
 describe("camera schema", () => {
-  it("clamps followLag to 0..1 and forbids negative look-ahead", () => {
+  it("clamps followLag to 0..1", () => {
     expect(mutated("camera", (d) => (d["followLag"] = 0))).toBe(true);
     expect(mutated("camera", (d) => (d["followLag"] = 1))).toBe(true);
     expect(mutated("camera", (d) => (d["followLag"] = 1.01))).toBe(false);
     expect(mutated("camera", (d) => (d["followLag"] = -0.01))).toBe(false);
-    expect(mutated("camera", (d) => (d["lookAhead"] = -1))).toBe(false);
-    expect(mutated("camera", (d) => (d["lookAhead"] = 0))).toBe(true);
   });
 
   it("accepts a fully specified shake block (5.7) and rejects degenerate fields", () => {
@@ -720,11 +715,10 @@ describe("camera schema", () => {
     expect(mutated("camera", (d) => (d["shake"] = { hitAmplitude: 0.25 }))).toBe(false); // partial block rejected
   });
 
-  it("accepts a pan block and rejects a non-positive sensitivity", () => {
-    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 1, boundsMargin: 20 }))).toBe(true);
-    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 0, boundsMargin: 20 }))).toBe(false);
-    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 1, boundsMargin: -1 }))).toBe(false);
-    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 1 }))).toBe(false);
+  it("accepts an editor pan block and rejects a non-positive sensitivity", () => {
+    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 1 }))).toBe(true);
+    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: 0 }))).toBe(false);
+    expect(mutated("camera", (d) => (d["pan"] = { sensitivity: -1 }))).toBe(false);
   });
 
   it("keeps shake and pan optional (pre-5.7 packs still load)", () => {
@@ -733,10 +727,7 @@ describe("camera schema", () => {
 });
 
 describe("tuning schema", () => {
-  it("requires the four core input/balance knobs to be sane", () => {
-    expect(mutated("tuning", (d) => (d["doubleTapWindowMs"] = 0))).toBe(false);
-    expect(mutated("tuning", (d) => (d["tapSlopPx"] = -1))).toBe(false);
-    expect(mutated("tuning", (d) => (d["tapSlopPx"] = 0))).toBe(true);
+  it("requires the core balance knobs to be sane", () => {
     expect(mutated("tuning", (d) => (d["globalDamageMult"] = 0))).toBe(false);
     expect(mutated("tuning", (d) => (d["targetingPolicy"] = "random"))).toBe(false);
     for (const policy of ["nearest", "lowestHp", "attacker"]) {
@@ -748,18 +739,13 @@ describe("tuning schema", () => {
     expect(
       mutated("tuning", (d) => {
         Object.assign(d, {
-          edgeRejectMarginPx: 16,
           dragCoefficient: 0.4,
-          avoidLookahead: 12,
-          avoidWeight: 1.5,
-          arrivalRadius: 4,
           spatialCellSize: 8,
           impactSpeedThreshold: 6,
           impactDamageCooldown: 1,
           maxTicksPerFrame: 5,
           beamFadeMs: 120,
           projectilePoolSize: 48,
-          orderMarkerDashLength: 2,
           netRenderDelayMs: 100,
           netCorrectionRate: 8,
           maxOrdersPerSec: 20,

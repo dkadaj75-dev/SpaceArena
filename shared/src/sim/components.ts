@@ -14,17 +14,11 @@ export interface Velocity {
   z: number;
 }
 
-/** A pending/active move order. `boost` requests afterburner (double-tap). */
-export interface MoveOrder {
-  target: { x: number; z: number };
-  boost: boolean;
-}
-
 /**
  * Persistent continuous-flight input (FLIGHT.md §1). Written by a `flight` order
  * and NEVER auto-cleared — NavigationSystem integrates the last received state
- * every tick until another flight order replaces it (or a move order takes the
- * ship over; the two never drive one ship at the same time).
+ * every tick until another flight order replaces it. It is the only thing that
+ * moves a ship under power.
  */
 export interface FlightState {
   /** Fraction of nominal speed the pilot is asking for, 0..1. */
@@ -90,15 +84,13 @@ export interface ModulesComp {
   modules: ModuleRuntime[];
 }
 
-/** Current focused/auto target plus its lock state (FLIGHT.md §2). */
+/**
+ * Current auto-selected target plus its lock state (FLIGHT.md §2). Targeting is
+ * fully automatic — there is no manual pin; TargetingSystem picks the candidate
+ * and holds it while it stays lockable (the sticky-candidate rule).
+ */
 export interface TargetRef {
   targetId: EntityId | null;
-  /**
-   * True if set by an explicit target order. INTERIM (retires with move orders):
-   * the pin only decides WHICH enemy is the lock candidate, and it survives only
-   * while that enemy stays inside the sensor cone + range — see TargetingSystem.
-   */
-  manual: boolean;
   /**
    * Seconds of accumulated lock, 0..`sensors.lockTimeSec`. Accrues at 1x while
    * the candidate is in the cone, drains at `tuning.lockDecayMult` while it is

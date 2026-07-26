@@ -31,7 +31,6 @@ export class World {
   // Component stores (plain maps; fine at arena scale).
   readonly transforms = new Map<EntityId, Transform2D>();
   readonly velocities = new Map<EntityId, Velocity>();
-  readonly moveOrders = new Map<EntityId, { target: { x: number; z: number }; boost: boolean }>();
   /** Persistent flight input per ship (level-triggered; see {@link FlightState}). */
   readonly flightStates = new Map<EntityId, FlightState>();
   readonly shipCores = new Map<EntityId, ShipCore>();
@@ -75,7 +74,6 @@ export class World {
     this.entities.delete(id);
     this.transforms.delete(id);
     this.velocities.delete(id);
-    this.moveOrders.delete(id);
     this.flightStates.delete(id);
     this.shipCores.delete(id);
     this.modules.delete(id);

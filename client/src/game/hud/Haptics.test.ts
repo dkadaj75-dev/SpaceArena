@@ -59,7 +59,7 @@ describe("hapticPatternFor", () => {
   });
 
   it("ignores unrelated events", () => {
-    expect(hapticPatternFor({ type: "moveOrderCleared", entityId: PLAYER }, PLAYER, SETTINGS)).toBeNull();
+    expect(hapticPatternFor({ type: "targetSet", entityId: PLAYER, targetId: ENEMY }, PLAYER, SETTINGS)).toBeNull();
   });
 });
 

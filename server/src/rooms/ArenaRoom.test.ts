@@ -43,7 +43,7 @@ afterEach(async () => {
 });
 
 describe("ArenaRoom", () => {
-  it("moves ships, acks valid orders, rejects invalid ones, and reflects module toggles", async () => {
+  it("flies ships, acks valid orders, rejects invalid ones, and reflects module toggles", async () => {
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
     const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
     const c2 = await colyseus.connectTo(room);
@@ -55,8 +55,8 @@ describe("ArenaRoom", () => {
     const startX = p1.x;
     const startZ = p1.z;
 
-    // Valid move order → accepted ack.
-    c1.send("order", { seq: 1, order: { kind: "move", target: { x: -40, z: -40 }, boost: false } });
+    // Valid flight order → accepted ack.
+    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
     const ack1 = await c1.waitForMessage("orderAck");
     expect(ack1).toMatchObject({ seq: 1, accepted: true });
 
@@ -65,10 +65,10 @@ describe("ArenaRoom", () => {
     expect(p1.x !== startX || p1.z !== startZ).toBe(true);
     expect(p1.lastProcessedSeq).toBe(1);
 
-    // Out-of-bounds move → rejected.
-    c1.send("order", { seq: 2, order: { kind: "move", target: { x: 100000, z: 0 }, boost: false } });
+    // Out-of-range flight axis → rejected by the wire schema.
+    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 5, turn: 0, boost: false } });
     const ack2 = await c1.waitForMessage("orderAck");
-    expect(ack2).toMatchObject({ seq: 2, accepted: false, reason: "out-of-bounds" });
+    expect(ack2).toMatchObject({ seq: 2, accepted: false, reason: "malformed" });
 
     // Malformed order → rejected.
     c1.send("order", { seq: 3, order: { kind: "bogus" } });
@@ -288,12 +288,12 @@ describe("ArenaRoom", () => {
     expect(acks.some((a) => !a.accepted && a.reason === "rate-limited")).toBe(true);
   });
 
-  it("rejects an order targeting a friendly and orders when not yet live", async () => {
+  it("rejects orders sent before the match goes live", async () => {
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
     const c1 = await colyseus.connectTo(room);
     // Only one human joined → still waiting.
     expect(room.state.matchPhase).toBe("waiting");
-    c1.send("order", { seq: 1, order: { kind: "move", target: { x: 0, z: 0 }, boost: false } });
+    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
     const ack = await c1.waitForMessage("orderAck");
     expect(ack).toMatchObject({ seq: 1, accepted: false, reason: "not-live" });
     await c1.leave();
@@ -362,9 +362,9 @@ describe("ArenaRoom", () => {
     const rewards: Array<{ type: string; credits: number; xp: number }> = [];
     c1.onMessage("simEvent", (m) => rewards.push(m as { type: string; credits: number; xp: number }));
 
-    // Park c1 next to the enemy so LoS + range hold, then fire the laser.
-    c1.send("order", { seq: 1, order: { kind: "target", targetId: enemyId } });
-    c1.send("order", { seq: 2, order: { kind: "moduleToggle", hardpointIndex: 0 } });
+    // The enemy is parked dead ahead inside the sensor cone, so automatic
+    // targeting (FLIGHT.md §2) locks it; bring the laser up and let it fire.
+    c1.send("order", { seq: 1, order: { kind: "moduleToggle", hardpointIndex: 0 } });
 
     for (let i = 0; i < 400 && room.state.matchPhase !== "ended"; i++) await advance(room, 1);
     await new Promise((r) => setTimeout(r, 200));

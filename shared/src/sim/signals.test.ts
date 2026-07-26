@@ -95,15 +95,18 @@ describe("signal registry", () => {
     expect(evalSignal("throttle", ship({ throttle: 5 }), prev)).toBe(1); // clamped
   });
 
-  it("motion signals derive from planar displacement between snapshots", () => {
-    // throttle === 0 ⇒ no FlightState (move-order driven): displacement fallback.
+  it("speedFraction and boostActive measure ACTUAL motion, not the command", () => {
+    // These two deliberately stay on displacement (FLIGHT.md §7): the snapshot
+    // carries no velocity, and a ship mid accel-ramp or one whose boost request
+    // was denied for want of energy is not moving at what it asked for.
     const prev = ship({ pos: { x: 0, z: 0 } });
-    const moving = ship({ pos: { x: 1.2, z: 0 } });
-    expect(evalSignal("throttle", moving, prev)).toBeCloseTo(1, 6); // step == reference
-    expect(evalSignal("throttle", ship(), prev)).toBe(0); // no movement
-    expect(evalSignal("throttle", moving)).toBe(0); // no prev ⇒ 0
-    const boosting = ship({ pos: { x: 2.5, z: 0 } });
+    const moving = ship({ throttle: 1, pos: { x: 1.2, z: 0 } });
+    const boosting = ship({ throttle: 1, pos: { x: 2.5, z: 0 } });
     expect(evalSignal("boostActive", boosting, prev)).toBe(1);
     expect(evalSignal("boostActive", moving, prev)).toBe(0);
+    // Full throttle, not moving yet (or rammed to a stop) ⇒ no boost signal.
+    expect(evalSignal("boostActive", ship({ throttle: 1 }), prev)).toBe(0);
+    expect(evalSignal("speedFraction", boosting, prev)).toBeGreaterThan(evalSignal("speedFraction", moving, prev));
+    expect(evalSignal("speedFraction", moving)).toBe(0); // no prev ⇒ 0
   });
 });

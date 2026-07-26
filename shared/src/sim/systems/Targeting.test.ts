@@ -243,28 +243,72 @@ describe("drain hysteresis when the target leaves the zone", () => {
   });
 });
 
-describe("candidate changes", () => {
-  it("resets progress (and any lock) when a nearer enemy takes over the cone", () => {
+describe("sticky candidate (FLIGHT.md §2)", () => {
+  it("keeps the incumbent while it stays lockable, even when a nearer enemy arrives", () => {
     const world = makeWorld(configs);
     const me = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
-    const far = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 40, z: 0 }, Math.PI);
-    const near = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 60, z: 0 }, Math.PI);
+    const held = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 40, z: 0 }, Math.PI);
+    const other = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 60, z: 0 }, Math.PI);
     const ref = world.targets.get(me)!;
     const lockTime = sensorsOf(world, me).lockTimeSec;
 
     run(world, ticksToLock(lockTime));
-    expect(ref.targetId).toBe(far); // nearest of the two
+    expect(ref.targetId).toBe(held); // nearest of the two when selection last ran
     expect(ref.locked).toBe(true);
 
-    // The other enemy closes inside it — nearest wins, and the new candidate
-    // starts from zero (no lock inherited from the previous one).
-    world.transforms.get(near)!.pos.x = 10;
+    // The other enemy closes well inside it. Under a re-rank-every-tick rule the
+    // sensors would jump ship and throw the finished lock away; the sticky rule
+    // holds whoever is already lockable.
+    world.transforms.get(other)!.pos.x = 10;
+    const events = run(world, 30);
+    expect(ref.targetId).toBe(held);
+    expect(ref.locked).toBe(true);
+    expect(ref.lockProgress).toBeCloseTo(lockTime, 9);
+    expect(events.some((e) => e.type === "lockLost")).toBe(false);
+    expect(events.some((e) => e.type === "targetSet")).toBe(false);
+  });
+
+  it("stays sticky mid-warm-up, so a churning ranking can never starve a lock", () => {
+    const world = makeWorld(configs);
+    const me = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const held = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 40, z: 0 }, Math.PI);
+    const other = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 50, z: 0 }, Math.PI);
+    const ref = world.targets.get(me)!;
+    const lockTime = sensorsOf(world, me).lockTimeSec;
+
+    run(world, 2);
+    expect(ref.targetId).toBe(held);
+
+    // Trade places every tick for the whole warm-up: the lock still completes.
+    const total = ticksToLock(lockTime);
+    for (let i = 0; i < total - 2; i++) {
+      world.transforms.get(other)!.pos.x = i % 2 === 0 ? 5 : 55;
+      run(world, 1);
+    }
+    expect(ref.targetId).toBe(held);
+    expect(ref.locked).toBe(true);
+  });
+
+  it("re-selects the moment the incumbent leaves the zone, resetting progress", () => {
+    const world = makeWorld(configs);
+    const me = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const held = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 20, z: 0 }, Math.PI);
+    const other = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 30, z: 8 }, Math.PI);
+    const ref = world.targets.get(me)!;
+
+    run(world, ticksToLock(sensorsOf(world, me).lockTimeSec));
+    expect(ref.targetId).toBe(held);
+    expect(ref.locked).toBe(true);
+
+    // The incumbent slides abeam, out of the cone. There IS another candidate in
+    // the zone, so this is a switch, not a drain: no grace, progress from zero.
+    world.transforms.get(held)!.pos = { x: 0, z: 40 };
     const events = run(world, 1);
-    expect(ref.targetId).toBe(near);
+    expect(ref.targetId).toBe(other);
     expect(ref.locked).toBe(false);
     expect(ref.lockProgress).toBeCloseTo(DT, 9);
     expect(events).toContainEqual({ type: "lockLost", entityId: me });
-    expect(events).toContainEqual({ type: "targetSet", entityId: me, targetId: near });
+    expect(events).toContainEqual({ type: "targetSet", entityId: me, targetId: other });
   });
 
   it("drops a destroyed target immediately — no drain grace for a wreck", () => {
@@ -282,73 +326,22 @@ describe("candidate changes", () => {
     expect(ref.lockProgress).toBe(0);
     expect(events).toContainEqual({ type: "lockLost", entityId: me });
   });
-});
 
-// ---------------------------------------------------------------------------
-// Interim manual target orders (retire with move orders)
-// ---------------------------------------------------------------------------
-
-describe("manual target orders (interim behaviour)", () => {
-  it("pins WHICH enemy is the candidate but still requires the full lock", () => {
+  it("hands the ship to the next enemy once a dead incumbent has been dropped", () => {
     const world = makeWorld(configs);
     const me = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
-    const near = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 10, z: 0 }, Math.PI);
-    const far = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 30, z: 0 }, Math.PI);
+    const first = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 20, z: 0 }, Math.PI);
+    const second = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 34, z: 0 }, Math.PI);
     const ref = world.targets.get(me)!;
 
-    world.queueOrder(me, { kind: "target", targetId: far });
+    run(world, 2);
+    expect(ref.targetId).toBe(first);
+
+    world.destroyEntity(first);
     run(world, 1);
-    expect(ref.targetId).toBe(far); // the pin beats the nearest-first policy
-    expect(ref.manual).toBe(true);
-    expect(ref.locked).toBe(false); // …but grants no free lock
-
-    run(world, ticksToLock(sensorsOf(world, me).lockTimeSec) - 1);
+    expect(ref.targetId).toBe(second);
+    run(world, ticksToLock(sensorsOf(world, me).lockTimeSec));
     expect(ref.locked).toBe(true);
-    expect(ref.targetId).toBe(far);
-    void near;
-  });
-
-  it("clears the pin once progress drains out, handing the ship back to auto", () => {
-    const world = makeWorld(configs);
-    const me = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
-    const ahead = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 20, z: 0 }, Math.PI);
-    const abeam = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 0, z: 25 }, Math.PI);
-    const ref = world.targets.get(me)!;
-    const lockTime = sensorsOf(world, me).lockTimeSec;
-
-    world.queueOrder(me, { kind: "target", targetId: abeam }); // pinned outside the cone
-    run(world, 1);
-    // Nothing accrued (out of cone) and nothing to drain ⇒ the pin clears at once.
-    expect(ref.manual).toBe(false);
-    expect(ref.targetId).toBeNull();
-
-    // Next tick auto targeting takes the enemy that IS in the cone.
-    run(world, 1);
-    expect(ref.targetId).toBe(ahead);
-    run(world, ticksToLock(lockTime));
-    expect(ref.locked).toBe(true);
-  });
-
-  it("a pinned target that leaves the cone drains, then releases the pin", () => {
-    const world = makeWorld(configs);
-    const me = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
-    const foe = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 20, z: 0 }, Math.PI);
-    const ref = world.targets.get(me)!;
-    const lockTime = sensorsOf(world, me).lockTimeSec;
-
-    world.queueOrder(me, { kind: "target", targetId: foe });
-    run(world, ticksToLock(lockTime));
-    expect(ref.locked).toBe(true);
-    expect(ref.manual).toBe(true);
-
-    world.transforms.get(foe)!.pos = { x: 0, z: 25 }; // slides out of the cone
-    run(world, ticksToDrain(world, lockTime) - 1);
-    expect(ref.manual).toBe(true);
-    expect(ref.locked).toBe(true);
-    run(world, 1);
-    expect(ref.manual).toBe(false);
-    expect(ref.targetId).toBeNull();
-    expect(ref.locked).toBe(false);
   });
 });
 

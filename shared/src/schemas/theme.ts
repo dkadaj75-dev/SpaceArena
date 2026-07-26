@@ -368,7 +368,12 @@ export const themeSchema = z.object({
       moduleButtonGapPx: z.number().nonnegative().optional(),
       /** Minimap canvas side length (square), top-left. */
       minimapSizePx: z.number().positive().optional(),
-      /** World-space half-extent shown on the minimap (units from center). */
+      /**
+       * World-space half-extent shown on the minimap (units from center).
+       * OMIT IT and the minimap fits the arena's own bounds — which is what
+       * you want once arenas differ in size (ring-nebula 90 vs deep-field 300,
+       * FLIGHT.md §6). Set it only to deliberately crop or zoom out.
+       */
       minimapRangeUnits: z.number().positive().optional(),
       /** Width of the hull/shield/energy/heat gauge bars. */
       gaugeWidthPx: z.number().positive().optional(),

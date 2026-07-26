@@ -32,6 +32,7 @@ interface DebugShip {
   id: number;
   team: number;
   pos: DebugVec2;
+  heading: number;
   hull: number;
   modules: DebugModule[];
 }
@@ -159,10 +160,11 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(firstModule).not.toHaveClass(/state-retracted/);
 
   // ------------------------------------------- 7. run the match to completion
-  // Practice is `destroyTargets: 3` against 3 static dummies parked ~100 units
-  // from the player spawn, so the match needs travel + sustained fire. We issue
-  // only orders a human's taps would produce (target / move / moduleToggle) and
-  // use forceFrame to compress ~20 s of match time into a couple of seconds.
+  // Practice is `destroyTargets: 3` against 3 static dummies laid out just ahead
+  // of the player's spawn. We issue only the orders a human's HUD produces —
+  // `flight` from the stick/throttle and `moduleToggle` from the module buttons
+  // (targeting is automatic in the sim, FLIGHT.md §2) — and use forceFrame to
+  // compress ~20 s of match time into a couple of seconds.
   const pump = await page.evaluate<PumpResult, { maxFrames: number; standoff: number }>(
     async ({ maxFrames, standoff }) => {
       const debug = (window as unknown as { __debug?: DebugApi }).__debug;
@@ -178,7 +180,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
 
       /** ~5 fixed 30 Hz ticks per forced frame (GameLoop caps at maxTicksPerFrame). */
       const FRAME_MS = 166;
-      /** Forced frames between order refreshes; also the DOM-check cadence. */
+      /** Forced frames between DOM checks. Orders are refreshed every frame. */
       const BATCH = 20;
 
       let frames = 0;
@@ -186,57 +188,69 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
       let simSeconds = 0;
       let enemiesLeft = -1;
 
+      /** Shortest signed delta from `from` to `to`, in (-PI, PI]. */
+      const angleTo = (from: number, to: number): number => {
+        let d = (to - from) % (Math.PI * 2);
+        if (d > Math.PI) d -= Math.PI * 2;
+        if (d <= -Math.PI) d += Math.PI * 2;
+        return d;
+      };
+
+      /**
+       * One frame of "pilot": put the nose on the nearest enemy with the stick,
+       * hold station at `standoff` with the throttle, and keep the guns up. The
+       * sim's automatic targeting locks whatever the nose is pointed at.
+       */
+      const fly = (session: DebugSession): void => {
+        const snapshot = session.curSnapshot;
+        phase = snapshot.phase;
+        simSeconds = snapshot.elapsed;
+        const me = snapshot.ships.find((s) => s.id === session.playerId);
+        if (!me) return;
+        const foes = snapshot.ships.filter((s) => s.team !== me.team);
+        enemiesLeft = foes.length;
+
+        let nearest: DebugShip | null = null;
+        let nearestDist = Infinity;
+        for (const foe of foes) {
+          const d = Math.hypot(foe.pos.x - me.pos.x, foe.pos.z - me.pos.z);
+          if (d < nearestDist) {
+            nearestDist = d;
+            nearest = foe;
+          }
+        }
+
+        if (nearest) {
+          const bearing = Math.atan2(nearest.pos.z - me.pos.z, nearest.pos.x - me.pos.x);
+          const err = angleTo(me.heading, bearing);
+          session.order({
+            kind: "flight",
+            // Proportional stick: the order is re-sent every forced frame, so a
+            // simple gain settles the nose without hunting.
+            turn: Math.max(-1, Math.min(1, err * 2)),
+            // Close to the standoff band, then cut the engine and shoot from there.
+            throttle: nearestDist > standoff ? 0.6 : 0,
+            boost: false,
+          });
+        }
+
+        // Keep the guns up. Overheated/deploying modules ignore or don't need a
+        // toggle, so only nudge the ones that are genuinely offline.
+        for (const mod of me.modules) {
+          if (mod.state !== "retracted") continue;
+          if (!/laser|kinetic|missile/.test(mod.moduleId)) continue;
+          session.order({ kind: "moduleToggle", hardpointIndex: mod.hardpointIndex });
+        }
+      };
+
       while (frames < maxFrames) {
         const session = debug.session;
         if (!session) {
           return { ...fail("no live session"), frames };
         }
-        const snapshot = session.curSnapshot;
-        phase = snapshot.phase;
-        simSeconds = snapshot.elapsed;
-
-        const me = snapshot.ships.find((s) => s.id === session.playerId);
-        if (me) {
-          const foes = snapshot.ships.filter((s) => s.team !== me.team);
-          enemiesLeft = foes.length;
-
-          let nearest: DebugShip | null = null;
-          let nearestDist = Infinity;
-          for (const foe of foes) {
-            const dist = Math.hypot(foe.pos.x - me.pos.x, foe.pos.z - me.pos.z);
-            if (dist < nearestDist) {
-              nearestDist = dist;
-              nearest = foe;
-            }
-          }
-
-          if (nearest) {
-            session.order({ kind: "target", targetId: nearest.id });
-            // Park at weapons range instead of ramming: keeps line of sight
-            // clean and mirrors how a player closes on a target.
-            const dx = me.pos.x - nearest.pos.x;
-            const dz = me.pos.z - nearest.pos.z;
-            const len = Math.hypot(dx, dz) || 1;
-            session.order({
-              kind: "move",
-              target: {
-                x: nearest.pos.x + (dx / len) * standoff,
-                z: nearest.pos.z + (dz / len) * standoff,
-              },
-              boost: false,
-            });
-          }
-
-          // Keep the guns up. Overheated/deploying modules ignore or don't need
-          // a toggle, so only nudge the ones that are genuinely offline.
-          for (const mod of me.modules) {
-            if (mod.state !== "retracted") continue;
-            if (!/laser|kinetic|missile/.test(mod.moduleId)) continue;
-            session.order({ kind: "moduleToggle", hardpointIndex: mod.hardpointIndex });
-          }
-        }
 
         for (let i = 0; i < BATCH; i++) {
+          fly(session);
           debug.forceFrame(FRAME_MS);
           frames += 1;
         }
@@ -264,7 +278,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
         enemiesLeft,
       };
     },
-    { maxFrames: 1500, standoff: 16 },
+    { maxFrames: 1500, standoff: 24 },
   );
 
   expect(

@@ -42,21 +42,27 @@ export interface ChaseSettings {
   height: number;
   beta: number;
   yawLag: number;
-  /** Vertical FOV in radians, or null to keep whatever the engine defaults to. */
+  /**
+   * Vertical FOV in radians, or **null to keep the engine default** — an absent
+   * `fov` is a genuine "don't touch it", not a substituted number. The rig
+   * restores its captured engine default when this is null, including on a
+   * hot-reload that deletes the key.
+   */
   fov: number | null;
 }
 
 /**
  * Built-in chase feel, used when a content pack ships no `camera.chase` block.
- * Deliberately the same numbers as `content/camera/default.json` so a missing
- * block is a silent-but-identical fallback rather than a different game.
+ * Deliberately the same numbers as `content/camera/default.json` — except `fov`,
+ * which is null here for the same reason it is optional in the schema: there is
+ * no defensible FOV to invent for a pack that never asked for one.
  */
 export const DEFAULT_CHASE_SETTINGS: ChaseSettings = {
   radius: 14,
   height: 1.4,
   beta: 1.34,
   yawLag: 0.12,
-  fov: 1.05,
+  fov: null,
 };
 
 /** Resolve `camera.chase` against the built-in defaults. */
@@ -68,7 +74,7 @@ export function chaseSettingsOf(camera: CameraConfig | undefined): ChaseSettings
     height: c?.height ?? d.height,
     beta: c?.beta ?? d.beta,
     yawLag: c?.yawLag ?? d.yawLag,
-    fov: c?.fov ?? d.fov,
+    fov: c?.fov ?? d.fov, // both null-by-default: absent everywhere ⇒ engine default
   };
 }
 
