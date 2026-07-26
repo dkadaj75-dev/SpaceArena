@@ -52,6 +52,50 @@ export interface HealthProbeOptions {
   fetchImpl?: typeof fetch;
 }
 
+export type ServerHealthListener = (health: ServerHealth) => void;
+
+/**
+ * One live reachability verdict shared by every online-play consumer.
+ *
+ * Probes are coalesced so showing the lobby, an offline retry click, and the
+ * offline refresh timer cannot produce a burst of identical requests.
+ */
+export class ServerHealthState {
+  private value: ServerHealth = { online: true, detail: "" };
+  private readonly listeners = new Set<ServerHealthListener>();
+  private pending: Promise<ServerHealth> | null = null;
+
+  constructor(private readonly probe: () => Promise<ServerHealth> = () => checkServerHealth()) {}
+
+  get current(): ServerHealth {
+    return this.value;
+  }
+
+  set(health: ServerHealth): void {
+    this.value = health;
+    for (const listener of this.listeners) listener(health);
+  }
+
+  subscribe(listener: ServerHealthListener): () => void {
+    this.listeners.add(listener);
+    listener(this.value);
+    return () => this.listeners.delete(listener);
+  }
+
+  refresh(): Promise<ServerHealth> {
+    if (this.pending) return this.pending;
+    this.pending = this.probe()
+      .then((health) => {
+        this.set(health);
+        return health;
+      })
+      .finally(() => {
+        this.pending = null;
+      });
+    return this.pending;
+  }
+}
+
 /**
  * Probe the server once. Resolves either way — see the module doc.
  *

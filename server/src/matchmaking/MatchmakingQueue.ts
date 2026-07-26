@@ -57,7 +57,12 @@ export interface MatchmakingQueueOptions {
   now?: () => number;
 }
 
-const DEFAULT_TTL_MS = 10_000;
+/**
+ * Background browser tabs (especially mobile browsers after an app switch)
+ * commonly throttle timers to roughly one callback per minute. Keep a queued
+ * player alive through that gap while still eventually pruning abandoned tabs.
+ */
+export const MATCHMAKING_QUEUE_TTL_MS = 90_000;
 const DEFAULT_FOUND_TTL_MS = 15_000;
 const DEFAULT_ELO_WINDOW = 200;
 
@@ -83,7 +88,7 @@ export class MatchmakingQueue {
     private readonly reservePair: PairReserver,
     options: MatchmakingQueueOptions = {},
   ) {
-    this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+    this.ttlMs = options.ttlMs ?? MATCHMAKING_QUEUE_TTL_MS;
     this.foundTtlMs = options.foundTtlMs ?? DEFAULT_FOUND_TTL_MS;
     this.baseEloWindow = options.baseEloWindow ?? DEFAULT_ELO_WINDOW;
     this.eloExpansionPerSecond = options.eloExpansionPerSecond ?? 0;
@@ -212,4 +217,3 @@ export class MatchmakingQueue {
     return result;
   }
 }
-

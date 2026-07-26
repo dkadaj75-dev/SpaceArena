@@ -7,13 +7,18 @@ import {
   type ThemeConfig,
 } from "@space-arena/shared";
 import type { AuthService, AuthState } from "../../core/AuthService.js";
-import { SERVER_OFFLINE_HINT, SERVER_OFFLINE_MESSAGE } from "../../core/serverHealth.js";
+import {
+  SERVER_OFFLINE_HINT,
+  SERVER_OFFLINE_MESSAGE,
+  type ServerHealthState,
+} from "../../core/serverHealth.js";
 import { applyMenuTheme, createMenuBackdrop, injectScreenStyle } from "./screenStyle.js";
 import type { MenuTheme } from "./menuTheme.js";
 
 const log = createLogger("Lobby");
 
 const THEME_ID = "theme.default";
+export const OFFLINE_HEALTH_REFRESH_MS = 10_000;
 
 export type LobbyChoice =
   /** Offline practice. `gamemode` defaults to `gamemode.practice` (static dummies). */
@@ -58,22 +63,19 @@ export class Lobby {
   private readonly sections: HTMLDivElement;
   private readonly buttons: TrackedButton[] = [];
   private readonly unsubscribeAuth: () => void;
+  private readonly unsubscribeHealth: () => void;
   private readonly unsubscribeTheme: (() => void) | null = null;
   private readonly callbacks: LobbyCallbacks;
   /** Persistent "the game server did not answer" banner on the Online section. */
   private readonly offlineBadge: HTMLDivElement;
   private readonly offlineDetail: HTMLSpanElement;
-  /**
-   * Whether the game server answered its health probe. Independent of auth: an
-   * authenticated player with a dead server must still see online play disabled,
-   * and both reasons produce their own tooltip.
-   */
-  private serverOnline = true;
+  private healthRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     parent: HTMLElement,
     private readonly configs: ConfigService,
     private readonly auth: AuthService,
+    private readonly serverHealth: ServerHealthState,
     callbacks: LobbyCallbacks,
     bus?: EventBus<ConfigEvents>,
   ) {
@@ -127,6 +129,7 @@ export class Lobby {
     }
 
     this.unsubscribeAuth = this.auth.onChange((state) => this.renderHeader(state));
+    this.unsubscribeHealth = this.serverHealth.subscribe((health) => this.renderServerHealth(health.online, health.detail));
     this.renderHeader(this.auth.getState());
   }
 
@@ -270,18 +273,21 @@ export class Lobby {
    * deliberately untouched, because it needs nothing but the content pack.
    */
   setServerOnline(online: boolean, detail = ""): void {
-    if (online === this.serverOnline && !detail) return;
-    this.serverOnline = online;
+    this.serverHealth.set({ online, detail });
+  }
+
+  private renderServerHealth(online: boolean, detail = ""): void {
     this.offlineBadge.classList.toggle("visible", !online);
     // Parenthesised so the probe's own words read as an aside next to the
     // headline rather than running into it.
     this.offlineDetail.textContent = online || !detail ? "" : `(${detail})`;
     this.applyOnlineButtonState(this.auth.getState().status === "authed");
+    this.syncHealthRefreshTimer();
   }
 
   /** Whether the lobby currently believes the game server is reachable. */
   get serverReachable(): boolean {
-    return this.serverOnline;
+    return this.serverHealth.current.online;
   }
 
   /**
@@ -297,8 +303,8 @@ export class Lobby {
   private applyOnlineButtonState(authed: boolean): void {
     for (const { el, online } of this.buttons) {
       if (!online) continue;
-      el.disabled = !authed || !this.serverOnline;
-      el.title = !this.serverOnline
+      el.disabled = !authed || !this.serverHealth.current.online;
+      el.title = !this.serverHealth.current.online
         ? SERVER_OFFLINE_HINT
         : authed
           ? ""
@@ -315,7 +321,7 @@ export class Lobby {
   setBusy(busy: boolean, message = ""): void {
     const authed = this.auth.getState().status === "authed";
     for (const { el, online } of this.buttons) {
-      el.disabled = busy || (online && (!authed || !this.serverOnline));
+      el.disabled = busy || (online && (!authed || !this.serverHealth.current.online));
     }
     this.status.textContent = message;
   }
@@ -327,14 +333,34 @@ export class Lobby {
   show(): void {
     this.root.style.display = "flex";
     this.setBusy(false, "");
+    void this.serverHealth.refresh();
+    this.syncHealthRefreshTimer();
   }
   hide(): void {
     this.root.style.display = "none";
+    this.stopHealthRefreshTimer();
   }
   dispose(): void {
     this.unsubscribeAuth();
+    this.unsubscribeHealth();
     this.unsubscribeTheme?.();
+    this.stopHealthRefreshTimer();
     this.root.remove();
+  }
+
+  private syncHealthRefreshTimer(): void {
+    const visible = this.root.style.display !== "none";
+    if (!visible || this.serverHealth.current.online) {
+      this.stopHealthRefreshTimer();
+      return;
+    }
+    if (this.healthRefreshTimer) return;
+    this.healthRefreshTimer = setInterval(() => void this.serverHealth.refresh(), OFFLINE_HEALTH_REFRESH_MS);
+  }
+
+  private stopHealthRefreshTimer(): void {
+    if (this.healthRefreshTimer) clearInterval(this.healthRefreshTimer);
+    this.healthRefreshTimer = null;
   }
 }
 

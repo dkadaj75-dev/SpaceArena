@@ -9,11 +9,18 @@ const DEFAULT_LINES = [
   "Calibrating targeting arrays...",
 ] as const;
 
-export type MatchmakingScreenState = "hidden" | "searching" | "found" | "joining" | "server-lost";
+export type MatchmakingScreenState =
+  | "hidden"
+  | "searching"
+  | "found"
+  | "joining"
+  | "interrupted"
+  | "server-lost";
 
 export interface MatchmakingScreenCallbacks {
   onCancel: () => void;
   onBack: () => void;
+  onRetry: () => void;
 }
 
 /** Sci-fi search presentation plus its deliberately small UI state machine. */
@@ -24,6 +31,7 @@ export class MatchmakingScreen {
   private readonly elapsed: HTMLDivElement;
   private readonly cancelButton: HTMLButtonElement;
   private readonly backButton: HTMLButtonElement;
+  private readonly retryButton: HTMLButtonElement;
   private readonly unsubscribeTheme: (() => void) | null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private startedAt = 0;
@@ -70,7 +78,17 @@ export class MatchmakingScreen {
       callbacks.onBack();
     });
     this.backButton.dataset["matchmakingAction"] = "back";
-    panel.append(scanner, this.headline, this.flavor, this.elapsed, this.cancelButton, this.backButton);
+    this.retryButton = button("Retry Search", () => callbacks.onRetry());
+    this.retryButton.dataset["matchmakingAction"] = "retry";
+    panel.append(
+      scanner,
+      this.headline,
+      this.flavor,
+      this.elapsed,
+      this.cancelButton,
+      this.retryButton,
+      this.backButton,
+    );
     this.root.append(panel);
     parent.append(this.root);
 
@@ -107,6 +125,15 @@ export class MatchmakingScreen {
     this.transition("server-lost", "Connection lost", "The arena server stopped responding. Return to the lobby and try again.");
   }
 
+  interrupted(): void {
+    this.stopTimer();
+    this.transition(
+      "interrupted",
+      "Search interrupted — tap to retry",
+      "Your queue entry expired while this tab was in the background.",
+    );
+  }
+
   hide(): void {
     this.stopTimer();
     this.stateValue = "hidden";
@@ -120,8 +147,9 @@ export class MatchmakingScreen {
     this.headline.textContent = headline;
     this.flavor.textContent = flavor;
     this.cancelButton.hidden = state !== "searching";
+    this.retryButton.hidden = state !== "interrupted";
     this.backButton.hidden = state !== "server-lost";
-    this.elapsed.hidden = state === "server-lost";
+    this.elapsed.hidden = state === "server-lost" || state === "interrupted";
   }
 
   private tick(now = Date.now()): void {

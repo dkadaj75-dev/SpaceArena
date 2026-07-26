@@ -19,10 +19,9 @@ import { QualityManager } from "./core/QualityManager.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
 import {
-  checkServerHealth,
   looksLikeServerUnreachable,
   SERVER_OFFLINE_MESSAGE,
-  type ServerHealth,
+  ServerHealthState,
 } from "./core/serverHealth.js";
 import { TelemetryClient } from "./core/TelemetryClient.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
@@ -37,7 +36,11 @@ import { SettingsScreen } from "./game/screens/SettingsScreen.js";
 import { MatchmakingScreen } from "./game/screens/MatchmakingScreen.js";
 import { UserSettingsStore, type UserSettings } from "./core/userSettings.js";
 import { NetGameSession } from "./net/NetGameSession.js";
-import { MatchmakingClient, type MatchmakingStatus } from "./net/MatchmakingClient.js";
+import { MatchmakingClient } from "./net/MatchmakingClient.js";
+import {
+  MatchmakingInterruptedError,
+  searchForMatch,
+} from "./net/MatchmakingSearch.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 import { BotDebugOverlay } from "./game/BotDebugOverlay.js";
 import { AudioManager } from "./audio/AudioManager.js";
@@ -139,7 +142,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // needs nothing from it, so the boot pays max(preload, probe) rather than the
   // sum — and every auth call between here and there already has its answer
   // waiting when it fails.
-  const healthProbe = checkServerHealth();
+  const serverHealth = new ServerHealthState();
+  const healthProbe = serverHealth.refresh();
 
   // --- Auth (§8 3.3): restore any existing session before the first screen shows. ---
   const authService = new AuthService();
@@ -361,7 +365,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         onPlayAgain: () => {
           const again = lastChoice ?? { kind: "practice" as const };
           endMatch();
-          launchChoice(again);
+          void launchChoice(again);
         },
         onHangar: () => {
           endMatch();
@@ -525,9 +529,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     document.body,
     configService,
     authService,
+    serverHealth,
     {
       onChoose: (choice: LobbyChoice) => {
-        launchChoice(choice);
+        void launchChoice(choice);
       },
       onLogout: () => {
         // Log out: drop the session and fall back to the auth gate.
@@ -555,12 +560,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   const matchmakingClient = new MatchmakingClient(authService);
   let matchmakingRun = 0;
+  let retryMatchmakingChoice: Extract<LobbyChoice, { kind: "matchmaking" }> | null = null;
   const matchmakingScreen = new MatchmakingScreen(
     document.body,
     configService,
     {
       onCancel: () => void leaveMatchmaking(),
       onBack: () => leaveMatchmaking(false),
+      onRetry: () => {
+        if (retryMatchmakingChoice) void startMatchmaking(retryMatchmakingChoice);
+      },
     },
     bus,
   );
@@ -608,7 +617,6 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // button and getting a raw fetch error.
   boot?.begin("server");
   const health = await healthProbe;
-  applyServerHealth(health);
   if (health.online) {
     const identity = [
       health.protocolVersion === undefined ? null : `protocol ${health.protocolVersion}`,
@@ -642,9 +650,17 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     return opts;
   }
 
-  function launchChoice(choice: LobbyChoice): void {
-    if (choice.kind === "matchmaking") void startMatchmaking(choice);
-    else void startMatch(choice);
+  async function launchChoice(choice: LobbyChoice): Promise<void> {
+    if (choice.kind !== "practice" && !serverHealth.current.online) {
+      lobby.setBusy(true, "Checking server…");
+      const health = await serverHealth.refresh();
+      if (!health.online) {
+        lobby.showServerOffline(health.detail);
+        return;
+      }
+    }
+    if (choice.kind === "matchmaking") await startMatchmaking(choice);
+    else await startMatch(choice);
   }
 
   function matchmakingTiming(): { pollMs: number; foundBeatMs: number } {
@@ -657,6 +673,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   function leaveMatchmaking(cancelServer = true): void {
     matchmakingRun++;
+    retryMatchmakingChoice = null;
     matchmakingScreen.hide();
     lobby.show();
     if (cancelServer) void matchmakingClient.cancel().catch(() => undefined);
@@ -664,20 +681,18 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   async function startMatchmaking(choice: Extract<LobbyChoice, { kind: "matchmaking" }>): Promise<void> {
     const run = ++matchmakingRun;
+    retryMatchmakingChoice = choice;
     lobby.hide();
     matchmakingScreen.begin();
     try {
       const joinOptions = hangarJoinOptions();
-      let status: MatchmakingStatus = await matchmakingClient.enqueue(choice.mode, joinOptions);
-      while (run === matchmakingRun && status.state !== "found") {
-        await waitMs(matchmakingTiming().pollMs);
-        if (run !== matchmakingRun) return;
-        status =
-          status.state === "missing"
-            ? await matchmakingClient.enqueue(choice.mode, joinOptions)
-            : await matchmakingClient.status();
-      }
-      if (run !== matchmakingRun || status.state !== "found") return;
+      const status = await searchForMatch(matchmakingClient, {
+        mode: choice.mode,
+        joinOptions,
+        pollMs: () => matchmakingTiming().pollMs,
+        isActive: () => run === matchmakingRun,
+      });
+      if (run !== matchmakingRun || !status) return;
 
       matchmakingScreen.found(status.opponentName);
       await waitMs(matchmakingTiming().foundBeatMs);
@@ -699,19 +714,14 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     } catch (err) {
       if (run !== matchmakingRun) return;
       log.error("matchmaking failed", err);
+      if (err instanceof MatchmakingInterruptedError) {
+        matchmakingScreen.interrupted();
+        return;
+      }
       matchmakingScreen.serverLost();
       lobby.setServerOnline(false, "matchmaking connection failed");
       reprobeServerHealth();
     }
-  }
-
-  /**
-   * Fan one health verdict out to the UI that depends on it. Called once from
-   * the boot probe and again from {@link reprobeServerHealth} — the single place
-   * "the server is/isn't there" turns into what the lobby shows.
-   */
-  function applyServerHealth(health: ServerHealth): void {
-    lobby.setServerOnline(health.online, health.detail);
   }
 
   /**
@@ -721,7 +731,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    * reload. A still-dead server just confirms the state already shown.
    */
   function reprobeServerHealth(): void {
-    void checkServerHealth().then(applyServerHealth);
+    void serverHealth.refresh();
   }
 
   /** Arena a practice gamemode wants (its `defaultArena`), if it names one. */

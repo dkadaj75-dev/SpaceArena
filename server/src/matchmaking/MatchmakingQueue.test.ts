@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  MATCHMAKING_QUEUE_TTL_MS,
   MatchmakingQueue,
   type ReservedPair,
   type SeatReservationPayload,
@@ -18,6 +19,10 @@ function reserver(pairs: Array<[string, string]>) {
 }
 
 describe("MatchmakingQueue", () => {
+  it("keeps the default heartbeat TTL above background-tab timer throttling", () => {
+    expect(MATCHMAKING_QUEUE_TTL_MS).toBe(90_000);
+  });
+
   it("pairs FIFO within a mode", async () => {
     const pairs: Array<[string, string]> = [];
     const queue = new MatchmakingQueue(reserver(pairs));
@@ -74,4 +79,3 @@ describe("MatchmakingQueue", () => {
     expect(reserve).toHaveBeenCalledTimes(1);
   });
 });
-
