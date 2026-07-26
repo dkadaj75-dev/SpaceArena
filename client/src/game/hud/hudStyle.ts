@@ -1048,6 +1048,57 @@ const CSS = `
 }
 .hud-settings-btn:hover { border-color: var(--hud-primary, #39bfff); }
 
+/* ============================================================
+   Match-start countdown (3 → 2 → 1 → GO). One centred numeral,
+   drawn in the display face over a soft radial scrim so it stays
+   legible against a bright skybox. Non-interactive: the player is
+   already holding throttle through it.
+   ============================================================ */
+.hud-countdown {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-family: var(--hud-font-display, var(--hud-font-body, system-ui, sans-serif));
+  font-size: min(28vh, 22vw);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--hud-primary, #39bfff);
+  text-shadow: 0 0 calc(40px * var(--hud-glow)) var(--hud-primary, #39bfff);
+  /* Scrim only behind the glyph, so the arena stays readable at the edges. */
+  background: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--hud-bg, #0a0f1e) 46%, transparent) 0%,
+    transparent 46%
+  );
+}
+.hud-countdown.visible {
+  display: flex;
+  animation: hud-countdown-beat 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* GO reads as a release, not a fourth beat: accent tint, wider, snappier. */
+.hud-countdown.go {
+  color: var(--hud-accent, #ffb35c);
+  text-shadow: 0 0 calc(48px * var(--hud-glow)) var(--hud-accent, #ffb35c);
+  font-size: min(18vh, 26vw);
+  letter-spacing: 0.2em;
+  animation: hud-countdown-go 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes hud-countdown-beat {
+  0% { opacity: 0; transform: scale(1.5); }
+  22% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0.55; transform: scale(0.94); }
+}
+@keyframes hud-countdown-go {
+  0% { opacity: 0; transform: scale(0.7); }
+  18% { opacity: 1; transform: scale(1.08); }
+  40% { transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.04); }
+}
+
 /* Reduced motion: the looping pulses are decoration on top of information that
    is already carried by COLOUR (overheat red, lock red, critical red), so they
    can stop without taking a combat cue away. The one-shot feedback animations
@@ -1058,6 +1109,14 @@ const CSS = `
   .hud-reticle-bracket.locked .ring,
   .hud-gauge.critical .hud-gauge-value {
     animation: none;
+  }
+  /* The countdown numerals ARE the information (one-shot, like the hit marker),
+     so they keep appearing — only the scale punch is dropped. */
+  .hud-countdown.visible,
+  .hud-countdown.go {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
   .hud-module-btn.state-overheated::before {
     filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-danger, #ff405c));

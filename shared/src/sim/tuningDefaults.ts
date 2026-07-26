@@ -10,6 +10,22 @@ export const DEFAULT_MAX_PITCH_RAD = 1.4;
  */
 export const MAX_SAFE_PITCH_RAD = Math.PI / 2 - 1e-6;
 
+/** Fallback for `tuning.matchCountdownSec` (the 3-2-1 start). */
+export const DEFAULT_MATCH_COUNTDOWN_SEC = 3;
+
+/**
+ * `tuning.matchCountdownSec`, defaulted and made safe. A non-finite or negative
+ * authored value degrades to "no countdown" rather than to a match that can
+ * never start — the sim would otherwise sit frozen forever on a NaN comparison.
+ */
+export function matchCountdownSecOf(tuning: TuningConfig): number {
+  const authored = tuning.matchCountdownSec;
+  if (authored === undefined || !Number.isFinite(authored) || authored < 0) {
+    return authored === undefined ? DEFAULT_MATCH_COUNTDOWN_SEC : 0;
+  }
+  return authored;
+}
+
 /**
  * The two pitch knobs, defaulted once. Both the sim (NavigationSystem) and the
  * client predictor build their {@link import("./steering.js").FlightParams} from

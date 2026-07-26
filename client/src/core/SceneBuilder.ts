@@ -33,6 +33,7 @@ import {
   boundaryShieldRedMix,
   boundaryShieldRenderParams,
 } from "./boundaryProximity.js";
+import { DustField, resolveDustParams } from "./dustField.js";
 
 const log = createLogger("SceneBuilder");
 
@@ -70,6 +71,8 @@ const DEFAULT_QUALITY: SceneQuality = {
     starfieldPoints: 400,
     spawnMarkers: true,
   },
+  // `dust` deliberately omitted: this bag exists for callers that predate the
+  // quality system, and `resolveDustParams` already owns the documented default.
   render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: false },
 };
 
@@ -100,6 +103,13 @@ export class SceneBuilder {
   private arenaId: string | null = null;
   private arena: ArenaConfig | null = null;
   private boundaryMaterial: StandardMaterial | ShaderMaterial | null = null;
+  private dust: DustField | null = null;
+  /**
+   * Editor override for `quality.scene.spawnMarkers`. `null` = follow the tier
+   * (which is `false` in every shipped pack); `true` = the dev editor is open and
+   * designers must still see where teams spawn. See {@link setSpawnMarkerOverride}.
+   */
+  private spawnMarkerOverride: boolean | null = null;
   private readonly boundaryBlue = new Color3();
   private readonly boundaryRed = new Color3();
   private readonly boundaryColor = new Color3();
@@ -126,7 +136,10 @@ export class SceneBuilder {
       previous.scene.starfieldPoints !== quality.scene.starfieldPoints ||
       previous.scene.spawnMarkers !== quality.scene.spawnMarkers ||
       previous.scene.skyboxEnabled !== quality.scene.skyboxEnabled ||
-      previous.scene.boundaryShieldShader !== quality.scene.boundaryShieldShader;
+      previous.scene.boundaryShieldShader !== quality.scene.boundaryShieldShader ||
+      // Dust capacity, sizes and lifetimes are all baked into the ParticleSystem
+      // at construction, so a tier swap rebuilds rather than mutating it.
+      !sameDust(previous.scene.dust, quality.scene.dust);
     if (needsRebuild && this.arenaId) {
       const arena = this.configService.get<ArenaConfig>("arena", this.arenaId);
       if (arena) {
@@ -182,9 +195,51 @@ export class SceneBuilder {
     this.buildSkybox(arena, root, generation);
     this.buildBounds(arena, root);
     this.buildPickPlane(arena, root);
-    if (this.quality.scene.spawnMarkers) this.buildSpawnMarkers(arena, root);
+    if (this.spawnMarkersVisible) this.buildSpawnMarkers(arena, root);
+    this.buildDust();
 
     if (this.visible) this.freezeStatics();
+  }
+
+  /** Whether spawn gizmos should be drawn: the editor override, else the tier. */
+  private get spawnMarkersVisible(): boolean {
+    return this.spawnMarkerOverride ?? this.quality.scene.spawnMarkers;
+  }
+
+  /**
+   * Force the team spawn gizmos on (or back to the quality tier's setting).
+   *
+   * Every shipped tier sets `quality.scene.spawnMarkers: false` — they are an
+   * authoring aid and players should not see them mid-match. The dev Map editor
+   * and the arena Inspector place spawns in ARENA coordinates against this very
+   * scene, though, so they turn the override on for as long as the editor is
+   * open. Kept as an override rather than a second flag so there is still ONE
+   * shipped answer, and the editor's exception is visibly an exception.
+   *
+   * `null` clears it. Rebuilds only when the resolved answer actually changes.
+   */
+  setSpawnMarkerOverride(override: boolean | null): void {
+    if (override === this.spawnMarkerOverride) return;
+    const before = this.spawnMarkersVisible;
+    this.spawnMarkerOverride = override;
+    if (before === this.spawnMarkersVisible) return;
+    const arena = this.arena;
+    if (arena) this.rebuild(arena);
+  }
+
+  /**
+   * Ambient dust motes (see {@link DustField}). Built per arena rebuild so a tier
+   * swap re-bakes its capacity, and NOT parented to `arenaRoot`: a particle system
+   * renders off the scene's list rather than its emitter's enabled flag, so its
+   * visibility is driven explicitly from {@link setVisible} instead.
+   */
+  private buildDust(): void {
+    this.dust?.dispose();
+    this.dust = null;
+    const params = resolveDustParams(this.quality.scene.dust);
+    if (!params) return;
+    this.dust = new DustField(this.scene, params);
+    this.dust.setEnabled(this.visible);
   }
 
   /**
@@ -200,6 +255,7 @@ export class SceneBuilder {
   setVisible(visible: boolean): void {
     this.visible = visible;
     this.root?.setEnabled(visible);
+    this.dust?.setEnabled(visible);
     if (visible) this.freezeStatics();
     else this.unfreezeStatics();
   }
@@ -240,14 +296,42 @@ export class SceneBuilder {
     for (const material of materials) material.unfreeze();
   }
 
+  /**
+   * The arena's light rig: one ambient fill + one key light, both parented to
+   * `arenaRoot` so hiding the arena hides the lights with it (the dev editor
+   * stages its own — see {@link setVisible}).
+   *
+   * The key light is a `DirectionalLight` (parallel rays, as a star at that
+   * distance really is). When the arena's skybox authors a `sun`, that block IS
+   * the key light: the panorama has a star painted into it at a known bearing,
+   * and `sun.dir` points from the arena toward it, so the light travels along
+   * **-dir** and every lit face ends up pointing back at the painted star. The
+   * authored color/intensity replace the generic rig's entirely —
+   * `lighting.directionalIntensity` is only consulted for an arena with no
+   * authored sun (and remains the fallback for the built-in default rig).
+   *
+   * The hemispheric fill is deliberately KEPT, and leans toward the star, so the
+   * unlit side of a hull reads as shadowed rather than as a black silhouette.
+   */
   private buildLighting(arena: ArenaConfig, root: TransformNode): void {
-    const hemi = new HemisphericLight("arenaHemiLight", new Vector3(0, 1, 0), this.scene);
+    const sun = arena.render?.skybox.sun;
+    const sunDir = sun ? normalizedOrNull(sun.dir) : null;
+
+    // Hemispheric `direction` is where its SKY colour comes from, so pointing it
+    // at the star puts the fill on the same side as the key light instead of
+    // fighting it from world-up.
+    const hemi = new HemisphericLight("arenaHemiLight", sunDir ?? new Vector3(0, 1, 0), this.scene);
     hemi.intensity = arena.lighting?.ambientIntensity ?? 0.4;
     hemi.diffuse = colorFromHex(arena.lighting?.ambientColor, new Color3(0.6, 0.65, 0.8));
     hemi.parent = root;
 
-    const dir = new DirectionalLight("arenaDirLight", new Vector3(-0.4, -1, -0.3), this.scene);
-    dir.intensity = arena.lighting?.directionalIntensity ?? 0.9;
+    const dir = new DirectionalLight(
+      "arenaDirLight",
+      sunDir ? sunDir.scale(-1) : new Vector3(-0.4, -1, -0.3),
+      this.scene,
+    );
+    dir.intensity = sun && sunDir ? sun.intensity : (arena.lighting?.directionalIntensity ?? 0.9);
+    if (sun && sunDir) dir.diffuse = colorFromHex(sun.color, Color3.White());
     dir.parent = root;
   }
 
@@ -443,6 +527,10 @@ export class SceneBuilder {
    * drive its independently latched warning without recomputing geometry.
    */
   updatePlayerPosition(x: number, y: number, z: number): number {
+    // The dust box rides the player's follow point — the chase camera orbits a
+    // few units off it, so a 120-unit box centred here contains the camera and
+    // everything it can see up close, which is the only place motes read at all.
+    this.dust?.setCenter(x, y, z);
     const arena = this.arena;
     if (!arena) return Number.POSITIVE_INFINITY;
     const bounds = arena.bounds;
@@ -555,6 +643,9 @@ export class SceneBuilder {
       disposeRecursive(this.root);
       this.root = null;
     }
+    // Not under `arenaRoot` (see buildDust), so it needs its own teardown.
+    this.dust?.dispose();
+    this.dust = null;
     this.boundaryMaterial = null;
   }
 
@@ -635,6 +726,30 @@ function clampColorInPlace(color: Color3): void {
   color.r = Number.isFinite(color.r) ? Math.min(1, Math.max(0, color.r)) : 0;
   color.g = Number.isFinite(color.g) ? Math.min(1, Math.max(0, color.g)) : 0;
   color.b = Number.isFinite(color.b) ? Math.min(1, Math.max(0, color.b)) : 0;
+}
+
+/**
+ * An authored `sun.dir` as a unit `Vector3`, or `null` for a degenerate vector.
+ * The schema already rejects a non-unit direction, so this is the belt to that
+ * brace: a zero-length direction would make the key light point nowhere, and the
+ * arena would silently render with ambient only.
+ */
+function normalizedOrNull(dir: readonly [number, number, number]): Vector3 | null {
+  const length = Math.hypot(dir[0], dir[1], dir[2]);
+  if (!Number.isFinite(length) || length <= 1e-6) return null;
+  return new Vector3(dir[0] / length, dir[1] / length, dir[2] / length);
+}
+
+/** Whether two tiers' dust blocks would produce the same particle system. */
+function sameDust(a: SceneQuality["scene"]["dust"], b: SceneQuality["scene"]["dust"]): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return (
+    a.count === b.count &&
+    a.size === b.size &&
+    a.alpha === b.alpha &&
+    a.driftSpeed === b.driftSpeed &&
+    a.boxSize === b.boxSize
+  );
 }
 
 /** Depth-first walk over every `Mesh` under `node` (inclusive). */

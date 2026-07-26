@@ -11,5 +11,5 @@
   "particles": { "enabled": true, "budgetMultiplier": 1, "maxEmitterCapacity": 80 },
   "asteroids": { "lodMediumDistance": 210, "lodLowDistance": 480, "lodCullDistance": 0, "thinInstances": false },
   "projectiles": { "useInstances": true },
-  "scene": { "skyboxEnabled": true, "boundaryShieldShader": true, "starfieldPoints": 520, "spawnMarkers": true }
+  "scene": { "skyboxEnabled": true, "boundaryShieldShader": true, "starfieldPoints": 520, "spawnMarkers": false, "dust": { "count": 340, "size": 0.4, "alpha": 0.34, "driftSpeed": 1.0, "boxSize": 120 } }
 }

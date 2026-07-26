@@ -32,6 +32,15 @@ export const tuningSchema = z.object({
    * the sim needs no roll/quaternion surface. Default 1.4 (~80°).
    */
   maxPitchRad: z.number().positive().lt(Math.PI / 2).optional(),
+  /**
+   * ArenaSimulation: seconds of frozen "3-2-1-GO" countdown before a match goes
+   * live, so both players start at the same instant. Counted in SIM time by the
+   * authoritative sim itself (never a wall clock), which is what makes the two
+   * clients of an online match agree on the numbers. `0` is legal and means "go
+   * live on the first tick" — the test fixtures use it to keep their budgets.
+   * Default 3.
+   */
+  matchCountdownSec: z.number().nonnegative().optional(),
   /** Global damage multiplier (balance knob). */
   globalDamageMult: z.number().positive(),
   /** Planar linear drag coefficient. */

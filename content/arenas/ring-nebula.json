@@ -31,7 +31,8 @@
     "skybox": {
       "texture": "skyboxes/ring-nebula.webp",
       "intensity": 0.82,
-      "tint": "#e4e7ff"
+      "tint": "#e4e7ff",
+      "sun": { "dir": [-0.677, -0.208, -0.706], "color": "#dce4ff", "intensity": 1.0 }
     },
     "boundaryShield": {
       "baseOpacity": 0.022,

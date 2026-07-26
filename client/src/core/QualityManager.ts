@@ -248,6 +248,9 @@ const FALLBACK_TIER: QualityConfig = {
     skyboxEnabled: true,
     boundaryShieldShader: true,
     starfieldPoints: 250,
-    spawnMarkers: true,
+    // Off, like every shipped tier: spawn gizmos are an authoring aid, and the
+    // dev editor forces them back on for itself.
+    spawnMarkers: false,
+    dust: { count: 180, size: 0.35, alpha: 0.3, driftSpeed: 0.8, boxSize: 120 },
   },
 };

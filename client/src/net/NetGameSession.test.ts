@@ -266,6 +266,13 @@ beforeAll(async () => {
   const service = new ConfigServiceImpl(fsLoader);
   const result = await service.load("manifest.json");
   if (!result.ok) throw new Error("test content failed to load: " + JSON.stringify(result.errors));
+  // Prediction parity is measured over a fixed tick budget, so this suite runs on
+  // a pack with no match-start countdown (see ArenaSimulation). The countdown's
+  // own effect on prediction — suspended integration — is covered in the sim's
+  // countdown suite and by `applyPrediction`'s phase gate.
+  const tuning = service.getAll<TuningConfig>("tuning")[0]!;
+  const replaced = service.replace({ ...tuning, matchCountdownSec: 0 });
+  if (!replaced.ok) throw new Error("failed to zero matchCountdownSec for tests");
   configs = service;
 });
 

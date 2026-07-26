@@ -6,13 +6,17 @@ import {
   type FlightHudLayout,
   type ProjectedPoint,
 } from "./flightHudLayout.js";
+import { formatHudDistance, roundedHudMeters } from "./SpeedReadout.js";
 
 /** One pooled arrow node plus its last-written values (DOM writes only on change). */
 interface ArrowSlot {
   el: HTMLDivElement;
+  glyph: HTMLDivElement;
+  distance: HTMLSpanElement;
   lastX: number;
   lastY: number;
   lastDeg: number;
+  lastDistanceM: number;
   lastOpacity: number;
   lastCandidate: boolean | null;
   visible: boolean;
@@ -51,6 +55,48 @@ export class EnemyArrows {
 
     this.container = document.createElement("div");
     this.container.className = "hud-enemy-arrows";
+    const style = document.createElement("style");
+    style.textContent = `
+      .hud-enemy-arrow {
+        overflow: visible;
+        clip-path: none;
+        background: transparent;
+        filter: none;
+      }
+      .hud-enemy-arrow.candidate {
+        background: transparent;
+        filter: none;
+      }
+      .hud-enemy-arrow-glyph {
+        position: absolute;
+        inset: 0;
+        clip-path: polygon(0% 0%, 100% 50%, 0% 100%, 0% 72%, 55% 50%, 0% 28%);
+        background: var(--hud-danger, #ff405c);
+        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c));
+      }
+      .hud-enemy-arrow.candidate .hud-enemy-arrow-glyph {
+        background: var(--hud-primary, #39bfff);
+        filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, #39bfff));
+      }
+      .hud-enemy-arrow-distance {
+        position: absolute;
+        left: 50%;
+        top: calc(100% + 2px);
+        transform: translateX(-50%);
+        color: var(--hud-danger, #ff405c);
+        font-size: 0.5625em;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.06em;
+        line-height: 1;
+        white-space: nowrap;
+        text-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-bg, #0a0f1e);
+      }
+      .hud-enemy-arrow.candidate .hud-enemy-arrow-distance {
+        color: var(--hud-primary, #39bfff);
+      }
+    `;
+    this.container.appendChild(style);
     root.appendChild(this.container);
 
     this.buildPool(layout.enemyArrows.maxCount);
@@ -76,12 +122,20 @@ export class EnemyArrows {
       el.className = "hud-enemy-arrow";
       el.setAttribute(HUD_CONTROL_ATTR, "enemy-arrow");
       el.setAttribute("aria-hidden", "true");
+      const glyph = document.createElement("div");
+      glyph.className = "hud-enemy-arrow-glyph";
+      const distance = document.createElement("span");
+      distance.className = "hud-enemy-arrow-distance";
+      el.append(glyph, distance);
       this.container.appendChild(el);
       this.slots.push({
         el,
+        glyph,
+        distance,
         lastX: Number.NaN,
         lastY: Number.NaN,
         lastDeg: Number.NaN,
+        lastDistanceM: Number.NaN,
         lastOpacity: Number.NaN,
         lastCandidate: null,
         visible: false,
@@ -112,7 +166,7 @@ export class EnemyArrows {
 
     const slot = this.slots[this.used]!;
     this.used += 1;
-    this.write(slot, this.placement, arrowOpacity(distanceUnits, arrows), candidate);
+    this.write(slot, this.placement, distanceUnits, arrowOpacity(distanceUnits, arrows), candidate);
     return true;
   }
 
@@ -137,7 +191,13 @@ export class EnemyArrows {
     this.finish();
   }
 
-  private write(slot: ArrowSlot, at: ArrowPlacement, opacity: number, candidate: boolean): void {
+  private write(
+    slot: ArrowSlot,
+    at: ArrowPlacement,
+    distanceUnits: number,
+    opacity: number,
+    candidate: boolean,
+  ): void {
     if (!slot.visible) {
       slot.visible = true;
       slot.el.classList.add("visible");
@@ -147,11 +207,19 @@ export class EnemyArrows {
     const x = Math.round(at.x);
     const y = Math.round(at.y);
     const deg = Math.round((at.rotationRad * 180) / Math.PI);
-    if (x !== slot.lastX || y !== slot.lastY || deg !== slot.lastDeg) {
+    if (x !== slot.lastX || y !== slot.lastY) {
       slot.lastX = x;
       slot.lastY = y;
+      slot.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+    }
+    if (deg !== slot.lastDeg) {
       slot.lastDeg = deg;
-      slot.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${deg}deg)`;
+      slot.glyph.style.transform = `rotate(${deg}deg)`;
+    }
+    const distanceM = roundedHudMeters(distanceUnits);
+    if (distanceM !== slot.lastDistanceM) {
+      slot.lastDistanceM = distanceM;
+      slot.distance.textContent = formatHudDistance(distanceM);
     }
     const alpha = Math.round(opacity * 100) / 100;
     if (alpha !== slot.lastOpacity) {

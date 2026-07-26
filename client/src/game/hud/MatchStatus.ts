@@ -18,7 +18,10 @@ export class MatchStatus {
 
   update(cur: Snapshot): void {
     const wc = this.session.sim.world.gamemode.winCondition;
-    const phase = cur.phase === "ended" ? "MATCH OVER" : "LIVE";
+    // The countdown numerals are CountdownOverlay's job; this line only names the
+    // phase, so a player glancing at the status bar during the lead-in is not
+    // told the match is already live.
+    const phase = cur.phase === "ended" ? "MATCH OVER" : cur.phase === "countdown" ? "STANDBY" : "LIVE";
 
     let objective = "";
     if (wc.type === "destroyTargets") {

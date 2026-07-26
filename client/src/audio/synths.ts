@@ -196,6 +196,19 @@ export const SOUND_SYNTHS: Record<string, SynthFn> = {
       tone(t, { type: "sine", from: 720, to: 660, duration: 0.1, peak: 0.09, delay: 0.06 }),
     ),
 
+  // --- match start countdown -----------------------------------------------
+  /** "3 … 2 … 1": one dry, unmistakable pip per second. */
+  countdown_tick: (t) => tone(t, { type: "square", from: 720, to: 720, duration: 0.09, peak: 0.13 }),
+  /**
+   * "GO": the same figure resolved upward an octave and held, so the release is
+   * audibly the END of the sequence rather than a fourth pip.
+   */
+  countdown_go: (t) =>
+    longest(
+      tone(t, { type: "square", from: 720, to: 1440, duration: 0.14, peak: 0.16 }),
+      tone(t, { type: "sine", from: 1440, to: 1440, duration: 0.3, peak: 0.12, attack: 0.05, delay: 0.12 }),
+    ),
+
   // --- explosions (variants selected from effect configs) ------------------
   /** Light hull: quick crack. */
   explosion_light: (t) =>

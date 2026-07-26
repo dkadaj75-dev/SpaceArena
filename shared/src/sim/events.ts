@@ -45,6 +45,15 @@ export type SimEvent =
   | { type: "shieldAbsorb"; targetId: EntityId; hardpointIndex: number; amount: number }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
+  /**
+   * One whole second ticked off the start countdown. `remaining` is the number
+   * now on screen (3, then 2, then 1) — the same integer the HUD displays, so
+   * the audio cue and the numeral can never disagree. Emitted by the sim, which
+   * makes the beat identical for both clients of an online match.
+   */
+  | { type: "countdownTick"; remaining: number }
+  /** The countdown reached zero: the match is live this tick ("GO"). */
+  | { type: "matchStarted" }
   | { type: "matchEnded"; winnerTeam: number | null; reason: "winCondition" | "elimination" };
 
 export type SimEventType = SimEvent["type"];

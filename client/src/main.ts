@@ -945,6 +945,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       setArenaVisible: (visible: boolean) => {
         sceneBuilder.setVisible(visible);
       },
+      setSpawnMarkersForced: (forced: boolean) => {
+        sceneBuilder.setSpawnMarkerOverride(forced ? true : null);
+      },
       suspendCameraGestures: (suspended: boolean) => {
         tacticalCamera.setGesturesSuspended(suspended);
       },

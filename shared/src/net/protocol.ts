@@ -104,6 +104,14 @@ export type SimEventMessage =
   | { type: "shieldAbsorb"; targetId: EntityId; hardpointIndex: number; amount: number }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
+  /**
+   * Start-countdown beats. `ArenaState.countdownRemaining` replicates the
+   * continuous VALUE (the numeral on screen reads it), but the per-second cue is
+   * an edge, and an edge recovered by diffing a 20 Hz patch stream lands late —
+   * exactly the argument the lock flips above make. Three messages per match.
+   */
+  | { type: "countdownTick"; remaining: number }
+  | { type: "matchStarted" }
   | { type: "matchEnded"; winnerTeam: number | null; reason: "winCondition" | "elimination" }
   /**
    * Per-player progression summary sent individually (client.send) after a match

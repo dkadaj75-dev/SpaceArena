@@ -38,6 +38,16 @@ beforeAll(async () => {
   // explicitly (non-production + DEV_ALLOW_ANON=1).
   process.env.DEV_ALLOW_ANON = "1";
   configs = await loadContent();
+  // The shipped pack opens every match with a 3 s frozen countdown
+  // (ArenaSimulation). These tests advance a fixed, small number of simulation
+  // ticks to observe flight, locks and order budgets, none of which is the
+  // countdown — so this suite runs on a pack that starts instantly. 0 is a legal
+  // authored value and goes through the normal schema validation in `replace`.
+  {
+    const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
+    const replaced = configs.replace({ ...tuning, matchCountdownSec: 0 });
+    if (!replaced.ok) throw new Error("failed to zero matchCountdownSec for tests");
+  }
   setConfigService(configs);
   setDb(openDatabase(":memory:"));
   const server = new Server({ transport: new WebSocketTransport() });
@@ -452,6 +462,119 @@ describe("ArenaRoom", () => {
     const code = await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 4000))]);
     expect(code).toBe(4290); // same rate-limit kick a valid-order flood earns
     expect(acks.some((a) => !a.accepted && a.reason === "rate-limited")).toBe(true);
+  });
+
+  /**
+   * The start countdown (ArenaSimulation) is server-authoritative so both clients
+   * count the SAME numbers off the SAME clock. This suite otherwise runs with the
+   * countdown zeroed, so these tests install the shipped 3 s locally.
+   */
+  describe("match-start countdown", () => {
+    const COUNTDOWN = 3;
+
+    /** Swap the pinned pack's countdown for the duration of one test. */
+    async function withCountdown(seconds: number, body: () => Promise<void>): Promise<void> {
+      const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
+      expect(configs.replace({ ...tuning, matchCountdownSec: seconds }).ok).toBe(true);
+      try {
+        await body();
+      } finally {
+        expect(configs.replace({ ...tuning, matchCountdownSec: 0 }).ok).toBe(true);
+      }
+    }
+
+    it("replicates the sim's countdown and holds the ship still until GO", async () => {
+      await withCountdown(COUNTDOWN, async () => {
+        const room = await colyseus.createRoom<ArenaState>("arena", {
+          gamemode: "gamemode.duel-1v1",
+          minPlayers: 1,
+        });
+        const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+        await advance(room, 1);
+
+        // The room is live (its lifecycle), while the SIM is counting down.
+        expect(room.state.matchPhase).toBe("live");
+        expect(room.state.countdownRemaining).toBeGreaterThan(0);
+        expect(room.state.countdownRemaining).toBeLessThanOrEqual(COUNTDOWN);
+
+        const p1 = room.state.players.get(c1.sessionId)!;
+        const startX = p1.x;
+        const startZ = p1.z;
+
+        // Full throttle held through the countdown. The order is ACCEPTED (the
+        // sim stores it without integrating), so no "not-live" rejection.
+        const acks: Array<{ accepted: boolean; reason?: string }> = [];
+        c1.onMessage("orderAck", (m) => acks.push(m as { accepted: boolean; reason?: string }));
+        c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
+        await advance(room, 20);
+
+        expect(acks.some((a) => a.accepted)).toBe(true);
+        expect(acks.some((a) => a.reason === "not-live")).toBe(false);
+        expect(p1.x).toBe(startX);
+        expect(p1.z).toBe(startZ);
+        expect(p1.throttle).toBe(255); // encodeUnit(1) — the held state IS replicated
+        expect(room.state.matchTimer).toBe(0);
+
+        // Run the clock out: the held throttle bites immediately at GO.
+        for (let i = 0; i < 120 && room.state.countdownRemaining > 0; i++) await advance(room, 1);
+        expect(room.state.countdownRemaining).toBe(0);
+        await advance(room, 10);
+        expect(p1.x === startX && p1.z === startZ).toBe(false);
+        expect(room.state.matchTimer).toBeGreaterThan(0);
+
+        await c1.leave();
+      });
+    });
+
+    it("broadcasts the 3-2-1-GO beats so both clients cue on the same tick", async () => {
+      await withCountdown(COUNTDOWN, async () => {
+        const room = await colyseus.createRoom<ArenaState>("arena", {
+          gamemode: "gamemode.duel-1v1",
+          minPlayers: 2,
+        });
+        const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+        const c2 = await colyseus.connectTo(room);
+        const beats1: number[] = [];
+        const beats2: number[] = [];
+        let started = 0;
+        for (const [client, beats] of [
+          [c1, beats1],
+          [c2, beats2],
+        ] as const) {
+          client.onMessage("simEvent", (m) => {
+            const ev = m as { type: string; remaining?: number };
+            if (ev.type === "countdownTick") beats.push(ev.remaining!);
+            if (ev.type === "matchStarted" && client === c1) started++;
+          });
+        }
+
+        for (let i = 0; i < 140 && room.state.countdownRemaining > 0; i++) await advance(room, 1);
+        await new Promise((r) => setTimeout(r, 250)); // let the broadcasts flush
+
+        expect(beats1).toEqual([3, 2, 1]);
+        // Both clients got the identical sequence — the whole point of putting the
+        // countdown in the sim rather than in each client.
+        expect(beats2).toEqual(beats1);
+        expect(started).toBe(1);
+
+        await c1.leave();
+        await c2.leave();
+      });
+    });
+
+    it("starts instantly when the pack authors 0", async () => {
+      await withCountdown(0, async () => {
+        const room = await colyseus.createRoom<ArenaState>("arena", {
+          gamemode: "gamemode.duel-1v1",
+          minPlayers: 1,
+        });
+        const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+        await advance(room, 2);
+        expect(room.state.countdownRemaining).toBe(0);
+        expect(room.state.matchTimer).toBeGreaterThan(0);
+        await c1.leave();
+      });
+    });
   });
 
   it("relays lockAcquired over the wire so online clients get the lock cue (review Finding 7)", async () => {

@@ -14,6 +14,7 @@ import { ThrottleStrip } from "./ThrottleStrip.js";
 import { BoostButton } from "./BoostButton.js";
 import { LockReticle } from "./LockReticle.js";
 import { EnemyArrows } from "./EnemyArrows.js";
+import { SpeedReadout } from "./SpeedReadout.js";
 import { RelativeSteerInput } from "./RelativeSteerInput.js";
 import {
   orderMinIntervalMs,
@@ -76,6 +77,7 @@ export class FlightControls {
   private readonly boostButton: BoostButton;
   private readonly reticle: LockReticle;
   private readonly enemyArrows: EnemyArrows;
+  private readonly speedReadout: SpeedReadout;
   private readonly sender: FlightOrderSender;
 
   private layout: FlightHudLayout;
@@ -149,6 +151,7 @@ export class FlightControls {
     this.boostButton = new BoostButton(this.container, layout);
     this.reticle = new LockReticle(this.container, layout);
     this.enemyArrows = new EnemyArrows(this.container, layout);
+    this.speedReadout = new SpeedReadout(this.container, layout);
 
     this.sender = new FlightOrderSender(
       (order) => this.session.order(order),
@@ -169,6 +172,7 @@ export class FlightControls {
     this.boostButton.applyLayout(layout);
     this.reticle.applyLayout(layout);
     this.enemyArrows.applyLayout(layout);
+    this.speedReadout.applyLayout(layout);
     this.sender.setPolicy({ ...layout.orders, minIntervalMs: this.resolvedMinInterval(layout) });
     // Viewport/scale feed the reticle size — force a recompute on the next frame.
     this.zoneCone = Number.NaN;
@@ -268,6 +272,8 @@ export class FlightControls {
 
     this.updateReticle(cur, prev, alpha, ship);
     this.updateEnemyArrows(cur, prev, alpha, ship);
+    const prevShip = findShip(prev, this.playerId) ?? ship;
+    this.speedReadout.update(ship, prevShip, cur.elapsed - prev.elapsed, nowMs);
   }
 
   /** Zone circle + target bracket for this frame. */
@@ -294,7 +300,8 @@ export class FlightControls {
     // projects mirrored, so the bracket hides and the arrow takes over.
     const projected = this.binding.project(x, y, z, this.projected);
     const onScreen = projected && !this.projected.behind;
-    this.reticle.update(onScreen, this.projected.x, this.projected.y, ship.lockProgress, ship.locked);
+    const distance = Math.hypot(x - ship.pos.x, y - ship.pos.y, z - ship.pos.z);
+    this.reticle.update(onScreen, this.projected.x, this.projected.y, ship.lockProgress, ship.locked, distance);
   }
 
   /**
@@ -408,6 +415,7 @@ export class FlightControls {
     this.boostButton.dispose();
     this.reticle.dispose();
     this.enemyArrows.dispose();
+    this.speedReadout.dispose();
     this.container.remove();
   }
 }

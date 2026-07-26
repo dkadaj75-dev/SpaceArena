@@ -14,6 +14,7 @@ import {
 function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   return {
     phase: "live",
+    countdownRemaining: 0,
     ships: [],
     asteroids: [],
     projectiles: [],

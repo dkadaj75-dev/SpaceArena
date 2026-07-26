@@ -117,6 +117,18 @@ export class ArenaState extends Schema {
   @type("string") matchPhase = "waiting";
   /** Elapsed live seconds. */
   @type("float32") matchTimer = 0;
+  /**
+   * Seconds left on the sim's frozen 3-2-1 start countdown, 0 once the match is
+   * really live (see `ArenaSimulation`). Server-driven so BOTH clients count the
+   * same numbers off the same authoritative timer — a client-local countdown
+   * would drift by exactly the two players' clock/latency difference, which is
+   * the one thing "everyone starts at the same time" cannot tolerate.
+   *
+   * While `matchPhase` is still `"waiting"` this holds the full countdown: the
+   * sim is not being ticked at all yet, so nothing can move or fire, which is
+   * the same guarantee the countdown itself gives.
+   */
+  @type("float32") countdownRemaining = 0;
   /** Winning team, or -1 for none/draw. */
   @type("int8") winnerTeam = -1;
   /** Keyed by client sessionId. */

@@ -176,7 +176,9 @@
       "overheat": "[SOUND: overheat_warning]",
       "boundaryWarning": "[SOUND: boundary_warn]",
       "lockAcquired": "[SOUND: lock_acquired]",
-      "lockLost": "[SOUND: lock_lost]"
+      "lockLost": "[SOUND: lock_lost]",
+      "countdownTick": "[SOUND: countdown_tick]",
+      "countdownGo": "[SOUND: countdown_go]"
     }
   },
   "menu": {

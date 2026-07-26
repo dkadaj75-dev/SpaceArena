@@ -1,4 +1,5 @@
 import type { FlightHudLayout } from "./flightHudLayout.js";
+import { formatHudDistance, roundedHudMeters } from "./SpeedReadout.js";
 
 /**
  * Lock visualization (FLIGHT.md §4). Two separate things share this component
@@ -23,6 +24,7 @@ export class LockReticle {
   private readonly bracket: HTMLDivElement;
   /** Lock-progress arc — its own node so the corner ticks can be a sibling. */
   private readonly ring: HTMLDivElement;
+  private readonly distance: HTMLSpanElement;
 
   private lastRadius = Number.NaN;
   private lastClamped: boolean | null = null;
@@ -31,10 +33,32 @@ export class LockReticle {
   private lastRing = Number.NaN;
   private lastLocked: boolean | null = null;
   private lastVisible: boolean | null = null;
+  private lastDistanceM = Number.NaN;
 
   constructor(root: HTMLElement, layout: FlightHudLayout) {
     this.container = document.createElement("div");
     this.container.className = "hud-reticle";
+    const style = document.createElement("style");
+    style.textContent = `
+      .hud-reticle-distance {
+        position: absolute;
+        left: 50%;
+        top: calc(100% + var(--hud-reticle-ring-stroke, 4px) + 6px);
+        transform: translateX(-50%);
+        color: var(--hud-primary, #39bfff);
+        font-size: 0.625em;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.08em;
+        line-height: 1;
+        white-space: nowrap;
+        text-shadow: 0 0 calc(6px * var(--hud-glow)) var(--hud-bg, #0a0f1e);
+      }
+      .hud-reticle-bracket.locked .hud-reticle-distance {
+        color: var(--hud-danger, #ff405c);
+      }
+    `;
+    this.container.appendChild(style);
 
     this.zone = document.createElement("div");
     this.zone.className = "hud-reticle-zone";
@@ -48,7 +72,9 @@ export class LockReticle {
     corners.className = "corners";
     this.ring = document.createElement("div");
     this.ring.className = "ring";
-    this.bracket.append(corners, this.ring);
+    this.distance = document.createElement("span");
+    this.distance.className = "hud-reticle-distance";
+    this.bracket.append(corners, this.ring, this.distance);
 
     this.container.appendChild(this.zone);
     this.container.appendChild(this.bracket);
@@ -88,7 +114,14 @@ export class LockReticle {
    * pass `visible: false` when there is no candidate or it did not project (off
    * screen / behind the camera). `progress` is `snapshot.lockProgress` (0..1).
    */
-  update(visible: boolean, x: number, y: number, progress: number, locked: boolean): void {
+  update(
+    visible: boolean,
+    x: number,
+    y: number,
+    progress: number,
+    locked: boolean,
+    distanceUnits = 0,
+  ): void {
     if (visible !== this.lastVisible) {
       this.lastVisible = visible;
       this.bracket.classList.toggle("visible", visible);
@@ -112,6 +145,11 @@ export class LockReticle {
     if (locked !== this.lastLocked) {
       this.lastLocked = locked;
       this.bracket.classList.toggle("locked", locked);
+    }
+    const distanceM = roundedHudMeters(distanceUnits);
+    if (distanceM !== this.lastDistanceM) {
+      this.lastDistanceM = distanceM;
+      this.distance.textContent = formatHudDistance(distanceM);
     }
   }
 

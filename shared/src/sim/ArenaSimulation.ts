@@ -4,6 +4,7 @@ import type { EntityId, ModuleState, ShipCore, TargetRef } from "./components.js
 import type { SimEvent } from "./events.js";
 import type { Order } from "./orders.js";
 import { clamp } from "./math.js";
+import { matchCountdownSecOf } from "./tuningDefaults.js";
 import type { UpgradeLevels } from "./resolveStats.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
@@ -75,10 +76,33 @@ export interface ProjectileSnapshot {
   velocity?: { x: number; y: number; z: number };
 }
 
+/**
+ * Match phase. `countdown` is the frozen 3-2-1 lead-in every match opens with
+ * (`tuning.matchCountdownSec`); `elapsed` only starts moving at `live`.
+ */
+export type MatchPhase = "countdown" | "live" | "ended";
+
+/**
+ * Slack on the countdown's zero test, in seconds. The fixed step is `1/30`, which
+ * is not representable in binary, so subtracting it 90 times from 3 leaves a
+ * few hundred attoseconds behind — enough to cost a 91st frozen tick and to leave
+ * `countdownRemaining` at 4e-16 rather than 0 for a whole tick. Any threshold far
+ * below one tick and far above the accumulated error does the job identically on
+ * every machine (IEEE-754 doubles are deterministic), which is what matters:
+ * every sim built from the same pack picks the same tick.
+ */
+const COUNTDOWN_EPSILON = 1e-9;
+
 export interface Snapshot {
   tick: number;
   elapsed: number;
-  phase: "live" | "ended";
+  phase: MatchPhase;
+  /**
+   * Seconds left on the start countdown, `0` once the match is live. Display
+   * with `Math.ceil` — the sim emits a `countdownTick` event on each whole-second
+   * boundary so a HUD never has to detect the edge itself.
+   */
+  countdownRemaining: number;
   winnerTeam: number | null;
   ships: ShipSnapshot[];
   asteroids: AsteroidSnapshot[];
@@ -90,7 +114,30 @@ export interface Snapshot {
  * + gamemode configs; identical on client and server. Deterministic given the
  * same seed + order stream + dt sequence.
  *
- * System run order (documented, order matters):
+ * ## Start countdown (`tuning.matchCountdownSec`)
+ *
+ * A match opens in the `countdown` phase and only reaches `live` once the timer
+ * has been ticked down IN SIM TIME. The mechanic is deliberately "suspend the
+ * integration", not "reject the orders":
+ *
+ *  - `NavigationSystem` and `ModuleSystem` still run, but with **dt = 0**, so a
+ *    flight order is drained and STORED in its `FlightState` while heading,
+ *    pitch, velocity and position are mathematically untouched. A player (or
+ *    bot) holding full throttle through the countdown therefore accelerates on
+ *    the very first live tick instead of losing a beat re-sending the order.
+ *    Draining rather than queueing also means a mashed module button toggles
+ *    once per press, not N times at GO.
+ *  - Nothing else runs: no targeting, no combat, no projectiles, no collisions,
+ *    no win-condition evaluation. Ships cannot move and cannot fire, and no lock
+ *    can warm up early.
+ *  - `elapsed` (match time, and the `timeLimit` win condition) starts at GO;
+ *    `tick` counts every processed tick, countdown included.
+ *
+ * Determinism is trivial here — the countdown reads no RNG and no clock — so two
+ * sims built from the same pack and fed the same dt sequence reach `live` on the
+ * same tick, which is the whole point of moving this into the sim.
+ *
+ * System run order while live (documented, order matters):
  *   1. NavigationSystem  — apply move/flight orders, steer/avoid, boost
  *   2. ModuleSystem      — toggle orders + deploy/retract/overheat-cooldown timers
  *   3. TargetingSystem   — resolve TargetRef + advance/drain the sensor lock
@@ -104,7 +151,10 @@ export class ArenaSimulation {
   readonly world: World;
   private elapsed = 0;
   private tickNo = 0;
-  private phase: "live" | "ended" = "live";
+  private phase: MatchPhase;
+  private countdownRemaining: number;
+  /** Whole-second value last announced by a `countdownTick` event (-1 = none yet). */
+  private lastCountdownAnnounced = -1;
   private winnerTeam: number | null = null;
   private readonly teamScores = new Map<number, number>();
   private readonly teamsEverPresent = new Set<number>();
@@ -124,6 +174,12 @@ export class ArenaSimulation {
     if (!tuning) throw new Error("no tuning config loaded");
 
     this.world = new World(configs, tuning, arena, gamemode, seed);
+
+    // Resolved once at construction, NOT per tick: a tuning hot-reload halfway
+    // through a countdown must not lengthen the lead-in one client is already
+    // counting down (the offline World re-resolves tuning by id every access).
+    this.countdownRemaining = matchCountdownSecOf(tuning);
+    this.phase = this.countdownRemaining > 0 ? "countdown" : "live";
 
     for (const p of arena.asteroidPlacements) {
       spawnAsteroid(this.world, configs, p.asteroidId, p.position, p.scale ?? 1);
@@ -202,6 +258,10 @@ export class ArenaSimulation {
   /** Advance one fixed sim step. */
   tick(dt: number): void {
     if (this.phase === "ended") return;
+    if (this.phase === "countdown") {
+      this.tickCountdown(dt);
+      return;
+    }
     const w = this.world;
 
     // Per-tick reset.
@@ -240,6 +300,35 @@ export class ArenaSimulation {
     this.elapsed += dt;
     this.tickNo += 1;
     this.evaluateWinCondition();
+  }
+
+  /**
+   * One countdown tick: intake orders with zero integration, run the timer down,
+   * announce each whole second, and flip to `live` at zero. See the class doc
+   * for why this suspends the integration rather than rejecting the orders.
+   *
+   * `tickNo` advances (a processed tick is a processed tick) but `elapsed` does
+   * not — match time, and therefore the `timeLimit` win condition, begins at GO.
+   */
+  private tickCountdown(dt: number): void {
+    navigationSystem(this.world, 0);
+    moduleSystem(this.world, 0);
+    this.tickNo += 1;
+
+    // A non-finite dt cannot be allowed to poison the timer into a match that
+    // never starts; treat it as "no time passed".
+    this.countdownRemaining = Math.max(0, this.countdownRemaining - (Number.isFinite(dt) ? dt : 0));
+    if (this.countdownRemaining <= COUNTDOWN_EPSILON) {
+      this.countdownRemaining = 0;
+      this.phase = "live";
+      this.world.emit({ type: "matchStarted" });
+      return;
+    }
+    const shown = Math.ceil(this.countdownRemaining);
+    if (shown !== this.lastCountdownAnnounced) {
+      this.lastCountdownAnnounced = shown;
+      this.world.emit({ type: "countdownTick", remaining: shown });
+    }
   }
 
   private evaluateWinCondition(): void {
@@ -327,6 +416,16 @@ export class ArenaSimulation {
     return this.phase === "ended";
   }
 
+  /** Current match phase (countdown / live / ended). */
+  get matchPhase(): MatchPhase {
+    return this.phase;
+  }
+
+  /** Seconds left on the start countdown; 0 once live. */
+  get countdown(): number {
+    return this.countdownRemaining;
+  }
+
   snapshot(): Snapshot {
     const w = this.world;
     const ships: ShipSnapshot[] = w.shipIds().map((id) => {
@@ -390,6 +489,7 @@ export class ArenaSimulation {
       tick: this.tickNo,
       elapsed: this.elapsed,
       phase: this.phase,
+      countdownRemaining: this.countdownRemaining,
       winnerTeam: this.winnerTeam,
       ships,
       asteroids,

@@ -508,7 +508,11 @@ export class NetGameSession extends GameSession {
     // (FLIGHT.md §5).
     const engine = this.resolvedEngine(cfg, player);
 
-    const held = this.flight.current;
+    // Suspended during the start countdown exactly as the sim suspends its own
+    // integration: the server is storing our held flight state without moving
+    // the ship, so a predictor that integrated it would run away from truth for
+    // three whole seconds and then be dragged back by the correction blend.
+    const held = this.current.phase === "live" ? this.flight.current : null;
     if (held) {
       flightStep(
         this.pred,
@@ -673,10 +677,23 @@ export class NetGameSession extends GameSession {
       pos: { x: decodeCenti(p.x), y: decodeCenti(p.y ?? 0), z: decodeCenti(p.z) },
       heading: decodeHeading(p.heading),
     }));
+    // Phase from the room lifecycle + the sim's replicated countdown. A room
+    // that has not started yet ("waiting") is reported as `countdown` too: its
+    // sim is not being ticked at all, so "frozen, cannot move or fire, GO is
+    // still ahead" describes it exactly, and every consumer (HUD overlay,
+    // predictor, bots) then needs only ONE rule instead of a waiting special case.
+    const countdownRemaining = Math.max(0, Number(state.countdownRemaining ?? 0));
+    const phase: Snapshot["phase"] =
+      state.matchPhase === "ended"
+        ? "ended"
+        : state.matchPhase !== "live" || countdownRemaining > 0
+          ? "countdown"
+          : "live";
     return {
       tick: Math.round((state.matchTimer ?? 0) * 30),
       elapsed: state.matchTimer ?? 0,
-      phase: state.matchPhase === "ended" ? "ended" : "live",
+      phase,
+      countdownRemaining,
       winnerTeam: state.winnerTeam === -1 ? null : state.winnerTeam,
       ships,
       asteroids,

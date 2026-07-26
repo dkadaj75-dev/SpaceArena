@@ -15,6 +15,7 @@ import { Minimap } from "./Minimap.js";
 import { NotificationCenter } from "./Notifications.js";
 import { DamageFeedback } from "./DamageFeedback.js";
 import { MatchStatus } from "./MatchStatus.js";
+import { CountdownOverlay } from "./CountdownOverlay.js";
 import { ResultsOverlay, type MatchRewards, type ResultsCallbacks } from "./ResultsOverlay.js";
 import { injectHudStyle } from "./hudStyle.js";
 import { Haptics } from "./Haptics.js";
@@ -90,6 +91,8 @@ export class Hud {
   private readonly notifications: NotificationCenter;
   private readonly damageFx: DamageFeedback;
   private readonly matchStatus: MatchStatus;
+  /** Match-start 3-2-1-GO numerals, driven by the sim-authoritative countdown. */
+  private readonly countdown: CountdownOverlay;
   private readonly resultsOverlay: ResultsOverlay;
   private readonly haptics: Haptics;
   /** Flight controls (FLIGHT.md §4), or null when the caller passed no 3D binding. */
@@ -142,6 +145,7 @@ export class Hud {
     this.notifications = new NotificationCenter(this.root, configs);
     this.damageFx = new DamageFeedback(this.root, playerId);
     this.matchStatus = new MatchStatus(this.root, session);
+    this.countdown = new CountdownOverlay(this.root);
     this.resultsOverlay = new ResultsOverlay(this.root, session, playerId, callbacks, {
       offline: options.offline ?? false,
     });
@@ -244,6 +248,7 @@ export class Hud {
     this.moduleButtons.update(cur);
     this.minimap.update(cur, dtMs);
     this.matchStatus.update(cur);
+    this.countdown.update(cur, dtMs);
     this.notifications.update(dtMs);
     this.damageFx.update(dtMs);
     this.resultsOverlay.update(cur, dtMs);
@@ -336,6 +341,7 @@ export class Hud {
     this.notifications.dispose();
     this.damageFx.dispose();
     this.matchStatus.dispose();
+    this.countdown.dispose();
     this.resultsOverlay.dispose();
     this.root.innerHTML = "";
   }

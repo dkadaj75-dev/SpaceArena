@@ -614,6 +614,32 @@ describe("arena schema", () => {
     }
   });
 
+  /**
+   * `render.skybox.sun` promotes the star PAINTED INTO the panorama to the
+   * arena's key light, so its direction is authored data that has to match the
+   * artwork. The unit-length check exists to catch a typo in that vector.
+   */
+  it("accepts an authored painted-star sun and rejects a non-unit direction", () => {
+    const withSun = (sun: unknown) => (d: Record<string, unknown>) => {
+      const render = d["render"] as Record<string, unknown>;
+      d["render"] = { ...render, skybox: { ...(render["skybox"] as Record<string, unknown>), sun } };
+    };
+    expect(mutated("arena", withSun({ dir: [0.777, 0.309, 0.55], color: "#ffecc8", intensity: 1.1 }))).toBe(true);
+    expect(mutated("arena", withSun({ dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1 }))).toBe(true);
+    // Absent is legal — an arena whose sky has no recognizable star keeps the
+    // generic light rig.
+    expect(mutated("arena", withSun(undefined))).toBe(true);
+    // Not a unit vector: an author who typed 7.77 instead of 0.777 must be told.
+    expect(mutated("arena", withSun({ dir: [7.77, 3.09, 5.5], color: "#fff", intensity: 1 }))).toBe(false);
+    expect(mutated("arena", withSun({ dir: [0, 0, 0], color: "#fff", intensity: 1 }))).toBe(false);
+    expect(mutated("arena", withSun({ dir: [1, 0, 0], color: "#fff", intensity: 0 }))).toBe(true);
+    expect(mutated("arena", withSun({ dir: [1, 0, 0], color: "#fff", intensity: -1 }))).toBe(false);
+    // Shape errors: wrong arity, missing colour.
+    expect(mutated("arena", withSun({ dir: [1, 0], color: "#fff", intensity: 1 }))).toBe(false);
+    expect(mutated("arena", withSun({ dir: [1, 0, 0], intensity: 1 }))).toBe(false);
+    expect(mutated("arena", withSun({ dir: [1, 0, 0], color: "", intensity: 1 }))).toBe(false);
+  });
+
   it("keeps bounds, projectile overshoot, and spawns inside the centi-wire envelope", () => {
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 400 }))).toBe(false);
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 307.67 }))).toBe(true);
@@ -840,10 +866,25 @@ describe("tuning schema", () => {
     }
   });
 
+  /**
+   * The match-start countdown. `0` MUST stay legal: it is how a test fixture (and
+   * the e2e smoke's tick budget) opts out of the 3-second lead-in.
+   */
+  it("accepts a zero match countdown and rejects a negative one", () => {
+    expect(mutated("tuning", (d) => (d["matchCountdownSec"] = 3))).toBe(true);
+    expect(mutated("tuning", (d) => (d["matchCountdownSec"] = 0))).toBe(true);
+    expect(mutated("tuning", (d) => (d["matchCountdownSec"] = 0.5))).toBe(true);
+    expect(mutated("tuning", (d) => (d["matchCountdownSec"] = -1))).toBe(false);
+    expect(mutated("tuning", (d) => (d["matchCountdownSec"] = "3"))).toBe(false);
+    // Absent means the documented default (3 s), not "no countdown".
+    expect(mutated("tuning", (d) => delete d["matchCountdownSec"])).toBe(true);
+  });
+
   it("accepts the full optional knob surface and rejects fractional counters (edge)", () => {
     expect(
       mutated("tuning", (d) => {
         Object.assign(d, {
+          matchCountdownSec: 3,
           dragCoefficient: 0.4,
           spatialCellSize: 8,
           impactSpeedThreshold: 6,
@@ -1070,6 +1111,32 @@ describe("quality schema (5.6)", () => {
     expect(mutated("quality", (d) => ((d["glow"] as Record<string, unknown>)["blurKernelSize"] = 32))).toBe(true);
     expect(mutated("quality", (d) => ((d["scene"] as Record<string, unknown>)["starfieldPoints"] = 1500.5))).toBe(false);
     expect(mutated("quality", (d) => ((d["scene"] as Record<string, unknown>)["starfieldPoints"] = 0))).toBe(true);
+  });
+
+  it("validates the ambient-dust block and keeps it optional for older packs", () => {
+    const withDust = (dust: unknown) => (d: Record<string, unknown>) => {
+      d["scene"] = { ...(d["scene"] as Record<string, unknown>), dust };
+    };
+    const base = { count: 180, size: 0.35, alpha: 0.3, driftSpeed: 0.8, boxSize: 120 };
+    expect(mutated("quality", withDust(base))).toBe(true);
+    // `count: 0` is the shipped LOW tier — the documented way to disable dust.
+    expect(mutated("quality", withDust({ ...base, count: 0 }))).toBe(true);
+    // Omitted entirely: an already-published pack stays valid.
+    expect(mutated("quality", withDust(undefined))).toBe(true);
+    expect(mutated("quality", withDust({ ...base, count: -1 }))).toBe(false);
+    expect(mutated("quality", withDust({ ...base, count: 12.5 }))).toBe(false);
+    expect(mutated("quality", withDust({ ...base, size: 0 }))).toBe(false);
+    expect(mutated("quality", withDust({ ...base, alpha: 1.01 }))).toBe(false);
+    expect(mutated("quality", withDust({ ...base, alpha: 0 }))).toBe(true);
+    expect(mutated("quality", withDust({ ...base, driftSpeed: -0.1 }))).toBe(false);
+    expect(mutated("quality", withDust({ ...base, driftSpeed: 0 }))).toBe(true);
+    expect(mutated("quality", withDust({ ...base, boxSize: 0 }))).toBe(false);
+    // No half-configured dust: every knob is required once the block is present.
+    for (const key of Object.keys(base)) {
+      const partial: Record<string, unknown> = { ...base };
+      delete partial[key];
+      expect(mutated("quality", withDust(partial))).toBe(false);
+    }
   });
 
   it("requires every consumer block to be present (no half-configured tier)", () => {

@@ -245,6 +245,12 @@ export class BotDriver {
    * Turn-rate calibration runs on *every* tick, not just decision ticks — the
    * ship keeps integrating the standing flight state in between, so those ticks
    * are free measurements.
+   *
+   * The `phase !== "live"` guard is what keeps bots honest during the start
+   * countdown: no orders at all, so no bot burns boost (or banks a calibration
+   * sample off a frozen hull) before GO. It costs the bot nothing — a held
+   * flight state is stored the instant it decides, and the countdown is over
+   * before its first decision interval would have elapsed anyway.
    */
   update(snapshot: Snapshot, nowMs: number): readonly Order[] {
     if (snapshot.phase !== "live") return NO_ORDERS;

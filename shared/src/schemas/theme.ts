@@ -336,6 +336,10 @@ export const audioCuesSchema = z.object({
   lockAcquired: soundRef.optional(),
   /** The local player losing a completed lock. */
   lockLost: soundRef.optional(),
+  /** Each whole second of the match-start countdown ("3", "2", "1"). */
+  countdownTick: soundRef.optional(),
+  /** The countdown reaching zero — the "GO" stinger. */
+  countdownGo: soundRef.optional(),
 });
 export type AudioCuesConfig = z.infer<typeof audioCuesSchema>;
 

@@ -126,6 +126,21 @@ const zone = z.object({
 });
 
 /**
+ * Tolerance on `sun.dir`'s length. The field is documented as a UNIT vector
+ * because the renderer negates it into a `DirectionalLight` direction, and an
+ * authored typo (a dropped digit, a swapped axis) is much easier to catch here
+ * than by squinting at which side of a rock is lit. Generous enough that hand-
+ * authored three-decimal vectors — both shipped arenas land within 0.001 —
+ * never trip it.
+ */
+export const SUN_DIR_UNIT_TOLERANCE = 0.02;
+
+/** Length of an authored `sun.dir`, for the schema check and the renderer. */
+export function sunDirLength(dir: readonly [number, number, number]): number {
+  return Math.hypot(dir[0], dir[1], dir[2]);
+}
+
+/**
  * Arena-owned presentation. Sky imagery and the boundary shield both describe
  * this particular play space (including its physical radius), so they live
  * beside `bounds` rather than in the global theme or gameplay tuning.
@@ -138,6 +153,24 @@ export const arenaRender = z.object({
     intensity: z.number().nonnegative(),
     /** RGB tint multiplied into the panorama. */
     tint: z.string().min(1),
+    /**
+     * The star PAINTED INTO the panorama, promoted to the arena's real key
+     * light. Optional: an arena whose sky has no recognizable star keeps the
+     * generic `lighting.directionalIntensity` rig instead.
+     *
+     * `dir` points FROM the arena TOWARD the star (a unit vector in world
+     * space), so it is the same number an author can read off the panorama.
+     * The renderer builds a parallel-ray `DirectionalLight` travelling along
+     * `-dir`, which is what makes every lit face point back at the painted
+     * star. `color`/`intensity` replace the default key light's.
+     */
+    sun: z
+      .object({
+        dir: z.tuple([z.number(), z.number(), z.number()]),
+        color: z.string().min(1),
+        intensity: z.number().nonnegative(),
+      })
+      .optional(),
   }),
   boundaryShield: z.object({
     /** Opacity while the player is farther away than `glowStartDistance`. */
@@ -202,6 +235,15 @@ export const arenaSchema = z
         });
       }
     });
+
+    const sun = arena.render?.skybox.sun;
+    if (sun && Math.abs(sunDirLength(sun.dir) - 1) > SUN_DIR_UNIT_TOLERANCE) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["render", "skybox", "sun", "dir"],
+        message: `sun direction must be a unit vector (length ${sunDirLength(sun.dir).toFixed(4)})`,
+      });
+    }
 
     const shield = arena.render?.boundaryShield;
     if (shield) {

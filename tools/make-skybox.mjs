@@ -12,21 +12,28 @@ const W = 2048, H = 1024;
 const PALETTES = {
   // References are mostly DARK sky: dust confined to patches (~30% coverage),
   // muted mids, bright cores only deep inside the densest clouds.
+  // sun.dir is a UNIT vector in the same 3D direction space the pano samples
+  // (x = st*cos(phi), y = ct, z = st*sin(phi)) — the scene's directional light
+  // must shine ALONG -dir so surfaces lit by it face the painted star.
   "deep-field": {
     base: [5, 7, 12],
-    dustA: { col: [66, 34, 16], hot: [150, 92, 42], lo: 0.68, hi: 1.02 },
-    dustB: { col: [48, 36, 18], hot: [160, 126, 66], lo: 0.74, hi: 1.05 },
+    dustA: { col: [66, 34, 16], hot: [150, 92, 42], lo: 0.56, hi: 1.0 },
+    dustB: { col: [48, 36, 18], hot: [160, 126, 66], lo: 0.62, hi: 1.02 },
+    dustC: { col: [36, 26, 30], hot: [90, 64, 70], lo: 0.6, hi: 1.04 },
     core: [255, 214, 160],
     warp: 1.25, starGain: 1.0, seed: 7,
-    bandN: [0.28, 0.86, 0.42], bandWidth: 0.32,
+    bandN: [0.28, 0.86, 0.42], bandWidth: 0.36, bandGain: 0.75,
+    sun: { dir: [0.777, 0.309, 0.55], color: [255, 236, 200], discDeg: 1.6, glowDeg: 14 },
   },
   "ring-nebula": {
     base: [6, 6, 14],
-    dustA: { col: [52, 30, 80], hot: [116, 66, 160], lo: 0.68, hi: 1.02 },
-    dustB: { col: [22, 42, 82], hot: [66, 106, 175], lo: 0.74, hi: 1.05 },
+    dustA: { col: [52, 30, 80], hot: [116, 66, 160], lo: 0.56, hi: 1.0 },
+    dustB: { col: [22, 42, 82], hot: [66, 106, 175], lo: 0.62, hi: 1.02 },
+    dustC: { col: [40, 24, 56], hot: [96, 60, 130], lo: 0.6, hi: 1.04 },
     core: [224, 208, 255],
     warp: 1.5, starGain: 1.0, seed: 23,
-    bandN: [-0.5, 0.75, 0.43], bandWidth: 0.38,
+    bandN: [-0.5, 0.75, 0.43], bandWidth: 0.42, bandGain: 0.8,
+    sun: { dir: [-0.677, -0.208, -0.706], color: [220, 228, 255], discDeg: 1.3, glowDeg: 12 },
   },
 };
 
@@ -93,11 +100,16 @@ function makeNebula(W, H, P) {
       const bandDist = Math.abs(dx * P.bandN[0] + dy * P.bandN[1] + dz * P.bandN[2]);
       const band = Math.exp(-(bandDist * bandDist) / (P.bandWidth * P.bandWidth));
       const bandDust = fbm(ax * 2.6 + 97, ay * 2.6, az * 2.6, 5, 0.55);
-      for (let ch = 0; ch < 3; ch++) c[ch] += P.dustB.col[ch] * band * bandDust * 0.55 + P.dustA.col[ch] * band * 0.12;
+      const bg = P.bandGain ?? 0.55;
+      for (let ch = 0; ch < 3; ch++) c[ch] += P.dustB.col[ch] * band * bandDust * bg + P.dustA.col[ch] * band * 0.16;
       const nA = fbm(ax * 1.9, ay * 1.9, az * 1.9, 6, 0.55);
       rampMix(nA, P.dustA.lo, P.dustA.hi, P.dustA.col, P.dustA.hot, c);
       const nB = fbm(ax * 3.4 + 31, ay * 3.4, az * 3.4, 6, 0.5);
       rampMix(nB, P.dustB.lo, P.dustB.hi, P.dustB.col, P.dustB.hot, c);
+      // Third mid-scale layer at a decorrelated offset: fills the gaps the two
+      // primary layers leave without pushing overall brightness up much.
+      const nD = fbm(ax * 2.6 + 157, ay * 2.6, az * 2.6, 5, 0.55);
+      rampMix(nD, P.dustC.lo, P.dustC.hi, P.dustC.col, P.dustC.hot, c);
       // Bright cores inside dense dust (stretched like the ramps)
       const nC = 1 / (1 + Math.exp(-(fbm(dx * 5.2 + 53, dy * 5.2, dz * 5.2, 4, 0.5) - 0.5) * 14));
       // Only inside genuinely dense dust (stretched nA above the dustA floor).
@@ -128,10 +140,25 @@ function makeNebula(W, H, P) {
         bright = (Math.exp(-dd2 / 0.0006) * 1.1 + Math.exp(-dd2 / 0.012) * 0.16) * 255 * (0.5 + b2);
         warmth = hash(c2x + 9, c2y + 9, c2z + 9);
       }
+      // The nearby star: painted LAST so it dominates dust and stars alike.
+      // cosAng near 1 = looking straight at the sun. Disc is hard-saturated,
+      // glow falls off smoothly, plus a wide faint halo warming the sky around.
+      let sun = 0;
+      if (P.sun) {
+        const cosAng = dx * P.sun.dir[0] + dy * P.sun.dir[1] + dz * P.sun.dir[2];
+        const ang = Math.acos(Math.min(1, Math.max(-1, cosAng))) * (180 / Math.PI);
+        if (ang < P.sun.discDeg) sun = 1;
+        else if (ang < P.sun.glowDeg) sun = Math.pow(1 - (ang - P.sun.discDeg) / (P.sun.glowDeg - P.sun.discDeg), 2.4) * 0.8;
+        // Halo is ADDITIVE across the whole range (not an else-branch): an
+        // exclusive chain left a dark ring where the glow hit zero just before
+        // the halo stepped back in.
+        if (ang < 60) sun += Math.pow(1 - ang / 60, 3) * 0.1;
+      }
       const i = (py * W + px) * 4;
-      img[i] = Math.min(255, c[0] + star + bright * (0.85 + 0.3 * warmth));
-      img[i + 1] = Math.min(255, c[1] + star + bright * 0.92);
-      img[i + 2] = Math.min(255, c[2] + star * 0.95 + bright * (1.15 - 0.3 * warmth));
+      const sc = P.sun ? P.sun.color : [255, 255, 255];
+      img[i] = Math.min(255, c[0] + star + bright * (0.85 + 0.3 * warmth) + sc[0] * sun);
+      img[i + 1] = Math.min(255, c[1] + star + bright * 0.92 + sc[1] * sun);
+      img[i + 2] = Math.min(255, c[2] + star * 0.95 + bright * (1.15 - 0.3 * warmth) + sc[2] * sun);
       img[i + 3] = 255;
     }
   }

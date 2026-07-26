@@ -145,8 +145,43 @@ export const qualitySchema = z.object({
     boundaryShieldShader: z.boolean().default(true),
     /** Starfield point count in the skybox `PointsCloudSystem`. */
     starfieldPoints: z.number().int().nonnegative(),
-    /** Draw the colored team spawn-point gizmos. */
+    /**
+     * Draw the colored team spawn-point gizmos. **Off in every shipped tier** —
+     * they are an authoring aid, not match furniture. The dev Map editor forces
+     * them back on for its own session (see `SceneBuilder.setSpawnMarkerOverride`),
+     * so designers keep seeing spawns without the flag lying to players.
+     */
     spawnMarkers: z.boolean(),
+    /**
+     * Ambient dust motes drifting through the arena volume, so a 300-radius
+     * bubble does not read as an empty room and so the player's own speed is
+     * legible against something. Lives HERE rather than on the arena because
+     * every field of it is a render-density/overdraw budget — the same reason
+     * `starfieldPoints` is a tier knob — and because a per-arena count would be
+     * re-tuned per device anyway. Optional so an already-published pack stays
+     * valid; omitted ⇒ the client's documented defaults.
+     */
+    dust: z
+      .object({
+        /**
+         * Particles alive at once. `0` disables the system entirely (the low
+         * tier's setting: alpha-blended sprites are pure overdraw, which is the
+         * one budget a phone at the cheapest tier has least of).
+         */
+        count: z.number().int().nonnegative(),
+        /** Sprite world size. Motes, not snowballs — a few tenths of a unit. */
+        size: z.number().positive(),
+        /** Peak sprite alpha 0..1. Subtle by design. */
+        alpha: z.number().min(0).max(1),
+        /** Mote drift speed in world units/sec, independent of the ship. */
+        driftSpeed: z.number().nonnegative(),
+        /**
+         * Edge length of the recycling box that follows the player. Particles
+         * only ever exist inside it, so the whole bubble never needs filling.
+         */
+        boxSize: z.number().positive(),
+      })
+      .optional(),
   }),
 });
 

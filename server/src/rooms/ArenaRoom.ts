@@ -214,6 +214,9 @@ export class ArenaRoom extends Room<ArenaState> {
 
     const state = new ArenaState();
     state.matchPhase = "waiting";
+    // Seeded before the first tick so a joining client already knows how long
+    // the lead-in is and can render "3" the moment the room goes live.
+    state.countdownRemaining = this.sim.snapshot().countdownRemaining;
     this.setState(state);
 
     // Seed asteroid dynamic state (layout itself comes from the arena config).
@@ -569,6 +572,13 @@ export class ArenaRoom extends Room<ArenaState> {
     }
     const { order } = parsed.data;
 
+    // `matchPhase` is the ROOM's lifecycle, not the sim's phase: it flips to
+    // "live" when the players are in, and the sim then spends
+    // `tuning.matchCountdownSec` in its own frozen `countdown` phase. Orders are
+    // deliberately ACCEPTED throughout that window — the sim stores them without
+    // integrating, so a throttle held through "3-2-1" bites the instant GO lands
+    // (see ArenaSimulation's countdown doc). Only a room that has not started yet
+    // (or has ended) rejects.
     if (this.state.matchPhase !== "live") {
       this.ack(client, seq, false, "not-live");
       return;
@@ -674,7 +684,12 @@ export class ArenaRoom extends Room<ArenaState> {
     this.relayEvents(events);
 
     this.writeState();
-    this.state.matchTimer = this.sim.snapshot().elapsed;
+    const snap = this.sim.snapshot();
+    this.state.matchTimer = snap.elapsed;
+    // The countdown lives in the sim, so this is a mirror, not a second timer.
+    if (this.state.countdownRemaining !== snap.countdownRemaining) {
+      this.state.countdownRemaining = snap.countdownRemaining;
+    }
 
     getMetrics().recordTick(this.roomId, performance.now() - startedAt);
 
@@ -1016,6 +1031,12 @@ function toSimEventMessage(ev: SimEvent): SimEventMessage | null {
       return { type: "entityDestroyed", entityId: ev.entityId, killerId: ev.killerId, isAsteroid: ev.isAsteroid, team: ev.team };
     case "boundaryHit":
       return { type: "boundaryHit", entityId: ev.entityId, rule: ev.rule };
+    // Start-countdown beats: three low-rate messages that give both clients the
+    // same "3 … 2 … 1 … GO" edges off the authoritative sim clock.
+    case "countdownTick":
+      return { type: "countdownTick", remaining: ev.remaining };
+    case "matchStarted":
+      return { type: "matchStarted" };
     case "matchEnded":
       return { type: "matchEnded", winnerTeam: ev.winnerTeam, reason: ev.reason };
     default:

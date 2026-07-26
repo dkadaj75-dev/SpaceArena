@@ -32,6 +32,13 @@ export interface EditorHost {
   setGameVisible(visible: boolean): void;
   /** Hide/show the static arena (bounds, skybox, ground AND its light rig). */
   setArenaVisible(visible: boolean): void;
+  /**
+   * Force the team spawn gizmos on while the editor owns the canvas, and release
+   * the override on close. Every shipped quality tier turns them OFF (they are an
+   * authoring aid, not match furniture), but the Map editor and arena Inspector
+   * place spawns against this scene and designers must see them.
+   */
+  setSpawnMarkersForced(forced: boolean): void;
   /** Freeze the editor camera's pointer gestures (used during gizmo drags). */
   suspendCameraGestures(suspended: boolean): void;
 }
@@ -115,6 +122,10 @@ export class EditorShell {
     // The live match must be completely invisible behind the editor: each tool
     // stages its own 3D content on this canvas.
     this.host.setGameVisible(false);
+    // Spawn points are invisible in a shipped match; a designer editing the map
+    // needs them back. Held for the whole editor session rather than per tab, so
+    // switching Map → Inspector → Map never costs an extra arena rebuild.
+    this.host.setSpawnMarkersForced(true);
     this.stage = new EditorStage(this.host.scene);
     this.validateAll();
 
@@ -308,6 +319,7 @@ export class EditorShell {
     this.tabsBar = null; this.body = null; this.title = null; this.statusButton = null; this.statusCount = null;
     this.stage?.dispose(); this.stage = null;
     this.host.suspendCameraGestures(false);
+    this.host.setSpawnMarkersForced(false);
     this.host.setArenaVisible(true);
     this.host.setGameVisible(true);
     this.root?.remove(); this.root = null; this.host.resumeSim();

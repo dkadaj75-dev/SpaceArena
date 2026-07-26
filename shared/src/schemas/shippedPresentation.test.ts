@@ -1,0 +1,108 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+import { arenaSchema, sunDirLength, SUN_DIR_UNIT_TOLERANCE } from "./arena.js";
+import { qualitySchema, QUALITY_TIERS } from "./quality.js";
+import { themeSchema } from "./theme.js";
+import { tuningSchema } from "./tuning.js";
+
+/**
+ * Contract tests over the SHIPPED pack, for presentation decisions the user asked
+ * for by name. A schema can only say a field is well-formed; these assert the pack
+ * actually made the choice — the classic silent-failure shape in this repo is a
+ * new knob that validates fine and is never authored.
+ */
+const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url));
+
+function load(relPath: string): unknown {
+  return JSON.parse(readFileSync(CONTENT_ROOT + relPath, "utf8")) as unknown;
+}
+
+describe("shipped quality tiers — spawn markers and ambient dust", () => {
+  const tiers = QUALITY_TIERS.map((tier) => {
+    const parsed = qualitySchema.safeParse(load(`quality/${tier}.json`));
+    expect(parsed.success, `quality/${tier}.json must validate`).toBe(true);
+    if (!parsed.success) throw parsed.error;
+    return { tier, config: parsed.data };
+  });
+
+  it("hides the team spawn gizmos in every shipped tier", () => {
+    // They are an authoring aid. The dev editor forces them back on for itself
+    // (SceneBuilder.setSpawnMarkerOverride), which is where designers need them.
+    for (const { tier, config } of tiers) {
+      expect(config.scene.spawnMarkers, `${tier} must not show spawn markers`).toBe(false);
+    }
+  });
+
+  it("authors ambient dust on every tier, and disables it on low", () => {
+    for (const { tier, config } of tiers) {
+      const dust = config.scene.dust;
+      expect(dust, `${tier} should author a dust block`).toBeDefined();
+      if (!dust) continue;
+      // Subtle by design: motes, not snow.
+      expect(dust.alpha).toBeLessThanOrEqual(0.5);
+      expect(dust.size).toBeLessThanOrEqual(1);
+      expect(dust.boxSize).toBeGreaterThan(0);
+      if (tier === "low") {
+        // Alpha-blended sprites are pure overdraw — the one budget a budget phone
+        // has least of, and the tier that already drops glow and the hex shader.
+        expect(dust.count).toBe(0);
+      } else {
+        expect(dust.count).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("scales dust density with the tier, never against it", () => {
+    const counts = tiers.map(({ config }) => config.scene.dust?.count ?? 0);
+    for (let i = 1; i < counts.length; i++) {
+      expect(counts[i]!).toBeGreaterThanOrEqual(counts[i - 1]!);
+    }
+  });
+});
+
+describe("shipped arenas — the painted star is the key light", () => {
+  const EXPECTED = {
+    "deep-field.json": { dir: [0.777, 0.309, 0.55], color: "#ffecc8", intensity: 1.1 },
+    "ring-nebula.json": { dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1.0 },
+  } as const;
+
+  for (const [file, expected] of Object.entries(EXPECTED)) {
+    it(`${file} authors the sun matching where the star is painted`, () => {
+      const parsed = arenaSchema.safeParse(load(`arenas/${file}`));
+      expect(parsed.success, `${file} must validate`).toBe(true);
+      if (!parsed.success) throw parsed.error;
+      const sun = parsed.data.render?.skybox.sun;
+      expect(sun, `${file} should author render.skybox.sun`).toBeDefined();
+      if (!sun) return;
+      // These EXACT directions match the star in the regenerated panoramas; a
+      // silent edit here would light the scene from the wrong side of the sky.
+      expect(sun.dir).toEqual(expected.dir);
+      expect(sun.color).toBe(expected.color);
+      expect(sun.intensity).toBeCloseTo(expected.intensity, 6);
+      expect(Math.abs(sunDirLength(sun.dir) - 1)).toBeLessThanOrEqual(SUN_DIR_UNIT_TOLERANCE);
+      // A soft fill has to survive alongside it, or the unlit side of every hull
+      // is a black silhouette rather than a shadow.
+      expect(parsed.data.lighting?.ambientIntensity ?? 0).toBeGreaterThan(0);
+    });
+  }
+});
+
+describe("shipped tuning + theme — match start countdown", () => {
+  it("authors a 3 second countdown", () => {
+    const parsed = tuningSchema.safeParse(load("tuning/default.json"));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw parsed.error;
+    expect(parsed.data.matchCountdownSec).toBe(3);
+  });
+
+  it("authors the 3-2-1 and GO audio cues", () => {
+    const parsed = themeSchema.safeParse(load("themes/default.json"));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw parsed.error;
+    const cues = parsed.data.audio?.cues;
+    expect(cues?.countdownTick).toBeTruthy();
+    expect(cues?.countdownGo).toBeTruthy();
+  });
+});

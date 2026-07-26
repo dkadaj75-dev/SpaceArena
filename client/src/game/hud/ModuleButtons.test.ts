@@ -16,6 +16,7 @@ function snapshotWithModules(modules: { hardpointIndex: number; moduleId: string
     tick: 0,
     elapsed: 0,
     phase: "live",
+    countdownRemaining: 0,
     winnerTeam: null,
     ships: [
       {

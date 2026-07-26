@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Color3, NullEngine, Scene, ShaderMaterial, StandardMaterial, type Mesh } from "@babylonjs/core";
+import {
+  Color3,
+  DirectionalLight,
+  HemisphericLight,
+  NullEngine,
+  Scene,
+  ShaderMaterial,
+  StandardMaterial,
+  type Mesh,
+} from "@babylonjs/core";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
 import { BOUNDARY_FRAGMENT, SceneBuilder, type SceneQuality } from "./SceneBuilder.js";
 
@@ -47,6 +56,16 @@ function quality(overrides: Partial<SceneQuality> = {}): SceneQuality {
   };
 }
 
+/** The boundary notification `ARENA.render.boundaryShield` references. */
+const BOUNDARY_NOTIFICATION = {
+  id: "notification.boundary-warning",
+  type: "notification",
+  version: 1,
+  text: "Boundary",
+  style: "critical",
+  durationMs: 1000,
+} satisfies Record<string, unknown>;
+
 /** Every static arena mesh except the skybox, which is deliberately never frozen. */
 function freezableMeshes(scene: Scene): Mesh[] {
   return scene.meshes.filter((m): m is Mesh => m.name !== "skybox" && "isWorldMatrixFrozen" in m);
@@ -63,16 +82,7 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     scene = new Scene(engine);
     bus = new EventBus<ConfigEvents>();
     configs = new ConfigService(() => Promise.resolve(null), bus);
-    expect(
-      configs.replace({
-        id: "notification.boundary-warning",
-        type: "notification",
-        version: 1,
-        text: "Boundary",
-        style: "critical",
-        durationMs: 1000,
-      }).ok,
-    ).toBe(true);
+    expect(configs.replace(BOUNDARY_NOTIFICATION).ok).toBe(true);
     expect(configs.replace(ARENA).ok).toBe(true);
     await Promise.resolve();
   });
@@ -286,6 +296,151 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(material.emissiveColor.equals(pureBlue)).toBe(false);
     expect(material.emissiveColor.r).toBeGreaterThan(pureBlue.r);
     lowBuilder.dispose();
+  });
+});
+
+/**
+ * The skybox panoramas have a star painted into them, and `render.skybox.sun`
+ * promotes it to the arena's real key light (parallel rays along -dir).
+ */
+describe("SceneBuilder sun key light", () => {
+  let engine: NullEngine;
+  let scene: Scene;
+  let configs: ConfigService;
+  let bus: EventBus<ConfigEvents>;
+
+  beforeEach(() => {
+    engine = new NullEngine();
+    scene = new Scene(engine);
+    bus = new EventBus<ConfigEvents>();
+    configs = new ConfigService(async () => ({}), bus);
+    expect(configs.replace(BOUNDARY_NOTIFICATION).ok).toBe(true);
+  });
+
+  afterEach(() => {
+    scene.dispose();
+    engine.dispose();
+  });
+
+  function build(sun: unknown): { dir: DirectionalLight; hemi: HemisphericLight; builder: SceneBuilder } {
+    expect(
+      configs.replace({
+        ...ARENA,
+        render: { ...ARENA.render, skybox: { ...ARENA.render.skybox, ...(sun ? { sun } : {}) } },
+      }).ok,
+    ).toBe(true);
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+    return {
+      dir: scene.getLightByName("arenaDirLight") as DirectionalLight,
+      hemi: scene.getLightByName("arenaHemiLight") as HemisphericLight,
+      builder,
+    };
+  }
+
+  it("shines the key light ALONG -dir with the authored colour and intensity", () => {
+    // The shipped deep-field star.
+    const { dir, builder } = build({ dir: [0.777, 0.309, 0.55], color: "#ffecc8", intensity: 1.1 });
+    expect(dir).toBeInstanceOf(DirectionalLight);
+    // Parallel rays travelling the opposite way to the bearing of the star, so a
+    // lit face points back at it.
+    // Re-normalized defensively, so a hand-authored vector 0.1% off unit length
+    // (as the shipped one is) does not become a 0.1% intensity error.
+    expect(dir.direction.length()).toBeCloseTo(1, 6);
+    expect(dir.direction.x).toBeCloseTo(-0.777, 2);
+    expect(dir.direction.y).toBeCloseTo(-0.309, 2);
+    expect(dir.direction.z).toBeCloseTo(-0.55, 2);
+    expect(dir.intensity).toBeCloseTo(1.1, 6);
+    const authored = Color3.FromHexString("#ffecc8");
+    expect(dir.diffuse.r).toBeCloseTo(authored.r, 4);
+    expect(dir.diffuse.g).toBeCloseTo(authored.g, 4);
+    expect(dir.diffuse.b).toBeCloseTo(authored.b, 4);
+    builder.dispose();
+  });
+
+  it("keeps a soft ambient fill, leaning toward the star, so shadows are not black", () => {
+    const { hemi, builder } = build({ dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1 });
+    expect(hemi).toBeInstanceOf(HemisphericLight);
+    expect(hemi.intensity).toBeCloseTo(ARENA.lighting.ambientIntensity, 6);
+    expect(hemi.intensity).toBeGreaterThan(0);
+    // Sky side of the fill faces the star, rather than fighting it from world-up.
+    expect(hemi.direction.x).toBeCloseTo(-0.677, 3);
+    expect(hemi.direction.y).toBeCloseTo(-0.208, 3);
+    builder.dispose();
+  });
+
+  it("falls back to the generic rig for an arena with no authored sun", () => {
+    const { dir, hemi, builder } = build(null);
+    // The pre-sun default rig, unchanged: fixed direction, arena-authored
+    // intensity, and world-up ambient.
+    expect(dir.intensity).toBeCloseTo(ARENA.lighting.directionalIntensity, 6);
+    expect(dir.direction.y).toBeCloseTo(-1, 6);
+    expect(hemi.direction.y).toBeCloseTo(1, 6);
+    builder.dispose();
+  });
+});
+
+describe("SceneBuilder spawn markers + editor override", () => {
+  let engine: NullEngine;
+  let scene: Scene;
+  let configs: ConfigService;
+  let bus: EventBus<ConfigEvents>;
+
+  beforeEach(() => {
+    engine = new NullEngine();
+    scene = new Scene(engine);
+    bus = new EventBus<ConfigEvents>();
+    configs = new ConfigService(async () => ({}), bus);
+    expect(configs.replace(BOUNDARY_NOTIFICATION).ok).toBe(true);
+    expect(configs.replace(ARENA).ok).toBe(true);
+  });
+
+  afterEach(() => {
+    scene.dispose();
+    engine.dispose();
+  });
+
+  /** The shipped tiers all set `spawnMarkers: false` (players must not see them). */
+  function shippedQuality(): SceneQuality {
+    return quality({
+      scene: { skyboxEnabled: true, boundaryShieldShader: true, starfieldPoints: 0, spawnMarkers: false },
+    });
+  }
+
+  it("draws no spawn gizmos on a shipped tier", () => {
+    const builder = new SceneBuilder(scene, configs, bus, shippedQuality());
+    builder.buildArena("arena.test");
+    expect(scene.getMeshByName("spawnMarker.sp-a")).toBeNull();
+    expect(scene.getMeshByName("spawnMarker.sp-b")).toBeNull();
+    builder.dispose();
+  });
+
+  it("the editor override brings them back, and releasing it hides them again", () => {
+    const builder = new SceneBuilder(scene, configs, bus, shippedQuality());
+    builder.buildArena("arena.test");
+
+    builder.setSpawnMarkerOverride(true);
+    expect(scene.getMeshByName("spawnMarker.sp-a")).not.toBeNull();
+    expect(scene.getMeshByName("spawnMarker.sp-b")).not.toBeNull();
+
+    builder.setSpawnMarkerOverride(null);
+    expect(scene.getMeshByName("spawnMarker.sp-a")).toBeNull();
+    builder.dispose();
+  });
+
+  it("survives a quality swap while the editor override is held", () => {
+    const builder = new SceneBuilder(scene, configs, bus, shippedQuality());
+    builder.buildArena("arena.test");
+    builder.setSpawnMarkerOverride(true);
+    // A tier change rebuilds the arena; the override must outlive the rebuild or
+    // the Quality panel would silently blind the Map editor.
+    builder.setQuality(
+      quality({
+        scene: { skyboxEnabled: false, boundaryShieldShader: false, starfieldPoints: 0, spawnMarkers: false },
+      }),
+    );
+    expect(scene.getMeshByName("spawnMarker.sp-a")).not.toBeNull();
+    builder.dispose();
   });
 });
 

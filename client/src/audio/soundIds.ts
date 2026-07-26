@@ -108,6 +108,10 @@ export interface AudioCueMap {
   lockAcquired: string | null;
   /** A completed lock breaking (progress drained to 0, or the target died). */
   lockLost: string | null;
+  /** Each whole second of the match-start countdown (3 / 2 / 1). */
+  countdownTick: string | null;
+  /** The countdown reaching zero — the "GO" stinger. */
+  countdownGo: string | null;
 }
 
 /** The theme's `audio` block, fully defaulted. */
@@ -135,6 +139,8 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
     boundaryWarning: null,
     lockAcquired: null,
     lockLost: null,
+    countdownTick: null,
+    countdownGo: null,
   },
 };
 
@@ -157,6 +163,8 @@ export function audioSettingsOf(theme: ThemeConfig | undefined): AudioSettings {
       boundaryWarning: resolveSoundId(cues?.boundaryWarning),
       lockAcquired: resolveSoundId(cues?.lockAcquired),
       lockLost: resolveSoundId(cues?.lockLost),
+      countdownTick: resolveSoundId(cues?.countdownTick),
+      countdownGo: resolveSoundId(cues?.countdownGo),
     },
   };
 }
@@ -190,6 +198,13 @@ export function cueSoundFor(event: SimEvent, playerId: EntityId, cues: AudioCueM
       return event.entityId === playerId ? cues.lockAcquired : null;
     case "lockLost":
       return event.entityId === playerId ? cues.lockLost : null;
+    // Match-start countdown. The only cues here that are NOT about one ship:
+    // the sim's countdown is a property of the MATCH, so every client in it
+    // plays the same beat, and no `playerId` comparison applies.
+    case "countdownTick":
+      return cues.countdownTick;
+    case "matchStarted":
+      return cues.countdownGo;
     default:
       return null;
   }

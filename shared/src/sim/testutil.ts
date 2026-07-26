@@ -15,14 +15,41 @@ async function fsLoader(relPath: string): Promise<unknown> {
   return JSON.parse(await readFile(abs, "utf8"));
 }
 
-/** Load the real content pack into a ConfigService for sim tests. */
-export async function loadTestConfigs(): Promise<ConfigService> {
+/**
+ * Load the real content pack into a ConfigService for sim tests.
+ *
+ * `matchCountdownSec` defaults to **0** — the shipped pack opens every match with
+ * a 3-second frozen countdown (`ArenaSimulation`), and a suite that ticks a fixed
+ * number of steps to measure flight, damage or a win condition is not testing
+ * that. Zero is a legal authored value, so this is a real content override rather
+ * than a back door into the sim. The countdown has its own suite
+ * (`countdown.test.ts`), which passes the shipped value explicitly.
+ */
+export async function loadTestConfigs(
+  opts: { matchCountdownSec?: number } = {},
+): Promise<ConfigService> {
   const configs = new ConfigService(fsLoader);
   const result = await configs.load("manifest.json");
   if (!result.ok) {
     throw new Error("test content failed to load: " + JSON.stringify(result.errors));
   }
+  setTestCountdown(configs, opts.matchCountdownSec ?? 0);
   return configs;
+}
+
+/**
+ * Rewrite the loaded pack's `tuning.matchCountdownSec`. Goes through
+ * `ConfigService.replace`, so the value is schema-validated exactly like an
+ * editor save — a test cannot install a countdown the shipped schema would
+ * reject.
+ */
+export function setTestCountdown(configs: ConfigService, seconds: number): void {
+  const tuning = configs.getAll<TuningConfig>("tuning")[0];
+  if (!tuning) throw new Error("no tuning config loaded");
+  const result = configs.replace({ ...tuning, matchCountdownSec: seconds });
+  if (!result.ok) {
+    throw new Error("failed to set test countdown: " + JSON.stringify(result.errors));
+  }
 }
 
 /**

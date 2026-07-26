@@ -70,7 +70,8 @@
     "skybox": {
       "texture": "skyboxes/deep-field.webp",
       "intensity": 0.78,
-      "tint": "#dbeaff"
+      "tint": "#dbeaff",
+      "sun": { "dir": [0.777, 0.309, 0.55], "color": "#ffecc8", "intensity": 1.1 }
     },
     "boundaryShield": {
       "baseOpacity": 0.018,

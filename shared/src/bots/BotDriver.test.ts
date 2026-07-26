@@ -43,7 +43,7 @@ function snap(
   projectiles: ProjectileSnapshot[] = [],
   elapsed = 1,
 ): Snapshot {
-  return { tick: 1, elapsed, phase: "live", winnerTeam: null, ships, asteroids, projectiles };
+  return { tick: 1, elapsed, phase: "live", countdownRemaining: 0, winnerTeam: null, ships, asteroids, projectiles };
 }
 
 function rock(id: number, x: number, z: number, radius = 8): AsteroidSnapshot {

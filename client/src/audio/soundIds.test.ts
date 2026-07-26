@@ -157,6 +157,8 @@ describe("cueSoundFor", () => {
     boundaryWarning: "boundary_warn",
     lockAcquired: "lock_acquired",
     lockLost: "lock_lost",
+    countdownTick: "countdown_tick",
+    countdownGo: "countdown_go",
   };
 
   it("fires player-feedback cues only for the local player", () => {

@@ -141,3 +141,65 @@ Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchang
 - The authored boundary notification fires on warning-zone entry and rearms
   only after the player leaves, using the existing notification duration/style
   pipeline.
+
+## Sun, dust, spawn markers, match countdown (2026-07-26)
+
+Four user-requested changes to how a match opens and how the bubble reads.
+
+- **The painted star IS the key light.** `arena.render.skybox` gains an optional
+  `sun { dir, color, intensity }`. `dir` points FROM the arena TOWARD the star
+  as a unit vector — the same number an author reads off the panorama — and the
+  schema rejects a non-unit vector (tolerance 0.02) so a mistyped axis fails
+  loudly. SceneBuilder builds the arena's `DirectionalLight` (parallel rays)
+  travelling along **-dir** with the authored color/intensity, *replacing* the
+  generic `lighting.directionalIntensity` key light; the hemispheric fill stays
+  (and now leans toward the star) so an unlit hull face is a shadow rather than
+  a silhouette. An arena with no authored sun keeps the old rig byte for byte,
+  and the whole rig is still parented to `arenaRoot`, so the editor/hangar
+  stages that hide the arena and supply their own lights are unaffected.
+  Deep-field: `[0.777, 0.309, 0.55]` / `#ffecc8` / 1.1. Ring-nebula:
+  `[-0.677, -0.208, -0.706]` / `#dce4ff` / 1.0.
+- **Ambient dust** (`quality.scene.dust`, optional so published packs stay
+  valid): one `ParticleSystem` emitting inside a ~120-unit box that follows the
+  player's follow point, driven from the same per-frame hook the boundary shield
+  uses. Particles live in WORLD space (`isLocal` false), so the ship flies past
+  them and the motion sells speed; they expire about one box-crossing after the
+  box has moved on, with the lifetime band DERIVED from `boxSize` rather than
+  authored. Cost is a function of the box, never the arena radius: one draw
+  call and `count` particles at radius 90 or 300 alike. The knobs live on the
+  quality tier, not the arena, because every one of them is a render-density /
+  overdraw budget — the same argument that puts `starfieldPoints` there.
+  Counts: **low 0**, med 180, high 340. Low is off deliberately and not for
+  lack of trying: additive sprites are pure overdraw, which is exactly the
+  budget a phone at the tier that already drops glow and the hex shader has
+  least of.
+- **Spawn markers are off in all three shipped tiers.** They are an authoring
+  aid. `SceneBuilder.setSpawnMarkerOverride` lets the dev editor force them back
+  on for its whole session (`EditorHost.setSpawnMarkersForced`), so the Map
+  editor and arena Inspector still show designers where teams spawn — an
+  override rather than a second flag, so there is still ONE shipped answer.
+- **Match-start countdown** (`tuning.matchCountdownSec`, default 3, `0` legal):
+  sim-level and therefore authoritative and identical for both players.
+  `ArenaSimulation` opens in a `countdown` phase and reaches `live` only after
+  ticking the clock down in SIM time. The mechanic is *suspend the integration*,
+  not *reject the orders*: NavigationSystem and ModuleSystem still run, with
+  **dt = 0**, so a held flight order is drained and stored while nothing
+  integrates — a throttle held through "3-2-1" bites on the very first live
+  tick — and a mashed module button toggles once per press instead of N times
+  at GO. Nothing else runs, so no lock warms up early and no one can fire or
+  collide. `elapsed` (and the `timeLimit` win condition) starts at GO; `tick`
+  counts countdown ticks. Snapshot carries `phase` + `countdownRemaining`, and
+  the sim emits `countdownTick` (3/2/1) and `matchStarted` — low-rate edges,
+  relayed like the lock flips, so the audio cue and the numeral cannot drift
+  apart. Online, `ArenaState.countdownRemaining` is written from the sim each
+  tick and the room accepts orders throughout the window; the client's predictor
+  suspends `flightStep` while the phase is not `live`, and a room still
+  `waiting` decodes as `countdown` (its sim is not being ticked at all, which is
+  the same guarantee). Bots needed no change — `BotDriver.update` already bails
+  on `phase !== "live"`, so no bot burns boost before GO.
+  `CountdownOverlay` renders `Math.ceil(countdownRemaining)` → GO in the
+  sci-fi style; it reads the replicated value and keeps no timer of its own,
+  which is the whole point. The e2e smoke plays the real 3 s countdown inside
+  its existing frame budget (90 ticks ≈ 18 forced frames of 1500), so no test
+  fixture change was needed there; unit suites run on `matchCountdownSec: 0`
+  because they measure per-tick behaviour, and the countdown has its own suite.
