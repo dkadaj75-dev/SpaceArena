@@ -71,6 +71,8 @@ export interface ProjectileSnapshot {
   kind: "kinetic" | "missile";
   pos: { x: number; y: number; z: number };
   heading: number;
+  /** Authoritative 3D travel vector; omitted by remote wire snapshots. */
+  velocity?: { x: number; y: number; z: number };
 }
 
 export interface Snapshot {
@@ -374,11 +376,13 @@ export class ArenaSimulation {
     });
     const projectiles: ProjectileSnapshot[] = w.projectileIds().map((id) => {
       const tf = w.transforms.get(id)!;
+      const velocity = w.velocities.get(id)!;
       return {
         id,
         kind: w.projectiles.get(id)!.kind,
         pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
         heading: tf.heading,
+        velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
       };
     });
     return {

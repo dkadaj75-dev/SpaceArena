@@ -22,3 +22,11 @@ export function bracket<T extends { time: number }>(items: readonly T[], renderT
 export function decayCorrection(offset: number, dtSeconds: number, rate: number, snapDistance = 3): number {
   return Math.abs(offset) > snapDistance ? 0 : offset * Math.exp(-rate * dtSeconds);
 }
+
+/**
+ * Convert a legacy per-frame pull authored at `referenceHz` into a dt-stable
+ * exponential fraction. At 60 Hz, 0.15 remains exactly 0.15.
+ */
+export function timeBasedPull(referencePull: number, dtSeconds: number, referenceHz = 60): number {
+  return 1 - Math.pow(1 - referencePull, dtSeconds * referenceHz);
+}

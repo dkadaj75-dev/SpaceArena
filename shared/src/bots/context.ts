@@ -11,6 +11,8 @@ export type BehaviorParams = BotprofileConfig["behaviors"][string];
 export interface IncomingMissile {
   projectile: ProjectileSnapshot;
   distance: number;
+  /** Normalized authoritative travel direction used by the 3D dodge plan. */
+  direction: { x: number; y: number; z: number };
 }
 
 /**
@@ -122,14 +124,20 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     if (p.kind !== "missile") continue;
     const d = dist3(self.pos, p.pos);
     if (d > input.missileScanRadius) continue;
-    // Heading toward us? (Our own outbound missiles point away.) The cone test
-    // stays planar because `ProjectileSnapshot` carries no pitch — the distance
-    // gate above is the 3D part, and a missile climbing at us still passes it.
-    const toSelf = Math.atan2(self.pos.z - p.pos.z, self.pos.x - p.pos.x);
-    let delta = toSelf - p.heading;
-    delta = Math.atan2(Math.sin(delta), Math.cos(delta));
-    if (Math.abs(delta) > INBOUND_CONE) continue;
-    incomingMissiles.push({ projectile: p, distance: d });
+    // Authoritative bot snapshots carry velocity, so both closing and the cone
+    // are truly 3D. The heading fallback only serves remote/debug snapshots.
+    const velocity = p.velocity ?? { x: Math.cos(p.heading), y: 0, z: Math.sin(p.heading) };
+    const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+    if (speed === 0 || d === 0) continue;
+    const direction = { x: velocity.x / speed, y: velocity.y / speed, z: velocity.z / speed };
+    const toSelf = {
+      x: (self.pos.x - p.pos.x) / d,
+      y: (self.pos.y - p.pos.y) / d,
+      z: (self.pos.z - p.pos.z) / d,
+    };
+    const toward = direction.x * toSelf.x + direction.y * toSelf.y + direction.z * toSelf.z;
+    if (toward < Math.cos(INBOUND_CONE)) continue;
+    incomingMissiles.push({ projectile: p, distance: d, direction });
   }
   incomingMissiles.sort((a, b) => a.distance - b.distance || a.projectile.id - b.projectile.id);
 

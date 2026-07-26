@@ -382,12 +382,33 @@ describe("dodge", () => {
     expect(Math.abs(aimDelta(ctx, p))).toBeCloseTo(Math.PI / 2, 6);
   });
 
+  it("dodges an overhead diver in 3D but ignores an overhead missile climbing away", () => {
+    const diver: ProjectileSnapshot = {
+      id: 51,
+      kind: "missile",
+      pos: { x: 0, y: 10, z: 0 },
+      heading: 0,
+      velocity: { x: 0, y: -30, z: 0 },
+    };
+    const diving = context({ projectiles: [diver] });
+    expect(score("dodge", { dodgeRadius: 20 }, diving)).toBeGreaterThan(1);
+    const dodgePlan = plan("dodge", { dodgeRadius: 20, dodgeDistance: 12 }, diving);
+    const offset = {
+      x: dodgePlan.aim!.x - diving.self.pos.x,
+      y: (dodgePlan.aim!.y ?? 0) - diving.self.pos.y,
+      z: dodgePlan.aim!.z - diving.self.pos.z,
+    };
+    expect(offset.x * diver.velocity!.x + offset.y * diver.velocity!.y + offset.z * diver.velocity!.z).toBeCloseTo(0, 12);
+
+    const climber = { ...diver, id: 52, velocity: { x: 0, y: 30, z: 0 } };
+    expect(score("dodge", { dodgeRadius: 20 }, context({ projectiles: [climber] }))).toBe(0);
+  });
+
   it("breaks out of the missile's plane as well as across its track", () => {
     for (const orbitSign of [1, -1] as const) {
       const ctx = context({ projectiles: [missile], enemyAt: { x: 40, z: 0 }, orbitSign });
       const p = plan("dodge", { dodgeRadius: 20, dodgeDistance: 12, dodgeClimbRad: 0.5 }, ctx);
-      // Same yaw break as before, now with an elevation on the same side — a
-      // seeker forced to rotate through two axes at once pays more than one.
+      // Same yaw break as before, now selecting a different 3D break plane.
       expect(Math.abs(aimDelta(ctx, p))).toBeCloseTo(Math.PI / 2, 6);
       expect(aimPitch(ctx, p)).toBeCloseTo(0.5 * orbitSign, 6);
     }

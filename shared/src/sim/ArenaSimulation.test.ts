@@ -6,6 +6,7 @@ import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "./spawn.js"
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { projectileSystem } from "./systems/ProjectileSystem.js";
 import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "./testutil.js";
+import { World } from "./World.js";
 
 const DT = 1 / 30;
 
@@ -78,6 +79,23 @@ describe("CollisionSystem boundary", () => {
 
     expect(world.shipCores.get(id)!.hull).toBe(before);
     expect(world.events.some((e) => e.type === "boundaryHit")).toBe(false);
+  });
+
+  it("enforces the ceiling of a supported rect arena", () => {
+    const base = makeWorld(configs, { gamemodeOverride: { boundaryRule: { type: "bounce", restitution: 1 } } });
+    const world = new World(
+      configs,
+      base.tuning,
+      { ...base.arena, bounds: { shape: "rect", width: 120, height: 80, verticalExtent: 60 } },
+      base.gamemode,
+    );
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, y: 31, z: 0 }, 0);
+    world.velocities.get(id)!.y = 10;
+
+    collisionSystem(world, DT);
+
+    expect(world.velocities.get(id)!.y).toBeLessThan(0);
+    expect(world.transforms.get(id)!.pos.y).toBeLessThan(30);
   });
 });
 
@@ -193,6 +211,41 @@ describe("ProjectileSystem in 3D (BUBBLE.md §A)", () => {
     expect(target.pos.y).toBeGreaterThan(10); // it really did climb away from the plane
     expect(world.shipCores.get(foe)!.hull).toBeLessThan(hullBefore);
     expect(world.projectiles.has(pid)).toBe(false);
+  });
+
+  it("spends one total homing angular budget on a diagonal 3D bearing", () => {
+    const world = makeWorld(configs);
+    const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const foe = spawnShipFromConfig(
+      world,
+      configs,
+      "ship.interceptor",
+      INTERCEPTOR_FITTING,
+      1,
+      { x: 40, y: 40, z: 40 },
+      0,
+    );
+    const pid = spawnProjectile(world, {
+      kind: "missile",
+      damage: 10,
+      damageType: "kinetic",
+      speed: 20,
+      turnRate: 1,
+      lifetime: 5,
+      ownerId: shooter,
+      ownerTeam: 0,
+      targetId: foe,
+      pos: { x: 0, z: 0 },
+      heading: 0,
+    });
+    rebuildSpatial(world);
+
+    const dt = 0.2;
+    projectileSystem(world, dt);
+
+    const velocity = world.velocities.get(pid)!;
+    const turned = Math.acos(velocity.x / Math.hypot(velocity.x, velocity.y, velocity.z));
+    expect(turned).toBeCloseTo(dt, 12);
   });
 
   it("culls ordnance on 3D radial distance, so a shot fired straight up expires", () => {

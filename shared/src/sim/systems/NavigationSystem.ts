@@ -1,7 +1,7 @@
 import type { ModuleConfig } from "../../schemas/index.js";
 import type { EntityId, ShipCore } from "../components.js";
 import { clamp, len3, wrapAngle } from "../math.js";
-import { DEFAULT_MAX_PITCH_RAD, DEFAULT_PITCH_RATE_MULT } from "../tuningDefaults.js";
+import { pitchTuningOf } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 
 /**
@@ -64,8 +64,7 @@ export function navigationSystem(world: World, dt: number): void {
   }
 
   const drag = world.tuning.dragCoefficient ?? 0;
-  const pitchRateMult = world.tuning.pitchRateMult ?? DEFAULT_PITCH_RATE_MULT;
-  const maxPitch = world.tuning.maxPitchRad ?? DEFAULT_MAX_PITCH_RAD;
+  const { pitchRateMult, maxPitchRad: maxPitch } = pitchTuningOf(world.tuning);
 
   for (const id of world.shipIds()) {
     const core = world.shipCores.get(id)!;

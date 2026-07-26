@@ -27,7 +27,7 @@ import {
 } from "@space-arena/shared";
 import { GameSession } from "../game/GameSession.js";
 import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
-import { bracket, lerpHeading } from "./interpolation.js";
+import { bracket, lerpHeading, timeBasedPull } from "./interpolation.js";
 
 const log = createLogger("NetGameSession");
 const MAX_SNAPSHOTS = 32;
@@ -550,7 +550,7 @@ export class NetGameSession extends GameSession {
       // not `lerpHeading` — pitch is clamped, not wrapped, so there is no short
       // way round to find.
       const steering = held !== null;
-      const attitudePull = steering ? 0.15 : pull;
+      const attitudePull = steering ? timeBasedPull(0.15, dt) : pull;
       this.pred.heading = lerpHeading(this.pred.heading, player.heading, attitudePull);
       this.pred.pitch += (player.pitch - this.pred.pitch) * attitudePull;
     }

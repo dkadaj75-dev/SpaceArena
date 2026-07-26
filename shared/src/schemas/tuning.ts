@@ -31,7 +31,7 @@ export const tuningSchema = z.object({
    * the nose can never pass vertical, so the chase cam never crosses a pole and
    * the sim needs no roll/quaternion surface. Default 1.4 (~80°).
    */
-  maxPitchRad: z.number().positive().optional(),
+  maxPitchRad: z.number().positive().lt(Math.PI / 2).optional(),
   /** Global damage multiplier (balance knob). */
   globalDamageMult: z.number().positive(),
   /** Planar linear drag coefficient. */

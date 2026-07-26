@@ -557,7 +557,10 @@ describe("upgrade schema", () => {
 
 describe("arena schema", () => {
   it("accepts both bounds shapes and rejects unknown/degenerate ones", () => {
-    expect(mutated("arena", (d) => (d["bounds"] = { shape: "rect", width: 120, height: 80 }))).toBe(true);
+    expect(
+      mutated("arena", (d) => (d["bounds"] = { shape: "rect", width: 120, height: 80, verticalExtent: 60 })),
+    ).toBe(true);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "rect", width: 120, height: 80 }))).toBe(false);
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 0 }))).toBe(false);
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "hex", radius: 90 }))).toBe(false);
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "rect", width: 120 }))).toBe(false);
@@ -582,6 +585,29 @@ describe("arena schema", () => {
     expect(
       mutated("arena", (d) => {
         d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: -30, y: "high", z: 0 }, heading: 0 }];
+      }),
+    ).toBe(false);
+    for (const pitch of [-Math.PI / 2, Math.PI / 2, -4, 4]) {
+      expect(
+        mutated("arena", (d) => {
+          (d["spawnPoints"] as Array<Record<string, unknown>>)[0]!["pitch"] = pitch;
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it("keeps bounds, projectile overshoot, and spawns inside the centi-wire envelope", () => {
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 400 }))).toBe(false);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 307.67 }))).toBe(true);
+    expect(
+      mutated("arena", (d) => {
+        d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: 91, y: 0, z: 0 }, heading: 0 }];
+      }),
+    ).toBe(false);
+    expect(
+      mutated("arena", (d) => {
+        d["bounds"] = { shape: "rect", width: 120, height: 80, verticalExtent: 60 };
+        d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: 0, y: 31, z: 0 }, heading: 0 }];
       }),
     ).toBe(false);
   });
@@ -785,6 +811,8 @@ describe("tuning schema", () => {
     expect(mutated("tuning", (d) => (d["pitchRateMult"] = 0))).toBe(true);
     expect(mutated("tuning", (d) => (d["pitchRateMult"] = -0.1))).toBe(false);
     expect(mutated("tuning", (d) => (d["maxPitchRad"] = 0))).toBe(false);
+    expect(mutated("tuning", (d) => (d["maxPitchRad"] = Math.PI / 2))).toBe(false);
+    expect(mutated("tuning", (d) => (d["maxPitchRad"] = Math.PI))).toBe(false);
     expect(mutated("tuning", (d) => (d["projectilePoolSize"] = 0))).toBe(false);
     expect(mutated("tuning", (d) => (d["featureFlags"] = { botDebug: "yes" }))).toBe(false);
   });

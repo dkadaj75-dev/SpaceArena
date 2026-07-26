@@ -417,8 +417,8 @@ function jinkOnPitch(ctx: BotContext, params: BehaviorParams): boolean {
  * across its track (`plan`) — the flight analogue of the old perpendicular
  * sidestep, and the widest possible aspect change for a homing seeker. In the
  * bubble the break also leaves the missile's plane (`dodgeClimbRad`): the seeker
- * turns at its own `turnRate` about the 3D bearing since T1, so forcing it to
- * rotate through two axes at once is strictly more expensive than one.
+ * spends one true 3D angular budget, so maximizing angular separation is the
+ * useful geometry rather than exploiting independent yaw/pitch costs.
  *
  * That one-sided elevation DOES default to a real value, unlike kite's
  * `verticalSlipRad`, and the difference is frequency rather than taste: kite wins
@@ -445,15 +445,31 @@ const dodge: BotBehavior = {
   plan(ctx, params) {
     const inbound = ctx.incomingMissiles[0];
     if (!inbound) return IDLE_PLAN;
-    // Perpendicular to the missile's travel direction, on the bot's orbit side,
-    // and out of its plane on the same side (a consistent diagonal per bot).
-    // `ProjectileSnapshot` carries no pitch, so the missile's own elevation is
-    // not observable — the break is measured off its yaw, which is the only
-    // track information a bot legitimately has.
-    const perp = inbound.projectile.heading + (Math.PI / 2) * ctx.orbitSign;
-    const climb = numParam(params, "dodgeClimbRad", 0.4) * ctx.orbitSign;
+    // Stable 3D perpendicular, signed per bot. Rotating it around the missile
+    // track preserves perpendicularity while selecting a different break plane.
+    const direction = inbound.direction;
+    const reference = Math.abs(direction.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+    let px = direction.y * reference.z - direction.z * reference.y;
+    let py = direction.z * reference.x - direction.x * reference.z;
+    let pz = direction.x * reference.y - direction.y * reference.x;
+    const plen = Math.hypot(px, py, pz);
+    px = (px / plen) * ctx.orbitSign;
+    py = (py / plen) * ctx.orbitSign;
+    pz = (pz / plen) * ctx.orbitSign;
+    const angle = -numParam(params, "dodgeClimbRad", 0.4);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const crossX = direction.y * pz - direction.z * py;
+    const crossY = direction.z * px - direction.x * pz;
+    const crossZ = direction.x * py - direction.y * px;
+    const dodge = { x: px * cos + crossX * sin, y: py * cos + crossY * sin, z: pz * cos + crossZ * sin };
+    const distance = Math.max(numParam(params, "dodgeDistance", 12), 1);
     return {
-      aim: pointOnSphere(ctx.self.pos, perp, climb, Math.max(numParam(params, "dodgeDistance", 12), 1)),
+      aim: {
+        x: ctx.self.pos.x + dodge.x * distance,
+        y: ctx.self.pos.y + dodge.y * distance,
+        z: ctx.self.pos.z + dodge.z * distance,
+      },
       throttle: numParam(params, "throttle", 1),
       boost: rollBoost(ctx, numParam(params, "boostChance", 0)),
       engaged: true,

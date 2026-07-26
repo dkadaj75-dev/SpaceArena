@@ -53,7 +53,9 @@ beforeAll(async () => {
       type: "arena",
       version: 1,
       name: "Balance Bench",
-      bounds: { shape: "sphere", radius: 400 },
+      // Largest schema-valid bubble with the default 20-unit projectile margin.
+      // Boundary warning does not alter motion, preserving the bench trajectories.
+      bounds: { shape: "sphere", radius: 307.67 },
       asteroidPlacements: [],
       spawnPoints: [
         { id: "b0", team: 0, position: { x: 0, z: 0 }, heading: 0 },

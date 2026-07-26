@@ -119,6 +119,25 @@ describe("ConfigService.load", () => {
     expect(result.errors.some((e) => e.message.includes("duplicate config id"))).toBe(true);
   });
 
+  it("validates arena wire headroom against the pack's authored projectile margin", async () => {
+    const files = validFiles();
+    files["arena.json"] = { ...arena, bounds: { shape: "sphere", radius: 300 } };
+    (files["manifest.json"] as { files: string[] }).files.push("tuning.json");
+    files["tuning.json"] = {
+      id: "tuning.default",
+      type: "tuning",
+      version: 1,
+      targetingPolicy: "nearest",
+      globalDamageMult: 1,
+      projectileBoundsMargin: 30,
+    };
+    const svc = new ConfigService(memLoader(files));
+    const result = await svc.load("manifest.json");
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.path === "bounds.radius" && e.message.includes("projectile margin"))).toBe(true);
+  });
+
   it("freezes loaded objects deeply", async () => {
     const svc = new ConfigService(memLoader(validFiles()));
     await svc.load("manifest.json");

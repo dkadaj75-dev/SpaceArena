@@ -111,6 +111,10 @@ Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchang
   `distance(origin) + scaled collider radius <= 315` cap placement by placement;
   ring-nebula keeps the same quantity within its radius-90 bubble. Spawn offsets
   and authored pitch values remain unchanged.
+- **Rect bounds audit (T6):** rect is not shipped, but it still has live sim and
+  SceneBuilder consumers, so it remains supported as a finite 3D box. Authored
+  rects now require `verticalExtent`; collision/projectile culling enforce its
+  ceiling and floor, and the scene renders all six boundary walls.
 
 ## Stage plan (test-gated, per the flight-overhaul rhythm)
 1. **T1 sim 3D core** (A) — landed.

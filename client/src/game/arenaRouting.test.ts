@@ -55,6 +55,15 @@ beforeAll(async () => {
     id: SECOND_ARENA_ID,
     name: "S0 Routing Test",
     bounds: { shape: "sphere", radius: SECOND_ARENA_RADIUS },
+    // The source arena's r≈78 spawns cannot be copied into an r50 test bubble.
+    spawnPoints: source.spawnPoints.map((spawn) => ({
+      ...spawn,
+      position: {
+        x: spawn.position.x * 0.5,
+        y: (spawn.position.y ?? 0) * 0.5,
+        z: spawn.position.z * 0.5,
+      },
+    })),
   };
   expect(configs.replace(second).ok).toBe(true);
 });

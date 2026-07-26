@@ -274,6 +274,15 @@ describe("NavigationSystem — pitch and 3D integration (BUBBLE.md §A)", () => 
     expect(len(tf.pos.x, tf.pos.z)).toBeLessThan(len3(tf.pos.x, tf.pos.y, tf.pos.z));
   });
 
+  it("clamps a spawn pitch before the first flight order", () => {
+    const world = makeWorld(configs);
+    const up = spawnPilot(world, { x: 0, z: 0 }, 0, 4);
+    const down = spawnPilot(world, { x: 0, z: 0 }, 0, -4);
+    const maxPitch = world.tuning.maxPitchRad!;
+    expect(world.transforms.get(up)!.pitch).toBe(maxPitch);
+    expect(world.transforms.get(down)!.pitch).toBe(-maxPitch);
+  });
+
   it("keeps the total speed curve identical whatever the pitch is", () => {
     const world = makeWorld(configs);
     const level = spawnPilot(world);

@@ -154,6 +154,7 @@ describe("flightStep ⇄ NavigationSystem parity (FLIGHT.md §1, BUBBLE.md §A)"
       pitchRateMult: 0.8,
       maxPitchRad: 1.4,
     });
+    expect(pitchTuningOf({ ...tuning, maxPitchRad: Math.PI }).maxPitchRad).toBeLessThan(Math.PI / 2);
     expect(world.tuning.maxPitchRad).toBeGreaterThan(0);
   });
 });

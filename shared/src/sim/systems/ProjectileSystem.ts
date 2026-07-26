@@ -1,10 +1,8 @@
 import type { EntityId } from "../components.js";
+import { DEFAULT_PROJECTILE_BOUNDS_MARGIN } from "../../schemas/arena.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
-import { headingOf, len3, pitchOf, pitchToward, segmentIntersectsSphere, turnToward } from "../math.js";
+import { clamp, headingOf, len3, pitchOf, segmentIntersectsSphere } from "../math.js";
 import type { World } from "../World.js";
-
-/** Fallback for `tuning.projectileBoundsMargin` (world units). */
-const DEFAULT_BOUNDS_MARGIN = 20;
 
 /**
  * ProjectileSystem — advances travelling ordnance, homes missiles toward their
@@ -13,12 +11,11 @@ const DEFAULT_BOUNDS_MARGIN = 20;
  * against enemy ships and asteroids so fast projectiles cannot tunnel. First hit
  * along the path wins.
  *
- * Homing is yaw + pitch (BUBBLE.md §A): each axis rotates toward the target's
- * bearing by at most `turnRate * dt`, the same budget the planar version spent on
- * yaw alone, so a missile can chase a climbing ship without gaining a new stat.
+ * Homing spends one 3D angular budget (BUBBLE.md §A): velocity rotates toward
+ * the bearing by at most `turnRate * dt`, then yaw/pitch are recovered.
  */
 export function projectileSystem(world: World, dt: number): void {
-  const margin = world.tuning.projectileBoundsMargin ?? DEFAULT_BOUNDS_MARGIN;
+  const margin = world.tuning.projectileBoundsMargin ?? DEFAULT_PROJECTILE_BOUNDS_MARGIN;
   for (const id of world.projectileIds()) {
     const proj = world.projectiles.get(id)!;
     const tf = world.transforms.get(id)!;
@@ -37,12 +34,20 @@ export function projectileSystem(world: World, dt: number): void {
       const dy = tgt.pos.y - tf.pos.y;
       const dz = tgt.pos.z - tf.pos.z;
       const step = (proj.turnRate ?? 0) * dt;
-      tf.heading = turnToward(tf.heading, headingOf(dx, dz), step);
-      tf.pitch = pitchToward(tf.pitch, pitchOf(dx, dy, dz), step);
-      const cosPitch = Math.cos(tf.pitch);
-      vel.x = cosPitch * Math.cos(tf.heading) * proj.speed;
-      vel.y = Math.sin(tf.pitch) * proj.speed;
-      vel.z = cosPitch * Math.sin(tf.heading) * proj.speed;
+      const speed = len3(vel.x, vel.y, vel.z);
+      const bearingLength = len3(dx, dy, dz);
+      if (speed > 0 && bearingLength > 0 && step > 0) {
+        const next = rotateTowardUnit(
+          { x: vel.x / speed, y: vel.y / speed, z: vel.z / speed },
+          { x: dx / bearingLength, y: dy / bearingLength, z: dz / bearingLength },
+          step,
+        );
+        vel.x = next.x * proj.speed;
+        vel.y = next.y * proj.speed;
+        vel.z = next.z * proj.speed;
+        tf.heading = headingOf(next.x, next.z);
+        tf.pitch = pitchOf(next.x, next.y, next.z);
+      }
     }
 
     const from = { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z };
@@ -76,6 +81,43 @@ export function projectileSystem(world: World, dt: number): void {
   }
 }
 
+/** Rotate one unit vector toward another by one total angular step. */
+function rotateTowardUnit(
+  from: { x: number; y: number; z: number },
+  to: { x: number; y: number; z: number },
+  maxStep: number,
+): { x: number; y: number; z: number } {
+  const dot = clamp(from.x * to.x + from.y * to.y + from.z * to.z, -1, 1);
+  const angle = Math.acos(dot);
+  if (angle <= maxStep) return to;
+
+  const sinAngle = Math.sin(angle);
+  if (Math.abs(sinAngle) > 1e-8) {
+    const fromWeight = Math.sin(angle - maxStep) / sinAngle;
+    const toWeight = Math.sin(maxStep) / sinAngle;
+    return {
+      x: from.x * fromWeight + to.x * toWeight,
+      y: from.y * fromWeight + to.y * toWeight,
+      z: from.z * fromWeight + to.z * toWeight,
+    };
+  }
+
+  // Antipodal fallback: choose a deterministic perpendicular.
+  const reference =
+    Math.abs(from.x) <= Math.abs(from.y) && Math.abs(from.x) <= Math.abs(from.z)
+      ? { x: 1, y: 0, z: 0 }
+      : Math.abs(from.y) <= Math.abs(from.z)
+        ? { x: 0, y: 1, z: 0 }
+        : { x: 0, y: 0, z: 1 };
+  const px = from.y * reference.z - from.z * reference.y;
+  const py = from.z * reference.x - from.x * reference.z;
+  const pz = from.x * reference.y - from.y * reference.x;
+  const plen = len3(px, py, pz);
+  const c = Math.cos(maxStep);
+  const s = Math.sin(maxStep) / plen;
+  return { x: from.x * c + px * s, y: from.y * c + py * s, z: from.z * c + pz * s };
+}
+
 /** Whether `pos` sits more than `margin` outside the arena's own bounds shape. */
 function outsideBounds(world: World, pos: { x: number; y: number; z: number }, margin: number): boolean {
   const bounds = world.arena.bounds;
@@ -85,7 +127,11 @@ function outsideBounds(world: World, pos: { x: number; y: number; z: number }, m
     const limit = bounds.radius + margin;
     return pos.x * pos.x + pos.y * pos.y + pos.z * pos.z > limit * limit;
   }
-  return Math.abs(pos.x) > bounds.width / 2 + margin || Math.abs(pos.z) > bounds.height / 2 + margin;
+  return (
+    Math.abs(pos.x) > bounds.width / 2 + margin ||
+    Math.abs(pos.y) > bounds.verticalExtent / 2 + margin ||
+    Math.abs(pos.z) > bounds.height / 2 + margin
+  );
 }
 
 interface Hit {

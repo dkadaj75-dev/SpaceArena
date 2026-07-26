@@ -156,9 +156,10 @@ function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number):
       penetration = d - limit;
     }
   } else {
-    // Rect walls are vertical and unbounded in y (no ceiling authored today).
+    // Rect arenas are boxes: x walls, z walls, plus a real ceiling/floor.
     const halfW = bounds.width / 2 - col.radius;
     const halfH = bounds.height / 2 - col.radius;
+    const halfV = bounds.verticalExtent / 2 - col.radius;
     if (tf.pos.x > halfW) {
       outward = { x: 1, y: 0, z: 0 };
       penetration = tf.pos.x - halfW;
@@ -171,6 +172,12 @@ function resolveBoundary(world: World, sid: number, core: ShipCore, dt: number):
     } else if (tf.pos.z < -halfH) {
       outward = { x: 0, y: 0, z: -1 };
       penetration = -halfH - tf.pos.z;
+    } else if (tf.pos.y > halfV) {
+      outward = { x: 0, y: 1, z: 0 };
+      penetration = tf.pos.y - halfV;
+    } else if (tf.pos.y < -halfV) {
+      outward = { x: 0, y: -1, z: 0 };
+      penetration = -halfV - tf.pos.y;
     }
   }
 

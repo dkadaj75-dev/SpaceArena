@@ -216,6 +216,16 @@ describe("reticleRadiusPx", () => {
     expect(tilted.radiusPx).toBeGreaterThan(reticleRadiusPx(10, level, VIEWPORT, RETICLE).radiusPx);
   });
 
+  it("includes the camera-axis offset plus the cone half-angle at the far edge", () => {
+    const view = { fovRad: 1.05, betaRad: 1.45 };
+    const halfCone = (10 * Math.PI) / 360;
+    const axisOffset = Math.abs(Math.PI / 2 - view.betaRad);
+    const expected = ((VIEWPORT.height / 2) * Math.tan(axisOffset + halfCone)) / Math.tan(view.fovRad / 2);
+    const size = reticleRadiusPx(10, view, VIEWPORT, RETICLE);
+    expect(size.clamped).toBe(false);
+    expect(size.radiusPx).toBeCloseTo(expected, 9);
+  });
+
   it("clamps a cone wider than the camera can show and flags it", () => {
     const huge = reticleRadiusPx(178, level, VIEWPORT, RETICLE);
     expect(huge.clamped).toBe(true);

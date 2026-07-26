@@ -2,6 +2,8 @@ import type { ConfigService } from "../core/ConfigService.js";
 import { hardpointsOf, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
 import { resolveShipStats, type UpgradeLevels } from "./resolveStats.js";
+import { clamp } from "./math.js";
+import { pitchTuningOf } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
 /** Small radius given to travelling ordnance for hit sweeps. */
@@ -52,7 +54,9 @@ export function spawnShipFromConfig(
   if (!ship) throw new Error(`unknown ship config: ${shipId}`);
 
   const id = world.createEntity();
-  world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading, pitch });
+  const maxPitch = pitchTuningOf(world.tuning).maxPitchRad;
+  const spawnPitch = Number.isFinite(pitch) ? clamp(pitch, -maxPitch, maxPitch) : 0;
+  world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading, pitch: spawnPitch });
   world.velocities.set(id, { x: 0, y: 0, z: 0 });
   world.shipCores.set(id, resolveShipStats(ship, configs, { upgradeLevels, fittedModuleIds: fittingModuleIds }));
   world.colliders.set(id, { radius: ship.collider.radius });

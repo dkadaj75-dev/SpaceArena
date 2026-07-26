@@ -9,7 +9,7 @@ import { hasLineOfSightAmong } from "../sim/los.js";
 import { angleDelta, clamp, dist3 } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
 import { deriveRng } from "../sim/rng.js";
-import { DEFAULT_MAX_PITCH_RAD } from "../sim/tuningDefaults.js";
+import { pitchTuningOf } from "../sim/tuningDefaults.js";
 import {
   botBehaviors,
   type BehaviorRegistry,
@@ -330,7 +330,7 @@ export class BotDriver {
   private maxPitch(): number {
     if (this.maxPitchCache >= 0) return this.maxPitchCache;
     const tuning = this.configs.getAll<TuningConfig>("tuning")[0];
-    this.maxPitchCache = tuning?.maxPitchRad ?? DEFAULT_MAX_PITCH_RAD;
+    this.maxPitchCache = pitchTuningOf(tuning ?? ({} as TuningConfig)).maxPitchRad;
     return this.maxPitchCache;
   }
 

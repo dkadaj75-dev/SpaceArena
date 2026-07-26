@@ -1,12 +1,16 @@
 import type { EventBus } from "./EventBus.js";
 import {
   CONFIG_TYPES,
+  DEFAULT_PROJECTILE_BOUNDS_MARGIN,
+  arenaWireEnvelopeIssues,
   collectReferences,
   collectRelationalErrors,
   manifestSchema,
   validateConfig,
   type AnyConfig,
+  type ArenaConfig,
   type ConfigType,
+  type TuningConfig,
 } from "../schemas/index.js";
 
 /** A structured, human-readable config problem. */
@@ -160,6 +164,17 @@ export class ConfigService {
         errors.push({ file: fileById.get(config.id) ?? config.id, path: rel.path, message: rel.message });
       }
     }
+    const tuning = staged.get("tuning")?.values().next().value as TuningConfig | undefined;
+    const projectileMargin = tuning?.projectileBoundsMargin ?? DEFAULT_PROJECTILE_BOUNDS_MARGIN;
+    for (const arena of staged.get("arena")?.values() ?? []) {
+      for (const issue of arenaWireEnvelopeIssues((arena as ArenaConfig).bounds, projectileMargin)) {
+        errors.push({
+          file: fileById.get(arena.id) ?? arena.id,
+          path: issue.path.join("."),
+          message: issue.message,
+        });
+      }
+    }
 
     if (errors.length > 0) {
       return { ok: false, errors, counts: {} };
@@ -254,6 +269,20 @@ export class ConfigService {
       id === config.id ? config : this.registry.get(type)?.get(id),
     )) {
       errors.push({ file: "<replace>", path: rel.path, message: rel.message });
+    }
+    const tuning =
+      config.type === "tuning"
+        ? config
+        : this.registry.get("tuning")?.values().next().value as TuningConfig | undefined;
+    const projectileMargin = tuning?.projectileBoundsMargin ?? DEFAULT_PROJECTILE_BOUNDS_MARGIN;
+    const arenas =
+      config.type === "arena"
+        ? [config]
+        : Array.from(this.registry.get("arena")?.values() ?? []) as ArenaConfig[];
+    for (const arena of arenas) {
+      for (const issue of arenaWireEnvelopeIssues(arena.bounds, projectileMargin)) {
+        errors.push({ file: "<replace>", path: issue.path.join("."), message: issue.message });
+      }
     }
     if (errors.length > 0) return { ok: false, errors };
 

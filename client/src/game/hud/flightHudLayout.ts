@@ -316,18 +316,10 @@ export interface ReticleSize {
  * full `pitchFollow` the effective tilt is CONSTANT, which is why the circle
  * should barely breathe in a climb).
  *
- * With that substitution the old planar derivation carries over unchanged. A
- * point `s` units along a cone edge, `P = s(cosθ·G + sinθ·L)`, has camera-space
- * components
- *
- *     depth      z = s·cosθ·sinβₑ + R
- *     vertical   y = s·cosθ·cosβₑ
- *     horizontal x = s·sinθ
- *
- * so its screen radius is `(H/2)/tan(fov/2) · hypot(y, x)/z`, which grows
- * monotonically with `s` toward the edge's vanishing point:
- *
- *     tanφ = hypot(sinθ, cosθ·cosβₑ) / (cosθ·sinβₑ)
+ * The cone axis is offset from the view axis by
+ * `α = |π/2 − βₑ|`. Its farthest edge is therefore `α + θ` from the view
+ * axis, including the cross-term between camera offset and cone angle. The
+ * vanishing-point envelope is simply `tanφ = tan(α + θ)`.
  *
  * That asymptote is what we draw: **every point inside the cone, at any
  * distance, projects inside a circle of this radius** — the circle is an honest
@@ -357,11 +349,17 @@ export function reticleRadiusPx(
   // A cone at/over 180° (or a rig looking at the cone from the side or behind)
   // has no finite envelope.
   const betaEff = view.betaRad - shipPitchRad;
-  const cosTheta = Math.cos(halfCone);
   const sinBeta = Math.sin(betaEff);
-  if (cosTheta <= 1e-4 || sinBeta <= 1e-4) return { radiusPx: maxRadius, clamped: true };
+  const axisOffset = Math.abs(Math.PI / 2 - betaEff);
+  const farEdgeAngle = axisOffset + halfCone;
+  if (farEdgeAngle >= Math.PI / 2 - 1e-4 || sinBeta <= 1e-4) {
+    return { radiusPx: maxRadius, clamped: true };
+  }
 
-  const tanPhi = Math.hypot(Math.sin(halfCone), cosTheta * Math.cos(betaEff)) / (cosTheta * sinBeta);
+  // The far cone edge is halfCone farther from the view axis than the cone
+  // axis itself. Adding the angles includes the cross-term omitted by combining
+  // their tangents in quadrature.
+  const tanPhi = Math.tan(farEdgeAngle);
   const honest = ((viewport.height / 2) * tanPhi) / tanHalfFov;
   return honest > maxRadius ? { radiusPx: maxRadius, clamped: true } : { radiusPx: honest, clamped: false };
 }

@@ -34,7 +34,7 @@ const log = createLogger("SceneBuilder");
  */
 function boundsRadiusOf(arena: ArenaConfig): number {
   const b = arena.bounds;
-  return b.shape === "sphere" ? b.radius : Math.hypot(b.width, b.height) / 2;
+  return b.shape === "sphere" ? b.radius : Math.hypot(b.width, b.verticalExtent, b.height) / 2;
 }
 
 function colorFromHex(hex: string | undefined, fallback: Color3): Color3 {
@@ -335,21 +335,24 @@ export class SceneBuilder {
         grid.parent = root;
       }
     } else {
-      // Rect stub: four thin boxes forming the perimeter.
-      const { width, height } = arena.bounds;
+      // Box arena: six translucent walls matching the sim's finite y bounds.
+      const { width, height, verticalExtent } = arena.bounds;
       const mat = new StandardMaterial("mat.boundsRect", this.scene);
       mat.diffuseColor = Color3.Black();
       mat.emissiveColor = new Color3(1.0, 0.5, 0.2);
+      mat.alpha = 0.08;
       const thickness = 0.6;
-      const edges: Array<[number, number, number, number]> = [
-        [0, height / 2, width, thickness],
-        [0, -height / 2, width, thickness],
-        [width / 2, 0, thickness, height],
-        [-width / 2, 0, thickness, height],
+      const walls: Array<[number, number, number, number, number, number]> = [
+        [0, 0, height / 2, width, verticalExtent, thickness],
+        [0, 0, -height / 2, width, verticalExtent, thickness],
+        [width / 2, 0, 0, thickness, verticalExtent, height],
+        [-width / 2, 0, 0, thickness, verticalExtent, height],
+        [0, verticalExtent / 2, 0, width, thickness, height],
+        [0, -verticalExtent / 2, 0, width, thickness, height],
       ];
-      for (const [x, z, w, d] of edges) {
-        const seg = MeshBuilder.CreateBox("boundsRectSeg", { width: w, height: 1, depth: d }, this.scene);
-        seg.position.set(x, 0, z);
+      for (const [x, y, z, w, h, d] of walls) {
+        const seg = MeshBuilder.CreateBox("boundsRectSeg", { width: w, height: h, depth: d }, this.scene);
+        seg.position.set(x, y, z);
         seg.material = mat;
         seg.isPickable = false;
         seg.parent = root;
