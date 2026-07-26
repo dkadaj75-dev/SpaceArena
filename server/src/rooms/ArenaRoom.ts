@@ -74,6 +74,8 @@ interface CreateOptions {
   /** Override the gamemode's `bots.backfillWaitMs`. 0 backfills as soon as someone joins. */
   botBackfillMs?: number;
   seed?: number;
+  /** Created by the authenticated queue and immediately locked for its reservations. */
+  matchmaking?: boolean;
 }
 
 interface JoinOptions {

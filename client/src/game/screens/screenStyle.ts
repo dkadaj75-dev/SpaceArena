@@ -711,6 +711,69 @@ const CSS = `
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sa-menu-offline-badge .dot { animation: none; }
+  .sa-menu-offline-badge .dot,
+  .sa-matchmaking-scanner span { animation: none; }
 }
+
+/* Matchmaking — a compact radar instrument in the shared menu language. */
+.sa-matchmaking-panel {
+  position: relative;
+  width: min(380px, 100%);
+  padding: 28px 24px 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-sizing: border-box;
+  background: var(--sa-rim-color);
+  clip-path: var(--sa-clip);
+}
+.sa-matchmaking-panel::before {
+  content: "";
+  position: absolute;
+  inset: var(--sa-rim);
+  z-index: -1;
+  background: var(--sa-panel-fill);
+  clip-path: var(--sa-clip);
+}
+.sa-matchmaking-scanner {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  border: 1px solid color-mix(in srgb, var(--sa-menu-primary, #39bfff) 55%, transparent);
+  border-radius: 50%;
+  background:
+    linear-gradient(90deg, transparent 49.5%, color-mix(in srgb, var(--sa-menu-primary, #39bfff) 22%, transparent) 50%, transparent 50.5%),
+    linear-gradient(0deg, transparent 49.5%, color-mix(in srgb, var(--sa-menu-primary, #39bfff) 22%, transparent) 50%, transparent 50.5%);
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--sa-menu-primary, #39bfff) 34%, transparent));
+}
+.sa-matchmaking-scanner span {
+  position: absolute;
+  inset: 50%;
+  border: 1px solid var(--sa-menu-primary, #39bfff);
+  border-radius: 50%;
+  animation: sa-scan-pulse 2.4s ease-out infinite;
+}
+.sa-matchmaking-scanner span:nth-child(2) { animation-delay: .8s; }
+.sa-matchmaking-scanner span:nth-child(3) { animation-delay: 1.6s; }
+@keyframes sa-scan-pulse {
+  0% { inset: 50%; opacity: .9; }
+  100% { inset: 5%; opacity: 0; }
+}
+.sa-matchmaking .sa-screen-title { font-size: clamp(18px, 5vw, 25px); letter-spacing: .12em; }
+.sa-matchmaking-flavor {
+  min-height: 1.5em;
+  color: var(--sa-menu-muted, #8ba3c4);
+  text-align: center;
+}
+.sa-matchmaking-elapsed {
+  color: var(--sa-menu-primary, #39bfff);
+  font: 600 12px/1.2 ui-monospace, monospace;
+  letter-spacing: .16em;
+  font-variant-numeric: tabular-nums;
+}
+.sa-matchmaking .sa-screen-btn { width: min(260px, 100%); }
+.sa-matchmaking[data-state="found"] .sa-matchmaking-scanner,
+.sa-matchmaking[data-state="joining"] .sa-matchmaking-scanner { border-color: var(--sa-menu-accent, #ffb35c); }
+.sa-matchmaking[data-state="server-lost"] .sa-matchmaking-scanner { opacity: .35; filter: grayscale(1); }
 `;

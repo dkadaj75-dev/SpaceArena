@@ -197,6 +197,9 @@ export const profilesRepo = {
   byUser(userId: string): ProfileRow | undefined {
     return getDb().prepare("SELECT * FROM profiles WHERE user_id = ?").get(userId) as ProfileRow | undefined;
   },
+  displayNameExists(displayName: string): boolean {
+    return getDb().prepare("SELECT 1 FROM profiles WHERE display_name = ? LIMIT 1").get(displayName) !== undefined;
+  },
   setDisplayName(userId: string, name: string): void {
     getDb().prepare("UPDATE profiles SET display_name = ? WHERE user_id = ?").run(name, userId);
   },

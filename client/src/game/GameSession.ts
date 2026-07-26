@@ -230,6 +230,11 @@ export class GameSession {
     return this.shipConfigIds.get(id);
   }
 
+  /** Online sessions override this with names replicated by ArenaState. */
+  displayNameFor(_id: EntityId): string | undefined {
+    return undefined;
+  }
+
   /** Team of a sim ship in the latest snapshot (for enemy checks). */
   teamOf(id: EntityId): number | undefined {
     // Indexed scan, no predicate closure: `playerTeam` reads this from render

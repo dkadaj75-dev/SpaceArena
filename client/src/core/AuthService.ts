@@ -179,6 +179,11 @@ export class AuthService {
     }
   }
 
+  /** Authenticated JSON API call with the same refresh-and-retry behavior as auth routes. */
+  api<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
+    return this.request<T>(method, path, body);
+  }
+
   /** Clears all local session state, including the durable guest token. */
   logout(): void {
     localStorage.removeItem(LS_GUEST);

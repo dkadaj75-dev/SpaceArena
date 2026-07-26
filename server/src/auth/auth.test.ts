@@ -44,19 +44,20 @@ describe("auth API", () => {
   });
 
   it("creates a guest, restores it, and /me works with the token", async () => {
-    const guest = await request(app).post("/api/auth/guest").send({ displayName: "Ghost" });
+    const guest = await request(app).post("/api/auth/guest").send({ displayName: "client name is ignored" });
     expect(guest.status).toBe(201);
     expect(guest.body.guestToken).toBeTruthy();
     expect(guest.body.profile.isGuest).toBe(true);
 
     const me = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${guest.body.accessToken}`);
     expect(me.status).toBe(200);
-    expect(me.body.profile.displayName).toBe("Ghost");
+    expect(me.body.profile.displayName).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+(?:-\d{3,4})?$/);
 
     // Restore by durable guest token → same identity.
     const restored = await request(app).post("/api/auth/guest").send({ guestToken: guest.body.guestToken });
     expect(restored.status).toBe(200);
     expect(restored.body.profile.userId).toBe(guest.body.profile.userId);
+    expect(restored.body.profile.displayName).toBe(guest.body.profile.displayName);
   });
 
   it("refreshes and rotates the refresh token", async () => {

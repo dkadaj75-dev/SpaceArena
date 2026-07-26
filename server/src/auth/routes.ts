@@ -13,6 +13,7 @@ import { ensureStarterKit, seedNewUser } from "../db/seed.js";
 import { asyncHandler, bearerToken, parseBody, requireAuth, sendError, type AuthedRequest } from "../api/http.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { issueTokenPair, rotateRefreshToken, verifyAccessToken } from "./tokens.js";
+import { generateGuestPilotName } from "./guestNames.js";
 
 /** Public profile payload returned by /me and after auth. */
 function profilePayload(userId: string): {
@@ -161,7 +162,8 @@ export function createAuthRouter(): Router {
       const userId = randomUUID();
       const guestToken = randomBytes(24).toString("hex");
       usersRepo.create({ id: userId, email: null, pass_hash: null, guest_token: guestToken });
-      seedNewUser(getConfigService(), userId, body.displayName ?? `Guest-${userId.slice(0, 4)}`);
+      const displayName = generateGuestPilotName((name) => profilesRepo.displayNameExists(name));
+      seedNewUser(getConfigService(), userId, displayName);
       const pair = issueTokenPair(userId);
       res.status(201).json({ ...pair, guestToken, profile: profilePayload(userId) });
     }),

@@ -206,6 +206,21 @@
       "chamferPx": 12,
       "glow": 0.5,
       "panelOpacity": 0.72
+    },
+    "matchmaking": {
+      "flavorRotationMs": 4000,
+      "foundBeatMs": 900,
+      "pollIntervalMs": 2000,
+      "flavorLines": [
+        "Looking for a worthy opponent...",
+        "Scanning nearby sectors...",
+        "Polishing the hull...",
+        "Calibrating targeting arrays...",
+        "Listening for challenge beacons...",
+        "Plotting an intercept course...",
+        "Warming the jump coils...",
+        "Checking the arena frequencies..."
+      ]
     }
   },
   "juice": {

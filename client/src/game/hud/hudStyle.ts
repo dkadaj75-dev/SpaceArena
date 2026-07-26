@@ -926,6 +926,13 @@ const CSS = `
   color: var(--hud-neutral, #7f9dc4);
 }
 .hud-results-sub:empty { display: none; }
+.hud-results-participants {
+  color: var(--hud-text, #dbe9ff);
+  font: 600 0.78em/1.4 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.hud-results-participants:empty { display: none; }
 .hud-results-rewards {
   display: flex;
   flex-direction: column;

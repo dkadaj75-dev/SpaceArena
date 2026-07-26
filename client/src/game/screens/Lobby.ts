@@ -18,7 +18,8 @@ const THEME_ID = "theme.default";
 export type LobbyChoice =
   /** Offline practice. `gamemode` defaults to `gamemode.practice` (static dummies). */
   | { kind: "practice"; gamemode?: string }
-  | { kind: "online"; gamemode: string; options?: { practiceTarget?: boolean; minPlayers?: number } };
+  | { kind: "online"; gamemode: string; options?: { practiceTarget?: boolean; minPlayers?: number } }
+  | { kind: "matchmaking"; mode: "duel-1v1"; gamemode: "gamemode.duel-1v1" };
 
 interface TrackedButton {
   el: HTMLButtonElement;
@@ -159,7 +160,11 @@ export class Lobby {
     online.append(this.offlineBadge);
     for (const gm of gamemodes) {
       if (gm.id === "gamemode.practice" || gm.bots?.roster?.length) continue;
-      this.addButton(online, `${gm.name ?? gm.id}`, () => this.choose({ kind: "online", gamemode: gm.id }), true);
+      const choice: LobbyChoice =
+        gm.id === "gamemode.duel-1v1"
+          ? { kind: "matchmaking", mode: "duel-1v1", gamemode: "gamemode.duel-1v1" }
+          : { kind: "online", gamemode: gm.id };
+      this.addButton(online, `${gm.name ?? gm.id}`, () => this.choose(choice), true);
     }
     this.addButton(
       online,

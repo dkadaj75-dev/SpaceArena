@@ -519,6 +519,15 @@ export const menuSchema = z.object({
       panelOpacity: z.number().min(0).max(1).optional(),
     })
     .optional(),
+  /** Content-authored copy and timing for the matchmaking search screen. */
+  matchmaking: z
+    .object({
+      flavorLines: z.array(z.string().min(1).max(120)).min(1).optional(),
+      flavorRotationMs: z.number().int().positive().optional(),
+      foundBeatMs: z.number().int().nonnegative().optional(),
+      pollIntervalMs: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 export type MenuConfig = z.infer<typeof menuSchema>;
 

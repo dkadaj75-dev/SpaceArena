@@ -34,8 +34,10 @@ import { BootScreen } from "./game/screens/BootScreen.js";
 import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
+import { MatchmakingScreen } from "./game/screens/MatchmakingScreen.js";
 import { UserSettingsStore, type UserSettings } from "./core/userSettings.js";
 import { NetGameSession } from "./net/NetGameSession.js";
+import { MatchmakingClient, type MatchmakingStatus } from "./net/MatchmakingClient.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 import { BotDebugOverlay } from "./game/BotDebugOverlay.js";
 import { AudioManager } from "./audio/AudioManager.js";
@@ -359,7 +361,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         onPlayAgain: () => {
           const again = lastChoice ?? { kind: "practice" as const };
           endMatch();
-          void startMatch(again);
+          launchChoice(again);
         },
         onHangar: () => {
           endMatch();
@@ -525,7 +527,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     authService,
     {
       onChoose: (choice: LobbyChoice) => {
-        void startMatch(choice);
+        launchChoice(choice);
       },
       onLogout: () => {
         // Log out: drop the session and fall back to the auth gate.
@@ -550,6 +552,18 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     bus,
   );
   lobby.hide();
+
+  const matchmakingClient = new MatchmakingClient(authService);
+  let matchmakingRun = 0;
+  const matchmakingScreen = new MatchmakingScreen(
+    document.body,
+    configService,
+    {
+      onCancel: () => void leaveMatchmaking(),
+      onBack: () => leaveMatchmaking(false),
+    },
+    bus,
+  );
 
   const settingsScreen = new SettingsScreen(document.body, {
     configs: configService,
@@ -628,6 +642,69 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     return opts;
   }
 
+  function launchChoice(choice: LobbyChoice): void {
+    if (choice.kind === "matchmaking") void startMatchmaking(choice);
+    else void startMatch(choice);
+  }
+
+  function matchmakingTiming(): { pollMs: number; foundBeatMs: number } {
+    const authored = configService.get<ThemeConfig>("theme", "theme.default")?.menu?.matchmaking;
+    return {
+      pollMs: authored?.pollIntervalMs ?? 2000,
+      foundBeatMs: authored?.foundBeatMs ?? 900,
+    };
+  }
+
+  function leaveMatchmaking(cancelServer = true): void {
+    matchmakingRun++;
+    matchmakingScreen.hide();
+    lobby.show();
+    if (cancelServer) void matchmakingClient.cancel().catch(() => undefined);
+  }
+
+  async function startMatchmaking(choice: Extract<LobbyChoice, { kind: "matchmaking" }>): Promise<void> {
+    const run = ++matchmakingRun;
+    lobby.hide();
+    matchmakingScreen.begin();
+    try {
+      const joinOptions = hangarJoinOptions();
+      let status: MatchmakingStatus = await matchmakingClient.enqueue(choice.mode, joinOptions);
+      while (run === matchmakingRun && status.state !== "found") {
+        await waitMs(matchmakingTiming().pollMs);
+        if (run !== matchmakingRun) return;
+        status =
+          status.state === "missing"
+            ? await matchmakingClient.enqueue(choice.mode, joinOptions)
+            : await matchmakingClient.status();
+      }
+      if (run !== matchmakingRun || status.state !== "found") return;
+
+      matchmakingScreen.found(status.opponentName);
+      await waitMs(matchmakingTiming().foundBeatMs);
+      if (run !== matchmakingRun) return;
+      matchmakingScreen.joining();
+
+      const session = await NetGameSession.join(
+        configService,
+        { gamemode: choice.gamemode, ...joinOptions },
+        { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
+        status.reservation,
+      );
+      if (run !== matchmakingRun) {
+        session.dispose();
+        return;
+      }
+      matchmakingScreen.hide();
+      activateSession(session, choice);
+    } catch (err) {
+      if (run !== matchmakingRun) return;
+      log.error("matchmaking failed", err);
+      matchmakingScreen.serverLost();
+      lobby.setServerOnline(false, "matchmaking connection failed");
+      reprobeServerHealth();
+    }
+  }
+
   /**
    * Fan one health verdict out to the UI that depends on it. Called once from
    * the boot probe and again from {@link reprobeServerHealth} — the single place
@@ -653,7 +730,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     return configService.get<GamemodeConfig>("gamemode", gamemodeId)?.defaultArena;
   }
 
-  async function startMatch(choice: LobbyChoice): Promise<void> {
+  async function startMatch(choice: Exclude<LobbyChoice, { kind: "matchmaking" }>): Promise<void> {
     try {
       // Resolve the gamemode FIRST so the arena lookup sees the same id the
       // session runs — a choice without an explicit gamemode must still land
@@ -675,20 +752,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
               // upgrade levels from the DB. See LocalPredictionHints.
               { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
             );
-      // Render the arena the SESSION resolved, before the runtime (and its HUD
-      // minimap) is built around it.
-      setArena(session.arenaId);
-      runtime = createMatchRuntime(session);
-      lastChoice = choice;
-      // The new runtime's shake/haptics consumers start from their own defaults —
-      // push the player's settings onto them (5.8).
-      applyUserSettings();
-      // Fresh auto-tier sampling window: one demote/promote per match, measured
-      // from here (see QualityManager.sampleFrame in the render loop).
-      quality.beginMatch();
-      telemetry.beginMatch();
-      lobby.hide();
-      hangar.hide();
+      activateSession(session, choice);
     } catch (err) {
       log.error("failed to start match", err);
       // "Nothing answered" is a different fact from "the server said no", and
@@ -703,6 +767,17 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         lobby.showError(err instanceof Error ? err.message : "Connection failed");
       }
     }
+  }
+
+  function activateSession(session: GameSession, choice: LobbyChoice): void {
+    setArena(session.arenaId);
+    runtime = createMatchRuntime(session);
+    lastChoice = choice;
+    applyUserSettings();
+    quality.beginMatch();
+    telemetry.beginMatch();
+    lobby.hide();
+    hangar.hide();
   }
 
   // --- Fixed-timestep sim loop (30 Hz), driven by render delta ---
@@ -918,10 +993,15 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     settingsScreen.dispose();
     userSettings.dispose();
     hangar.dispose();
+    matchmakingScreen.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();
     quality.dispose();
   });
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Linear scan (no per-frame closure allocation) for a ship by id. */

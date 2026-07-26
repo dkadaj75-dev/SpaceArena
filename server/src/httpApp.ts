@@ -12,6 +12,8 @@ import { createRateLimiter } from "./api/rateLimit.js";
 import { getPackStore } from "./content/packStore.js";
 import { getEnv } from "./env.js";
 import { mountClient, mountContent } from "./staticSite.js";
+import { createMatchmakingRouter } from "./matchmaking/routes.js";
+import type { MatchmakingQueue } from "./matchmaking/MatchmakingQueue.js";
 
 /** Max JSON body size accepted by the API (3.2/3.7 payload cap). */
 export const JSON_BODY_LIMIT = "64kb";
@@ -26,6 +28,7 @@ export interface HttpAppOptions {
   contentDir?: string | null;
   /** Absolute path to a built client (`client/dist`) to serve. Omit to serve none. */
   clientDir?: string | null;
+  matchmaking?: MatchmakingQueue;
 }
 
 /**
@@ -84,6 +87,7 @@ export function createHttpApp(options: HttpAppOptions = {}): Express {
   app.use("/api/ships", apiLimiter, createShipsRouter());
   app.use("/api/modules", apiLimiter, createModulesRouter());
   app.use("/api/configs", apiLimiter, createConfigsRouter());
+  if (options.matchmaking) app.use("/api/matchmaking", apiLimiter, createMatchmakingRouter(options.matchmaking));
   // Anonymous, unauthenticated, but on the same per-IP bucket as everything
   // else (ROADMAP §11 6.8) — "no login required" must not mean "no limit".
   app.use("/api/telemetry", apiLimiter, createTelemetryRouter());

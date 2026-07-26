@@ -27,6 +27,7 @@ import {
 } from "@space-arena/shared";
 import { GameSession } from "../game/GameSession.js";
 import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
+import type { SeatReservation } from "colyseus.js";
 import { bracket, lerpHeading, timeBasedPull } from "./interpolation.js";
 
 const log = createLogger("NetGameSession");
@@ -202,6 +203,7 @@ export class NetGameSession extends GameSession {
   private readonly renderDelay: number;
   private readonly correctionRate: number;
   private readonly shipIds = new Map<EntityId, string>();
+  private readonly displayNames = new Map<EntityId, string>();
   private readonly arena: ArenaConfig;
   private readonly netConfigs: ConfigService;
   /** Pitch knobs for the predictor, read from the same tuning pack as the sim. */
@@ -283,6 +285,7 @@ export class NetGameSession extends GameSession {
     configs: ConfigService,
     options: ArenaJoinOptions,
     local: LocalPredictionHints = {},
+    reservation?: SeatReservation,
   ): Promise<NetGameSession> {
     const arenaId =
       options.arena ?? configs.get<GamemodeConfig>("gamemode", options.gamemode)?.defaultArena ?? "arena.ring-nebula";
@@ -332,7 +335,7 @@ export class NetGameSession extends GameSession {
         }
         session.events.push(event as SimEvent);
       });
-    const room = await session.net.connect(options);
+    const room = await session.net.connect(options, undefined, reservation);
 
     // Resolve only once the first state patch has been decoded so playerId and
     // snapshots are valid before views/HUD are constructed around this session.
@@ -361,6 +364,7 @@ export class NetGameSession extends GameSession {
   override teamOf(id: EntityId): number | undefined { return this.current.ships.find((ship) => ship.id === id)?.team; }
   override get playerTeam(): number { return this.teamOf(this.playerId) ?? 0; }
   override shipConfigIdFor(id: EntityId): string | undefined { return this.shipIds.get(id); }
+  override displayNameFor(id: EntityId): string | undefined { return this.displayNames.get(id); }
 
   override order(order: Order): void {
     const seq = this.seq++;
@@ -627,6 +631,7 @@ export class NetGameSession extends GameSession {
       const id = Number(p.entityId);
       const shipId = String(p.shipId);
       this.shipIds.set(id, shipId);
+      this.displayNames.set(id, String(p.displayName ?? "Pilot"));
       if (this.playerId !== id && this.net.room?.sessionId && findKey(state.players, p) === this.net.room.sessionId)
         (this as { playerId: number }).playerId = id;
       return {

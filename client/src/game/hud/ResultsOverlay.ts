@@ -50,6 +50,7 @@ export class ResultsOverlay {
   private readonly root: HTMLDivElement;
   private readonly bannerEl: HTMLDivElement;
   private readonly subEl: HTMLDivElement;
+  private readonly participantsEl: HTMLDivElement;
   private readonly rewardsEl: HTMLDivElement;
   private readonly creditsEl: HTMLSpanElement;
   private readonly xpEl: HTMLSpanElement;
@@ -87,6 +88,8 @@ export class ResultsOverlay {
 
     this.subEl = document.createElement("div");
     this.subEl.className = "hud-results-sub";
+    this.participantsEl = document.createElement("div");
+    this.participantsEl.className = "hud-results-participants";
 
     this.rewardsEl = document.createElement("div");
     this.rewardsEl.className = "hud-results-rewards";
@@ -118,7 +121,7 @@ export class ResultsOverlay {
       button("Menu", "", callbacks.onMenu, "menu"),
     );
 
-    panel.append(this.bannerEl, rule, this.subEl, this.rewardsEl, actions);
+    panel.append(this.bannerEl, rule, this.participantsEl, this.subEl, this.rewardsEl, actions);
     this.root.appendChild(panel);
     parent.appendChild(this.root);
   }
@@ -136,6 +139,12 @@ export class ResultsOverlay {
       if (this.options.offline) {
         this.subEl.textContent = "Practice — no rewards";
       }
+      const playerName = this.session.displayNameFor(this.playerId);
+      const playerTeam = this.session.teamOf(this.playerId);
+      const opponent = cur.ships.find((ship) => ship.id !== this.playerId && ship.team !== playerTeam);
+      const opponentName = opponent ? this.session.displayNameFor(opponent.id) : undefined;
+      this.participantsEl.textContent =
+        playerName && opponentName ? `${playerName}  //  ${opponentName}` : opponentName ? `Opponent: ${opponentName}` : "";
       this.root.classList.add("visible");
       return;
     }

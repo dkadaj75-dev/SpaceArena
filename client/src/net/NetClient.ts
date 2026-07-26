@@ -1,4 +1,4 @@
-import { Client, type Room } from "colyseus.js";
+import { Client, type Room, type SeatReservation } from "colyseus.js";
 import {
   MSG_FIRE_EVENT,
   MSG_ORDER_ACK,
@@ -39,9 +39,11 @@ export class NetClient {
   onSimEvent: ((message: SimEventMessage) => void) | null = null;
   onStateChange: ((connected: boolean, error?: unknown) => void) | null = null;
 
-  async connect(options: ArenaJoinOptions, url = wsServerUrl()): Promise<Room> {
+  async connect(options: ArenaJoinOptions, url = wsServerUrl(), reservation?: SeatReservation): Promise<Room> {
     const client = new Client(url);
-    const room = await client.joinOrCreate("arena", options);
+    const room = reservation
+      ? await client.consumeSeatReservation(reservation)
+      : await client.joinOrCreate("arena", options);
     this.room = room;
     this.connected = true;
     room.onMessage(MSG_ORDER_ACK, (m: OrderAckMessage) => this.onOrderAck?.(m));

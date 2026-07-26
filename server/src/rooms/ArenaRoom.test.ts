@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Server } from "@colyseus/core";
+import { Client as ColyseusClient, type SeatReservation } from "colyseus.js";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { boot, ColyseusTestServer } from "@colyseus/testing";
 import {
@@ -19,6 +20,8 @@ import { fittingsRepo, ownedModulesRepo, profilesRepo, shipUpgradesRepo, usersRe
 import { signAccessToken } from "../auth/tokens.js";
 import { ArenaRoom } from "./ArenaRoom.js";
 import type { ArenaState } from "./state/ArenaState.js";
+import { MatchmakingQueue } from "../matchmaking/MatchmakingQueue.js";
+import { reserveArenaPair } from "../matchmaking/roomReservations.js";
 
 setGlobalLogLevel("error");
 
@@ -51,6 +54,49 @@ afterEach(async () => {
 });
 
 describe("ArenaRoom", () => {
+  it("lands two queued identities in the same reserved duel room", async () => {
+    for (const [id, token, name] of [
+      ["queue-user-a", "queue-token-a", "Crimson Vector"],
+      ["queue-user-b", "queue-token-b", "Silent Quasar"],
+    ] as const) {
+      usersRepo.create({ id, email: null, pass_hash: null, guest_token: token });
+      seedNewUser(configs, id, name);
+    }
+
+    const queue = new MatchmakingQueue(reserveArenaPair);
+    await queue.enqueue({ playerKey: "queue-user-a", displayName: "Crimson Vector", elo: 1000, mode: "duel-1v1" });
+    const second = await queue.enqueue({
+      playerKey: "queue-user-b",
+      displayName: "Silent Quasar",
+      elo: 1000,
+      mode: "duel-1v1",
+    });
+    const first = await queue.heartbeat("queue-user-a");
+    expect(first.state).toBe("found");
+    expect(second.state).toBe("found");
+    if (first.state !== "found" || second.state !== "found") throw new Error("queue did not pair");
+    expect(first.reservation.room.roomId).toBe(second.reservation.room.roomId);
+
+    const port = (colyseus.server as unknown as { port: number }).port;
+    const sdk = new ColyseusClient(`ws://127.0.0.1:${port}`);
+    const [c1, c2] = await Promise.all([
+      sdk.consumeSeatReservation(first.reservation as SeatReservation),
+      sdk.consumeSeatReservation(second.reservation as SeatReservation),
+    ]);
+    expect(c1.roomId).toBe(c2.roomId);
+    const room = colyseus.getRoomById<ArenaState>(c1.roomId);
+    await advance(room, 1);
+    expect(room.clients).toHaveLength(2);
+    expect(room.state.matchPhase).toBe("live");
+    expect([...room.state.players.values()].map((player) => player.displayName).sort()).toEqual([
+      "Crimson Vector",
+      "Silent Quasar",
+    ]);
+
+    await c1.leave();
+    await c2.leave();
+  });
+
   it("flies ships, acks valid orders, rejects invalid ones, and reflects module toggles", async () => {
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
     const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });

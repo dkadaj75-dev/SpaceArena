@@ -10,6 +10,8 @@ import { createHttpApp } from "./httpApp.js";
 import { createMetricsRouter } from "./api/metrics.js";
 import { TelemetrySampler } from "./telemetry/sampler.js";
 import { ArenaRoom } from "./rooms/ArenaRoom.js";
+import { MatchmakingQueue } from "./matchmaking/MatchmakingQueue.js";
+import { reserveArenaPair } from "./matchmaking/roomReservations.js";
 
 const log = createLogger("Server");
 
@@ -29,10 +31,12 @@ async function main(): Promise<void> {
   setDb(openDatabase(env.dbPath));
   log.info("database ready", { dbPath: env.dbPath });
 
+  const matchmaking = new MatchmakingQueue(reserveArenaPair);
   const app = createHttpApp({
     corsOrigins: env.corsOrigins,
     contentDir: env.contentDir,
     clientDir: env.clientDir,
+    matchmaking,
   });
   const httpServer = createServer(app);
   const gameServer = new Server({
