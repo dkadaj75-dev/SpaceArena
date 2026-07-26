@@ -28,6 +28,7 @@ export class ThrottleStrip {
   private readonly container: HTMLDivElement;
   private readonly track: HTMLDivElement;
   private readonly fill: HTMLDivElement;
+  private readonly ticks: HTMLDivElement;
   private readonly thumb: HTMLDivElement;
   private readonly readout: HTMLDivElement;
   private layout: FlightHudLayout;
@@ -86,12 +87,19 @@ export class ThrottleStrip {
 
     this.fill = document.createElement("div");
     this.fill.className = "hud-throttle-fill";
+    // Scale ticks: one repeating gradient whose pitch comes from the theme's
+    // `tickCount`, never N pooled nodes. Purely decorative — the lever is
+    // continuous and a tick is not a detent.
+    this.ticks = document.createElement("div");
+    this.ticks.className = "hud-throttle-ticks";
+    this.ticks.setAttribute("aria-hidden", "true");
     this.thumb = document.createElement("div");
     this.thumb.className = "hud-throttle-thumb";
     this.readout = document.createElement("div");
     this.readout.className = "hud-throttle-readout";
 
     this.track.appendChild(this.fill);
+    this.track.appendChild(this.ticks);
     this.track.appendChild(this.thumb);
     this.container.appendChild(this.track);
     this.container.appendChild(this.readout);
@@ -120,6 +128,8 @@ export class ThrottleStrip {
     // Readout sits just above the track, centred on it.
     this.readout.style.left = `${dx}px`;
     this.readout.style.top = `${dy - t.heightPx / 2}px`;
+    // `tickCount: 0` means "no scale", not "one tick at the top".
+    this.ticks.style.display = t.tickCount > 0 ? "" : "none";
     // Force a re-render: the thumb's pixel travel changed with the track height.
     this.lastThumbTop = Number.NaN;
     this.render();

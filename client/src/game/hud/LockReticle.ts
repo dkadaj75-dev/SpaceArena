@@ -21,6 +21,8 @@ export class LockReticle {
   private readonly container: HTMLDivElement;
   private readonly zone: HTMLDivElement;
   private readonly bracket: HTMLDivElement;
+  /** Lock-progress arc — its own node so the corner ticks can be a sibling. */
+  private readonly ring: HTMLDivElement;
 
   private lastRadius = Number.NaN;
   private lastClamped: boolean | null = null;
@@ -40,6 +42,13 @@ export class LockReticle {
     this.bracket = document.createElement("div");
     this.bracket.className = "hud-reticle-bracket";
     this.bracket.style.setProperty("--ring", "0");
+    // Four L-shaped corner ticks (one masked box, no per-corner nodes) plus the
+    // progress arc around them — the target-designator language, not a circle.
+    const corners = document.createElement("div");
+    corners.className = "corners";
+    this.ring = document.createElement("div");
+    this.ring.className = "ring";
+    this.bracket.append(corners, this.ring);
 
     this.container.appendChild(this.zone);
     this.container.appendChild(this.bracket);

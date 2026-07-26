@@ -79,6 +79,12 @@ export class ResultsOverlay {
     this.bannerEl = document.createElement("div");
     this.bannerEl.className = "hud-results-title";
 
+    // Cyan→amber rule under the banner: the same section mark the menu screens
+    // use, so a match ending lands in the panel language the player left.
+    const rule = document.createElement("div");
+    rule.className = "hud-results-rule";
+    rule.setAttribute("aria-hidden", "true");
+
     this.subEl = document.createElement("div");
     this.subEl.className = "hud-results-sub";
 
@@ -112,7 +118,7 @@ export class ResultsOverlay {
       button("Menu", "", callbacks.onMenu, "menu"),
     );
 
-    panel.append(this.bannerEl, this.subEl, this.rewardsEl, actions);
+    panel.append(this.bannerEl, rule, this.subEl, this.rewardsEl, actions);
     this.root.appendChild(panel);
     parent.appendChild(this.root);
   }

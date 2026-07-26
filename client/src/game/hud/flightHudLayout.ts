@@ -50,6 +50,8 @@ export interface ThrottleLayout {
   offsetYPx: number;
   keyRampPerSec: number;
   wheelStepPerNotch: number;
+  /** Scale ticks drawn beside the track (look only). 0 hides the scale. */
+  tickCount: number;
 }
 
 export interface BoostLayout {
@@ -131,6 +133,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     offsetYPx: 212,
     keyRampPerSec: 0.9,
     wheelStepPerNotch: 0.06,
+    tickCount: 8,
   },
   boost: {
     anchor: "bottom-right",
@@ -242,6 +245,9 @@ export function resolveFlightHudLayout(
       offsetYPx: (throttle.offsetYPx ?? d.throttle.offsetYPx) * scale,
       keyRampPerSec: throttle.keyRampPerSec ?? d.throttle.keyRampPerSec,
       wheelStepPerNotch: throttle.wheelStepPerNotch ?? d.throttle.wheelStepPerNotch,
+      // A COUNT, not a length: scaling it would change how finely the scale is
+      // divided instead of how big it is.
+      tickCount: throttle.tickCount ?? d.throttle.tickCount,
     },
     boost: {
       anchor: boost.anchor ?? d.boost.anchor,
@@ -514,6 +520,9 @@ export function flightCssVars(layout: FlightHudLayout): Record<string, string> {
     "--hud-throttle-width": `${layout.throttle.widthPx}px`,
     "--hud-throttle-height": `${layout.throttle.heightPx}px`,
     "--hud-throttle-thumb-height": `${layout.throttle.thumbHeightPx}px`,
+    // Tick pitch as a fraction of the track, so the scale is one repeating
+    // gradient rather than N pooled DOM nodes.
+    "--hud-throttle-tick-pct": `${layout.throttle.tickCount > 0 ? 100 / layout.throttle.tickCount : 100}%`,
     "--hud-boost-radius": `${layout.boost.radiusPx}px`,
     "--hud-reticle-stroke": `${layout.reticle.strokePx}px`,
     "--hud-reticle-ring-stroke": `${layout.reticle.ringStrokePx}px`,

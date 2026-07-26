@@ -3,6 +3,7 @@ import { createLogger } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
+import { moduleIconId, moduleIconSvg } from "./moduleIcons.js";
 
 const log = createLogger("HudModuleButtons");
 
@@ -20,10 +21,14 @@ interface ButtonEntry {
 }
 
 /**
- * One circular button per fitted module, auto-generated from the player's
+ * One chamfered hex button per fitted module, auto-generated from the player's
  * fitting (bottom-right radial cluster, §2.3). Tap toggles activate/deactivate
  * via `moduleToggle` orders; visuals reflect the module's runtime state each
  * frame but only write to the DOM when something actually changed.
+ *
+ * The glyph is an inline SVG from {@link import("./moduleIcons.js")}, resolved
+ * from the module's own config — buttons used to render `ui.icon` as literal
+ * text, which put "[ICON: laser]" on screen in every live match.
  *
  * Keyed by `hardpointIndex` throughout, never array position: the snapshot's
  * `modules` array is sparse-safe (see `shared/src/sim/spawn.ts`) — a fitting
@@ -139,17 +144,26 @@ export class ModuleButtons {
         const btn = document.createElement("div");
         btn.className = "hud-module-btn";
         btn.setAttribute(HUD_CONTROL_ATTR, "module");
+        btn.setAttribute("role", "button");
+        btn.setAttribute("aria-label", cfg?.ui.label ?? moduleId);
         btn.style.setProperty("--ring", "0");
+
+        // Deploy/retract/cooldown arc. Its own node because the button's two
+        // pseudo-elements are spent on the chamfered rim + fill plates.
+        const ring = document.createElement("span");
+        ring.className = "ring";
+        ring.setAttribute("aria-hidden", "true");
 
         const icon = document.createElement("span");
         icon.className = "icon";
-        icon.textContent = cfg?.ui.icon ?? "?";
+        // Real glyph, not the authored `[ICON: …]` placeholder text: the id is
+        // resolved from ui.iconId → ui.icon's tag → family (see moduleIcons.ts).
+        icon.innerHTML = moduleIconSvg(moduleIconId(cfg));
         const label = document.createElement("span");
         label.className = "label";
         label.textContent = cfg?.ui.label ?? moduleId;
 
-        btn.appendChild(icon);
-        btn.appendChild(label);
+        btn.append(ring, icon, label);
         btn.addEventListener("click", () => {
           this.session.order({ kind: "moduleToggle", hardpointIndex });
           log.debug(`moduleToggle → hardpoint ${hardpointIndex} (${moduleId})`);

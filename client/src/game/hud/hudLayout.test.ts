@@ -4,6 +4,7 @@ import {
   clusterOffsets,
   clusterReachPx,
   clusterTopPx,
+  HUD_DEFAULTS,
   hudCssVars,
   orientationOf,
   rawClusterOffsets,
@@ -99,6 +100,9 @@ describe("resolveHudLayout — portrait/landscape blocks", () => {
       offsetYPx: 12,
       gapPx: 5,
       trackHeightPx: 10,
+      // Segment count is a look knob, not a dimension: it falls back to the
+      // shared default and is deliberately NOT multiplied by `hud.scale`.
+      segments: HUD_DEFAULTS.gauges.segments,
     });
     const l = resolveHudLayout(theme(), LANDSCAPE);
     expect(l.gauges.anchor).toBe("bottom-left");

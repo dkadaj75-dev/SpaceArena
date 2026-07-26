@@ -18,12 +18,19 @@ import { preloadArenaModels, preloadShipModelsBeforeTimeout } from "./core/asset
 import { QualityManager } from "./core/QualityManager.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
+import {
+  checkServerHealth,
+  looksLikeServerUnreachable,
+  SERVER_OFFLINE_MESSAGE,
+  type ServerHealth,
+} from "./core/serverHealth.js";
 import { TelemetryClient } from "./core/TelemetryClient.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
 import { GameSession } from "./game/GameSession.js";
 import { ViewManager } from "./game/EntityView.js";
 import { Hud } from "./game/hud/Hud.js";
 import { Lobby, type LobbyChoice } from "./game/screens/Lobby.js";
+import { BootScreen } from "./game/screens/BootScreen.js";
 import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
@@ -95,7 +102,7 @@ interface MatchRuntime {
   dispose(): void;
 }
 
-async function bootstrap(): Promise<void> {
+async function bootstrap(boot: BootScreen | null): Promise<void> {
   const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
   if (!canvas) {
     throw new Error("#renderCanvas not found");
@@ -109,17 +116,28 @@ async function bootstrap(): Promise<void> {
   // --- Config pipeline ---
   const bus = new EventBus<ConfigEvents>();
   const configService = new ConfigService(fetchLoader, bus);
+  boot?.begin("content");
   const loadResult = await configService.load("manifest.json");
   if (loadResult.ok) {
     log.info("content loaded", loadResult.counts);
+    const total = Object.values(loadResult.counts).reduce((sum, n) => sum + n, 0);
+    boot?.settle("content", "ok", `${total} configs`);
   } else {
     log.error(`content load failed (${loadResult.errors.length} problem(s)):`);
     for (const e of loadResult.errors) {
       log.error(`  ${e.file} → ${e.path}: ${e.message}`);
     }
+    boot?.settle("content", "fail", `${loadResult.errors.length} problem(s) — see console`);
     if (redirectToOfflinePageIfNeeded()) return;
   }
   wireContentHotReload(configService);
+
+  // Reachability probe starts NOW and is awaited at its own boot stage below.
+  // Concurrent on purpose: the ship-model preload takes seconds and the probe
+  // needs nothing from it, so the boot pays max(preload, probe) rather than the
+  // sum — and every auth call between here and there already has its answer
+  // waiting when it fails.
+  const healthProbe = checkServerHealth();
 
   // --- Auth (§8 3.3): restore any existing session before the first screen shows. ---
   const authService = new AuthService();
@@ -194,26 +212,24 @@ async function bootstrap(): Promise<void> {
   // the sync view/hangar/editor paths can pick them up from the shared cache.
   // Awaited because a ship view synchronously selects and retains one master;
   // letting the first frame race this load can lock in the procedural fallback.
+  //
+  // This wait used to raise its own ad-hoc "LOADING SHIP SYSTEMS…" label in the
+  // middle of a black page. It is now a STAGE of the boot screen, which was
+  // already up before this module even loaded — one loading affordance for the
+  // whole boot instead of two that never met.
   const preloadAssets = new AssetRegistry(scene);
-  const loading = document.createElement("div");
-  loading.textContent = "LOADING SHIP SYSTEMS…";
-  loading.setAttribute("role", "status");
-  Object.assign(loading.style, {
-    position: "fixed",
-    inset: "50% auto auto 50%",
-    transform: "translate(-50%, -50%)",
-    zIndex: "100",
-    color: "#57d8ff",
-    font: "600 12px system-ui, sans-serif",
-    letterSpacing: "0.16em",
-    textShadow: "0 0 14px #39bfff",
-    pointerEvents: "none",
-  });
-  document.body.append(loading);
-  const shipModelsReady = await preloadShipModelsBeforeTimeout(preloadAssets, configService, 10_000);
-  loading.remove();
-  if (!shipModelsReady) {
+  const SHIP_PRELOAD_TIMEOUT_MS = 10_000;
+  boot?.begin("assets");
+  const shipModelsReady = await preloadShipModelsBeforeTimeout(
+    preloadAssets,
+    configService,
+    SHIP_PRELOAD_TIMEOUT_MS,
+  );
+  if (shipModelsReady) {
+    boot?.settle("assets", "ok");
+  } else {
     log.warn("ship model preload timed out after 10s — booting with procedural fallbacks");
+    boot?.settle("assets", "warn", "timed out — using procedural hulls");
   }
   bus.on("config:changed", (evt) => {
     if (evt.id.startsWith("ship.")) {
@@ -567,14 +583,41 @@ async function bootstrap(): Promise<void> {
       authScreen.hide();
       lobby.show();
     },
+    configService,
   );
   authScreen.hide();
+
+  // --- Boot stage 3: is the game server actually there? ---
+  //
+  // The answer changes what the menu is allowed to offer, so it is resolved
+  // BEFORE the first screen paints rather than discovered by a player tapping a
+  // button and getting a raw fetch error.
+  boot?.begin("server");
+  const health = await healthProbe;
+  applyServerHealth(health);
+  if (health.online) {
+    const identity = [
+      health.protocolVersion === undefined ? null : `protocol ${health.protocolVersion}`,
+      health.tickRate === undefined ? null : `${health.tickRate} Hz`,
+    ]
+      .filter((part): part is string => part !== null)
+      .join(" · ");
+    boot?.settle("server", "ok", identity);
+  } else {
+    log.warn(`game server unreachable: ${health.detail}`);
+    boot?.settle("server", "warn", health.detail);
+    boot?.note(`${SERVER_OFFLINE_MESSAGE} — offline practice still works.`, "warn");
+  }
 
   if (authService.getState().status === "authed") {
     lobby.show();
   } else {
     authScreen.show();
   }
+  // Hold the boot screen a beat longer when it has bad news, so the player reads
+  // it once here before meeting the same message as a lobby badge.
+  boot?.subtitle(health.online ? "READY" : "READY — OFFLINE");
+  void boot?.dismiss(health.online ? 0 : 1600);
 
   /** The Hangar's last-saved ship/fitting choice (ROADMAP §9 4.5), as additive NetGameSession join options. */
   function hangarJoinOptions(): { shipId?: string; fittingId?: string } {
@@ -583,6 +626,25 @@ async function bootstrap(): Promise<void> {
     if (sel.shipId) opts.shipId = sel.shipId;
     if (sel.fittingId) opts.fittingId = sel.fittingId;
     return opts;
+  }
+
+  /**
+   * Fan one health verdict out to the UI that depends on it. Called once from
+   * the boot probe and again from {@link reprobeServerHealth} — the single place
+   * "the server is/isn't there" turns into what the lobby shows.
+   */
+  function applyServerHealth(health: ServerHealth): void {
+    lobby.setServerOnline(health.online, health.detail);
+  }
+
+  /**
+   * Re-check reachability after a join failed with a network error. Fire-and-
+   * forget: it exists so a server that comes back up (a restarted dev process,
+   * a reconnected phone) clears the badge on its own instead of forcing a page
+   * reload. A still-dead server just confirms the state already shown.
+   */
+  function reprobeServerHealth(): void {
+    void checkServerHealth().then(applyServerHealth);
   }
 
   /** Arena a practice gamemode wants (its `defaultArena`), if it names one. */
@@ -629,7 +691,17 @@ async function bootstrap(): Promise<void> {
       hangar.hide();
     } catch (err) {
       log.error("failed to start match", err);
-      lobby.showError(err instanceof Error ? err.message : "Connection failed");
+      // "Nothing answered" is a different fact from "the server said no", and
+      // only the second one has a message worth showing. The first used to reach
+      // the player as a raw `NetworkError when attempting to fetch resource.`;
+      // it now raises the same SERVER OFFLINE badge the boot probe does, and a
+      // background re-probe clears it if the server comes back.
+      if (looksLikeServerUnreachable(err)) {
+        lobby.showServerOffline("join attempt got no answer");
+        reprobeServerHealth();
+      } else {
+        lobby.showError(err instanceof Error ? err.message : "Connection failed");
+      }
     }
   }
 
@@ -637,6 +709,13 @@ async function bootstrap(): Promise<void> {
   const tuning = configService.getAll<TuningConfig>("tuning")[0];
   const loop = new GameLoop((fixedDt) => runtime?.session.tick(fixedDt), {
     maxTicksPerStep: tuning?.maxTicksPerFrame ?? 5,
+  });
+  // Editor tuning edits reconfigure the running loop's tick clamp live —
+  // constructed-once caches are exactly what the tool-propagation audit hunts.
+  bus.on("config:changed", (evt) => {
+    if (evt.type !== "tuning") return;
+    const fresh = configService.getAll<TuningConfig>("tuning")[0];
+    loop.setMaxTicksPerStep(fresh?.maxTicksPerFrame ?? 5);
   });
 
   function renderFrame(dtMsOverride?: number): void {
@@ -851,6 +930,12 @@ function playerShip(ships: readonly ShipSnapshot[], id: EntityId): ShipSnapshot 
   return undefined;
 }
 
-bootstrap().catch((err) => {
+// The boot screen is static markup in index.html, so it is already on screen by
+// the time this module runs — adopting it here only hands it a driver. A boot
+// that throws leaves the panel up with the reason on it: a blank page is the one
+// outcome that tells the player nothing at all.
+const bootScreen = BootScreen.attach();
+bootstrap(bootScreen).catch((err) => {
   log.error("bootstrap failed", err);
+  bootScreen?.fail(err instanceof Error ? err.message : "unknown error — see console (F12)");
 });

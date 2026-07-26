@@ -1,5 +1,6 @@
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { anchoredOffset, type FlightHudLayout } from "./flightHudLayout.js";
+import { iconIdFromRef, moduleIconSvg } from "./moduleIcons.js";
 
 /**
  * Hold-to-boost button (FLIGHT.md §4), parked in the module-cluster corner so
@@ -14,7 +15,10 @@ import { anchoredOffset, type FlightHudLayout } from "./flightHudLayout.js";
 export class BoostButton {
   private readonly container: HTMLDivElement;
   private readonly button: HTMLDivElement;
+  private readonly icon: HTMLSpanElement;
   private layout: FlightHudLayout;
+  /** Last `theme.hud.flight.boost.icon` rendered — re-drawn only when it moves. */
+  private lastIconRef: string | null = null;
 
   private pointerId: number | null = null;
 
@@ -43,6 +47,9 @@ export class BoostButton {
     this.button.className = "hud-boost-btn";
     this.button.setAttribute(HUD_CONTROL_ATTR, "boost");
     this.button.setAttribute("aria-label", "Boost");
+    this.icon = document.createElement("span");
+    this.icon.className = "icon";
+    this.button.appendChild(this.icon);
     this.container.appendChild(this.button);
     root.appendChild(this.container);
 
@@ -62,7 +69,22 @@ export class BoostButton {
     const { dx, dy } = anchoredOffset(b.anchor, b.offsetXPx, b.offsetYPx, b.radiusPx);
     this.button.style.left = `${dx - b.radiusPx}px`;
     this.button.style.top = `${dy - b.radiusPx}px`;
-    if (this.button.textContent !== b.icon) this.button.textContent = b.icon;
+    this.renderIcon(b.icon);
+  }
+
+  /**
+   * Draw the themed glyph. An icon reference the client ships art for (a bare
+   * id, or the `[ICON: boost]` placeholder form) becomes the inline SVG the
+   * module buttons use, so the afterburner speaks the same visual language as
+   * the rest of the cluster; anything else — an emoji, a `»` — is still honoured
+   * verbatim as text, because that is what the pack asked for.
+   */
+  private renderIcon(ref: string): void {
+    if (ref === this.lastIconRef) return;
+    this.lastIconRef = ref;
+    const id = iconIdFromRef(ref);
+    if (id) this.icon.innerHTML = moduleIconSvg(id);
+    else this.icon.textContent = ref;
   }
 
   /** True while a pointer is held on the button. */

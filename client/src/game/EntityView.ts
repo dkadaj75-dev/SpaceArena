@@ -106,6 +106,11 @@ const DEFAULT_VIEW_QUALITY: ViewQuality = {
   asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
 };
 
+/** Newly spawned beams use the current tuning registry, including editor replacement. */
+export function beamFadeMsOf(configs: Pick<ConfigService, "getAll">): number {
+  return configs.getAll<TuningConfig>("tuning")[0]?.beamFadeMs ?? 120;
+}
+
 /**
  * A pooled projectile node: an `InstancedMesh` (batched — one draw call for the
  * whole pool) or a cloned `Mesh` (one draw call each) depending on the tier.
@@ -145,7 +150,6 @@ export class ViewManager {
   /** Pool masters, kept so a quality change can rebuild the pools in place. */
   private readonly poolMasters: Mesh[] = [];
 
-  private readonly beamFadeMs: number;
   private readonly poolSize: number;
   private quality: ViewQuality;
 
@@ -171,7 +175,6 @@ export class ViewManager {
     this.quality = quality;
 
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
-    this.beamFadeMs = tuning?.beamFadeMs ?? 120;
     this.poolSize = tuning?.projectilePoolSize ?? 64;
 
     this.juice = options.juice ?? juiceSettingsOf(configs.get<ThemeConfig>("theme", THEME_ID));
@@ -181,6 +184,11 @@ export class ViewManager {
 
     this.assets.setAsteroidLod(quality.asteroids);
     this.buildPools();
+  }
+
+  /** Cheap tuning knob: each newly fired beam reads the live offline registry. */
+  private get beamFadeMs(): number {
+    return beamFadeMsOf(this.configs);
   }
 
   /**

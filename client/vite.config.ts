@@ -1,9 +1,9 @@
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
-import { CONFIG_SCHEMAS, type ConfigType } from "../shared/src/schemas/index.js";
+import { persistEditorConfig } from "../shared/src/content/editorPersistence.js";
 
 // Repo-root content/ directory (client/ is one level down).
 const CONTENT_DIR = fileURLToPath(new URL("../content/", import.meta.url));
@@ -37,15 +37,9 @@ function contentPipelinePlugin(): Plugin {
             try {
               const payload: unknown = JSON.parse(body);
               if (!isSaveRequest(payload)) throw new Error("expected { path, json }");
-              const absolute = path.resolve(CONTENT_DIR, payload.path);
-              if (!absolute.startsWith(CONTENT_DIR) || !payload.path.endsWith(".json")) throw new Error("invalid content path");
-              const candidate = payload.json;
-              if (!isConfigObject(candidate)) throw new Error("config must contain a known type");
-              const parsed = CONFIG_SCHEMAS[candidate.type].safeParse(candidate);
-              if (!parsed.success) throw new Error(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
-              await writeFile(absolute, `${JSON.stringify(parsed.data, null, 2)}\n`, "utf8");
+              const result = await persistEditorConfig(CONTENT_DIR, payload);
               res.setHeader("Content-Type", "application/json");
-              res.end(JSON.stringify({ ok: true }));
+              res.end(JSON.stringify({ ok: true, ...result }));
             } catch (error) {
               res.statusCode = 400;
               res.end(JSON.stringify({ ok: false, error: String(error) }));
@@ -142,10 +136,6 @@ function contentPipelinePlugin(): Plugin {
 
 function isSaveRequest(value: unknown): value is { path: string; json: unknown } {
   return typeof value === "object" && value !== null && typeof (value as { path?: unknown }).path === "string" && "json" in value;
-}
-
-function isConfigObject(value: unknown): value is { type: ConfigType } {
-  return typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string" && (value as { type: string }).type in CONFIG_SCHEMAS;
 }
 
 /**

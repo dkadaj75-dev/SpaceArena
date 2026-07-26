@@ -35,7 +35,14 @@ function boundsRadius(arena: ArenaConfig | undefined): number | undefined {
 export class Minimap {
   private readonly container: HTMLDivElement;
   private readonly canvas: HTMLCanvasElement;
+  private readonly scaleEl: HTMLDivElement;
   private readonly ctx: CanvasRenderingContext2D;
+  /**
+   * Blip colors read out of the live theme (the `--hud-*` custom properties the
+   * Hud writes onto `#hud`). Resolved once per theme change, never per draw:
+   * `getComputedStyle` is a layout-flushing read and this runs at ~10 Hz.
+   */
+  private palette = { friendly: "#39bfff", hostile: "#ff405c", neutral: "#7f9dc4" };
   /** The arena the *sim* resolved — never a hardcoded id (FLIGHT.md §6). */
   private readonly arenaId: string;
   private arena: ArenaConfig | undefined;
@@ -52,11 +59,19 @@ export class Minimap {
     private readonly session: GameSession,
   ) {
     this.container = document.createElement("div");
-    this.container.className = "hud-minimap";
+    // Shares the chamfered rim + translucent fill treatment with the gauge
+    // cluster (hudStyle.ts `.hud-frame`).
+    this.container.className = "hud-minimap hud-frame";
     root.appendChild(this.container);
 
     this.canvas = document.createElement("canvas");
     this.container.appendChild(this.canvas);
+
+    // Range readout tucked into the frame — the map is now bevelled rather than
+    // circular, so the scale it is drawn at should be legible rather than implied.
+    this.scaleEl = document.createElement("div");
+    this.scaleEl.className = "hud-minimap-scale";
+    this.container.appendChild(this.scaleEl);
 
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("Minimap: 2D canvas context unavailable");
@@ -84,6 +99,35 @@ export class Minimap {
     this.sizePx = theme?.hud?.minimapSizePx ?? 128;
     this.rangeUnits = theme?.hud?.minimapRangeUnits ?? boundsRadius(this.arena) ?? 100;
     this.altitudeTickMaxPx = theme?.hud?.minimapAltitudeTickPx ?? DEFAULT_ALTITUDE_TICK_PX;
+    this.scaleEl.textContent = `${Math.round(this.rangeUnits)} U`;
+    this.readPalette(theme);
+  }
+
+  /**
+   * Canvas has no access to CSS custom properties, so the blip colors are
+   * lifted out of the theme config directly (with the resolved computed value
+   * as the fallback, which is what a pack that overrides `--hud-primary`
+   * through some other route would want). Blips are the ONLY place the HUD
+   * paints pixels rather than DOM, so this is the one place a color has to be
+   * copied instead of inherited.
+   */
+  private readPalette(theme: ThemeConfig | undefined): void {
+    const colors = theme?.colors ?? {};
+    const computed =
+      typeof window !== "undefined" && typeof window.getComputedStyle === "function"
+        ? window.getComputedStyle(this.container)
+        : undefined;
+    const pick = (prop: string, fallback: string): string => {
+      const authored = colors[prop]?.trim();
+      if (authored) return authored;
+      const resolved = computed?.getPropertyValue(prop).trim();
+      return resolved ? resolved : fallback;
+    };
+    this.palette = {
+      friendly: pick("--hud-primary", "#39bfff"),
+      hostile: pick("--hud-danger", "#ff405c"),
+      neutral: pick("--hud-neutral", "#7f9dc4"),
+    };
   }
 
   private resizeCanvas(): void {
@@ -108,18 +152,29 @@ export class Minimap {
 
     ctx.clearRect(0, 0, size, size);
 
-    // Top-down bubble silhouette (subtle, matches the arena's overall radius fraction).
+    // Instrument crosshair + top-down bubble silhouette. The cross is the map's
+    // own frame of reference (the player is always at the centre), drawn faint
+    // enough that a blip on top of it still reads.
+    ctx.strokeStyle = withAlpha(this.palette.friendly, 0.18);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(half, 3);
+    ctx.lineTo(half, size - 3);
+    ctx.moveTo(3, half);
+    ctx.lineTo(size - 3, half);
+    ctx.stroke();
+
     const radius = boundsRadius(this.arena);
     if (radius !== undefined) {
-      ctx.strokeStyle = "rgba(255,255,255,0.25)";
+      ctx.strokeStyle = withAlpha(this.palette.friendly, 0.34);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(half, half, Math.min(half - 1, radius * scale), 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    // Asteroids: dim gray dots.
-    ctx.fillStyle = "rgba(180,170,160,0.8)";
+    // Asteroids: dim neutral dots.
+    ctx.fillStyle = withAlpha(this.palette.neutral, 0.75);
     for (let i = 0; i < cur.asteroids.length; i++) {
       const a = cur.asteroids[i]!;
       if (a.state === "destroyed") continue;
@@ -138,7 +193,7 @@ export class Minimap {
       const px = half + s.pos.x * scale;
       const py = half + s.pos.z * scale;
       const isPlayer = s.id === this.session.playerId;
-      const color = isPlayer || s.team === this.session.playerTeam ? "#57d8ff" : "#ff4d5e";
+      const color = isPlayer || s.team === this.session.playerTeam ? this.palette.friendly : this.palette.hostile;
       const r = isPlayer ? 5 : 4;
 
       ctx.save();
@@ -173,6 +228,24 @@ export class Minimap {
   dispose(): void {
     this.container.remove();
   }
+}
+
+/**
+ * A themed color at a given alpha, for the canvas's structural lines. Handles
+ * the `#rgb`/`#rrggbb` a theme actually authors; anything else (a named color,
+ * an `rgb()` string a browser resolved) is returned unchanged with
+ * `globalAlpha` left to the caller — the lines are decoration, and a slightly
+ * too-bright grid is a better failure than a thrown exception mid-draw.
+ */
+function withAlpha(color: string, alpha: number): string {
+  const hex = color.trim();
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(hex);
+  const long = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!short && !long) return hex;
+  const parts = short
+    ? [short[1]!, short[2]!, short[3]!].map((c) => parseInt(c + c, 16))
+    : [long![1]!, long![2]!, long![3]!].map((c) => parseInt(c, 16));
+  return `rgba(${parts[0]},${parts[1]},${parts[2]},${alpha})`;
 }
 
 /** Indexed scan (no per-draw closure) for a ship's position by id. */

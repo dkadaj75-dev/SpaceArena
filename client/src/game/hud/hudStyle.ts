@@ -6,6 +6,29 @@ const STYLE_ID = "hud-style";
  * `theme.json` (and re-applied on theme hot-reload) — this file only lays out
  * structure/animations, never hardcodes a color or size that the Theme editor
  * should own.
+ *
+ * ## The shape language (dark holographic)
+ *
+ * Every framed widget shares three primitives, so a designer changes the whole
+ * HUD's character from `theme.hud.style` rather than from CSS:
+ *
+ *  - **chamfer** — `--hud-clip` is an octagon whose corner cut is
+ *    `--hud-chamfer`; `--hud-clip-hex` is the harder two-corner bevel the module
+ *    buttons wear. Applied with `clip-path`, so there is no image and no extra
+ *    node.
+ *  - **luminous rim + translucent fill** — a framed widget paints its rim on
+ *    `::before` (a filled chamfered plate) and its fill on `::after` (the same
+ *    plate inset by the rim width). Two layers rather than a `border`, because
+ *    `clip-path` cuts a border's corners off and leaves the bevel unlined. Own
+ *    content therefore sits at `z-index: 1`.
+ *  - **glow** — `filter: drop-shadow()` on the rim layer, NOT `box-shadow`:
+ *    `clip-path` would clip an outer box-shadow away entirely, while a filter is
+ *    applied after clipping and traces the chamfered silhouette. Reserved for
+ *    the widgets where it earns its compositing cost (frames, and active/alarm
+ *    states) and scaled by `--hud-glow` so a pack can flatten it to zero.
+ *
+ * Per-frame paths are untouched by all of this: the components still write only
+ * `transform`, `--ring`, a class or a `textContent`, exactly as before.
  */
 export function injectHudStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -23,7 +46,7 @@ const CSS = `
   pointer-events: none;
   overflow: hidden;
   font-family: var(--hud-font-body, system-ui, sans-serif);
-  color: var(--hud-text, #e6f0ff);
+  color: var(--hud-text, #dbe9ff);
   --hud-scale: 1;
   --hud-safe-inset: 12px;
   /* Device safe area (notch/home indicator, viewport-fit=cover) + theme inset,
@@ -35,46 +58,136 @@ const CSS = `
   /* HUD scale factor (theme.hud.scale): control sizes are pre-scaled in
      hudLayout.ts, text scales through this root font-size. */
   font-size: calc(16px * var(--hud-scale));
+
+  /* --- Shape-language primitives (theme.hud.style) --- */
+  --hud-chamfer: 8px;
+  --hud-glow: 0.55;
+  --hud-panel-pct: 58%;
+  --hud-tick-opacity: 0.34;
+  --hud-blur: 6px;
+  /* Rim thickness. One px at every scale on purpose: a hairline is what makes a
+     hologram read as projected rather than drawn. */
+  --hud-rim: 1px;
+
+  /* Octagonal chamfer for panels/frames. */
+  --hud-clip: polygon(
+    var(--hud-chamfer) 0%,
+    calc(100% - var(--hud-chamfer)) 0%,
+    100% var(--hud-chamfer),
+    100% calc(100% - var(--hud-chamfer)),
+    calc(100% - var(--hud-chamfer)) 100%,
+    var(--hud-chamfer) 100%,
+    0% calc(100% - var(--hud-chamfer)),
+    0% var(--hud-chamfer)
+  );
+  /* Hard two-corner bevel — the module buttons' "hex-ish" silhouette. Kept in
+     percentages so one polygon serves every themed button radius. */
+  --hud-clip-hex: polygon(26% 0%, 100% 0%, 100% 74%, 74% 100%, 0% 100%, 0% 26%);
+
+  --hud-panel-fill: color-mix(in srgb, var(--hud-bg, #0a0f1e) var(--hud-panel-pct), transparent);
+  --hud-rim-color: color-mix(in srgb, var(--hud-primary, #39bfff) 52%, transparent);
+  --hud-rim-dim: color-mix(in srgb, var(--hud-primary, #39bfff) 26%, transparent);
+  --hud-tick-color: color-mix(in srgb, var(--hud-primary, #39bfff) 55%, transparent);
 }
+
+/* ============================================================
+   Shared frame: chamfered rim plate + translucent fill plate.
+   Opt in with .hud-frame; override --hud-frame-rim for a tint.
+   ============================================================ */
+.hud-frame {
+  position: absolute;
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  --hud-frame-rim: var(--hud-rim-color);
+}
+.hud-frame::before,
+.hud-frame::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  clip-path: var(--hud-clip);
+  pointer-events: none;
+}
+.hud-frame::before {
+  inset: 0;
+  background: var(--hud-frame-rim);
+  /* Glow traces the chamfered silhouette (see the header note on filters). */
+  filter: drop-shadow(0 0 calc(10px * var(--hud-glow)) var(--hud-frame-rim));
+}
+.hud-frame::after {
+  inset: var(--hud-rim);
+  background: var(--hud-panel-fill);
+  backdrop-filter: blur(var(--hud-blur));
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+}
+/* Own content rides above both plates. */
+.hud-frame > * { position: relative; z-index: 1; }
+
+/* Angular corner brackets framing a key widget — two L-shaped strokes drawn with
+   borders on a pair of absolutely positioned spans (no extra colors, no images). */
+.hud-bracket {
+  position: absolute;
+  z-index: 2;
+  width: calc(var(--hud-chamfer) + 5px);
+  height: calc(var(--hud-chamfer) + 5px);
+  pointer-events: none;
+  border: var(--hud-rim) solid var(--hud-primary, #39bfff);
+  opacity: 0.85;
+}
+.hud-bracket[data-corner="tl"] { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
+.hud-bracket[data-corner="br"] { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
 
 .hud-fps {
   position: absolute;
   top: var(--hud-inset-top);
   right: var(--hud-inset-right);
-  padding: 2px 8px;
-  font: 0.75em/1.4 monospace;
-  color: var(--hud-primary, #9be8ff);
-  background: rgba(0, 0, 0, 0.35);
-  border-radius: 4px;
+  padding: 3px 9px;
+  font: 0.6875em/1.4 ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  color: var(--hud-primary, #39bfff);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 62%, transparent);
+  clip-path: polygon(6px 0%, 100% 0%, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0% 100%, 0% 6px);
 }
 
 /* --- Minimap (top-left) --- */
 .hud-minimap {
-  position: absolute;
   top: var(--hud-inset-top);
   left: var(--hud-inset-left);
   width: var(--hud-minimap-size, 128px);
   height: var(--hud-minimap-size, 128px);
   max-width: 40vw;
   max-height: 40vw;
-  border-radius: 50%;
-  border: 1px solid var(--hud-primary, #57d8ff);
-  background: rgba(5, 10, 20, 0.55);
-  overflow: hidden;
 }
 .hud-minimap canvas {
   width: 100%;
   height: 100%;
   display: block;
+  /* Same bevel as the frame, so a blip near the rim is cut by the chamfer
+     rather than by an invisible square. */
+  clip-path: var(--hud-clip);
+}
+/* Range readout tucked into the frame's lower edge. */
+.hud-minimap-scale {
+  position: absolute;
+  bottom: 2px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: 0.5em/1 ui-monospace, monospace;
+  letter-spacing: 0.14em;
+  color: var(--hud-primary, #39bfff);
+  opacity: 0.7;
 }
 
 /* --- Gauges: hull, shield, energy, heat --- */
 .hud-gauges {
-  position: absolute;
   display: flex;
   flex-direction: column;
   gap: var(--hud-gauge-gap, 6px);
+  padding: calc(var(--hud-chamfer) * 0.7) calc(var(--hud-chamfer) * 0.8);
   width: var(--hud-gauge-width, 140px);
+  box-sizing: content-box;
   max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
 }
 .hud-gauges[data-anchor="bottom-left"] {
@@ -98,19 +211,33 @@ const CSS = `
   flex-direction: column;
   gap: 2px;
 }
+.hud-gauge-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
 .hud-gauge-label {
-  font-size: 0.625em;
-  letter-spacing: 0.06em;
+  font-size: 0.5625em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  opacity: 0.75;
+  color: var(--hud-neutral, #7f9dc4);
+}
+.hud-gauge-value {
+  font-size: 0.5625em;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-text, #dbe9ff);
+  opacity: 0.9;
 }
 .hud-gauge-track {
   position: relative;
   width: 100%;
   height: var(--hud-gauge-track-height, 10px);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--hud-primary, #39bfff) 9%, transparent);
+  /* Thin inner rule instead of a border: the segment overlay below has to reach
+     the very edge of the track or the end cells read as clipped. */
+  box-shadow: inset 0 0 0 var(--hud-rim) var(--hud-rim-dim);
   overflow: hidden;
 }
 .hud-gauge-fill {
@@ -118,14 +245,39 @@ const CSS = `
   inset: 0;
   width: 100%;
   transform-origin: left center;
-  background: var(--hud-primary, #57d8ff);
+  background: var(--hud-primary, #39bfff);
   transition: transform 0.08s linear, background-color 0.15s linear;
 }
-.hud-gauge-fill.hull { background: var(--hud-accent, #ff8c42); }
-.hud-gauge-fill.shield { background: var(--hud-primary, #57d8ff); }
-.hud-gauge-fill.energy { background: #5fe08c; }
-.hud-gauge-fill.heat { background: var(--hud-accent, #ff8c42); }
-.hud-gauge-fill.heat.warn { background: var(--hud-danger, #ff4d5e); }
+/* Segmented cells: one repeating gradient laid over the whole track, so the
+   FILL stays continuous (a value never quantizes) while the bar reads as cells.
+   --hud-gauge-segment-pct is the cell pitch, resolved in hudLayout.ts. */
+.hud-gauge-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(var(--hud-gauge-segment-pct, 8.33%) - 1px),
+    var(--hud-bg, #0a0f1e) calc(var(--hud-gauge-segment-pct, 8.33%) - 1px),
+    var(--hud-bg, #0a0f1e) var(--hud-gauge-segment-pct, 8.33%)
+  );
+}
+.hud-gauge-fill.hull { background: var(--hud-hull, var(--hud-accent, #ffb35c)); }
+.hud-gauge-fill.shield { background: var(--hud-shield, var(--hud-primary, #39bfff)); }
+.hud-gauge-fill.energy { background: var(--hud-energy, #4ee6b8); }
+.hud-gauge-fill.heat { background: var(--hud-heat, var(--hud-accent, #ffb35c)); }
+/* One "warn" class, two meanings: hull runs it when the hull is nearly gone and
+   heat when it is nearly overheating, and both want the same critical red. */
+.hud-gauge-fill.warn { background: var(--hud-danger, #ff405c); }
+/* Critical readouts pulse rather than just recolour — colour alone is the one
+   cue a player will miss mid-turn. */
+.hud-gauge.critical .hud-gauge-value { color: var(--hud-danger, #ff405c); animation: hud-crit-pulse 1s ease-in-out infinite; }
+@keyframes hud-crit-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
 
 /* --- Module radial cluster --- */
 /* Zero-size pivot pinned to the themed anchor corner; ModuleButtons places each
@@ -148,42 +300,94 @@ const CSS = `
   box-sizing: border-box;
   width: calc(var(--hud-module-btn-radius, 34px) * 2);
   height: calc(var(--hud-module-btn-radius, 34px) * 2);
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  background:
-    conic-gradient(var(--hud-primary, #57d8ff) calc(var(--ring, 0) * 1%), transparent 0),
-    rgba(10, 14, 26, 0.7);
-  color: var(--hud-text, #e6f0ff);
+  background: transparent;
+  border: 0;
+  color: var(--hud-text, #dbe9ff);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
+  /* Unchanged from the pre-redesign button: the icon takes the room, but the
+     label still has to be readable at landscape scale (0.85 x 9px). */
   font-size: 0.5625em;
   line-height: 1.2;
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  transition: filter 0.15s linear, opacity 0.15s linear, box-shadow 0.15s linear;
+  transition: filter 0.15s linear, opacity 0.15s linear;
+  --hud-btn-rim: var(--hud-rim-color);
 }
-.hud-module-btn .icon { font-size: 1em; }
-.hud-module-btn .label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hud-module-btn.state-retracted { filter: brightness(0.6) saturate(0.7); }
-.hud-module-btn.state-deploying { filter: brightness(0.9); }
+/* Rim + fill plates on the hex bevel (same two-layer trick as .hud-frame, with
+   the harder silhouette). */
+.hud-module-btn::before,
+.hud-module-btn::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  clip-path: var(--hud-clip-hex);
+  pointer-events: none;
+}
+.hud-module-btn::before { inset: 0; background: var(--hud-btn-rim); }
+.hud-module-btn::after {
+  inset: calc(var(--hud-rim) * 1.5);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 82%, transparent);
+}
+/* State ring: a conic wedge masked to an annulus just inside the bevel, so
+   deploy/retract/cooldown progress reads as a filling arc. Its own node rather
+   than a pseudo-element because both pseudos are spent on the frame. */
+.hud-module-btn > .ring {
+  position: absolute;
+  inset: calc(var(--hud-rim) * 1.5);
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 50%;
+  background: conic-gradient(var(--hud-primary, #39bfff) calc(var(--ring, 0) * 1%), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+}
+.hud-module-btn > .icon {
+  z-index: 2;
+  width: 55%;
+  max-width: 26px;
+  color: var(--hud-primary, #39bfff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hud-module-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
+.hud-module-btn > .label {
+  z-index: 2;
+  max-width: 92%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.hud-module-btn.state-retracted { --hud-btn-rim: var(--hud-rim-dim); filter: saturate(0.75); }
+.hud-module-btn.state-retracted > .icon { color: var(--hud-neutral, #7f9dc4); }
+.hud-module-btn.state-deploying { --hud-btn-rim: color-mix(in srgb, var(--hud-primary, #39bfff) 70%, transparent); }
 .hud-module-btn.state-active {
-  filter: brightness(1.15);
-  box-shadow: 0 0 10px 2px var(--hud-primary, #57d8ff);
-  border-color: var(--hud-primary, #57d8ff);
+  --hud-btn-rim: var(--hud-primary, #39bfff);
 }
-.hud-module-btn.state-retracting { filter: brightness(0.85) saturate(0.85); }
+/* Glow only in the states that mean something — a filter on four idle buttons
+   would be compositing cost with nothing to say. */
+.hud-module-btn.state-active::before {
+  filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-primary, #39bfff));
+}
+.hud-module-btn.state-retracting { --hud-btn-rim: color-mix(in srgb, var(--hud-primary, #39bfff) 45%, transparent); }
 .hud-module-btn.state-overheated {
-  filter: brightness(1) saturate(0.4);
-  border-color: var(--hud-danger, #ff4d5e);
-  animation: hud-overheat-flash 0.6s ease-in-out infinite;
+  --hud-btn-rim: var(--hud-danger, #ff405c);
 }
-.hud-module-btn.no-energy { filter: grayscale(0.85) brightness(0.5); opacity: 0.7; }
+.hud-module-btn.state-overheated > .icon { color: var(--hud-danger, #ff405c); }
+.hud-module-btn.state-overheated > .ring { background: conic-gradient(var(--hud-danger, #ff405c) calc(var(--ring, 0) * 1%), transparent 0); }
+.hud-module-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
+.hud-module-btn.no-energy { filter: grayscale(0.8) brightness(0.55); opacity: 0.7; }
 @keyframes hud-overheat-flash {
-  0%, 100% { box-shadow: 0 0 6px 1px var(--hud-danger, #ff4d5e); }
-  50% { box-shadow: 0 0 16px 4px var(--hud-danger, #ff4d5e); }
+  0%, 100% { filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c)); }
+  50% { filter: drop-shadow(0 0 calc(18px * var(--hud-glow)) var(--hud-danger, #ff405c)); }
 }
 
 /* --- Flight controls (FLIGHT.md §4) ---
@@ -223,20 +427,20 @@ const CSS = `
   height: calc(var(--hud-steer-origin-radius, 7px) * 2);
   margin: calc(var(--hud-steer-origin-radius, 7px) * -1);
   border-radius: 50%;
-  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, #57d8ff) 62%, transparent);
-  background: color-mix(in srgb, var(--hud-bg, #0a0e1a) 45%, transparent);
+  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, #39bfff) 62%, transparent);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 45%, transparent);
 }
 .hud-relative-steer-current {
   width: calc(var(--hud-steer-current-radius, 12px) * 2);
   height: calc(var(--hud-steer-current-radius, 12px) * 2);
   margin: calc(var(--hud-steer-current-radius, 12px) * -1);
   border-radius: 50%;
-  background: color-mix(in srgb, var(--hud-primary, #57d8ff) 32%, transparent);
-  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, #57d8ff) 72%, transparent);
+  background: color-mix(in srgb, var(--hud-primary, #39bfff) 32%, transparent);
+  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, #39bfff) 72%, transparent);
 }
 .hud-relative-steer-vector {
   height: var(--hud-steer-vector-width, 2px);
-  background: color-mix(in srgb, var(--hud-primary, #57d8ff) 48%, transparent);
+  background: color-mix(in srgb, var(--hud-primary, #39bfff) 48%, transparent);
 }
 .hud-joystick[data-anchor="bottom-right"],
 .hud-throttle[data-anchor="bottom-right"],
@@ -260,13 +464,13 @@ const CSS = `
   width: calc(var(--hud-joy-base-radius, 62px) * 2);
   height: calc(var(--hud-joy-base-radius, 62px) * 2);
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: radial-gradient(circle at center, rgba(10, 14, 26, 0.55) 40%, rgba(10, 14, 26, 0.25) 100%);
+  border: var(--hud-rim) solid var(--hud-rim-dim);
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--hud-bg, #0a0f1e) 55%, transparent) 40%, transparent 100%);
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   transition: border-color 0.12s linear;
 }
-.hud-joystick-base.active { border-color: var(--hud-primary, #57d8ff); }
+.hud-joystick-base.active { border-color: var(--hud-primary, #39bfff); }
 .hud-joystick-thumb {
   position: absolute;
   left: 50%;
@@ -275,8 +479,8 @@ const CSS = `
   width: calc(var(--hud-joy-thumb-radius, 28px) * 2);
   height: calc(var(--hud-joy-thumb-radius, 28px) * 2);
   border-radius: 50%;
-  border: 2px solid var(--hud-primary, #57d8ff);
-  background: rgba(10, 14, 26, 0.8);
+  border: 2px solid var(--hud-primary, #39bfff);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 80%, transparent);
   transform: translate(-50%, -50%);
 }
 
@@ -288,23 +492,63 @@ const CSS = `
   touch-action: none;
   width: var(--hud-throttle-width, 44px);
   height: var(--hud-throttle-height, 200px);
-  border-radius: calc(var(--hud-throttle-width, 44px) / 2);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(10, 14, 26, 0.55);
-  overflow: hidden;
+  background: transparent;
+  border: 0;
+  overflow: visible;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
-  transition: border-color 0.12s linear;
+  --hud-frame-rim: var(--hud-rim-dim);
 }
-.hud-throttle-track.active { border-color: var(--hud-primary, #57d8ff); }
+.hud-throttle-track::before,
+.hud-throttle-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  clip-path: var(--hud-clip);
+  pointer-events: none;
+}
+.hud-throttle-track::before {
+  background: var(--hud-frame-rim);
+  filter: drop-shadow(0 0 calc(8px * var(--hud-glow)) var(--hud-frame-rim));
+}
+.hud-throttle-track::after {
+  inset: var(--hud-rim);
+  background: var(--hud-panel-fill);
+}
+.hud-throttle-track.active { --hud-frame-rim: var(--hud-primary, #39bfff); }
+.hud-throttle-fill,
+.hud-throttle-thumb,
+.hud-throttle-ticks { z-index: 1; }
 .hud-throttle-fill {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: var(--hud-rim);
+  right: var(--hud-rim);
+  bottom: var(--hud-rim);
   height: 0%;
-  background: linear-gradient(to top, rgba(87, 216, 255, 0.15), var(--hud-primary, #57d8ff));
-  opacity: 0.55;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--hud-primary, #39bfff) 18%, transparent),
+    color-mix(in srgb, var(--hud-primary, #39bfff) 72%, transparent)
+  );
+}
+/* Fine scale ticks on the left flank — one repeating gradient, pitch from the
+   theme's tickCount (resolved in flightHudLayout.ts). */
+.hud-throttle-ticks {
+  position: absolute;
+  left: var(--hud-rim);
+  top: 0;
+  bottom: 0;
+  width: 34%;
+  pointer-events: none;
+  opacity: var(--hud-tick-opacity, 0.34);
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--hud-primary, #39bfff) 0,
+    var(--hud-primary, #39bfff) 1px,
+    transparent 1px,
+    transparent var(--hud-throttle-tick-pct, 12.5%)
+  );
 }
 .hud-throttle-thumb {
   position: absolute;
@@ -313,17 +557,21 @@ const CSS = `
   top: 0;
   box-sizing: border-box;
   height: var(--hud-throttle-thumb-height, 26px);
-  border-radius: 3px;
-  border: 2px solid var(--hud-primary, #57d8ff);
-  background: rgba(10, 14, 26, 0.9);
+  border: 2px solid var(--hud-primary, #39bfff);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 88%, transparent);
+  clip-path: polygon(0% 0%, 100% 0%, 100% 62%, 62% 100%, 0% 100%);
 }
 .hud-throttle-readout {
   position: absolute;
-  transform: translate(-50%, -130%);
-  font-size: 0.6875em;
+  transform: translate(-50%, -150%);
+  padding: 2px 7px;
+  font-size: 0.625em;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-  color: var(--hud-primary, #57d8ff);
+  letter-spacing: 0.1em;
+  color: var(--hud-primary, #39bfff);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 66%, transparent);
+  clip-path: polygon(5px 0%, 100% 0%, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0% 100%, 0% 5px);
   white-space: nowrap;
 }
 
@@ -335,10 +583,9 @@ const CSS = `
   touch-action: none;
   width: calc(var(--hud-boost-radius, 34px) * 2);
   height: calc(var(--hud-boost-radius, 34px) * 2);
-  border-radius: 50%;
-  border: 2px solid var(--hud-accent, #ff8c42);
-  background: rgba(10, 14, 26, 0.7);
-  color: var(--hud-accent, #ff8c42);
+  background: transparent;
+  border: 0;
+  color: var(--hud-accent, #ffb35c);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -347,12 +594,29 @@ const CSS = `
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  transition: filter 0.1s linear, box-shadow 0.1s linear;
+  --hud-btn-rim: color-mix(in srgb, var(--hud-accent, #ffb35c) 62%, transparent);
 }
-.hud-boost-btn.active {
-  filter: brightness(1.25);
-  box-shadow: 0 0 14px 3px var(--hud-accent, #ff8c42);
+.hud-boost-btn::before,
+.hud-boost-btn::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  clip-path: var(--hud-clip-hex);
+  pointer-events: none;
 }
+.hud-boost-btn::before { inset: 0; background: var(--hud-btn-rim); }
+.hud-boost-btn::after {
+  inset: calc(var(--hud-rim) * 1.5);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 82%, transparent);
+}
+.hud-boost-btn > * { position: relative; z-index: 1; }
+.hud-boost-btn .icon { width: 56%; max-width: 28px; display: flex; }
+.hud-boost-btn .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
+.hud-boost-btn.active { --hud-btn-rim: var(--hud-accent, #ffb35c); }
+.hud-boost-btn.active::before {
+  filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-accent, #ffb35c));
+}
+.hud-boost-btn.active .icon { filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-accent, #ffb35c)); }
 
 /* Lock reticle: fixed centre zone circle + a bracket projected onto the candidate. */
 .hud-reticle {
@@ -367,40 +631,94 @@ const CSS = `
   box-sizing: border-box;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  border: var(--hud-reticle-stroke, 2px) dashed rgba(230, 240, 255, 0.28);
+  /* Finer than a dashed ring: a dotted hairline plus four cardinal ticks (the
+     ::before/::after crosses below) reads as an instrument, not a border. */
+  border: var(--hud-rim) dotted color-mix(in srgb, var(--hud-text, #dbe9ff) 34%, transparent);
+}
+.hud-reticle-zone::before,
+.hud-reticle-zone::after {
+  content: "";
+  position: absolute;
+  background: color-mix(in srgb, var(--hud-primary, #39bfff) 55%, transparent);
+}
+/* Horizontal pair of edge ticks. */
+.hud-reticle-zone::before {
+  top: 50%;
+  left: -5px;
+  right: -5px;
+  height: var(--hud-rim);
+  transform: translateY(-50%);
+  -webkit-mask: linear-gradient(90deg, #000 0 9px, transparent 9px calc(100% - 9px), #000 calc(100% - 9px) 100%);
+  mask: linear-gradient(90deg, #000 0 9px, transparent 9px calc(100% - 9px), #000 calc(100% - 9px) 100%);
+}
+/* Vertical pair. */
+.hud-reticle-zone::after {
+  left: 50%;
+  top: -5px;
+  bottom: -5px;
+  width: var(--hud-rim);
+  transform: translateX(-50%);
+  -webkit-mask: linear-gradient(180deg, #000 0 9px, transparent 9px calc(100% - 9px), #000 calc(100% - 9px) 100%);
+  mask: linear-gradient(180deg, #000 0 9px, transparent 9px calc(100% - 9px), #000 calc(100% - 9px) 100%);
 }
 /* Cone wider than the camera can show: the circle is a floor on the zone, not
    its edge, so it reads as an open boundary rather than a hard one. */
-.hud-reticle-zone.clamped { border-style: dotted; opacity: 0.55; }
+.hud-reticle-zone.clamped { border-style: dotted; opacity: 0.5; }
 .hud-reticle-bracket {
   position: absolute;
   left: 0;
   top: 0;
   box-sizing: border-box;
   display: none;
+}
+.hud-reticle-bracket.visible { display: block; }
+/* Four corner ticks on the candidate — an L at each corner, drawn with borders
+   on the two pseudo-elements plus a repeating mask, so no extra nodes. */
+.hud-reticle-bracket .corners {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid var(--hud-primary, #39bfff);
+  /* Keep only the corners: a cross-shaped hole erases the middle of each edge. */
+  -webkit-mask:
+    linear-gradient(90deg, #000 0 30%, transparent 30% 70%, #000 70% 100%),
+    linear-gradient(180deg, #000 0 30%, transparent 30% 70%, #000 70% 100%);
+  -webkit-mask-composite: source-in;
+  mask:
+    linear-gradient(90deg, #000 0 30%, transparent 30% 70%, #000 70% 100%),
+    linear-gradient(180deg, #000 0 30%, transparent 30% 70%, #000 70% 100%);
+  mask-composite: intersect;
+  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, #39bfff));
+}
+/* Progress ring: a conic wedge masked to an annulus, so lockProgress reads as
+   a filling arc without a second element or an SVG. */
+.hud-reticle-bracket .ring {
+  position: absolute;
+  inset: -5px;
   border-radius: 50%;
-  /* Progress ring: a conic wedge masked to an annulus, so lockProgress reads as
-     a filling arc without a second element or an SVG. */
-  background: conic-gradient(var(--hud-primary, #57d8ff) calc(var(--ring, 0) * 1%), transparent 0);
+  background: conic-gradient(var(--hud-primary, #39bfff) calc(var(--ring, 0) * 1%), transparent 0);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-reticle-ring-stroke, 4px)), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-reticle-ring-stroke, 4px)), #000 0);
 }
-.hud-reticle-bracket.visible { display: block; }
-.hud-reticle-bracket.locked {
-  background: conic-gradient(var(--hud-danger, #ff4d5e) 100%, var(--hud-danger, #ff4d5e) 0);
+.hud-reticle-bracket.locked .corners {
+  border-color: var(--hud-danger, #ff405c);
+  filter: drop-shadow(0 0 calc(8px * var(--hud-glow)) var(--hud-danger, #ff405c));
+}
+.hud-reticle-bracket.locked .ring {
+  background: conic-gradient(var(--hud-danger, #ff405c) 100%, var(--hud-danger, #ff405c) 0);
   animation: hud-lock-pulse 0.9s ease-in-out infinite;
 }
 @keyframes hud-lock-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  50% { opacity: 0.5; }
 }
 
 /* --- Off-screen enemy arrows (BUBBLE.md §C) ---
    Pooled nodes parked on an elliptical track; EnemyArrows.ts writes each one's
    translate+rotate inline from the math in flightHudLayout.ts. The glyph is a
-   CSS triangle pointing along +x, so a rotation of 0 points screen-right and the
-   placement's rotationRad needs no offset. Tints reuse the reticle's own
-   properties: danger for a plain enemy, primary for the lock candidate. */
+   CHEVRON pointing along +x — the same open-angle language as the reticle's
+   corner ticks — so a rotation of 0 points screen-right and the placement's
+   rotationRad needs no offset. Tints reuse the reticle's own properties: danger
+   for a plain enemy, primary for the lock candidate. */
 .hud-enemy-arrows {
   position: absolute;
   inset: 0;
@@ -413,14 +731,17 @@ const CSS = `
   display: none;
   width: var(--hud-enemy-arrow-size, 20px);
   height: var(--hud-enemy-arrow-size, 20px);
-  /* Triangle: full height on the left edge, apex at the middle of the right. */
-  clip-path: polygon(0% 0%, 100% 50%, 0% 100%);
-  background: var(--hud-danger, #ff4d5e);
-  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.6));
+  /* Open chevron: outer wedge minus an inner wedge, cut in one polygon. */
+  clip-path: polygon(0% 0%, 100% 50%, 0% 100%, 0% 72%, 55% 50%, 0% 28%);
+  background: var(--hud-danger, #ff405c);
+  filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c));
   will-change: transform;
 }
 .hud-enemy-arrow.visible { display: block; }
-.hud-enemy-arrow.candidate { background: var(--hud-primary, #57d8ff); }
+.hud-enemy-arrow.candidate {
+  background: var(--hud-primary, #39bfff);
+  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, #39bfff));
+}
 
 /* --- Notifications (top-center toast stack) --- */
 .hud-notifications {
@@ -435,24 +756,29 @@ const CSS = `
   pointer-events: none;
   max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
 }
+/* Angular banner: a parallelogram-ended plate with a colour-coded leading bar. */
 .hud-toast {
-  padding: 4px 14px;
-  border-radius: 4px;
+  position: relative;
+  padding: 5px 16px 5px 14px;
   max-width: 100%;
   text-align: center;
-  font-size: 0.8125em;
+  font-size: 0.75em;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  background: rgba(10, 14, 26, 0.85);
-  border: 1px solid var(--hud-primary, #57d8ff);
-  animation: hud-toast-in 0.15s ease-out;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hud-text, #dbe9ff);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 88%, transparent);
+  clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+  box-shadow: inset 3px 0 0 0 var(--hud-toast-tint, var(--hud-primary, #39bfff));
+  animation: hud-toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.hud-toast.warning { border-color: var(--hud-accent, #ff8c42); color: var(--hud-accent, #ff8c42); }
-.hud-toast.critical { border-color: var(--hud-danger, #ff4d5e); color: var(--hud-danger, #ff4d5e); }
-.hud-toast.success { border-color: #5fe08c; color: #5fe08c; }
-.hud-toast.info { border-color: var(--hud-primary, #57d8ff); color: var(--hud-primary, #57d8ff); }
+.hud-toast.warning { --hud-toast-tint: var(--hud-accent, #ffb35c); color: var(--hud-accent, #ffb35c); }
+.hud-toast.critical { --hud-toast-tint: var(--hud-danger, #ff405c); color: var(--hud-danger, #ff405c); }
+.hud-toast.success { --hud-toast-tint: var(--hud-success, #5fe08c); color: var(--hud-success, #5fe08c); }
+.hud-toast.info { --hud-toast-tint: var(--hud-primary, #39bfff); color: var(--hud-primary, #39bfff); }
+/* Slide + fade in from above the stack, as a banner deploying. */
 @keyframes hud-toast-in {
-  from { opacity: 0; transform: translateY(-6px); }
+  from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -463,13 +789,13 @@ const CSS = `
   left: 50%;
   transform: translateX(-50%);
   max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
-  font-size: 0.75em;
-  letter-spacing: 0.04em;
+  font-size: 0.6875em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  opacity: 0.85;
-  background: rgba(10, 14, 26, 0.4);
-  padding: 2px 10px;
-  border-radius: 4px;
+  color: var(--hud-neutral, #7f9dc4);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 52%, transparent);
+  padding: 3px 12px;
+  clip-path: polygon(7px 0%, calc(100% - 7px) 0%, 100% 100%, 0% 100%);
   white-space: nowrap;
 }
 
@@ -479,7 +805,7 @@ const CSS = `
   inset: 0;
   pointer-events: none;
   opacity: 0;
-  background: radial-gradient(ellipse at center, transparent 55%, var(--hud-danger, #ff4d5e) 130%);
+  background: radial-gradient(ellipse at center, transparent 55%, var(--hud-danger, #ff405c) 130%);
 }
 .hud-vignette.flash { animation: hud-vignette-flash 0.35s ease-out; }
 @keyframes hud-vignette-flash {
@@ -501,7 +827,7 @@ const CSS = `
 .hud-hitmarker::after {
   content: "";
   position: absolute;
-  background: var(--hud-text, #e6f0ff);
+  background: var(--hud-text, #dbe9ff);
 }
 .hud-hitmarker::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
 .hud-hitmarker::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
@@ -517,7 +843,7 @@ const CSS = `
   display: none;
   align-items: center;
   justify-content: center;
-  background: rgba(2, 4, 10, 0.7);
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--hud-bg, #0a0f1e) 62%, transparent) 0%, rgba(2, 4, 10, 0.86) 100%);
   pointer-events: auto;
 }
 .hud-results.visible { display: flex; }
@@ -527,20 +853,43 @@ const CSS = `
   .hud-results { align-items: flex-end; }
 }
 .hud-results-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  padding: min(32px, 6vh) min(48px, 8vw);
+  padding: min(32px, 6vh) min(44px, 8vw);
   margin: var(--hud-inset-top) var(--hud-inset-right) var(--hud-inset-bottom) var(--hud-inset-left);
   max-width: min(420px, 100%);
   max-height: 100%;
   overflow-y: auto;
-  background: var(--hud-bg, #0a0e1a);
-  border: 1px solid var(--hud-primary, #57d8ff);
-  border-radius: 8px;
+  background: transparent;
 }
+/* Same two-plate frame as the in-match widgets, at panel scale. */
+.hud-results-panel::before,
+.hud-results-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  clip-path: polygon(
+    22px 0%, calc(100% - 22px) 0%, 100% 22px,
+    100% calc(100% - 22px), calc(100% - 22px) 100%,
+    22px 100%, 0% calc(100% - 22px), 0% 22px
+  );
+  pointer-events: none;
+}
+.hud-results-panel::before {
+  background: var(--hud-rim-color);
+  filter: drop-shadow(0 0 calc(26px * var(--hud-glow)) var(--hud-rim-color));
+}
+.hud-results-panel::after {
+  inset: var(--hud-rim);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 94%, transparent);
+}
+.hud-results-panel > * { position: relative; z-index: 1; }
 .hud-results-title {
+  font-family: var(--hud-font-display, var(--hud-font-body, system-ui, sans-serif));
   font-size: 1.75em;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -551,23 +900,30 @@ const CSS = `
 /* Outcome colouring — all four banners share one element, only the tint moves. */
 .hud-results-title[data-outcome="victory"],
 .hud-results-title[data-outcome="targets-cleared"] {
-  color: var(--hud-primary, #57d8ff);
-  text-shadow: 0 0 24px rgba(87, 216, 255, 0.45);
+  color: var(--hud-primary, #39bfff);
+  text-shadow: 0 0 calc(30px * var(--hud-glow)) var(--hud-primary, #39bfff);
 }
 .hud-results-title[data-outcome="defeat"] {
-  color: var(--hud-danger, #ff4d5e);
-  text-shadow: 0 0 24px rgba(255, 77, 94, 0.35);
+  color: var(--hud-danger, #ff405c);
+  text-shadow: 0 0 calc(30px * var(--hud-glow)) var(--hud-danger, #ff405c);
 }
-.hud-results-title[data-outcome="draw"] { color: var(--hud-accent, #ff8c42); }
+.hud-results-title[data-outcome="draw"] { color: var(--hud-accent, #ffb35c); }
 @keyframes hud-results-banner {
   from { opacity: 0; transform: translateY(-10px) scale(0.94); letter-spacing: 0.02em; }
   to { opacity: 1; transform: none; letter-spacing: 0.14em; }
 }
+/* Bracketed rule under the banner, the panel language's section mark. */
+.hud-results-rule {
+  width: 78%;
+  height: var(--hud-rim);
+  background: linear-gradient(90deg, transparent, var(--hud-primary, #39bfff), var(--hud-accent, #ffb35c), transparent);
+  opacity: 0.85;
+}
 .hud-results-sub {
   font-size: 0.75em;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  opacity: 0.7;
+  color: var(--hud-neutral, #7f9dc4);
 }
 .hud-results-sub:empty { display: none; }
 .hud-results-rewards {
@@ -580,12 +936,12 @@ const CSS = `
 .hud-results-rewards:empty { display: none; }
 .hud-results-rewards-line {
   font-size: 1.125em;
-  color: var(--hud-primary, #57d8ff);
+  color: var(--hud-primary, #39bfff);
   letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
 }
-.hud-results-rewards-line .credits { color: var(--hud-accent, #ff8c42); font-weight: 700; }
-.hud-results-rewards-line .xp { color: var(--hud-primary, #57d8ff); font-weight: 700; }
+.hud-results-rewards-line .credits { color: var(--hud-accent, #ffb35c); font-weight: 700; }
+.hud-results-rewards-line .xp { color: var(--hud-primary, #39bfff); font-weight: 700; }
 .hud-results-rewards-line .unit,
 .hud-results-rewards-line .dot { font-size: 0.7em; opacity: 0.75; letter-spacing: 0.06em; }
 /* One soft pop when the count-up lands — marks "that's your total". */
@@ -605,9 +961,9 @@ const CSS = `
 .hud-results-levelup {
   font-size: 0.8125em;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #5fe08c;
+  color: var(--hud-success, #5fe08c);
   animation: hud-toast-in 0.2s ease-out;
 }
 .hud-results-btn {
@@ -620,20 +976,24 @@ const CSS = `
   padding: 8px 18px;
   font-size: 0.8125em;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--hud-text, #e6f0ff);
-  background: transparent;
-  border: 1px solid var(--hud-primary, #57d8ff);
-  border-radius: 4px;
+  color: var(--hud-text, #dbe9ff);
+  background: color-mix(in srgb, var(--hud-primary, #39bfff) 8%, transparent);
+  border: var(--hud-rim) solid var(--hud-rim-color);
+  clip-path: polygon(9px 0%, 100% 0%, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0% 100%, 0% 9px);
+  transition: background-color 0.12s linear, color 0.12s linear;
 }
+.hud-results-btn:hover { background: color-mix(in srgb, var(--hud-primary, #39bfff) 20%, transparent); }
 .hud-results-btn--primary {
   flex: 1 1 100%;
-  color: var(--hud-bg, #0a0e1a);
-  background: var(--hud-primary, #57d8ff);
-  border-color: var(--hud-primary, #57d8ff);
+  color: var(--hud-bg, #0a0f1e);
+  background: var(--hud-primary, #39bfff);
+  border-color: var(--hud-primary, #39bfff);
   font-size: 0.875em;
+  font-weight: 700;
 }
+.hud-results-btn--primary:hover { background: color-mix(in srgb, var(--hud-primary, #39bfff) 82%, #ffffff); }
 
 /* --- In-match settings affordance (top-right, next to the FPS readout) ---
    Tagged data-hud-control so edge palm rejection never eats it (5.4). */
@@ -642,19 +1002,37 @@ const CSS = `
   position: absolute;
   top: var(--hud-inset-top);
   right: calc(var(--hud-inset-right) + 76px);
-  width: 36px;
-  height: 36px;
+  /* 44px, not the old 36: it is a touch target like any other (ROADMAP S3). */
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1em;
   line-height: 1;
-  color: var(--hud-primary, #57d8ff);
-  background: rgba(10, 14, 26, 0.7);
-  border: 1px solid var(--hud-primary, #57d8ff);
-  border-radius: 8px;
+  color: var(--hud-primary, #39bfff);
+  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 68%, transparent);
+  border: var(--hud-rim) solid var(--hud-rim-color);
+  clip-path: polygon(9px 0%, 100% 0%, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0% 100%, 0% 9px);
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+}
+.hud-settings-btn:hover { border-color: var(--hud-primary, #39bfff); }
+
+/* Reduced motion: the looping pulses are decoration on top of information that
+   is already carried by COLOUR (overheat red, lock red, critical red), so they
+   can stop without taking a combat cue away. The one-shot feedback animations
+   (hit marker, damage vignette, toast slide, results banner) stay: they ARE the
+   information — a hit marker that never appears is a hit the player never saw. */
+@media (prefers-reduced-motion: reduce) {
+  .hud-module-btn.state-overheated::before,
+  .hud-reticle-bracket.locked .ring,
+  .hud-gauge.critical .hud-gauge-value {
+    animation: none;
+  }
+  .hud-module-btn.state-overheated::before {
+    filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-danger, #ff405c));
+  }
 }
 `;

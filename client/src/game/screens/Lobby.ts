@@ -7,6 +7,7 @@ import {
   type ThemeConfig,
 } from "@space-arena/shared";
 import type { AuthService, AuthState } from "../../core/AuthService.js";
+import { SERVER_OFFLINE_HINT, SERVER_OFFLINE_MESSAGE } from "../../core/serverHealth.js";
 import { applyMenuTheme, createMenuBackdrop, injectScreenStyle } from "./screenStyle.js";
 import type { MenuTheme } from "./menuTheme.js";
 
@@ -58,6 +59,15 @@ export class Lobby {
   private readonly unsubscribeAuth: () => void;
   private readonly unsubscribeTheme: (() => void) | null = null;
   private readonly callbacks: LobbyCallbacks;
+  /** Persistent "the game server did not answer" banner on the Online section. */
+  private readonly offlineBadge: HTMLDivElement;
+  private readonly offlineDetail: HTMLSpanElement;
+  /**
+   * Whether the game server answered its health probe. Independent of auth: an
+   * authenticated player with a dead server must still see online play disabled,
+   * and both reasons produce their own tooltip.
+   */
+  private serverOnline = true;
 
   constructor(
     parent: HTMLElement,
@@ -87,6 +97,15 @@ export class Lobby {
     rule.className = "sa-menu-rule";
     titleWrap.append(this.titleEl, this.subtitleEl, rule);
     this.root.append(titleWrap);
+
+    // Built before buildSections() so the Online section can adopt it as its
+    // first child; hidden until someone reports the server missing.
+    this.offlineBadge = document.createElement("div");
+    this.offlineBadge.className = "sa-menu-offline-badge";
+    this.offlineBadge.dataset["serverOffline"] = "";
+    this.offlineBadge.setAttribute("role", "status");
+    this.offlineDetail = span("detail", "");
+    this.offlineBadge.append(dot(), span("text", SERVER_OFFLINE_MESSAGE), this.offlineDetail);
 
     this.sections = document.createElement("div");
     this.sections.className = "sa-menu-sections";
@@ -137,6 +156,7 @@ export class Lobby {
     }
 
     const online = this.section("Online", "primary");
+    online.append(this.offlineBadge);
     for (const gm of gamemodes) {
       if (gm.id === "gamemode.practice" || gm.bots?.roster?.length) continue;
       this.addButton(online, `${gm.name ?? gm.id}`, () => this.choose({ kind: "online", gamemode: gm.id }), true);
@@ -238,11 +258,46 @@ export class Lobby {
     return a;
   }
 
+  /**
+   * Report the game server's reachability (the boot health probe, and any later
+   * join that failed with a network error). An offline server disables every
+   * online entry and raises the persistent badge — offline practice is
+   * deliberately untouched, because it needs nothing but the content pack.
+   */
+  setServerOnline(online: boolean, detail = ""): void {
+    if (online === this.serverOnline && !detail) return;
+    this.serverOnline = online;
+    this.offlineBadge.classList.toggle("visible", !online);
+    // Parenthesised so the probe's own words read as an aside next to the
+    // headline rather than running into it.
+    this.offlineDetail.textContent = online || !detail ? "" : `(${detail})`;
+    this.applyOnlineButtonState(this.auth.getState().status === "authed");
+  }
+
+  /** Whether the lobby currently believes the game server is reachable. */
+  get serverReachable(): boolean {
+    return this.serverOnline;
+  }
+
+  /**
+   * A join attempt died because nothing answered. Raises the same badge the
+   * boot probe uses and clears the busy state, so the player is never left
+   * reading a raw `NetworkError when attempting to fetch resource.` toast.
+   */
+  showServerOffline(detail = ""): void {
+    this.setServerOnline(false, detail);
+    this.setBusy(false, SERVER_OFFLINE_MESSAGE);
+  }
+
   private applyOnlineButtonState(authed: boolean): void {
     for (const { el, online } of this.buttons) {
       if (!online) continue;
-      el.disabled = !authed;
-      el.title = authed ? "" : "Log in or play as a guest to play online";
+      el.disabled = !authed || !this.serverOnline;
+      el.title = !this.serverOnline
+        ? SERVER_OFFLINE_HINT
+        : authed
+          ? ""
+          : "Log in or play as a guest to play online";
     }
   }
 
@@ -254,7 +309,9 @@ export class Lobby {
 
   setBusy(busy: boolean, message = ""): void {
     const authed = this.auth.getState().status === "authed";
-    for (const { el, online } of this.buttons) el.disabled = busy || (online && !authed);
+    for (const { el, online } of this.buttons) {
+      el.disabled = busy || (online && (!authed || !this.serverOnline));
+    }
     this.status.textContent = message;
   }
 
@@ -280,5 +337,12 @@ function span(className: string, text: string): HTMLSpanElement {
   const el = document.createElement("span");
   el.className = className;
   el.textContent = text;
+  return el;
+}
+
+/** The pulsing status lamp on the offline badge. */
+function dot(): HTMLSpanElement {
+  const el = span("dot", "");
+  el.setAttribute("aria-hidden", "true");
   return el;
 }

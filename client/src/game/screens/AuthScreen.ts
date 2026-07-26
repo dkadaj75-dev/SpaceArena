@@ -1,6 +1,7 @@
-import { createLogger } from "@space-arena/shared";
+import { createLogger, type ConfigService, type ThemeConfig } from "@space-arena/shared";
 import { ApiRequestError, type AuthService } from "../../core/AuthService.js";
-import { injectScreenStyle } from "./screenStyle.js";
+import { looksLikeServerUnreachable, SERVER_OFFLINE_MESSAGE } from "../../core/serverHealth.js";
+import { applyMenuTheme, createMenuBackdrop, injectScreenStyle } from "./screenStyle.js";
 
 const log = createLogger("AuthScreen");
 
@@ -26,17 +27,31 @@ export class AuthScreen {
     private readonly auth: AuthService,
     private readonly onAuthed: () => void,
     private readonly onSkipOffline: () => void,
+    /**
+     * Optional so every existing caller (and every test) keeps working. When
+     * present the gate wears the Lobby's nebula backdrop and `theme.menu`
+     * palette instead of a flat wash — the two screens are shown back to back,
+     * and this one is the first thing a new player sees after the boot panel.
+     */
+    configs?: ConfigService,
   ) {
     injectScreenStyle();
     this.root = document.createElement("div");
-    this.root.className = "auth-overlay game-screen sa-screen";
-    this.root.style.background = "rgba(4,8,16,.92)";
+    this.root.className = "auth-overlay game-screen sa-screen sa-menu";
     this.root.style.zIndex = "30";
+    this.root.append(createMenuBackdrop());
+    applyMenuTheme(this.root, configs?.get<ThemeConfig>("theme", "theme.default"));
 
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "sa-menu-titlewrap";
     const title = document.createElement("h1");
     title.textContent = "SPACE ARENA";
     title.className = "sa-screen-title";
-    this.root.append(title);
+    const rule = document.createElement("div");
+    rule.className = "sa-menu-rule";
+    rule.setAttribute("aria-hidden", "true");
+    titleWrap.append(title, rule);
+    this.root.append(titleWrap);
 
     const guestBtn = this.bigButton("Play as Guest");
     guestBtn.addEventListener("click", () => void this.run(() => this.auth.guest()));
@@ -182,8 +197,18 @@ export class AuthScreen {
       await action();
       this.onAuthed();
     } catch (err) {
-      const message =
-        err instanceof ApiRequestError ? err.message : err instanceof Error ? err.message : "Something went wrong";
+      // A refused connection surfaces as a browser-specific TypeError
+      // ("NetworkError when attempting to fetch resource.", "Failed to fetch",
+      // "Load failed"). That string told the player nothing; every auth path
+      // that dies because nothing answered says the same honest sentence, and
+      // "Skip (offline practice)" right below is the way out.
+      const message = looksLikeServerUnreachable(err)
+        ? `${SERVER_OFFLINE_MESSAGE} — you can still Skip to offline practice.`
+        : err instanceof ApiRequestError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong";
       log.warn("auth action failed", err);
       this.errorEl.textContent = message;
     } finally {

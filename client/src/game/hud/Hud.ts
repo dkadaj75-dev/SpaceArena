@@ -187,6 +187,10 @@ export class Hud {
     for (const [prop, value] of Object.entries(theme?.colors ?? {})) {
       this.root.style.setProperty(prop, value);
     }
+    // Fonts used to stop at the menu screens; the results banner and the gauge
+    // labels want the same faces the lobby wordmark uses.
+    if (theme?.fonts?.body) this.root.style.setProperty("--hud-font-body", theme.fonts.body);
+    if (theme?.fonts?.display) this.root.style.setProperty("--hud-font-display", theme.fonts.display);
     this.layout = resolveHudLayout(theme, viewportSize());
     for (const [prop, value] of Object.entries(hudCssVars(this.layout))) {
       this.root.style.setProperty(prop, value);

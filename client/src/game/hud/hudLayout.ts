@@ -2,6 +2,7 @@ import type {
   GaugesConfig,
   HudAnchorName,
   HudOrientationConfig,
+  HudStyleConfig,
   ModuleClusterConfig,
   ThemeConfig,
 } from "@space-arena/shared";
@@ -48,6 +49,8 @@ export interface HudLayout {
   notificationMaxVisible: number;
   thumbZoneFraction: number;
   cluster: ClusterLayout;
+  /** Look-only frame knobs (chamfer / glow / panel fill), shared by every widget. */
+  style: HudStyleLayout;
 }
 
 export interface GaugeLayout {
@@ -56,6 +59,23 @@ export interface GaugeLayout {
   offsetYPx: number;
   gapPx: number;
   trackHeightPx: number;
+  /** Segment cells per bar; 1 renders a solid bar. */
+  segments: number;
+}
+
+/**
+ * Resolved `theme.hud.style`. Purely presentational, and deliberately NOT scaled
+ * by `hud.scale`: a chamfer or a glow that grew with the HUD scale would read as
+ * a different design rather than the same design at a different size. The one
+ * exception is {@link HudStyleLayout.chamferPx}, which IS scaled — it is a
+ * corner cut measured against control edges that do scale.
+ */
+export interface HudStyleLayout {
+  chamferPx: number;
+  glow: number;
+  panelOpacity: number;
+  tickOpacity: number;
+  blurPx: number;
 }
 
 /** One button's centre, in px offsets from the cluster's anchor pivot (x right, y down). */
@@ -76,6 +96,14 @@ export const HUD_DEFAULTS = {
     offsetYPx: 0,
     gapPx: 6,
     trackHeightPx: 10,
+    segments: 12,
+  },
+  style: {
+    chamferPx: 8,
+    glow: 0.55,
+    panelOpacity: 0.58,
+    tickOpacity: 0.34,
+    blurPx: 6,
   },
   notificationMaxVisible: 3,
   thumbZoneFraction: 0.4,
@@ -154,7 +182,11 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
       offsetYPx: (rawGauges.offsetYPx ?? HUD_DEFAULTS.gauges.offsetYPx) * scale,
       gapPx: (rawGauges.gapPx ?? HUD_DEFAULTS.gauges.gapPx) * scale,
       trackHeightPx: (rawGauges.trackHeightPx ?? HUD_DEFAULTS.gauges.trackHeightPx) * scale,
+      // Segment COUNT, not a length — scaling it would change the readout's
+      // resolution instead of its size.
+      segments: rawGauges.segments ?? HUD_DEFAULTS.gauges.segments,
     },
+    style: resolveHudStyle(hud?.style, scale),
     notificationMaxVisible: hud?.notificationMaxVisible ?? HUD_DEFAULTS.notificationMaxVisible,
     thumbZoneFraction: override.thumbZoneFraction ?? hud?.thumbZoneFraction ?? HUD_DEFAULTS.thumbZoneFraction,
     cluster: {
@@ -169,6 +201,22 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
       offsetXPx: (rawCluster.offsetXPx ?? HUD_DEFAULTS.cluster.offsetXPx) * scale,
       offsetYPx: (rawCluster.offsetYPx ?? HUD_DEFAULTS.cluster.offsetYPx) * scale,
     },
+  };
+}
+
+/**
+ * Resolve the look block. There is no orientation override for it on purpose:
+ * the shape language should not change when a phone is rotated, only the sizes
+ * around it — and those are already per-orientation.
+ */
+function resolveHudStyle(style: HudStyleConfig | undefined, scale: number): HudStyleLayout {
+  const d = HUD_DEFAULTS.style;
+  return {
+    chamferPx: (style?.chamferPx ?? d.chamferPx) * scale,
+    glow: style?.glow ?? d.glow,
+    panelOpacity: style?.panelOpacity ?? d.panelOpacity,
+    tickOpacity: style?.tickOpacity ?? d.tickOpacity,
+    blurPx: style?.blurPx ?? d.blurPx,
   };
 }
 
@@ -281,7 +329,19 @@ export function hudCssVars(layout: HudLayout): Record<string, string> {
     "--hud-gauge-offset-y": `${layout.gauges.offsetYPx}px`,
     "--hud-gauge-gap": `${layout.gauges.gapPx}px`,
     "--hud-gauge-track-height": `${layout.gauges.trackHeightPx}px`,
+    // Segment pitch as a percentage of the bar, so the cell overlay is one
+    // `repeating-linear-gradient` that needs no width measurement.
+    "--hud-gauge-segment-pct": `${100 / layout.gauges.segments}%`,
     "--hud-module-btn-radius": `${layout.cluster.buttonRadiusPx}px`,
     "--hud-module-gap": `${layout.cluster.gapPx}px`,
+    "--hud-chamfer": `${layout.style.chamferPx}px`,
+    "--hud-glow": String(layout.style.glow),
+    // Emitted as a ready-made percentage as well as a number: `color-mix()`
+    // wants a <percentage> and not every engine accepts a calc() there, so the
+    // panel-fill mix reads the pre-formatted one.
+    "--hud-panel-opacity": String(layout.style.panelOpacity),
+    "--hud-panel-pct": `${Math.round(layout.style.panelOpacity * 1000) / 10}%`,
+    "--hud-tick-opacity": String(layout.style.tickOpacity),
+    "--hud-blur": `${layout.style.blurPx}px`,
   };
 }

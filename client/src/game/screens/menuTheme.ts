@@ -26,6 +26,12 @@ export interface MenuTheme {
   titleSubtitle: string;
   titleLetterSpacingEm: number;
   titleGlow: number;
+  /** `theme.menu.style.chamferPx` — corner cut on panels and buttons. */
+  panelChamferPx: number;
+  /** `theme.menu.style.glow` — outer-glow strength on panel rims / primary buttons. */
+  panelGlow: number;
+  /** `theme.menu.style.panelOpacity` — panel fill opacity over the nebula. */
+  panelOpacity: number;
   /** `theme.fonts.display` — the title wordmark face. */
   displayFont: string;
   /** `theme.fonts.body`. */
@@ -50,6 +56,9 @@ export const DEFAULT_MENU_THEME: MenuTheme = {
   titleSubtitle: "TACTICAL SHIP COMBAT",
   titleLetterSpacingEm: 0.32,
   titleGlow: 0.5,
+  panelChamferPx: 12,
+  panelGlow: 0.5,
+  panelOpacity: 0.72,
   displayFont: "system-ui, sans-serif",
   bodyFont: "system-ui, sans-serif",
 };
@@ -70,6 +79,7 @@ export function menuThemeOf(theme: ThemeConfig | undefined): MenuTheme {
   const colors = menu?.colors;
   const backdrop = menu?.backdrop;
   const title = menu?.title;
+  const style = menu?.style;
   const d = DEFAULT_MENU_THEME;
   return {
     base: str(colors?.base, d.base),
@@ -90,6 +100,11 @@ export function menuThemeOf(theme: ThemeConfig | undefined): MenuTheme {
     titleSubtitle: title?.subtitle === undefined ? d.titleSubtitle : title.subtitle.trim(),
     titleLetterSpacingEm: num(title?.letterSpacingEm, d.titleLetterSpacingEm, 0, 2),
     titleGlow: num(title?.glow, d.titleGlow, 0, 1),
+    // 64px is a generous ceiling, not a design suggestion: it keeps a typo like
+    // `chamferPx: 1200` from clipping a panel out of existence.
+    panelChamferPx: num(style?.chamferPx, d.panelChamferPx, 0, 64),
+    panelGlow: num(style?.glow, d.panelGlow, 0, 1),
+    panelOpacity: num(style?.panelOpacity, d.panelOpacity, 0, 1),
     displayFont: str(theme?.fonts?.display, d.displayFont),
     bodyFont: str(theme?.fonts?.body, d.bodyFont),
   };
@@ -111,6 +126,11 @@ export function menuCssVars(menu: MenuTheme): Record<string, string> {
     "--sa-menu-vignette": String(menu.vignette),
     "--sa-menu-title-tracking": `${menu.titleLetterSpacingEm}em`,
     "--sa-menu-title-glow": String(menu.titleGlow),
+    "--sa-menu-chamfer": `${menu.panelChamferPx}px`,
+    "--sa-menu-glow": String(menu.panelGlow),
+    // Pre-formatted percentage: `color-mix()` wants a <percentage> and not every
+    // engine accepts a calc() in that slot.
+    "--sa-menu-panel-pct": `${Math.round(menu.panelOpacity * 1000) / 10}%`,
     "--sa-menu-font-display": menu.displayFont,
     "--sa-menu-font-body": menu.bodyFont,
   };

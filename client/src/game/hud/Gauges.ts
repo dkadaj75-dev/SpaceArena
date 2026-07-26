@@ -10,6 +10,7 @@ import type {
 import type { HudLayout } from "./hudLayout.js";
 
 interface GaugeEntry {
+  row: HTMLDivElement;
   fill: HTMLDivElement;
   valueEl: HTMLSpanElement;
   lastPct: number;
@@ -20,12 +21,23 @@ interface GaugeEntry {
 }
 
 const HEAT_WARN_FRACTION = 0.75;
+/**
+ * Hull fraction at or below which the bar flips to the critical tint. The
+ * mirror image of {@link HEAT_WARN_FRACTION}: heat is dangerous when it climbs,
+ * hull when it falls, and both end up wearing the same red.
+ */
+const HULL_WARN_FRACTION = 0.3;
 
 /**
  * Hull, shield-pool, energy and heat gauge bars (bottom-left, theme-positioned).
  * Shield-pool is the sum of active shield modules' `shieldPool` reservoirs
  * (there is no innate ship shield stat in MVP — shielding comes entirely from
- * fitted shield modules). Heat gets a warning color near the overheat range.
+ * fitted shield modules). Hull and heat both get a critical color as they
+ * approach their bad end.
+ *
+ * The bar is drawn as segmented cells (`theme.hud.gauges.segments`) by a CSS
+ * overlay rather than by N nodes: the fill itself stays a single continuously
+ * scaled element, so a value change is still one `transform` write per frame.
  */
 export class Gauges {
   private readonly container: HTMLDivElement;
@@ -41,13 +53,26 @@ export class Gauges {
     private readonly playerId: EntityId,
   ) {
     this.container = document.createElement("div");
-    this.container.className = "hud-gauges";
+    // `hud-frame` is the shared chamfered rim + translucent fill treatment
+    // (see hudStyle.ts) — the gauges read as one instrument cluster rather than
+    // four loose bars floating over the arena.
+    this.container.className = "hud-gauges hud-frame";
     root.appendChild(this.container);
 
     this.hull = this.buildRow("HULL", "hull");
     this.shield = this.buildRow("SHIELD", "shield");
     this.energy = this.buildRow("ENERGY", "energy");
     this.heat = this.buildRow("HEAT", "heat");
+
+    // Angular corner brackets on the cluster (opposite corners only, matching
+    // the chamfer's own diagonal).
+    for (const corner of ["tl", "br"]) {
+      const bracket = document.createElement("span");
+      bracket.className = "hud-bracket";
+      bracket.dataset["corner"] = corner;
+      bracket.setAttribute("aria-hidden", "true");
+      this.container.appendChild(bracket);
+    }
   }
 
   applyLayout(layout: HudLayout): void {
@@ -57,25 +82,30 @@ export class Gauges {
   private buildRow(labelText: string, cls: string): GaugeEntry {
     const row = document.createElement("div");
     row.className = "hud-gauge";
-    const label = document.createElement("div");
+    row.dataset["gauge"] = cls;
+
+    // Label and value share one baseline row above the bar, so the reading sits
+    // where the eye already is instead of below the track.
+    const head = document.createElement("div");
+    head.className = "hud-gauge-head";
+    const label = document.createElement("span");
     label.className = "hud-gauge-label";
     label.textContent = labelText;
+    const valueEl = document.createElement("span");
+    valueEl.className = "hud-gauge-value";
+    head.append(label, valueEl);
+
     const track = document.createElement("div");
     track.className = "hud-gauge-track";
     const fill = document.createElement("div");
     fill.className = `hud-gauge-fill ${cls}`;
     fill.style.transform = "scaleX(1)";
-    const valueEl = document.createElement("span");
-    valueEl.className = "hud-gauge-label";
-    valueEl.style.alignSelf = "flex-end";
 
     track.appendChild(fill);
-    row.appendChild(label);
-    row.appendChild(track);
-    row.appendChild(valueEl);
+    row.append(head, track);
     this.container.appendChild(row);
 
-    return { fill, valueEl, lastPct: -1, lastValue: Number.NaN, lastMax: Number.NaN, lastWarn: false };
+    return { row, fill, valueEl, lastPct: -1, lastValue: Number.NaN, lastMax: Number.NaN, lastWarn: false };
   }
 
   update(cur: Snapshot): void {
@@ -84,7 +114,8 @@ export class Gauges {
     const ship = findShip(cur, this.playerId);
     if (!ship) return;
 
-    this.set(this.hull, ship.hullMax > 0 ? ship.hull / ship.hullMax : 0, Math.ceil(ship.hull), ship.hullMax);
+    const hullFrac = ship.hullMax > 0 ? ship.hull / ship.hullMax : 0;
+    this.set(this.hull, hullFrac, Math.ceil(ship.hull), ship.hullMax, hullFrac <= HULL_WARN_FRACTION);
 
     let shieldPool = 0;
     let shieldCap = 0;
@@ -127,6 +158,9 @@ export class Gauges {
     }
     if (warn !== entry.lastWarn) {
       entry.fill.classList.toggle("warn", warn);
+      // The row carries the state too: colour alone is the cue a player misses
+      // mid-turn, so the readout also pulses (hudStyle.ts `.hud-gauge.critical`).
+      entry.row.classList.toggle("critical", warn);
       entry.lastWarn = warn;
     }
   }
