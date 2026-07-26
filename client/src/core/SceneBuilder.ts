@@ -262,23 +262,42 @@ export class SceneBuilder {
       const skyMat = new StandardMaterial("mat.skybox", this.scene);
       skyMat.diffuseColor = Color3.Black();
       skyMat.specularColor = Color3.Black();
-      skyMat.emissiveColor = colorFromHex(authored.tint, Color3.White()).scale(authored.intensity);
+      // BLACK until the panorama is actually READY: with a non-blocking texture
+      // an emissive-only StandardMaterial renders its raw emissiveColor as a
+      // full-sky wash while the image decodes — and freezeStatics() can freeze
+      // the material in that textureless state, baking the wash in PERMANENTLY
+      // (the race is invisible on fast/software renderers and constant on a
+      // cold-cache real GPU — the "horrible white skybox" bug).
+      skyMat.emissiveColor = Color3.Black();
+      const litEmissive = colorFromHex(authored.tint, Color3.White()).scale(authored.intensity);
       const panorama = new Texture(
         `/content/${authored.texture}`,
         this.scene,
         undefined,
         undefined,
         undefined,
-        undefined,
+        () => {
+          if (generation !== this.generation) return;
+          // Texture is ready: light the sky up, and re-freeze the material if
+          // the arena froze while we were still decoding (a frozen shader
+          // compiled without the texture define would never show it).
+          skyMat.emissiveColor.copyFrom(litEmissive);
+          if (this.frozen) {
+            skyMat.unfreeze();
+            skyMat.freeze();
+          }
+        },
         (message, exception) => {
           log.warn(
             `skybox texture failed for "${authored.texture}": ${message || String(exception)} — using solid authored tint`,
           );
           // A failed texture otherwise leaves the material permanently unready
-          // and the sky black. The emissive tint is the procedural fallback.
+          // and the sky black. A DIM emissive tint is the fallback backdrop
+          // (full tint*intensity with no texture is the white-wash bug above).
           if (generation === this.generation) {
             skyMat.emissiveTexture?.dispose();
             skyMat.emissiveTexture = null;
+            skyMat.emissiveColor.copyFrom(litEmissive.scale(0.12));
           }
         },
       );

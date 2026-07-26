@@ -114,7 +114,13 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
 
     const material = scene.getMeshByName("skybox")!.material as StandardMaterial;
     expect(material.emissiveTexture?.name).toBe("/content/skyboxes/test.webp");
-    expect(material.emissiveColor.r).toBeCloseTo(0.8);
+    // BLACK until the panorama's onLoad fires: an emissive-only material with
+    // an unready non-blocking texture renders its raw emissiveColor as a
+    // full-sky wash (and freezing can bake that in). The tint*intensity is
+    // applied by the texture's onLoad callback, never at build time.
+    expect(material.emissiveColor.r).toBe(0);
+    expect(material.emissiveColor.g).toBe(0);
+    expect(material.emissiveColor.b).toBe(0);
     expect(material.disableDepthWrite).toBe(true);
     expect(material.emissiveTexture?.isBlocking).toBe(false);
     builder.dispose();
