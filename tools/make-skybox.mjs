@@ -1,5 +1,4 @@
-/* eslint-env node, browser */
-/* global makeNebula */
+/* global process, console, Buffer, document, ImageData, makeNebula */
 // Equirect nebula skybox generator — renders in headless Chromium (canvas) and
 // saves WEBP. Noise is sampled in 3D direction space so the pano wraps seamlessly.
 // Usage: node make-skybox.mjs <outDir>
@@ -11,19 +10,21 @@ const OUT = process.argv[2] ?? ".";
 const W = 2048, H = 1024;
 
 const PALETTES = {
+  // References are mostly DARK sky: dust confined to patches (~30% coverage),
+  // muted mids, bright cores only deep inside the densest clouds.
   "deep-field": {
     base: [5, 7, 12],
-    dustA: { col: [92, 48, 22], hot: [176, 106, 47], lo: 0.44, hi: 0.88 },
-    dustB: { col: [70, 52, 26], hot: [190, 150, 80], lo: 0.5, hi: 0.94 },
+    dustA: { col: [66, 34, 16], hot: [150, 92, 42], lo: 0.68, hi: 1.02 },
+    dustB: { col: [48, 36, 18], hot: [160, 126, 66], lo: 0.74, hi: 1.05 },
     core: [255, 214, 160],
-    warp: 0.9, starGain: 1.0, seed: 7,
+    warp: 1.25, starGain: 1.0, seed: 7,
   },
   "ring-nebula": {
     base: [6, 6, 14],
-    dustA: { col: [74, 42, 110], hot: [138, 79, 191], lo: 0.44, hi: 0.88 },
-    dustB: { col: [30, 58, 110], hot: [79, 127, 208], lo: 0.5, hi: 0.94 },
+    dustA: { col: [52, 30, 80], hot: [116, 66, 160], lo: 0.68, hi: 1.02 },
+    dustB: { col: [22, 42, 82], hot: [66, 106, 175], lo: 0.74, hi: 1.05 },
     core: [224, 208, 255],
-    warp: 1.15, starGain: 1.0, seed: 23,
+    warp: 1.5, starGain: 1.0, seed: 23,
   },
 };
 
@@ -88,8 +89,9 @@ function makeNebula(W, H, P) {
       const nB = fbm(ax * 3.4 + 31, ay * 3.4, az * 3.4, 6, 0.5);
       rampMix(nB, P.dustB.lo, P.dustB.hi, P.dustB.col, P.dustB.hot, c);
       // Bright cores inside dense dust (stretched like the ramps)
-      const nC = 1 / (1 + Math.exp(-(fbm(dx * 5.2 + 53, dy * 5.2, dz * 5.2, 4, 0.5) - 0.52) * 16));
-      const core = Math.pow(Math.max(0, nC), 6) * Math.max(0, (1 / (1 + Math.exp(-(nA - 0.52) * 16))) - 0.35) * 2.2;
+      const nC = 1 / (1 + Math.exp(-(fbm(dx * 5.2 + 53, dy * 5.2, dz * 5.2, 4, 0.5) - 0.5) * 14));
+      // Only inside genuinely dense dust (stretched nA above the dustA floor).
+      const core = Math.pow(Math.max(0, nC), 8) * Math.max(0, (1 / (1 + Math.exp(-(nA - 0.5) * 14))) - 0.75) * 3.0;
       for (let ch = 0; ch < 3; ch++) c[ch] += P.core[ch] * core;
 
       // Stars: jittered point per 3D cell, distance in direction space
@@ -119,7 +121,7 @@ const page = await browser.newPage();
 for (const [name, palette] of Object.entries(PALETTES)) {
   const dataUrl = await page.evaluate(
     ([script, W, H, P]) => {
-      eval(script); // eslint-disable-line no-eval
+      eval(script);
       const img = makeNebula(W, H, P);
       const cv = document.createElement("canvas");
       cv.width = W; cv.height = H;
