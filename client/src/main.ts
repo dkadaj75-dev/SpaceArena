@@ -153,8 +153,13 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // (server-side dev-login route; hard-absent in production). Escape hatches
   // for testing the real auth flow: `?login=1` for one boot, or
   // `localStorage["sa.devLogin"] = "off"` until cleared.
+  // Localhost ONLY: a phone joining over the LAN (http://<pc-ip>:5173) must get
+  // the auth screen and its own guest identity — if every dev client silently
+  // became the same admin account, two devices could never matchmake against
+  // each other (the queue de-duplicates per player).
   if (
     import.meta.env.DEV &&
+    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
     authService.getState().status !== "authed" &&
     !new URLSearchParams(window.location.search).has("login") &&
     localStorage.getItem("sa.devLogin") !== "off"
