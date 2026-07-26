@@ -23,8 +23,14 @@ Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchang
   rules (bounce/damage) act on 3D radial distance. Asteroid placements + spawns gain
   `y` (and spawns a `pitch`, usually 0).
 - **Wire format**: `y` = int16 centi-units like x/z (±327 cap unchanged, r300 safe);
-  `pitch` encoded like heading. Projectiles replicate y too. This is additive wire
-  work, not a format change.
+  `pitch` gets its OWN signed int16 codec (±π ↦ ±32767). **Landed as T2, deviating
+  from the original "encoded like heading":** heading's codec folds its value into
+  0..2π and `decodeHeading` never returns a negative, so a nose-down −0.5 rad would
+  arrive as +5.78 rad — outside the sim's ±`maxPitchRad` clamp, wrong for mesh
+  orientation and chase-cam beta, and fatal to the client's LINEAR pitch
+  interpolation, which would sweep the long way round across zero. Pitch does not
+  wrap; its codec must not either. Projectiles replicate y too. This is additive
+  wire work, not a format change.
 
 ## Feature seams
 
@@ -47,9 +53,13 @@ Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchang
 - Boundary + win conditions + snapshots: `y`/`pitch` in ShipSnapshot (+ projectiles).
 
 ### B. Net
-- quantize: encode/decode y (centi) + pitch (heading codec); ArenaState PlayerState
-  += y, pitch; projectile state += y; writeState/decode both sides.
-- protocol orderSchema: pitchStick axis, clamped like turn; validateOrder same.
+- quantize: encode/decode y (centi) + pitch (own signed int16 codec, see above);
+  ArenaState PlayerState += y, pitch; projectile state += y; writeState/decode
+  both sides.
+- protocol orderSchema: pitchStick axis, OPTIONAL (pitch is held state, so an
+  absent axis and a centred stick mean the same thing) and clamped like turn when
+  present; validateOrder already matched, so the two sides of the trust boundary
+  are identical.
 - Prediction: flightStep 3D with the same resolved stats; snap velocity derivation
   works on 3D positions.
 

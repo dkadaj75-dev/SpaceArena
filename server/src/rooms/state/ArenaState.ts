@@ -42,11 +42,21 @@ export class PlayerState extends Schema {
   @type("string") shipId = "";
   /** Player display name (from profile), or a generated guest/anon label. */
   @type("string") displayName = "";
-  /** Position, int16 centi-units (decode with shared `decodeCenti`). */
+  /**
+   * Position, int16 centi-units (decode with shared `decodeCenti`). `y` is the
+   * bubble's vertical axis (BUBBLE.md §B) and uses the SAME centi codec as x/z —
+   * the arena is a sphere, so its vertical extent is the same radius.
+   */
   @type("int16") x = 0;
+  @type("int16") y = 0;
   @type("int16") z = 0;
-  /** Heading, uint16 (decode with shared `decodeHeading`). */
+  /** Heading (yaw), uint16 (decode with shared `decodeHeading`). */
   @type("uint16") heading = 0;
+  /**
+   * Nose elevation, int16 via the signed `encodePitch`/`decodePitch` pair — NOT
+   * the heading codec, which folds negatives into 0..2π (see quantize.ts).
+   */
+  @type("int16") pitch = 0;
   /** Velocity, int16 centi-units. */
   @type("int16") vx = 0;
   @type("int16") vz = 0;
@@ -89,6 +99,8 @@ export class PlayerState extends Schema {
 export class ProjectileState extends Schema {
   @type("number") entityId = 0;
   @type("int16") x = 0;
+  /** Bubble vertical axis, same centi codec as x/z (BUBBLE.md §B). */
+  @type("int16") y = 0;
   @type("int16") z = 0;
   @type("uint16") heading = 0;
 }

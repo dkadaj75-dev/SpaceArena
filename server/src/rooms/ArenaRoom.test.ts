@@ -3,6 +3,8 @@ import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { boot, ColyseusTestServer } from "@colyseus/testing";
 import {
+  decodeCenti,
+  decodePitch,
   setGlobalLogLevel,
   type BotprofileConfig,
   type ConfigService,
@@ -271,6 +273,92 @@ describe("ArenaRoom", () => {
 
     await cheat.leave();
     await honest.leave();
+  });
+
+  // -------------------------------------------------------------------------
+  // Bubble netcode (BUBBLE.md §B) — the third axis on the wire
+  // -------------------------------------------------------------------------
+
+  it("flies a wire pitch order off the ground plane and replicates y and pitch", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+    expect(room.state.matchPhase).toBe("live");
+
+    const p1 = room.state.players.get(c1.sessionId)!;
+    // Every shipped spawn is on the plane with a level nose, so a non-zero
+    // reading later can only have come from the order.
+    expect(p1.y).toBe(0);
+    expect(p1.pitch).toBe(0);
+
+    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false } });
+    expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
+
+    await advance(room, 25);
+
+    // The SIM moved off-plane (the point of the stage), and the two new fields
+    // carry it: y through the same centi codec as x/z, pitch through the signed
+    // int16 pair. Cross-check against the server's own transform so a codec that
+    // silently clamped or wrapped could not pass.
+    const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
+      sim: { world: { transforms: Map<number, { pos: { x: number; y: number; z: number }; pitch: number }> } };
+    };
+    const tf = serverRoom.sim.world.transforms.get(p1.entityId)!;
+    expect(tf.pos.y).toBeGreaterThan(1);
+    expect(tf.pitch).toBeGreaterThan(0);
+    expect(decodeCenti(p1.y)).toBeCloseTo(tf.pos.y, 2);
+    expect(decodePitch(p1.pitch)).toBeCloseTo(tf.pitch, 3);
+
+    // Nose back down: pitch is HELD state, so the ship keeps climbing until an
+    // order says otherwise — and the replicated pitch must go NEGATIVE, which is
+    // precisely what routing it through the heading codec would have destroyed.
+    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: -1, boost: false } });
+    expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 2, accepted: true });
+    await advance(room, 30);
+    expect(tf.pitch).toBeLessThan(0);
+    expect(p1.pitch).toBeLessThan(0);
+    expect(decodePitch(p1.pitch)).toBeCloseTo(tf.pitch, 3);
+
+    await c1.leave();
+  });
+
+  it("rejects a malformed pitchStick as malformed, without kicking the client or touching its attitude", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+
+    const p1 = room.state.players.get(c1.sessionId)!;
+    let left = false;
+    c1.onLeave(() => (left = true));
+
+    // A bad pitch axis is a bad order, exactly like a bad turn axis: refused at
+    // the trust boundary so the sim never stores it. Sending a handful of them
+    // is a validation failure, not abuse — the client stays connected.
+    const bad: unknown[] = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2, -1.5, "up", null];
+    for (let i = 0; i < bad.length; i++) {
+      c1.send("order", { seq: i + 1, order: { kind: "flight", throttle: 0.5, turn: 0, pitchStick: bad[i], boost: false } });
+      expect(await c1.waitForMessage("orderAck"), String(bad[i])).toMatchObject({
+        seq: i + 1,
+        accepted: false,
+        reason: "malformed",
+      });
+    }
+
+    await advance(room, 10);
+    expect(left).toBe(false);
+    expect(p1.throttle).toBe(0); // no FlightState was ever stored
+    expect(p1.y).toBe(0);
+    expect(p1.pitch).toBe(0);
+
+    // Omitting the axis entirely is legal (pitch is held state — absent means
+    // "unchanged", the same as a centred stick), and the client still flies.
+    c1.send("order", { seq: 99, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
+    expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 99, accepted: true });
+    await advance(room, 10);
+    expect(p1.throttle).toBe(255);
+    expect(p1.pitch).toBe(0); // still level: no pitch order was ever accepted
+
+    await c1.leave();
   });
 
   it("kicks a client that floods flight orders past the rate limit", async () => {

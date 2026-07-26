@@ -170,6 +170,24 @@ describe("FlightReconciler (Finding 4)", () => {
     expect(r.current).toBe(A);
   });
 
+  it("preserves the pitch axis across a rollback, not just throttle and turn", () => {
+    // BUBBLE.md §B: `pitchStick` is a full member of the predicted flight state,
+    // so a rejection has to restore the ATTITUDE the server is still flying. A
+    // rollback that dropped the axis (or reset it to 0) would leave the
+    // predictor levelling off while the real ship kept climbing — a growing
+    // vertical error the correction blend cannot absorb, because the input
+    // itself is wrong every tick.
+    const climb: PredictedFlight = { throttle: 1, turn: 0, pitchStick: 0.75, boost: false };
+    const dive: PredictedFlight = { throttle: 1, turn: 0, pitchStick: -0.75, boost: false };
+    const r = new FlightReconciler();
+    r.sent(1, climb);
+    r.acked(1, true);
+    r.sent(2, dive);
+    r.acked(2, false); // newest sent → roll back
+    expect(r.current).toBe(climb);
+    expect(r.current!.pitchStick).toBe(0.75);
+  });
+
   it("does not let a straggling older acceptance overwrite a newer one", () => {
     const r = new FlightReconciler();
     r.sent(1, A);
@@ -272,7 +290,7 @@ function driftOverRun(
     turn: 0.25,
     boost: false,
   },
-): { drift: number; hits: number } {
+): { drift: number; hits: number; climb: number; pitch: number; pitchDrift: number } {
   const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice", 1);
   const cfg = configs.get<ShipConfig>("ship", SHIP_ID)!;
   const fitting = [...cfg.defaultFitting];
@@ -326,6 +344,12 @@ function driftOverRun(
   return {
     drift: Math.hypot(truth.pos.x - pred.pos.x, truth.pos.y - pred.pos.y, truth.pos.z - pred.pos.z),
     hits,
+    // Reported so a "3D" parity assertion can prove the run actually LEFT the
+    // ground plane — a pitched corridor that stayed at y=0 would pass a drift
+    // check while testing nothing the planar runs above don't already cover.
+    climb: truth.pos.y,
+    pitch: truth.pitch,
+    pitchDrift: Math.abs(truth.pitch - pred.pitch),
   };
 }
 
@@ -360,6 +384,59 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
       boost: false,
     });
     expect(hits).toBe(0);
+    expect(drift).toBeLessThan(1e-9);
+  });
+
+  // -------------------------------------------------------------------------
+  // 3D (BUBBLE.md §B)
+  // -------------------------------------------------------------------------
+
+  it("tracks a PITCHED corridor in three dimensions with the same zero drift", () => {
+    // ring-nebula deliberately, not deep-field: BUBBLE.md §E gives the big arena
+    // asteroid y-bands, and the point of this run is prediction error, not a
+    // collision course. Climbing also carries the ship off the y=0 plane the
+    // rocks sit on, so the corridor only gets clearer as it goes.
+    const { drift, hits, climb, pitch, pitchDrift } = driftOverRun(
+      { hull: 0, engine: 0, energy: 0, heat: 0 },
+      "resolved",
+      { throttle: 1, turn: 0.15, pitchStick: 0.6, boost: false },
+    );
+    expect(hits).toBe(0);
+    // The run genuinely left the plane — otherwise this is the planar test again.
+    expect(climb).toBeGreaterThan(5);
+    expect(pitch).toBeGreaterThan(0.1);
+    expect(drift).toBeLessThan(1e-9);
+    expect(pitchDrift).toBeLessThan(1e-9);
+  });
+
+  it("mirrors a DIVE, where the wire's signed pitch matters most", () => {
+    const { drift, hits, climb, pitch } = driftOverRun({ hull: 0, engine: 3, energy: 0, heat: 0 }, "resolved", {
+      throttle: 0.8,
+      turn: -0.2,
+      pitchStick: -0.5,
+      boost: false,
+    });
+    expect(hits).toBe(0);
+    expect(climb).toBeLessThan(-5);
+    expect(pitch).toBeLessThan(-0.1);
+    expect(drift).toBeLessThan(1e-9);
+  });
+
+  it("mirrors the sim's pitch CLAMP, so a pinned stick does not diverge at the pole", () => {
+    // Held full-up for the whole run: the predictor and the sim both stop at
+    // ±tuning.maxPitchRad, and they have to stop at the same tick — a mirror
+    // that clamped one tick late would accumulate a real vertical offset.
+    const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
+    const maxPitch = pitchTuningOf(tuning).maxPitchRad;
+    const { drift, hits, pitch, pitchDrift } = driftOverRun({ hull: 0, engine: 0, energy: 0, heat: 0 }, "resolved", {
+      throttle: 1,
+      turn: 0,
+      pitchStick: 1,
+      boost: false,
+    });
+    expect(hits).toBe(0);
+    expect(pitch).toBe(maxPitch); // pinned against the clamp, not merely near it
+    expect(pitchDrift).toBe(0);
     expect(drift).toBeLessThan(1e-9);
   });
 });

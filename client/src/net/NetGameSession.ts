@@ -3,6 +3,7 @@ import {
   decodeCenti,
   decodeHeading,
   decodeModuleState,
+  decodePitch,
   decodeUnit,
   flightStep,
   pitchTuningOf,
@@ -40,9 +41,11 @@ export interface PredictedFlight {
   throttle: number;
   turn: number;
   /**
-   * Pitch stick, -1..1 (BUBBLE.md §A). The HUD does not produce it yet (stage
-   * T3) and it is not on the wire yet (T2), so it reads 0 today — the predictor
-   * integrates it regardless so this stays a true mirror of the sim.
+   * Pitch stick, -1..1 (BUBBLE.md §A). On the wire as of T2; the HUD does not
+   * produce it until T3, so it still reads 0 for a human pilot today. Stored
+   * unconditionally (rather than optionally, as the order carries it) because
+   * the predictor is a mirror of the sim's HELD state, where an absent axis and
+   * a centred stick are the same thing.
    */
   pitchStick: number;
   boost: boolean;
@@ -406,7 +409,8 @@ export class NetGameSession extends GameSession {
     this.flight.clear();
   }
 
-  get correctionError(): number { return Math.hypot(this.errX, this.errZ); }
+  /** Prediction error magnitude in 3D — the same figure the snap test uses. */
+  get correctionError(): number { return Math.hypot(this.errX, this.errY, this.errZ); }
   get bufferDepth(): number { return this.snapshots.length; }
 
   /** Run `fn` now, or after the artificial latency window when ?fakelag= is set. */
@@ -539,9 +543,16 @@ export class NetGameSession extends GameSession {
       this.pred.pos.y += this.errY * pull;
       this.pred.pos.z += this.errZ * pull;
       // While the local player is flying, heading is a client input — pull it
-      // gently so a patch cannot jerk the nose (and the camera with it).
+      // gently so a patch cannot jerk the nose (and the camera with it). Pitch
+      // gets the identical treatment on the same schedule (BUBBLE.md §B): it is
+      // the second half of the same attitude, and leaving it unpulled would let
+      // a rollback or a server-side clamp sit uncorrected forever. Plain lerp,
+      // not `lerpHeading` — pitch is clamped, not wrapped, so there is no short
+      // way round to find.
       const steering = held !== null;
-      this.pred.heading = lerpHeading(this.pred.heading, player.heading, steering ? 0.15 : pull);
+      const attitudePull = steering ? 0.15 : pull;
+      this.pred.heading = lerpHeading(this.pred.heading, player.heading, attitudePull);
+      this.pred.pitch += (player.pitch - this.pred.pitch) * attitudePull;
     }
 
     // Render the local player from the predictor.
@@ -621,11 +632,12 @@ export class NetGameSession extends GameSession {
       return {
         id,
         team: p.team,
-        // TODO(T2): y/pitch are not on the wire yet, so decode them as the
-        // neutral ground-plane values; the rest of the client already speaks 3D.
-        pos: { x: decodeCenti(p.x), y: 0, z: decodeCenti(p.z) },
+        // Full 3D (BUBBLE.md §B): `y` rides the same centi codec as x/z, while
+        // `pitch` uses the SIGNED int16 pair — decoding it with `decodeHeading`
+        // would turn every nose-down attitude into a ~2π-off climb.
+        pos: { x: decodeCenti(p.x), y: decodeCenti(p.y ?? 0), z: decodeCenti(p.z) },
         heading: decodeHeading(p.heading),
-        pitch: 0,
+        pitch: decodePitch(p.pitch ?? 0),
         hull: p.hull,
         // Server-resolved maxima (upgrade + passive-resolved), replicated verbatim —
         // never reconstructed from the base ship config, which would ignore
@@ -653,8 +665,7 @@ export class NetGameSession extends GameSession {
     const projectiles = mapValues(state.projectiles).map((p: any) => ({
       id: p.entityId,
       kind: "missile" as const,
-      // TODO(T2): projectile y joins the wire with the ship fields.
-      pos: { x: decodeCenti(p.x), y: 0, z: decodeCenti(p.z) },
+      pos: { x: decodeCenti(p.x), y: decodeCenti(p.y ?? 0), z: decodeCenti(p.z) },
       heading: decodeHeading(p.heading),
     }));
     return {

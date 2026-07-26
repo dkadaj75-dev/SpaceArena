@@ -124,6 +124,18 @@ export const orderSchema = z.discriminatedUnion("kind", [
     kind: z.literal("flight"),
     throttle: z.number().min(0).max(1),
     turn: z.number().min(-1).max(1),
+    /**
+     * Pitch stick, -1..1, positive noses up (BUBBLE.md §A/§B). OPTIONAL, matching
+     * the sim `Order` type: pitch is HELD state, so an omitted axis means
+     * "no pitch change", exactly what a centred stick means — which keeps older
+     * senders (and the planar bot path) valid without a default that would
+     * pretend they commanded a level nose. When PRESENT it is held to the same
+     * bounds as `turn`: `z.number()` already refuses NaN/±Infinity, and
+     * `min/max` reject anything outside the axis, so a malformed pitch drops the
+     * whole order at the trust boundary. `ArenaRoom.validateOrder` enforces the
+     * identical rule for orders that never cross the wire (bots).
+     */
+    pitchStick: z.number().min(-1).max(1).optional(),
     boost: z.boolean(),
   }),
   z.object({ kind: z.literal("moduleToggle"), hardpointIndex: z.number().int().nonnegative() }),

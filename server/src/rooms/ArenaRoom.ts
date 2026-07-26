@@ -10,6 +10,7 @@ import {
   encodeCenti,
   encodeHeading,
   encodeModuleState,
+  encodePitch,
   encodeUnit,
   orderMessageSchema,
   MSG_ORDER,
@@ -587,9 +588,11 @@ export class ArenaRoom extends Room<ArenaState> {
         // Range guard only, and deliberately redundant with `orderSchema`: bots
         // reach this path without ever crossing the wire (FLIGHT.md §7 — same
         // validation for bot and human), so the axis bounds are enforced here too.
-        // `pitchStick` is optional until stage T2 puts it on the wire; when a
-        // caller does supply it (bots today, the HUD from T3) it is held to the
-        // same bounds as `turn`.
+        // `pitchStick` is optional on the wire too (BUBBLE.md §B): pitch is held
+        // state, so an absent axis means "no pitch change", the same thing a
+        // centred stick means. When a caller does supply it (bots today, the HUD
+        // from T3) it is held to exactly the same bounds as `turn` — identical
+        // semantics either side of the trust boundary.
         return Number.isFinite(order.throttle) &&
           Number.isFinite(order.turn) &&
           order.throttle >= 0 &&
@@ -743,9 +746,11 @@ export class ArenaRoom extends Room<ArenaState> {
         this.state.projectiles.set(pk, proj);
       }
       const qx = encodeCenti(p.pos.x);
+      const qy = encodeCenti(p.pos.y);
       const qz = encodeCenti(p.pos.z);
       const qh = encodeHeading(p.heading);
       if (proj.x !== qx) proj.x = qx;
+      if (proj.y !== qy) proj.y = qy;
       if (proj.z !== qz) proj.z = qz;
       if (proj.heading !== qh) proj.heading = qh;
     }
@@ -775,11 +780,15 @@ export class ArenaRoom extends Room<ArenaState> {
 
   private applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
     const qx = encodeCenti(ship.pos.x);
+    const qy = encodeCenti(ship.pos.y);
     const qz = encodeCenti(ship.pos.z);
     const qh = encodeHeading(ship.heading);
+    const qp = encodePitch(ship.pitch);
     if (ps.x !== qx) ps.x = qx;
+    if (ps.y !== qy) ps.y = qy;
     if (ps.z !== qz) ps.z = qz;
     if (ps.heading !== qh) ps.heading = qh;
+    if (ps.pitch !== qp) ps.pitch = qp;
     if (ps.hull !== ship.hull) ps.hull = ship.hull;
     // Resolved maxima (ship class + upgrades + module passives): the sim already
     // resolved these into the snapshot at spawn, so mirror them straight through.
