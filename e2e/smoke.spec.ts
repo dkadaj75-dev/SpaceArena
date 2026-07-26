@@ -149,6 +149,13 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // Starts as "FPS: --" and only becomes a number once the render loop ticks.
   await expect(page.locator(".hud-fps")).toHaveText(/^FPS: \d+$/);
 
+  // The dummies choice carries no explicit gamemode, so the match must still
+  // resolve gamemode.practice's defaultArena — not the ring-nebula fallback
+  // (regression: startMatch once defaulted the gamemode AFTER the arena lookup).
+  expect(
+    await page.evaluate(() => (window as unknown as { __debug: { session: { arenaId: string } } }).__debug.session.arenaId),
+  ).toBe("arena.deep-field");
+
   // ----------------------------------------------------- 6. drive the match
   // A real tap on the first module button issues a `moduleToggle` order; the
   // module leaves `retracted` via deploying → active (ModuleButtons.update

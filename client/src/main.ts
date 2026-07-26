@@ -542,13 +542,13 @@ async function bootstrap(): Promise<void> {
 
   async function startMatch(choice: LobbyChoice): Promise<void> {
     try {
+      // Resolve the gamemode FIRST so the arena lookup sees the same id the
+      // session runs — a choice without an explicit gamemode must still land
+      // on gamemode.practice's defaultArena, not the fallback arena.
+      const practiceMode = choice.gamemode ?? "gamemode.practice";
       const session =
         choice.kind === "practice"
-          ? new GameSession(
-              configService,
-              practiceArena(choice.gamemode) ?? FALLBACK_ARENA_ID,
-              choice.gamemode ?? "gamemode.practice",
-            )
+          ? new GameSession(configService, practiceArena(practiceMode) ?? FALLBACK_ARENA_ID, practiceMode)
           : await NetGameSession.join(
               configService,
               {
