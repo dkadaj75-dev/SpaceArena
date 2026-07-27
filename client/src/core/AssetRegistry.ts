@@ -425,6 +425,13 @@ interface RockRecipe {
   lodLow: number;
 }
 
+/**
+ * The rock radius the quality tiers' LOD distances are authored against; a
+ * model master's distances scale by `modelScale / LOD_REFERENCE_RADIUS` (see
+ * {@link AssetRegistry.applyAsteroidLod}).
+ */
+export const LOD_REFERENCE_RADIUS = 4;
+
 const ROCK_RECIPES: Record<string, RockRecipe> = {
   "procedural.rock-small": { subdivisions: 2, displacement: 0.18, seed: 1337, lodMedium: 1, lodLow: 1 },
   "procedural.rock-large": { subdivisions: 3, displacement: 0.28, seed: 9001, lodMedium: 2, lodLow: 1 },
@@ -579,6 +586,10 @@ export class AssetRegistry {
     merged.rotationQuaternion = null;
     merged.rotation.y = render.modelRotationY ?? 0;
     merged.bakeCurrentTransformIntoVertices();
+    // The single-part path above bakes via bakeTransformIntoVertices, which
+    // does NOT refresh bounding info — instances would inherit the raw import
+    // bounds and get frustum-culled while partly on screen.
+    merged.refreshBoundingInfo();
     // The scene has no IBL/environment texture, so fully-metallic PBR
     // surfaces (common in generated GLBs) would render black under our
     // punctual lights. Clamp metalness so albedo responds to them.
@@ -712,6 +723,15 @@ export class AssetRegistry {
     const rock = ROCK_RECIPES[recipeId];
     if (!lod || !rock) return;
 
+    // Perceptually uniform swaps: the tier's distances are authored for a
+    // radius-4 rock, and a model master (whose baked radius IS its modelScale)
+    // scales them proportionally — a radius-8 hazard holds its GLB twice as
+    // far out as a radius-3.5 pebble, so both swap at about the same on-screen
+    // size instead of the big rocks popping while still tens of pixels wide.
+    // Procedural masters are unit-radius with per-INSTANCE scaling, so their
+    // size is unknown here and they keep the authored distances.
+    const distScale = unitRadius === 1 ? 1 : unitRadius / LOD_REFERENCE_RADIUS;
+
     const levels: Mesh[] = [];
     // Both stand-ins run on ONE material: the master's when it is a procedural
     // rock, otherwise the palette material the first stand-in built. Either way
@@ -736,9 +756,9 @@ export class AssetRegistry {
       master.addLODLevel(distance, variant);
       levels.push(variant);
     };
-    addLevel(lod.lodMediumDistance, rock.lodMedium, "med");
-    addLevel(lod.lodLowDistance, rock.lodLow, "low");
-    if (lod.lodCullDistance > 0) master.addLODLevel(lod.lodCullDistance, null);
+    addLevel(lod.lodMediumDistance * distScale, rock.lodMedium, "med");
+    addLevel(lod.lodLowDistance * distScale, rock.lodLow, "low");
+    if (lod.lodCullDistance > 0) master.addLODLevel(lod.lodCullDistance * distScale, null);
     this.lodMeshes.set(key, levels);
   }
 

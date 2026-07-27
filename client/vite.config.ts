@@ -80,11 +80,24 @@ function contentPipelinePlugin(): Plugin {
           res.statusCode = 403;
           return res.end("forbidden");
         }
-        // Binary model assets (GLB/GLTF buffers) must not go through utf8.
-        if (/\.(glb|bin)$/i.test(rel)) {
+        // Binary assets (GLB buffers, skybox panoramas, textures) must not go
+        // through utf8 — a .webp served as utf8 "JSON" still 200s but never
+        // decodes, so the sky silently falls back to the dim solid tint.
+        const binaryMime: Record<string, string> = {
+          ".glb": "model/gltf-binary",
+          ".bin": "application/octet-stream",
+          ".webp": "image/webp",
+          ".png": "image/png",
+          ".jpg": "image/jpeg",
+          ".jpeg": "image/jpeg",
+          ".ktx2": "image/ktx2",
+        };
+        const ext = (/\.[a-z0-9]+$/i.exec(rel)?.[0] ?? "").toLowerCase();
+        const mime = binaryMime[ext];
+        if (mime) {
           readFile(abs).then(
             (buf) => {
-              res.setHeader("Content-Type", rel.toLowerCase().endsWith(".glb") ? "model/gltf-binary" : "application/octet-stream");
+              res.setHeader("Content-Type", mime);
               res.setHeader("Cache-Control", "no-store");
               res.end(buf);
             },

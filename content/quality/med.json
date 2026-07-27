@@ -31,7 +31,7 @@
     "maxEmitterCapacity": 60
   },
   "asteroids": {
-    "lodMediumDistance": 150,
+    "lodMediumDistance": 200,
     "lodLowDistance": 600,
     "lodCullDistance": 3000,
     "thinInstances": false
@@ -44,6 +44,12 @@
     "boundaryShieldShader": true,
     "starfieldPoints": 320,
     "spawnMarkers": false,
-    "dust": { "count": 180, "size": 0.35, "alpha": 0.3, "driftSpeed": 0.8, "boxSize": 120 }
+    "dust": {
+      "count": 180,
+      "size": 0.35,
+      "alpha": 0.3,
+      "driftSpeed": 0.8,
+      "boxSize": 120
+    }
   }
 }

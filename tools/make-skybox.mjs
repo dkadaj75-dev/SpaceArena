@@ -21,9 +21,9 @@ const PALETTES = {
     dustB: { col: [48, 36, 18], hot: [160, 126, 66], lo: 0.62, hi: 1.02 },
     dustC: { col: [36, 26, 30], hot: [90, 64, 70], lo: 0.6, hi: 1.04 },
     core: [255, 214, 160],
-    warp: 1.25, starGain: 1.0, seed: 7,
+    warp: 1.25, starGain: 1.0, seed: 7, gain: 1.3,
     bandN: [0.28, 0.86, 0.42], bandWidth: 0.36, bandGain: 0.75,
-    sun: { dir: [0.777, 0.309, 0.55], color: [255, 236, 200], discDeg: 1.6, glowDeg: 14 },
+    sun: { dir: [0.777, 0.309, 0.55], color: [255, 236, 200], discDeg: 3.4, glowDeg: 26 },
   },
   "ring-nebula": {
     base: [6, 6, 14],
@@ -31,9 +31,9 @@ const PALETTES = {
     dustB: { col: [22, 42, 82], hot: [66, 106, 175], lo: 0.62, hi: 1.02 },
     dustC: { col: [40, 24, 56], hot: [96, 60, 130], lo: 0.6, hi: 1.04 },
     core: [224, 208, 255],
-    warp: 1.5, starGain: 1.0, seed: 23,
+    warp: 1.5, starGain: 1.0, seed: 23, gain: 1.3,
     bandN: [-0.5, 0.75, 0.43], bandWidth: 0.42, bandGain: 0.8,
-    sun: { dir: [-0.677, -0.208, -0.706], color: [220, 228, 255], discDeg: 1.3, glowDeg: 12 },
+    sun: { dir: [-0.677, -0.208, -0.706], color: [220, 228, 255], discDeg: 3.0, glowDeg: 24 },
   },
 };
 
@@ -152,13 +152,15 @@ function makeNebula(W, H, P) {
         // Halo is ADDITIVE across the whole range (not an else-branch): an
         // exclusive chain left a dark ring where the glow hit zero just before
         // the halo stepped back in.
-        if (ang < 60) sun += Math.pow(1 - ang / 60, 3) * 0.1;
+        if (ang < 70) sun += Math.pow(1 - ang / 70, 3) * 0.16;
       }
       const i = (py * W + px) * 4;
       const sc = P.sun ? P.sun.color : [255, 255, 255];
-      img[i] = Math.min(255, c[0] + star + bright * (0.85 + 0.3 * warmth) + sc[0] * sun);
-      img[i + 1] = Math.min(255, c[1] + star + bright * 0.92 + sc[1] * sun);
-      img[i + 2] = Math.min(255, c[2] + star * 0.95 + bright * (1.15 - 0.3 * warmth) + sc[2] * sun);
+      // gain lifts the NEBULA only — stars and the sun already saturate.
+      const g = P.gain ?? 1;
+      img[i] = Math.min(255, c[0] * g + star + bright * (0.85 + 0.3 * warmth) + sc[0] * sun);
+      img[i + 1] = Math.min(255, c[1] * g + star + bright * 0.92 + sc[1] * sun);
+      img[i + 2] = Math.min(255, c[2] * g + star * 0.95 + bright * (1.15 - 0.3 * warmth) + sc[2] * sun);
       img[i + 3] = 255;
     }
   }

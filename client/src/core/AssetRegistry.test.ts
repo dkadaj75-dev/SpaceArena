@@ -87,6 +87,17 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     assets.dispose();
   });
 
+  it("refreshes the master's bounding info after baking modelScale (single-part path)", async () => {
+    stubModelImport();
+    const assets = new AssetRegistry(scene);
+    await assets.ensureModel(MODEL_RENDER);
+    const { mesh } = assets.getAsteroidMaster(MODEL_RENDER);
+    // The stub sphere is unit-radius; modelScale 3.5 must reach the BOUNDS,
+    // not just the vertices — stale import bounds mis-cull instances.
+    expect(mesh.getBoundingInfo().boundingSphere.radius).toBeGreaterThan(3);
+    assets.dispose();
+  });
+
   it("clamps the model's metalness so the rock is not black without an IBL", async () => {
     stubModelImport();
     const assets = new AssetRegistry(scene);
@@ -119,7 +130,9 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
 
     const { mesh } = assets.getAsteroidMaster(MODEL_RENDER);
     const levels = mesh.getLODLevels();
-    expect(levels.map((l) => l.distanceOrScreenCoverage)).toEqual([620, 200, 85]);
+    // Distances are authored for a radius-4 rock and scale by modelScale/4
+    // (3.5/4 = 0.875 here), so every rock swaps at the same on-screen size.
+    expect(levels.map((l) => l.distanceOrScreenCoverage)).toEqual([620 * 0.875, 200 * 0.875, 85 * 0.875]);
     const medium = levels[2]?.mesh;
     expect(medium).toBeTruthy();
     // NOT the GLB's PBR material: its albedo is baked against the GLB's own UVs.
@@ -130,6 +143,24 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
       mesh.getBoundingInfo().boundingSphere.radius,
       0,
     );
+    assets.dispose();
+  });
+
+  it("holds a big rock's GLB proportionally farther out than a small one's", async () => {
+    stubModelImport();
+    const assets = new AssetRegistry(scene);
+    assets.setAsteroidLod(LOD);
+    const bigRender: RenderRecipe = {
+      recipe: "procedural.rock-large",
+      palette: { primary: "#463b34", accent: "#8a5a3c" },
+      model: "asteroids/large_a.glb",
+      modelScale: 8,
+    };
+    await assets.ensureModel(bigRender);
+
+    const { mesh } = assets.getAsteroidMaster(bigRender);
+    // radius 8 / reference 4 = 2× the authored distances.
+    expect(mesh.getLODLevels().map((l) => l.distanceOrScreenCoverage)).toEqual([1240, 400, 170]);
     assets.dispose();
   });
 

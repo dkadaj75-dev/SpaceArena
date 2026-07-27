@@ -44,8 +44,8 @@
       "transform": {
         "pos": [
           0,
-          0.1,
-          1.8
+          0.0316,
+          1.6316
         ]
       },
       "kind": "hardpoint",
@@ -58,9 +58,9 @@
       "id": "hp-wing-l",
       "transform": {
         "pos": [
-          -1.1,
-          0,
-          -0.2
+          -1,
+          -0.0526,
+          -0.9474
         ]
       },
       "kind": "hardpoint",
@@ -74,8 +74,8 @@
       "transform": {
         "pos": [
           0,
-          0.28,
-          0.3
+          0.2105,
+          0.2105
         ]
       },
       "kind": "hardpoint",
@@ -87,9 +87,9 @@
       "id": "hp-wing-r",
       "transform": {
         "pos": [
-          1.1,
-          0,
-          -0.2
+          1,
+          -0.0526,
+          -0.9474
         ]
       },
       "kind": "hardpoint",
@@ -102,9 +102,9 @@
       "id": "eng-l",
       "transform": {
         "pos": [
-          -0.4,
-          0.8295,
-          -1.3633
+          -0.1053,
+          -0.0737,
+          -1.9684
         ],
         "rot": [
           0,
@@ -150,9 +150,9 @@
       "id": "eng-r",
       "transform": {
         "pos": [
-          0.4,
-          0.8017,
-          -1.3799
+          0.1053,
+          -0.0737,
+          -1.9684
         ],
         "rot": [
           0,
@@ -198,9 +198,9 @@
       "id": "smoke-hull",
       "transform": {
         "pos": [
-          0.3,
-          0.15,
-          0.4
+          0.2105,
+          0.1579,
+          0.3158
         ]
       },
       "kind": "emitter",
@@ -231,8 +231,8 @@
       "transform": {
         "pos": [
           0,
-          0,
-          -2.2
+          -0.0737,
+          -2.1579
         ]
       },
       "kind": "emitter",
@@ -281,7 +281,7 @@
       "primary": "#2f6fb8",
       "accent": "#57d8ff"
     },
-    "model": "ships/LShip01.glb",
+    "model": "ships/MShip01.glb",
     "modelScale": 4,
     "modelRotationY": 0
   },

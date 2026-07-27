@@ -102,6 +102,12 @@ export class ShipManager implements EditorPanel {
   private readonly sticky = new StickyWarnings();
   /** A candidate ship replace() rejected for fitting incompatibility, awaiting a one-click fix. */
   private blockedCandidate: ShipConfig | null = null;
+  /**
+   * The in-flight model Apply, if any. Apply swaps the config only after its
+   * GLB loads (async fetch) — Save must await it, or a quick Apply→Save writes
+   * the pre-Apply config to disk while the preview shows the new model.
+   */
+  private pendingModelApply: Promise<void> | null = null;
 
   // Signal simulator state.
   private simOn = false;
@@ -266,12 +272,17 @@ export class ShipManager implements EditorPanel {
         return;
       }
       // Load first so the preview swap is immediate; fall back with a report.
-      void this.assets.ensureModel(render).then((master) => {
+      // Tracked in pendingModelApply so Save can't race past it (see save()).
+      const pending = this.assets.ensureModel(render).then((master) => {
         if (!master) {
           this.report(`${ship.id}: model "${path}" failed to load — check the path (content-relative).`);
           return;
         }
         this.replace(next);
+      });
+      this.pendingModelApply = pending;
+      void pending.finally(() => {
+        if (this.pendingModelApply === pending) this.pendingModelApply = null;
       });
     });
 
@@ -674,6 +685,9 @@ export class ShipManager implements EditorPanel {
   }
 
   private async save(): Promise<void> {
+    // A model Apply may still be loading its GLB; without this, Save writes
+    // the pre-Apply config while the preview already shows the new model.
+    if (this.pendingModelApply) await this.pendingModelApply;
     const ship = this.ship();
     if (!ship) return;
     // Belt-and-suspenders: never write an incompatible fit or bypass unacknowledged warnings.

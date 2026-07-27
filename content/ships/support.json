@@ -5,11 +5,32 @@
   "name": "Support",
   "class": "medium",
   "core": {
-    "hull": { "base": 110, "resists": { "kinetic": 0.15, "energy": 0.2 } },
-    "engine": { "nominalSpeed": 28, "accel": 16, "turnRate": 2.4 },
-    "energy": { "capacitor": 170, "regen": 20 },
-    "heat": { "capacity": 130, "dissipation": 14, "criticalDamagePerSec": 3 },
-    "sensors": { "lockRange": 70, "lockTimeSec": 1.6, "coneDeg": 70 }
+    "hull": {
+      "base": 110,
+      "resists": {
+        "kinetic": 0.15,
+        "energy": 0.2
+      }
+    },
+    "engine": {
+      "nominalSpeed": 28,
+      "accel": 16,
+      "turnRate": 2.4
+    },
+    "energy": {
+      "capacitor": 170,
+      "regen": 20
+    },
+    "heat": {
+      "capacity": 130,
+      "dissipation": 14,
+      "criticalDamagePerSec": 3
+    },
+    "sensors": {
+      "lockRange": 70,
+      "lockTimeSec": 1.6,
+      "coneDeg": 70
+    }
   },
   "upgradeTracks": {
     "hull": "upgrade.hull-std",
@@ -18,54 +39,242 @@
     "heat": "upgrade.heat-std"
   },
   "sockets": [
-    { "id": "hp-nose", "kind": "hardpoint", "transform": { "pos": [0, 0.1, 1.6] }, "accepts": ["laser", "kinetic"] },
-    { "id": "hp-wing", "kind": "hardpoint", "transform": { "pos": [-1.0, 0, 0.1] }, "accepts": ["missile"] },
-    { "id": "hp-core", "kind": "hardpoint", "transform": { "pos": [0, 0.3, 0.2] }, "accepts": ["shield", "utility"] },
-    { "id": "hp-aux", "kind": "hardpoint", "transform": { "pos": [1.0, 0, 0.1] }, "accepts": ["utility", "boost"] },
+    {
+      "id": "hp-nose",
+      "transform": {
+        "pos": [
+          0,
+          0.095,
+          1.71
+        ]
+      },
+      "kind": "hardpoint",
+      "accepts": [
+        "laser",
+        "kinetic"
+      ]
+    },
+    {
+      "id": "hp-wing",
+      "transform": {
+        "pos": [
+          -1.045,
+          0,
+          -0.19
+        ]
+      },
+      "kind": "hardpoint",
+      "accepts": [
+        "missile"
+      ]
+    },
+    {
+      "id": "hp-core",
+      "transform": {
+        "pos": [
+          0,
+          0.266,
+          0.285
+        ]
+      },
+      "kind": "hardpoint",
+      "accepts": [
+        "shield",
+        "utility"
+      ]
+    },
+    {
+      "id": "hp-aux",
+      "transform": {
+        "pos": [
+          1.045,
+          0,
+          -0.19
+        ]
+      },
+      "kind": "hardpoint",
+      "accepts": [
+        "utility",
+        "boost"
+      ]
+    },
     {
       "id": "eng-l",
+      "transform": {
+        "pos": [
+          -0.38,
+          0.788,
+          -1.2951
+        ]
+      },
       "kind": "emitter",
-      "transform": { "pos": [-0.5, 0, -1.7] },
       "effect": "fx.engine-trail",
       "bindings": [
-        { "source": "throttle", "param": "emitRate", "curve": [[0, 0], [1, 100]] },
-        { "source": "boostActive", "param": "speedMax", "curve": [[0, 7], [1, 14]] }
+        {
+          "source": "throttle",
+          "param": "emitRate",
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              100
+            ]
+          ]
+        },
+        {
+          "source": "boostActive",
+          "param": "speedMax",
+          "curve": [
+            [
+              0,
+              7
+            ],
+            [
+              1,
+              14
+            ]
+          ]
+        }
       ]
     },
     {
       "id": "eng-r",
+      "transform": {
+        "pos": [
+          0.38,
+          0.7616,
+          -1.3109
+        ]
+      },
       "kind": "emitter",
-      "transform": { "pos": [0.5, 0, -1.7] },
       "effect": "fx.engine-trail",
       "bindings": [
-        { "source": "throttle", "param": "emitRate", "curve": [[0, 0], [1, 100]] },
-        { "source": "boostActive", "param": "speedMax", "curve": [[0, 7], [1, 14]] }
+        {
+          "source": "throttle",
+          "param": "emitRate",
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              100
+            ]
+          ]
+        },
+        {
+          "source": "boostActive",
+          "param": "speedMax",
+          "curve": [
+            [
+              0,
+              7
+            ],
+            [
+              1,
+              14
+            ]
+          ]
+        }
       ]
     },
     {
       "id": "smoke-hull",
+      "transform": {
+        "pos": [
+          0.285,
+          0.1425,
+          0.38
+        ]
+      },
       "kind": "emitter",
-      "transform": { "pos": [0.2, 0.15, 0.3] },
       "effect": "fx.damage-smoke",
       "bindings": [
-        { "source": "hullFraction", "param": "emitRate", "curve": [[1, 0], [0.5, 5], [0.2, 55]] }
+        {
+          "source": "hullFraction",
+          "param": "emitRate",
+          "curve": [
+            [
+              1,
+              0
+            ],
+            [
+              0.5,
+              5
+            ],
+            [
+              0.2,
+              55
+            ]
+          ]
+        }
       ]
     },
     {
       "id": "boost-plume",
+      "transform": {
+        "pos": [
+          0,
+          0,
+          -2.09
+        ]
+      },
       "kind": "emitter",
-      "transform": { "pos": [0, 0, -2.0] },
       "effect": "fx.boost-trail",
       "bindings": [
-        { "source": "boostActive", "param": "emitRate", "curve": [[0, 0], [1, 130]] },
-        { "source": "speedFraction", "param": "sizeMax", "curve": [[0, 0.5], [1, 1.1]] }
+        {
+          "source": "boostActive",
+          "param": "emitRate",
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              130
+            ]
+          ]
+        },
+        {
+          "source": "speedFraction",
+          "param": "sizeMax",
+          "curve": [
+            [
+              0,
+              0.5
+            ],
+            [
+              1,
+              1.1
+            ]
+          ]
+        }
       ]
     }
   ],
-  "defaultFitting": ["module.laser-mk1", "module.missile-mk1", "module.shield-mk1", "module.boost-mk1"],
+  "defaultFitting": [
+    "module.laser-mk1",
+    "module.missile-mk1",
+    "module.shield-mk1",
+    "module.boost-mk1"
+  ],
   "render": {
     "recipe": "procedural.support",
-    "palette": { "primary": "#2fb87a", "accent": "#7affd0" }
+    "palette": {
+      "primary": "#2fb87a",
+      "accent": "#7affd0"
+    },
+    "model": "ships/LShip01.glb",
+    "modelScale": 3.8,
+    "modelRotationY": 0
   },
-  "collider": { "shape": "circle", "radius": 1.7 }
+  "collider": {
+    "shape": "circle",
+    "radius": 1.7
+  }
 }
