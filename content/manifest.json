@@ -1,7 +1,7 @@
 {
   "id": "manifest.default",
   "type": "manifest",
-  "version": 1,
+  "version": 2,
   "name": "Default Content Pack",
   "files": [
     "camera/default.json",
@@ -15,6 +15,8 @@
     "asteroids/small-rock-b.json",
     "asteroids/large-hazard.json",
     "asteroids/large-hazard-b.json",
+    "asteroids/colossal-a.json",
+    "asteroids/colossal-b.json",
     "arenas/ring-nebula.json",
     "arenas/deep-field.json",
     "gamemodes/practice.json",
@@ -40,6 +42,7 @@
     "ships/support.json",
     "modules/laser-mk1.json",
     "modules/laser-mk2.json",
+    "modules/beamlaser-mk1.json",
     "modules/kinetic-mk1.json",
     "modules/kinetic-mk2.json",
     "modules/missile-mk1.json",
@@ -52,6 +55,7 @@
     "modules/utility-heat-sink.json",
     "notifications/overheat-warning.json",
     "notifications/boundary-warning.json",
+    "notifications/fire-blocked.json",
     "actions/notify-overheat.json",
     "actions/play-sound-laser.json",
     "actions/play-sound-kinetic.json",

@@ -5,488 +5,108 @@
   "name": "Deep Field",
   "bounds": {
     "shape": "sphere",
-    "radius": 300
+    "radius": 210
   },
   "asteroidPlacements": [
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": -79.8,
-        "y": 185.8,
-        "z": 61.5
-      },
-      "rotation": 2.7,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": -67.9,
-        "y": 156.3,
-        "z": 64.8
-      },
-      "rotation": 0.9,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": -146.6,
-        "y": 198.4,
-        "z": 34.3
-      },
-      "rotation": 0.9,
-      "scale": 1.1
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": -99.4,
-        "y": 194.6,
-        "z": 91.3
-      },
-      "rotation": 2.6,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": -146.3,
-        "y": 177.8,
-        "z": 98
-      },
-      "rotation": 2.2,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": -117.7,
-        "y": 172.2,
-        "z": 85.8
-      },
-      "rotation": 0.6,
-      "scale": 1.3
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": -77.1,
-        "y": 215,
-        "z": 86.4
-      },
-      "rotation": 2.2,
-      "scale": 1.3
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": -71.1,
-        "y": 149.7,
-        "z": 92.3
-      },
-      "rotation": 0.1,
-      "scale": 1.1
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": 88,
-        "y": -189.8,
-        "z": -25.3
-      },
-      "rotation": 2.8,
-      "scale": 1
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": 142.9,
-        "y": -159.6,
-        "z": -87.6
-      },
-      "rotation": 0.9,
-      "scale": 1.3
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": 105.9,
-        "y": -151.7,
-        "z": -40.6
-      },
-      "rotation": 1.2,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": 163.9,
-        "y": -195.7,
-        "z": -69.9
-      },
-      "rotation": 2.3,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": 110,
-        "y": -195.5,
-        "z": -36.4
-      },
-      "rotation": 2.7,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": 122.9,
-        "y": -165.7,
-        "z": -69.8
-      },
-      "rotation": 0.7,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": 118,
-        "y": -218.6,
-        "z": -73.7
-      },
-      "rotation": 0.6,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": 94.6,
-        "y": -170.4,
-        "z": -79.7
-      },
-      "rotation": 0.3,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": -227.7,
-        "y": 82,
-        "z": -98
-      },
-      "rotation": 1.5,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": -204.4,
-        "y": 104.5,
-        "z": -101.4
-      },
-      "rotation": 2,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": -184.6,
-        "y": 127,
-        "z": -98.4
-      },
-      "rotation": 0.2,
-      "scale": 1
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": -155,
-        "y": 154.9,
-        "z": -111.1
-      },
-      "rotation": 0.1,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": -135.4,
-        "y": 175.5,
-        "z": -112.1
-      },
-      "rotation": 0.2,
-      "scale": 1.3
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": -125.2,
-        "y": 201.7,
-        "z": -104.9
-      },
-      "rotation": 0.8,
-      "scale": 1
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": -94.4,
-        "y": 227.3,
-        "z": -108.5
-      },
-      "rotation": 2.8,
-      "scale": 1
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": 236.5,
-        "y": -94.6,
-        "z": 89.9
-      },
-      "rotation": 0.1,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": 209.2,
-        "y": -108.6,
-        "z": 87.8
-      },
-      "rotation": 1.9,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": 180.3,
-        "y": -149.5,
-        "z": 96.5
-      },
-      "rotation": 0.5,
-      "scale": 1.1
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": 163.7,
-        "y": -173.9,
-        "z": 104.3
-      },
-      "rotation": 0.9,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": 139.6,
-        "y": -197.1,
-        "z": 108.5
-      },
-      "rotation": 3,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": 126.8,
-        "y": -218.1,
-        "z": 109.3
-      },
-      "rotation": 0.6,
-      "scale": 1.1
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": 102,
-        "y": -221.4,
-        "z": 123.3
-      },
-      "rotation": 2.1,
-      "scale": 1.1
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": 82.3,
-        "y": 233.3,
-        "z": -12.7
-      },
-      "rotation": 2.1,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": 91.1,
-        "y": 248.5,
-        "z": -42
-      },
-      "rotation": 3,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": 30.3,
-        "y": 227.4,
-        "z": -72.9
-      },
-      "rotation": 2.6,
-      "scale": 1
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": 79.2,
-        "y": 183.8,
-        "z": -29.4
-      },
-      "rotation": 1.7,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": 25.6,
-        "y": 207.6,
-        "z": -14.4
-      },
-      "rotation": 2.6,
-      "scale": 1.3
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": -43.4,
-        "y": -220.7,
-        "z": 48.4
-      },
-      "rotation": 2.1,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": -42.1,
-        "y": -237.4,
-        "z": -10.9
-      },
-      "rotation": 0.6,
-      "scale": 1.3
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": -34,
-        "y": -200.2,
-        "z": 14.3
-      },
-      "rotation": 0.9,
-      "scale": 1.1
-    },
-    {
-      "asteroidId": "asteroid.large-hazard",
-      "position": {
-        "x": -76.5,
-        "y": -206.4,
-        "z": 28.2
-      },
-      "rotation": 2.8,
-      "scale": 1.3
-    },
-    {
-      "asteroidId": "asteroid.large-hazard-b",
-      "position": {
-        "x": -67.8,
-        "y": -248.2,
-        "z": 25.4
-      },
-      "rotation": 2.6,
-      "scale": 1
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": 197.2,
-        "y": 30.8,
-        "z": 2.6
-      },
-      "rotation": 2.8,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": 165.4,
-        "y": -61.3,
-        "z": -91.1
-      },
-      "rotation": 0.3,
-      "scale": 1
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": -162.9,
-        "y": 90.5,
-        "z": -92.2
-      },
-      "rotation": 0.1,
-      "scale": 1.1
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": 0.2,
-        "y": -117.9,
-        "z": -179.5
-      },
-      "rotation": 1.5,
-      "scale": 0.9
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": -216.2,
-        "y": 138.9,
-        "z": 94.8
-      },
-      "rotation": 0.8,
-      "scale": 1
-    },
-    {
-      "asteroidId": "asteroid.small-rock-b",
-      "position": {
-        "x": -184.8,
-        "y": -161.6,
-        "z": 8.8
-      },
-      "rotation": 1.1,
-      "scale": 1.2
-    },
-    {
-      "asteroidId": "asteroid.small-rock",
-      "position": {
-        "x": 94.9,
-        "y": 212.5,
-        "z": -205.8
-      },
-      "rotation": 3,
-      "scale": 1.1
-    }
+    { "asteroidId": "asteroid.colossal-a", "position": { "x": -97.7, "y": -83.5, "z": 131.3 }, "rotation": 0.1, "scale": 1.1 },
+    { "asteroidId": "asteroid.colossal-b", "position": { "x": 49.8, "y": -6.4, "z": 163.5 }, "rotation": 0.2, "scale": 1.1 },
+    { "asteroidId": "asteroid.colossal-a", "position": { "x": 138.3, "y": 26.2, "z": -2.6 }, "rotation": 2.3, "scale": 1 },
+    { "asteroidId": "asteroid.colossal-a", "position": { "x": 88, "y": -139.7, "z": 62.3 }, "rotation": 0.3, "scale": 1.1 },
+    { "asteroidId": "asteroid.colossal-b", "position": { "x": 111.2, "y": -86.3, "z": 8.3 }, "rotation": 0.2, "scale": 1 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 55.3, "y": -52, "z": -44.9 }, "rotation": 2.5, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": 85.8, "y": 164.7, "z": 37.2 }, "rotation": 0.7, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": -13.7, "y": -68.3, "z": 118.7 }, "rotation": 0.5, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": -140.5, "y": -60.3, "z": 116.5 }, "rotation": 0.1, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 70.2, "y": 93.4, "z": -118.6 }, "rotation": 2.1, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 92.6, "y": 49.1, "z": 125.9 }, "rotation": 1, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": -31.3, "y": 45, "z": -62.4 }, "rotation": 2.9, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": -91.2, "y": -139.5, "z": 82.2 }, "rotation": 1.3, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 81.9, "y": 107.8, "z": -72.6 }, "rotation": 3.1, "scale": 1 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 71, "y": 150.2, "z": -40 }, "rotation": 1.7, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": 44.4, "y": 15.1, "z": -70.7 }, "rotation": 1.8, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": 6.5, "y": -137.7, "z": -107.3 }, "rotation": 2.1, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": 55.2, "y": 182.9, "z": -6.2 }, "rotation": 2.1, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": 91.7, "y": -149.7, "z": -35.8 }, "rotation": 0.3, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": -142.1, "y": -123.6, "z": -27.6 }, "rotation": 0.6, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": -114.1, "y": -1.7, "z": -16.1 }, "rotation": 0.9, "scale": 1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": 10.1, "y": -125.3, "z": -144.5 }, "rotation": 1.2, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": -120.2, "y": -113.6, "z": 34.2 }, "rotation": 3.1, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": -62.6, "y": -31.9, "z": -58.2 }, "rotation": 0.5, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": 65.3, "y": -73.1, "z": 9.7 }, "rotation": 3, "scale": 1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": -15.1, "y": -97.7, "z": -56.2 }, "rotation": 2.8, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": -1.6, "y": -53.6, "z": -175 }, "rotation": 1.3, "scale": 0.9 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": -8.7, "y": 46.2, "z": 143 }, "rotation": 3, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard-b", "position": { "x": -17.1, "y": 86.2, "z": -56.8 }, "rotation": 0.9, "scale": 1.1 },
+    { "asteroidId": "asteroid.large-hazard", "position": { "x": 88, "y": 29, "z": -80.3 }, "rotation": 0.8, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -84.6, "y": 159.4, "z": 29.1 }, "rotation": 3.1, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 65.5, "y": 119.2, "z": -130.1 }, "rotation": 2.9, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 154.6, "y": 5.7, "z": -57.6 }, "rotation": 1, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 144.1, "y": -35.5, "z": 1.9 }, "rotation": 0.7, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 99.1, "y": 77, "z": -54.6 }, "rotation": 0.3, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -112.8, "y": -35.1, "z": -63.9 }, "rotation": 2.7, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 0.1, "y": -8.1, "z": -120.8 }, "rotation": 0, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -72.6, "y": -169.5, "z": 31.8 }, "rotation": 2.3, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -126.3, "y": -33.5, "z": 6 }, "rotation": 2.2, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 71.4, "y": 55.4, "z": -154.8 }, "rotation": 3, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 175, "y": 20.4, "z": -64.1 }, "rotation": 2.5, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 63.8, "y": -108, "z": 32.7 }, "rotation": 2.1, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 16.5, "y": 187.8, "z": -38.6 }, "rotation": 2.5, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 42.3, "y": 157, "z": -45 }, "rotation": 2.5, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 135.2, "y": -87.5, "z": 90.8 }, "rotation": 2.9, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -3.5, "y": 134.5, "z": -104.5 }, "rotation": 0.3, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -68.2, "y": -77.1, "z": 52.9 }, "rotation": 0.6, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -44.9, "y": -11.5, "z": -150.3 }, "rotation": 3.1, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 96.7, "y": -52.6, "z": -63.4 }, "rotation": 0.9, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 16, "y": -96, "z": -68.4 }, "rotation": 0.6, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -15.3, "y": -147.4, "z": -120.7 }, "rotation": 3.1, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -83.7, "y": -126.8, "z": 115.3 }, "rotation": 2.2, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -65, "y": -94.2, "z": 147.7 }, "rotation": 1.7, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -118.5, "y": 28.7, "z": 38.5 }, "rotation": 2.3, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -24, "y": -175, "z": -70.6 }, "rotation": 0.3, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 45.1, "y": -148.8, "z": 60.8 }, "rotation": 2.5, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -60.6, "y": 87.9, "z": -152 }, "rotation": 2.3, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 23.9, "y": 79.6, "z": 86.2 }, "rotation": 0.4, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 46.1, "y": -99, "z": -67.6 }, "rotation": 3.1, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -6.1, "y": -139.2, "z": -53 }, "rotation": 1.1, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -107.8, "y": -63.8, "z": 66.2 }, "rotation": 2, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -67.6, "y": 110.6, "z": 55.3 }, "rotation": 2.8, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 96.4, "y": 126.8, "z": 92 }, "rotation": 2, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -22.6, "y": 143, "z": -100.4 }, "rotation": 1.4, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -105.1, "y": -85.1, "z": 30.8 }, "rotation": 3, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 158.1, "y": -27.4, "z": 64.1 }, "rotation": 1.8, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -46, "y": -73.5, "z": -94.5 }, "rotation": 1.9, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -127.9, "y": 44.5, "z": -90.7 }, "rotation": 3.1, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 95.3, "y": -23.4, "z": -164.9 }, "rotation": 0.9, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -53.2, "y": 54.4, "z": -109.4 }, "rotation": 2.6, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 34.7, "y": -46.2, "z": -85 }, "rotation": 1.6, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -110.6, "y": -119.8, "z": -36.7 }, "rotation": 1.8, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 17.3, "y": 76.9, "z": -40 }, "rotation": 2.1, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -16.6, "y": -165.6, "z": -52.9 }, "rotation": 0.5, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 5.1, "y": -100, "z": 3.6 }, "rotation": 2, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -61.8, "y": -110.8, "z": 47.5 }, "rotation": 2.9, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 9.8, "y": 64.1, "z": 106 }, "rotation": 1.7, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -29.1, "y": 70, "z": 110.1 }, "rotation": 0.7, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 27.6, "y": -123.6, "z": -57.3 }, "rotation": 2.9, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 40.9, "y": 145.2, "z": -6.3 }, "rotation": 2.6, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -22.9, "y": 49.6, "z": -101 }, "rotation": 0.7, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 75.2, "y": -47.5, "z": -56.2 }, "rotation": 0.2, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -8.4, "y": 46, "z": -143.1 }, "rotation": 1.2, "scale": 0.9 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 20.3, "y": -41.8, "z": -104.3 }, "rotation": 2.9, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -150, "y": -48.4, "z": -111.6 }, "rotation": 1.4, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 20.2, "y": -131, "z": 72.3 }, "rotation": 1.4, "scale": 1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -22.3, "y": -58.3, "z": -56.2 }, "rotation": 0.5, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": -157, "y": 46.7, "z": 17.9 }, "rotation": 2.7, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock-b", "position": { "x": 9.2, "y": -87.7, "z": 50.1 }, "rotation": 2.3, "scale": 1.1 },
+    { "asteroidId": "asteroid.small-rock", "position": { "x": -33.3, "y": -116.6, "z": 90.8 }, "rotation": 1.7, "scale": 1.1 }
   ],
   "spawnPoints": [
     {
       "id": "sp-a1",
       "team": 0,
       "position": {
-        "x": -70,
-        "y": 10,
-        "z": -70
+        "x": -49,
+        "y": 7,
+        "z": -49
       },
       "heading": 0.785,
       "pitch": 0
@@ -495,9 +115,9 @@
       "id": "sp-a2",
       "team": 0,
       "position": {
-        "x": -88,
-        "y": -6,
-        "z": -52
+        "x": -61.6,
+        "y": -4.2,
+        "z": -36.4
       },
       "heading": 0.785,
       "pitch": 0
@@ -506,9 +126,9 @@
       "id": "sp-a3",
       "team": 0,
       "position": {
-        "x": -52,
-        "y": 6,
-        "z": -88
+        "x": -36.4,
+        "y": 4.2,
+        "z": -61.6
       },
       "heading": 0.785,
       "pitch": 0
@@ -517,9 +137,9 @@
       "id": "sp-b1",
       "team": 1,
       "position": {
-        "x": 70,
-        "y": -10,
-        "z": 70
+        "x": 49,
+        "y": -7,
+        "z": 49
       },
       "heading": 3.927,
       "pitch": 0
@@ -528,9 +148,9 @@
       "id": "sp-b2",
       "team": 1,
       "position": {
-        "x": 88,
-        "y": 6,
-        "z": 52
+        "x": 61.6,
+        "y": 4.2,
+        "z": 36.4
       },
       "heading": 3.927,
       "pitch": 0
@@ -539,9 +159,9 @@
       "id": "sp-b3",
       "team": 1,
       "position": {
-        "x": 52,
-        "y": -6,
-        "z": 88
+        "x": 36.4,
+        "y": -4.2,
+        "z": 61.6
       },
       "heading": 3.927,
       "pitch": 0
@@ -555,7 +175,7 @@
   "render": {
     "skybox": {
       "texture": "skyboxes/deep-field.webp",
-      "intensity": 1.1,
+      "intensity": 0.9,
       "tint": "#dbeaff",
       "sun": {
         "dir": [
