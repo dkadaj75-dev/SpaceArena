@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   Color3,
   DirectionalLight,
+  FreeCamera,
+  GlowLayer,
   HemisphericLight,
   NullEngine,
   Scene,
   ShaderMaterial,
   StandardMaterial,
+  Vector3,
   type Mesh,
 } from "@babylonjs/core";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
@@ -66,7 +69,7 @@ const BOUNDARY_NOTIFICATION = {
   durationMs: 1000,
 } satisfies Record<string, unknown>;
 
-/** Every static arena mesh except the skybox, which is deliberately never frozen. */
+/** Every static arena mesh except the skybox, whose world matrix deliberately stays live. */
 function freezableMeshes(scene: Scene): Mesh[] {
   return scene.meshes.filter((m): m is Mesh => m.name !== "skybox" && "isWorldMatrixFrozen" in m);
 }
@@ -118,19 +121,61 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     builder.dispose();
   });
 
+  it("freezes the skybox material only after a texture-ready render", async () => {
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+
+    const skybox = scene.getMeshByName("skybox")!;
+    const material = skybox.material as StandardMaterial;
+    expect(builder.staticsFrozen).toBe(true);
+    expect(material.isFrozen).toBe(false);
+
+    // NullEngine completes its synthetic Texture on a later task, reproducing
+    // the phone ordering: freezeStatics has run before the onLoad callback.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // emissiveColor stays BLACK even after load — the standard shader ADDS the
+    // emissive texture to emissiveColor, so any non-black value is a flat wash
+    // over the panorama. Intensity rides the texture's `level` instead.
+    expect(material.emissiveColor.r).toBe(0);
+    expect(material.emissiveTexture?.level).toBeCloseTo(0.8);
+    expect(material.isFrozen).toBe(false);
+
+    scene.activeCamera = new FreeCamera("camera", Vector3.Zero(), scene);
+    // Production freezes via its own forceCompilationAsync().then chain — give
+    // the promise a few macrotask turns to land rather than compiling here.
+    for (let i = 0; i < 20 && !material.isFrozen; i++) {
+      scene.render();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(scene.getActiveMeshes().data).toContain(skybox);
+    expect(material.isFrozen).toBe(true);
+    expect(skybox.isWorldMatrixFrozen).toBe(false);
+
+    builder.setVisible(false);
+    expect(material.isFrozen).toBe(false);
+    builder.setVisible(true);
+    expect(material.isFrozen).toBe(true);
+
+    builder.dispose();
+  });
+
   it("wires the arena panorama through the /content path", () => {
     const builder = new SceneBuilder(scene, configs, bus, quality());
     builder.buildArena("arena.test");
 
     const material = scene.getMeshByName("skybox")!.material as StandardMaterial;
     expect(material.emissiveTexture?.name).toBe("/content/skyboxes/test.webp");
-    // BLACK until the panorama's onLoad fires: an emissive-only material with
-    // an unready non-blocking texture renders its raw emissiveColor as a
-    // full-sky wash (and freezing can bake that in). The tint*intensity is
-    // applied by the texture's onLoad callback, never at build time.
+    // BLACK permanently: the standard shader ADDS the emissive texture to
+    // emissiveColor (never multiplies), so a non-black color is a flat wash on
+    // top of the sky. Intensity is the texture's `level`; the tint hue is an
+    // emissive Fresnel with equal left/right colors — the shader's one
+    // multiplicative hook on the emissive result.
     expect(material.emissiveColor.r).toBe(0);
     expect(material.emissiveColor.g).toBe(0);
     expect(material.emissiveColor.b).toBe(0);
+    expect(material.emissiveTexture?.level).toBeCloseTo(0.8);
+    expect(material.emissiveFresnelParameters?.leftColor.r).toBeCloseTo(1);
+    expect(material.emissiveFresnelParameters?.rightColor.r).toBeCloseTo(1);
     expect(material.disableDepthWrite).toBe(true);
     expect(material.emissiveTexture?.isBlocking).toBe(false);
     builder.dispose();
@@ -199,6 +244,29 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
 
     builder.setQuality(quality({ glow: { enabled: true, intensity: 0.2 } }));
     expect(scene.effectLayers.length).toBe(1);
+
+    builder.dispose();
+  });
+
+  it("keeps every rebuilt skybox excluded across glow-layer recreation", () => {
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+
+    const firstSkybox = scene.getMeshByName("skybox")!;
+    const firstGlow = scene.effectLayers[0] as GlowLayer;
+    expect(firstGlow.hasMesh(firstSkybox)).toBe(false);
+    expect(firstGlow.hasMesh(scene.getMeshByName("boundsShell")!)).toBe(true);
+
+    expect(configs.replace({ ...ARENA, version: 2 }).ok).toBe(true);
+    const rebuiltSkybox = scene.getMeshByName("skybox")!;
+    expect(rebuiltSkybox).not.toBe(firstSkybox);
+    expect(firstGlow.hasMesh(rebuiltSkybox)).toBe(false);
+
+    builder.setQuality(quality({ glow: { enabled: false, intensity: 0 } }));
+    builder.setQuality(quality({ glow: { enabled: true, intensity: 0.2 } }));
+    const recreatedGlow = scene.effectLayers[0] as GlowLayer;
+    expect(recreatedGlow).not.toBe(firstGlow);
+    expect(recreatedGlow.hasMesh(rebuiltSkybox)).toBe(false);
 
     builder.dispose();
   });

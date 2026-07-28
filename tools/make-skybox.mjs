@@ -1,12 +1,13 @@
 /* global process, console, Buffer, document, ImageData, makeNebula */
 // Equirect nebula skybox generator — renders in headless Chromium (canvas) and
 // saves WEBP. Noise is sampled in 3D direction space so the pano wraps seamlessly.
-// Usage: node make-skybox.mjs <outDir>
+// Usage: node make-skybox.mjs <outDir> [paletteName]
 import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
 
 const OUT = process.argv[2] ?? ".";
+const ONLY = process.argv[3];
 const W = 2048, H = 1024;
 
 const PALETTES = {
@@ -23,6 +24,12 @@ const PALETTES = {
     core: [255, 214, 160],
     warp: 1.25, starGain: 1.0, seed: 7, gain: 1.3,
     bandN: [0.28, 0.86, 0.42], bandWidth: 0.36, bandGain: 0.75,
+    planet: {
+      dir: [0.05, -0.5, 0.8646],
+      angularRadiusDeg: 38,
+      surface: { base: [190, 133, 85], band: [122, 78, 53], detail: [252, 177, 105] },
+      atmosphere: [104, 178, 255],
+    },
     sun: { dir: [0.777, 0.309, 0.55], color: [255, 236, 200], discDeg: 3.4, glowDeg: 26 },
   },
   "ring-nebula": {
@@ -33,6 +40,12 @@ const PALETTES = {
     core: [224, 208, 255],
     warp: 1.5, starGain: 1.0, seed: 23, gain: 1.3,
     bandN: [-0.5, 0.75, 0.43], bandWidth: 0.42, bandGain: 0.8,
+    planet: {
+      dir: [0.35, 0.15, -0.9247],
+      angularRadiusDeg: 14,
+      surface: { base: [82, 94, 116], band: [52, 61, 82], detail: [122, 136, 158] },
+      atmosphere: [116, 178, 255],
+    },
     sun: { dir: [-0.677, -0.208, -0.706], color: [220, 228, 255], discDeg: 3.0, glowDeg: 24 },
   },
 };
@@ -50,6 +63,10 @@ function makeNebula(W, H, P) {
     return (h >>> 0) / 4294967296;
   };
   const smooth = t => t * t * (3 - 2 * t);
+  const smoothRange = (lo, hi, value) => {
+    const t = Math.max(0, Math.min(1, (value - lo) / (hi - lo)));
+    return smooth(t);
+  };
   const vnoise = (x, y, z) => {
     const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
     const xf = x - xi, yf = y - yi, zf = z - zi;
@@ -140,7 +157,71 @@ function makeNebula(W, H, P) {
         bright = (Math.exp(-dd2 / 0.0006) * 1.1 + Math.exp(-dd2 / 0.012) * 0.16) * 255 * (0.5 + b2);
         warmth = hash(c2x + 9, c2y + 9, c2z + 9);
       }
-      // The nearby star: painted LAST so it dominates dust and stars alike.
+      // Resolve nebula and stars before foreground sky furniture. The planet
+      // replaces the background inside its disc; atmosphere stays additive.
+      const g = P.gain ?? 1;
+      let out = [
+        c[0] * g + star + bright * (0.85 + 0.3 * warmth),
+        c[1] * g + star + bright * 0.92,
+        c[2] * g + star * 0.95 + bright * (1.15 - 0.3 * warmth),
+      ];
+      if (P.planet) {
+        const planet = P.planet;
+        const pd = planet.dir;
+        const cosAng = Math.min(1, Math.max(-1, dx * pd[0] + dy * pd[1] + dz * pd[2]));
+        const ang = Math.acos(cosAng) * (180 / Math.PI);
+        const radiusDeg = planet.angularRadiusDeg;
+        const edgeHalfWidth = 0.075;
+        if (ang < radiusDeg + 3.2) {
+        const discAlpha = 1 - smoothRange(radiusDeg - edgeHalfWidth, radiusDeg + edgeHalfWidth, ang);
+        const upSeed = Math.abs(pd[1]) < 0.96 ? [0, 1, 0] : [1, 0, 0];
+        let ex = upSeed[1] * pd[2] - upSeed[2] * pd[1];
+        let ey = upSeed[2] * pd[0] - upSeed[0] * pd[2];
+        let ez = upSeed[0] * pd[1] - upSeed[1] * pd[0];
+        const el = Math.hypot(ex, ey, ez); ex /= el; ey /= el; ez /= el;
+        const nx = pd[1] * ez - pd[2] * ey;
+        const ny = pd[2] * ex - pd[0] * ez;
+        const nz = pd[0] * ey - pd[1] * ex;
+        const sinRadius = Math.sin(radiusDeg * Math.PI / 180);
+        const localX = (dx * ex + dy * ey + dz * ez) / sinRadius;
+        const localY = (dx * nx + dy * ny + dz * nz) / sinRadius;
+        const radial = Math.hypot(localX, localY);
+        const surfaceZ = Math.sqrt(Math.max(0, 1 - Math.min(1, radial * radial)));
+        const snx = ex * localX + nx * localY - pd[0] * surfaceZ;
+        const sny = ey * localX + ny * localY - pd[1] * surfaceZ;
+        const snz = ez * localX + nz * localY - pd[2] * surfaceZ;
+        const sunDir = P.sun?.dir ?? [0.4, 0.7, 0.2];
+        const ndotl = snx * sunDir[0] + sny * sunDir[1] + snz * sunDir[2];
+        const illumination = 0.03 + smoothRange(-0.12, 0.2, ndotl) * 0.97;
+        const limb = 0.28 + 0.72 * Math.pow(surfaceZ, 0.38);
+        const latitudeBands = 0.5 + 0.5 * Math.sin(
+          localY * 26 + fbm(snx * 2.2 + 211, sny * 2.2, snz * 2.2, 4, 0.58) * 7,
+        );
+        const detailNoise = fbm(snx * 7.5 + 307, sny * 7.5, snz * 7.5, 5, 0.55);
+        const bandMix = smoothRange(0.32, 0.72, latitudeBands);
+        const detailMix = smoothRange(0.5, 0.78, detailNoise) * 0.46;
+        for (let ch = 0; ch < 3; ch++) {
+          const broad = planet.surface.base[ch] * (1 - bandMix) + planet.surface.band[ch] * bandMix;
+          const surface = (broad * (1 - detailMix) + planet.surface.detail[ch] * detailMix)
+            * illumination * limb;
+          out[ch] = out[ch] * (1 - discAlpha) + surface * discAlpha;
+        }
+        if (ang > radiusDeg - edgeHalfWidth && ang < radiusDeg + 3.2) {
+          const sunDotPlanet = sunDir[0] * pd[0] + sunDir[1] * pd[1] + sunDir[2] * pd[2];
+          let tx = sunDir[0] - pd[0] * sunDotPlanet;
+          let ty = sunDir[1] - pd[1] * sunDotPlanet;
+          let tz = sunDir[2] - pd[2] * sunDotPlanet;
+          const tl = Math.hypot(tx, ty, tz);
+          if (tl > 0) { tx /= tl; ty /= tl; tz /= tl; }
+          const sunward = Math.max(0, snx * tx + sny * ty + snz * tz);
+          const rimFalloff = 1 - smoothRange(radiusDeg - edgeHalfWidth, radiusDeg + 3.2, ang);
+          const atmosphereGain = rimFalloff * (0.08 + 0.46 * sunward);
+          for (let ch = 0; ch < 3; ch++) out[ch] += planet.atmosphere[ch] * atmosphereGain;
+        }
+        }
+      }
+
+      // The nearby star is painted LAST so it dominates the planet, dust and stars.
       // cosAng near 1 = looking straight at the sun. Disc is hard-saturated,
       // glow falls off smoothly, plus a wide faint halo warming the sky around.
       let sun = 0;
@@ -157,10 +238,9 @@ function makeNebula(W, H, P) {
       const i = (py * W + px) * 4;
       const sc = P.sun ? P.sun.color : [255, 255, 255];
       // gain lifts the NEBULA only — stars and the sun already saturate.
-      const g = P.gain ?? 1;
-      img[i] = Math.min(255, c[0] * g + star + bright * (0.85 + 0.3 * warmth) + sc[0] * sun);
-      img[i + 1] = Math.min(255, c[1] * g + star + bright * 0.92 + sc[1] * sun);
-      img[i + 2] = Math.min(255, c[2] * g + star * 0.95 + bright * (1.15 - 0.3 * warmth) + sc[2] * sun);
+      img[i] = Math.min(255, out[0] + sc[0] * sun);
+      img[i + 1] = Math.min(255, out[1] + sc[1] * sun);
+      img[i + 2] = Math.min(255, out[2] + sc[2] * sun);
       img[i + 3] = 255;
     }
   }
@@ -171,6 +251,7 @@ function makeNebula(W, H, P) {
 const browser = await chromium.launch();
 const page = await browser.newPage();
 for (const [name, palette] of Object.entries(PALETTES)) {
+  if (ONLY && name !== ONLY) continue;
   const dataUrl = await page.evaluate(
     ([script, W, H, P]) => {
       eval(script);

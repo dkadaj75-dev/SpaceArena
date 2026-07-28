@@ -2,6 +2,7 @@ import {
   Color3,
   Color4,
   DirectionalLight,
+  FresnelParameters,
   GlowLayer,
   HemisphericLight,
   Mesh,
@@ -96,6 +97,7 @@ export class SceneBuilder {
   private root: TransformNode | null = null;
   private visible = true;
   private glowLayer: GlowLayer | null = null;
+  private skybox: Mesh | null = null;
   private unsubscribers: Array<() => void> = [];
   private generation = 0;
   private quality: SceneQuality;
@@ -103,6 +105,7 @@ export class SceneBuilder {
   private arenaId: string | null = null;
   private arena: ArenaConfig | null = null;
   private boundaryMaterial: StandardMaterial | ShaderMaterial | null = null;
+  private skyboxMaterialReadyToFreeze: StandardMaterial | null = null;
   private dust: DustField | null = null;
   /**
    * Editor override for `quality.scene.spawnMarkers`. `null` = follow the tier
@@ -266,9 +269,9 @@ export class SceneBuilder {
   }
 
   /**
-   * `freezeWorldMatrix()` + `material.freeze()` across the arena, minus the
-   * skybox: `infiniteDistance` re-derives its world matrix from the camera
-   * every frame, so freezing it would pin the sky in place.
+   * `freezeWorldMatrix()` + `material.freeze()` across the arena. The skybox's
+   * `infiniteDistance` world matrix stays live, and its material joins only
+   * after one texture-ready render (see {@link buildSkybox}).
    */
   private freezeStatics(): void {
     if (this.frozen || !this.root || !this.quality.render.freezeStatics) return;
@@ -282,6 +285,7 @@ export class SceneBuilder {
       if (mesh.name === "boundsShell") return;
       if (mesh.material) materials.add(mesh.material);
     });
+    if (this.skyboxMaterialReadyToFreeze) materials.add(this.skyboxMaterialReadyToFreeze);
     for (const material of materials) material.freeze();
   }
 
@@ -346,14 +350,23 @@ export class SceneBuilder {
       const skyMat = new StandardMaterial("mat.skybox", this.scene);
       skyMat.diffuseColor = Color3.Black();
       skyMat.specularColor = Color3.Black();
-      // BLACK until the panorama is actually READY: with a non-blocking texture
-      // an emissive-only StandardMaterial renders its raw emissiveColor as a
-      // full-sky wash while the image decodes — and freezeStatics() can freeze
-      // the material in that textureless state, baking the wash in PERMANENTLY
-      // (the race is invisible on fast/software renderers and constant on a
-      // cold-cache real GPU — the "horrible white skybox" bug).
+      // The standard shader ADDS the emissive texture to emissiveColor
+      // (default.fragment: `emissiveColor = vEmissiveColor; emissiveColor +=
+      // tex * vEmissiveInfos.y`) — it never multiplies them. emissiveColor must
+      // therefore stay BLACK permanently, or it paints a flat tint*intensity
+      // wash over the whole sky (the "white sky" in every one of its forms).
+      // Intensity rides the texture's own `level` (that IS vEmissiveInfos.y),
+      // and the tint hue is an emissive Fresnel with equal left/right colors —
+      // the one hook in this shader that MULTIPLIES the emissive result.
       skyMat.emissiveColor = Color3.Black();
-      const litEmissive = colorFromHex(authored.tint, Color3.White()).scale(authored.intensity);
+      const tint = colorFromHex(authored.tint, Color3.White());
+      skyMat.emissiveFresnelParameters = new FresnelParameters({
+        isEnabled: true,
+        leftColor: tint,
+        rightColor: tint,
+        bias: 1,
+        power: 1,
+      });
       const panorama = new Texture(
         `/content/${authored.texture}`,
         this.scene,
@@ -362,30 +375,39 @@ export class SceneBuilder {
         undefined,
         () => {
           if (generation !== this.generation) return;
-          // Texture is ready: light the sky up, and re-freeze the material if
-          // the arena froze while we were still decoding (a frozen shader
-          // compiled without the texture define would never show it).
-          skyMat.emissiveColor.copyFrom(litEmissive);
-          if (this.frozen) {
-            skyMat.unfreeze();
-            skyMat.freeze();
-          }
+          // Texture is ready. With emissiveColor pinned to black a stale
+          // textureless effect renders a BLACK sky, never a wash — but it can
+          // persist indefinitely: an async texture load does not reliably
+          // dirty this material's compiled effect (observed on Intel GPUs and
+          // the software renderer alike; the sky stayed textureless forever).
+          // Compile the texture-ready variant EXPLICITLY, and only then let
+          // the material freeze.
+          skyMat.unfreeze();
+          void skyMat
+            .forceCompilationAsync(skybox)
+            .then(() => {
+              if (generation !== this.generation || skybox.isDisposed()) return;
+              this.skyboxMaterialReadyToFreeze = skyMat;
+              if (this.frozen) skyMat.freeze();
+            })
+            .catch(() => undefined);
         },
         (message, exception) => {
           log.warn(
             `skybox texture failed for "${authored.texture}": ${message || String(exception)} — using solid authored tint`,
           );
-          // A failed texture otherwise leaves the material permanently unready
-          // and the sky black. A DIM emissive tint is the fallback backdrop
-          // (full tint*intensity with no texture is the white-wash bug above).
+          // A failed texture otherwise leaves the sky pure black. A DIM
+          // color-only backdrop is the one place emissiveColor may be non-black
+          // — there is no texture left for it to wash over.
           if (generation === this.generation) {
             skyMat.emissiveTexture?.dispose();
             skyMat.emissiveTexture = null;
-            skyMat.emissiveColor.copyFrom(litEmissive.scale(0.12));
+            skyMat.emissiveColor.copyFrom(tint.scale(authored.intensity * 0.12));
           }
         },
       );
       panorama.isBlocking = false;
+      panorama.level = authored.intensity;
       skyMat.emissiveTexture = panorama;
       skyMat.disableLighting = true;
       // The panorama is only a backdrop. Writing its near sphere depth hid the
@@ -395,6 +417,8 @@ export class SceneBuilder {
       skybox.infiniteDistance = true;
       skybox.isPickable = false;
       skybox.parent = root;
+      this.skybox = skybox;
+      this.glowLayer?.addExcludedMesh(skybox);
     }
 
     // Cheap starfield: a few hundred points via PointsCloudSystem, density per
@@ -591,6 +615,7 @@ export class SceneBuilder {
       );
     }
     this.glowLayer.intensity = glow.intensity;
+    if (this.skybox) this.glowLayer.addExcludedMesh(this.skybox);
   }
 
   /**
@@ -639,6 +664,8 @@ export class SceneBuilder {
   }
 
   private disposeSceneNodes(): void {
+    this.skyboxMaterialReadyToFreeze = null;
+    this.skybox = null;
     if (this.root) {
       disposeRecursive(this.root);
       this.root = null;
