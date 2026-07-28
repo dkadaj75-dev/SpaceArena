@@ -335,7 +335,7 @@ All editors are panels inside the in-browser Editor Shell (F10, dev lazy chunk),
   "energy":     { "drawIdle": 3, "drawActive": 11 },           // per second
   "heat":       { "perSecondActive": 6, "overheatThreshold": 55,
                   "overheatCooldown": 5.0, "overheatSelfDamage": 0 },
-  "fire":       { "mode": "autoTarget",                        // fires when in range + LoS
+  "fire":       { "mode": "held",                              // held trigger; "semi" fires on rising edges
                   "range": 38, "cycleTime": 0.4,
                   "damage": 7, "damageType": "energy",
                   "requiresLineOfSight": true,

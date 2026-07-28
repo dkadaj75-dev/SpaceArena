@@ -393,7 +393,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         },
         onSettings: () => openSettings("match"),
       },
-      { offline, flight: flightBinding },
+      { offline, flight: flightBinding, playSound: (id) => void audio.play(id) },
     );
 
     // Online sessions: rejection toasts + DEV net telemetry overlay (F9).
@@ -860,10 +860,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         // turn; `chase.yawLag` inside the rig does the actual smoothing.
         const base = pp ? pp.heading : pc.heading;
         tacticalCamera.setChaseHeading(base + angleDeltaTo(base, pc.heading) * alpha);
-        // Pitch interpolates linearly: it is clamped to ±maxPitchRad and never
-        // wraps, so there is no short way round to take.
+        // Pitch takes the short way round too: it wraps now that ships loop
+        // (BUBBLE.md §A), so a pair straddling ±PI would whip the camera through
+        // a full revolution between two frames.
         const basePitch = pp ? pp.pitch : pc.pitch;
-        tacticalCamera.setChasePitch(basePitch + (pc.pitch - basePitch) * alpha);
+        tacticalCamera.setChasePitch(basePitch + angleDeltaTo(basePitch, pc.pitch) * alpha);
       }
 
       // Consume this frame's sim events, then render dynamic views + markers + HUD.
@@ -884,7 +885,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
       runtime.screenShake.update(dtMs);
       runtime.viewManager.render(prev, cur, alpha, dtMs);
-      runtime.hud.update(cur, prev, dtMs, engine.getFps(), alpha);
+      runtime.hud.update(cur, prev, dtMs, alpha);
       runtime.netOverlay?.update();
       runtime.botOverlay?.update();
       quality.sampleFrame(engine.getFps(), dtMs);
@@ -955,8 +956,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     window.addEventListener("keydown", (event) => {
       if (event.key !== "F10" || event.repeat) return;
       event.preventDefault();
-      void import("./editor/EditorShell.js").then(({ EditorShell }) => {
-        if (!editorShell) editorShell = new EditorShell(editorHost);
+      void Promise.all([
+        import("./editor/EditorShell.js"),
+        import("./editor/ModuleEditor.js"),
+        import("./editor/ShipManagerModules.js"),
+      ]).then(([{ EditorShell }, { ModuleEditor }, { ShipManagerModules }]) => {
+        if (!editorShell) {
+          editorShell = new EditorShell(editorHost);
+          editorShell.registerPanel("Modules", (host, report) => new ModuleEditor(host, report));
+          editorShell.registerPanel("Ships", (host, report) => new ShipManagerModules(host, report));
+        }
         editorShell.toggle();
       });
     });
