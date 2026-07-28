@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { themeSchema } from "@space-arena/shared";
+import { describe, expect, it, vi } from "vitest";
+import { themeSchema, type ConfigService, type ThemeConfig } from "@space-arena/shared";
 import { normalizeColorKey, nextThemeId, removeColor, setColor } from "./ThemeEditor.js";
+import { SchemaFormGen } from "./SchemaFormGen.js";
 
 describe("ThemeEditor helpers", () => {
   it("picks the first free custom theme id", () => {
@@ -57,5 +58,38 @@ describe("themeSchema additions stay backwards compatible", () => {
     expect(themeSchema.safeParse(bad).success).toBe(false);
     const badHaptics = { id: "theme.bad2", type: "theme", version: 1, colors: {}, haptics: { overheatPattern: [-1] } };
     expect(themeSchema.safeParse(badHaptics).success).toBe(false);
+  });
+});
+
+describe("Theme editor generated combat fields", () => {
+  it("renders FIRE geometry and the blocked audio cue with no bespoke field renderer", () => {
+    const value = {
+      id: "theme.test",
+      type: "theme",
+      version: 1,
+      colors: {},
+      hud: {
+        flight: {
+          fire: { anchor: "bottom-right", radiusPx: 34, offsetXPx: 24, offsetYPx: 34, icon: "FIRE" },
+        },
+      },
+      audio: { cues: { fireBlocked: "[SOUND: fire_blocked]" } },
+    } as ThemeConfig;
+    const configService = {
+      getAll: vi.fn(() => []),
+      replace: vi.fn(() => ({ ok: true, errors: [] })),
+    } as unknown as ConfigService;
+    const form = new SchemaFormGen({
+      schema: themeSchema,
+      value,
+      configService,
+      fields: {
+        colors: () => document.createElement("div"),
+      },
+    });
+
+    expect(form.element.querySelector('[name="hud.flight.fire.anchor"]')).not.toBeNull();
+    expect(form.element.querySelector('[name="hud.flight.fire.radiusPx"]')).not.toBeNull();
+    expect(form.element.querySelector('[name="audio.cues.fireBlocked"]')).not.toBeNull();
   });
 });

@@ -57,8 +57,8 @@ function makeShip(patch: Partial<ShipConfig["core"]> = {}): ShipConfig {
 describe("balanceMath", () => {
   it("computes sustained DPS from weapon damage / cycleTime", () => {
     const modules = [
-      mod("module.laser", "laser", { fire: { mode: "autoTarget", range: 30, cycleTime: 0.4, damage: 7, damageType: "energy", requiresLineOfSight: true, projectile: null } }),
-      mod("module.kinetic", "kinetic", { fire: { mode: "autoTarget", range: 30, cycleTime: 0.5, damage: 10, damageType: "kinetic", requiresLineOfSight: true, projectile: null } }),
+      mod("module.laser", "laser", { fire: { mode: "held", range: 30, cycleTime: 0.4, damage: 7, damageType: "energy", requiresLineOfSight: true, projectile: null } }),
+      mod("module.kinetic", "kinetic", { fire: { mode: "held", range: 30, cycleTime: 0.5, damage: 10, damageType: "kinetic", requiresLineOfSight: true, projectile: null } }),
     ];
     const m = fitMetrics(makeShip(), lookup(modules), ["module.laser", "module.kinetic"]);
     expect(m.sustainedDps).toBeCloseTo(37.5, 5); // 7/0.4 + 10/0.5
@@ -68,7 +68,7 @@ describe("balanceMath", () => {
 
   it("EHP + shield pool drive a first-order TTK", () => {
     const modules = [
-      mod("module.laser", "laser", { fire: { mode: "autoTarget", range: 30, cycleTime: 1, damage: 10, damageType: "energy", requiresLineOfSight: true, projectile: null } }),
+      mod("module.laser", "laser", { fire: { mode: "held", range: 30, cycleTime: 1, damage: 10, damageType: "energy", requiresLineOfSight: true, projectile: null } }),
       mod("module.shield", "shield", { mitigation: { damageReduction: 0.5, absorbPerSecond: 20 } }),
     ];
     const cfg = lookup(modules);
