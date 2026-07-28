@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Order } from "@space-arena/shared";
-import { FlightOrderSender, type FlightOrderPolicy } from "./flightOrders.js";
+import { fireMinIntervalMs, FlightOrderSender, type FlightOrderPolicy } from "./flightOrders.js";
+import { FLIGHT_ORDER_BUDGET_SHARE } from "./flightHudLayout.js";
 import type { FlightInputState } from "./flightInput.js";
 
 const POLICY: FlightOrderPolicy = {
@@ -9,10 +10,12 @@ const POLICY: FlightOrderPolicy = {
   pitchEpsilon: 0.05,
   heartbeatMs: 250,
   minIntervalMs: 120,
+  maxOrdersPerSec: 20,
+  budgetShare: FLIGHT_ORDER_BUDGET_SHARE,
 };
 
 /** A centred-stick flight order — the payload every assertion below starts from. */
-const NEUTRAL = { kind: "flight", throttle: 0, turn: 0, pitchStick: 0, boost: false } as const;
+const NEUTRAL = { kind: "flight", throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false } as const;
 
 interface Harness {
   sender: FlightOrderSender;
@@ -26,7 +29,7 @@ interface Harness {
 function harness(policy: FlightOrderPolicy = POLICY): Harness {
   const orders: Order[] = [];
   const sender = new FlightOrderSender((o) => orders.push(o), policy);
-  const state: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false };
+  const state: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false };
   return {
     sender,
     orders,
@@ -173,6 +176,40 @@ describe("FlightOrderSender", () => {
     expect(h.orders[2]).toMatchObject({ boost: false });
   });
 
+  it("uses a sub-tick budget floor for fire edges instead of the ordinary floor", () => {
+    const h = harness();
+    h.feed({});
+    h.tick(1);
+    h.feed({ fire: true });
+    expect(h.orders).toHaveLength(1);
+    h.tick(fireMinIntervalMs(POLICY) - 1);
+    h.feed({ fire: true });
+    expect(h.orders).toHaveLength(2);
+    expect(h.orders[1]).toMatchObject({ fire: true });
+    h.tick(1);
+    h.feed({ fire: false });
+    expect(h.orders).toHaveLength(2);
+    h.tick(fireMinIntervalMs(POLICY) - 1);
+    h.feed({ fire: false });
+    expect(h.orders).toHaveLength(3);
+    expect(h.orders[2]).toMatchObject({ fire: false });
+  });
+
+  it("keeps 15 press/release pairs per second under the effective server cap", () => {
+    const h = harness();
+    h.feed({});
+    const pairsPerSecond = 15;
+    const edgeIntervalMs = 1000 / (pairsPerSecond * 2);
+    for (let edge = 0; edge < pairsPerSecond * 2; edge++) {
+      h.tick(edgeIntervalMs);
+      h.feed({ fire: edge % 2 === 0 });
+    }
+    // Exclude the free initial state: sustained outbound traffic stays within
+    // the cap even though the input source produces 30 edges per second.
+    expect(h.orders.length - 1).toBeLessThanOrEqual(POLICY.maxOrdersPerSec);
+    expect(h.orders.some((order) => order.kind === "flight" && order.fire)).toBe(true);
+  });
+
   it("lands a trailing send: sub-epsilon drift still reaches the sim after the heartbeat", () => {
     const h = harness();
     h.feed({});
@@ -237,6 +274,12 @@ describe("FlightOrderSender", () => {
   it("reports the last state it handed to the sim", () => {
     const h = harness();
     h.feed({ throttle: 0.7, turn: -0.3, pitchStick: 0.45, boost: true });
-    expect(h.sender.lastSent).toEqual({ throttle: 0.7, turn: -0.3, pitchStick: 0.45, boost: true });
+    expect(h.sender.lastSent).toEqual({
+      throttle: 0.7,
+      turn: -0.3,
+      pitchStick: 0.45,
+      boost: true,
+      fire: false,
+    });
   });
 });

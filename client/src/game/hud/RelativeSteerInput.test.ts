@@ -58,7 +58,7 @@ describe("RelativeSteerInput", () => {
     expect(input.pitchStick).toBeGreaterThan(0);
     document.dispatchEvent(pointer("pointermove", { id: 1, pointerType: "mouse", x: 120, y: 90, movementX: 10, movementY: -5 }));
     expect(Math.abs(input.turn)).toBeGreaterThan(Math.abs(firstTurn));
-    document.dispatchEvent(pointer("pointerup", { id: 1, pointerType: "mouse" }));
+    document.dispatchEvent(pointer("pointerup", { id: 1, pointerType: "mouse", button: 2 }));
     expect(input.active).toBe(false);
     expect(input.turn).toBe(0);
     expect(input.pitchStick).toBe(0);
@@ -82,6 +82,22 @@ describe("RelativeSteerInput", () => {
     expect(input.pitchStick).toBeGreaterThan(0);
     document.dispatchEvent(pointer("pointercancel", { id: 3, pointerType: "touch" }));
     expect(input.turn).toBe(0);
+    input.dispose();
+    canvas.remove();
+  });
+
+  it("does not start a steer drag from a FIRE jab", () => {
+    const { root, canvas, input } = mount();
+    const fire = document.createElement("div");
+    fire.setAttribute(HUD_CONTROL_ATTR, "fire");
+    root.append(fire);
+    fire.dispatchEvent(pointer("pointerdown", {
+      id: 8,
+      pointerType: "touch",
+      x: 40,
+      y: 40,
+    }));
+    expect(input.active).toBe(false);
     input.dispose();
     canvas.remove();
   });
@@ -147,7 +163,7 @@ describe("RelativeSteerInput", () => {
     const mouseBefore = input.turn;
     input.setSensitivityMultipliers(2, 1);
     expect(Math.abs(input.turn)).toBeGreaterThan(Math.abs(mouseBefore));
-    document.dispatchEvent(pointer("pointerup", { id: 9, pointerType: "mouse" }));
+    document.dispatchEvent(pointer("pointerup", { id: 9, pointerType: "mouse", button: 2 }));
 
     canvas.dispatchEvent(pointer("pointerdown", { id: 10, pointerType: "touch", x: 100, y: 100 }));
     document.dispatchEvent(pointer("pointermove", {
@@ -193,7 +209,7 @@ describe("RelativeSteerInput", () => {
       movementY: -4,
     }));
     expect(input.turn).not.toBe(0);
-    document.dispatchEvent(pointer("pointerup", { id: 7, pointerType: "mouse" }));
+    document.dispatchEvent(pointer("pointerup", { id: 7, pointerType: "mouse", button: 2 }));
     expect(lockElement).toBeNull();
     expect(input.active).toBe(false);
 

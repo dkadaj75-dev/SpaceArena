@@ -55,6 +55,20 @@ export const botprofileSchema = z.object({
     energyReserve: z.number().min(0).max(1),
     shieldOnlyWhenEngaged: z.boolean(),
   }),
+  fireDiscipline: z
+    .object({
+      /** Armed-weapon range multiplier. Absent => 1. */
+      engageRangeMult: z.number().nonnegative().optional(),
+      /** Maximum armed-module heat fraction. Absent => 1. */
+      heatHeadroom: z.number().min(0).max(1).optional(),
+      /** Capacitor floor required to fire. Absent => 0. */
+      minEnergyFraction: z.number().min(0).max(1).optional(),
+      /** Trigger-on duration. Absent => continuous fire. */
+      burstSec: z.number().nonnegative().optional(),
+      /** Trigger-off duration after a burst. Absent => 0. */
+      pauseSec: z.number().nonnegative().optional(),
+    })
+    .optional(),
 });
 
 export type BotprofileConfig = z.infer<typeof botprofileSchema>;

@@ -14,7 +14,7 @@
     "overheatSelfDamage": 0
   },
   "fire": {
-    "mode": "autoTarget",
+    "mode": "held",
     "range": 30,
     "cycleTime": 0.6,
     "damage": 9,
@@ -24,7 +24,7 @@
   },
   "onFire": ["action.play-sound-kinetic"],
   "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: kinetic]", "label": "Autocannon" },
+  "ui": { "icon": "[ICON: kinetic]", "shortName": "Cannon Mk1", "label": "Autocannon" },
   "price": 0,
   "requiresLevel": 1
 }

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Server } from "@colyseus/core";
 import { Client as ColyseusClient, type SeatReservation } from "colyseus.js";
 import { WebSocketTransport } from "@colyseus/ws-transport";
@@ -95,14 +95,15 @@ describe("ArenaRoom", () => {
     ]);
     expect(c1.roomId).toBe(c2.roomId);
     const room = colyseus.getRoomById<ArenaState>(c1.roomId);
-    await advance(room, 1);
-    expect(room.clients).toHaveLength(2);
-    expect(room.state.matchPhase).toBe("live");
+    // Names are static PlayerState fields populated before the first simulation
+    // tick, so the initial schema snapshot already carries both identities.
     expect([...room.state.players.values()].map((player) => player.displayName).sort()).toEqual([
       "Crimson Vector",
       "Silent Quasar",
     ]);
-
+    await advance(room, 1);
+    expect(room.clients).toHaveLength(2);
+    expect(room.state.matchPhase).toBe("live");
     await c1.leave();
     await c2.leave();
   });
@@ -120,7 +121,7 @@ describe("ArenaRoom", () => {
     const startZ = p1.z;
 
     // Valid flight order → accepted ack.
-    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
+    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true } });
     const ack1 = await c1.waitForMessage("orderAck");
     expect(ack1).toMatchObject({ seq: 1, accepted: true });
 
@@ -130,7 +131,7 @@ describe("ArenaRoom", () => {
     expect(p1.lastProcessedSeq).toBe(1);
 
     // Out-of-range flight axis → rejected by the wire schema.
-    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 5, turn: 0, boost: false } });
+    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 5, turn: 0, boost: false, fire: true } });
     const ack2 = await c1.waitForMessage("orderAck");
     expect(ack2).toMatchObject({ seq: 2, accepted: false, reason: "malformed" });
 
@@ -141,6 +142,9 @@ describe("ArenaRoom", () => {
 
     // Module toggle → module leaves the retracted (0) state.
     expect(p1.modules[0]!.state).toBe(0);
+    // The continuous-channel flag rides the same per-module state; a `held`
+    // laser must never set it.
+    expect(p1.modules[0]!.channeling).toBe(false);
     c1.send("order", { seq: 4, order: { kind: "moduleToggle", hardpointIndex: 0 } });
     const ack4 = await c1.waitForMessage("orderAck");
     expect(ack4).toMatchObject({ seq: 4, accepted: true });
@@ -191,6 +195,10 @@ describe("ArenaRoom", () => {
     // Focus the enemy and activate the laser (hardpoint 0).
     c1.send("order", { seq: 1, order: { kind: "target", targetId: enemyId } });
     c1.send("order", { seq: 2, order: { kind: "moduleToggle", hardpointIndex: 0 } });
+    c1.send("order", {
+      seq: 3,
+      order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true },
+    });
 
     // Enough ticks for deploy (1.5s) + a few laser cycles to kill 8 hull.
     for (let i = 0; i < 200 && room.state.matchPhase !== "ended"; i++) {
@@ -225,7 +233,7 @@ describe("ArenaRoom", () => {
     const startHeading = p1.heading;
     expect(p1.throttle).toBe(0); // no FlightState yet
 
-    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0.5, boost: false } });
+    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0.5, boost: false, fire: true } });
     expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
 
     await advance(room, 30);
@@ -237,7 +245,7 @@ describe("ArenaRoom", () => {
     expect(p1.lastProcessedSeq).toBe(1);
 
     // Cutting the throttle is another single order; the ship decelerates.
-    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 0, turn: 0, boost: false } });
+    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true } });
     expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 2, accepted: true });
     await advance(room, 5);
     expect(p1.throttle).toBe(0);
@@ -294,13 +302,13 @@ describe("ArenaRoom", () => {
     // Non-finite and out-of-range axes are refused at the trust boundary
     // (orderSchema) — the sim never sees them, so no heading/position poisoning.
     const bad = [
-      { throttle: Number.NaN, turn: 0, boost: false },
-      { throttle: 0.5, turn: Number.POSITIVE_INFINITY, boost: false },
-      { throttle: Number.NEGATIVE_INFINITY, turn: 0, boost: false },
-      { throttle: 5, turn: 0, boost: false },
-      { throttle: -0.5, turn: 0, boost: false },
-      { throttle: 0.5, turn: -3, boost: false },
-      { throttle: 0.5, turn: 1.5, boost: false },
+      { throttle: Number.NaN, turn: 0, boost: false, fire: true },
+      { throttle: 0.5, turn: Number.POSITIVE_INFINITY, boost: false, fire: true },
+      { throttle: Number.NEGATIVE_INFINITY, turn: 0, boost: false, fire: true },
+      { throttle: 5, turn: 0, boost: false, fire: true },
+      { throttle: -0.5, turn: 0, boost: false, fire: true },
+      { throttle: 0.5, turn: -3, boost: false, fire: true },
+      { throttle: 0.5, turn: 1.5, boost: false, fire: true },
     ];
     for (let i = 0; i < bad.length; i++) {
       cheat.send("order", { seq: i + 1, order: { kind: "flight", ...bad[i] } });
@@ -321,7 +329,7 @@ describe("ArenaRoom", () => {
 
     // The other client is untouched and still flies.
     const honestState = room.state.players.get(honest.sessionId)!;
-    honest.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
+    honest.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true } });
     expect(await honest.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
     await advance(room, 20);
     expect(honestState.throttle).toBe(255);
@@ -329,6 +337,50 @@ describe("ArenaRoom", () => {
 
     await cheat.leave();
     await honest.leave();
+  });
+
+  it("requires a boolean fire flag on human wire orders", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const client = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+
+    client.send("order", { seq: 1, order: { kind: "flight", throttle: 0, turn: 0, boost: false } });
+    expect(await client.waitForMessage("orderAck")).toMatchObject({
+      seq: 1,
+      accepted: false,
+      reason: "malformed",
+    });
+
+    client.send("order", {
+      seq: 2,
+      order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: "yes" },
+    });
+    expect(await client.waitForMessage("orderAck")).toMatchObject({
+      seq: 2,
+      accepted: false,
+      reason: "malformed",
+    });
+
+    await client.leave();
+  });
+
+  it("charges one trigger-bearing flight order as one budget slot", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const client = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+    const internal = colyseus.getRoomById(room.roomId) as unknown as {
+      orderRates: Map<string, { count: number }>;
+    };
+    const before = internal.orderRates.get(client.sessionId)?.count ?? 0;
+
+    client.send("order", {
+      seq: 1,
+      order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true },
+    });
+    expect(await client.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
+    expect(internal.orderRates.get(client.sessionId)?.count).toBe(before + 1);
+
+    await client.leave();
   });
 
   // -------------------------------------------------------------------------
@@ -345,10 +397,10 @@ describe("ArenaRoom", () => {
     // The authored spawn altitude is replicated before any order; the level nose
     // keeps the following climb attributable to the pitch input.
     const startY = decodeCenti(p1.y);
-    expect(startY).toBe(10);
+    expect(startY).toBe(7);
     expect(p1.pitch).toBe(0);
 
-    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false } });
+    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false, fire: true } });
     expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
 
     await advance(room, 25);
@@ -369,7 +421,7 @@ describe("ArenaRoom", () => {
     // Nose back down: pitch is HELD state, so the ship keeps climbing until an
     // order says otherwise — and the replicated pitch must go NEGATIVE, which is
     // precisely what routing it through the heading codec would have destroyed.
-    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: -1, boost: false } });
+    c1.send("order", { seq: 2, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: -1, boost: false, fire: true } });
     expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 2, accepted: true });
     await advance(room, 30);
     expect(tf.pitch).toBeLessThan(0);
@@ -394,7 +446,7 @@ describe("ArenaRoom", () => {
     // is a validation failure, not abuse — the client stays connected.
     const bad: unknown[] = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2, -1.5, "up", null];
     for (let i = 0; i < bad.length; i++) {
-      c1.send("order", { seq: i + 1, order: { kind: "flight", throttle: 0.5, turn: 0, pitchStick: bad[i], boost: false } });
+      c1.send("order", { seq: i + 1, order: { kind: "flight", throttle: 0.5, turn: 0, pitchStick: bad[i], boost: false, fire: true } });
       expect(await c1.waitForMessage("orderAck"), String(bad[i])).toMatchObject({
         seq: i + 1,
         accepted: false,
@@ -410,7 +462,7 @@ describe("ArenaRoom", () => {
 
     // Omitting the axis entirely is legal (pitch is held state — absent means
     // "unchanged", the same as a centred stick), and the client still flies.
-    c1.send("order", { seq: 99, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
+    c1.send("order", { seq: 99, order: { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true } });
     expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 99, accepted: true });
     await advance(room, 10);
     expect(p1.throttle).toBe(255);
@@ -432,12 +484,56 @@ describe("ArenaRoom", () => {
     // inside one window: every order here is individually VALID, so this is the
     // rate limiter doing the work, not validation.
     for (let i = 0; i < 150; i++) {
-      c1.send("order", { seq: i + 1, order: { kind: "flight", throttle: 0.5, turn: 0, boost: false } });
+      c1.send("order", { seq: i + 1, order: { kind: "flight", throttle: 0.5, turn: 0, boost: false, fire: true } });
     }
 
     const code = await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 4000))]);
     expect(code).toBe(4290); // custom close code: rate-limit kick
     expect(acks.some((a) => !a.accepted && a.reason === "rate-limited")).toBe(true);
+  });
+
+  it("forgives burst abuse after clean windows while sustained flooding still kicks", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.duel-1v1",
+      minPlayers: 1,
+    });
+    const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
+      maxOrdersPerSec: number;
+      orderRates: Map<string, { windowStart: number; count: number; abuse: number }>;
+      rateLimited(client: { sessionId: string; leave(code: number): void }): boolean;
+    };
+    const leave = vi.fn();
+    const client = { sessionId: "burst-test", leave };
+    serverRoom.orderRates.set(client.sessionId, {
+      windowStart: Date.now(),
+      count: 0,
+      abuse: 0,
+    });
+
+    // One brief burst creates abuse debt.
+    for (let i = 0; i < serverRoom.maxOrdersPerSec + 5; i++) {
+      serverRoom.rateLimited(client);
+    }
+    const rate = serverRoom.orderRates.get(client.sessionId)!;
+    expect(rate.abuse).toBe(5);
+
+    // First rollover ends the abusive window; the next sparse window is clean.
+    rate.windowStart -= 1000;
+    expect(serverRoom.rateLimited(client)).toBe(false);
+    expect(rate.abuse).toBe(5);
+    // Rolling that clean window clears the old burst instead of accumulating it
+    // toward a kick for the rest of the match.
+    rate.windowStart -= 1000;
+    expect(serverRoom.rateLimited(client)).toBe(false);
+    expect(rate.abuse).toBe(0);
+    expect(leave).not.toHaveBeenCalled();
+
+    // Consecutive flooding never supplies a clean window and still reaches the
+    // same sustained-abuse kick path covered by the socket-level flood test.
+    for (let i = 0; i < serverRoom.maxOrdersPerSec + 40; i++) {
+      serverRoom.rateLimited(client);
+    }
+    expect(leave).toHaveBeenCalledWith(4290);
   });
 
   it("counts MALFORMED order messages against the rate limit and kicks the flooder (review Finding 1)", async () => {
@@ -505,7 +601,7 @@ describe("ArenaRoom", () => {
         // sim stores it without integrating), so no "not-live" rejection.
         const acks: Array<{ accepted: boolean; reason?: string }> = [];
         c1.onMessage("orderAck", (m) => acks.push(m as { accepted: boolean; reason?: string }));
-        c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
+        c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true } });
         await advance(room, 20);
 
         expect(acks.some((a) => a.accepted)).toBe(true);
@@ -622,7 +718,7 @@ describe("ArenaRoom", () => {
     const c1 = await colyseus.connectTo(room);
     // Only one human joined → still waiting.
     expect(room.state.matchPhase).toBe("waiting");
-    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false } });
+    c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true } });
     const ack = await c1.waitForMessage("orderAck");
     expect(ack).toMatchObject({ seq: 1, accepted: false, reason: "not-live" });
     await c1.leave();
@@ -694,6 +790,10 @@ describe("ArenaRoom", () => {
     // The enemy is parked dead ahead inside the sensor cone, so automatic
     // targeting (FLIGHT.md §2) locks it; bring the laser up and let it fire.
     c1.send("order", { seq: 1, order: { kind: "moduleToggle", hardpointIndex: 0 } });
+    c1.send("order", {
+      seq: 2,
+      order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true },
+    });
 
     for (let i = 0; i < 400 && room.state.matchPhase !== "ended"; i++) await advance(room, 1);
     await new Promise((r) => setTimeout(r, 200));
@@ -811,6 +911,46 @@ describe("ArenaRoom", () => {
     expect(movedOrArmed).toBe(true);
 
     await c1.leave();
+  });
+
+  it("rejects missing and non-boolean bot fire flags with the human validation rule", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.duel-1v1",
+      minPlayers: 2,
+      botBackfillMs: 0,
+      botProfile: "bot.aggressive",
+    });
+    const client = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 2);
+    const bot = [...room.state.players.entries()].find(([key]) => key.startsWith("bot-"))?.[1];
+    expect(bot).toBeDefined();
+    const internal = colyseus.getRoomById(room.roomId) as unknown as {
+      validateOrder(entityId: number, order: unknown): string | null;
+    };
+
+    expect(
+      internal.validateOrder(bot!.entityId, { kind: "flight", throttle: 0, turn: 0, boost: false }),
+    ).toBe("malformed");
+    expect(
+      internal.validateOrder(bot!.entityId, {
+        kind: "flight",
+        throttle: 0,
+        turn: 0,
+        boost: false,
+        fire: 1,
+      }),
+    ).toBe("malformed");
+    expect(
+      internal.validateOrder(bot!.entityId, {
+        kind: "flight",
+        throttle: 0,
+        turn: 0,
+        boost: false,
+        fire: true,
+      }),
+    ).toBeNull();
+
+    await client.leave();
   });
 
   it("never bot-backfills a matchmade room — the second seat belongs to a reserved player", async () => {

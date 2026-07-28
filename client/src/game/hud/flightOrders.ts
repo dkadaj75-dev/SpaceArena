@@ -10,6 +10,18 @@ export interface FlightOrderPolicy {
   heartbeatMs: number;
   /** Hard floor between two sends — the server rate-limit guard. */
   minIntervalMs: number;
+  /** Effective server order cap, including the server fallback when tuning omits it. */
+  maxOrdersPerSec: number;
+  /** Fraction of the server order budget reserved for flight orders. */
+  budgetShare: number;
+}
+
+/** Fire edges stay below one sim tick of latency while still bounding click spam. */
+const MAX_FIRE_MIN_INTERVAL_MS = 30;
+
+export function fireMinIntervalMs(policy: FlightOrderPolicy): number {
+  const budgetFloor = 1000 / (policy.maxOrdersPerSec * policy.budgetShare);
+  return Math.min(policy.minIntervalMs, budgetFloor, MAX_FIRE_MIN_INTERVAL_MS);
 }
 
 /**
@@ -23,6 +35,8 @@ export interface FlightOrderPolicy {
  *  - `|ΔpitchStick| > pitchEpsilon` (BUBBLE.md §C — the third axis is treated
  *    exactly like turn: same −1..1 scale, same trailing-send guarantee), or
  *  - the boost flag flipped (edge-triggered, no epsilon), or
+ *  - the fire flag flipped (edge-triggered, no epsilon and subject to a small
+ *    sub-tick floor derived from the server order budget), or
  *  - `heartbeatMs` elapsed while the input keeps drifting inside the epsilons —
  *    which is also the TRAILING send: a slow stick return that never crosses an
  *    epsilon still lands, so the ship can never be left flying a stale state.
@@ -38,11 +52,13 @@ export interface FlightOrderPolicy {
  */
 export class FlightOrderSender {
   /** Last state actually sent — the baseline every epsilon is measured against. */
-  private readonly sent: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false };
+  private readonly sent: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false };
   private lastSentMs = 0;
   /** False until the first order lands, which is never delayed. */
   private started = false;
   private ordersSent = 0;
+  private rateWindowStartMs = 0;
+  private rateWindowCount = 0;
 
   constructor(
     private readonly send: (order: Order) => void,
@@ -73,34 +89,52 @@ export class FlightOrderSender {
     const dTurn = Math.abs(input.turn - this.sent.turn);
     const dPitch = Math.abs(input.pitchStick - this.sent.pitchStick);
     const boostEdge = input.boost !== this.sent.boost;
+    const fireEdge = input.fire !== this.sent.fire;
     // "Differs at all" is the pending flag: `sent` IS the baseline, so nothing is
     // dropped by the floor below — an order suppressed this frame still differs
     // next frame and goes out then.
-    const differs = dThrottle > 0 || dTurn > 0 || dPitch > 0 || boostEdge;
+    const differs = dThrottle > 0 || dTurn > 0 || dPitch > 0 || boostEdge || fireEdge;
     const significant =
       dThrottle > this.policy.throttleEpsilon ||
       dTurn > this.policy.turnEpsilon ||
       dPitch > this.policy.pitchEpsilon ||
-      boostEdge;
+      boostEdge ||
+      fireEdge;
 
     // The first order of a match is never delayed: until one arrives the sim has
     // no FlightState at all and the ship sits inert.
     if (this.started) {
       if (!differs) return;
       const sinceSend = nowMs - this.lastSentMs;
-      if (sinceSend < this.policy.minIntervalMs) return;
+      // Trigger edges use a smaller, budget-derived floor. It stays below one
+      // 30 Hz sim tick, so a shot is not lost, while a jitter-clicker cannot
+      // stream press/release edges above the flight sender's budget share.
+      const floor = fireEdge ? fireMinIntervalMs(this.policy) : this.policy.minIntervalMs;
+      if (sinceSend < floor) return;
       // Sub-epsilon drift (and the trailing send after the stick settles) waits
       // for the heartbeat instead of streaming one order per frame.
       if (!significant && sinceSend < this.policy.heartbeatMs) return;
     }
 
+    // Fire's latency floor is intentionally below a sim tick, so it cannot by
+    // itself enforce the server's whole-order ceiling. This fixed window is the
+    // final guard: a still-held change remains pending against `sent` and can
+    // land when the next window opens.
+    if (!this.started || nowMs - this.rateWindowStartMs >= 1000) {
+      this.rateWindowStartMs = nowMs;
+      this.rateWindowCount = 0;
+    }
+    if (this.rateWindowCount >= this.policy.maxOrdersPerSec) return;
+
     this.sent.throttle = input.throttle;
     this.sent.turn = input.turn;
     this.sent.pitchStick = input.pitchStick;
     this.sent.boost = input.boost;
+    this.sent.fire = input.fire;
     this.lastSentMs = nowMs;
     this.started = true;
     this.ordersSent += 1;
+    this.rateWindowCount += 1;
     // `pitchStick` is always present, even centred: the axis is optional on the
     // wire (BUBBLE.md §B) so an old client can omit it, but a client that HAS a
     // pitch axis must state it — dropping the field at zero would make "stick
@@ -112,6 +146,7 @@ export class FlightOrderSender {
       turn: input.turn,
       pitchStick: input.pitchStick,
       boost: input.boost,
+      fire: input.fire,
     });
   }
 }

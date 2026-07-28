@@ -12,6 +12,7 @@ import { formatHudDistance, roundedHudMeters } from "./SpeedReadout.js";
 interface ArrowSlot {
   el: HTMLDivElement;
   glyph: HTMLDivElement;
+  marker: HTMLDivElement;
   distance: HTMLSpanElement;
   lastX: number;
   lastY: number;
@@ -19,6 +20,8 @@ interface ArrowSlot {
   lastDistanceM: number;
   lastOpacity: number;
   lastCandidate: boolean | null;
+  lastMarker: boolean | null;
+  lastScale: number;
   visible: boolean;
 }
 
@@ -74,6 +77,23 @@ export class EnemyArrows {
         background: var(--hud-danger, #ff405c);
         filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c));
       }
+      .hud-enemy-marker-glyph {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        display: none;
+        box-sizing: border-box;
+        border: 1.25px solid var(--hud-primary, #39bfff);
+        background: transparent;
+        transform: translate(-50%, -50%) rotate(45deg);
+        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-primary, #39bfff));
+      }
+      .hud-enemy-arrow.on-screen-marker .hud-enemy-arrow-glyph {
+        display: none;
+      }
+      .hud-enemy-arrow.on-screen-marker .hud-enemy-marker-glyph {
+        display: block;
+      }
       .hud-enemy-arrow.candidate .hud-enemy-arrow-glyph {
         background: var(--hud-primary, #39bfff);
         filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, #39bfff));
@@ -95,6 +115,10 @@ export class EnemyArrows {
       .hud-enemy-arrow.candidate .hud-enemy-arrow-distance {
         color: var(--hud-primary, #39bfff);
       }
+      .hud-enemy-arrow.on-screen-marker .hud-enemy-arrow-distance {
+        font-size: 0.5em;
+        opacity: 0.72;
+      }
     `;
     this.container.appendChild(style);
     root.appendChild(this.container);
@@ -110,6 +134,11 @@ export class EnemyArrows {
   applyLayout(layout: FlightHudLayout): void {
     this.layout = layout;
     this.buildPool(layout.enemyArrows.maxCount);
+    const markerPx = `${layout.enemyArrows.markerSizePx}px`;
+    for (let i = 0; i < this.slots.length; i++) {
+      this.slots[i]!.marker.style.width = markerPx;
+      this.slots[i]!.marker.style.height = markerPx;
+    }
     // Geometry moved under every arrow; the next frame re-places the live ones
     // and this hides whatever is currently parked at a stale position.
     this.begin();
@@ -124,13 +153,18 @@ export class EnemyArrows {
       el.setAttribute("aria-hidden", "true");
       const glyph = document.createElement("div");
       glyph.className = "hud-enemy-arrow-glyph";
+      const marker = document.createElement("div");
+      marker.className = "hud-enemy-marker-glyph";
+      marker.style.width = `${this.layout.enemyArrows.markerSizePx}px`;
+      marker.style.height = `${this.layout.enemyArrows.markerSizePx}px`;
       const distance = document.createElement("span");
       distance.className = "hud-enemy-arrow-distance";
-      el.append(glyph, distance);
+      el.append(glyph, marker, distance);
       this.container.appendChild(el);
       this.slots.push({
         el,
         glyph,
+        marker,
         distance,
         lastX: Number.NaN,
         lastY: Number.NaN,
@@ -138,6 +172,8 @@ export class EnemyArrows {
         lastDistanceM: Number.NaN,
         lastOpacity: Number.NaN,
         lastCandidate: null,
+        lastMarker: null,
+        lastScale: Number.NaN,
         visible: false,
       });
     }
@@ -162,11 +198,45 @@ export class EnemyArrows {
   place(point: ProjectedPoint, distanceUnits: number, candidate: boolean): boolean {
     const arrows = this.layout.enemyArrows;
     if (!arrows.enabled || this.used >= this.slots.length) return false;
-    if (!offScreenArrowPlacement(point, this.layout.viewport, arrows, this.placement)) return false;
 
     const slot = this.slots[this.used]!;
+    if (offScreenArrowPlacement(point, this.layout.viewport, arrows, this.placement)) {
+      this.used += 1;
+      // A far contact chooses the faint-contact alpha instead of multiplying it
+      // by distance fade. With the shipped values the old far result was
+      // 0.35 * 0.4 = 0.14; this path is max(0.35, 0.4) = 0.4.
+      const opacity = Math.max(
+        arrows.markerMinOpacity,
+        candidate ? arrowOpacity(distanceUnits, arrows) : arrows.outOfRangeOpacity,
+      );
+      this.write(
+        slot,
+        this.placement,
+        distanceUnits,
+        opacity,
+        candidate,
+        false,
+        candidate ? 1 : arrows.outOfRangeScale,
+      );
+      return true;
+    }
+
+    // The current candidate keeps today's full LockReticle bracket unchanged.
+    // Every other in-view enemy gets this component's smaller pooled marker.
+    if (candidate) return false;
     this.used += 1;
-    this.write(slot, this.placement, distanceUnits, arrowOpacity(distanceUnits, arrows), candidate);
+    this.placement.x = point.x;
+    this.placement.y = point.y;
+    this.placement.rotationRad = 0;
+    this.write(
+      slot,
+      this.placement,
+      distanceUnits,
+      Math.max(arrows.markerMinOpacity, arrows.outOfRangeOpacity),
+      false,
+      true,
+      arrows.outOfRangeScale,
+    );
     return true;
   }
 
@@ -197,6 +267,8 @@ export class EnemyArrows {
     distanceUnits: number,
     opacity: number,
     candidate: boolean,
+    marker: boolean,
+    scale: number,
   ): void {
     if (!slot.visible) {
       slot.visible = true;
@@ -210,8 +282,11 @@ export class EnemyArrows {
     if (x !== slot.lastX || y !== slot.lastY) {
       slot.lastX = x;
       slot.lastY = y;
-      slot.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+      slot.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${scale})`;
+    } else if (scale !== slot.lastScale) {
+      slot.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${scale})`;
     }
+    slot.lastScale = scale;
     if (deg !== slot.lastDeg) {
       slot.lastDeg = deg;
       slot.glyph.style.transform = `rotate(${deg}deg)`;
@@ -229,6 +304,11 @@ export class EnemyArrows {
     if (candidate !== slot.lastCandidate) {
       slot.lastCandidate = candidate;
       slot.el.classList.toggle("candidate", candidate);
+      slot.el.classList.toggle("out-of-range", !candidate);
+    }
+    if (marker !== slot.lastMarker) {
+      slot.lastMarker = marker;
+      slot.el.classList.toggle("on-screen-marker", marker);
     }
   }
 

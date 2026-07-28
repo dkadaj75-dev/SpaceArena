@@ -3,6 +3,8 @@ import {
   resolveShipStats,
   type ConfigService,
   type EntityId,
+  type ModuleConfig,
+  type ModuleSnapshot,
   type ShipConfig,
   type ShipSnapshot,
   type Snapshot,
@@ -11,12 +13,14 @@ import {
 import type { GameSession } from "../GameSession.js";
 import { VirtualJoystick } from "./VirtualJoystick.js";
 import { ThrottleStrip } from "./ThrottleStrip.js";
-import { BoostButton } from "./BoostButton.js";
+import { FireButton } from "./FireButton.js";
+import { CanvasFireInput } from "./CanvasFireInput.js";
 import { LockReticle } from "./LockReticle.js";
 import { EnemyArrows } from "./EnemyArrows.js";
 import { SpeedReadout } from "./SpeedReadout.js";
 import { RelativeSteerInput } from "./RelativeSteerInput.js";
 import {
+  FLIGHT_ORDER_BUDGET_SHARE,
   orderMinIntervalMs,
   reticleRadiusPx,
   type CameraView,
@@ -29,9 +33,21 @@ import {
   rampThrottle,
   type FlightInputState,
 } from "./flightInput.js";
-import { FlightOrderSender } from "./flightOrders.js";
+import { FlightOrderSender, type FlightOrderPolicy } from "./flightOrders.js";
 
 const log = createLogger("FlightControls");
+const DEFAULT_MAX_ORDERS_PER_SEC = 20;
+
+/** Array index of the first fitted boost module, or -1 when this fitting has none. */
+export function firstBoostModuleIndex(
+  configs: Pick<ConfigService, "get">,
+  modules: readonly ModuleSnapshot[],
+): number {
+  for (let i = 0; i < modules.length; i++) {
+    if (configs.get<ModuleConfig>("module", modules[i]!.moduleId)?.boost) return i;
+  }
+  return -1;
+}
 
 /**
  * What the flight HUD needs from the 3D layer, injected by `main.ts` so the HUD
@@ -56,7 +72,7 @@ export interface FlightHudBinding {
 }
 
 /**
- * The flight HUD: relative steering + reusable joystick, throttle, boost,
+ * The flight HUD: relative steering + reusable joystick, throttle, FIRE,
  * reticle, enemy arrows, desktop keys, and the `flight` order sender.
  * orders.
  *
@@ -74,7 +90,8 @@ export class FlightControls {
   private readonly joystick: VirtualJoystick;
   private readonly relativeSteer: RelativeSteerInput;
   private readonly throttleStrip: ThrottleStrip;
-  private readonly boostButton: BoostButton;
+  private readonly fireButton: FireButton;
+  private readonly canvasFire: CanvasFireInput;
   private readonly reticle: LockReticle;
   private readonly enemyArrows: EnemyArrows;
   private readonly speedReadout: SpeedReadout;
@@ -89,7 +106,18 @@ export class FlightControls {
    */
 
   // Per-frame scratch — this runs every render frame, so nothing here allocates.
-  private readonly input: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false };
+  private readonly input: FlightInputState = {
+    throttle: 0,
+    turn: 0,
+    pitchStick: 0,
+    boost: false,
+    fire: false,
+  };
+  private fireWasHeld = false;
+  /** First fitted boost-family module, used by the Shift convenience toggle. */
+  private boostHardpointIndex: number | null = null;
+  /** Replicated active state of that fitted boost module. */
+  private boostActive = false;
   private readonly view: CameraView = { fovRad: 0.8, betaRad: Math.PI / 2 };
   private readonly projected: ProjectedPoint = { x: 0, y: 0, behind: false };
 
@@ -112,6 +140,9 @@ export class FlightControls {
     const key = flightKeyOf(ev.key);
     if (!key) return;
     this.heldKeys.add(key);
+    if (key === "shift" && this.boostHardpointIndex !== null) {
+      this.session.order({ kind: "moduleToggle", hardpointIndex: this.boostHardpointIndex });
+    }
     // Arrows scroll the page (and W/S can trigger browser quick-find); a flight
     // control that also scrolls the document is not a flight control.
     ev.preventDefault();
@@ -138,6 +169,7 @@ export class FlightControls {
     private readonly playerId: EntityId,
     private readonly binding: FlightHudBinding,
     layout: FlightHudLayout,
+    private readonly onBlockedFire: (() => void) | null = null,
   ) {
     this.layout = layout;
 
@@ -148,14 +180,15 @@ export class FlightControls {
     this.joystick = new VirtualJoystick(this.container, layout);
     this.relativeSteer = new RelativeSteerInput(this.container, binding.inputSurface, layout);
     this.throttleStrip = new ThrottleStrip(this.container, layout);
-    this.boostButton = new BoostButton(this.container, layout);
+    this.fireButton = new FireButton(this.container, layout);
+    this.canvasFire = new CanvasFireInput(binding.inputSurface);
     this.reticle = new LockReticle(this.container, layout);
     this.enemyArrows = new EnemyArrows(this.container, layout);
     this.speedReadout = new SpeedReadout(this.container, layout);
 
     this.sender = new FlightOrderSender(
       (order) => this.session.order(order),
-      { ...layout.orders, minIntervalMs: this.resolvedMinInterval(layout) },
+      this.orderPolicy(layout),
     );
 
     window.addEventListener("keydown", this.onKeyDown);
@@ -169,11 +202,11 @@ export class FlightControls {
     this.joystick.applyLayout(layout);
     this.relativeSteer.applyLayout(layout);
     this.throttleStrip.applyLayout(layout);
-    this.boostButton.applyLayout(layout);
+    this.fireButton.applyLayout(layout);
     this.reticle.applyLayout(layout);
     this.enemyArrows.applyLayout(layout);
     this.speedReadout.applyLayout(layout);
-    this.sender.setPolicy({ ...layout.orders, minIntervalMs: this.resolvedMinInterval(layout) });
+    this.sender.setPolicy(this.orderPolicy(layout));
     // Viewport/scale feed the reticle size — force a recompute on the next frame.
     this.zoneCone = Number.NaN;
   }
@@ -198,11 +231,16 @@ export class FlightControls {
     this.container.classList.toggle("hidden", !enabled);
     if (!enabled) {
       this.heldKeys.clear();
+      this.fireWasHeld = false;
+      this.boostHardpointIndex = null;
+      this.boostActive = false;
       // The container is hidden anyway, but a disarmed HUD must not come back
       // with last frame's arrows parked around a screen that has moved on.
       this.enemyArrows.clear();
     }
     this.relativeSteer.setEnabled(enabled);
+    this.canvasFire.setEnabled(enabled);
+    this.fireButton.setEnabled(enabled);
   }
 
   /**
@@ -261,15 +299,23 @@ export class FlightControls {
 
     const pitchStick = this.joystick.active ? this.joystick.pitch : this.relativeSteer.pitchStick;
 
-    const boost = this.boostButton.held || keys.boost;
-    this.boostButton.setKeyActive(keys.boost);
+    this.refreshBoostState(ship);
+    const fire = this.fireButton.held || this.canvasFire.held || keys.fire;
+    this.fireButton.setKeyActive(this.canvasFire.held || keys.fire);
+    if (fire && !this.fireWasHeld && !ship.locked) {
+      this.reticle.flashNoLock();
+      this.onBlockedFire?.();
+    }
+    this.fireWasHeld = fire;
 
     this.input.throttle = this.throttleStrip.throttle;
     this.input.turn = turn;
     this.input.pitchStick = pitchStick;
-    this.input.boost = boost;
+    this.input.boost = this.boostActive;
+    this.input.fire = fire;
     this.sender.update(this.input, nowMs);
 
+    this.reticle.updateFeedback(dtMs);
     this.updateReticle(cur, prev, alpha, ship);
     this.updateEnemyArrows(cur, prev, alpha, ship);
     const prevShip = findShip(prev, this.playerId) ?? ship;
@@ -301,7 +347,15 @@ export class FlightControls {
     const projected = this.binding.project(x, y, z, this.projected);
     const onScreen = projected && !this.projected.behind;
     const distance = Math.hypot(x - ship.pos.x, y - ship.pos.y, z - ship.pos.z);
-    this.reticle.update(onScreen, this.projected.x, this.projected.y, ship.lockProgress, ship.locked, distance);
+    this.reticle.update(
+      onScreen,
+      this.projected.x,
+      this.projected.y,
+      ship.lockProgress,
+      ship.locked,
+      distance,
+      this.session.displayNameFor(curTarget.id),
+    );
   }
 
   /**
@@ -348,11 +402,21 @@ export class FlightControls {
   private updateZone(ship: ShipSnapshot): void {
     const cone = this.resolveConeDeg(ship);
     const viewport = this.layout.viewport;
+    // ZERO, deliberately. `reticleRadiusPx` sizes the lock cone from the angle
+    // between the camera axis and the nose, which it computes as
+    // `view.betaRad - shipPitchRad`. The chase rig rolls with the ship
+    // (BUBBLE.md §A), so its orbit beta is now expressed in the SHIP's frame,
+    // where the nose is level by construction — the ship's pitch is already
+    // accounted for by the frame itself and subtracting it again would
+    // double-count. That makes the effective tilt constant, which is exactly the
+    // behaviour `reticleRadiusPx` documents for a rig that looks down the nose:
+    // the ring no longer breathes at all through a climb or a loop.
+    const pitch = 0;
     if (
       cone === this.zoneCone &&
       this.view.fovRad === this.zoneFov &&
       this.view.betaRad === this.zoneBeta &&
-      ship.pitch === this.zonePitch &&
+      pitch === this.zonePitch &&
       viewport.width === this.zoneWidth &&
       viewport.height === this.zoneHeight
     ) {
@@ -361,10 +425,10 @@ export class FlightControls {
     this.zoneCone = cone;
     this.zoneFov = this.view.fovRad;
     this.zoneBeta = this.view.betaRad;
-    this.zonePitch = ship.pitch;
+    this.zonePitch = pitch;
     this.zoneWidth = viewport.width;
     this.zoneHeight = viewport.height;
-    const size = reticleRadiusPx(cone, this.view, viewport, this.layout.reticle, ship.pitch);
+    const size = reticleRadiusPx(cone, this.view, viewport, this.layout.reticle, pitch);
     this.reticle.setZone(size.radiusPx, size.clamped);
   }
 
@@ -396,6 +460,22 @@ export class FlightControls {
   }
 
   /**
+   * Human boost intent is the boost module's replicated toggle state. This is
+   * deliberately separate from the sim's energy/heat eligibility check: an
+   * active module keeps requesting boost, and the sim continues to decide
+   * whether that request can work on each tick.
+   */
+  private refreshBoostState(ship: ShipSnapshot): void {
+    this.boostHardpointIndex = null;
+    this.boostActive = false;
+    const index = firstBoostModuleIndex(this.configs, ship.modules);
+    if (index < 0) return;
+    const module = ship.modules[index]!;
+    this.boostHardpointIndex = module.hardpointIndex;
+    this.boostActive = module.state === "active";
+  }
+
+  /**
    * The theme's order floor, raised if it would spend more than the flight
    * sender's share of the server's `tuning.maxOrdersPerSec` (FLIGHT.md §4 —
    * flight input must stay comfortably inside the rate limit).
@@ -405,6 +485,16 @@ export class FlightControls {
     return orderMinIntervalMs(layout, tuning?.maxOrdersPerSec);
   }
 
+  private orderPolicy(layout: FlightHudLayout): FlightOrderPolicy {
+    const tuning = this.configs.getAll<TuningConfig>("tuning")[0];
+    return {
+      ...layout.orders,
+      minIntervalMs: this.resolvedMinInterval(layout),
+      maxOrdersPerSec: tuning?.maxOrdersPerSec ?? DEFAULT_MAX_ORDERS_PER_SEC,
+      budgetShare: FLIGHT_ORDER_BUDGET_SHARE,
+    };
+  }
+
   dispose(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
@@ -412,7 +502,8 @@ export class FlightControls {
     this.joystick.dispose();
     this.relativeSteer.dispose();
     this.throttleStrip.dispose();
-    this.boostButton.dispose();
+    this.fireButton.dispose();
+    this.canvasFire.dispose();
     this.reticle.dispose();
     this.enemyArrows.dispose();
     this.speedReadout.dispose();
@@ -431,7 +522,7 @@ function findShip(snap: Snapshot, id: EntityId): ShipSnapshot | undefined {
  * dev editor both sit over the HUD, and typing "was" in one of them must not
  * throttle up.
  */
-function isTextEntry(target: unknown): boolean {
+export function isTextEntry(target: unknown): boolean {
   const el = target as { tagName?: string; isContentEditable?: boolean } | null;
   if (!el) return false;
   if (el.isContentEditable) return true;

@@ -91,7 +91,11 @@ export class RelativeSteerInput {
   };
 
   private readonly onPointerUp = (ev: PointerEvent): void => {
-    if (ev.pointerId === this.pointerId) this.release();
+    if (ev.pointerId !== this.pointerId) return;
+    // One physical mouse uses one pointerId for every button. Releasing LMB
+    // while RMB remains held is a fire edge, not the end of steering.
+    if (this.pointerType === "mouse" && ev.type === "pointerup" && ev.button !== 2) return;
+    this.release();
   };
 
   private readonly onBlur = (): void => this.release();
@@ -154,6 +158,7 @@ export class RelativeSteerInput {
     this.invertPitch = invert;
     this.updateAxes();
   }
+
 
   /** Apply player multipliers live, including an already-active drag. */
   setSensitivityMultipliers(mouse: number, touch: number): void {

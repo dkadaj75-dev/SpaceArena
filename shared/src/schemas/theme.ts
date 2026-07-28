@@ -38,6 +38,31 @@ export const moduleClusterSchema = z.object({
 });
 export type ModuleClusterConfig = z.infer<typeof moduleClusterSchema>;
 
+/** Module-cluster visual language. Family colors are never keyed by module id. */
+export const hudModulesSchema = z.object({
+  familyColors: z
+    .object({
+      laser: z.string().optional(),
+      kinetic: z.string().optional(),
+      missile: z.string().optional(),
+      shield: z.string().optional(),
+      boost: z.string().optional(),
+      utility: z.string().optional(),
+    })
+    .optional(),
+  /** Saturated family-color plate opacity. */
+  fillOpacity: z.number().min(0).max(1).optional(),
+  /** White mixed into the one-pixel inner rim. */
+  innerBorderOpacity: z.number().min(0).max(1).optional(),
+  /** Reserved gap between the pointy hex and its caption. */
+  labelGapPx: z.number().nonnegative().optional(),
+  /** Reserved caption line height used by layout collision checks. */
+  labelHeightPx: z.number().positive().optional(),
+  /** Maximum caption width; prevents edge clipping without hiding short labels. */
+  labelMaxWidthPx: z.number().positive().optional(),
+});
+export type HudModulesConfig = z.infer<typeof hudModulesSchema>;
+
 /**
  * Virtual joystick (FLIGHT.md §4, left thumb). Two axes since the bubble
  * (BUBBLE.md §C): the horizontal axis becomes the flight order's `turn`, the
@@ -175,16 +200,36 @@ export const throttleStripSchema = z.object({
 });
 export type ThrottleStripConfig = z.infer<typeof throttleStripSchema>;
 
-/** Hold-to-boost button (FLIGHT.md §4), placed in the module-cluster corner. */
-export const boostButtonSchema = z.object({
+/** Momentary FIRE button (COMBAT-REWORK.md §8). */
+export const fireButtonSchema = z.object({
   anchor: hudAnchor.optional(),
   radiusPx: z.number().positive().optional(),
   offsetXPx: z.number().nonnegative().optional(),
   offsetYPx: z.number().nonnegative().optional(),
   /** Glyph drawn on the button. */
   icon: z.string().optional(),
+  /** Gap between the hex and its surrounding cycle/decorative ring. */
+  ringGapPx: z.number().nonnegative().optional(),
+  /** Circular ring stroke width. */
+  ringStrokePx: z.number().nonnegative().optional(),
+  /** Visible ring arc in degrees. */
+  ringArcDeg: z.number().min(0).max(360).optional(),
+  /** Bright rim/ring color. */
+  color: z.string().optional(),
+  /** Dark-red plate opacity at rest. */
+  fillOpacity: z.number().min(0).max(1).optional(),
+  /** Hex border width. */
+  borderPx: z.number().positive().optional(),
+  /** Resting outer-glow radius. */
+  glowPx: z.number().nonnegative().optional(),
+  /** Plate opacity while held/armed. */
+  armedFillOpacity: z.number().min(0).max(1).optional(),
+  /** Outer-glow radius while held/armed. */
+  armedGlowPx: z.number().nonnegative().optional(),
+  /** Notification config id for a blocked pull. Absent disables the toast. */
+  blockedNotification: z.string().min(1).optional(),
 });
-export type BoostButtonConfig = z.infer<typeof boostButtonSchema>;
+export type FireButtonConfig = z.infer<typeof fireButtonSchema>;
 
 /**
  * Lock reticle (FLIGHT.md §4). The centre circle's radius is COMPUTED from the
@@ -202,6 +247,14 @@ export const lockReticleSchema = z.object({
   bracketSizePx: z.number().positive().optional(),
   /** Stroke width of the lock-progress ring around the bracket. */
   ringStrokePx: z.number().nonnegative().optional(),
+  /** Gap from the bracket's right edge to the locked target name. */
+  targetNameOffsetPx: z.number().nonnegative().optional(),
+  /** Locked target-name font size. */
+  targetNameSizePx: z.number().positive().optional(),
+  /** Text flashed for a blocked trigger pull. Absent defaults to "NO LOCK". */
+  blockedText: z.string().optional(),
+  /** Blocked-pull flash duration in milliseconds. Absent defaults to 650. */
+  blockedFlashMs: z.number().positive().optional(),
 });
 export type LockReticleConfig = z.infer<typeof lockReticleSchema>;
 
@@ -269,15 +322,23 @@ export const enemyArrowsSchema = z.object({
   fadeFarUnits: z.number().nonnegative().optional(),
   /** Opacity floor for the most distant enemy — 1 disables the distance fade. */
   minOpacity: z.number().min(0).max(1).optional(),
+  /** Scale applied to enemies that are not the current lock-relevant target. */
+  outOfRangeScale: z.number().positive().optional(),
+  /** Opacity multiplier applied to non-lock-relevant markers and arrows. */
+  outOfRangeOpacity: z.number().min(0).max(1).optional(),
+  /** Opacity floor applied after choosing the candidate/far-contact opacity path. */
+  markerMinOpacity: z.number().min(0).max(1).optional(),
+  /** Side length of the hollow in-view contact diamond before out-of-range scale. */
+  markerSizePx: z.number().positive().optional(),
 });
 export type EnemyArrowsConfig = z.infer<typeof enemyArrowsSchema>;
 
-/** The whole flight HUD block: steering, throttle, boost, reticle, arrows, and order feel. */
+/** The whole flight HUD block: steering, throttle, boost/FIRE, reticle, arrows, and order feel. */
 export const flightHudSchema = z.object({
   joystick: joystickSchema.optional(),
   relativeSteer: relativeSteerSchema.optional(),
   throttle: throttleStripSchema.optional(),
-  boost: boostButtonSchema.optional(),
+  fire: fireButtonSchema.optional(),
   reticle: lockReticleSchema.optional(),
   /** Off-screen enemy direction arrows (BUBBLE.md §C). */
   enemyArrows: enemyArrowsSchema.optional(),
@@ -336,6 +397,8 @@ export const audioCuesSchema = z.object({
   lockAcquired: soundRef.optional(),
   /** The local player losing a completed lock. */
   lockLost: soundRef.optional(),
+  /** The local player pulling FIRE without a completed lock. */
+  fireBlocked: soundRef.optional(),
   /** Each whole second of the match-start countdown ("3", "2", "1"). */
   countdownTick: soundRef.optional(),
   /** The countdown reaching zero — the "GO" stinger. */
@@ -585,7 +648,9 @@ export const themeSchema = z.object({
       thumbZoneFraction: z.number().gt(0).max(1).optional(),
       /** Module-button cluster geometry (portrait/base values). */
       moduleCluster: moduleClusterSchema.optional(),
-      /** Flight controls: joystick, throttle strip, boost button, lock reticle (FLIGHT.md §4). */
+      /** Module-cluster family palette and visual treatment. */
+      modules: hudModulesSchema.optional(),
+      /** Flight controls: joystick, throttle strip, FIRE button, lock reticle (FLIGHT.md §4). */
       flight: flightHudSchema.optional(),
       /** Overrides applied when the viewport is taller than wide. */
       portrait: hudOrientationSchema.optional(),
@@ -613,6 +678,8 @@ export const themeSchema = z.object({
        * heavier overheat/kill buzzes.
        */
       lockPattern: z.array(z.number().int().nonnegative()).optional(),
+      /** Played when FIRE is pulled without a completed target lock. */
+      fireBlockedPattern: z.array(z.number().int().nonnegative()).optional(),
     })
     .optional(),
   /**

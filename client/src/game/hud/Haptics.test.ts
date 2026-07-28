@@ -10,6 +10,7 @@ const SETTINGS = {
   overheatPattern: [60, 50, 120],
   killPattern: [25, 40, 25],
   lockPattern: [18, 45, 18],
+  fireBlockedPattern: [35, 35, 90],
 };
 
 const overheat = (entityId: number): SimEvent => ({
@@ -65,12 +66,24 @@ describe("hapticPatternFor", () => {
 
 describe("hapticsSettingsOf", () => {
   it("defaults to silent when a theme declares no haptics block", () => {
-    expect(hapticsSettingsOf(undefined)).toEqual({ enabled: false, overheatPattern: [], killPattern: [], lockPattern: [] });
+    expect(hapticsSettingsOf(undefined)).toEqual({
+      enabled: false,
+      overheatPattern: [],
+      killPattern: [],
+      lockPattern: [],
+      fireBlockedPattern: [],
+    });
   });
 
   it("reads patterns and the toggle straight from the theme", () => {
     const theme = { haptics: { enabled: true, killPattern: [10], lockPattern: [18] } } as ThemeConfig;
-    expect(hapticsSettingsOf(theme)).toEqual({ enabled: true, overheatPattern: [], killPattern: [10], lockPattern: [18] });
+    expect(hapticsSettingsOf(theme)).toEqual({
+      enabled: true,
+      overheatPattern: [],
+      killPattern: [10],
+      lockPattern: [18],
+      fireBlockedPattern: [],
+    });
   });
 });
 
@@ -106,5 +119,15 @@ describe("Haptics", () => {
     haptics.refresh();
     haptics.consumeEvents([overheat(PLAYER)]);
     expect(vibrate).toHaveBeenCalledWith([90]);
+  });
+
+  it("uses the existing vibration path for a blocked trigger pull", () => {
+    const vibrate = vi.fn();
+    const blockedTheme = {
+      haptics: { enabled: true, fireBlockedPattern: [35, 35, 90] },
+    } as ThemeConfig;
+    const haptics = new Haptics(configsWith(blockedTheme), PLAYER, vibrate);
+    haptics.fireBlocked();
+    expect(vibrate).toHaveBeenCalledWith([35, 35, 90]);
   });
 });

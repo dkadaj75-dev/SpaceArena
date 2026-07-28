@@ -195,6 +195,12 @@ export const SOUND_SYNTHS: Record<string, SynthFn> = {
       tone(t, { type: "sine", from: 1180, to: 1180, duration: 0.05, peak: 0.08 }),
       tone(t, { type: "sine", from: 720, to: 660, duration: 0.1, peak: 0.09, delay: 0.06 }),
     ),
+  /** Trigger rejected by the lock gate — low, dry double error tick. */
+  fire_blocked: (t) =>
+    longest(
+      tone(t, { type: "square", from: 260, to: 220, duration: 0.06, peak: 0.1 }),
+      tone(t, { type: "square", from: 220, to: 180, duration: 0.09, peak: 0.1, delay: 0.09 }),
+    ),
 
   // --- match start countdown -----------------------------------------------
   /** "3 … 2 … 1": one dry, unmistakable pip per second. */

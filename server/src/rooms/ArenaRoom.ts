@@ -620,7 +620,8 @@ export class ArenaRoom extends Room<ArenaState> {
           order.turn >= -1 &&
           order.turn <= 1 &&
           (order.pitchStick === undefined ||
-            (Number.isFinite(order.pitchStick) && order.pitchStick >= -1 && order.pitchStick <= 1))
+            (Number.isFinite(order.pitchStick) && order.pitchStick >= -1 && order.pitchStick <= 1)) &&
+          typeof order.fire === "boolean"
           ? null
           : "malformed";
       case "moduleToggle": {
@@ -655,6 +656,9 @@ export class ArenaRoom extends Room<ArenaState> {
     const now = Date.now();
     const rate = this.orderRates.get(key) ?? { windowStart: now, count: 0, abuse: 0 };
     if (now - rate.windowStart >= 1000) {
+      // A window that ended at or under budget proves the client recovered.
+      // Forget prior burst debt; consecutive over-budget windows still retain it.
+      if (rate.count <= this.maxOrdersPerSec) rate.abuse = 0;
       rate.windowStart = now;
       rate.count = 0;
     }
@@ -847,6 +851,7 @@ export class ArenaRoom extends Room<ArenaState> {
         ms.stateTimer = m.stateTimer;
         ms.heat = m.heat;
         ms.cycleTimer = m.cycleTimer;
+        ms.channeling = m.channeling;
         ms.shieldPool = m.shieldPool;
         ps.modules.push(ms);
         continue;
@@ -858,6 +863,7 @@ export class ArenaRoom extends Room<ArenaState> {
       if (target.stateTimer !== m.stateTimer) target.stateTimer = m.stateTimer;
       if (target.heat !== m.heat) target.heat = m.heat;
       if (target.cycleTimer !== m.cycleTimer) target.cycleTimer = m.cycleTimer;
+      if (target.channeling !== m.channeling) target.channeling = m.channeling;
       if (target.shieldPool !== m.shieldPool) target.shieldPool = m.shieldPool;
     }
     if (ps.shieldPool !== shieldPool) ps.shieldPool = shieldPool;

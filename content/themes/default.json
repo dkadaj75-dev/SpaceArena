@@ -44,18 +44,33 @@
       "blurPx": 6
     },
     "notificationMaxVisible": 3,
-    "thumbZoneFraction": 0.4,
+    "thumbZoneFraction": 0.46,
     "moduleCluster": {
       "anchor": "bottom-right",
       "layout": "arc",
-      "buttonRadiusPx": 32,
+      "buttonRadiusPx": 24,
       "gapPx": 10,
-      "arcRadiusPx": 144,
-      "arcStartDeg": 180,
-      "arcSweepDeg": -90,
+      "arcRadiusPx": 102,
+      "arcStartDeg": 195,
+      "arcSweepDeg": -135,
       "maxPerRow": 2,
-      "offsetXPx": 24,
-      "offsetYPx": 34
+      "offsetXPx": 80,
+      "offsetYPx": 78
+    },
+    "modules": {
+      "familyColors": {
+        "shield": "#3b5bdb",
+        "missile": "#7b2fbf",
+        "laser": "#12b5cb",
+        "kinetic": "#f59f35",
+        "utility": "#67c587",
+        "boost": "#e8b44f"
+      },
+      "fillOpacity": 0.9,
+      "innerBorderOpacity": 0.38,
+      "labelGapPx": 2,
+      "labelHeightPx": 8,
+      "labelMaxWidthPx": 46
     },
     "flight": {
       "joystick": {
@@ -88,18 +103,29 @@
         "wheelStepPerNotch": 0.06,
         "tickCount": 8
       },
-      "boost": {
+      "fire": {
         "anchor": "bottom-right",
-        "radiusPx": 34,
+        "radiusPx": 42,
         "offsetXPx": 24,
         "offsetYPx": 34,
-        "icon": "[ICON: boost]"
+        "icon": "FIRE",
+        "ringGapPx": 7,
+        "ringStrokePx": 2,
+        "ringArcDeg": 260,
+        "color": "#ff4655",
+        "fillOpacity": 0.3,
+        "borderPx": 2,
+        "glowPx": 10,
+        "armedFillOpacity": 0.52,
+        "armedGlowPx": 18
       },
       "reticle": {
         "maxRadiusFraction": 0.82,
         "strokePx": 2,
         "bracketSizePx": 54,
-        "ringStrokePx": 4
+        "ringStrokePx": 4,
+        "targetNameOffsetPx": 12,
+        "targetNameSizePx": 10
       },
       "enemyArrows": {
         "enabled": true,
@@ -110,7 +136,11 @@
         "maxCount": 8,
         "fadeNearUnits": 60,
         "fadeFarUnits": 320,
-        "minOpacity": 0.35
+        "minOpacity": 0.35,
+        "outOfRangeScale": 0.6,
+        "outOfRangeOpacity": 0.4,
+        "markerMinOpacity": 0.35,
+        "markerSizePx": 10
       },
       "orders": {
         "throttleEpsilon": 0.02,
@@ -120,6 +150,15 @@
       }
     },
     "portrait": {
+      "moduleCluster": {
+        "buttonRadiusPx": 24,
+        "gapPx": 10,
+        "arcRadiusPx": 102,
+        "arcStartDeg": 195,
+        "arcSweepDeg": -135,
+        "offsetXPx": 80,
+        "offsetYPx": 78
+      },
       "gauges": {
         "anchor": "bottom-left",
         "offsetXPx": 10,
@@ -127,6 +166,9 @@
         "gapPx": 5,
         "trackHeightPx": 10,
         "segments": 12
+      },
+      "flight": {
+        "fire": { "anchor": "bottom-right", "radiusPx": 42, "offsetXPx": 24, "offsetYPx": 34, "icon": "FIRE", "blockedNotification": "notification.fire-blocked" }
       }
     },
     "landscape": {
@@ -143,16 +185,18 @@
         "segments": 10
       },
       "moduleCluster": {
-        "buttonRadiusPx": 28,
-        "gapPx": 8,
-        "arcRadiusPx": 126,
-        "offsetXPx": 22,
-        "offsetYPx": 30
+        "buttonRadiusPx": 26,
+        "gapPx": 10,
+        "arcRadiusPx": 109,
+        "arcStartDeg": 195,
+        "arcSweepDeg": -135,
+        "offsetXPx": 143,
+        "offsetYPx": 113
       },
       "flight": {
         "joystick": { "baseRadiusPx": 56, "thumbRadiusPx": 25, "offsetXPx": 20, "offsetYPx": 18 },
         "throttle": { "heightPx": 150, "offsetYPx": 168, "tickCount": 6 },
-        "boost": { "radiusPx": 30, "offsetXPx": 22, "offsetYPx": 30 }
+        "fire": { "anchor": "bottom-right", "radiusPx": 36, "offsetXPx": 22, "offsetYPx": 30, "icon": "FIRE" }
       }
     }
   },
@@ -160,7 +204,8 @@
     "enabled": true,
     "overheatPattern": [60, 50, 120],
     "killPattern": [25, 40, 25],
-    "lockPattern": [18, 45, 18]
+    "lockPattern": [18, 45, 18],
+    "fireBlockedPattern": [35, 35, 90]
   },
   "audio": {
     "enabled": true,
@@ -177,6 +222,7 @@
       "boundaryWarning": "[SOUND: boundary_warn]",
       "lockAcquired": "[SOUND: lock_acquired]",
       "lockLost": "[SOUND: lock_lost]",
+      "fireBlocked": "[SOUND: fire_blocked]",
       "countdownTick": "[SOUND: countdown_tick]",
       "countdownGo": "[SOUND: countdown_go]"
     }

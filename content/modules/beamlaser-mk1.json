@@ -1,30 +1,30 @@
 {
-  "id": "module.laser-mk1",
+  "id": "module.beamlaser-mk1",
   "type": "module",
   "version": 1,
   "family": "laser",
   "level": 1,
-  "name": "Pulse Laser Mk I",
+  "name": "Sustained Beam Mk I",
   "activation": { "deployTime": 1.5, "retractTime": 1.0 },
-  "energy": { "drawIdle": 3, "drawActive": 11 },
+  "energy": { "drawIdle": 3, "drawActive": 20 },
   "heat": {
-    "perSecondActive": 6,
+    "perSecondActive": 14,
     "overheatThreshold": 55,
     "overheatCooldown": 5.0,
     "overheatSelfDamage": 0
   },
   "fire": {
-    "mode": "held",
-    "range": 38,
-    "cycleTime": 0.4,
-    "damage": 7,
+    "mode": "continuous",
+    "range": 34,
+    "cycleTime": 0.1,
+    "damage": 16,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null
   },
   "onFire": ["action.play-sound-laser"],
   "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: laser]", "shortName": "Laser Mk1", "label": "Laser" },
+  "ui": { "icon": "[ICON: laser]", "shortName": "Beam Mk1", "label": "Beam" },
   "price": 0,
   "requiresLevel": 1
 }

@@ -15,12 +15,14 @@ export interface FlightInputState {
   /** -1..1, sim convention (positive noses UP — BUBBLE.md §A). */
   pitchStick: number;
   boost: boolean;
+  fire: boolean;
 }
 
 export interface RelativeSteerAxes {
   turn: number;
   pitchStick: number;
 }
+
 
 /** Map a screen-space drag vector through a circular deadzone/radius/curve. */
 export function mapRelativeSteer(
@@ -127,12 +129,13 @@ export function thumbTopPx(throttle: number, trackHeight: number, thumbHeight: n
 export interface KeyAxes {
   /** -1 = throttle-down held, +1 = throttle-up, 0 = neither or both. */
   throttleRamp: number;
-  boost: boolean;
+  fire: boolean;
 }
 
 /**
- * Desktop keys: W/S ramp throttle and Shift boosts. Steering is exclusively
- * hold-RMB mouse movement; A/D, arrows, and R/F are intentionally unbound.
+ * Desktop held keys: W/S ramp throttle and Space/E fire. Shift remains a
+ * recognized flight key, but its edge toggles the fitted boost module in
+ * `FlightControls`; it contributes no held axis.
  *
  * Opposite keys cancel rather than fighting over the last press — holding A and
  * D is a straight line, which is what a pilot mashing both expects.
@@ -140,7 +143,7 @@ export interface KeyAxes {
 export function keyAxesFrom(held: ReadonlySet<string>): KeyAxes {
   return {
     throttleRamp: (held.has("w") ? 1 : 0) - (held.has("s") ? 1 : 0),
-    boost: held.has("shift"),
+    fire: held.has(" ") || held.has("e"),
   };
 }
 
@@ -154,6 +157,8 @@ const FLIGHT_KEYS: ReadonlySet<string> = new Set([
   "w",
   "s",
   "shift",
+  " ",
+  "e",
 ]);
 
 /**

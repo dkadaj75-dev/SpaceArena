@@ -83,7 +83,7 @@ const CSS = `
   );
   /* Hard two-corner bevel — the module buttons' "hex-ish" silhouette. Kept in
      percentages so one polygon serves every themed button radius. */
-  --hud-clip-hex: polygon(26% 0%, 100% 0%, 100% 74%, 74% 100%, 0% 100%, 0% 26%);
+  --hud-clip-hex: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
 
   --hud-panel-fill: color-mix(in srgb, var(--hud-bg, #0a0f1e) var(--hud-panel-pct), transparent);
   --hud-rim-color: color-mix(in srgb, var(--hud-primary, #39bfff) 52%, transparent);
@@ -99,7 +99,7 @@ const CSS = `
 .hud-frame,
 .hud-module-btn,
 .hud-throttle-track,
-.hud-boost-btn,
+.hud-fire-btn,
 .hud-results-panel {
   isolation: isolate;
 }
@@ -109,8 +109,8 @@ const CSS = `
 .hud-module-btn::after,
 .hud-throttle-track::before,
 .hud-throttle-track::after,
-.hud-boost-btn::before,
-.hud-boost-btn::after,
+.hud-fire-btn::before,
+.hud-fire-btn::after,
 .hud-results-panel::before,
 .hud-results-panel::after {
   z-index: -1;
@@ -162,18 +162,6 @@ const CSS = `
 }
 .hud-bracket[data-corner="tl"] { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
 .hud-bracket[data-corner="br"] { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
-
-.hud-fps {
-  position: absolute;
-  top: var(--hud-inset-top);
-  right: var(--hud-inset-right);
-  padding: 3px 9px;
-  font: 0.6875em/1.4 ui-monospace, monospace;
-  letter-spacing: 0.06em;
-  color: var(--hud-primary, #39bfff);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 62%, transparent);
-  clip-path: polygon(6px 0%, 100% 0%, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0% 100%, 0% 6px);
-}
 
 /* --- Minimap (top-left) --- */
 .hud-minimap {
@@ -329,10 +317,8 @@ const CSS = `
   border: 0;
   color: var(--hud-text, #dbe9ff);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
   /* Unchanged from the pre-redesign button: the icon takes the room, but the
      label still has to be readable at landscape scale (0.85 x 9px). */
   font-size: 0.5625em;
@@ -341,7 +327,12 @@ const CSS = `
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition: filter 0.15s linear, opacity 0.15s linear;
-  --hud-btn-rim: var(--hud-rim-color);
+  --hud-btn-rim: color-mix(
+    in srgb,
+    var(--hud-module-family-color, var(--hud-primary, #39bfff))
+      calc(100% - var(--hud-module-inner-border-pct, 38%)),
+    #fff
+  );
 }
 /* Rim + fill plates on the hex bevel (same two-layer trick as .hud-frame, with
    the harder silhouette). */
@@ -354,8 +345,13 @@ const CSS = `
 }
 .hud-module-btn::before { inset: 0; background: var(--hud-btn-rim); }
 .hud-module-btn::after {
-  inset: calc(var(--hud-rim) * 1.5);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 82%, transparent);
+  inset: 1px;
+  background: color-mix(
+    in srgb,
+    var(--hud-module-family-color, var(--hud-primary, #39bfff))
+      var(--hud-module-fill-pct, 90%),
+    transparent
+  );
 }
 /* State ring: a conic wedge masked to an annulus just inside the bevel, so
    deploy/retract/cooldown progress reads as a filling arc. Its own node rather
@@ -374,41 +370,63 @@ const CSS = `
   z-index: 2;
   width: 55%;
   max-width: 26px;
-  color: var(--hud-primary, #39bfff);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .hud-module-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
 .hud-module-btn > .label {
+  position: absolute;
   z-index: 2;
-  max-width: 92%;
+  top: calc(100% + var(--hud-module-label-gap, 4px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: var(--hud-module-label-max-width, 64px);
+  height: var(--hud-module-label-height, 11px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.85;
+  color: #fff;
+  font-size: 0.52em;
+  font-weight: 700;
+  opacity: 0.92;
 }
-.hud-module-btn.state-retracted { --hud-btn-rim: var(--hud-rim-dim); filter: saturate(0.75); }
-.hud-module-btn.state-retracted > .icon { color: var(--hud-neutral, #7f9dc4); }
-.hud-module-btn.state-deploying { --hud-btn-rim: color-mix(in srgb, var(--hud-primary, #39bfff) 70%, transparent); }
+.hud-module-btn.state-retracted { filter: saturate(0.72) brightness(0.78); }
+.hud-module-btn.state-deploying { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 82%, transparent); }
 .hud-module-btn.state-active {
-  --hud-btn-rim: var(--hud-primary, #39bfff);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 88%, #fff);
 }
 /* Glow only in the states that mean something — a filter on four idle buttons
    would be compositing cost with nothing to say. */
 .hud-module-btn.state-active::before {
-  filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-primary, #39bfff));
+  filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-module-family-color));
 }
-.hud-module-btn.state-retracting { --hud-btn-rim: color-mix(in srgb, var(--hud-primary, #39bfff) 45%, transparent); }
+.hud-module-btn.state-retracting { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 45%, transparent); }
 .hud-module-btn.state-overheated {
   --hud-btn-rim: var(--hud-danger, #ff405c);
 }
 .hud-module-btn.state-overheated > .icon { color: var(--hud-danger, #ff405c); }
 .hud-module-btn.state-overheated > .ring { background: conic-gradient(var(--hud-danger, #ff405c) calc(var(--ring, 0) * 1%), transparent 0); }
 .hud-module-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
-.hud-module-btn.no-energy { filter: grayscale(0.8) brightness(0.55); opacity: 0.7; }
+.hud-module-btn.no-energy { filter: saturate(0.42) brightness(0.7); opacity: 0.78; }
+.hud-module-btn.armed {
+  --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 72%, #fff);
+}
+.hud-module-btn.armed::before {
+  filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-module-family-color));
+}
+.hud-module-btn.cooling > .ring {
+  background: conic-gradient(#fff calc(var(--ring, 0) * 1%), transparent 0);
+}
+.hud-module-btn.unarmable {
+  --hud-btn-rim: color-mix(in srgb, var(--hud-neutral, #7f9dc4) 60%, transparent);
+  filter: saturate(0.62) brightness(0.76);
+}
+.hud-module-btn.unarmable > .icon { color: #fff; opacity: 0.86; }
 @keyframes hud-overheat-flash {
   0%, 100% { filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c)); }
   50% { filter: drop-shadow(0 0 calc(18px * var(--hud-glow)) var(--hud-danger, #ff405c)); }
@@ -422,7 +440,7 @@ const CSS = `
 /* Zero-size pivots pinned to the themed anchor corner, exactly like .hud-modules. */
 .hud-joystick,
 .hud-throttle,
-.hud-boost {
+.hud-fire {
   position: absolute;
   width: 0;
   height: 0;
@@ -467,17 +485,17 @@ const CSS = `
   background: color-mix(in srgb, var(--hud-primary, #39bfff) 48%, transparent);
 }
 .hud-joystick[data-anchor="bottom-right"],
-.hud-throttle[data-anchor="bottom-right"],
-.hud-boost[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
+.hud-throttle[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
+.hud-fire[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
 .hud-joystick[data-anchor="bottom-left"],
-.hud-throttle[data-anchor="bottom-left"],
-.hud-boost[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
+.hud-throttle[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
+.hud-fire[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
 .hud-joystick[data-anchor="top-right"],
-.hud-throttle[data-anchor="top-right"],
-.hud-boost[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
+.hud-throttle[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
+.hud-fire[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
 .hud-joystick[data-anchor="top-left"],
-.hud-throttle[data-anchor="top-left"],
-.hud-boost[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
+.hud-throttle[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
+.hud-fire[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
 
 /* Steering stick: fixed base ring, spring-return thumb. */
 .hud-joystick-base {
@@ -598,17 +616,17 @@ const CSS = `
   white-space: nowrap;
 }
 
-/* Boost: momentary, held for as long as a pointer is down. */
-.hud-boost-btn {
+/* FIRE: momentary, held for as long as a pointer is down. */
+.hud-fire-btn {
   pointer-events: auto;
   position: absolute;
   box-sizing: border-box;
   touch-action: none;
-  width: calc(var(--hud-boost-radius, 34px) * 2);
-  height: calc(var(--hud-boost-radius, 34px) * 2);
+  width: calc(var(--hud-fire-radius, 34px) * 2);
+  height: calc(var(--hud-fire-radius, 34px) * 2);
   background: transparent;
   border: 0;
-  color: var(--hud-accent, #ffb35c);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -617,28 +635,66 @@ const CSS = `
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  --hud-btn-rim: color-mix(in srgb, var(--hud-accent, #ffb35c) 62%, transparent);
+  --hud-btn-rim: var(--hud-fire-color, #ff4655);
 }
-.hud-boost-btn::before,
-.hud-boost-btn::after {
+.hud-fire-btn {
+  z-index: 1;
+  color: #fff;
+  font-size: 0.75em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.hud-fire-btn::before {
+  filter: drop-shadow(0 0 var(--hud-fire-glow, 10px) var(--hud-fire-color, #ff4655));
+}
+.hud-fire-btn::before,
+.hud-fire-btn::after {
   content: "";
   position: absolute;
   clip-path: var(--hud-clip-hex);
   pointer-events: none;
 }
-.hud-boost-btn::before { inset: 0; background: var(--hud-btn-rim); }
-.hud-boost-btn::after {
-  inset: calc(var(--hud-rim) * 1.5);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 82%, transparent);
+.hud-fire-btn::before { inset: 0; background: var(--hud-btn-rim); }
+.hud-fire-btn::after {
+  inset: var(--hud-fire-border, 2px);
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--hud-fire-color, #ff4655) 58%, #240008)
+      var(--hud-fire-fill-pct, 30%),
+    transparent
+  );
 }
-.hud-boost-btn > * { position: relative; z-index: 1; }
-.hud-boost-btn .icon { width: 56%; max-width: 28px; display: flex; }
-.hud-boost-btn .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
-.hud-boost-btn.active { --hud-btn-rim: var(--hud-accent, #ffb35c); }
-.hud-boost-btn.active::before {
-  filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-accent, #ffb35c));
+.hud-fire-btn > * { position: relative; z-index: 1; }
+.hud-fire-btn .label {
+  color: #fff;
+  font: 800 1em/1 var(--hud-font-display, system-ui, sans-serif);
 }
-.hud-boost-btn.active .icon { filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-accent, #ffb35c)); }
+.hud-fire-btn .label .hud-icon-svg { width: 30px; height: auto; display: block; }
+.hud-fire-ring {
+  position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: conic-gradient(from -38deg, var(--hud-fire-color, #ff4655) 0 var(--hud-fire-ring-arc, 260deg), transparent var(--hud-fire-ring-arc, 260deg) 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-ring-stroke, 2px)), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-ring-stroke, 2px)), #000 0);
+  filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) var(--hud-fire-color, #ff4655));
+  pointer-events: none;
+}
+.hud-fire-btn.active { --hud-btn-rim: color-mix(in srgb, var(--hud-fire-color, #ff4655) 78%, #fff); }
+.hud-fire-btn.active::after {
+  background: color-mix(
+    in srgb,
+    var(--hud-fire-color, #ff4655) var(--hud-fire-armed-fill-pct, 52%),
+    transparent
+  );
+}
+.hud-fire-btn.active::before {
+  filter: drop-shadow(0 0 var(--hud-fire-armed-glow, 18px) var(--hud-fire-color, #ff4655));
+}
+.hud-fire-btn.active .label {
+  filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) #fff);
+}
 
 /* Lock reticle: fixed centre zone circle + a bracket projected onto the candidate. */
 .hud-reticle {
@@ -646,8 +702,28 @@ const CSS = `
   inset: 0;
   pointer-events: none;
 }
+.hud-reticle-blocked {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 42px);
+  transform: translate(-50%, -50%) scale(0.9);
+  color: var(--hud-danger, #ff405c);
+  font: 800 0.78em/1 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 calc(14px * var(--hud-glow)) var(--hud-danger, #ff405c);
+  opacity: 0;
+}
+.hud-reticle-blocked.visible {
+  animation: hud-fire-blocked 0.65s ease-out both;
+}
+@keyframes hud-fire-blocked {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+  18%, 62% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -60%) scale(1); }
+}
 .hud-reticle-zone {
   position: absolute;
+  display: none;
   left: 50%;
   top: 50%;
   box-sizing: border-box;
@@ -657,6 +733,7 @@ const CSS = `
      ::before/::after crosses below) reads as an instrument, not a border. */
   border: var(--hud-rim) dotted color-mix(in srgb, var(--hud-text, #dbe9ff) 34%, transparent);
 }
+.hud-reticle-zone.visible { display: block; }
 .hud-reticle-zone::before,
 .hud-reticle-zone::after {
   content: "";
@@ -1023,13 +1100,13 @@ const CSS = `
 }
 .hud-results-btn--primary:hover { background: color-mix(in srgb, var(--hud-primary, #39bfff) 82%, #ffffff); }
 
-/* --- In-match settings affordance (top-right, next to the FPS readout) ---
+/* --- In-match settings affordance (top-right) ---
    Tagged data-hud-control so edge palm rejection never eats it (5.4). */
 .hud-settings-btn {
   pointer-events: auto;
   position: absolute;
   top: var(--hud-inset-top);
-  right: calc(var(--hud-inset-right) + 76px);
+  right: var(--hud-inset-right);
   /* 44px, not the old 36: it is a touch target like any other (ROADMAP S3). */
   width: 44px;
   height: 44px;

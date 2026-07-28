@@ -17,7 +17,7 @@
     { "target": "energy.capacitor", "op": "add", "value": 40 },
     { "target": "energy.regen", "op": "add", "value": 4 }
   ],
-  "ui": { "icon": "[ICON: capacitor]", "label": "Battery" },
+  "ui": { "icon": "[ICON: capacitor]", "shortName": "Capacitor", "label": "Battery" },
   "price": 400,
   "requiresLevel": 2
 }

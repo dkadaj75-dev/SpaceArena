@@ -14,7 +14,7 @@
     "overheatSelfDamage": 1
   },
   "fire": {
-    "mode": "autoTarget",
+    "mode": "held",
     "range": 42,
     "cycleTime": 0.35,
     "damage": 10,
@@ -24,7 +24,7 @@
   },
   "onFire": ["action.play-sound-laser"],
   "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: laser]", "label": "Laser II" },
+  "ui": { "icon": "[ICON: laser]", "shortName": "Laser Mk2", "label": "Laser II" },
   "price": 350,
   "requiresLevel": 2
 }

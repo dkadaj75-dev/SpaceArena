@@ -39,5 +39,10 @@
     "reactivateBelow": 0.85,
     "energyReserve": 0.05,
     "shieldOnlyWhenEngaged": false
+  },
+  "fireDiscipline": {
+    "engageRangeMult": 1.1,
+    "heatHeadroom": 0.95,
+    "minEnergyFraction": 0.05
   }
 }

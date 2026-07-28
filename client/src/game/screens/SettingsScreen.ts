@@ -321,7 +321,7 @@ export class SettingsScreen {
     bindings.append(
       kv("Steer", "Hold right mouse + move  ·  touch and drag"),
       kv("Throttle", "W / S  ·  wheel or drag on the strip"),
-      kv("Boost", "Shift  ·  hold the boost button"),
+      kv("Boost module", "Shift toggles the first fitted boost module"),
     );
 
     const list = document.createElement("div");

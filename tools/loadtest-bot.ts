@@ -66,6 +66,7 @@ export async function main(options: Options): Promise<void> {
       throttle: 0.4 + Math.random() * 0.6,
       turn: Math.random() * 2 - 1,
       boost: Math.random() < 0.2,
+      fire: true,
     });
   }, FLIGHT_INTERVAL_MS);
 

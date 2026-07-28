@@ -15,10 +15,17 @@ type ShippedArena = {
 
 const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url));
 const SHIPPED_ARENAS: readonly ShippedArena[] = [
-  { name: "deep-field", file: "deep-field.json", minimumCount: 47, maxExtent: 315 },
-  { name: "ring-nebula", file: "ring-nebula.json", minimumCount: 10, maxExtent: 90 },
+  { name: "deep-field", file: "deep-field.json", minimumCount: 90, maxExtent: 210 },
+  { name: "ring-nebula", file: "ring-nebula.json", minimumCount: 14, maxExtent: 63 },
 ];
-const asteroidFiles = ["small-rock.json", "small-rock-b.json", "large-hazard.json", "large-hazard-b.json"];
+const asteroidFiles = [
+  "small-rock.json",
+  "small-rock-b.json",
+  "large-hazard.json",
+  "large-hazard-b.json",
+  "colossal-a.json",
+  "colossal-b.json",
+];
 
 function loadJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -78,8 +85,7 @@ describe("shipped arena asteroid geometry", () => {
         const colliderRadius = radii.get(placement.asteroidId)! * (placement.scale ?? 1);
         const extent = Math.hypot(position.x, position.y, position.z) + colliderRadius;
 
-        // Deep-field's 315 cap is the centi-int16 wire-safety invariant. This is
-        // deliberately checked placement-by-placement, including scaled colliders.
+        // The authored bubble is the hard cap, including scaled colliders.
         expect(extent, `${arena.id} placement ${index} extent`).toBeLessThanOrEqual(shipped.maxExtent);
         expect(
           distanceToSegment(position, corridor[0], corridor[1]) - colliderRadius,
@@ -100,12 +106,26 @@ describe("shipped arena asteroid geometry", () => {
       expect(Math.min(...ys)).toBeLessThan(-25);
       expect(Math.max(...ys)).toBeGreaterThan(25);
       if (shipped.name === "deep-field") {
-        expect(ys.filter((y) => Math.abs(y) >= 100).length / ys.length).toBeGreaterThanOrEqual(0.6);
-        expect(ys.filter((y) => Math.abs(y) >= 150).length).toBeGreaterThanOrEqual(30);
-        expect(Math.min(...ys.map(Math.abs))).toBeLessThanOrEqual(40);
-        expect(Math.max(...ys.map(Math.abs))).toBeGreaterThanOrEqual(225);
+        expect(ys.filter((y) => Math.abs(y) >= 70).length / ys.length).toBeGreaterThanOrEqual(0.55);
+        expect(ys.filter((y) => Math.abs(y) >= 105).length).toBeGreaterThanOrEqual(30);
+        expect(Math.min(...ys.map(Math.abs))).toBeLessThanOrEqual(28);
+        expect(Math.max(...ys.map(Math.abs))).toBeGreaterThanOrEqual(157.5);
+
+        const colossal = placements.filter((placement) => placement.asteroidId.startsWith("asteroid.colossal"));
+        expect(colossal.length).toBeGreaterThanOrEqual(4);
+        expect(colossal.length).toBeLessThanOrEqual(6);
+        for (const placement of colossal) {
+          const position = positionOf(placement.position);
+          const colliderRadius = radii.get(placement.asteroidId)! * (placement.scale ?? 1);
+          for (const spawn of arena.spawnPoints) {
+            expect(
+              distance(position, positionOf(spawn.position)) - colliderRadius,
+              `${arena.id} colossal ${placement.asteroidId} spawn surface clearance`,
+            ).toBeGreaterThanOrEqual(30);
+          }
+        }
       } else {
-        expect(Math.max(...ys.map(Math.abs))).toBeGreaterThanOrEqual(50);
+        expect(Math.max(...ys.map(Math.abs))).toBeGreaterThanOrEqual(35);
       }
     });
   }

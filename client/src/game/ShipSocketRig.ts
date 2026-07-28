@@ -81,10 +81,6 @@ interface HardpointAttachment {
   node: TransformNode;
   instance: InstancedMesh | null;
   lastState: string | null;
-  /** Socket-authored rest pose, kept so the deploy sweep offsets from it. */
-  baseY: number;
-  baseRotY: number;
-  baseScale: number;
   /** Last applied sweep position (0..1) — the write-on-change guard. */
   curProgress: number;
 }
@@ -113,6 +109,7 @@ export class ShipSocketRig {
   private juice: JuiceSettings;
   private readonly shieldBubble: ShieldBubble;
   private nextEmitterUpdateMs = 0;
+  private disposed = false;
 
   constructor(
     private readonly scene: Scene,
@@ -156,28 +153,44 @@ export class ShipSocketRig {
       node.parent = this.root;
       applySocketTransform(node, socket.transform);
       const baseScale = socket.transform.scale ?? 1;
-      node.scaling.setAll(0); // starts hidden — modules begin retracted
-
       const moduleId = fittedModuleIds[i];
+      node.scaling.setAll(baseScale);
       const mod = moduleId ? this.configs.get<ModuleConfig>("module", moduleId) : undefined;
       let instance: InstancedMesh | null = null;
+      let sourceMaster: Mesh | null = null;
       if (mod) {
-        const master = this.assets.getMesh(`procedural.module.${mod.family}`, palette);
+        const master = this.assets.getModuleMaster(mod, palette);
+        sourceMaster = master;
         instance = master.createInstance(`hpmesh.${this.ship.id}.${socket.id}`);
         instance.isPickable = false;
         instance.parent = node;
       }
 
-      this.hardpoints.push({
+      const attachment: HardpointAttachment = {
         hardpointIndex: i,
         node,
         instance,
         lastState: null,
-        baseY: node.position.y,
-        baseRotY: node.rotation.y,
-        baseScale,
         curProgress: -1, // forces the first pose write
-      });
+      };
+      this.hardpoints.push(attachment);
+
+      if (mod?.render?.model) {
+        const fallback = instance;
+        void this.assets.ensureModel(mod.render).then((modelMaster) => {
+          if (!modelMaster || modelMaster === sourceMaster || this.disposed || attachment.instance !== fallback) return;
+          const replacement = modelMaster.createInstance(`hpmesh.${this.ship.id}.${socket.id}`);
+          replacement.isPickable = false;
+          replacement.parent = node;
+          if (fallback) {
+            replacement.position.copyFrom(fallback.position);
+            replacement.rotation.copyFrom(fallback.rotation);
+            replacement.scaling.copyFrom(fallback.scaling);
+            fallback.dispose();
+          }
+          attachment.instance = replacement;
+        });
+      }
     });
   }
 
@@ -257,9 +270,11 @@ export class ShipSocketRig {
       if (progress === hp.curProgress) continue;
       hp.curProgress = progress;
       const pose = hardpointPose(progress, this.juice.deploy);
-      hp.node.scaling.setAll(pose.scale * hp.baseScale);
-      hp.node.position.y = hp.baseY + pose.extend;
-      hp.node.rotation.y = hp.baseRotY + pose.spinRad;
+      // Preserve the exact socket transform on the mount node. Deploy motion
+      // is child-local visual juice and never rewrites authored socket space.
+      hp.instance.scaling.setAll(pose.scale);
+      hp.instance.position.y = pose.extend;
+      hp.instance.rotation.y = pose.spinRad;
     }
   }
 
@@ -307,6 +322,7 @@ export class ShipSocketRig {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const hp of this.hardpoints) hp.instance?.dispose();
     this.hardpoints.length = 0;
     for (const em of this.emitters) em.system.dispose();

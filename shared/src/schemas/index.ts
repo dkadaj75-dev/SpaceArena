@@ -252,6 +252,16 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
       }
       break;
     }
+    case "theme": {
+      for (const [path, blocked] of [
+        ["hud.flight.fire.blockedNotification", config.hud?.flight?.fire?.blockedNotification],
+        ["hud.portrait.flight.fire.blockedNotification", config.hud?.portrait?.flight?.fire?.blockedNotification],
+        ["hud.landscape.flight.fire.blockedNotification", config.hud?.landscape?.flight?.fire?.blockedNotification],
+      ] as const) {
+        if (blocked) refs.push({ path, id: blocked, expects: "notification" });
+      }
+      break;
+    }
     default:
       break;
   }

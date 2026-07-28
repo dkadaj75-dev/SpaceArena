@@ -14,7 +14,7 @@
     "overheatSelfDamage": 1
   },
   "fire": {
-    "mode": "autoTarget",
+    "mode": "held",
     "range": 34,
     "cycleTime": 0.5,
     "damage": 13,
@@ -24,7 +24,7 @@
   },
   "onFire": ["action.play-sound-kinetic"],
   "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: kinetic]", "label": "Autocannon II" },
+  "ui": { "icon": "[ICON: kinetic]", "shortName": "Cannon Mk2", "label": "Autocannon II" },
   "price": 400,
   "requiresLevel": 2
 }

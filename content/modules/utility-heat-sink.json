@@ -17,7 +17,7 @@
     { "target": "heat.dissipation", "op": "add", "value": 5 },
     { "target": "heat.capacity", "op": "mul", "value": 1.1 }
   ],
-  "ui": { "icon": "[ICON: heat-sink]", "label": "Heat Sink" },
+  "ui": { "icon": "[ICON: heat-sink]", "shortName": "Heat Sink", "label": "Heat Sink" },
   "price": 400,
   "requiresLevel": 2
 }

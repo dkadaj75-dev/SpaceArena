@@ -14,7 +14,7 @@
     "overheatSelfDamage": 0
   },
   "fire": {
-    "mode": "autoTarget",
+    "mode": "semi",
     "range": 55,
     "cycleTime": 2.5,
     "damage": 22,
@@ -24,7 +24,7 @@
   },
   "onFire": ["action.play-sound-missile"],
   "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: missile]", "label": "Missile" },
+  "ui": { "icon": "[ICON: missile]", "shortName": "Missile Mk1", "label": "Missile" },
   "price": 0,
   "requiresLevel": 1
 }

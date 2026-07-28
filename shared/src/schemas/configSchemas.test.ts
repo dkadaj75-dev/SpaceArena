@@ -85,7 +85,7 @@ const module_ = {
   energy: { drawIdle: 3, drawActive: 11 },
   heat: { perSecondActive: 6, overheatThreshold: 55, overheatCooldown: 5, overheatSelfDamage: 0 },
   fire: {
-    mode: "autoTarget",
+    mode: "held",
     range: 38,
     cycleTime: 0.4,
     damage: 7,
@@ -496,10 +496,36 @@ describe("module schema", () => {
       d["fire"] = { ...(d["fire"] as Record<string, unknown>), ...patch };
     };
     expect(mutated("module", patchFire({ mode: "manual" }))).toBe(false);
+    expect(mutated("module", patchFire({ mode: "autoTarget" }))).toBe(false);
+    expect(mutated("module", patchFire({ mode: "semi" }))).toBe(true);
     expect(mutated("module", patchFire({ damageType: "plasma" }))).toBe(false);
     expect(mutated("module", patchFire({ range: 0 }))).toBe(false);
     expect(mutated("module", patchFire({ cycleTime: 0 }))).toBe(false);
     expect(mutated("module", patchFire({ damage: 0 }))).toBe(true); // 0 damage is legal (utility beam)
+    expect(mutated("module", patchFire({ heatPerShot: 0 }))).toBe(true);
+    expect(mutated("module", patchFire({ heatPerShot: -0.01 }))).toBe(false);
+  });
+
+  it("accepts `continuous` only as a hitscan channel, and still requires a cycleTime", () => {
+    const patchFire = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
+      d["fire"] = { ...(d["fire"] as Record<string, unknown>), ...patch };
+    };
+    // The fixture is `projectile: null`, so plain `continuous` is legal.
+    expect(mutated("module", patchFire({ mode: "continuous" }))).toBe(true);
+    // A channel has no discrete shot to launch ordnance with — refined away.
+    expect(
+      mutated("module", patchFire({ mode: "continuous", projectile: { speed: 40, lifetime: 4 } })),
+    ).toBe(false);
+    // `cycleTime` is semantically ignored for a channel but stays REQUIRED and
+    // positive, so the field remains a plain number for SchemaFormGen and for
+    // every consumer that reads it.
+    expect(
+      mutated("module", (d) => {
+        const fire: Record<string, unknown> = { ...(d["fire"] as Record<string, unknown>), mode: "continuous" };
+        delete fire["cycleTime"];
+        d["fire"] = fire;
+      }),
+    ).toBe(false);
   });
 
   it("validates the mitigation and boost blocks", () => {
@@ -528,6 +554,12 @@ describe("module schema", () => {
     expect(mutated("module", (d) => (d["price"] = 10.5))).toBe(false);
     expect(mutated("module", (d) => (d["price"] = -1))).toBe(false);
     expect(mutated("module", (d) => (d["requiresLevel"] = 0))).toBe(false);
+  });
+
+  it("accepts a 1-12 character HUD short name and rejects empty or oversized values", () => {
+    expect(mutated("module", (d) => ((d["ui"] as Record<string, unknown>)["shortName"] = "Laser Mk1"))).toBe(true);
+    expect(mutated("module", (d) => ((d["ui"] as Record<string, unknown>)["shortName"] = ""))).toBe(false);
+    expect(mutated("module", (d) => ((d["ui"] as Record<string, unknown>)["shortName"] = "ThirteenChars!"))).toBe(false);
   });
 });
 
@@ -970,6 +1002,7 @@ describe("theme schema — 5.7/5.8 blocks", () => {
         playerDeath: "death",
         overheat: "overheat",
         boundaryWarning: "boundary",
+        fireBlocked: "fire-blocked",
       },
     };
     expect(mutated("theme", (d) => (d["audio"] = audio))).toBe(true);
@@ -979,6 +1012,42 @@ describe("theme schema — 5.7/5.8 blocks", () => {
     expect(mutated("theme", (d) => (d["audio"] = { ...audio, maxVoices: 0 }))).toBe(false);
     expect(mutated("theme", (d) => (d["audio"] = { ...audio, retriggerGapMs: -1 }))).toBe(false);
     expect(mutated("theme", (d) => (d["audio"] = { ...audio, cues: { playerKill: "" } }))).toBe(false);
+  });
+
+  it("accepts the FIRE control and blocked-pull haptics", () => {
+    expect(
+      mutated("theme", (d) => {
+        d["hud"] = {
+          flight: {
+            fire: { anchor: "bottom-right", radiusPx: 34, offsetXPx: 24, offsetYPx: 34, icon: "FIRE", blockedNotification: "notification.fire-blocked" },
+            reticle: { blockedText: "LOCK REQUIRED", blockedFlashMs: 500 },
+          },
+          portrait: { flight: { fire: { radiusPx: 34 } } },
+          landscape: { flight: { fire: { radiusPx: 30 } } },
+        };
+        d["haptics"] = { enabled: true, fireBlockedPattern: [35, 35, 90] };
+      }),
+    ).toBe(true);
+    expect(
+      mutated("theme", (d) => {
+        d["hud"] = { flight: { fire: { radiusPx: 0 } } };
+      }),
+    ).toBe(false);
+    expect(
+      mutated("theme", (d) => {
+        d["hud"] = { flight: { reticle: { blockedFlashMs: 0 } } };
+      }),
+    ).toBe(false);
+
+    const authored = CONFIG_SCHEMAS.theme.parse({
+      ...clone(theme),
+      hud: { flight: { fire: { blockedNotification: "notification.fire-blocked" } } },
+    });
+    expect(collectReferences(authored)).toContainEqual({
+      path: "hud.flight.fire.blockedNotification",
+      id: "notification.fire-blocked",
+      expects: "notification",
+    });
   });
 
   it("accepts a full juice block and rejects out-of-range shaping", () => {
@@ -1056,6 +1125,24 @@ describe("botprofile schema", () => {
     expect(mutated("botprofile", setDiscipline({ energyReserve: 2 }))).toBe(false);
     expect(mutated("botprofile", setDiscipline({ shieldOnlyWhenEngaged: "yes" }))).toBe(false);
     expect(mutated("botprofile", (d) => delete d["moduleDiscipline"])).toBe(false);
+  });
+
+  it("accepts an optional fireDiscipline with five optional knobs", () => {
+    expect(mutated("botprofile", (d) => (d["fireDiscipline"] = {}))).toBe(true);
+    expect(
+      mutated("botprofile", (d) => {
+        d["fireDiscipline"] = {
+          engageRangeMult: 1.1,
+          heatHeadroom: 0.8,
+          minEnergyFraction: 0.2,
+          burstSec: 1,
+          pauseSec: 0.5,
+        };
+      }),
+    ).toBe(true);
+    expect(mutated("botprofile", (d) => (d["fireDiscipline"] = { heatHeadroom: 1.01 }))).toBe(false);
+    expect(mutated("botprofile", (d) => (d["fireDiscipline"] = { burstSec: -1 }))).toBe(false);
+    expect(mutated("botprofile", (d) => delete d["fireDiscipline"])).toBe(true);
   });
 
   it("keeps per-behavior tunables open (catchall) but requires baseWeight (edge)", () => {

@@ -7,6 +7,8 @@ export interface HapticsSettings {
   killPattern: number[];
   /** Sensors completing a lock (FLIGHT.md §4) — the "weapons live" tick. */
   lockPattern: number[];
+  /** Trigger pulled without a completed lock (COMBAT-REWORK.md §8). */
+  fireBlockedPattern: number[];
 }
 
 const THEME_ID = "theme.default";
@@ -18,6 +20,7 @@ export function hapticsSettingsOf(theme: ThemeConfig | undefined): HapticsSettin
     overheatPattern: h?.overheatPattern ?? [],
     killPattern: h?.killPattern ?? [],
     lockPattern: h?.lockPattern ?? [],
+    fireBlockedPattern: h?.fireBlockedPattern ?? [],
   };
 }
 
@@ -114,5 +117,18 @@ export class Haptics {
         return;
       }
     }
+  }
+
+  /** Client-only blocked trigger feedback; no sim event is fabricated for it. */
+  fireBlocked(): void {
+    if (
+      !this.vibrate ||
+      !this.userEnabled ||
+      !this.settings.enabled ||
+      this.settings.fireBlockedPattern.length === 0
+    ) {
+      return;
+    }
+    this.vibrate(this.settings.fireBlockedPattern);
   }
 }

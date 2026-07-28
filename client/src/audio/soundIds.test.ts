@@ -157,6 +157,7 @@ describe("cueSoundFor", () => {
     boundaryWarning: "boundary_warn",
     lockAcquired: "lock_acquired",
     lockLost: "lock_lost",
+    fireBlocked: "fire_blocked",
     countdownTick: "countdown_tick",
     countdownGo: "countdown_go",
   };

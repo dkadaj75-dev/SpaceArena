@@ -108,6 +108,8 @@ export interface AudioCueMap {
   lockAcquired: string | null;
   /** A completed lock breaking (progress drained to 0, or the target died). */
   lockLost: string | null;
+  /** A local trigger pull rejected because no lock is held. */
+  fireBlocked: string | null;
   /** Each whole second of the match-start countdown (3 / 2 / 1). */
   countdownTick: string | null;
   /** The countdown reaching zero — the "GO" stinger. */
@@ -139,6 +141,7 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
     boundaryWarning: null,
     lockAcquired: null,
     lockLost: null,
+    fireBlocked: null,
     countdownTick: null,
     countdownGo: null,
   },
@@ -163,6 +166,7 @@ export function audioSettingsOf(theme: ThemeConfig | undefined): AudioSettings {
       boundaryWarning: resolveSoundId(cues?.boundaryWarning),
       lockAcquired: resolveSoundId(cues?.lockAcquired),
       lockLost: resolveSoundId(cues?.lockLost),
+      fireBlocked: resolveSoundId(cues?.fireBlocked),
       countdownTick: resolveSoundId(cues?.countdownTick),
       countdownGo: resolveSoundId(cues?.countdownGo),
     },

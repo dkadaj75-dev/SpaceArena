@@ -17,7 +17,7 @@
   "onActivate": ["action.play-sound-boost-up"],
   "onDeactivate": ["action.play-sound-boost-down"],
   "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: boost]", "label": "Boost" },
+  "ui": { "icon": "[ICON: boost]", "shortName": "Boost Mk1", "label": "Boost" },
   "price": 0,
   "requiresLevel": 1
 }

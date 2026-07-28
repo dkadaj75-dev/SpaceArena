@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import type { ThemeConfig } from "@space-arena/shared";
 import {
   anchoredBoxOffset,
@@ -17,6 +18,7 @@ import {
   type FlightHudLayout,
   type ProjectedPoint,
 } from "./flightHudLayout.js";
+import { anchorSigns, clusterOffsets, resolveHudLayout } from "./hudLayout.js";
 
 /** The shipped theme's flight block, inlined so the test pins behaviour, not content. */
 function theme(overrides: Partial<NonNullable<ThemeConfig["hud"]>> = {}): ThemeConfig {
@@ -30,7 +32,7 @@ function theme(overrides: Partial<NonNullable<ThemeConfig["hud"]>> = {}): ThemeC
       flight: {
         joystick: { anchor: "bottom-left", baseRadiusPx: 62, thumbRadiusPx: 28, offsetXPx: 22, offsetYPx: 22, deadzone: 0.12, expo: 1.35 },
         throttle: { anchor: "bottom-right", widthPx: 44, heightPx: 200, thumbHeightPx: 26, offsetXPx: 6, offsetYPx: 212, keyRampPerSec: 0.9 },
-        boost: { anchor: "bottom-right", radiusPx: 34, offsetXPx: 24, offsetYPx: 34, icon: "»" },
+        fire: { anchor: "bottom-right", radiusPx: 34, offsetXPx: 24, offsetYPx: 34, icon: "FIRE" },
         reticle: { maxRadiusFraction: 0.82, strokePx: 2, bracketSizePx: 54, ringStrokePx: 4 },
         orders: { throttleEpsilon: 0.02, turnEpsilon: 0.05, heartbeatMs: 250, minIntervalMs: 120 },
       },
@@ -64,7 +66,23 @@ describe("resolveFlightHudLayout", () => {
       expo: 1.35,
     });
     expect(layout.throttle.heightPx).toBe(200);
-    expect(layout.boost.icon).toBe("»");
+    expect(layout.fire).toEqual({
+      anchor: "bottom-right",
+      radiusPx: 34,
+      offsetXPx: 24,
+      offsetYPx: 34,
+      icon: "FIRE",
+      ringGapPx: 7,
+      ringStrokePx: 2,
+      ringArcDeg: 260,
+      color: "#ff4655",
+      fillOpacity: 0.3,
+      borderPx: 2,
+      glowPx: 10,
+      armedFillOpacity: 0.52,
+      armedGlowPx: 18,
+      blockedNotification: undefined,
+    });
     expect(layout.orders.heartbeatMs).toBe(250);
   });
 
@@ -129,8 +147,8 @@ describe("resolveFlightHudLayout", () => {
     // NOT overridden — the base value survives, scaled.
     expect(layout.joystick.thumbRadiusPx).toBe(14);
     expect(layout.joystick.anchor).toBe("bottom-left");
-    // A landscape override of the joystick must not disturb the boost block.
-    expect(layout.boost.radiusPx).toBe(17);
+    // A landscape override of the joystick must not disturb the FIRE block.
+    expect(layout.fire.radiusPx).toBe(17);
   });
 
   it("scales geometry by hud.scale but never feel (deadzone / expo / ramp / order thresholds)", () => {
@@ -165,8 +183,204 @@ describe("flightCssVars", () => {
     const vars = flightCssVars(resolveFlightHudLayout(theme(), PORTRAIT));
     expect(vars["--hud-joy-base-radius"]).toBe("62px");
     expect(vars["--hud-throttle-height"]).toBe("200px");
-    expect(vars["--hud-boost-radius"]).toBe("34px");
+    expect(vars["--hud-fire-radius"]).toBe("34px");
+    expect(vars["--hud-module-fill-pct"]).toBe("90%");
+    expect(vars["--hud-fire-color"]).toBe("#ff4655");
     expect(vars["--hud-steer-origin-radius"]).toBe("7px");
+  });
+});
+
+describe("shipped phone control geometry", () => {
+  interface Rect {
+    name: string;
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  }
+
+  const shipped = JSON.parse(
+    readFileSync("content/themes/default.json", "utf8"),
+  ) as ThemeConfig;
+
+  function pivot(
+    anchor: "bottom-right" | "bottom-left" | "top-right" | "top-left",
+    viewport: { width: number; height: number },
+    inset: number,
+  ): { x: number; y: number } {
+    const signs = anchorSigns(anchor);
+    return {
+      x: signs.x < 0 ? viewport.width - inset : inset,
+      y: signs.y < 0 ? viewport.height - inset : inset,
+    };
+  }
+
+  function around(name: string, x: number, y: number, halfWidth: number, halfHeight = halfWidth): Rect {
+    return {
+      name,
+      left: x - halfWidth,
+      top: y - halfHeight,
+      right: x + halfWidth,
+      bottom: y + halfHeight,
+    };
+  }
+
+  function boxes(viewport: { width: number; height: number }): {
+    controls: Rect[];
+    obstacles: Rect[];
+    moduleCenters: { x: number; y: number }[];
+    moduleRadius: number;
+    touchDiameters: number[];
+    inset: number;
+  } {
+    const hud = resolveHudLayout(shipped, viewport);
+    const flight = resolveFlightHudLayout(shipped, viewport);
+    const modulePivot = pivot(hud.cluster.anchor, viewport, hud.safeAreaInsetPx);
+    const controls: Rect[] = [];
+    const moduleCenters: { x: number; y: number }[] = [];
+    for (const [index, offset] of clusterOffsets(5, hud).entries()) {
+      const x = modulePivot.x + offset.dx;
+      const y = modulePivot.y + offset.dy;
+      moduleCenters.push({ x, y });
+      controls.push(around(`module-${index}`, x, y, hud.cluster.buttonRadiusPx));
+      controls.push({
+        name: `module-${index}-label`,
+        left: x - flight.modules.labelMaxWidthPx / 2,
+        right: x + flight.modules.labelMaxWidthPx / 2,
+        top: y + hud.cluster.buttonRadiusPx + flight.modules.labelGapPx,
+        bottom:
+          y +
+          hud.cluster.buttonRadiusPx +
+          flight.modules.labelGapPx +
+          flight.modules.labelHeightPx,
+      });
+    }
+
+    const flightPivot = (anchor: typeof flight.fire.anchor) =>
+      pivot(anchor, viewport, hud.safeAreaInsetPx);
+    const fireCorner = flightPivot(flight.fire.anchor);
+    const fireOffset = anchoredOffset(
+      flight.fire.anchor,
+      flight.fire.offsetXPx,
+      flight.fire.offsetYPx,
+      flight.fire.radiusPx,
+    );
+    controls.push(
+      around(
+        "fire-ring",
+        fireCorner.x + fireOffset.dx,
+        fireCorner.y + fireOffset.dy,
+        flight.fire.radiusPx + flight.fire.ringGapPx,
+      ),
+    );
+
+    const throttleCorner = flightPivot(flight.throttle.anchor);
+    const throttleOffset = anchoredBoxOffset(
+      flight.throttle.anchor,
+      flight.throttle.offsetXPx,
+      flight.throttle.offsetYPx,
+      flight.throttle.widthPx / 2,
+      flight.throttle.heightPx / 2,
+    );
+    const throttleX = throttleCorner.x + throttleOffset.dx;
+    const throttleY = throttleCorner.y + throttleOffset.dy;
+    const speedY =
+      throttleY +
+      (flight.throttle.anchor.startsWith("bottom") ? 1 : -1) *
+        (flight.throttle.heightPx / 2 + 10 * flight.scale);
+    const minimapSize = Math.min(hud.minimapSizePx, viewport.width * 0.4);
+    const gaugeWidth = hud.gaugeWidthPx + 1.6 * hud.style.chamferPx;
+    const gaugeHeight =
+      4 * (9 * hud.scale + 2 + hud.gauges.trackHeightPx) +
+      3 * hud.gauges.gapPx +
+      1.4 * hud.style.chamferPx;
+    const gaugeLeft = hud.gauges.anchor.endsWith("right")
+      ? viewport.width - hud.safeAreaInsetPx - hud.gauges.offsetXPx - gaugeWidth
+      : hud.safeAreaInsetPx + hud.gauges.offsetXPx;
+    const gaugeTop = hud.gauges.anchor.startsWith("bottom")
+      ? viewport.height - hud.safeAreaInsetPx - hud.gauges.offsetYPx - gaugeHeight
+      : hud.safeAreaInsetPx + hud.gauges.offsetYPx;
+    const obstacles = [
+      {
+        name: "minimap",
+        left: hud.safeAreaInsetPx,
+        top: hud.safeAreaInsetPx,
+        right: hud.safeAreaInsetPx + minimapSize,
+        bottom: hud.safeAreaInsetPx + minimapSize,
+      },
+      {
+        name: "gauges",
+        left: gaugeLeft,
+        top: gaugeTop,
+        right: gaugeLeft + gaugeWidth,
+        bottom: gaugeTop + gaugeHeight,
+      },
+      around(
+        "throttle",
+        throttleX,
+        throttleY,
+        flight.throttle.widthPx / 2,
+        flight.throttle.heightPx / 2,
+      ),
+      around("speed", throttleX, speedY, 34 * flight.scale, 9 * flight.scale),
+    ];
+    return {
+      controls,
+      obstacles,
+      moduleCenters,
+      moduleRadius: hud.cluster.buttonRadiusPx,
+      touchDiameters: [
+        hud.cluster.buttonRadiusPx * 2,
+        flight.fire.radiusPx * 2,
+      ],
+      inset: hud.safeAreaInsetPx,
+    };
+  }
+
+  function overlaps(a: Rect, b: Rect): boolean {
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  }
+
+  it.each([
+    { width: 390, height: 740 },
+    { width: 740, height: 390 },
+  ])("keeps five modules, labels and FIRE clear of all fixed HUD panels at $width x $height", (viewport) => {
+    const { controls, obstacles, moduleCenters, moduleRadius, touchDiameters, inset } = boxes(viewport);
+    for (let i = 0; i < moduleCenters.length; i++) {
+      for (let j = i + 1; j < moduleCenters.length; j++) {
+        const a = moduleCenters[i]!;
+        const b = moduleCenters[j]!;
+        const edgeGap = Math.hypot(a.x - b.x, a.y - b.y) - moduleRadius * 2;
+        expect(edgeGap, `module-${i} / module-${j} edge gap`).toBeGreaterThanOrEqual(8);
+        if (j === i + 1) expect(edgeGap, `adjacent module-${i} / module-${j} edge gap`).toBeLessThanOrEqual(14);
+      }
+    }
+    for (let i = 0; i < controls.length; i++) {
+      const box = controls[i]!;
+      expect(box.left, `${box.name} left`).toBeGreaterThanOrEqual(inset);
+      expect(box.top, `${box.name} top`).toBeGreaterThanOrEqual(inset);
+      expect(box.right, `${box.name} right`).toBeLessThanOrEqual(viewport.width - inset);
+      expect(box.bottom, `${box.name} bottom`).toBeLessThanOrEqual(viewport.height - inset);
+      for (let j = i + 1; j < controls.length; j++) {
+        const other = controls[j]!;
+        const moduleHex = (name: string): boolean => /^module-\d+$/.test(name);
+        const sameModuleSurface =
+          (moduleHex(box.name) && moduleHex(other.name)) ||
+          (box.name.startsWith("module-") && other.name.startsWith("module-") &&
+            box.name.endsWith("-label") !== other.name.endsWith("-label"));
+        // Hex separation is checked by the centre/radius audit above. A label's
+        // conservative max-width rectangle may cross a neighbouring hex's
+        // transparent corner even though the caption and plate do not touch.
+        // Caption/caption and every non-module surface remain strict rectangles.
+        if (!sameModuleSurface) {
+          expect(overlaps(box, other), `${box.name} overlaps ${other.name}`).toBe(false);
+        }
+      }
+      for (const obstacle of obstacles) {
+        expect(overlaps(box, obstacle), `${box.name} overlaps ${obstacle.name}`).toBe(false);
+      }
+    }
+    for (const diameter of touchDiameters) expect(diameter).toBeGreaterThanOrEqual(44);
   });
 });
 
@@ -261,7 +475,8 @@ describe("reticleRadiusPx", () => {
     it("holds the circle steady through a climb when the camera follows pitch fully", () => {
       const levelSize = reticleRadiusPx(20, { fovRad: 1.05, betaRad: BASE }, VIEWPORT, RETICLE, 0);
       for (const pitch of [-1.4, -0.5, 0.5, 1.4]) {
-        // pitchFollow 1 ⇒ beta = base + pitch, so the effective tilt is `base`.
+        // A ship-relative camera reports beta = base + pitch in world terms,
+        // so the effective tilt remains `base`.
         const climbing = reticleRadiusPx(
           20,
           { fovRad: 1.05, betaRad: BASE + pitch },
@@ -293,8 +508,8 @@ describe("reticleRadiusPx", () => {
 
     it("clamps rather than inverting when the effective tilt leaves the front hemisphere", () => {
       // A pitch past the camera's tilt would put the cone axis behind the view
-      // axis; the pole margin in chaseBetaFor keeps a real rig out of this, and
-      // the clamp is the answer if content ever gets there anyway.
+      // axis; the live chase rig stays in the front hemisphere, and the clamp
+      // is the answer if authored camera geometry ever gets there anyway.
       const degenerate = reticleRadiusPx(20, { fovRad: 1.05, betaRad: 0.4 }, VIEWPORT, RETICLE, 1.4);
       expect(degenerate.clamped).toBe(true);
       expect(Number.isFinite(degenerate.radiusPx)).toBe(true);
@@ -326,6 +541,10 @@ describe("offScreenArrowPlacement", () => {
     fadeNearUnits: 60,
     fadeFarUnits: 320,
     minOpacity: 0.35,
+    outOfRangeScale: 0.6,
+    outOfRangeOpacity: 0.4,
+    markerMinOpacity: 0.35,
+    markerSizePx: 10,
   };
   const RX = VIEWPORT.width / 2 - ARROWS.insetXPx;
   const RY = VIEWPORT.height / 2 - ARROWS.insetYPx;
@@ -454,6 +673,10 @@ describe("arrowOpacity", () => {
     fadeNearUnits: 60,
     fadeFarUnits: 320,
     minOpacity: 0.35,
+    outOfRangeScale: 0.6,
+    outOfRangeOpacity: 0.4,
+    markerMinOpacity: 0.35,
+    markerSizePx: 10,
   };
 
   it("is opaque up to the near distance and floors at the far one", () => {

@@ -34,6 +34,8 @@ interface DebugShip {
   pos: DebugVec2;
   heading: number;
   hull: number;
+  locked: boolean;
+  targetId: number | null;
   modules: DebugModule[];
 }
 
@@ -146,8 +148,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
 
   const moduleButtons = page.locator(".hud-modules .hud-module-btn");
   await expect(moduleButtons).toHaveCount(4);
-  // Starts as "FPS: --" and only becomes a number once the render loop ticks.
-  await expect(page.locator(".hud-fps")).toHaveText(/^FPS: \d+$/);
+  await expect(page.locator(".hud-fps")).toHaveCount(0);
 
   // The dummies choice carries no explicit gamemode, so the match must still
   // resolve gamemode.practice's defaultArena — not the ring-nebula fallback
@@ -165,6 +166,88 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await firstModule.click();
   await expect(firstModule).toHaveClass(/state-(deploying|active)/);
   await expect(firstModule).not.toHaveClass(/state-retracted/);
+
+  // A real LMB trigger edge must now produce real damage. First use ordinary
+  // flight orders to settle the nose and wait for the armed module + server
+  // lock; then dispatch the same pointer input a player uses on the canvas.
+  const firingSolution = await page.evaluate<{
+    ok: boolean;
+    targetId: number;
+    hull: number;
+  } | null>(() => {
+    const debug = (window as unknown as { __debug?: DebugApi }).__debug;
+    if (!debug?.session) return null;
+    const angleTo = (from: number, to: number): number => {
+      let d = (to - from) % (Math.PI * 2);
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d <= -Math.PI) d += Math.PI * 2;
+      return d;
+    };
+    for (let frame = 0; frame < 240; frame++) {
+      const session = debug.session;
+      if (!session) return null;
+      const me = session.curSnapshot.ships.find((ship) => ship.id === session.playerId);
+      const target = me
+        ? session.curSnapshot.ships
+            .filter((ship) => ship.team !== me.team)
+            .sort(
+              (a, b) =>
+                Math.hypot(a.pos.x - me.pos.x, a.pos.z - me.pos.z) -
+                Math.hypot(b.pos.x - me.pos.x, b.pos.z - me.pos.z),
+            )[0]
+        : undefined;
+      if (!me || !target) return null;
+      const bearing = Math.atan2(target.pos.z - me.pos.z, target.pos.x - me.pos.x);
+      session.order({
+        kind: "flight",
+        throttle: 0,
+        turn: Math.max(-1, Math.min(1, angleTo(me.heading, bearing) * 2)),
+        boost: false,
+        fire: false,
+      });
+      debug.forceFrame(166);
+      const currentMe = session.curSnapshot.ships.find((ship) => ship.id === session.playerId);
+      const currentTarget = session.curSnapshot.ships.find((ship) => ship.id === target.id);
+      if (
+        currentMe?.locked &&
+        currentMe.targetId === target.id &&
+        currentMe.modules.some((module) => module.state === "active") &&
+        currentTarget
+      ) {
+        return { ok: true, targetId: target.id, hull: currentTarget.hull };
+      }
+    }
+    return null;
+  });
+  expect(firingSolution?.ok, "failed to arm a weapon and acquire the practice dummy").toBe(true);
+
+  const canvas = page.locator("#renderCanvas");
+  await canvas.dispatchEvent("pointerdown", {
+    pointerId: 77,
+    pointerType: "mouse",
+    button: 0,
+    buttons: 1,
+  });
+  const hullAfterTrigger = await page.evaluate<number, { targetId: number; before: number }>(
+    ({ targetId, before }) => {
+      const debug = (window as unknown as { __debug?: DebugApi }).__debug;
+      if (!debug?.session) return before;
+      for (let frame = 0; frame < 80; frame++) {
+        debug.forceFrame(166);
+        const target = debug.session.curSnapshot.ships.find((ship) => ship.id === targetId);
+        if (!target || target.hull < before) return target?.hull ?? 0;
+      }
+      return debug.session.curSnapshot.ships.find((ship) => ship.id === targetId)?.hull ?? before;
+    },
+    { targetId: firingSolution!.targetId, before: firingSolution!.hull },
+  );
+  await canvas.dispatchEvent("pointerup", {
+    pointerId: 77,
+    pointerType: "mouse",
+    button: 0,
+    buttons: 0,
+  });
+  expect(hullAfterTrigger).toBeLessThan(firingSolution!.hull);
 
   // ------------------------------------------- 7. run the match to completion
   // Practice is `destroyTargets: 3` against 3 static dummies laid out just ahead
@@ -238,6 +321,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
             // Close to the standoff band, then cut the engine and shoot from there.
             throttle: nearestDist > standoff ? 0.6 : 0,
             boost: false,
+            fire: true,
           });
         }
 

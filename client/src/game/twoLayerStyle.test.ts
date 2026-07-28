@@ -38,7 +38,7 @@ describe("two-layer chamfer stacking", () => {
       ".hud-frame",
       ".hud-module-btn",
       ".hud-throttle-track",
-      ".hud-boost-btn",
+      ".hud-fire-btn",
       ".hud-results-panel",
     ]) {
       const escaped = host.replace(".", "\\.");

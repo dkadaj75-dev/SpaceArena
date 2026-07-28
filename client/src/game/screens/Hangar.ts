@@ -295,7 +295,7 @@ export class Hangar {
     );
     this.idleModules = this.slots
       .filter((s): s is HangarSlot & { moduleId: string } => s.moduleId !== null)
-      .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }) satisfies ModuleSnapshot);
+      .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
   }
 
   /** Idle preview animation: a gentle synthetic throttle wave so engine trails visibly breathe at rest. */

@@ -1,4 +1,4 @@
-import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState } from "@space-arena/shared";
+import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleFamily, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState, ThemeConfig } from "@space-arena/shared";
 import { createLogger } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
@@ -6,6 +6,28 @@ import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js
 import { moduleIconId, moduleIconSvg } from "./moduleIcons.js";
 
 const log = createLogger("HudModuleButtons");
+const THEME_ID = "theme.default";
+
+export const MODULE_FAMILY_COLOR_FALLBACKS: Readonly<Record<ModuleFamily, string>> = {
+  shield: "#3b5bdb",
+  missile: "#7b2fbf",
+  laser: "#12b5cb",
+  kinetic: "#f59f35",
+  utility: "#67c587",
+  boost: "#e8b44f",
+};
+
+export function resolveModuleFamilyColor(
+  theme: ThemeConfig | undefined,
+  family: ModuleFamily,
+): string {
+  return theme?.hud?.modules?.familyColors?.[family] ?? MODULE_FAMILY_COLOR_FALLBACKS[family];
+}
+
+/** Caption under a module hex: authored HUD name, or the display name capped at 12 characters. */
+export function moduleHudName(cfg: Pick<ModuleConfig, "name" | "ui"> | undefined, fallback: string): string {
+  return cfg?.ui.shortName ?? (cfg?.name ?? fallback).slice(0, 12);
+}
 
 interface ButtonEntry {
   hardpointIndex: number;
@@ -18,6 +40,11 @@ interface ButtonEntry {
   lastState: ModuleState | null;
   lastRing: number;
   lastNoEnergy: boolean;
+  lastArmed: boolean;
+  lastCooling: boolean;
+  lastUnarmable: boolean;
+  /** Last replicated continuous-channel flag (see the class toggle in update()). */
+  lastChanneling: boolean;
 }
 
 /**
@@ -46,11 +73,12 @@ export class ModuleButtons {
   private entries = new Map<number, ButtonEntry>();
   private builtForModuleCount = -1;
   private layout: HudLayout;
+  private readonly unsubscribeTheme: () => void;
 
   constructor(
     root: HTMLElement,
     private readonly configs: ConfigService,
-    _bus: EventBus<ConfigEvents>,
+    bus: EventBus<ConfigEvents>,
     private readonly session: GameSession,
     private readonly playerId: EntityId,
   ) {
@@ -60,6 +88,15 @@ export class ModuleButtons {
     // Standalone default until the Hud pushes the resolved layout in.
     this.layout = resolveHudLayout(undefined, { width: 0, height: 0 });
     this.applyLayout(this.layout);
+    const maybeBus = bus as EventBus<ConfigEvents> & {
+      on?: EventBus<ConfigEvents>["on"];
+    };
+    this.unsubscribeTheme =
+      typeof maybeBus.on === "function"
+        ? maybeBus.on("config:changed", (evt) => {
+            if (evt.type === "theme") this.applyFamilyColors();
+          })
+        : () => {};
   }
 
   /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
@@ -107,6 +144,17 @@ export class ModuleButtons {
           ringPct = 100 * (1 - m.stateTimer / entry.cfg.activation.retractTime);
         } else if (m.state === "overheated" && entry.cfg.heat.overheatCooldown > 0) {
           ringPct = 100 * (1 - m.stateTimer / entry.cfg.heat.overheatCooldown);
+        } else if (
+          m.state === "active" &&
+          entry.cfg.fire &&
+          // A `continuous` weapon has no shot cadence — its `cycleTime` is an
+          // ignored placeholder and `cycleTimer` stays 0 — so it never shows a
+          // cooldown ring; the `channeling` class below is its live indicator.
+          entry.cfg.fire.mode !== "continuous" &&
+          m.cycleTimer > 0 &&
+          entry.cfg.fire.cycleTime > 0
+        ) {
+          ringPct = 100 * (m.cycleTimer / entry.cfg.fire.cycleTime);
         } else if (m.state === "active") {
           ringPct = 100;
         }
@@ -115,6 +163,9 @@ export class ModuleButtons {
 
       const drawIdle = entry.cfg?.energy.drawIdle ?? 0;
       const noEnergy = m.state === "retracted" && ship.energy.cur < drawIdle;
+      const armed = m.state === "active" && entry.cfg?.fire !== undefined;
+      const cooling = m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0;
+      const unarmable = m.state === "active" && entry.cfg?.fire !== undefined && !ship.locked;
 
       if (m.state !== entry.lastState) {
         if (entry.lastState) entry.root.classList.remove(`state-${entry.lastState}`);
@@ -129,6 +180,25 @@ export class ModuleButtons {
         entry.root.classList.toggle("no-energy", noEnergy);
         entry.lastNoEnergy = noEnergy;
       }
+      if (armed !== entry.lastArmed) {
+        entry.root.classList.toggle("armed", armed);
+        entry.lastArmed = armed;
+      }
+      if (cooling !== entry.lastCooling) {
+        entry.root.classList.toggle("cooling", cooling);
+        entry.lastCooling = cooling;
+      }
+      if (unarmable !== entry.lastUnarmable) {
+        entry.root.classList.toggle("unarmable", unarmable);
+        entry.lastUnarmable = unarmable;
+      }
+      // Continuous weapons get `channeling` instead of a `cooling` ring: the
+      // ring encodes a cadence a channel does not have. Exposed unstyled — the
+      // shipped theme currently renders it the same as any armed button.
+      if (m.channeling !== entry.lastChanneling) {
+        entry.root.classList.toggle("channeling", m.channeling);
+        entry.lastChanneling = m.channeling;
+      }
     }
   }
 
@@ -142,11 +212,18 @@ export class ModuleButtons {
         if (!cfg) log.warn(`unknown module config ${moduleId}`);
 
         const btn = document.createElement("div");
-        btn.className = "hud-module-btn";
+        btn.className = "hud-module-btn hex-action";
         btn.setAttribute(HUD_CONTROL_ATTR, "module");
         btn.setAttribute("role", "button");
-        btn.setAttribute("aria-label", cfg?.ui.label ?? moduleId);
+        btn.setAttribute("aria-label", cfg?.name ?? moduleId);
         btn.style.setProperty("--ring", "0");
+        if (cfg) {
+          btn.classList.add(`family-${cfg.family}`);
+          btn.style.setProperty(
+            "--hud-module-family-color",
+            resolveModuleFamilyColor(this.configs.get<ThemeConfig>("theme", THEME_ID), cfg.family),
+          );
+        }
 
         // Deploy/retract/cooldown arc. Its own node because the button's two
         // pseudo-elements are spent on the chamfered rim + fill plates.
@@ -161,7 +238,7 @@ export class ModuleButtons {
         icon.innerHTML = moduleIconSvg(moduleIconId(cfg));
         const label = document.createElement("span");
         label.className = "label";
-        label.textContent = cfg?.ui.label ?? moduleId;
+        label.textContent = moduleHudName(cfg, moduleId);
 
         btn.append(ring, icon, label);
         btn.addEventListener("click", () => {
@@ -182,6 +259,10 @@ export class ModuleButtons {
             lastState: null,
             lastRing: -1,
             lastNoEnergy: false,
+            lastArmed: false,
+            lastCooling: false,
+            lastUnarmable: false,
+            lastChanneling: false,
           } satisfies ButtonEntry,
         ] as const;
       }),
@@ -190,7 +271,19 @@ export class ModuleButtons {
     this.position();
   }
 
+  private applyFamilyColors(): void {
+    const theme = this.configs.get<ThemeConfig>("theme", THEME_ID);
+    for (const entry of this.entries.values()) {
+      if (!entry.cfg) continue;
+      entry.root.style.setProperty(
+        "--hud-module-family-color",
+        resolveModuleFamilyColor(theme, entry.cfg.family),
+      );
+    }
+  }
+
   dispose(): void {
+    this.unsubscribeTheme();
     this.container.remove();
   }
 }

@@ -25,6 +25,10 @@ export class LockReticle {
   /** Lock-progress arc — its own node so the corner ticks can be a sibling. */
   private readonly ring: HTMLDivElement;
   private readonly distance: HTMLSpanElement;
+  private readonly targetName: HTMLSpanElement;
+  private readonly blocked: HTMLDivElement;
+  private blockedRemainingMs = 0;
+  private blockedFlashMs = 650;
 
   private lastRadius = Number.NaN;
   private lastClamped: boolean | null = null;
@@ -34,6 +38,7 @@ export class LockReticle {
   private lastLocked: boolean | null = null;
   private lastVisible: boolean | null = null;
   private lastDistanceM = Number.NaN;
+  private lastTargetName = "";
 
   constructor(root: HTMLElement, layout: FlightHudLayout) {
     this.container = document.createElement("div");
@@ -57,6 +62,24 @@ export class LockReticle {
       .hud-reticle-bracket.locked .hud-reticle-distance {
         color: var(--hud-danger, #ff405c);
       }
+      .hud-reticle-target-name {
+        position: absolute;
+        display: none;
+        left: calc(100% + var(--hud-reticle-target-name-offset, 12px));
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--hud-danger, #ff405c);
+        font-size: var(--hud-reticle-target-name-size, 10px);
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        line-height: 1;
+        white-space: nowrap;
+        text-transform: uppercase;
+        text-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-bg, #0a0f1e);
+      }
+      .hud-reticle-bracket.locked .hud-reticle-target-name {
+        display: block;
+      }
     `;
     this.container.appendChild(style);
 
@@ -74,13 +97,33 @@ export class LockReticle {
     this.ring.className = "ring";
     this.distance = document.createElement("span");
     this.distance.className = "hud-reticle-distance";
-    this.bracket.append(corners, this.ring, this.distance);
+    this.targetName = document.createElement("span");
+    this.targetName.className = "hud-reticle-target-name";
+    this.bracket.append(corners, this.ring, this.distance, this.targetName);
+    this.blocked = document.createElement("div");
+    this.blocked.className = "hud-reticle-blocked";
 
     this.container.appendChild(this.zone);
     this.container.appendChild(this.bracket);
+    this.container.appendChild(this.blocked);
     root.appendChild(this.container);
 
     this.applyLayout(layout);
+  }
+
+  /** Immediate local response to a trigger pull that the lock gate will reject. */
+  flashNoLock(): void {
+    this.blockedRemainingMs = this.blockedFlashMs;
+    this.blocked.classList.remove("visible");
+    // Force a fresh animation when pulls arrive close together.
+    void this.blocked.offsetWidth;
+    this.blocked.classList.add("visible");
+  }
+
+  updateFeedback(dtMs: number): void {
+    if (this.blockedRemainingMs <= 0) return;
+    this.blockedRemainingMs -= dtMs;
+    if (this.blockedRemainingMs <= 0) this.blocked.classList.remove("visible");
   }
 
   /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
@@ -88,6 +131,10 @@ export class LockReticle {
     const px = `${layout.reticle.bracketSizePx}px`;
     this.bracket.style.width = px;
     this.bracket.style.height = px;
+    this.bracket.style.setProperty("--hud-reticle-target-name-offset", `${layout.reticle.targetNameOffsetPx}px`);
+    this.bracket.style.setProperty("--hud-reticle-target-name-size", `${layout.reticle.targetNameSizePx}px`);
+    this.blocked.textContent = layout.reticle.blockedText;
+    this.blockedFlashMs = layout.reticle.blockedFlashMs;
   }
 
   /**
@@ -121,10 +168,12 @@ export class LockReticle {
     progress: number,
     locked: boolean,
     distanceUnits = 0,
+    targetName?: string,
   ): void {
     if (visible !== this.lastVisible) {
       this.lastVisible = visible;
       this.bracket.classList.toggle("visible", visible);
+      this.zone.classList.toggle("visible", visible);
     }
     if (!visible) return;
 
@@ -145,6 +194,11 @@ export class LockReticle {
     if (locked !== this.lastLocked) {
       this.lastLocked = locked;
       this.bracket.classList.toggle("locked", locked);
+    }
+    const name = locked ? (targetName?.trim() || "UNKNOWN").toUpperCase() : "";
+    if (name !== this.lastTargetName) {
+      this.lastTargetName = name;
+      this.targetName.textContent = name;
     }
     const distanceM = roundedHudMeters(distanceUnits);
     if (distanceM !== this.lastDistanceM) {

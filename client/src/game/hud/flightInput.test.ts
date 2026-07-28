@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TURN_SIGN_FOR_SCREEN_RIGHT } from "../chaseCamera.js";
+import type { ConfigService, ModuleSnapshot } from "@space-arena/shared";
+import { firstBoostModuleIndex, isTextEntry } from "./FlightControls.js";
 import {
   flightKeyOf,
   keyAxesFrom,
@@ -143,12 +145,14 @@ describe("thumbTopPx", () => {
 });
 
 describe("keyAxesFrom / flightKeyOf", () => {
-  const NONE = { throttleRamp: 0, boost: false };
+  const NONE = { throttleRamp: 0, fire: false };
 
-  it("binds W/S to throttle and Shift to boost", () => {
+  it("binds W/S to held throttle and Space/E to held fire, but not Shift to held boost", () => {
     expect(keyAxesFrom(new Set(["w"]))).toEqual({ ...NONE, throttleRamp: 1 });
     expect(keyAxesFrom(new Set(["s"]))).toEqual({ ...NONE, throttleRamp: -1 });
-    expect(keyAxesFrom(new Set(["shift"])).boost).toBe(true);
+    expect(keyAxesFrom(new Set(["shift"]))).toEqual(NONE);
+    expect(keyAxesFrom(new Set([" "])).fire).toBe(true);
+    expect(keyAxesFrom(new Set(["e"])).fire).toBe(true);
   });
 
   it("retires A/D, arrows, and R/F completely", () => {
@@ -166,8 +170,50 @@ describe("keyAxesFrom / flightKeyOf", () => {
     expect(flightKeyOf("W")).toBe("w");
     expect(flightKeyOf("S")).toBe("s");
     expect(flightKeyOf("Shift")).toBe("shift");
+    expect(flightKeyOf(" ")).toBe(" ");
+    expect(flightKeyOf("E")).toBe("e");
     expect(flightKeyOf("q")).toBeNull();
     expect(flightKeyOf("Enter")).toBeNull();
+  });
+
+  it("keeps E out of flight input while the event target is a text editor", () => {
+    expect(isTextEntry(document.createElement("input"))).toBe(true);
+    expect(isTextEntry(document.createElement("textarea"))).toBe(true);
+    expect(isTextEntry(document.createElement("select"))).toBe(true);
+    expect(isTextEntry(document.createElement("canvas"))).toBe(false);
+  });
+
+  it("maps E keydown/up through the same normalized held-key path as Space", () => {
+    const held = new Set<string>();
+    held.add(flightKeyOf("E")!);
+    expect(keyAxesFrom(held).fire).toBe(true);
+    held.delete(flightKeyOf("e")!);
+    expect(keyAxesFrom(held).fire).toBe(false);
+  });
+});
+
+describe("Shift boost-module lookup", () => {
+  const module = (hardpointIndex: number, moduleId: string): ModuleSnapshot => ({
+    hardpointIndex,
+    moduleId,
+    state: "retracted",
+    stateTimer: 0,
+    heat: 0,
+    cycleTimer: 0,
+    channeling: false,
+    shieldPool: 0,
+  });
+  const configs = {
+    get: (_type: string, id: string) => id.startsWith("module.boost") ? { boost: { speedMult: 1.8, heatPerSec: 5 } } : {},
+  } as unknown as ConfigService;
+
+  it("selects the first fitted boost module and has no target when none is fitted", () => {
+    expect(firstBoostModuleIndex(configs, [
+      module(0, "module.laser-mk1"),
+      module(3, "module.boost-mk1"),
+      module(5, "module.boost-mk2"),
+    ])).toBe(1);
+    expect(firstBoostModuleIndex(configs, [module(0, "module.laser-mk1")])).toBe(-1);
   });
 });
 

@@ -106,6 +106,13 @@ const DEFAULT_VIEW_QUALITY: ViewQuality = {
   asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
 };
 
+/**
+ * Multiplier packing `(shipId, hardpointIndex)` into one integer key for the
+ * channel-beam map. 256 is well past the wire's `uint8` hardpoint index, so the
+ * pair is unambiguous.
+ */
+const CHANNEL_KEY_STRIDE = 256;
+
 /** Newly spawned beams use the current tuning registry, including editor replacement. */
 export function beamFadeMsOf(configs: Pick<ConfigService, "getAll">): number {
   return configs.getAll<TuningConfig>("tuning")[0]?.beamFadeMs ?? 120;
@@ -147,6 +154,18 @@ export class ViewManager {
   private readonly kineticPool: ProjectileNode[] = [];
   private readonly missilePool: ProjectileNode[] = [];
   private readonly beamPool: BeamSlot[] = [];
+  /**
+   * Beam slots PINNED to a live continuous channel, keyed by
+   * `shipId * CHANNEL_KEY_STRIDE + hardpointIndex` (a number, so the hot path
+   * allocates no key strings). A pinned slot has its life refreshed every frame,
+   * which both keeps it lit and keeps `firstFreeBeam` from stealing it; dropping
+   * it from this map is all a channel-stop needs to do — the slot then decays
+   * through the normal `beamFadeMs` fade, so a released trigger reuses the
+   * existing beam fade rather than snapping off.
+   */
+  private readonly channelBeams = new Map<number, BeamSlot>();
+  /** Reused mark-set for the channel sweep — no per-frame allocation. */
+  private readonly liveChannels = new Set<number>();
   /** Pool masters, kept so a quality change can rebuild the pools in place. */
   private readonly poolMasters: Mesh[] = [];
 
@@ -430,6 +449,9 @@ export class ViewManager {
     this.syncShips(prev, cur, alpha, frameDtMs);
     this.syncAsteroids(cur, frameDtMs);
     this.syncProjectiles(prev, cur, alpha);
+    // Before updateBeams: a still-channelling slot gets its life refreshed here
+    // and so never reaches the fade path below.
+    this.syncChannelBeams(cur);
     this.updateBeams(frameDtMs);
     this.hitFlash.update(frameDtMs);
   }
@@ -470,11 +492,14 @@ export class ViewManager {
       const z = p.pos.z + (s.pos.z - p.pos.z) * alpha;
       view.node.position.set(x, y, z);
       // Yaw + pitch from the sim, roll from the client's own bank — all three
-      // conventions live in `shipOrientation.ts`. Pitch interpolates LINEARLY
-      // (it is clamped to ±maxPitchRad and never wraps); heading takes the short
-      // way round.
+      // conventions live in `shipOrientation.ts`. BOTH attitude angles take the
+      // short way round: pitch wraps now that ships can loop (BUBBLE.md §A), so
+      // a pair of samples straddling ±PI would otherwise sweep the hull a full
+      // backflip in one frame. The mesh pose itself needs no special case — the
+      // yaw/pitch/roll composition is a proper rotation at any pitch, and past
+      // vertical it simply draws the ship inverted, which is the truth.
       view.node.rotation.y = meshYawFor(lerpAngle(p.heading, s.heading, alpha));
-      view.node.rotation.x = meshPitchFor(p.pitch + (s.pitch - p.pitch) * alpha);
+      view.node.rotation.x = meshPitchFor(lerpAngle(p.pitch, s.pitch, alpha));
       if (snapDt > 0) {
         view.rollTarget = bankRollFor(
           headingRatePerSec(p.heading, s.heading, snapDt),
@@ -623,6 +648,49 @@ export class ViewManager {
     for (let i = m; i < this.missilePool.length; i++) this.missilePool[i]!.setEnabled(false);
   }
 
+  /**
+   * Draw a persistent beam for every module currently CHANNELLING (a
+   * `fire.mode: "continuous"` weapon). Unlike a discrete shot there is no fire
+   * event per tick to react to — the sim replicates a single `channeling` flag
+   * per module and the beam lives for exactly as long as that flag is set, which
+   * is what makes release / lock-loss look instant.
+   */
+  private syncChannelBeams(cur: Snapshot): void {
+    this.liveChannels.clear();
+    for (let s = 0; s < cur.ships.length; s++) {
+      const ship = cur.ships[s]!;
+      if (ship.targetId === null) continue;
+      let to: { pos: { x: number; y: number; z: number } } | null = null;
+      for (let i = 0; i < ship.modules.length; i++) {
+        const m = ship.modules[i]!;
+        if (!m.channeling) continue;
+        if (to === null) {
+          to = findShip(cur, ship.targetId) ?? findAsteroid(cur, ship.targetId) ?? null;
+          if (to === null) break; // target already gone this frame — nothing to draw to
+        }
+        const key = ship.id * CHANNEL_KEY_STRIDE + m.hardpointIndex;
+        let slot = this.channelBeams.get(key);
+        if (!slot) {
+          slot = firstFreeBeam(this.beamPool);
+          if (!slot) continue; // pool exhausted this frame — acceptable, no alloc
+          this.channelBeams.set(key, slot);
+        }
+        this.sFrom.set(ship.pos.x, ship.pos.y, ship.pos.z);
+        this.sTo.set(to.pos.x, to.pos.y, to.pos.z);
+        this.orientBeam(slot.mesh, this.sFrom, this.sTo);
+        slot.life = slot.maxLife;
+        slot.mesh.setEnabled(true);
+        (slot.mesh.material as StandardMaterial).alpha = 1;
+        this.liveChannels.add(key);
+      }
+    }
+    if (this.channelBeams.size === this.liveChannels.size) return;
+    for (const key of [...this.channelBeams.keys()]) {
+      // Unpin only: the slot keeps its remaining life and fades out normally.
+      if (!this.liveChannels.has(key)) this.channelBeams.delete(key);
+    }
+  }
+
   private updateBeams(frameDtMs: number): void {
     for (let i = 0; i < this.beamPool.length; i++) {
       const b = this.beamPool[i]!;
@@ -677,6 +745,8 @@ export class ViewManager {
     this.kineticPool.length = 0;
     this.missilePool.length = 0;
     this.beamPool.length = 0;
+    this.channelBeams.clear();
+    this.liveChannels.clear();
     for (const master of this.poolMasters) {
       master.material?.dispose();
       master.dispose();

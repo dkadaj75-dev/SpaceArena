@@ -24,6 +24,7 @@ import { FlightControls, type FlightHudBinding } from "./FlightControls.js";
 import { flightCssVars, resolveFlightHudLayout, type FlightHudLayout } from "./flightHudLayout.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { BoundaryWarningLatch } from "../../core/boundaryProximity.js";
+import { BlockedPullFeedback } from "./BlockedPullFeedback.js";
 
 const log = createLogger("Hud");
 
@@ -70,12 +71,14 @@ export interface HudOptions {
   offline?: boolean;
   /**
    * Flight controls (FLIGHT.md §4). Present ⇒ the HUD mounts the joystick,
-   * throttle lever, boost button and lock reticle and starts emitting `flight`
+   * throttle lever, FIRE button and lock reticle and starts emitting `flight`
    * orders. Absent ⇒ no flight HUD at all, which is what tests and any non-match
    * mounting want — the 3D bindings (projection, camera geometry) are the only
    * thing the HUD cannot supply for itself.
    */
   flight?: FlightHudBinding;
+  /** Optional client audio path for the theme's blocked-trigger cue. */
+  playSound?: (id: string) => void;
 }
 
 /**
@@ -98,12 +101,11 @@ export class Hud {
   /** Flight controls (FLIGHT.md §4), or null when the caller passed no 3D binding. */
   private readonly flight: FlightControls | null;
   private readonly boundaryWarning = new BoundaryWarningLatch();
-  private readonly fpsEl: HTMLDivElement;
+  private readonly blockedPullFeedback: BlockedPullFeedback;
   private readonly unsubscribeTheme: () => void;
   private readonly unsubscribeShipConfig: () => void;
   private readonly onViewportChange: () => void;
 
-  private lastFps = Number.POSITIVE_INFINITY;
   private layout: HudLayout;
   private flightLayout: FlightHudLayout;
 
@@ -119,11 +121,6 @@ export class Hud {
     injectHudStyle();
     this.root.innerHTML = "";
     this.root.classList.add("hud-root");
-
-    this.fpsEl = document.createElement("div");
-    this.fpsEl.className = "hud-fps";
-    this.fpsEl.textContent = "FPS: --";
-    this.root.appendChild(this.fpsEl);
 
     // In-match settings (5.8). Marked as a HUD control so the 5.4 palm-rejection
     // guard exempts it — it sits close to the top edge on phones.
@@ -150,12 +147,26 @@ export class Hud {
       offline: options.offline ?? false,
     });
     this.haptics = new Haptics(configs, playerId);
+    this.blockedPullFeedback = new BlockedPullFeedback(
+      configs,
+      this.notifications,
+      this.haptics,
+      options.playSound ?? null,
+    );
 
     const theme = this.configs.get<ThemeConfig>("theme", THEME_ID);
     this.layout = resolveHudLayout(theme, viewportSize());
     this.flightLayout = resolveFlightHudLayout(theme, viewportSize());
     this.flight = options.flight
-      ? new FlightControls(this.root, configs, session, playerId, options.flight, this.flightLayout)
+      ? new FlightControls(
+          this.root,
+          configs,
+          session,
+          playerId,
+          options.flight,
+          this.flightLayout,
+          () => this.blockedPullFeedback.trigger(this.flightLayout.fire.blockedNotification),
+        )
       : null;
     this.applyTheme();
     this.unsubscribeTheme = this.bus.on("config:changed", (evt) => {
@@ -231,7 +242,7 @@ export class Hud {
    * the flight reticle uses it so the target bracket tracks the same
    * interpolated ship the 3D view draws instead of stepping at the sim rate.
    */
-  update(cur: Snapshot, prev: Snapshot, dtMs: number, fps: number, alpha = 1): void {
+  update(cur: Snapshot, prev: Snapshot, dtMs: number, alpha = 1): void {
     // Belt-and-braces for the resize/orientationchange listeners: two number
     // comparisons per frame, and only then any DOM write. Some mobile browsers
     // resize the visual viewport (URL bar collapse, split-screen) without
@@ -242,7 +253,6 @@ export class Hud {
     ) {
       this.applyTheme();
     }
-    this.updateFps(fps);
     this.flight?.update(cur, prev, alpha, dtMs, nowMs());
     this.gauges.update(cur);
     this.moduleButtons.update(cur);
@@ -314,18 +324,6 @@ export class Hud {
     this.notifications.consumeEvents(events, this.configs);
     this.damageFx.consumeEvents(events);
     this.haptics.consumeEvents(events);
-  }
-
-  /**
-   * DOM write only when the *rounded* value changes — comparing the numbers
-   * first means no template string is built on the ~59 frames out of 60 where
-   * the reading is unchanged.
-   */
-  private updateFps(fps: number): void {
-    const rounded = Number.isFinite(fps) ? Math.round(fps) : Number.NaN;
-    if (Object.is(rounded, this.lastFps)) return;
-    this.lastFps = rounded;
-    this.fpsEl.textContent = `FPS: ${Number.isNaN(rounded) ? "--" : rounded}`;
   }
 
   dispose(): void {

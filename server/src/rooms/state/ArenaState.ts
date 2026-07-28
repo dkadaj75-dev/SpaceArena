@@ -31,6 +31,13 @@ export class ModuleState extends Schema {
   @type("float32") heat = 0;
   /** Weapon cooldown countdown (seconds) — drives fire-cadence visuals. */
   @type("float32") cycleTimer = 0;
+  /**
+   * True while a `fire.mode: "continuous"` weapon is channelling. The ONE piece
+   * of new replicated state the continuous beam needs: a channel deliberately
+   * emits no per-tick fire event, so without this flag a client has nothing to
+   * draw the persistent beam from. Always false for held/semi weapons.
+   */
+  @type("boolean") channeling = false;
   /** This module's shield-absorb reservoir (0 for non-shield modules). */
   @type("float32") shieldPool = 0;
 }

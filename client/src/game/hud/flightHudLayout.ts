@@ -1,9 +1,10 @@
 import type {
-  BoostButtonConfig,
   EnemyArrowsConfig,
+  FireButtonConfig,
   FlightHudConfig,
   FlightOrdersConfig,
   HudAnchorName,
+  HudModulesConfig,
   JoystickConfig,
   LockReticleConfig,
   RelativeSteerConfig,
@@ -54,7 +55,7 @@ export interface ThrottleLayout {
   tickCount: number;
 }
 
-export interface BoostLayout {
+interface CircularControlLayout {
   anchor: HudAnchorName;
   radiusPx: number;
   offsetXPx: number;
@@ -62,11 +63,38 @@ export interface BoostLayout {
   icon: string;
 }
 
+/** FIRE uses boost geometry plus optional content-bound blocked-pull feedback. */
+export interface FireLayout extends CircularControlLayout {
+  ringGapPx: number;
+  ringStrokePx: number;
+  ringArcDeg: number;
+  color: string;
+  fillOpacity: number;
+  borderPx: number;
+  glowPx: number;
+  armedFillOpacity: number;
+  armedGlowPx: number;
+  blockedNotification?: string;
+}
+
+export interface ModuleVisualLayout {
+  fillOpacity: number;
+  innerBorderOpacity: number;
+  labelGapPx: number;
+  labelHeightPx: number;
+  labelMaxWidthPx: number;
+  boostColor: string;
+}
+
 export interface ReticleLayout {
   maxRadiusFraction: number;
   strokePx: number;
   bracketSizePx: number;
   ringStrokePx: number;
+  targetNameOffsetPx: number;
+  targetNameSizePx: number;
+  blockedText: string;
+  blockedFlashMs: number;
 }
 
 export interface FlightOrderLayout {
@@ -88,6 +116,10 @@ export interface EnemyArrowsLayout {
   fadeNearUnits: number;
   fadeFarUnits: number;
   minOpacity: number;
+  outOfRangeScale: number;
+  outOfRangeOpacity: number;
+  markerMinOpacity: number;
+  markerSizePx: number;
 }
 
 export interface FlightHudLayout {
@@ -97,7 +129,8 @@ export interface FlightHudLayout {
   joystick: JoystickLayout;
   relativeSteer: RelativeSteerLayout;
   throttle: ThrottleLayout;
-  boost: BoostLayout;
+  modules: ModuleVisualLayout;
+  fire: FireLayout;
   reticle: ReticleLayout;
   enemyArrows: EnemyArrowsLayout;
   orders: FlightOrderLayout;
@@ -135,18 +168,40 @@ export const FLIGHT_HUD_DEFAULTS = {
     wheelStepPerNotch: 0.06,
     tickCount: 8,
   },
-  boost: {
+  modules: {
+    fillOpacity: 0.9,
+    innerBorderOpacity: 0.38,
+    labelGapPx: 4,
+    labelHeightPx: 11,
+    labelMaxWidthPx: 64,
+    boostColor: "#e8b44f",
+  },
+  fire: {
     anchor: "bottom-right",
-    radiusPx: 34,
+    radiusPx: 42,
     offsetXPx: 24,
     offsetYPx: 34,
-    icon: "»",
+    icon: "FIRE",
+    ringGapPx: 7,
+    ringStrokePx: 2,
+    ringArcDeg: 260,
+    color: "#ff4655",
+    fillOpacity: 0.3,
+    borderPx: 2,
+    glowPx: 10,
+    armedFillOpacity: 0.52,
+    armedGlowPx: 18,
+    blockedNotification: undefined,
   },
   reticle: {
     maxRadiusFraction: 0.82,
     strokePx: 2,
     bracketSizePx: 54,
     ringStrokePx: 4,
+    targetNameOffsetPx: 12,
+    targetNameSizePx: 10,
+    blockedText: "NO LOCK",
+    blockedFlashMs: 650,
   },
   enemyArrows: {
     enabled: true,
@@ -158,6 +213,10 @@ export const FLIGHT_HUD_DEFAULTS = {
     fadeNearUnits: 60,
     fadeFarUnits: 320,
     minOpacity: 0.35,
+    outOfRangeScale: 0.6,
+    outOfRangeOpacity: 0.4,
+    markerMinOpacity: 0.35,
+    markerSizePx: 10,
   },
   orders: {
     throttleEpsilon: 0.02,
@@ -206,7 +265,8 @@ export function resolveFlightHudLayout(
   const joystick: JoystickConfig = merge(base.joystick, over.joystick);
   const relativeSteer: RelativeSteerConfig = merge(base.relativeSteer, over.relativeSteer);
   const throttle: ThrottleStripConfig = merge(base.throttle, over.throttle);
-  const boost: BoostButtonConfig = merge(base.boost, over.boost);
+  const modules: HudModulesConfig = hud?.modules ?? {};
+  const fire: FireButtonConfig = merge(base.fire, over.fire);
   const reticle: LockReticleConfig = merge(base.reticle, over.reticle);
   const arrows: EnemyArrowsConfig = merge(base.enemyArrows, over.enemyArrows);
   const orders: FlightOrdersConfig = merge(base.orders, over.orders);
@@ -249,18 +309,40 @@ export function resolveFlightHudLayout(
       // divided instead of how big it is.
       tickCount: throttle.tickCount ?? d.throttle.tickCount,
     },
-    boost: {
-      anchor: boost.anchor ?? d.boost.anchor,
-      radiusPx: (boost.radiusPx ?? d.boost.radiusPx) * scale,
-      offsetXPx: (boost.offsetXPx ?? d.boost.offsetXPx) * scale,
-      offsetYPx: (boost.offsetYPx ?? d.boost.offsetYPx) * scale,
-      icon: boost.icon ?? d.boost.icon,
+    modules: {
+      fillOpacity: modules.fillOpacity ?? d.modules.fillOpacity,
+      innerBorderOpacity: modules.innerBorderOpacity ?? d.modules.innerBorderOpacity,
+      labelGapPx: (modules.labelGapPx ?? d.modules.labelGapPx) * scale,
+      labelHeightPx: (modules.labelHeightPx ?? d.modules.labelHeightPx) * scale,
+      labelMaxWidthPx: (modules.labelMaxWidthPx ?? d.modules.labelMaxWidthPx) * scale,
+      boostColor: modules.familyColors?.boost ?? d.modules.boostColor,
+    },
+    fire: {
+      anchor: fire.anchor ?? d.fire.anchor,
+      radiusPx: (fire.radiusPx ?? d.fire.radiusPx) * scale,
+      offsetXPx: (fire.offsetXPx ?? d.fire.offsetXPx) * scale,
+      offsetYPx: (fire.offsetYPx ?? d.fire.offsetYPx) * scale,
+      icon: fire.icon ?? d.fire.icon,
+      ringGapPx: (fire.ringGapPx ?? d.fire.ringGapPx) * scale,
+      ringStrokePx: (fire.ringStrokePx ?? d.fire.ringStrokePx) * scale,
+      ringArcDeg: fire.ringArcDeg ?? d.fire.ringArcDeg,
+      color: fire.color ?? d.fire.color,
+      fillOpacity: fire.fillOpacity ?? d.fire.fillOpacity,
+      borderPx: (fire.borderPx ?? d.fire.borderPx) * scale,
+      glowPx: (fire.glowPx ?? d.fire.glowPx) * scale,
+      armedFillOpacity: fire.armedFillOpacity ?? d.fire.armedFillOpacity,
+      armedGlowPx: (fire.armedGlowPx ?? d.fire.armedGlowPx) * scale,
+      blockedNotification: fire.blockedNotification,
     },
     reticle: {
       maxRadiusFraction: reticle.maxRadiusFraction ?? d.reticle.maxRadiusFraction,
       strokePx: (reticle.strokePx ?? d.reticle.strokePx) * scale,
       bracketSizePx: (reticle.bracketSizePx ?? d.reticle.bracketSizePx) * scale,
       ringStrokePx: (reticle.ringStrokePx ?? d.reticle.ringStrokePx) * scale,
+      targetNameOffsetPx: (reticle.targetNameOffsetPx ?? d.reticle.targetNameOffsetPx) * scale,
+      targetNameSizePx: (reticle.targetNameSizePx ?? d.reticle.targetNameSizePx) * scale,
+      blockedText: reticle.blockedText ?? d.reticle.blockedText,
+      blockedFlashMs: reticle.blockedFlashMs ?? d.reticle.blockedFlashMs,
     },
     enemyArrows: {
       enabled: arrows.enabled ?? d.enemyArrows.enabled,
@@ -274,6 +356,10 @@ export function resolveFlightHudLayout(
       fadeNearUnits: arrows.fadeNearUnits ?? d.enemyArrows.fadeNearUnits,
       fadeFarUnits: arrows.fadeFarUnits ?? d.enemyArrows.fadeFarUnits,
       minOpacity: arrows.minOpacity ?? d.enemyArrows.minOpacity,
+      outOfRangeScale: arrows.outOfRangeScale ?? d.enemyArrows.outOfRangeScale,
+      outOfRangeOpacity: arrows.outOfRangeOpacity ?? d.enemyArrows.outOfRangeOpacity,
+      markerMinOpacity: arrows.markerMinOpacity ?? d.enemyArrows.markerMinOpacity,
+      markerSizePx: (arrows.markerSizePx ?? d.enemyArrows.markerSizePx) * scale,
     },
     orders: {
       throttleEpsilon: orders.throttleEpsilon ?? d.orders.throttleEpsilon,
@@ -302,7 +388,7 @@ export function anchoredBoxOffset(
   return { dx: sx * (offsetXPx + halfWidthPx), dy: sy * (offsetYPx + halfHeightPx) };
 }
 
-/** {@link anchoredBoxOffset} for a circular control (joystick base, boost button). */
+/** {@link anchoredBoxOffset} for a circular control (joystick base or FIRE button). */
 export function anchoredOffset(
   anchor: HudAnchorName,
   offsetXPx: number,
@@ -341,9 +427,9 @@ export interface ReticleSize {
  * so the angle between the view axis and the cone's axis is `π/2 − (β − p)`.
  * **`βₑ = β − shipPitchRad` is therefore the only tilt this projection cares
  * about**, and passing the raw `β` would over-report the zone by the ship's whole
- * pitch — exactly the bug a chase camera that follows pitch introduces (with a
- * full `pitchFollow` the effective tilt is CONSTANT, which is why the circle
- * should barely breathe in a climb).
+ * pitch — exactly the bug a ship-relative chase camera would expose if its
+ * orbit beta were treated as world-relative. In the ship frame the effective
+ * tilt is constant, which is why the circle should barely breathe in a climb.
  *
  * The cone axis is offset from the view axis by
  * `α = |π/2 − βₑ|`. Its farthest edge is therefore `α + θ` from the view
@@ -365,7 +451,7 @@ export function reticleRadiusPx(
   coneDeg: number,
   view: CameraView,
   viewport: Viewport,
-  reticle: ReticleLayout,
+  reticle: Pick<ReticleLayout, "maxRadiusFraction">,
   shipPitchRad = 0,
 ): ReticleSize {
   const shortSide = Math.min(viewport.width, viewport.height);
@@ -523,7 +609,22 @@ export function flightCssVars(layout: FlightHudLayout): Record<string, string> {
     // Tick pitch as a fraction of the track, so the scale is one repeating
     // gradient rather than N pooled DOM nodes.
     "--hud-throttle-tick-pct": `${layout.throttle.tickCount > 0 ? 100 / layout.throttle.tickCount : 100}%`,
-    "--hud-boost-radius": `${layout.boost.radiusPx}px`,
+    "--hud-module-fill-pct": `${layout.modules.fillOpacity * 100}%`,
+    "--hud-module-inner-border-pct": `${layout.modules.innerBorderOpacity * 100}%`,
+    "--hud-module-label-gap": `${layout.modules.labelGapPx}px`,
+    "--hud-module-label-height": `${layout.modules.labelHeightPx}px`,
+    "--hud-module-label-max-width": `${layout.modules.labelMaxWidthPx}px`,
+    "--hud-module-boost-color": layout.modules.boostColor,
+    "--hud-fire-radius": `${layout.fire.radiusPx}px`,
+    "--hud-fire-ring-gap": `${layout.fire.ringGapPx}px`,
+    "--hud-fire-ring-stroke": `${layout.fire.ringStrokePx}px`,
+    "--hud-fire-ring-arc": `${layout.fire.ringArcDeg}deg`,
+    "--hud-fire-color": layout.fire.color,
+    "--hud-fire-fill-pct": `${layout.fire.fillOpacity * 100}%`,
+    "--hud-fire-border": `${layout.fire.borderPx}px`,
+    "--hud-fire-glow": `${layout.fire.glowPx}px`,
+    "--hud-fire-armed-fill-pct": `${layout.fire.armedFillOpacity * 100}%`,
+    "--hud-fire-armed-glow": `${layout.fire.armedGlowPx}px`,
     "--hud-reticle-stroke": `${layout.reticle.strokePx}px`,
     "--hud-reticle-ring-stroke": `${layout.reticle.ringStrokePx}px`,
     "--hud-enemy-arrow-size": `${layout.enemyArrows.sizePx}px`,

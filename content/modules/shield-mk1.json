@@ -21,7 +21,7 @@
   "onActivate": ["action.play-sound-shield-up"],
   "onDeactivate": ["action.play-sound-shield-down"],
   "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: shield]", "label": "Shield" },
+  "ui": { "icon": "[ICON: shield]", "shortName": "Shield Mk1", "label": "Shield" },
   "price": 0,
   "requiresLevel": 1
 }
