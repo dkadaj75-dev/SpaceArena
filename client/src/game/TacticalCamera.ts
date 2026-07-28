@@ -1,5 +1,6 @@
 import {
   ArcRotateCamera,
+  Matrix,
   PointerEventTypes,
   Vector3,
   type Observer,
@@ -17,10 +18,9 @@ import {
 import {
   approachHeading,
   approachPitch,
-  chaseAlphaFor,
-  chaseBetaFor,
+  chaseOffsetFor,
+  chaseUpFor,
   chaseSettingsOf,
-  CHASE_BETA_POLE_MARGIN,
   DEFAULT_CHASE_SETTINGS,
   type ChaseSettings,
 } from "./chaseCamera.js";
@@ -89,6 +89,12 @@ export class TacticalCamera {
   private chasePitch = 0;
   /** Smoothed pitch the orbit beta is derived from; null until the first frame seeds it. */
   private chaseSmoothPitch: number | null = null;
+  /** Scratch rig state — update() stays allocation-free (see {@link applyChasePose}). */
+  private readonly chaseUp = new Vector3(0, 1, 0);
+  private readonly chaseOffset = new Vector3();
+  private readonly chaseLocalOffset = new Vector3();
+  private readonly yToUp = new Matrix();
+  private readonly upToY = new Matrix();
   /** Engine default FOV, captured at construction so leaving chase mode restores it. */
   private readonly defaultFov: number;
   private pointersInput: { buttons: number[] } | undefined;
@@ -271,12 +277,13 @@ export class TacticalCamera {
    * Chase mode (FLIGHT.md §3) — the in-match rig for the continuous-flight
    * model. It replaces the player's orbit control rather than extending it:
    *
-   *  - `alpha` is derived every frame from the SHIP's heading
-   *    ({@link chaseCamera.chaseAlphaFor}) after `chase.yawLag` smoothing;
-   *  - `beta` is derived from the ship's PITCH ({@link chaseCamera.chaseBetaFor})
-   *    after `chase.pitchLag` smoothing — the bubble's vertical half of the same
-   *    idea (BUBBLE.md §C); `radius` is pinned to the `chase` block and the
-   *    radius limits are collapsed onto it so wheel/pinch zoom cannot fight it;
+   *  - the whole rig FRAME is derived every frame from the ship's smoothed
+   *    heading and pitch — it rolls with the ship so it can follow a loop
+   *    (BUBBLE.md §A, {@link applyChasePose}), which is what keeps the horizon
+   *    rotating instead of flipping at the pole. `chase.yawLag`/`chase.pitchLag`
+   *    smooth the two axes going in; `radius` is pinned to the `chase` block and
+   *    the radius limits are collapsed onto it so wheel/pinch zoom cannot fight
+   *    it;
    *  - the follow point is lifted by `chase.height` so the rig looks over the
    *    ship's shoulder instead of through it.
    *
@@ -326,12 +333,11 @@ export class TacticalCamera {
    * what makes wheel zoom and pinch inert without detaching the inputs (the
    * wheel input is shared with the editor/hangar modes).
    *
-   * Radius is pinned outright. Beta is NOT: since the bubble it follows the
-   * ship's pitch (BUBBLE.md §C), so the limits open onto the full legal band and
-   * {@link chaseCamera.chaseBetaFor}'s own pole margin is what bounds it. Pinning
-   * beta here would have Babylon clamp every climb straight back to the base
-   * tilt. Nothing is given back to the player by widening it — chase mode has no
-   * beta input at all (`onPointer` returns early, and the wheel only zooms).
+   * Radius is pinned outright. Beta is NOT: {@link applyChasePose} solves for it
+   * against Babylon's own up-vector alignment, so it must be free to take any
+   * value that solve produces. The limits therefore open onto the full legal band.
+   * Nothing is given back to the player by widening it — chase mode has no beta
+   * input at all (`onPointer` returns early, and the wheel only zooms).
    *
    * `chase.fov` is optional and an ABSENT value means "keep the engine default",
    * so a null restores the captured `defaultFov` instead of leaving whatever a
@@ -339,13 +345,47 @@ export class TacticalCamera {
    * actually take effect.
    */
   private applyChaseLimits(): void {
-    this.camera.lowerBetaLimit = CHASE_BETA_POLE_MARGIN;
-    this.camera.upperBetaLimit = Math.PI - CHASE_BETA_POLE_MARGIN;
+    // The rolled rig (BUBBLE.md §A) parks the ORBIT tilt at the authored base and
+    // rotates the whole frame instead, so beta no longer sweeps with the ship's
+    // pitch and needs no pole margin — but Babylon still clamps whatever we set,
+    // so the limits are opened to the full legal band rather than a narrow one.
+    this.camera.lowerBetaLimit = 0;
+    this.camera.upperBetaLimit = Math.PI;
     this.camera.lowerRadiusLimit = this.chase.radius;
     this.camera.upperRadiusLimit = this.chase.radius;
-    this.camera.beta = chaseBetaFor(this.chase.beta, this.chasePitch, this.chase.pitchFollow);
     this.camera.radius = this.chase.radius;
     this.camera.fov = this.chase.fov ?? this.defaultFov;
+    this.applyChasePose(this.chaseSmoothHeading ?? this.chaseHeading, this.chaseSmoothPitch ?? this.chasePitch);
+  }
+
+  /**
+   * Point the rig at a ship attitude — the whole of the loop-capable chase
+   * camera, and the one place that has to reckon with how `ArcRotateCamera`
+   * treats a non-Y `upVector`.
+   *
+   * `chaseUpFor`/`chaseOffsetFor` give the pose we want in world space. Babylon
+   * does not accept a pose: it derives its position from `alpha`/`beta` and then
+   * rotates that by `RotationAlign(Y, upVector)`. So we build the SAME alignment
+   * it will use, undo it on our desired offset, and read the orbit angles back out
+   * of the result. In ordinary flight this resolves to exactly `alpha = h + π`,
+   * `beta = chase.beta` — the rig really is "level, in the ship's frame" — but
+   * doing it by inversion rather than by assuming that keeps it correct in the one
+   * place the assumption fails: Babylon falls back to a fixed alignment axis when
+   * the up vector is within ~2.5° of −Y, which a looping ship passes through at
+   * the bottom of every revolution.
+   */
+  private applyChasePose(heading: number, pitch: number): void {
+    chaseUpFor(heading, pitch, this.chaseUp);
+    chaseOffsetFor(heading, pitch, this.chase.beta, this.chase.radius, this.chaseOffset);
+    // Assigning normalizes in place and rebuilds Babylon's own alignment matrices.
+    this.camera.upVector = this.chaseUp;
+    Matrix.RotationAlignToRef(Vector3.UpReadOnly, this.camera.upVector, this.yToUp);
+    this.yToUp.transposeToRef(this.upToY);
+    Vector3.TransformCoordinatesToRef(this.chaseOffset, this.upToY, this.chaseLocalOffset);
+    const radius = this.chase.radius;
+    this.camera.radius = radius;
+    this.camera.beta = Math.acos(clamp(this.chaseLocalOffset.y / radius, -1, 1));
+    this.camera.alpha = Math.atan2(this.chaseLocalOffset.z, this.chaseLocalOffset.x);
   }
 
   /** Snap the camera to look at `target` at the given radius/beta — used to stage the Hangar preview. */
@@ -511,20 +551,21 @@ export class TacticalCamera {
       // Orbit angle from the SHIP, smoothed with `yawLag` (mutated in place; no
       // allocation and no setTarget(), which would recompute alpha/beta/radius
       // from the position and undo exactly what we just set).
+      //
+      // Both smoothers run on the ship's RAW attitude and stay there: nothing is
+      // folded any more. The rig rolls with the ship ({@link chaseUpFor}), so the
+      // azimuth never has to jump and the tilt never approaches a pole. Pitch
+      // smooths the SHORT way round because it wraps mid-loop.
       this.chaseSmoothHeading =
         this.chaseSmoothHeading === null
           ? this.chaseHeading
           : approachHeading(this.chaseSmoothHeading, this.chaseHeading, this.chase.yawLag, dt);
-      this.camera.alpha = chaseAlphaFor(this.chaseSmoothHeading);
-      // Tilt follows the ship's pitch the same way (BUBBLE.md §C), on its own lag
-      // and WITHOUT the shortest-way-round step — pitch does not wrap.
       this.chaseSmoothPitch =
         this.chaseSmoothPitch === null
           ? this.chasePitch
           : approachPitch(this.chaseSmoothPitch, this.chasePitch, this.chase.pitchLag, dt);
       // Re-asserted every frame so a hot-reloaded chase block applies live.
-      this.camera.beta = chaseBetaFor(this.chase.beta, this.chaseSmoothPitch, this.chase.pitchFollow);
-      this.camera.radius = this.chase.radius;
+      this.applyChasePose(this.chaseSmoothHeading, this.chaseSmoothPitch);
       this.camera.target.copyFrom(this.followPoint);
       this.camera.target.y += this.chase.height;
       // No arena-bounds clamp: the target IS the ship, so it is inside the

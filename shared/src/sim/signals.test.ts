@@ -73,7 +73,7 @@ describe("signal registry", () => {
 
   it("shieldActive reflects any module with an absorb reservoir", () => {
     const withShield = ship({
-      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 5 }],
+      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 5 }],
     });
     expect(evalSignal("shieldActive", withShield)).toBe(1);
     expect(evalSignal("shieldActive", ship())).toBe(0);
@@ -81,7 +81,7 @@ describe("signal registry", () => {
 
   it("firing reflects an active module mid weapon cycle", () => {
     const firing = ship({
-      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0.2, shieldPool: 0 }],
+      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 }],
     });
     expect(evalSignal("firing", firing)).toBe(1);
   });

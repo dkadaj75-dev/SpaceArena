@@ -44,8 +44,12 @@ export interface FlightState {
    * `pitchStick * engine.turnRate * tuning.pitchRateMult`.
    */
   pitchStick: number;
-  /** True while the pilot holds boost (resolved against a fitted boost module). */
+  /** Boost request; human pilots derive it from the fitted boost module's active state. */
   boost: boolean;
+  /** True while the pilot holds the weapon trigger. */
+  fire: boolean;
+  /** Previous tick's trigger level, used only by the sim for semi-auto edges. */
+  firePrev: boolean;
 }
 
 /** Resolved ship stats (ship class + upgrade tracks at level 0 for now). */
@@ -71,6 +75,23 @@ export type ModuleState =
   | "retracting"
   | "overheated";
 
+/**
+ * Banked damage from a channelling `continuous` weapon. Damage itself is applied
+ * to the target every tick (`fire.damage * dt`); only the *events* are banked
+ * here and flushed at a fixed low cadence, so a channel costs ~4 events/second
+ * instead of one per tick per beam. Sim-internal, never replicated.
+ */
+export interface ChannelRuntime {
+  /** Entity the banked amounts belong to; a target change flushes first. */
+  targetId: EntityId;
+  /** Hull damage dealt since the last flush. */
+  hull: number;
+  /** Damage soaked since the last flush, by absorbing shield hardpoint index. */
+  absorbed: Map<number, number>;
+  /** Seconds since the last flush. */
+  eventTimer: number;
+}
+
 /** Per-fitted-module runtime state (the generic §2.3 state machine). */
 export interface ModuleRuntime {
   moduleId: string;
@@ -81,8 +102,21 @@ export interface ModuleRuntime {
   stateTimer: number;
   /** This module's own heat vs its `overheatThreshold`. */
   heat: number;
-  /** Weapon cooldown countdown (seconds). */
+  /** Weapon cooldown countdown (seconds). Always 0 for `fire.mode: "continuous"`. */
   cycleTimer: number;
+  /**
+   * True on every tick a `continuous` weapon is CHANNELLING (trigger held and
+   * every gate passing). Replicated — it is the only thing that tells a client to
+   * draw a persistent beam, since a channel emits no per-tick fire events. Always
+   * false for `held`/`semi` modules.
+   */
+  channeling: boolean;
+  /**
+   * Sim-internal channel accumulator; `null` until the module first channels and
+   * cleared when it stops. NEVER replicated — the wire carries only
+   * {@link ModuleRuntime.channeling}.
+   */
+  channel: ChannelRuntime | null;
   /** Set true by nav/combat when the module actually did work this tick. */
   workedThisTick: boolean;
   /**

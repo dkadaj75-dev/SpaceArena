@@ -4,6 +4,17 @@ import type { EntityId } from "./components.js";
 import type { World } from "./World.js";
 
 /**
+ * Event sink for damage that is applied continuously rather than in discrete
+ * hits (see {@link applyDamageToShip}). Structurally the banked half of
+ * `ChannelRuntime`, kept as its own type so `damage.ts` does not depend on the
+ * weapon that happens to use it.
+ */
+export interface DamageTally {
+  hull: number;
+  absorbed: Map<number, number>;
+}
+
+/**
  * Central ship damage pipeline used by beams and projectiles alike. Flow:
  *
  *   1. base *= tuning.globalDamageMult
@@ -17,6 +28,12 @@ import type { World } from "./World.js";
  *   4. remaining damage hits hull after the hull resist for that damage type.
  *
  * Emits `damage`; emits `entityDestroyed` once when hull crosses 0.
+ *
+ * Pass a `tally` (a channelling continuous weapon does) to BANK the `damage` and
+ * `shieldAbsorb` amounts instead of emitting them — the caller then emits one
+ * aggregate event per cadence window. `entityDestroyed` is never banked: a kill
+ * is announced on the tick it happens. The mechanical result is byte-identical
+ * either way; only event volume differs.
  */
 export function applyDamageToShip(
   world: World,
@@ -24,6 +41,7 @@ export function applyDamageToShip(
   sourceId: EntityId | null,
   baseAmount: number,
   type: DamageType,
+  tally?: DamageTally,
 ): void {
   const core = world.shipCores.get(targetId);
   if (!core || core.hull <= 0) return;
@@ -47,7 +65,11 @@ export function applyDamageToShip(
       dmg -= reduced;
       if (mit.absorbPerSecond !== undefined) m.shieldPool -= reduced;
       m.workedThisTick = true;
-      world.emit({ type: "shieldAbsorb", targetId, hardpointIndex: m.hardpointIndex, amount: reduced });
+      if (tally) {
+        tally.absorbed.set(m.hardpointIndex, (tally.absorbed.get(m.hardpointIndex) ?? 0) + reduced);
+      } else {
+        world.emit({ type: "shieldAbsorb", targetId, hardpointIndex: m.hardpointIndex, amount: reduced });
+      }
     }
   }
 
@@ -64,7 +86,8 @@ export function applyDamageToShip(
   const hullDmg = dmg * (1 - resist);
   const wasAlive = core.hull > 0;
   core.hull -= hullDmg;
-  world.emit({ type: "damage", targetId, sourceId, amount: hullDmg, damageType: type, isAsteroid: false });
+  if (tally) tally.hull += hullDmg;
+  else world.emit({ type: "damage", targetId, sourceId, amount: hullDmg, damageType: type, isAsteroid: false });
 
   if (wasAlive && core.hull <= 0) {
     core.hull = 0;

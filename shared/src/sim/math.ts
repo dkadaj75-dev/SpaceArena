@@ -119,6 +119,101 @@ export function pitchToward(pitch: number, target: number, maxStep: number): num
   return pitch + Math.sign(delta) * maxStep;
 }
 
+const HALF_PI = Math.PI / 2;
+
+/** A yaw+pitch orientation. Mutated in place by the helpers below (no per-tick alloc). */
+export interface Attitude {
+  heading: number;
+  pitch: number;
+}
+
+/**
+ * The OTHER (heading, pitch) pair that names the same facing direction
+ * (BUBBLE.md §A, free-pitch loops).
+ *
+ * `facingVec` is `(cos p·cos h, sin p, cos p·sin h)`, and that map is two-to-one:
+ * `(h + PI, PI − p)` produces exactly the same vector, because `cos(PI − p) =
+ * −cos p` cancels against the `cos(h + PI) = −cos h` in both horizontal terms
+ * while `sin(PI − p) = sin p` leaves the vertical one alone. Applying this twice
+ * returns the original pair, so it is an involution: there are exactly two names
+ * for every attitude and this swaps between them.
+ *
+ * Once pitch is free to run the whole circle, both names are reachable states,
+ * and code that has to CHOOSE one — a boundary reflection, a bot's desired
+ * attitude, the chase camera's orbit — must choose the one that is continuous
+ * with where the ship already is, or the ship teleports between two spellings of
+ * the same nose direction. That choice is {@link attitudeNear}.
+ */
+export function mirrorAttitude(heading: number, pitch: number, out: Attitude): Attitude {
+  const p = wrapAngle(pitch);
+  out.heading = wrapAngle(heading + Math.PI);
+  out.pitch = p >= 0 ? Math.PI - p : -Math.PI - p;
+  return out;
+}
+
+/**
+ * The same facing direction with its pitch folded into [-PI/2, PI/2] — the
+ * "upright" spelling, where `cos pitch >= 0` and the heading really is the
+ * direction the nose travels horizontally.
+ *
+ * This is what the view layer wants: a canonical elevation is continuous through
+ * a loop (it rises to PI/2, then falls back), while the canonical heading flips
+ * by PI at the pole, which is the honest statement that a ship that has just gone
+ * over the top is now flying the other way.
+ */
+export function canonicalAttitude(heading: number, pitch: number, out: Attitude): Attitude {
+  const p = wrapAngle(pitch);
+  if (p > HALF_PI || p < -HALF_PI) return mirrorAttitude(heading, p, out);
+  out.heading = wrapAngle(heading);
+  out.pitch = p;
+  return out;
+}
+
+/**
+ * Whichever of the two names for this facing direction sits the SHORT way from
+ * `refPitch` — the continuity rule for every consumer that replaces one attitude
+ * with another (boundary reflection, bot aim, prediction).
+ *
+ * Ties go to the canonical spelling so the choice is deterministic. While the
+ * reference attitude is upright this always answers the canonical pair, which is
+ * why authoring the legacy `maxPitchRad` clamp keeps behaviour bit-identical to
+ * the pre-loop sim: a clamped hull can never be inverted, so the mirror can never
+ * win.
+ */
+export function attitudeNear(heading: number, pitch: number, refPitch: number, out: Attitude): Attitude {
+  const p = wrapAngle(pitch);
+  const canonPitch = p > HALF_PI || p < -HALF_PI ? (p >= 0 ? Math.PI - p : -Math.PI - p) : p;
+  const canonHeading = p > HALF_PI || p < -HALF_PI ? wrapAngle(heading + Math.PI) : wrapAngle(heading);
+  const mirrorPitch = canonPitch >= 0 ? Math.PI - canonPitch : -Math.PI - canonPitch;
+  if (Math.abs(angleDelta(refPitch, mirrorPitch)) < Math.abs(angleDelta(refPitch, canonPitch))) {
+    out.heading = wrapAngle(canonHeading + Math.PI);
+    out.pitch = mirrorPitch;
+    return out;
+  }
+  out.heading = canonHeading;
+  out.pitch = canonPitch;
+  return out;
+}
+
+/**
+ * One tick of the pitch axis (BUBBLE.md §A as amended for free-pitch loops).
+ *
+ * `maxPitchRad` is the OPTIONAL legacy clamp: authored, the nose stops there and
+ * the pre-loop behaviour is reproduced exactly; absent (`null`, the shipped
+ * default), pitch simply WRAPS to (-PI, PI] and the ship flies a full loop —
+ * `facingVec` stays valid for any pitch, and past vertical `cos pitch` goes
+ * negative, which flips the horizontal component of the nose. That flip IS the
+ * loop: heading is untouched, so holding the stick up carries the ship over the
+ * top and back, exactly the way holding it left yaws forever.
+ *
+ * Both integrators (NavigationSystem and `flightStep`) call THIS, so the sim and
+ * the client predictor cannot drift apart at the wrap.
+ */
+export function advancePitch(pitch: number, delta: number, maxPitchRad: number | null): number {
+  const next = pitch + delta;
+  return maxPitchRad === null ? wrapAngle(next) : clamp(next, -maxPitchRad, maxPitchRad);
+}
+
 /**
  * Shortest squared distance from point `p` to segment `a`-`b` in 3D. The swept
  * projectile hit test uses this so a shot can neither tunnel through a target nor
@@ -148,4 +243,74 @@ export function segmentIntersectsSphere(a: Vec3, b: Vec3, c: Vec3, radius: numbe
 
 export function clamp(v: number, min: number, max: number): number {
   return v < min ? min : v > max ? max : v;
+}
+
+/**
+ * One tick of the ATTITUDE — both axes, in the ship's own frame (BUBBLE.md §A,
+ * body-frame yaw amendment).
+ *
+ * `turn` used to be a plain `heading += delta` about world Y. That is wrong for a
+ * flier that can invert, and not just by a sign: the chase rig is locked to the
+ * nose, so a world-Y yaw shows up on screen as a *mixture* of turning (∝ cos p)
+ * and rolling the whole view (∝ sin p). Near vertical the roll is the entire
+ * visual and the turn has vanished, and no choice of sign can make both components
+ * read consistently — flipping the one that fixes turning reverses the one the
+ * player is actually looking at. See `client/src/game/screenSteering.test.ts`.
+ *
+ * So yaw rotates the nose about the ship's OWN up `U` instead:
+ *
+ *     N = (cos p·cos h, sin p, cos p·sin h)     the nose
+ *     U = (−cos h·sin p, cos p, −sin h·sin p)   the ship's up (the chase rig's up)
+ *     W = N × U = (−sin h, 0, cos h)            the ship's right-hand axis
+ *
+ * `U ⊥ N`, so Rodrigues collapses to `N' = N·cos ψ + W·sin ψ`, and `dN/dψ = W`
+ * with `|W| = 1` at EVERY attitude: constant authority, the same screen direction
+ * upright or inverted, no dead zone at vertical, and zero parasitic roll (rotating
+ * about `U` leaves `U` fixed). At `p = 0`, `U` is world Y and this reduces to
+ * `h += ψ` exactly — level flight is bit-identical to the old model, which is the
+ * strongest safety property this change has.
+ *
+ * The pitch axis is unchanged: it already rotated the nose about `W`, the ship's
+ * own right-hand axis, which is what a body-frame pitch is.
+ *
+ * Decomposing `N'` back into (heading, pitch) is two-to-one, so the spelling is
+ * chosen by continuity with the attitude we came from ({@link attitudeNear}) —
+ * an inverted ship stays inverted through a turn instead of snapping upright.
+ *
+ * `yawDelta === 0` returns the attitude untouched. That is an exact test, not an
+ * epsilon: it exists because a ship sitting precisely at the pole has no
+ * horizontal component to read a heading from, and with no yaw commanded there is
+ * nothing to recompute anyway.
+ *
+ * Both integrators — `flightStep` and `NavigationSystem` — call THIS, so the sim
+ * and the client predictor cannot drift apart.
+ */
+export function advanceAttitude(
+  heading: number,
+  pitch: number,
+  yawDelta: number,
+  pitchDelta: number,
+  maxPitchRad: number | null,
+  out: Attitude,
+): Attitude {
+  let h = heading;
+  let p = pitch;
+  if (yawDelta !== 0) {
+    const cp = Math.cos(p);
+    const sp = Math.sin(p);
+    const ch = Math.cos(h);
+    const sh = Math.sin(h);
+    const cy = Math.cos(yawDelta);
+    const sy = Math.sin(yawDelta);
+    // N' = N·cos ψ + W·sin ψ, with W = (−sin h, 0, cos h).
+    const nx = cp * ch * cy - sh * sy;
+    const ny = sp * cy;
+    const nz = cp * sh * cy + ch * sy;
+    attitudeNear(headingOf(nx, nz), pitchOf(nx, ny, nz), p, out);
+    h = out.heading;
+    p = out.pitch;
+  }
+  out.heading = wrapAngle(h);
+  out.pitch = advancePitch(p, pitchDelta, maxPitchRad);
+  return out;
 }

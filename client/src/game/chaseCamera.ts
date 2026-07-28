@@ -43,8 +43,6 @@ export interface ChaseSettings {
   /** BASE tilt — the tilt seen while flying LEVEL; the ship's pitch is added to it. */
   beta: number;
   yawLag: number;
-  /** How much of the ship's pitch the tilt follows, 0..1 (see {@link chaseBetaFor}). */
-  pitchFollow: number;
   /** Tilt smoothing, 0..1 like `yawLag`. */
   pitchLag: number;
   /**
@@ -62,10 +60,7 @@ export interface ChaseSettings {
  * documented exceptions:
  *
  *  - `fov` is null here for the same reason it is optional in the schema: there
- *    is no defensible FOV to invent for a pack that never asked for one;
- *  - `pitchFollow` is a FULL 1 — "no follow configured" can only honestly mean
- *    "look down the nose", and softening it is a feel choice the shipped pack
- *    makes (0.85) rather than something to bake in as the fallback.
+ *    is no defensible FOV to invent for a pack that never asked for one.
  *
  * `pitchLag` has no built-in of its own: an omitted value resolves to `yawLag`,
  * which keeps both axes matched for a pack that never asked for a pitch feel.
@@ -75,7 +70,6 @@ export const DEFAULT_CHASE_SETTINGS: ChaseSettings = {
   height: 1.4,
   beta: 1.34,
   yawLag: 0.12,
-  pitchFollow: 1,
   pitchLag: 0.12,
   fov: null,
 };
@@ -90,7 +84,6 @@ export function chaseSettingsOf(camera: CameraConfig | undefined): ChaseSettings
     height: c?.height ?? d.height,
     beta: c?.beta ?? d.beta,
     yawLag,
-    pitchFollow: c?.pitchFollow ?? d.pitchFollow,
     // Omitted ⇒ the tilt smooths exactly like the yaw does.
     pitchLag: c?.pitchLag ?? yawLag,
     fov: c?.fov ?? d.fov, // both null-by-default: absent everywhere ⇒ engine default
@@ -102,57 +95,104 @@ export function chaseSettingsOf(camera: CameraConfig | undefined): ChaseSettings
  * (see the derivation above). Not wrapped: `ArcRotateCamera` is happy with any
  * real alpha, and the smoothing in {@link approachHeading} is what keeps the
  * value continuous.
+ *
+ * Feed this the ship's RAW heading. It never needs folding: the rolled rig
+ * ({@link chaseUpFor}) rotates the whole camera frame into the loop plane, so the
+ * azimuth stays put for the entire loop and the camera never has to swing round
+ * to the far side of the ship.
  */
 export function chaseAlphaFor(heading: number): number {
   return heading + Math.PI;
 }
 
 /**
- * Angular margin the orbit tilt keeps from both poles (radians).
+ * How the rig follows a ship through a LOOP (BUBBLE.md §A) — **the camera rolls
+ * with the ship**.
  *
- * `ArcRotateCamera` degenerates at `beta = 0` and `beta = π`: the orbit offset
- * collapses onto ±Y, the look-at basis loses its right vector and the view rolls
- * or flips. The bubble's own `tuning.maxPitchRad` (~80°) plus a base tilt under
- * π/2 keeps a shipped pack clear of that, but the margin is what makes the rig
- * unbreakable by content — an arena that raises the pitch clamp cannot spin the
- * camera through a pole, it just stops following the last few degrees.
+ * The first cut at this kept the world-up orbit and folded an inverted attitude
+ * into its upright spelling. The owner flew it and reported being "bumped in the
+ * other direction" on reaching vertical, and they were right: a world-up chase rig
+ * simply cannot represent an inverted attitude. Staying behind the nose past the
+ * pole demands a π flip of the orbit azimuth, and with the camera's up pinned to
+ * world +Y that flip inverts the whole image in a single frame. The ship's
+ * horizontal travel genuinely reverses at the same instant (`cos p` changes sign),
+ * so the two together read as a hard kick backwards. No amount of tapering or
+ * smoothing fixes it — it is topological, not a tuning problem.
+ *
+ * So the rig rolls instead. `upVector` is the SHIP's own up, which sweeps
+ * continuously around the loop plane, and in that frame the ship is permanently
+ * level: the camera sits behind and slightly above the nose at a constant tilt,
+ * the horizon rotates smoothly around the player, and "drag up" moves the nose
+ * toward the top of the screen at every point of the loop. That is the arcade
+ * answer, and it is the only one that keeps the input's meaning stable.
+ *
+ * `up` is perpendicular to the nose by construction (`up · facing = 0` for every
+ * pitch) and is continuous across the ±π wrap, where it passes cleanly through
+ * `(0, −1, 0)`.
  */
-export const CHASE_BETA_POLE_MARGIN = 0.05;
-
-/**
- * Orbit `beta` for a ship at `pitch` (BUBBLE.md §C).
- *
- * `beta = base + pitch × pitchFollow`, clamped {@link CHASE_BETA_POLE_MARGIN}
- * short of both poles. The `+` is derived, not chosen: to sit behind a ship
- * flying along `(cos p·cos h, sin p, cos p·sin h)` the camera offset must point
- * along the NEGATIVE of that, so its y component is `−R·sin p`; the orbit's y
- * offset is `R·cos β`, and `cos β = −sin p` gives `β = π/2 + p`. A base tilt
- * below π/2 (which is what lifts the camera above the ship in level flight)
- * simply rides along with that.
- *
- * `pitchFollow` interpolates between a fixed frame (0 — the ship pitches inside
- * a level view) and looking straight down the nose (1).
- */
-export function chaseBetaFor(baseBeta: number, pitch: number, pitchFollow: number): number {
-  const beta = baseBeta + pitch * pitchFollow;
-  const lo = CHASE_BETA_POLE_MARGIN;
-  const hi = Math.PI - CHASE_BETA_POLE_MARGIN;
-  return beta < lo ? lo : beta > hi ? hi : beta;
+export function chaseUpFor(heading: number, pitch: number, out: Vec3): Vec3 {
+  const sp = Math.sin(pitch);
+  out.x = -Math.cos(heading) * sp;
+  out.y = Math.cos(pitch);
+  out.z = -Math.sin(heading) * sp;
+  return out;
 }
 
 /**
- * Frame-rate-independent exponential approach on a NON-WRAPPING angle — the
- * ship's pitch, which is clamped to ±`tuning.maxPitchRad` and never crosses ±π.
- * Same `1 − (1 − lag)^(dt·60)` curve as {@link approachHeading}, deliberately
- * WITHOUT its shortest-way-round step: pitch has no wrap to take a short cut
- * across, and treating −0.5 and +6.0 as neighbours would be a bug, not a
- * feature. `lag >= 1` snaps.
+ * Where the camera sits relative to the ship, in WORLD space.
+ *
+ * Derivation: take the level chase offset (the orbit vector at `alpha = h + π`,
+ * `beta = baseBeta`) and rotate the whole rig into the loop plane, i.e. by the
+ * ship's pitch about the horizontal axis `w = (−sin h, 0, cos h)` that the loop
+ * turns around. Rodrigues collapses almost entirely — `w` is perpendicular to the
+ * level offset, so the `w(w·v)` term vanishes — and what survives is just an angle
+ * addition:
+ *
+ *     offset = R·(−cos h·sin(baseBeta + p), cos(baseBeta + p), −sin h·sin(baseBeta + p))
+ *
+ * which is the plain orbit formula at `alpha = h + π`, `beta = baseBeta + p`, with
+ * NO fold and NO pole clamp. That is worth stating plainly: the camera's POSITION
+ * was always continuous through a loop under the naive rule. Only the roll was
+ * ever broken, which is exactly why {@link chaseUpFor} is the whole fix.
+ */
+export function chaseOffsetFor(
+  heading: number,
+  pitch: number,
+  baseBeta: number,
+  radius: number,
+  out: Vec3,
+): Vec3 {
+  const tilt = baseBeta + pitch;
+  const s = Math.sin(tilt) * radius;
+  out.x = -Math.cos(heading) * s;
+  out.y = Math.cos(tilt) * radius;
+  out.z = -Math.sin(heading) * s;
+  return out;
+}
+
+/** A 3D point the rig math writes into (kept local so this module stays engine-free). */
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * Frame-rate-independent exponential approach on the rig's tilt. Same
+ * `1 − (1 − lag)^(dt·60)` curve as {@link approachHeading}, and it takes the same
+ * shortest way round.
+ *
+ * It did not always: while pitch was clamped this deliberately omitted the wrap
+ * step, on the grounds that "treating −0.5 and +6.0 as neighbours would be a bug".
+ * Free pitch makes them genuinely adjacent — a looping ship crosses ±π every
+ * revolution — and the input here is the CANONICAL elevation, which is bounded by
+ * ±π/2 and therefore never more than π from anything. `lag >= 1` snaps.
  */
 export function approachPitch(current: number, target: number, lag: number, dt: number): number {
   if (lag >= 1 || dt <= 0) return target;
   if (lag <= 0) return current;
   const t = 1 - Math.pow(1 - lag, dt * 60);
-  return current + (target - current) * t;
+  return current + angleDeltaTo(current, target) * t;
 }
 
 /**

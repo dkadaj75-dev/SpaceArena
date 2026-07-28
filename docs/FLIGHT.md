@@ -116,13 +116,15 @@ edge palm-rejection ignores them):
   `theme.hud.flight.joystick.enabled`; the shipped theme disables it.
 - **Throttle strip** (right edge, vertical): drag thumb 0% (bottom) → 100% (top);
   the thumb STAYS where released (held state). Shows % readout. Emits flight orders.
-- **Boost button** (module-cluster area): hold = `boost: true`.
+- **Boost module button** (module cluster): toggles the fitted boost module; its
+  replicated `active` state drives `boost: true`.
 - **Lock reticle**: fixed center-screen circle showing the lock zone (size derived
   from coneDeg + camera FOV, theme-styled); target bracket projected onto the
   locked/locking enemy (main.ts passes a `project(worldPos) → cssPx` callback into
   Hud) with a lock-progress ring; locked state = color change + haptic pattern
   (new themeSchema haptic field + Haptics.ts branch) + audio event.
-- **Desktop bindings**: W/S = throttle nudge (hold to ramp), Shift = boost,
+- **Desktop bindings**: W/S = throttle nudge (hold to ramp), Shift = toggle the
+  first fitted boost module,
   hold RMB + mouse movement = turn/pitch. A/D, arrows, and R/F are unbound.
 - Order sending: client keeps latest input state; sends a flight order when
   `|Δthrottle| > 0.02`, `|Δturn| > 0.05`, boost edge, or 250ms heartbeat while

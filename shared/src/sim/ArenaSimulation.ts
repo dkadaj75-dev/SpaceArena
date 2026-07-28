@@ -9,7 +9,7 @@ import type { UpgradeLevels } from "./resolveStats.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { cleanupSystem } from "./systems/CleanupSystem.js";
-import { combatSystem } from "./systems/CombatSystem.js";
+import { combatSystem, latchFireState } from "./systems/CombatSystem.js";
 import { energySystem } from "./systems/EnergySystem.js";
 import { moduleSystem } from "./systems/ModuleSystem.js";
 import { navigationSystem } from "./systems/NavigationSystem.js";
@@ -25,6 +25,13 @@ export interface ModuleSnapshot {
   heat: number;
   stateTimer: number;
   cycleTimer: number;
+  /**
+   * True while a `fire.mode: "continuous"` weapon is channelling. The client
+   * draws its persistent beam from this flag alone — a channel emits one fire
+   * event when it starts and none afterwards, so there is no per-shot event
+   * stream to render from. Always false for `held`/`semi` modules.
+   */
+  channeling: boolean;
   /** Shield-family absorb reservoir (0 for non-shield modules); see ModuleRuntime. */
   shieldPool: number;
 }
@@ -296,6 +303,7 @@ export class ArenaSimulation {
     projectileSystem(w, dt);
     collisionSystem(w, dt);
     cleanupSystem(w);
+    latchFireState(w);
 
     this.elapsed += dt;
     this.tickNo += 1;
@@ -458,6 +466,7 @@ export class ArenaSimulation {
           heat: m.heat,
           stateTimer: m.stateTimer,
           cycleTimer: m.cycleTimer,
+          channeling: m.channeling,
           shieldPool: m.shieldPool,
         })),
       };

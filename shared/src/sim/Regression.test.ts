@@ -26,7 +26,7 @@ describe("Bug 1 — collision grind death", () => {
 
     // Flight has no avoidance and no arrival (FLIGHT.md §1/§7): the pilot flies
     // straight at the rock and CollisionSystem is the only thing between them.
-    world.queueOrder(ship, { kind: "flight", throttle: 1, turn: 0, boost: false });
+    world.queueOrder(ship, { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true });
 
     for (let i = 0; i < 120; i++) {
       rebuildSpatial(world);

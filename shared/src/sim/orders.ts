@@ -24,6 +24,8 @@ export type Order =
        */
       pitchStick?: number;
       boost: boolean;
+      /** True while the pilot holds the weapon trigger. */
+      fire: boolean;
     }
   | { kind: "moduleToggle"; hardpointIndex: number };
 

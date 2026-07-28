@@ -102,7 +102,7 @@ describe("match-start countdown — order suspension", () => {
     const start = { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z, heading: tf.heading, pitch: tf.pitch };
 
     // Full throttle, hard over, nose up — held through the whole countdown.
-    sim.applyOrder(id!, { kind: "flight", throttle: 1, turn: 1, pitchStick: 1, boost: true });
+    sim.applyOrder(id!, { kind: "flight", throttle: 1, turn: 1, pitchStick: 1, boost: true, fire: true });
     for (let i = 0; i < TICKS - 1; i++) sim.tick(DT);
 
     // Nothing integrated: not position, not attitude, not velocity.
@@ -197,7 +197,7 @@ describe("match-start countdown — simultaneous start", () => {
     const b = newSim(3);
     const [shipA] = a.world.shipIds();
     for (let i = 1; i <= TICKS; i++) {
-      a.applyOrder(shipA!, { kind: "flight", throttle: 1, turn: -1, boost: true });
+      a.applyOrder(shipA!, { kind: "flight", throttle: 1, turn: -1, boost: true, fire: true });
       a.tick(DT);
       b.tick(DT);
       expect(a.matchPhase).toBe(b.matchPhase);

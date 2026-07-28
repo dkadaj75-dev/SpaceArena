@@ -7,13 +7,16 @@ import type {
   Snapshot,
   ThemeConfig,
 } from "@space-arena/shared";
-import { createLogger } from "@space-arena/shared";
+import { canonicalAttitude, createLogger, type Attitude } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { altitudeTickPx, DEFAULT_ALTITUDE_TICK_PX } from "./minimapAltitude.js";
 
 const log = createLogger("HudMinimap");
 
 const REDRAW_INTERVAL_MS = 100; // ~10 Hz, per spec
+
+/** Scratch attitude for blip facing — the draw loop stays allocation-free. */
+const blipAttitude: Attitude = { heading: 0, pitch: 0 };
 
 /**
  * The bubble's radius, or a `rect` arena approximated by its half-diagonal, so the
@@ -200,7 +203,15 @@ export class Minimap {
       ctx.translate(px, py);
       // Sim heading is math-convention (0 = +X). The triangle points up
       // (canvas −y = world −z) at rotation 0, so rotate by π/2 + heading.
-      ctx.rotate(Math.PI / 2 + s.heading);
+      //
+      // The CANONICAL heading, not the raw one (BUBBLE.md §A): the minimap is a
+      // top-down projection, so what it must show is the direction the ship is
+      // travelling ACROSS the map, and past vertical `cos pitch` goes negative and
+      // that direction is 180° from what `heading` alone names. Drawing the raw
+      // value would point every looping ship — the player's own wedge included —
+      // backwards for half of every loop.
+      canonicalAttitude(s.heading, s.pitch, blipAttitude);
+      ctx.rotate(Math.PI / 2 + blipAttitude.heading);
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.moveTo(0, -r);

@@ -3,6 +3,7 @@ import type { ConfigService } from "../core/ConfigService.js";
 import type { TuningConfig } from "../schemas/index.js";
 import { ArenaSimulation } from "./ArenaSimulation.js";
 import { applyDamageToShip } from "./damage.js";
+import { angleDelta, facingVec } from "./math.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { navigationSystem } from "./systems/NavigationSystem.js";
@@ -81,7 +82,7 @@ describe("CollisionSystem boundary", () => {
       { x: 88.5, z: 0 },
       0,
     );
-    world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, pitchStick: 0, boost: false });
+    world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, pitchStick: 0, boost: false, fire: true });
 
     let contactHull: number | null = null;
     let contactRadius = 0;
@@ -106,6 +107,74 @@ describe("CollisionSystem boundary", () => {
     const end = world.transforms.get(id)!.pos;
     expect(Math.hypot(end.x, end.y, end.z)).toBeLessThan(contactRadius - 2);
     expect(world.shipCores.get(id)!.hull).toBe(contactHull);
+  });
+
+  it("reflects an INVERTED attitude without snapping it upright", () => {
+    // Free pitch (BUBBLE.md §A) means a ship can reach the rim mid-loop. The
+    // reflected DIRECTION is unambiguous, but the (heading, pitch) pair naming it
+    // is not, and the naive `atan2`/`asin` decomposition always answers the
+    // upright spelling — which for an inverted ship means heading jumps by ~PI
+    // and pitch by ~1.5 rad for a reflection that barely moved the nose. Every
+    // consumer that interpolates attitude (the mesh, the chase camera, remote
+    // ships) would render a violent manoeuvre that never happened.
+    const world = makeWorld(configs, {
+      gamemodeOverride: { boundaryRule: { type: "bounce", restitution: 1 } },
+    });
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const tf = world.transforms.get(id)!;
+    // Over the top of a loop, climbing out through the roof of the bubble.
+    tf.pos.y = radius - 1;
+    tf.heading = 0.4;
+    tf.pitch = 2.6; // inverted: cos < 0, nose still rising
+    const beforeHeading = tf.heading;
+    const beforePitch = tf.pitch;
+    const beforeNose = facingVec(tf.heading, tf.pitch, { x: 0, y: 0, z: 0 });
+    world.velocities.get(id)!.y = 30;
+
+    collisionSystem(world, DT);
+
+    // The nose really was reflected — its vertical component changed sign.
+    const afterNose = facingVec(tf.heading, tf.pitch, { x: 0, y: 0, z: 0 });
+    expect(beforeNose.y).toBeGreaterThan(0);
+    expect(afterNose.y).toBeLessThan(0);
+    // ...and horizontally it is unchanged, which is what a reflection off the
+    // roof means. Checking the DIRECTION, not the spelling.
+    expect(afterNose.x).toBeCloseTo(beforeNose.x, 12);
+    expect(afterNose.z).toBeCloseTo(beforeNose.z, 12);
+    // The spelling stayed continuous: still inverted, and the heading is
+    // UNTOUCHED — a reflection off the roof is a pure elevation flip, so in the
+    // right spelling pitch simply negates and yaw does not move at all. The
+    // upright spelling would instead have swung the heading by PI.
+    expect(Math.cos(tf.pitch)).toBeLessThan(0);
+    expect(tf.heading).toBeCloseTo(beforeHeading, 12);
+    expect(tf.pitch).toBeCloseTo(-beforePitch, 12);
+    // Short-arc distance travelled by the pitch value, which crosses ±PI here:
+    // ~1.08 rad, not the ~5.2 a naive subtraction would report and not the ~3.14
+    // the upright spelling would have jumped.
+    expect(Math.abs(angleDelta(beforePitch, tf.pitch))).toBeLessThan(1.1);
+  });
+
+  it("still reflects an UPRIGHT attitude to the plain upright spelling", () => {
+    // The continuity rule must not disturb the ordinary case: a level-ish ship
+    // bouncing off the roof gets exactly the attitude the old atan2/asin pair
+    // produced, which is also the only spelling a legacy-clamped pack can hold.
+    const world = makeWorld(configs, {
+      gamemodeOverride: { boundaryRule: { type: "bounce", restitution: 1 } },
+    });
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const tf = world.transforms.get(id)!;
+    tf.pos.y = radius - 1;
+    tf.heading = 0.4;
+    tf.pitch = 0.9;
+    world.velocities.get(id)!.y = 30;
+
+    collisionSystem(world, DT);
+
+    expect(tf.pitch).toBeCloseTo(-0.9, 12);
+    expect(tf.heading).toBeCloseTo(0.4, 12);
+    expect(Math.cos(tf.pitch)).toBeGreaterThan(0);
   });
 
   it("emits one boundary edge while a ship continuously grinds a warning wall", () => {
@@ -429,7 +498,7 @@ describe("Snapshots", () => {
 
     expect(sim.snapshot().ships.map((s) => s.throttle)).toEqual([0, 0]);
 
-    sim.applyOrder(flyer, { kind: "flight", throttle: 0.6, turn: 0.2, boost: false });
+    sim.applyOrder(flyer, { kind: "flight", throttle: 0.6, turn: 0.2, boost: false, fire: true });
     sim.tick(DT);
     const ships = sim.snapshot().ships;
     expect(ships.find((s) => s.id === flyer)!.throttle).toBeCloseTo(0.6, 6);
@@ -439,7 +508,7 @@ describe("Snapshots", () => {
     // and only another flight order replaces it.
     for (let t = 0; t < 10; t++) sim.tick(DT);
     expect(sim.snapshot().ships.find((s) => s.id === flyer)!.throttle).toBeCloseTo(0.6, 6);
-    sim.applyOrder(flyer, { kind: "flight", throttle: 0, turn: 0, boost: false });
+    sim.applyOrder(flyer, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
     sim.tick(DT);
     expect(sim.snapshot().ships.find((s) => s.id === flyer)!.throttle).toBe(0);
   });
@@ -481,7 +550,7 @@ describe("Snapshots", () => {
     expect(snap.asteroids.some((a) => a.pos.y !== 0)).toBe(true);
 
     // Climb under power and the replicated altitude follows.
-    sim.applyOrder(flyer, { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false });
+    sim.applyOrder(flyer, { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false, fire: true });
     for (let t = 0; t < 30; t++) sim.tick(DT);
     snap = sim.snapshot();
     const climbed = snap.ships.find((s) => s.id === flyer)!;
@@ -521,14 +590,14 @@ describe("Determinism", () => {
         if (t === 3) {
           // Pitched input on both ships: the vertical axis has to be as
           // reproducible as the planar one (BUBBLE.md §A).
-          sim.applyOrder(a, { kind: "flight", throttle: 0.5, turn: 0.25, pitchStick: 0.6, boost: false });
-          sim.applyOrder(b, { kind: "flight", throttle: 0.5, turn: -0.25, pitchStick: -1, boost: false });
+          sim.applyOrder(a, { kind: "flight", throttle: 0.5, turn: 0.25, pitchStick: 0.6, boost: false, fire: true });
+          sim.applyOrder(b, { kind: "flight", throttle: 0.5, turn: -0.25, pitchStick: -1, boost: false, fire: true });
         }
-        if (t === 120) sim.applyOrder(a, { kind: "flight", throttle: 0.9, turn: 0, pitchStick: -0.35, boost: false });
+        if (t === 120) sim.applyOrder(a, { kind: "flight", throttle: 0.9, turn: 0, pitchStick: -0.35, boost: false, fire: true });
         // Flight is level-triggered: two orders drive 900+ ticks of motion, and
         // the integration must stay bit-identical across runs.
-        if (t === 200) sim.applyOrder(a, { kind: "flight", throttle: 0.7, turn: -0.4, boost: true });
-        if (t === 400) sim.applyOrder(b, { kind: "flight", throttle: 1, turn: 0.15, boost: false });
+        if (t === 200) sim.applyOrder(a, { kind: "flight", throttle: 0.7, turn: -0.4, boost: true, fire: true });
+        if (t === 400) sim.applyOrder(b, { kind: "flight", throttle: 1, turn: 0.15, boost: false, fire: true });
         sim.tick(DT);
         sim.getEvents();
       }
@@ -553,6 +622,7 @@ describe("Scripted 60s engagement (regression anchor)", () => {
     mods[0]!.state = "active";
     mods[1]!.state = "active";
     sim.world.targets.get(shooter)!.targetId = target;
+    sim.applyOrder(shooter, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
     let diedTick = -1;
     for (let t = 0; t < 1800; t++) {

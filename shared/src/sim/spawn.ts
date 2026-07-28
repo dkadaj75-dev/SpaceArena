@@ -2,7 +2,7 @@ import type { ConfigService } from "../core/ConfigService.js";
 import { hardpointsOf, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
 import { resolveShipStats, type UpgradeLevels } from "./resolveStats.js";
-import { clamp } from "./math.js";
+import { advancePitch } from "./math.js";
 import { pitchTuningOf } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
@@ -54,8 +54,11 @@ export function spawnShipFromConfig(
   if (!ship) throw new Error(`unknown ship config: ${shipId}`);
 
   const id = world.createEntity();
+  // An authored spawn pitch is held to the legacy clamp when a pack has one, and
+  // otherwise merely WRAPPED — free pitch has no illegal value, only unspelled
+  // ones (BUBBLE.md §A).
   const maxPitch = pitchTuningOf(world.tuning).maxPitchRad;
-  const spawnPitch = Number.isFinite(pitch) ? clamp(pitch, -maxPitch, maxPitch) : 0;
+  const spawnPitch = Number.isFinite(pitch) ? advancePitch(0, pitch, maxPitch) : 0;
   world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading, pitch: spawnPitch });
   world.velocities.set(id, { x: 0, y: 0, z: 0 });
   world.shipCores.set(id, resolveShipStats(ship, configs, { upgradeLevels, fittedModuleIds: fittingModuleIds }));
@@ -89,6 +92,8 @@ export function spawnShipFromConfig(
       stateTimer: 0,
       heat: 0,
       cycleTimer: 0,
+      channeling: false,
+      channel: null,
       workedThisTick: false,
       shieldPool: 0,
       overheatDamaged: false,

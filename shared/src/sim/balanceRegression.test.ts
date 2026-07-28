@@ -96,7 +96,7 @@ beforeAll(async () => {
       energy: { drawIdle: 1, drawActive: 4 },
       heat: { perSecondActive: 240, overheatThreshold: 40, overheatCooldown: 4, overheatSelfDamage: 0 },
       fire: {
-        mode: "autoTarget",
+        mode: "held",
         range: 38,
         cycleTime: 0.2,
         damage: 1,
@@ -172,6 +172,8 @@ function runEngagement(shipId: string, script: readonly ScriptStep[], opponentSh
   for (const m of sim.world.modules.get(opponent)!.modules) {
     if (isWeapon(m.moduleId)) m.state = "active";
   }
+  sim.applyOrder(subject, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
+  sim.applyOrder(opponent, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
   const byTick = new Map<number, ScriptStep[]>();
   for (const step of script) {
@@ -199,7 +201,7 @@ function runEngagement(shipId: string, script: readonly ScriptStep[], opponentSh
   for (let tick = 0; tick <= ENGAGEMENT_SECONDS * TPS; tick++) {
     for (const step of byTick.get(tick) ?? []) {
       if (step.toggle !== undefined) sim.applyOrder(subject, { kind: "moduleToggle", hardpointIndex: step.toggle });
-      if (step.flight) sim.applyOrder(subject, { kind: "flight", ...step.flight });
+      if (step.flight) sim.applyOrder(subject, { kind: "flight", ...step.flight, fire: true });
     }
     // Immortal sparring partners: the bench measures upkeep, not lethality.
     subjectCore.hull = subjectCore.hullMax;
@@ -403,6 +405,7 @@ describe("heat model stress (synthetic fitting that out-paces dissipation)", () 
     const subject = sim.spawnPlayerAt("ship.interceptor", HOT_FITTING, 0, { x: 0, z: 0 }, 0);
     const target = sim.spawnPlayerAt("ship.brawler", fittingOf("ship.brawler"), 1, { x: 22, z: 0 }, Math.PI);
     sim.applyOrder(subject, { kind: "moduleToggle", hardpointIndex: 0 });
+    sim.applyOrder(subject, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
     const targetCore = sim.world.shipCores.get(target)!;
     const mod = sim.world.modules.get(subject)!.modules[0]!;
@@ -484,7 +487,12 @@ function warmUpLock(sim: ArenaSimulation, shooter: EntityId): void {
  * locked) to destroy a stationary `defender` whose modules stay offline, at
  * `range` world units. `Infinity` if the defender survives the ceiling.
  */
-function timeToKill(attackerShip: string, defenderShip: string, range: number): number {
+function timeToKill(
+  attackerShip: string,
+  defenderShip: string,
+  range: number,
+  semiRepullTicks?: number,
+): number {
   const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
   const attacker = sim.spawnPlayerAt(attackerShip, fittingOf(attackerShip), 0, { x: 0, z: 0 }, 0);
   const defender = sim.spawnPlayerAt(defenderShip, fittingOf(defenderShip), 1, { x: range, z: 0 }, Math.PI);
@@ -492,8 +500,14 @@ function timeToKill(attackerShip: string, defenderShip: string, range: number): 
     if (isWeapon(m.moduleId)) m.state = "active";
   }
   warmUpLock(sim, attacker);
+  sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
   for (let tick = 1; tick <= TTK_HARD_CEILING_S * TPS; tick++) {
+    if (semiRepullTicks && tick % semiRepullTicks === 0) {
+      sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: false });
+    } else if (semiRepullTicks && tick % semiRepullTicks === 1 && tick > 1) {
+      sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
+    }
     sim.tick(DT);
     sim.getEvents();
     if (!sim.hasShip(defender as EntityId)) return round(tick / TPS);
@@ -504,7 +518,7 @@ function timeToKill(attackerShip: string, defenderShip: string, range: number): 
 describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
     ["ship.interceptor", "ship.interceptor", 22, 3.033],
-    ["ship.interceptor", "ship.brawler", 22, 7.833],
+    ["ship.interceptor", "ship.brawler", 22, 10.433],
     ["ship.brawler", "ship.interceptor", 22, 2.2],
     ["ship.brawler", "ship.brawler", 22, 5.233],
     ["ship.support", "ship.interceptor", 22, 3.033],
@@ -520,6 +534,19 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     expect(
       Math.abs(ttk - recorded) / recorded <= TTK_BAND,
       `${attacker} vs ${defender}: TTK ${ttk}s outside ${recorded}s ±${TTK_BAND * 100}%`,
+    ).toBe(true);
+  });
+
+  it("records a deliberate missile re-pull bench beside the always-held anchor", () => {
+    // Mk I missiles cycle every 2.5 s = 75 sim ticks. Release on tick 75 and
+    // re-press on 76 so each cooled rack receives a new semi-auto rising edge.
+    const repullTicks = 75;
+    const recorded = 7.833;
+    const ttk = timeToKill("ship.interceptor", "ship.brawler", 22, repullTicks);
+    expect(ttk).toBeLessThan(timeToKill("ship.interceptor", "ship.brawler", 22));
+    expect(
+      Math.abs(ttk - recorded) / recorded <= TTK_BAND,
+      `interceptor semi re-pull vs brawler: TTK ${ttk}s outside ${recorded}s ±${TTK_BAND * 100}%`,
     ).toBe(true);
   });
 
@@ -545,6 +572,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     // Defender raises its shield (hardpoint 2 on the light hull) and holds it.
     sim.applyOrder(defender, { kind: "moduleToggle", hardpointIndex: 2 });
     warmUpLock(sim, attacker); // same pre-engagement window as timeToKill()
+    sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
     let shieldedTtk = Infinity;
     for (let tick = 1; tick <= TTK_HARD_CEILING_S * TPS; tick++) {

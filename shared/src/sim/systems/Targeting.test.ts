@@ -7,7 +7,7 @@ import type { SimEvent } from "../events.js";
 import { spawnShipFromConfig } from "../spawn.js";
 import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
 import type { World } from "../World.js";
-import { combatSystem } from "./CombatSystem.js";
+import { combatSystem, latchFireState } from "./CombatSystem.js";
 import { targetingSystem } from "./TargetingSystem.js";
 
 /**
@@ -46,6 +46,14 @@ function scene(
     undefined,
     self.pitch ?? 0,
   );
+  world.flightStates.set(me, {
+    throttle: 0,
+    turn: 0,
+    pitchStick: 0,
+    boost: false,
+    fire: true,
+    firePrev: false,
+  });
   const foe = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, enemyPos, Math.PI);
   rebuildSpatial(world);
   return { world, me, foe };
@@ -373,6 +381,7 @@ describe("CombatSystem lock gate", () => {
     for (let i = 0; i < ticks; i++) {
       targetingSystem(world, DT);
       combatSystem(world, DT);
+      latchFireState(world);
     }
     return before - world.shipCores.get(foe)!.hull;
   }
@@ -411,13 +420,17 @@ describe("CombatSystem lock gate", () => {
     const { world, me } = scene({ x: 20, z: 0 });
     const missile = world.modules.get(me)!.modules[1]!; // hardpoint 1 = missile-mk1
     missile.state = "active";
+    world.flightStates.get(me)!.fire = false;
     for (let i = 0; i < ticksToLock(sensorsOf(world, me).lockTimeSec) - 1; i++) {
       targetingSystem(world, DT);
       combatSystem(world, DT);
+      latchFireState(world);
     }
     expect(world.projectileIds().length).toBe(0);
+    world.flightStates.get(me)!.fire = true;
     targetingSystem(world, DT);
     combatSystem(world, DT);
+    latchFireState(world);
     expect(world.projectileIds().length).toBe(1);
   });
 });

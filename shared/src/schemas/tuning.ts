@@ -27,9 +27,17 @@ export const tuningSchema = z.object({
    */
   pitchRateMult: z.number().nonnegative().optional(),
   /**
-   * Hard clamp on |pitch| in radians (BUBBLE.md §A). Keeps world-up unambiguous:
-   * the nose can never pass vertical, so the chase cam never crosses a pole and
-   * the sim needs no roll/quaternion surface. Default 1.4 (~80°).
+   * LEGACY hard clamp on |pitch| in radians (BUBBLE.md §A). **Omit it — and the
+   * shipped pack does — to get free pitch**: the nose runs the full circle, so
+   * holding the stick up flies a loop exactly the way holding it left yaws
+   * forever. Authored, the nose stops at ±this value and the flier can never
+   * invert, which is the pre-loop behaviour kept as a knob for content packs
+   * that want it. There is deliberately no default: "absent" is a behaviour
+   * (free), not a missing number, so nothing substitutes one.
+   *
+   * Still capped short of vertical when authored — a clamp AT PI/2 would park a
+   * "clamped" hull exactly on the pole, where its heading names no direction at
+   * all, which is the one attitude the clamp exists to avoid.
    */
   maxPitchRad: z.number().positive().lt(Math.PI / 2).optional(),
   /**

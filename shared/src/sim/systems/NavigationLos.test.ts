@@ -18,7 +18,7 @@ describe("NavigationSystem", () => {
     const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
     const boost = world.modules.get(id)!.modules[3]!;
     boost.state = "active";
-    world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, boost: true });
+    world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, boost: true, fire: true });
     for (let i = 0; i < 200; i++) navigationSystem(world, DT); // let it accelerate
     const v = world.velocities.get(id)!;
     const speed = Math.sqrt(v.x * v.x + v.z * v.z);

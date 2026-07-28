@@ -1,11 +1,15 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../../core/ConfigService.js";
+import type { ModuleConfig } from "../../schemas/module.js";
+import type { ShipConfig } from "../../schemas/ship.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { hasLineOfSight } from "../los.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "../spawn.js";
 import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial, warmLock } from "../testutil.js";
 import type { World } from "../World.js";
-import { combatSystem } from "./CombatSystem.js";
+import { combatSystem, latchFireState } from "./CombatSystem.js";
+import { energySystem } from "./EnergySystem.js";
+import { navigationSystem } from "./NavigationSystem.js";
 import { projectileSystem } from "./ProjectileSystem.js";
 
 const DT = 1 / 30;
@@ -34,6 +38,14 @@ function duel(
   const mod = world.modules.get(shooter)!.modules[weapon]!;
   mod.state = "active";
   mod.cycleTimer = 0;
+  world.flightStates.set(shooter, {
+    throttle: 0,
+    turn: 0,
+    pitchStick: 0,
+    boost: false,
+    fire: true,
+    firePrev: false,
+  });
   // Seed the sticky candidate directly: targeting is automatic (FLIGHT.md §2),
   // and TargetingSystem holds whoever is already set while it stays lockable.
   world.targets.get(shooter)!.targetId = target;
@@ -76,6 +88,132 @@ describe("CombatSystem beam", () => {
   });
 });
 
+describe("CombatSystem trigger discipline", () => {
+  function tick(world: World): void {
+    combatSystem(world, DT);
+    latchFireState(world);
+  }
+
+  it("an armed, locked weapon does not fire while fire is false", () => {
+    const { world, shooter, target } = duel({ x: 20, z: 0 });
+    world.flightStates.get(shooter)!.fire = false;
+    const before = world.shipCores.get(target)!.hull;
+
+    tick(world);
+
+    expect(world.shipCores.get(target)!.hull).toBe(before);
+    expect(world.modules.get(shooter)!.modules[LASER]!.workedThisTick).toBe(false);
+    expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
+  });
+
+  it("held weapons repeat on their authored cycle while the trigger stays held", () => {
+    const { world } = duel({ x: 20, z: 0 });
+    for (let i = 0; i < 40; i++) tick(world);
+    expect(world.events.filter((event) => event.type === "projectileFired").length).toBeGreaterThan(1);
+  });
+
+  it("semi weapons fire once per rising edge, not once per held tick", () => {
+    const { world, shooter } = duel({ x: 20, z: 0 }, MISSILE);
+    const weapon = world.modules.get(shooter)!.modules[MISSILE]!;
+
+    tick(world);
+    weapon.cycleTimer = 0;
+    tick(world);
+    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(1);
+
+    world.flightStates.get(shooter)!.fire = false;
+    tick(world);
+    weapon.cycleTimer = 0;
+    world.flightStates.get(shooter)!.fire = true;
+    tick(world);
+    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(2);
+  });
+
+  it("fires a semi weapon once when press and release arrive inside one sim tick", () => {
+    const { world, shooter } = duel({ x: 20, z: 0 }, MISSILE);
+    world.flightStates.get(shooter)!.fire = false;
+    world.queueOrder(shooter, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
+    world.queueOrder(shooter, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: false });
+
+    navigationSystem(world, DT);
+    tick(world);
+    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(1);
+
+    // No new order: navigation restores the final release as the standing level.
+    navigationSystem(world, DT);
+    tick(world);
+    expect(world.flightStates.get(shooter)!.fire).toBe(false);
+    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(1);
+  });
+
+  it("drains cycleTimer while the trigger is released", () => {
+    const { world, shooter } = duel({ x: 20, z: 0 });
+    const weapon = world.modules.get(shooter)!.modules[LASER]!;
+    weapon.cycleTimer = DT * 2;
+    world.flightStates.get(shooter)!.fire = false;
+
+    tick(world);
+
+    expect(weapon.cycleTimer).toBeCloseTo(DT);
+    expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
+  });
+
+  it("an unlocked trigger pull spends no firing energy and emits nothing", () => {
+    const { world, shooter } = duel({ x: 20, z: 0 });
+    world.targets.get(shooter)!.locked = false;
+    const core = world.shipCores.get(shooter)!;
+    const before = core.capacitor.cur;
+
+    combatSystem(world, DT);
+
+    expect(core.capacitor.cur).toBe(before);
+    expect(world.modules.get(shooter)!.modules[LASER]!.workedThisTick).toBe(false);
+    expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
+  });
+
+  it("a ship with no FlightState never fires", () => {
+    const { world, shooter } = duel({ x: 20, z: 0 });
+    world.flightStates.delete(shooter);
+
+    tick(world);
+
+    expect(world.modules.get(shooter)!.modules[LASER]!.workedThisTick).toBe(false);
+    expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
+  });
+
+  it("presents one semi-auto edge uniformly to every weapon in a fitting", () => {
+    const { world, shooter } = duel({ x: 20, z: 0 });
+    const weapons = world.modules.get(shooter)!.modules.slice(0, 2);
+    for (const weapon of weapons) {
+      weapon.moduleId = "module.missile-mk1";
+      weapon.state = "active";
+      weapon.cycleTimer = 0;
+    }
+
+    tick(world);
+
+    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(2);
+    expect(world.flightStates.get(shooter)!.firePrev).toBe(true);
+  });
+
+  it("adds optional heatPerShot on the firing tick", () => {
+    const { world, shooter } = duel({ x: 20, z: 0 });
+    const config = world.configs.get<ModuleConfig>("module", "module.laser-mk1")!;
+    const weapon = world.modules.get(shooter)!.modules[LASER]!;
+    configs.replace({ ...config, fire: { ...config.fire!, heatPerShot: 3 } });
+    try {
+      combatSystem(world, DT);
+      expect(weapon.heat).toBe(3);
+      energySystem(world, DT);
+      // Existing active heat (+0.2) and ship dissipation (-0.3) still apply
+      // after the per-shot addition on this fitting.
+      expect(weapon.heat).toBeCloseTo(2.9);
+    } finally {
+      configs.replace(config);
+    }
+  });
+});
+
 describe("CombatSystem — a dead target is not a target (review Finding 6)", () => {
   /**
    * CleanupSystem removes wrecks at the END of a tick, so between the shot that
@@ -97,6 +235,14 @@ describe("CombatSystem — a dead target is not a target (review Finding 6)", ()
       mod.cycleTimer = 0;
       world.targets.get(shooter)!.targetId = target;
       warmLock(world, shooter);
+      world.flightStates.set(shooter, {
+        throttle: 0,
+        turn: 0,
+        pitchStick: 0,
+        boost: false,
+        fire: true,
+        firePrev: false,
+      });
     }
     rebuildSpatial(world);
     return { world, first, second, target };
@@ -274,6 +420,251 @@ describe("Damage pipeline — shield mitigation", () => {
     const before = core.hull;
     applyDamageToShip(world, id, null, 20, "energy");
     expect(before - core.hull).toBeCloseTo(20, 5);
+  });
+});
+
+/**
+ * `fire.mode: "continuous"` — the channelled beam. Its contract, in one line:
+ * `fire.damage` is DPS, applied as `damage * dt` on EVERY tick the trigger is
+ * held and every existing gate passes, with no cycle timer and no per-tick
+ * events. Everything below pins one clause of that.
+ */
+describe("CombatSystem continuous channel", () => {
+  const BEAM = 0;
+  const BEAM_FITTING = [
+    "module.beamlaser-mk1",
+    "module.missile-mk1",
+    "module.shield-mk1",
+    "module.boost-mk1",
+  ];
+
+  /** Same fixture as {@link duel}, fitted with the continuous beam on hardpoint 0. */
+  function channelDuel(
+    targetPos: { x: number; z: number } = { x: 20, z: 0 },
+    cfgs: ConfigService = configs,
+  ): { world: World; shooter: number; target: number; dps: number } {
+    const world = makeWorld(cfgs);
+    const shooter = spawnShipFromConfig(world, cfgs, "ship.interceptor", BEAM_FITTING, 0, { x: 0, z: 0 }, 0);
+    const target = spawnShipFromConfig(world, cfgs, "ship.interceptor", INTERCEPTOR_FITTING, 1, targetPos, 0);
+    const mod = world.modules.get(shooter)!.modules[BEAM]!;
+    mod.state = "active";
+    world.flightStates.set(shooter, {
+      throttle: 0,
+      turn: 0,
+      pitchStick: 0,
+      boost: false,
+      fire: true,
+      firePrev: false,
+    });
+    world.targets.get(shooter)!.targetId = target;
+    warmLock(world, shooter);
+    rebuildSpatial(world);
+    const dps = cfgs.get<ModuleConfig>("module", "module.beamlaser-mk1")!.fire!.damage;
+    return { world, shooter, target, dps };
+  }
+
+  function channelTick(world: World): void {
+    combatSystem(world, DT);
+    latchFireState(world);
+  }
+
+  it("drains hull at exactly DPS x elapsed time while the trigger is held", () => {
+    const { world, target, dps } = channelDuel();
+    const before = world.shipCores.get(target)!.hull;
+
+    const ticks = 60; // 2 seconds at 30 Hz
+    for (let i = 0; i < ticks; i++) channelTick(world);
+
+    const dealt = before - world.shipCores.get(target)!.hull;
+    // globalDamageMult is 1.0 and the interceptor's energy resist is 0, so the
+    // authored DPS lands verbatim. This is the whole feature in one assertion.
+    expect(dealt).toBeCloseTo(dps * ticks * DT, 9);
+  });
+
+  it("is tick-rate independent: the same wall time deals the same damage at half the tick rate", () => {
+    const a = channelDuel();
+    const b = channelDuel();
+    for (let i = 0; i < 60; i++) {
+      combatSystem(a.world, DT);
+      latchFireState(a.world);
+    }
+    for (let i = 0; i < 30; i++) {
+      combatSystem(b.world, DT * 2);
+      latchFireState(b.world);
+    }
+    const dealtA = 80 - a.world.shipCores.get(a.target)!.hull;
+    const dealtB = 80 - b.world.shipCores.get(b.target)!.hull;
+    expect(dealtA).toBeCloseTo(dealtB, 9);
+  });
+
+  it("never touches the cycle timer and never spawns ordnance", () => {
+    const { world, shooter } = channelDuel();
+    for (let i = 0; i < 30; i++) channelTick(world);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.cycleTimer).toBe(0);
+    expect(world.projectileIds().length).toBe(0);
+  });
+
+  it("stops the very next tick when the trigger is released — no lingering damage", () => {
+    const { world, shooter, target } = channelDuel();
+    for (let i = 0; i < 10; i++) channelTick(world);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(true);
+
+    world.flightStates.get(shooter)!.fire = false;
+    const atRelease = world.shipCores.get(target)!.hull;
+    channelTick(world);
+
+    expect(world.shipCores.get(target)!.hull).toBe(atRelease);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(false);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.channel).toBe(null);
+  });
+
+  it("stops instantly when the lock breaks (FLIGHT.md section 2 — no lock, no weapon)", () => {
+    const { world, shooter, target } = channelDuel();
+    for (let i = 0; i < 10; i++) channelTick(world);
+
+    world.targets.get(shooter)!.locked = false;
+    const atLockLoss = world.shipCores.get(target)!.hull;
+    channelTick(world);
+
+    expect(world.shipCores.get(target)!.hull).toBe(atLockLoss);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(false);
+  });
+
+  it("stops when the module leaves the active state", () => {
+    const { world, shooter, target } = channelDuel();
+    for (let i = 0; i < 5; i++) channelTick(world);
+    world.modules.get(shooter)!.modules[BEAM]!.state = "retracting";
+    const atRetract = world.shipCores.get(target)!.hull;
+    channelTick(world);
+    expect(world.shipCores.get(target)!.hull).toBe(atRetract);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(false);
+  });
+
+  it("stops out of range and past a line-of-sight blocker", () => {
+    const far = channelDuel({ x: 60, z: 0 }); // beam range is 34
+    const beforeFar = far.world.shipCores.get(far.target)!.hull;
+    channelTick(far.world);
+    expect(far.world.shipCores.get(far.target)!.hull).toBe(beforeFar);
+
+    const blocked = channelDuel({ x: 20, z: 0 });
+    spawnAsteroid(blocked.world, configs, "asteroid.large-hazard", { x: 10, z: 0 });
+    rebuildSpatial(blocked.world);
+    const beforeBlocked = blocked.world.shipCores.get(blocked.target)!.hull;
+    channelTick(blocked.world);
+    expect(blocked.world.shipCores.get(blocked.target)!.hull).toBe(beforeBlocked);
+  });
+
+  it("stops on an exhausted capacitor and RESUMES from regen with the trigger still held", () => {
+    const { world, shooter, target } = channelDuel();
+    const core = world.shipCores.get(shooter)!;
+    core.capacitor.cur = 0;
+
+    // Energy-starved: the gate blocks the channel, and EnergySystem's regen then
+    // refills against the idle draw only.
+    const beforeStarved = world.shipCores.get(target)!.hull;
+    combatSystem(world, DT);
+    energySystem(world, DT);
+    latchFireState(world);
+    expect(world.shipCores.get(target)!.hull).toBe(beforeStarved);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(false);
+
+    // The trigger was never released — as soon as regen clears the gate the
+    // channel resumes on its own.
+    let resumed = false;
+    for (let i = 0; i < 30 && !resumed; i++) {
+      combatSystem(world, DT);
+      energySystem(world, DT);
+      latchFireState(world);
+      resumed = world.modules.get(shooter)!.modules[BEAM]!.channeling;
+    }
+    expect(resumed).toBe(true);
+    expect(world.shipCores.get(target)!.hull).toBeLessThan(beforeStarved);
+  });
+
+  it("pays drawActive and per-second heat EVERY tick it channels (the point of the cost model)", () => {
+    const { world, shooter } = channelDuel();
+    const beam = world.modules.get(shooter)!.modules[BEAM]!;
+    const cfg = configs.get<ModuleConfig>("module", "module.beamlaser-mk1")!;
+    const core = world.shipCores.get(shooter)!;
+    core.capacitor.cur = core.capacitor.max;
+    const energyBefore = core.capacitor.cur;
+
+    for (let i = 0; i < 30; i++) {
+      combatSystem(world, DT);
+      expect(beam.workedThisTick).toBe(true); // worked-this-tick on EVERY tick
+      energySystem(world, DT);
+      latchFireState(world);
+    }
+
+    // One second of channel: `drawActive - regen` out of the capacitor (the
+    // other fitted modules are retracted and cost nothing), and
+    // `perSecondActive - dissipation` into the module's own heat.
+    const spent = energyBefore - core.capacitor.cur;
+    expect(spent).toBeGreaterThan(0);
+    expect(spent).toBeCloseTo(cfg.energy.drawActive - core.capacitor.regen, 0);
+    expect(beam.heat).toBeGreaterThan(0);
+    expect(beam.heat).toBeCloseTo(cfg.heat.perSecondActive - core.heat.dissipation, 0);
+  });
+
+  it("emits ~4 damage events per second, not one per tick, and one fire event per channel", () => {
+    const { world, shooter, target, dps } = channelDuel();
+    for (let i = 0; i < 60; i++) channelTick(world); // 2 seconds
+    world.flightStates.get(shooter)!.fire = false;
+    channelTick(world); // release flushes the final partial window
+
+    const fired = world.events.filter((e) => e.type === "projectileFired");
+    expect(fired.length).toBe(1); // one per channel, NOT one per tick
+    expect(fired[0]).toMatchObject({ kind: "beam", ownerId: shooter, targetId: target });
+
+    const damage = world.events.filter((e) => e.type === "damage");
+    // 2 s at the 0.25 s flush cadence, plus the release flush — nowhere near 60.
+    expect(damage.length).toBeGreaterThanOrEqual(7);
+    expect(damage.length).toBeLessThanOrEqual(10);
+
+    // Throttling the EVENTS must not lose any DAMAGE: the reported total is the
+    // hull the target actually lost.
+    const reported = damage.reduce((sum, e) => sum + (e.type === "damage" ? e.amount : 0), 0);
+    expect(reported).toBeCloseTo(80 - world.shipCores.get(target)!.hull, 9);
+    expect(reported).toBeCloseTo(dps * 60 * DT, 9);
+  });
+
+  it("emits damage-then-destroyed when the channel lands the kill", () => {
+    const { world, target } = channelDuel();
+    world.shipCores.get(target)!.hull = 0.2; // dies inside one tick
+    channelTick(world);
+
+    const types = world.events.map((e) => e.type);
+    expect(types).toContain("damage");
+    expect(types).toContain("entityDestroyed");
+    expect(types.indexOf("damage")).toBeLessThan(types.indexOf("entityDestroyed"));
+    expect(world.shipCores.get(target)!.hull).toBe(0);
+  });
+
+  it("ignores fire.heatPerShot — a channel has no shot to charge it against", async () => {
+    // Fresh registry: the override must not leak into the rest of this file.
+    const cfgs = await loadTestConfigs();
+    const base = cfgs.get<ModuleConfig>("module", "module.beamlaser-mk1")!;
+    expect(cfgs.replace({ ...base, fire: { ...base.fire!, heatPerShot: 100 } }).ok).toBe(true);
+
+    const { world, shooter } = channelDuel({ x: 20, z: 0 }, cfgs);
+    combatSystem(world, DT); // heat accrual is EnergySystem's job, not the shot's
+    expect(world.modules.get(shooter)!.modules[BEAM]!.heat).toBe(0);
+  });
+
+  it("leaves held and semi weapons on their own path (no channel state, cycle timers intact)", () => {
+    const { world, shooter } = duel({ x: 20, z: 0 }); // stock interceptor: held laser + semi missile
+    for (let i = 0; i < 30; i++) channelTick(world);
+    for (const m of world.modules.get(shooter)!.modules) {
+      expect(m.channeling).toBe(false);
+      expect(m.channel).toBe(null);
+    }
+    expect(world.modules.get(shooter)!.modules[LASER]!.cycleTimer).toBeGreaterThan(0);
+  });
+
+  it("is not fitted by default anywhere — the shipped balance anchors cannot move", () => {
+    for (const ship of configs.getAll<ShipConfig>("ship")) {
+      expect(ship.defaultFitting).not.toContain("module.beamlaser-mk1");
+    }
   });
 });
 

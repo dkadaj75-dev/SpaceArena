@@ -61,11 +61,13 @@ export const cameraSchema = z.object({
       /** Follow-point Y offset above the ship, i.e. how far the rig looks over its shoulder. */
       height: z.number(),
       /**
-       * BASE tilt (radians, polar from +Y like `beta`): π/2 is dead level,
-       * smaller lifts the camera above the ship. A low angle is the whole point
-       * of the chase view — it is what makes speed read. In the bubble
-       * (BUBBLE.md §C) the ship's own pitch is ADDED to this, so it is the tilt
-       * seen while flying level.
+       * Tilt (radians, polar from +Y like `beta`): π/2 looks straight down the
+       * ship's tail, smaller lifts the camera above it. A low angle is the whole
+       * point of the chase view — it is what makes speed read.
+       *
+       * Measured in the SHIP's frame, not the world's: the rig rolls with the
+       * ship so it can follow a loop (BUBBLE.md §A), which means this one tilt is
+       * the over-the-shoulder angle at every attitude, not just in level flight.
        */
       beta: z.number().positive(),
       /**
@@ -74,14 +76,6 @@ export const cameraSchema = z.object({
        * its own camera through a turn; 1 pins the yaw to the heading.
        */
       yawLag: z.number().min(0).max(1),
-      /**
-       * How much of the ship's `pitch` the orbit tilt follows (BUBBLE.md §C).
-       * `beta = chase.beta + pitch × pitchFollow`, clamped short of both poles
-       * so the rig can never flip. 1 (the default) keeps the camera looking
-       * straight down the nose in a climb or a dive; 0 pins the tilt and lets
-       * the ship pitch inside a level frame.
-       */
-      pitchFollow: z.number().min(0).max(1).optional(),
       /**
        * Pitch smoothing 0..1, exactly like `yawLag` but on the tilt axis.
        * OMITTED ⇒ the rig reuses `yawLag`, which is what keeps a pack that

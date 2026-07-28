@@ -70,6 +70,8 @@ export interface BotContext {
   readonly orbitSign: 1 | -1;
   /** Injected RNG (deterministic in tests). */
   readonly rng: () => number;
+  /** BotDriver-owned update tick, used for deterministic fire burst timing. */
+  readonly driverTick: number;
 }
 
 /** Half-angle (radians) within which a missile's heading counts as "inbound". */
@@ -92,6 +94,8 @@ export interface BuildContextInput {
   pitchRate?: number;
   /** Seconds the driver plans a turn over; defaults to the profile decision interval. */
   turnHorizonSec?: number;
+  /** BotDriver-owned update tick; defaults to the snapshot tick for standalone contexts. */
+  driverTick?: number;
 }
 
 /** Build the read-only decision context for one bot from a snapshot. */
@@ -166,6 +170,7 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     incomingMissiles,
     orbitSign: input.orbitSign,
     rng: input.rng,
+    driverTick: input.driverTick ?? snapshot.tick,
   };
 }
 

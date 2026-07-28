@@ -58,9 +58,22 @@ export function setTestCountdown(configs: ConfigService, seconds: number): void 
  */
 export function makeWorld(
   configs: ConfigService,
-  opts: { arenaId?: string; gamemodeId?: string; gamemodeOverride?: Partial<GamemodeConfig> } = {},
+  opts: {
+    arenaId?: string;
+    gamemodeId?: string;
+    gamemodeOverride?: Partial<GamemodeConfig>;
+    tuningOverride?: Partial<TuningConfig>;
+  } = {},
 ): World {
-  const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
+  const shippedTuning = configs.getAll<TuningConfig>("tuning")[0]!;
+  // A tuning override needs a FRESH id: `World.tuning` re-resolves by id every
+  // read (so offline hot-tuning works), and an override that kept the shipped id
+  // would be silently replaced by the registry copy on the first read. The main
+  // caller is a test authoring the LEGACY `maxPitchRad` clamp, which the shipped
+  // pack deliberately omits so that ships can loop (BUBBLE.md §A).
+  const tuning = opts.tuningOverride
+    ? ({ ...shippedTuning, ...opts.tuningOverride, id: `${shippedTuning.id}.override` } as TuningConfig)
+    : shippedTuning;
   const arena = configs.get<ArenaConfig>("arena", opts.arenaId ?? "arena.ring-nebula")!;
   const base = configs.get<GamemodeConfig>("gamemode", opts.gamemodeId ?? "gamemode.practice")!;
   const gamemode = { ...base, ...opts.gamemodeOverride } as GamemodeConfig;

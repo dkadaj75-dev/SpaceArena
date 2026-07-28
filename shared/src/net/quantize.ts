@@ -64,20 +64,24 @@ export function decodeHeading(q: number): number {
 
 /**
  * Pitch (BUBBLE.md §A) gets its own SIGNED codec rather than riding the heading
- * one, because the two angles have opposite semantics. Heading wraps: its codec
- * folds the value into 0..2π and `decodeHeading` never returns a negative
- * number. Pitch does NOT wrap — it is clamped to ±`tuning.maxPitchRad` so world
- * -up can never flip — and a nose-down −0.5 rad coming back as +5.78 rad would
- * be a different, legal-looking attitude: outside the sim's clamp, wrong for
- * `EntityView`'s mesh orientation and the chase camera's beta, and catastrophic
- * for the client's LINEAR pitch interpolation, which would sweep the long way
- * round between two samples straddling zero.
+ * one, because the two angles have opposite semantics *even though both now
+ * wrap*. Heading's codec folds its value into 0..2π and `decodeHeading` never
+ * returns a negative number. Pitch is SIGNED about level, in (−π, π]: a nose-down
+ * −0.5 rad coming back as +5.78 rad would be a different, legal-looking attitude
+ * — wrong for `EntityView`'s mesh orientation and the chase camera's beta, and
+ * catastrophic for the client's pitch interpolation.
  *
  * So: int16 mapping ±π onto ±32767 (INT16_MIN is left unused to keep the
  * mapping symmetric — encode(−x) === −encode(x) exactly). That is ~9.6e-5 rad
- * (0.0055°) of precision, finer than the heading codec, over a domain twice as
- * large as any legal clamp. Values outside ±π clamp and NaN encodes level, as
- * with the other codecs here; neither should ever occur.
+ * (0.0055°) of precision, finer than the heading codec.
+ *
+ * **This codec needed no change when pitch was freed to loop.** It was already
+ * scaled to the full ±π rather than to `tuning.maxPitchRad`, so the whole wrapped
+ * domain — inverted attitudes included — was always representable, and the wrap
+ * boundary round-trips EXACTLY (π·(INT16_MAX/π) lands on the integer), which is
+ * the one place a rounding error would have flipped a decoded attitude's sign.
+ * Values outside ±π clamp and NaN encodes level, as with the other codecs here;
+ * neither should occur for a wrapped sim value.
  */
 const PITCH_SCALE = INT16_MAX / Math.PI;
 

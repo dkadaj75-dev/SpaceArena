@@ -9,6 +9,7 @@ import type { TuningConfig } from "../schemas/tuning.js";
 import { ArenaSimulation } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import type { SimEvent } from "../sim/events.js";
+import { angleBetween3, facingVec } from "../sim/math.js";
 import { deriveRng } from "../sim/rng.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { BotDriver } from "./BotDriver.js";
@@ -427,6 +428,84 @@ describe("bots in a live ArenaSimulation", () => {
     const a = runMatch(["bot.aggressive", "bot.cautious"], 3);
     const b = runMatch(["bot.aggressive", "bot.cautious"], 9);
     expect(JSON.stringify(a.events)).not.toBe(JSON.stringify(b.events));
+  });
+
+  it("noses onto a target directly OVERHEAD instead of jittering at the pole", () => {
+    // The pole was the one bearing the old clamp could not serve (BUBBLE.md §A):
+    // a target straight up asks for an elevation of PI/2, the hull stopped at
+    // ~1.4, and the bot held a full-deflection stick against a clamp that could
+    // never null its own error. With pitch free the same request is simply
+    // reachable — the bot pitches to vertical and flies at it.
+    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice-bots", 11);
+    const profile = configs.get<BotprofileConfig>("botprofile", "bot.aggressive")!;
+    const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+    const botId = sim.spawnPlayer("ship.interceptor", ship.defaultFitting, 0);
+    const targetId = sim.spawnPlayer("ship.interceptor", ship.defaultFitting, 1);
+
+    const bot = sim.world.transforms.get(botId)!;
+    bot.pos.x = 0;
+    bot.pos.y = 0;
+    bot.pos.z = 0;
+    bot.heading = 0;
+    bot.pitch = 0; // level, nose on the horizon
+    const target = sim.world.transforms.get(targetId)!;
+    target.pos.x = 0;
+    target.pos.y = 55; // inside the interceptor's 78-unit lockRange, straight up
+    target.pos.z = 0;
+
+    const driver = new BotDriver({ entityId: botId, profile, configs, rng: deriveRng(11, botId) });
+    const coneRad = (ship.core.sensors.coneDeg / 2) * (Math.PI / 180);
+    const facing = { x: 0, y: 0, z: 0 };
+    const bearing = { x: 0, y: 0, z: 0 };
+
+    let nowMs = 0;
+    let onTargetAt = Infinity;
+    let lockedAt = Infinity;
+    let peakPitch = 0;
+    const sticks: number[] = [];
+    const TICKS = Math.round(6 / DT); // 6 sim seconds, countdown included
+
+    for (let i = 0; i < TICKS; i++) {
+      nowMs += DT * 1000;
+      const snapshot = sim.snapshot();
+      const self = snapshot.ships.find((s) => s.id === botId);
+      const foe = snapshot.ships.find((s) => s.id === targetId);
+      if (!self || !foe) break;
+
+      facingVec(self.heading, self.pitch, facing);
+      bearing.x = foe.pos.x - self.pos.x;
+      bearing.y = foe.pos.y - self.pos.y;
+      bearing.z = foe.pos.z - self.pos.z;
+      if (angleBetween3(facing, bearing) <= coneRad && onTargetAt === Infinity) onTargetAt = i;
+      if (self.locked && lockedAt === Infinity) lockedAt = i;
+      peakPitch = Math.max(peakPitch, Math.abs(self.pitch));
+
+      for (const order of driver.update(snapshot, nowMs)) {
+        if (order.kind === "flight") sticks.push(order.pitchStick ?? 0);
+        sim.applyOrder(botId, order);
+      }
+      // The target is a stationary dummy: no driver, no flight state, no drift.
+      sim.tick(DT);
+    }
+
+    // Lock GEOMETRY first — the nose inside the sensor cone — then the sim's own
+    // lock, which needs `lockTimeSec` of continuous nose-on discipline on top.
+    expect(onTargetAt).toBeLessThan(Math.round(3 / DT));
+    expect(lockedAt).toBeLessThan(TICKS);
+    // The nose really did have to climb near vertical to get there — an
+    // elevation the old clamp allowed only barely, and one this bot now holds by
+    // choice rather than by being pinned.
+    expect(peakPitch).toBeGreaterThan(1.0);
+    // And it got there by holding one direction, not by chattering across the
+    // pole: a jittering bot alternates the pitch axis EVERY decision, which over
+    // this run would be dozens of flips. The bound is a chatter guard, not an
+    // exact count — the bot also dodges whatever rocks the arena happens to place
+    // in its climb, and each of those is a legitimate correction. Deliberately
+    // loose enough to survive a re-authored arena while still failing hard on the
+    // oscillation this test exists to catch.
+    const flips = sticks.filter((s, i) => i > 0 && s !== 0 && sticks[i - 1]! !== 0 && Math.sign(s) !== Math.sign(sticks[i - 1]!)).length;
+    expect(sticks.length).toBeGreaterThan(2);
+    expect(flips).toBeLessThanOrEqual(Math.max(4, sticks.length / 4));
   });
 
   it("resolves the practice-bots roster from content", () => {

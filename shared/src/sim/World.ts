@@ -33,6 +33,12 @@ export class World {
   readonly velocities = new Map<EntityId, Velocity>();
   /** Persistent flight input per ship (level-triggered; see {@link FlightState}). */
   readonly flightStates = new Map<EntityId, FlightState>();
+  /**
+   * Last ordered trigger level. Kept separately because a tick may temporarily
+   * OR several queued fire edges while the final order remains the next tick's
+   * standing level.
+   */
+  readonly flightFireLevels = new Map<EntityId, boolean>();
   readonly shipCores = new Map<EntityId, ShipCore>();
   readonly modules = new Map<EntityId, ModulesComp>();
   readonly targets = new Map<EntityId, TargetRef>();
@@ -90,6 +96,7 @@ export class World {
     this.transforms.delete(id);
     this.velocities.delete(id);
     this.flightStates.delete(id);
+    this.flightFireLevels.delete(id);
     this.shipCores.delete(id);
     this.modules.delete(id);
     this.targets.delete(id);

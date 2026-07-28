@@ -145,6 +145,7 @@ export const orderSchema = z.discriminatedUnion("kind", [
      */
     pitchStick: z.number().min(-1).max(1).optional(),
     boost: z.boolean(),
+    fire: z.boolean(),
   }),
   z.object({ kind: z.literal("moduleToggle"), hardpointIndex: z.number().int().nonnegative() }),
 ]);

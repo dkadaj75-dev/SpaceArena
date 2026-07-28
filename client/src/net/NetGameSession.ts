@@ -5,7 +5,12 @@ import {
   decodeModuleState,
   decodePitch,
   decodeUnit,
+  attitudeNear,
+  facingVec,
   flightStep,
+  headingOf,
+  len3,
+  pitchOf,
   pitchTuningOf,
   resolveShipStats,
   MSG_ORDER,
@@ -17,6 +22,7 @@ import {
   type GamemodeConfig,
   type Order,
   type ShipConfig,
+  type Attitude,
   type ShipSnapshot,
   type SimEvent,
   type SimEventMessage,
@@ -50,6 +56,8 @@ export interface PredictedFlight {
    */
   pitchStick: number;
   boost: boolean;
+  /** Echoed for reconciliation even though movement prediction never reads it. */
+  fire: boolean;
 }
 
 /**
@@ -143,6 +151,134 @@ export function snapPrediction(
   pred.vel.z = vel.z;
 }
 
+/** Scratch nose vectors + attitude for {@link correctPrediction} (no per-frame alloc). */
+const predNose = { x: 0, y: 0, z: 0 };
+const sampleNose = { x: 0, y: 0, z: 0 };
+const correctedAttitude: Attitude = { heading: 0, pitch: 0 };
+
+/** Residual position error left after a correction pass (the debug overlay reads it). */
+export interface CorrectionError {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Knobs {@link correctPrediction} needs from the session. */
+export interface CorrectionParams {
+  /** True while the local player is holding a flight input (the attitude is theirs). */
+  steering: boolean;
+  dt: number;
+  /** `tuning.netCorrectionRate` - exponential position pull per second. */
+  correctionRate: number;
+}
+
+/**
+ * Pull the predictor toward one authoritative sample, or snap when it is too far
+ * gone (FLIGHT.md 5). Extracted from the session so the ONLINE path can be driven
+ * headlessly: a loop is where prediction is hardest, and none of this is
+ * reachable through the offline practice session the earlier tests used.
+ *
+ * ## Why the snap threshold has to scale with speed
+ *
+ * The predictor is pulled toward the render-DELAYED interpolated state, so its
+ * residual is whatever offset makes that pull balance the ship's own motion. On a
+ * straight line, or around a simple loop, the two settle almost on top of each
+ * other — a held loop measures 0.07 units of residual at render delays from 3 to
+ * 20 ticks. A hard PITCHED TURN is different: body-frame yaw couples the two
+ * attitude axes (BUBBLE.md §A), the path becomes a tight spiral, and the balance
+ * point moves out to ~3.15 units for the shipped interceptor. That is larger than
+ * the flat 3-unit snap distance, so a perfectly-predicted manoeuvre would trip the
+ * "badly wrong" branch and teleport the ship — online only, on exactly the input a
+ * player holds while dogfighting.
+ *
+ * So while the player is steering, the budget grows with the predictor's own
+ * speed: a fast ship is allowed the lag its speed actually produces, a drifting
+ * one still gets the tight original threshold. A genuine desync — a collision, a
+ * rejected order — diverges without bound and still snaps.
+ *
+ * All of these numbers are measured in `onlineLoop.test.ts` against a real
+ * `ArenaSimulation`, the real int16 codecs and this function; the earlier version
+ * of this comment asserted the opposite conclusion from a pure-pitch trajectory
+ * alone, which is why the pitched-turn cases are now part of that suite.
+ */
+export function correctPrediction(
+  pred: SteerState,
+  sample: { pos: { x: number; y: number; z: number }; heading: number; pitch: number },
+  serverVel: { x: number; y: number; z: number },
+  params: CorrectionParams,
+): CorrectionError {
+  const errX = sample.pos.x - pred.pos.x;
+  const errY = sample.pos.y - pred.pos.y;
+  const errZ = sample.pos.z - pred.pos.z;
+  const speed = len3(pred.vel.x, pred.vel.y, pred.vel.z);
+  const limit = params.steering ? steeringSnapDistance(speed) : SNAP_DISTANCE;
+  if (Math.hypot(errX, errY, errZ) > limit) {
+    // Diverging this far means the server is steering differently (a collision,
+    // or an order rejection racing its ack) - defer to server motion, VELOCITY
+    // INCLUDED. Adopting the position while keeping the predictor's own speed is
+    // what makes a post-collision snap oscillate: the server has shed most of the
+    // ship's velocity, the predictor has not, so it sprints past the corrected
+    // position and snaps back next frame. The held flight state is deliberately
+    // NOT cleared: the server is still integrating it, so dropping it would leave
+    // the predictor inert while the real ship keeps flying.
+    snapPrediction(pred, sample.pos, sample.heading, sample.pitch, serverVel);
+    return { x: 0, y: 0, z: 0 };
+  }
+  const pull = 1 - Math.exp(-params.correctionRate * params.dt);
+  pred.pos.x += errX * pull;
+  pred.pos.y += errY * pull;
+  pred.pos.z += errZ * pull;
+  // While the local player is flying, the attitude is a client input - pull it
+  // gently so a patch cannot jerk the nose (and the camera with it).
+  //
+  // The pull acts on the NOSE DIRECTION, not on the two angles separately, and
+  // that matters since yaw went body-frame (BUBBLE.md A). `heading` is a
+  // coordinate whose scale depends on pitch - a body-frame yaw moves it by
+  // `psi / cos(pitch)` - so at steep pitch a tiny difference in where two ships
+  // are pointing shows up as a large difference in heading. Pulling the
+  // coordinates independently therefore over-corrects: measured on a full-stick
+  // pitched turn it moved the rendered nose 0.24 rad in a single frame, four
+  // times what the ship can physically rotate in one, which reads as judder.
+  // Interpolating the directions and re-deriving the pair corrects by the angle
+  // the player can actually see, at every attitude.
+  const attitudePull = params.steering ? timeBasedPull(0.15, params.dt) : pull;
+  facingVec(pred.heading, pred.pitch, predNose);
+  facingVec(sample.heading, sample.pitch, sampleNose);
+  const nx = predNose.x + (sampleNose.x - predNose.x) * attitudePull;
+  const ny = predNose.y + (sampleNose.y - predNose.y) * attitudePull;
+  const nz = predNose.z + (sampleNose.z - predNose.z) * attitudePull;
+  const nlen = len3(nx, ny, nz);
+  if (nlen > 0) {
+    // Spelled continuously with the attitude we already hold, so a predictor
+    // flying inverted stays inverted instead of snapping to the upright name for
+    // the same direction.
+    attitudeNear(headingOf(nx, nz), pitchOf(nx, ny, nz), pred.pitch, correctedAttitude);
+    pred.heading = correctedAttitude.heading;
+    pred.pitch = correctedAttitude.pitch;
+  }
+  return { x: errX, y: errY, z: errZ };
+}
+
+
+
+/**
+ * Snap distance while the player is steering: the base blunder threshold plus the
+ * positional lag a hard manoeuvre legitimately opens between the predictor and a
+ * render-delayed sample (see {@link correctPrediction}).
+ *
+ * {@link MANOEUVRE_LAG_SEC} is how far behind the sample a steering ship settles,
+ * in seconds of its own travel. Deriving the allowance from the predictor's OWN
+ * speed keeps it honest: it is the quantity the lag is actually proportional to,
+ * so a slow ship gets no slack it has not earned. Sized with headroom over the
+ * ~3.15 units a full-stick pitched turn measures at nominal speed.
+ */
+export function steeringSnapDistance(speed: number): number {
+  return SNAP_DISTANCE + Math.max(0, speed) * MANOEUVRE_LAG_SEC;
+}
+
+/** How far behind the delayed sample a steering ship settles, in seconds of travel. */
+const MANOEUVRE_LAG_SEC = 0.12;
+
 /**
  * Velocity implied by two authoritative samples of the same ship (units/s).
  * Zero when the samples are not separated in time — the honest answer, and the
@@ -207,7 +343,7 @@ export class NetGameSession extends GameSession {
   private readonly arena: ArenaConfig;
   private readonly netConfigs: ConfigService;
   /** Pitch knobs for the predictor, read from the same tuning pack as the sim. */
-  private readonly pitchTuning: { pitchRateMult: number; maxPitchRad: number };
+  private readonly pitchTuning: { pitchRateMult: number; maxPitchRad: number | null };
 
   // --- local-player prediction ---
   private readonly pred: SteerState = {
@@ -382,6 +518,7 @@ export class NetGameSession extends GameSession {
         turn: order.turn,
         pitchStick: order.pitchStick ?? 0,
         boost: order.boost,
+        fire: order.fire,
       });
     } else if (order.kind === "moduleToggle") {
       // Keyed by hardpointIndex, not array position — the modules array is
@@ -528,40 +665,14 @@ export class NetGameSession extends GameSession {
     }
 
     // Blend server error into the prediction; snap when badly wrong.
-    this.errX = player.pos.x - this.pred.pos.x;
-    this.errY = player.pos.y - this.pred.pos.y;
-    this.errZ = player.pos.z - this.pred.pos.z;
-    if (Math.hypot(this.errX, this.errY, this.errZ) > SNAP_DISTANCE) {
-      // Diverging this far means the server is steering differently (a
-      // collision, or an order rejection racing its ack) — defer to server
-      // motion, VELOCITY INCLUDED. Adopting the position while keeping the
-      // predictor's own speed is what makes a post-collision snap oscillate:
-      // the server has shed most of the ship's velocity, the predictor has not,
-      // so it sprints past the corrected position and snaps back next frame.
-      // The held flight state is deliberately NOT cleared: the server is still
-      // integrating it, so dropping it would leave the predictor inert while
-      // the real ship keeps flying (the exact opposite of the fix).
-      snapPrediction(this.pred, player.pos, player.heading, player.pitch, this.serverVel);
-      this.errX = 0;
-      this.errY = 0;
-      this.errZ = 0;
-    } else {
-      const pull = 1 - Math.exp(-this.correctionRate * dt);
-      this.pred.pos.x += this.errX * pull;
-      this.pred.pos.y += this.errY * pull;
-      this.pred.pos.z += this.errZ * pull;
-      // While the local player is flying, heading is a client input — pull it
-      // gently so a patch cannot jerk the nose (and the camera with it). Pitch
-      // gets the identical treatment on the same schedule (BUBBLE.md §B): it is
-      // the second half of the same attitude, and leaving it unpulled would let
-      // a rollback or a server-side clamp sit uncorrected forever. Plain lerp,
-      // not `lerpHeading` — pitch is clamped, not wrapped, so there is no short
-      // way round to find.
-      const steering = held !== null;
-      const attitudePull = steering ? timeBasedPull(0.15, dt) : pull;
-      this.pred.heading = lerpHeading(this.pred.heading, player.heading, attitudePull);
-      this.pred.pitch += (player.pitch - this.pred.pitch) * attitudePull;
-    }
+    const err = correctPrediction(this.pred, player, this.serverVel, {
+      steering: held !== null,
+      dt,
+      correctionRate: this.correctionRate,
+    });
+    this.errX = err.x;
+    this.errY = err.y;
+    this.errZ = err.z;
 
     // Render the local player from the predictor.
     player.pos.x = this.pred.pos.x;
@@ -738,6 +849,7 @@ export function decodeModules(raw: any): Snapshot["ships"][number]["modules"] {
     heat: m.heat,
     stateTimer: m.stateTimer,
     cycleTimer: m.cycleTimer,
+    channeling: m.channeling ?? false,
     shieldPool: m.shieldPool ?? 0,
   }));
 }
@@ -759,7 +871,11 @@ function interpolate(a: Snapshot, b: Snapshot, t: number): Snapshot {
         z: p.pos.z + (s.pos.z - p.pos.z) * t,
       },
       heading: lerpHeading(p.heading, s.heading, t),
-      pitch: p.pitch + (s.pitch - p.pitch) * t,
+      // Pitch rides `lerpHeading` too — not because it is a heading, but because
+      // it WRAPS now that ships loop (BUBBLE.md §A), and two samples straddling
+      // ±PI must interpolate the short way or every remote ship going over the
+      // top is rendered spinning the wrong way through a whole revolution.
+      pitch: lerpHeading(p.pitch, s.pitch, t),
       modules: s.modules.map((m) => ({ ...m })),
     };
   });

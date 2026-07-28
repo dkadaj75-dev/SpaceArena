@@ -19,6 +19,7 @@ import {
 } from "./behaviors.js";
 import { boolParam, buildBotContext, numParam, strParam, type BehaviorParams, type BotContext } from "./context.js";
 import { steerForPoint } from "./flight.js";
+import { decideFire, type FireDecisionReason } from "./fireDiscipline.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";
 
 /**
@@ -64,6 +65,9 @@ export interface BotDecisionSnapshot {
    */
   targetId: EntityId | null;
   engaged: boolean;
+  /** Level-triggered fire decision and its debug-overlay explanation. */
+  fire?: boolean;
+  fireReason?: FireDecisionReason;
   /** Module toggles emitted by `moduleDiscipline` this decision. */
   moduleDecisions: readonly ModuleDecision[];
   /** Every order actually emitted this decision. */
@@ -170,10 +174,16 @@ export class BotDriver {
   private started = false;
   /** Flight state the ship is currently integrating (what we last sent), if any. */
   private lastFlight: FlightCommand | null = null;
+  private lastFire: boolean | null = null;
+  /** Engagement choice held between utility decisions; trigger phase samples it every tick. */
+  private lastEngaged = false;
+  private lastTargetId: EntityId | null = null;
+  /** Increments once per live update; deterministic source for trigger bursts. */
+  private driverTick = 0;
   private decision: BotDecisionSnapshot | null = null;
   private weaponRangeCache = -1;
   /** `tuning.maxPitchRad`, resolved once (see {@link BotDriver.maxPitch}). */
-  private maxPitchCache = -1;
+  private maxPitchCache: number | null | undefined = undefined;
   /** Measured hull turn rate in rad/s; 0 until the first usable sample. */
   private turnRateEst = 0;
   /** Measured hull pitch rate in rad/s per unit stick; 0 until measured. */
@@ -229,6 +239,10 @@ export class BotDriver {
     this.started = false;
     this.nextDecisionMs = 0;
     this.lastFlight = null;
+    this.lastFire = null;
+    this.lastEngaged = false;
+    this.lastTargetId = null;
+    this.driverTick = 0;
     this.decision = null;
     this.turnRateEst = 0;
     this.pitchRateEst = 0;
@@ -256,6 +270,7 @@ export class BotDriver {
     if (snapshot.phase !== "live") return NO_ORDERS;
     const self = findShipSnapshot(snapshot, this.entityId);
     if (!self) return NO_ORDERS;
+    this.driverTick += 1;
     this.calibrate(self, snapshot.elapsed);
 
     if (!this.started) {
@@ -264,7 +279,7 @@ export class BotDriver {
       this.nextDecisionMs = nowMs + this.rng() * this.profile.decisionIntervalMs;
       return NO_ORDERS;
     }
-    if (nowMs < this.nextDecisionMs) return NO_ORDERS;
+    if (nowMs < this.nextDecisionMs) return this.updateTrigger(snapshot, self);
     this.nextDecisionMs = nowMs + this.jitteredInterval();
 
     return this.decide(snapshot, self, nowMs);
@@ -287,8 +302,18 @@ export class BotDriver {
    * did not advance (a replayed snapshot) or when the window is long enough that
    * the hull could have swept past ±PI and aliased.
    *
-   * **Pitch has one extra rejection, and it matters** (BUBBLE.md §A): the pitch
-   * integration is CLAMPED at ±`tuning.maxPitchRad`. A tick that ends with the
+   * **Pitch has one extra rejection when — and only when — a pack authors the
+   * legacy clamp** (BUBBLE.md §A). Under free pitch there is no clamp to pin
+   * against: every tick is a complete, honestly observed rotation, the rejection
+   * never fires, and calibration converges on the very first stick the bot sends
+   * (it re-measures every tick regardless). The observed delta is read through
+   * `angleDelta` so a sample that straddles the ±PI wrap mid-loop reads as the
+   * small rotation it was rather than a ~2PI one, which would otherwise bank a
+   * wildly inflated rate and then centre every later correction to nothing.
+   *
+   * With the clamp authored the old rejection stands, for the old reason: the
+   * pitch integration is CLAMPED at ±`tuning.maxPitchRad`, and a tick that ends
+   * with the
    * nose pinned there rotated less than the stick asked for, so its quotient
    * under-reports the rate — sometimes by an order of magnitude, sometimes to
    * exactly 0. Either poisons the estimate permanently in the direction that
@@ -310,7 +335,15 @@ export class BotDriver {
 
     const turn = this.lastFlight?.turn ?? 0;
     if (Math.abs(turn) >= CALIBRATION_MIN_TURN) {
-      const rate = angleDelta(prevHeading, self.heading) / (turn * span);
+      // `heading` is a COORDINATE, and yaw is applied in the ship's own frame
+      // (BUBBLE.md §A), so a body-frame yaw of psi moves the heading by
+      // `psi / cos(pitch)` — unbounded at the pole. Multiplying the observed
+      // heading change back by `cos(pitch)` recovers the hull's actual yaw rate,
+      // which is what {@link steerForPoint} plans with. Without this the estimate
+      // would balloon with pitch and the bot would centre its stick to nothing in
+      // a steep climb. The sample is taken at the END attitude, matching how the
+      // pitch axis below reads its own.
+      const rate = (angleDelta(prevHeading, self.heading) * Math.cos(self.pitch)) / (turn * span);
       if (Number.isFinite(rate) && rate > 0) this.turnRateEst = rate;
     }
 
@@ -319,22 +352,24 @@ export class BotDriver {
     // Nose pinned at the clamp at the END of the window ⇒ the observed delta is
     // truncated (or zero) — see the note above. Checking only the end state is
     // enough and is deliberately not extended to the start: leaving the clamp is
-    // a perfectly clean, fully observed rotation.
-    if (Math.abs(self.pitch) >= this.maxPitch() - CLAMP_PINNED_EPSILON) return;
-    const rate = (self.pitch - prevPitch) / (stick * span);
+    // a perfectly clean, fully observed rotation. No clamp ⇒ nothing to pin on.
+    const limit = this.maxPitch();
+    if (limit !== null && Math.abs(self.pitch) >= limit - CLAMP_PINNED_EPSILON) return;
+    const rate = angleDelta(prevPitch, self.pitch) / (stick * span);
     if (Number.isFinite(rate) && rate > 0) this.pitchRateEst = rate;
   }
 
   /**
-   * `tuning.maxPitchRad` — the hull's pitch clamp, needed both to reject pinned
-   * calibration samples and to keep {@link steerForPoint} from asking for an
-   * elevation the sim will not give. Resolved from the registry exactly as the sim
-   * and the client predictor do (`getAll("tuning")[0]`, documented default) and
+   * `tuning.maxPitchRad` — the hull's OPTIONAL pitch clamp, needed both to reject
+   * pinned calibration samples and to keep {@link steerForPoint} from asking for
+   * an elevation the sim will not give. `null` means the pack authored none and
+   * the hull can loop, which is the shipped case. Resolved from the registry
+   * exactly as the sim and the client predictor do (`getAll("tuning")[0]`) and
    * cached: unlike the botprofile this is not an editor-hot-reload surface, and
    * `calibrate` runs every tick for every bot.
    */
-  private maxPitch(): number {
-    if (this.maxPitchCache >= 0) return this.maxPitchCache;
+  private maxPitch(): number | null {
+    if (this.maxPitchCache !== undefined) return this.maxPitchCache;
     const tuning = this.configs.getAll<TuningConfig>("tuning")[0];
     this.maxPitchCache = pitchTuningOf(tuning ?? ({} as TuningConfig)).maxPitchRad;
     return this.maxPitchCache;
@@ -368,6 +403,7 @@ export class BotDriver {
         turnRate: this.turnRateEst,
         pitchRate: this.pitchRateEst,
         turnHorizonSec: horizonSec,
+        driverTick: this.driverTick,
       });
     const preliminary = build(self.targetId);
     const targetId = this.pickTarget(preliminary);
@@ -398,6 +434,10 @@ export class BotDriver {
       const params = profile.behaviors[bestKey]!;
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
+    const engaged = bestPlan?.engaged ?? false;
+    this.lastEngaged = engaged;
+    this.lastTargetId = targetId;
+    const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, engaged);
 
     // --- flight order: aim point -> both sticks, then overlays, then epsilon gate ---
     const aim = bestPlan?.aim ?? null;
@@ -433,7 +473,7 @@ export class BotDriver {
     };
 
     let issuedAim: Required<Vec3> | null = null;
-    if (this.shouldSendFlight(cmd, profile)) {
+    if (this.shouldSendFlight(cmd, fireDecision.fire, profile)) {
       // Same shape, same validation, same pipeline as the human joystick — now
       // including the pitch axis a human gets from the joystick's y (BUBBLE.md §C).
       orders.push({
@@ -442,13 +482,14 @@ export class BotDriver {
         turn: cmd.turn,
         pitchStick: cmd.pitchStick,
         boost: cmd.boost,
+        fire: fireDecision.fire,
       });
       this.lastFlight = cmd;
+      this.lastFire = fireDecision.fire;
       issuedAim = aim ? aimPoint(aim) : null;
     }
 
     // --- module discipline ---
-    const engaged = bestPlan?.engaged ?? false;
     const modulePlan = planModuleOrders(ctx, this.configs, this.profile.moduleDiscipline, engaged);
     orders.push(...modulePlan.orders);
 
@@ -462,10 +503,54 @@ export class BotDriver {
       boost: cmd.boost,
       targetId,
       engaged,
+      fire: fireDecision.fire,
+      fireReason: fireDecision.reason,
       moduleDecisions: modulePlan.decisions,
       orders,
     };
     return orders;
+  }
+
+  /**
+   * Re-evaluate only the trigger phase between utility decisions. Movement,
+   * target selection and engagement remain latched from the last full decision;
+   * burst/pause timing follows deterministic driver ticks instead of the
+   * jittered decision cadence.
+   */
+  private updateTrigger(snapshot: Snapshot, self: ShipSnapshot): readonly Order[] {
+    const flight = this.lastFlight;
+    if (!flight) return NO_ORDERS;
+    const profile = this.profile;
+    const horizonSec =
+      (profile.decisionIntervalMs / 1000) * (profile.flight?.turnHorizonMult ?? DEFAULT_TURN_HORIZON_MULT);
+    const ctx = buildBotContext({
+      snapshot,
+      self,
+      profile,
+      weaponRange: this.weaponRange(self),
+      targetId: this.lastTargetId,
+      missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
+      orbitSign: this.orbitSign,
+      rng: this.rng,
+      turnRate: this.turnRateEst,
+      pitchRate: this.pitchRateEst,
+      turnHorizonSec: horizonSec,
+      driverTick: this.driverTick,
+    });
+    const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, this.lastEngaged);
+    if (fireDecision.fire === this.lastFire) return NO_ORDERS;
+
+    this.lastFire = fireDecision.fire;
+    return [
+      {
+        kind: "flight",
+        throttle: flight.throttle,
+        turn: flight.turn,
+        pitchStick: flight.pitchStick,
+        boost: flight.boost,
+        fire: fireDecision.fire,
+      },
+    ];
   }
 
   /**
@@ -474,9 +559,10 @@ export class BotDriver {
    * the epsilons are what keep a bot's order rate at a fraction of a decision per
    * second instead of one per decision, well inside `tuning.maxOrdersPerSec`.
    */
-  private shouldSendFlight(cmd: FlightCommand, profile: BotprofileConfig): boolean {
+  private shouldSendFlight(cmd: FlightCommand, fire: boolean, profile: BotprofileConfig): boolean {
     const last = this.lastFlight;
     if (!last) return true;
+    if (this.lastFire !== fire) return true;
     if (last.boost !== cmd.boost) return true;
     if (Math.abs(last.turn - cmd.turn) > (profile.flight?.turnEpsilon ?? DEFAULT_TURN_EPSILON)) return true;
     // Pitch gets its own epsilon: it is the axis a bot holds STILL for long

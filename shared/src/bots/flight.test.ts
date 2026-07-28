@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { flightStep, type SteerState } from "../sim/steering.js";
-import { DEFAULT_MAX_PITCH_RAD, DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
+import { DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
 import {
   bearing3,
   noseBlocker,
@@ -16,7 +16,8 @@ import {
 const RATE = 3; // rad/s, matching the shipped interceptor hull
 const PITCH_RATE = RATE * DEFAULT_PITCH_RATE_MULT; // what the sim gives that hull
 const HORIZON = 0.25; // s, matching the shipped aggressive decision interval
-const MAX_PITCH = DEFAULT_MAX_PITCH_RAD;
+/** The legacy clamp, authored explicitly by the cases that assert clamped steering. */
+const MAX_PITCH = 1.4;
 
 /** Fully calibrated steering params (the steady state a flying bot is in). */
 function steerParams(over: Partial<Steer3Params> = {}): Steer3Params {
@@ -140,7 +141,10 @@ describe("steerForPoint", () => {
     // ...and each axis agrees with its own primitive on the decomposed bearing.
     const b = bearing3(origin, { x: 10, y: 6, z: 10 });
     expect(s.turn).toBe(turnForHeading(0, b.yaw, RATE, HORIZON));
-    expect(s.pitchStick).toBe(pitchForElevation(0, b.pitch, PITCH_RATE, HORIZON));
+    // From level flight at heading 0 the ship's frame IS the world frame, so the
+    // body-frame split reproduces the spherical bearing exactly — to within the
+    // last bit, since it reaches the same angle by `asin` rather than `atan2`.
+    expect(s.pitchStick).toBeCloseTo(pitchForElevation(0, b.pitch, PITCH_RATE, HORIZON), 12);
   });
 
   it("noses DOWN onto a target below, and only in pitch when it is dead ahead", () => {
@@ -201,16 +205,18 @@ describe("steerForPoint", () => {
     expect(s.pitchStick).toBe(1);
   });
 
-  it("lands the nose on a 3D bearing after one horizon of the sim's own integration", () => {
-    // The 3D version of the yaw contract above: hold BOTH returned axes for one
-    // horizon through the real integrator and the nose is on the point.
+  it("converges the nose onto a 3D bearing when re-planned each tick", () => {
+    // The closed-loop contract, and the one the driver actually relies on: it
+    // re-decides every interval. Body-frame yaw and pitch are applied about axes
+    // that MOVE with the hull, so unlike the old independent-coordinate model no
+    // single constant pair of sticks held open-loop lands exactly on a bearing —
+    // rotations about different axes do not commute. Re-planning is what closes
+    // the gap, and it closes it to nothing.
     const dt = 1 / 30;
-    const ticks = 12;
-    const horizon = ticks * dt;
     const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0, pitch: 0 };
     const aim = { x: 20, y: 9, z: 14 };
-    const steer = steerForPoint(s.pos, s.heading, s.pitch, aim, steerParams({ horizonSec: horizon }));
-    for (let i = 0; i < ticks; i++) {
+    for (let i = 0; i < 120; i++) {
+      const steer = steerForPoint(s.pos, s.heading, s.pitch, aim, steerParams({ horizonSec: 12 / 30 }));
       flightStep(
         s,
         { throttle: 0, turn: steer.turn, pitchStick: steer.pitchStick, boostMult: 1 },
@@ -218,9 +224,34 @@ describe("steerForPoint", () => {
         dt,
       );
     }
+    // The loop closes geometrically rather than in one step, so this is "on the
+    // bearing to within a thousandth of a degree" rather than to the last bit.
     const b = bearing3(s.pos, aim);
-    expect(s.heading).toBeCloseTo(b.yaw, 6);
-    expect(s.pitch).toBeCloseTo(b.pitch, 6);
+    expect(s.heading).toBeCloseTo(b.yaw, 4);
+    expect(s.pitch).toBeCloseTo(b.pitch, 4);
+  });
+
+  it("aims correctly from an INVERTED hull, with no special case", () => {
+    // The payoff of planning in the ship's frame: `U` already points where the
+    // hull's up points, so an upside-down bot needs no sign flip and no fold.
+    const dt = 1 / 30;
+    const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.4, pitch: 2.6 };
+    const aim = { x: 25, y: -6, z: -18 };
+    for (let i = 0; i < 200; i++) {
+      const steer = steerForPoint(s.pos, s.heading, s.pitch, aim, steerParams({ maxPitchRad: null }));
+      flightStep(
+        s,
+        { throttle: 0, turn: steer.turn, pitchStick: steer.pitchStick, boostMult: 1 },
+        { nominalSpeed: 0, accel: 0, turnRate: RATE, pitchRateMult: DEFAULT_PITCH_RATE_MULT, maxPitchRad: null },
+        dt,
+      );
+    }
+    // Nose on the bearing, whichever spelling the attitude ended up in.
+    const nx = Math.cos(s.pitch) * Math.cos(s.heading);
+    const ny = Math.sin(s.pitch);
+    const nz = Math.cos(s.pitch) * Math.sin(s.heading);
+    const len = Math.hypot(aim.x, aim.y, aim.z);
+    expect(nx * (aim.x / len) + ny * (aim.y / len) + nz * (aim.z / len)).toBeCloseTo(1, 6);
   });
 });
 

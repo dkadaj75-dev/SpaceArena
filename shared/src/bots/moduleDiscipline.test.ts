@@ -47,6 +47,7 @@ function shipWith(
     heat: opts.moduleHeat?.[i] ?? 0,
     stateTimer: 0,
     cycleTimer: 0,
+    channeling: false,
     shieldPool: 0,
   }));
   return {

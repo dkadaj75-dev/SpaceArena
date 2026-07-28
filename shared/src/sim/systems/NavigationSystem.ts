@@ -1,6 +1,9 @@
 import type { ModuleConfig } from "../../schemas/index.js";
 import type { EntityId, ShipCore } from "../components.js";
-import { clamp, len3, wrapAngle } from "../math.js";
+import { advanceAttitude, clamp, len3, type Attitude } from "../math.js";
+
+/** Scratch attitude — the sim loops over every ship each tick, so reuse one. */
+const scratchAttitude: Attitude = { heading: 0, pitch: 0 };
 import { pitchTuningOf } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 
@@ -45,7 +48,17 @@ function resolveBoostMult(world: World, id: EntityId, core: ShipCore, dt: number
  * (see {@link resolveBoostMult}).
  */
 export function navigationSystem(world: World, dt: number): void {
+  // Restore the last ordered trigger level before applying this tick's batch.
+  // A previous tick may have temporarily raised `fire` by ORing a sub-tick tap.
+  for (const [entityId, flight] of world.flightStates) {
+    flight.fire = world.flightFireLevels.get(entityId) ?? flight.fire;
+  }
+
   // Flight orders are level-triggered: stored, then integrated until replaced.
+  // Axes come from the last valid order drained for a ship, but fire is ORed
+  // across this tick's batch so a press+release between sim ticks still presents
+  // one rising edge to semi-auto weapons.
+  const fireThisTick = new Map<EntityId, boolean>();
   for (const { entityId, order } of world.takeOrders("flight")) {
     if (!world.shipCores.has(entityId)) continue;
     // clamp() passes NaN through — a non-finite axis would poison heading/pos,
@@ -55,12 +68,17 @@ export function navigationSystem(world: World, dt: number): void {
     // "leave the nose alone"; a present non-finite one is malformed like the rest.
     const pitchStick = order.pitchStick ?? 0;
     if (!Number.isFinite(pitchStick)) continue;
+    const previous = world.flightStates.get(entityId);
+    world.flightFireLevels.set(entityId, order.fire);
     world.flightStates.set(entityId, {
       throttle: clamp(order.throttle, 0, 1),
       turn: clamp(order.turn, -1, 1),
       pitchStick: clamp(pitchStick, -1, 1),
       boost: order.boost,
+      fire: (fireThisTick.get(entityId) ?? false) || order.fire,
+      firePrev: previous?.firePrev ?? false,
     });
+    fireThisTick.set(entityId, (fireThisTick.get(entityId) ?? false) || order.fire);
   }
 
   const drag = world.tuning.dragCoefficient ?? 0;
@@ -90,12 +108,16 @@ export function navigationSystem(world: World, dt: number): void {
     // steering.ts — that function is the client-prediction mirror and a test
     // asserts the two produce the same trajectory.
     const speedMult = flight.boost ? resolveBoostMult(world, id, core, dt) : 1;
-    tf.heading = wrapAngle(tf.heading + flight.turn * core.engine.turnRate * dt);
-    tf.pitch = clamp(
-      tf.pitch + flight.pitchStick * core.engine.turnRate * pitchRateMult * dt,
-      -maxPitch,
+    advanceAttitude(
+      tf.heading,
+      tf.pitch,
+      flight.turn * core.engine.turnRate * dt,
+      flight.pitchStick * core.engine.turnRate * pitchRateMult * dt,
       maxPitch,
+      scratchAttitude,
     );
+    tf.heading = scratchAttitude.heading;
+    tf.pitch = scratchAttitude.pitch;
 
     const desiredSpeed = flight.throttle * core.engine.nominalSpeed * speedMult;
     const curSpeed = len3(vel.x, vel.y, vel.z);

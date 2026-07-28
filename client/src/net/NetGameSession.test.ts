@@ -65,6 +65,24 @@ describe("decodeModules (Finding 2 + 5)", () => {
     expect(decodeModules(raw)[0]!.state).toBe("active");
   });
 
+  it("wires the replicated continuous-channel flag through per-module", () => {
+    // The ONLY new field the continuous beam adds to the wire: without it a
+    // remote client has nothing to draw a channelled beam from, since a channel
+    // emits one fire event at its start and none per tick afterwards.
+    const raw = [
+      { hardpointIndex: 0, moduleId: "module.beamlaser-mk1", state: 2, heat: 4, stateTimer: 0, cycleTimer: 0, channeling: true, shieldPool: 0 },
+      { hardpointIndex: 1, moduleId: "module.laser-mk1", state: 2, heat: 0, stateTimer: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 },
+    ];
+    const modules = decodeModules(raw);
+    expect(modules[0]!.channeling).toBe(true);
+    expect(modules[1]!.channeling).toBe(false);
+  });
+
+  it("defaults a missing channeling flag to false without dropping the module", () => {
+    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, heat: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    expect(decodeModules(raw)[0]!.channeling).toBe(false);
+  });
+
   it("defaults a missing shieldPool to 0 without dropping the module", () => {
     const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, heat: 0, stateTimer: 0, cycleTimer: 0 }];
     expect(decodeModules(raw)[0]!.shieldPool).toBe(0);
@@ -115,9 +133,9 @@ describe("boostMult (Finding 4)", () => {
 describe("FlightReconciler (Finding 4)", () => {
   // Bots and the current HUD fly planar (pitchStick 0) — the axis rides along
   // so the reconciler is exercised on the real predicted-state shape.
-  const A: PredictedFlight = { throttle: 0.2, turn: 0, pitchStick: 0, boost: false };
-  const B: PredictedFlight = { throttle: 0.6, turn: 0.5, pitchStick: 0, boost: false };
-  const C: PredictedFlight = { throttle: 1, turn: -1, pitchStick: 0.5, boost: true };
+  const A: PredictedFlight = { throttle: 0.2, turn: 0, pitchStick: 0, boost: false, fire: false };
+  const B: PredictedFlight = { throttle: 0.6, turn: 0.5, pitchStick: 0, boost: false, fire: true };
+  const C: PredictedFlight = { throttle: 1, turn: -1, pitchStick: 0.5, boost: true, fire: false };
 
   it("keeps the newest accepted state when an OLDER order is rejected after it", () => {
     // The reported bug: A accepted, B rejected, C accepted — B's rejection used
@@ -177,8 +195,8 @@ describe("FlightReconciler (Finding 4)", () => {
     // predictor levelling off while the real ship kept climbing — a growing
     // vertical error the correction blend cannot absorb, because the input
     // itself is wrong every tick.
-    const climb: PredictedFlight = { throttle: 1, turn: 0, pitchStick: 0.75, boost: false };
-    const dive: PredictedFlight = { throttle: 1, turn: 0, pitchStick: -0.75, boost: false };
+    const climb: PredictedFlight = { throttle: 1, turn: 0, pitchStick: 0.75, boost: false, fire: true };
+    const dive: PredictedFlight = { throttle: 1, turn: 0, pitchStick: -0.75, boost: false, fire: false };
     const r = new FlightReconciler();
     r.sent(1, climb);
     r.acked(1, true);
@@ -186,6 +204,7 @@ describe("FlightReconciler (Finding 4)", () => {
     r.acked(2, false); // newest sent → roll back
     expect(r.current).toBe(climb);
     expect(r.current!.pitchStick).toBe(0.75);
+    expect(r.current!.fire).toBe(true);
   });
 
   it("does not let a straggling older acceptance overwrite a newer one", () => {
@@ -280,7 +299,7 @@ const DT = 1 / 30;
 const SHIP_ID = "ship.interceptor";
 /** Long enough to cover the accel ramp AND the cruise phase (1.5 s). */
 const RUN_TICKS = 45;
-const START = { x: 0, z: -70 };
+const START = { x: 0, z: -49 };
 
 /**
  * Fly the REAL sim and the client's `flightStep` predictor side by side from the
@@ -328,7 +347,7 @@ function driftOverRun(
   const engine = predictorStats === "resolved" ? core.engine : cfg.core.engine;
   const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
 
-  sim.applyOrder(id, { kind: "flight", ...input });
+  sim.applyOrder(id, { kind: "flight", ...input, fire: true });
 
   let hits = 0;
   for (let i = 0; i < RUN_TICKS; i++) {
@@ -428,12 +447,13 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
     expect(drift).toBeLessThan(1e-9);
   });
 
-  it("mirrors the sim's pitch CLAMP, so a pinned stick does not diverge at the pole", () => {
-    // Held full-up for the whole run: the predictor and the sim both stop at
-    // ±tuning.maxPitchRad, and they have to stop at the same tick — a mirror
-    // that clamped one tick late would accumulate a real vertical offset.
+  it("mirrors the sim's pitch WRAP, so a held stick loops without diverging", () => {
+    // Held full-up for the whole run. Shipped tuning authors no `maxPitchRad`, so
+    // the nose goes over the top and keeps going (BUBBLE.md §A) — the predictor
+    // and the sim have to wrap on the same tick, because a mirror that crossed
+    // ±π one tick late would put the two ships on opposite sides of a loop.
     const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
-    const maxPitch = pitchTuningOf(tuning).maxPitchRad;
+    expect(pitchTuningOf(tuning).maxPitchRad).toBeNull();
     const { drift, hits, pitch, pitchDrift } = driftOverRun({ hull: 0, engine: 0, energy: 0, heat: 0 }, "resolved", {
       throttle: 1,
       turn: 0,
@@ -441,7 +461,10 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
       boost: false,
     });
     expect(hits).toBe(0);
-    expect(pitch).toBe(maxPitch); // pinned against the clamp, not merely near it
+    // A legal wrapped attitude, and one the old clamp could never have produced.
+    expect(pitch).toBeGreaterThan(-Math.PI);
+    expect(pitch).toBeLessThanOrEqual(Math.PI);
+    expect(Math.abs(pitch)).toBeGreaterThan(Math.PI / 2);
     expect(pitchDrift).toBe(0);
     expect(drift).toBeLessThan(1e-9);
   });

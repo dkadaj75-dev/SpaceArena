@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { CameraConfig } from "@space-arena/shared";
+import { wrapAngle, type CameraConfig } from "@space-arena/shared";
 import {
   angleDeltaTo,
   approachHeading,
   approachPitch,
   chaseAlphaFor,
-  chaseBetaFor,
+  chaseOffsetFor,
   chaseSettingsOf,
-  CHASE_BETA_POLE_MARGIN,
+  chaseUpFor,
   DEFAULT_CHASE_SETTINGS,
   TURN_SIGN_FOR_SCREEN_RIGHT,
 } from "./chaseCamera.js";
@@ -90,78 +90,120 @@ describe("chase camera geometry (FLIGHT.md §3)", () => {
 });
 
 /**
- * The bubble's vertical half of the same idea (BUBBLE.md §C). Checked against
- * `ArcRotateCamera`'s position formula rather than against `chaseBetaFor`'s own
- * reasoning: with a FULL follow the camera must sit exactly down the ship's 3D
- * tail, whatever its pitch.
+ * The bubble's vertical half (BUBBLE.md §A, free-pitch loops). Checked against
+ * `ArcRotateCamera`'s position formula rather than against the rig's own
+ * reasoning: the camera must sit exactly down the ship's 3D tail at every pitch,
+ * and its up vector must stay square to the nose so the horizon rolls with the
+ * ship instead of flipping.
  */
-describe("chase camera pitch follow (BUBBLE.md §C)", () => {
-  const LEVEL = Math.PI / 2;
+describe("the rolled chase rig (BUBBLE.md §A)", () => {
+  const BASE = 1.34;
 
-  it("parks the camera down the 3D tail of a climbing or diving ship", () => {
-    for (const heading of [0, 0.9, Math.PI, -2.1]) {
-      for (const pitch of [-1.2, -0.4, 0, 0.4, 1.2]) {
-        // Base tilt π/2 is "dead astern"; the shoulder lift the shipped pack uses
-        // is a deliberate offset from that, tested separately below.
-        const beta = chaseBetaFor(LEVEL, pitch, 1);
-        const pos = orbitPosition(chaseAlphaFor(heading), beta, 14, ORIGIN);
-        const toCamera = normalize(pos);
-        expect(dot(toCamera, noseDir3D(heading, pitch))).toBeCloseTo(-1, 9);
+  it("keeps the up vector square to the nose at every pitch, wrap included", () => {
+    for (const heading of [0, 0.7, 2.4, -1.9]) {
+      for (const pitch of [-Math.PI, -2.6, -1.2, 0, 0.5, Math.PI / 2, 2.6, Math.PI]) {
+        const up = chaseUpFor(heading, pitch, { x: 0, y: 0, z: 0 });
+        expect(Math.hypot(up.x, up.y, up.z)).toBeCloseTo(1, 9);
+        // Perpendicular to the nose — that is what makes it a valid camera up.
+        expect(dot(up, noseDir3D(heading, pitch))).toBeCloseTo(0, 9);
       }
     }
   });
 
-  it("raises beta for a climb and lowers it for a dive", () => {
-    expect(chaseBetaFor(1.34, 0.5, 1)).toBeCloseTo(1.84, 9);
-    expect(chaseBetaFor(1.34, -0.5, 1)).toBeCloseTo(0.84, 9);
-    expect(chaseBetaFor(1.34, 0, 1)).toBe(1.34);
+  it("rolls CONTINUOUSLY through a loop, including across the ±π wrap", () => {
+    // The bug the owner hit: a world-up rig has to flip the image 180° in one
+    // frame at the pole. A rolling up vector cannot — consecutive samples stay
+    // close however many times the ship goes round.
+    const prev = { x: 0, y: 0, z: 0 };
+    const cur = { x: 0, y: 0, z: 0 };
+    let maxStep = 0;
+    chaseUpFor(0.7, -Math.PI, prev);
+    for (let p = -Math.PI; p <= Math.PI; p += 0.01) {
+      chaseUpFor(0.7, wrapAngle(p), cur);
+      maxStep = Math.max(maxStep, Math.hypot(cur.x - prev.x, cur.y - prev.y, cur.z - prev.z));
+      prev.x = cur.x;
+      prev.y = cur.y;
+      prev.z = cur.z;
+    }
+    expect(maxStep).toBeLessThan(0.02);
+    // And it closes the circle: the wrap point is the same vector from both sides.
+    const atPi = chaseUpFor(0.7, Math.PI, { x: 0, y: 0, z: 0 });
+    const atMinusPi = chaseUpFor(0.7, -Math.PI, { x: 0, y: 0, z: 0 });
+    expect(Math.hypot(atPi.x - atMinusPi.x, atPi.y - atMinusPi.y, atPi.z - atMinusPi.z)).toBeCloseTo(0, 9);
   });
 
-  it("keeps the camera ABOVE a level ship at the shipped base tilt", () => {
-    // The whole point of a base tilt under π/2: at level flight the rig looks
-    // over the ship's shoulder rather than straight up its exhaust.
-    expect(orbitPosition(chaseAlphaFor(0), chaseBetaFor(1.34, 0, 1), 14, ORIGIN).y).toBeGreaterThan(0);
+  it("goes fully inverted over the top, which is the loop", () => {
+    // Upright at level, upside-down half a loop later. Nothing else can make
+    // "hold the stick up" keep looking like a climb all the way round.
+    expect(chaseUpFor(0.7, 0, { x: 0, y: 0, z: 0 }).y).toBeCloseTo(1, 9);
+    expect(chaseUpFor(0.7, Math.PI, { x: 0, y: 0, z: 0 }).y).toBeCloseTo(-1, 9);
+    expect(chaseUpFor(0.7, Math.PI / 2, { x: 0, y: 0, z: 0 }).y).toBeCloseTo(0, 9);
   });
 
-  it("scales the follow by pitchFollow, and 0 pins the tilt outright", () => {
-    expect(chaseBetaFor(1.34, 0.8, 0)).toBe(1.34);
-    expect(chaseBetaFor(1.34, 0.8, 0.5)).toBeCloseTo(1.34 + 0.4, 9);
-    expect(chaseBetaFor(1.34, 0.8, 1)).toBeCloseTo(1.34 + 0.8, 9);
-  });
-
-  it("never reaches a pole, however extreme the pitch or the base tilt", () => {
-    const lo = CHASE_BETA_POLE_MARGIN;
-    const hi = Math.PI - CHASE_BETA_POLE_MARGIN;
-    for (const base of [0.2, 1.34, Math.PI / 2, 3.0]) {
-      for (const pitch of [-10, -1.5, -1.4, 1.4, 1.5, 10]) {
-        const beta = chaseBetaFor(base, pitch, 1);
-        expect(beta).toBeGreaterThanOrEqual(lo);
-        expect(beta).toBeLessThanOrEqual(hi);
-        // A pole is where the rig would flip or lose its right vector; the margin
-        // has to be a real gap, not just a non-strict bound.
-        expect(Math.sin(beta)).toBeGreaterThan(0);
+  it("sits behind the ship's 3D tail at every pitch, upright or inverted", () => {
+    for (const heading of [0, 0.7, 2.4]) {
+      for (const pitch of [-2.6, -1.2, 0, 1.2, 2.6, 3.0]) {
+        const off = chaseOffsetFor(heading, pitch, Math.PI / 2, 14, { x: 0, y: 0, z: 0 });
+        // A base tilt of exactly π/2 is "straight down the tail", so the offset
+        // must be the negated nose. (The shipped tilt lifts it; see below.)
+        expect(dot(normalize(off), noseDir3D(heading, pitch))).toBeCloseTo(-1, 9);
       }
     }
   });
 
-  it("keeps the camera exactly `radius` away at any tilt the follow produces", () => {
-    for (const pitch of [-1.4, 0, 0.7, 1.4]) {
-      const pos = orbitPosition(chaseAlphaFor(1.1), chaseBetaFor(1.34, pitch, 0.85), 14, ORIGIN);
-      expect(Math.hypot(pos.x, pos.y, pos.z)).toBeCloseTo(14, 9);
+  it("lifts the camera above the ship's own up for a base tilt under π/2", () => {
+    for (const pitch of [0, 1.2, 2.6, -2.0]) {
+      const off = chaseOffsetFor(0.7, pitch, BASE, 14, { x: 0, y: 0, z: 0 });
+      const up = chaseUpFor(0.7, pitch, { x: 0, y: 0, z: 0 });
+      // "Over the shoulder" is a constant lift along the SHIP's up, at any pitch —
+      // that constancy is what makes the rig feel identical all the way round.
+      expect(dot(normalize(off), up)).toBeCloseTo(Math.cos(BASE), 9);
+      expect(Math.hypot(off.x, off.y, off.z)).toBeCloseTo(14, 9);
+    }
+  });
+
+  it("keeps the camera position CONTINUOUS through a loop", () => {
+    const prev = { x: 0, y: 0, z: 0 };
+    const cur = { x: 0, y: 0, z: 0 };
+    let maxStep = 0;
+    chaseOffsetFor(0.7, -Math.PI, BASE, 14, prev);
+    for (let p = -Math.PI; p <= Math.PI; p += 0.01) {
+      chaseOffsetFor(0.7, wrapAngle(p), BASE, 14, cur);
+      maxStep = Math.max(maxStep, Math.hypot(cur.x - prev.x, cur.y - prev.y, cur.z - prev.z));
+      prev.x = cur.x;
+      prev.y = cur.y;
+      prev.z = cur.z;
+    }
+    // 0.01 rad of pitch moves a 14-unit arm about 0.14 units; nothing jumps.
+    expect(maxStep).toBeLessThan(0.2);
+  });
+
+  it("reduces to the plain orbit formula, so the rig is still an ArcRotate pose", () => {
+    // `chaseOffsetFor` IS `orbitPosition(alpha = h + π, beta = base + pitch)`.
+    // Worth pinning: it means the camera's POSITION was always continuous under
+    // the naive rule, and only the roll was ever broken.
+    for (const pitch of [-2.0, 0, 0.9, 2.7]) {
+      const off = chaseOffsetFor(0.7, pitch, BASE, 14, { x: 0, y: 0, z: 0 });
+      const pos = orbitPosition(chaseAlphaFor(0.7), BASE + pitch, 14, ORIGIN);
+      expect(off.x).toBeCloseTo(pos.x, 9);
+      expect(off.y).toBeCloseTo(pos.y, 9);
+      expect(off.z).toBeCloseTo(pos.z, 9);
     }
   });
 });
 
 describe("approachPitch", () => {
-  it("does NOT take a short way round — pitch has no wrap to cut across", () => {
-    // The reason pitch does not reuse approachHeading: −3.0 and 3.0 are 6 rad
-    // apart on a non-wrapping axis, and treating them as neighbours would send a
-    // dive to a climb.
+  it("DOES take the short way round, now that a looping ship wraps its pitch", () => {
+    // The inverse of what this asserted while pitch was clamped. Free pitch
+    // (BUBBLE.md §A) makes −3.0 and 3.0 genuine neighbours 0.28 rad apart, which
+    // a ship crosses every revolution of a loop; going "the long way" between
+    // them would spin the camera through a whole turn at the top of every loop.
+    // The rig feeds this the CANONICAL elevation, bounded by ±π/2, so the two
+    // never differ by more than π and the short way is always well defined.
     expect(approachPitch(-3, 3, 1, 1 / 60)).toBe(3);
     const stepped = approachPitch(-3, 3, 0.5, 1 / 60);
-    expect(stepped).toBeGreaterThan(-3);
-    expect(stepped).toBeLessThan(3);
-    expect(approachHeading(-3, 3, 0.5, 1 / 60)).toBeLessThan(-3); // the wrapping one goes the other way
+    expect(stepped).toBeLessThan(-3); // toward −π and out the other side
+    expect(stepped).toBe(approachHeading(-3, 3, 0.5, 1 / 60)); // same rule as yaw now
   });
 
   it("snaps when lag is 1 and freezes when lag is 0", () => {
@@ -250,14 +292,20 @@ describe("chaseSettingsOf", () => {
 
   it("takes every knob from the camera config's chase block", () => {
     const camera = {
-      chase: { radius: 20, height: 2, beta: 1.2, yawLag: 0.3, pitchFollow: 0.6, pitchLag: 0.4, fov: 0.9 },
+      chase: {
+        radius: 20,
+        height: 2,
+        beta: 1.2,
+        yawLag: 0.3,
+        pitchLag: 0.4,
+        fov: 0.9,
+      },
     } as unknown as CameraConfig;
     expect(chaseSettingsOf(camera)).toEqual({
       radius: 20,
       height: 2,
       beta: 1.2,
       yawLag: 0.3,
-      pitchFollow: 0.6,
       pitchLag: 0.4,
       fov: 0.9,
     });
@@ -266,7 +314,7 @@ describe("chaseSettingsOf", () => {
   it("falls back per-field, so a partial chase block still resolves fully", () => {
     const camera = { chase: { radius: 20, height: 2, beta: 1.2, yawLag: 0.3 } } as unknown as CameraConfig;
     expect(chaseSettingsOf(camera).fov).toBe(DEFAULT_CHASE_SETTINGS.fov);
-    expect(chaseSettingsOf(camera).pitchFollow).toBe(DEFAULT_CHASE_SETTINGS.pitchFollow);
+    expect(chaseSettingsOf(camera).pitchLag).toBe(0.3); // omitted ⇒ yawLag
   });
 
   it("reuses yawLag for an omitted pitchLag, so both axes stay matched", () => {
@@ -277,9 +325,4 @@ describe("chaseSettingsOf", () => {
     expect(chaseSettingsOf(decoupled).pitchLag).toBe(0.05);
   });
 
-  it("follows pitch FULLY when a pack configures nothing", () => {
-    // "No follow configured" can only honestly mean "look down the nose"; the
-    // shipped pack softens it, but that is a feel choice, not the fallback.
-    expect(DEFAULT_CHASE_SETTINGS.pitchFollow).toBe(1);
-  });
 });

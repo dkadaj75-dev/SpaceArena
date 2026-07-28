@@ -10,7 +10,6 @@ import {
   encodePitch,
   encodeUnit,
 } from "./quantize.js";
-import { DEFAULT_MAX_PITCH_RAD } from "../sim/tuningDefaults.js";
 
 /**
  * The 0..1 wire encoding introduced with the flight netcode (FLIGHT.md §5):
@@ -89,7 +88,8 @@ describe("encodeCenti / decodeCenti on the y axis", () => {
  * has to come back negative — see the comment on `encodePitch`.
  */
 describe("encodePitch / decodePitch", () => {
-  const MAX = DEFAULT_MAX_PITCH_RAD;
+  /** A representative legacy-clamp attitude; the codec itself spans all of ±PI. */
+  const MAX = 1.4;
 
   it("preserves sign, which is exactly what the heading codec cannot do", () => {
     expect(decodePitch(encodePitch(-MAX))).toBeLessThan(0);
@@ -124,6 +124,40 @@ describe("encodePitch / decodePitch", () => {
     // Symmetric by construction: INT16_MIN is deliberately left unused so that
     // a mirrored attitude quantizes to a mirrored code, with no off-by-one bias.
     for (const pitch of [0.3, 1.1, MAX]) expect(encodePitch(-pitch)).toBe(-encodePitch(pitch));
+  });
+
+  it("round-trips the wrap boundary EXACTLY, in both spellings", () => {
+    // Free pitch (BUBBLE.md §A) makes ±PI a reachable attitude every loop, not a
+    // theoretical domain edge, and it is the one value where a quantization error
+    // would flip the sign of the decoded angle — a nose that arrives at -PI
+    // instead of +PI reads as the same direction but takes the client's attitude
+    // interpolation the long way round the circle. The mapping is exact here by
+    // construction (PI * (INT16_MAX/PI) lands on the integer), so assert it as an
+    // identity rather than a tolerance.
+    expect(decodePitch(encodePitch(Math.PI))).toBe(Math.PI);
+    expect(decodePitch(encodePitch(-Math.PI))).toBe(-Math.PI);
+  });
+
+  it("covers the whole free-pitch circle, monotonically and past vertical", () => {
+    // The sim wraps pitch into (-PI, PI], so the codec's domain has to be that
+    // whole interval — including the inverted band |pitch| > PI/2, which simply
+    // did not exist while the clamp was mandatory.
+    let last = -Infinity;
+    const step = Math.PI / 64;
+    for (let pitch = -Math.PI + step; pitch <= Math.PI; pitch += step) {
+      const q = encodePitch(pitch);
+      expect(q).toBeGreaterThan(last);
+      expect(q).toBeGreaterThanOrEqual(-INT16_MAX);
+      expect(q).toBeLessThanOrEqual(INT16_MAX);
+      expect(Math.abs(decodePitch(q) - pitch)).toBeLessThanOrEqual(Math.PI / INT16_MAX);
+      last = q;
+    }
+    // Inverted attitudes survive the round trip as inverted ones: the sign of
+    // cos(pitch) is what flips the nose's horizontal component, so losing it
+    // would replicate a looping ship as one flying the opposite way.
+    for (const pitch of [2.5, -2.5, Math.PI / 2 + 0.01]) {
+      expect(Math.cos(decodePitch(encodePitch(pitch)))).toBeLessThan(0);
+    }
   });
 
   it("clamps past the domain and refuses non-finite input rather than wrapping the int16", () => {

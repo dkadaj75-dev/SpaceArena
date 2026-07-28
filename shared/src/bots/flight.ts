@@ -145,8 +145,13 @@ export interface Steer3Params {
   horizonSec: number;
   /** Error treated as "nose on" — inside it that axis centres (radians). */
   toleranceRad?: number;
-  /** The sim's `tuning.maxPitchRad`; desired elevation is clamped into it. */
-  maxPitchRad: number;
+  /**
+   * The sim's OPTIONAL `tuning.maxPitchRad`. A number is the legacy clamp and the
+   * desired elevation is clamped into it; `null` (the shipped case) is free pitch,
+   * where the hull can loop and the desired attitude is chosen by continuity
+   * instead ({@link steerForPoint}).
+   */
+  maxPitchRad: number | null;
 }
 
 /**
@@ -160,10 +165,31 @@ export interface Steer3Params {
  * - **Co-located** — no bearing at all; hold both axes.
  * - **Straight up / straight down** — the yaw of a purely vertical bearing is
  *   meaningless (`planar === 0`), so the yaw axis centres and only the nose
- *   moves. The desired elevation is clamped to ±`maxPitchRad` because the sim
- *   clamps the hull there: a bot asking for the unreachable ±PI/2 would pin the
- *   stick against the clamp forever, spamming a full-deflection axis that can
- *   never null its own error.
+ *   moves.
+ *
+ * ## Body-frame decomposition (BUBBLE.md §A)
+ *
+ * The sim yaws the nose about the ship's OWN up, so that is the frame a bot has
+ * to plan in. The bearing is resolved onto the two body axes directly:
+ *
+ *     N = nose,  U = ship up,  W = N x U = the ship's right-hand axis
+ *     yawErr   = atan2(D·W, D·N)      rotate this much about U
+ *     pitchErr = atan2(D·U, D·N)      rotate this much about W
+ *
+ * which is simpler than the old spherical version and strictly better behaved:
+ * there is no `heading`/`pitch` coordinate anywhere in it, so nothing blows up
+ * near the poles, nothing has to pick between two spellings of an attitude, and
+ * an inverted hull needs no special case at all — `U` already points where the
+ * hull's own "up" points. Each error is then fed to the same proportional-horizon
+ * rule as before, expressed as a desired heading/elevation so
+ * {@link turnForHeading} and {@link pitchForElevation} are unchanged.
+ *
+ * The one thing that survives from the old code is the LEGACY clamp guard: with
+ * `maxPitchRad` authored, the desired elevation is held inside the clamp so a bot
+ * cannot pin a full-deflection stick against a limit it can never null.
+ *
+ * Edge cases: co-located (no bearing) holds both axes, and a bearing exactly
+ * along the nose leaves both errors at zero, which is the honest answer.
  */
 export function steerForPoint(
   pos: Vec3,
@@ -175,14 +201,36 @@ export function steerForPoint(
   const dx = aim.x - pos.x;
   const dy = (aim.y ?? 0) - (pos.y ?? 0);
   const dz = aim.z - pos.z;
-  const planar = len(dx, dz);
-  if (planar === 0 && dy === 0) return { turn: 0, pitchStick: 0 };
+  if (dx === 0 && dy === 0 && dz === 0) return { turn: 0, pitchStick: 0 };
   const tolerance = params.toleranceRad ?? 0;
-  const limit = Math.abs(params.maxPitchRad);
-  const desiredPitch = clamp(pitchOf(dx, dy, dz), -limit, limit);
+
+  const cp = Math.cos(pitch);
+  const sp = Math.sin(pitch);
+  const ch = Math.cos(heading);
+  const sh = Math.sin(heading);
+  // The ship's own frame: nose, up, and right (see the note above).
+  const alongNose = dx * (cp * ch) + dy * sp + dz * (cp * sh);
+  const alongUp = dx * (-ch * sp) + dy * cp + dz * (-sh * sp);
+  const alongRight = dx * -sh + dz * ch;
+
+  // The sim applies yaw FIRST and then pitch about the already-yawed right axis,
+  // and rotations do not commute, so the split has to match that order exactly:
+  // writing D = a·N + b·U + c·W, a yaw of atan2(c, a) followed by a pitch of
+  // asin(b) lands the nose precisely on D. (Using atan2(b, a) for the pitch —
+  // the symmetric-looking choice — silently overshoots, because it measures the
+  // elevation before the yaw has moved the frame.)
+  const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const yawErr = Math.atan2(alongRight, alongNose);
+  let pitchErr = Math.asin(clamp(alongUp / length, -1, 1));
+  if (params.maxPitchRad !== null) {
+    // Legacy clamp: never ask for an elevation the hull cannot reach.
+    const limit = Math.abs(params.maxPitchRad);
+    pitchErr = clamp(pitch + pitchErr, -limit, limit) - pitch;
+  }
+
   return {
-    turn: planar > 0 ? turnForHeading(heading, headingOf(dx, dz), params.turnRate, params.horizonSec, tolerance) : 0,
-    pitchStick: pitchForElevation(pitch, desiredPitch, params.pitchRate, params.horizonSec, tolerance),
+    turn: turnForHeading(heading, heading + yawErr, params.turnRate, params.horizonSec, tolerance),
+    pitchStick: pitchForElevation(pitch, pitch + pitchErr, params.pitchRate, params.horizonSec, tolerance),
   };
 }
 

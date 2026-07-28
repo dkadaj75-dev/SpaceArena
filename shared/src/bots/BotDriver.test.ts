@@ -7,7 +7,7 @@ import type { AsteroidSnapshot, ProjectileSnapshot, ShipSnapshot, Snapshot } fro
 import { angleDelta, wrapAngle } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
 import { loadTestConfigs } from "../sim/testutil.js";
-import { DEFAULT_MAX_PITCH_RAD, DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
+import { DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
 import type { BotBehavior } from "./behaviors.js";
 import { BotDriver } from "./BotDriver.js";
 
@@ -72,8 +72,13 @@ function profile(over: Record<string, unknown>): BotprofileConfig {
 /** RNG that always returns 0 — deterministic, and makes chance rolls fire. */
 const zeroRng = (): number => 0;
 
-/** The pitch clamp a driver with no `tuning` config resolves (BUBBLE.md §A). */
-const MAX_PITCH = DEFAULT_MAX_PITCH_RAD;
+/**
+ * The LEGACY pitch clamp, authored explicitly by the fixtures that exercise it
+ * (BUBBLE.md §A). Shipped tuning omits `maxPitchRad` and pitch is free, so a
+ * clamp only exists in a test that asks for one — which is the point of the tests
+ * below that assert clamp-pinned calibration samples are rejected.
+ */
+const MAX_PITCH = 1.4;
 
 /** Run a driver to its first decision (the first update only seeds the cadence). */
 function decide(driver: BotDriver, snapshot: Snapshot): void {
@@ -91,6 +96,18 @@ function flightOrder(orders: readonly Order[]): Extract<Order, { kind: "flight" 
 }
 
 const emptyConfigs = new ConfigService(async () => ({}));
+
+/**
+ * A registry whose tuning pack authors the LEGACY pitch clamp. Shipped tuning
+ * omits `maxPitchRad` — pitch is free and ships loop (BUBBLE.md §A) — so the
+ * clamp-behaviour cases have to ask for it explicitly, exactly the way a content
+ * pack wanting a flier that cannot invert would. Everything else resolves like
+ * {@link emptyConfigs}.
+ */
+const clampedConfigs = {
+  getAll: (type: string) => (type === "tuning" ? [{ maxPitchRad: MAX_PITCH }] : []),
+  get: () => undefined,
+} as unknown as ConfigService;
 
 describe("BotDriver utility scoring", () => {
   it("engages when the enemy sits at the preferred range", () => {
@@ -332,7 +349,7 @@ describe("BotDriver flight orders", () => {
     const trueRate = 2.4;
     const dt = 1 / 30;
     const p = profile({ decisionIntervalMs: 400, orderJitterMs: 0, behaviors: { engage: { baseWeight: 1 } } });
-    const driver = makeDriver(p, emptyConfigs);
+    const driver = makeDriver(p, clampedConfigs);
     // Enemy straight overhead, nose already high: one interval of full stick
     // carries 0.96 rad, which from 0.8 runs straight into the 1.4 clamp.
     const enemy = ship(2, 1, 0, 0, { pos: { x: 0, y: 60, z: 0 } });
@@ -497,6 +514,53 @@ describe("BotDriver flight orders", () => {
     // but the debug snapshot still reports where the bot is headed.
     expect(driver.lastDecision!.movePoint).toBeNull();
     expect(driver.lastDecision!.plannedMove).not.toBeNull();
+  });
+
+  it("updates burst/pause trigger edges every driver tick between decisions", async () => {
+    const configs = await loadTestConfigs();
+    const p = profile({
+      decisionIntervalMs: 1000,
+      orderJitterMs: 0,
+      fireDiscipline: {
+        engageRangeMult: 1,
+        heatHeadroom: 1,
+        minEnergyFraction: 0,
+        burstSec: 0.1,
+        pauseSec: 0.1,
+      },
+    });
+    const driver = makeDriver(p, configs);
+    const self = ship(1, 0, 0, 0, {
+      targetId: 2,
+      lockProgress: 1,
+      locked: true,
+      modules: [{
+        moduleId: "module.laser-mk1",
+        hardpointIndex: 0,
+        state: "active",
+        heat: 0,
+        stateTimer: 0,
+        cycleTimer: 0,
+        channeling: false,
+        shieldPool: 0,
+      }],
+    });
+    const s = snap([self, ship(2, 1, 25, 0)]);
+    driver.update(s, 0); // seed cadence: driver tick 1
+
+    let heldFire: boolean | null = null;
+    const pattern: Array<boolean | null> = [];
+    for (let tick = 0; tick < 7; tick++) {
+      const order = flightOrder(driver.update(s, tick * (1000 / 30)));
+      if (order) heldFire = order.fire;
+      pattern.push(heldFire);
+    }
+
+    // Driver ticks 2..8: three on ticks, three off ticks, then on again.
+    // Only the edges emit orders; the held values below reconstruct the level
+    // the sim integrates between the sparse utility decisions.
+    expect(pattern).toEqual([true, false, false, false, true, true, true]);
+    expect(driver.lastDecision?.atMs).toBe(0);
   });
 
   it("re-reads its profile from the registry, so a Behavior Editor tweak reaches a flying bot", () => {

@@ -1,6 +1,9 @@
 import type { ShipCore } from "../components.js";
-import { len3 } from "../math.js";
+import { attitudeNear, len3, type Attitude } from "../math.js";
 import type { World } from "../World.js";
+
+/** Scratch attitude for the boundary nose reflection — no per-contact allocation. */
+const reflectedAttitude: Attitude = { heading: 0, pitch: 0 };
 
 /**
  * CollisionSystem (1.7) — SPHERE resolution using the world spatial hash as a
@@ -229,8 +232,24 @@ function resolveBoundary(
       const reflectedX = noseX - 2 * noseOutward * outward.x;
       const reflectedY = noseY - 2 * noseOutward * outward.y;
       const reflectedZ = noseZ - 2 * noseOutward * outward.z;
-      tf.heading = Math.atan2(reflectedZ, reflectedX);
-      tf.pitch = Math.asin(Math.max(-1, Math.min(1, reflectedY)));
+      // The reflected DIRECTION is unambiguous; the (heading, pitch) pair that
+      // names it is not, and picking the wrong one snaps the ship. `atan2/asin`
+      // alone always answer the upright spelling, so a ship that hits the rim
+      // mid-loop at pitch 2.6 would have its heading jump by PI and its pitch by
+      // ~1.5 for a reflection that barely moved the nose — the client's attitude
+      // interpolation, the chase camera and the bots would all see a violent
+      // manoeuvre that never happened. `attitudeNear` keeps the spelling the ship
+      // is already flying (BUBBLE.md §A), so an inverted bounce stays inverted and
+      // the numbers move as little as the nose does. Under the legacy clamp the
+      // hull can never be inverted, so this resolves to the old atan2/asin pair.
+      attitudeNear(
+        Math.atan2(reflectedZ, reflectedX),
+        Math.asin(Math.max(-1, Math.min(1, reflectedY))),
+        tf.pitch,
+        reflectedAttitude,
+      );
+      tf.heading = reflectedAttitude.heading;
+      tf.pitch = reflectedAttitude.pitch;
     }
   }
   if (rule.type === "damage" || rule.type === "damageAndBounce") {

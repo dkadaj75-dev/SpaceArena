@@ -64,8 +64,12 @@ export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
   shieldActive: (s) => (s.modules.some((m) => m.shieldPool > 0) ? 1 : 0),
   /** Current heat as a fraction of capacity, 0..1. */
   heatFraction: (s) => (s.heat.capacity > 0 ? clamp01(s.heat.cur / s.heat.capacity) : 0),
-  /** 1 while any active module is mid weapon cycle (a proxy for firing), else 0. */
-  firing: (s) => (s.modules.some((m) => m.state === "active" && m.cycleTimer > 0) ? 1 : 0),
+  /**
+   * 1 while any active module is mid weapon cycle (a proxy for firing) OR is
+   * channelling a continuous beam — which never uses a cycle timer and would
+   * otherwise read as permanently silent — else 0.
+   */
+  firing: (s) => (s.modules.some((m) => m.state === "active" && (m.cycleTimer > 0 || m.channeling)) ? 1 : 0),
   /** Absolute speed as a fraction of a reference top speed, 0..1. */
   speedFraction: (s, p) => clamp01(frameStep(s, p) / REFERENCE_TOP_STEP),
 };
