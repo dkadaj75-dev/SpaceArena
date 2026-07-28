@@ -28,7 +28,7 @@
     },
     "sensors": {
       "lockRange": 78,
-      "lockTimeSec": 1.2,
+      "lockTimeSec": 0.7,
       "coneDeg": 60
     }
   },
