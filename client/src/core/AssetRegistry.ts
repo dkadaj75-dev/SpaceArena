@@ -11,7 +11,7 @@ import {
   type Material,
   type Scene,
 } from "@babylonjs/core";
-import { createLogger, type Palette, type RenderRecipe } from "@space-arena/shared";
+import { createLogger, type ModuleConfig, type Palette, type RenderRecipe } from "@space-arena/shared";
 
 const log = createLogger("AssetRegistry");
 
@@ -452,6 +452,14 @@ function modelKey(render: RenderRecipe): string {
   return `${render.model}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}`;
 }
 
+/** Resolve old modules to their established per-family procedural master. */
+export function moduleRenderRecipe(module: Pick<ModuleConfig, "family" | "render">, fallbackPalette: Palette = {}): RenderRecipe {
+  return module.render ?? {
+    recipe: `procedural.module.${module.family}`,
+    palette: fallbackPalette,
+  };
+}
+
 /** Builds a rock recipe at its authored detail, or at an explicit LOD subdivision count. */
 function buildRockRecipe(scene: Scene, palette: Palette, recipeId: string, subdivisions?: number): Mesh {
   const rock = ROCK_RECIPES[recipeId]!;
@@ -617,6 +625,17 @@ export class AssetRegistry {
     const master = this.loadedModel(render);
     if (master) return master;
     return this.getMesh(render.recipe, render.palette ?? {});
+  }
+
+  /**
+   * Master mesh for a fitted/editor module. Authored render blocks use the same
+   * GLB-first rule as ships; older modules resolve to their family placeholder.
+   */
+  getModuleMaster(module: Pick<ModuleConfig, "family" | "render">, fallbackPalette: Palette = {}): Mesh {
+    const render = moduleRenderRecipe(module, fallbackPalette);
+    const master = this.loadedModel(render);
+    if (master) return master;
+    return this.getMesh(render.recipe, render.palette ?? fallbackPalette);
   }
 
   /**

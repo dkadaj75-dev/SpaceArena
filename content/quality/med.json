@@ -31,8 +31,8 @@
     "maxEmitterCapacity": 60
   },
   "asteroids": {
-    "lodMediumDistance": 200,
-    "lodLowDistance": 600,
+    "lodMediumDistance": 280,
+    "lodLowDistance": 800,
     "lodCullDistance": 3000,
     "thinInstances": false
   },
