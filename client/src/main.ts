@@ -61,13 +61,14 @@ const log = createLogger("Client");
 const FALLBACK_ARENA_ID = "arena.ring-nebula";
 
 /**
- * Content lives at `/content/*` in both worlds: the Vite plugin serves it in dev
+ * Content lives at `content/*` under the site base (BASE_URL is "/" everywhere
+ * except GitHub Pages): the Vite plugin serves it in dev
  * (client/vite.config.ts), Express serves it in production
  * (server/src/staticSite.ts), and the service worker puts a network-first cache
  * in front of it so a new pack goes live without a redeploy (ROADMAP §11 6.5).
  */
 async function fetchLoader(relPath: string): Promise<unknown> {
-  const res = await fetch(`/content/${relPath}`);
+  const res = await fetch(`${import.meta.env.BASE_URL}content/${relPath}`);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${relPath}`);
   return res.json();
 }
@@ -81,9 +82,10 @@ async function fetchLoader(relPath: string): Promise<unknown> {
  * because a redirect would hide a real bug.
  */
 function redirectToOfflinePageIfNeeded(): boolean {
-  if (navigator.onLine || import.meta.env.DEV || location.pathname === "/offline.html") return false;
+  const offlinePage = `${import.meta.env.BASE_URL}offline.html`;
+  if (navigator.onLine || import.meta.env.DEV || location.pathname === offlinePage) return false;
   log.warn("offline with no cached content pack — showing the offline page");
-  location.replace("/offline.html");
+  location.replace(offlinePage);
   return true;
 }
 

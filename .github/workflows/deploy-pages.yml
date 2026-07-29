@@ -1,0 +1,66 @@
+name: Deploy to GitHub Pages
+
+# Static client deploy (offline-practice demo). GitHub Pages cannot run the
+# Colyseus server, so the page boots into "READY — OFFLINE" and multiplayer
+# stays disabled — the client's server-health probe handles that on its own.
+# The full game (client + server in one container) still deploys via the
+# Dockerfile; this workflow never touches server/.
+#
+# Two Pages-specific build inputs:
+#   - SPACE_ARENA_BASE: project sites live under /<repo>/, so the client is
+#     built with that base path (client/vite.config.ts).
+#   - content/: served by dev middleware / the production server everywhere
+#     else, so for a static host it is copied into the artifact verbatim.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One Pages deploy at a time; a newer push supersedes a queued one, but an
+# in-flight deploy is left to finish so it is never abandoned half-applied.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build static client
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          # First run flips the repo's Pages source to "GitHub Actions". If the
+          # token lacks permission for that, enable it once by hand:
+          # Settings → Pages → Source → GitHub Actions.
+          enablement: true
+      - name: Build client
+        run: npm run build
+        env:
+          SPACE_ARENA_BASE: /${{ github.event.repository.name }}/
+      - name: Bundle the content pack
+        run: cp -r content client/dist/content
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

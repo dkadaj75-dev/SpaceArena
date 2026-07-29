@@ -368,7 +368,7 @@ export class SceneBuilder {
         power: 1,
       });
       const panorama = new Texture(
-        `/content/${authored.texture}`,
+        `${import.meta.env.BASE_URL}content/${authored.texture}`,
         this.scene,
         undefined,
         undefined,
