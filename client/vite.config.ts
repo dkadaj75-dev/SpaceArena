@@ -191,7 +191,17 @@ function manualChunks(id: string): string | undefined {
   return "vendor";
 }
 
+// Where the site is mounted. "/" everywhere except GitHub Pages, which serves
+// project sites from a `/<repo>/` subpath — the deploy workflow sets
+// SPACE_ARENA_BASE. Vite guarantees import.meta.env.BASE_URL ends in "/", so
+// normalize here and build the manifest URLs below from the same value.
+function siteBase(): string {
+  const raw = process.env.SPACE_ARENA_BASE ?? "/";
+  return raw.endsWith("/") ? raw : `${raw}/`;
+}
+
 export default defineConfig(({ command }) => ({
+  base: siteBase(),
   build: {
     rollupOptions: {
       output: { manualChunks },
@@ -219,9 +229,9 @@ export default defineConfig(({ command }) => ({
         name: "Space Arena",
         short_name: "Space Arena",
         description: "One-thumb tactical space combat. Fit your ship, manage heat, win the arena.",
-        id: "/",
-        start_url: "/",
-        scope: "/",
+        id: siteBase(),
+        start_url: siteBase(),
+        scope: siteBase(),
         display: "standalone",
         orientation: "any",
         // Matches index.html's <meta name="theme-color"> and the icon artwork.
@@ -229,10 +239,10 @@ export default defineConfig(({ command }) => ({
         background_color: "#05070d",
         categories: ["games", "entertainment"],
         icons: [
-          { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-          { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-          { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-          { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+          { src: `${siteBase()}icons/icon-192.png`, sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: `${siteBase()}icons/icon-512.png`, sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: `${siteBase()}icons/icon-maskable-512.png`, sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: `${siteBase()}favicon.svg`, sizes: "any", type: "image/svg+xml", purpose: "any" },
         ],
       },
       workbox: {

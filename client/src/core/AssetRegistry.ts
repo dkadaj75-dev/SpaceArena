@@ -539,7 +539,7 @@ export class AssetRegistry {
     const dir = path.slice(0, path.lastIndexOf("/") + 1);
     const file = path.slice(path.lastIndexOf("/") + 1);
     const load = ensureGlTFLoader()
-      .then(() => SceneLoader.ImportMeshAsync("", `/content/${dir}`, file, this.scene))
+      .then(() => SceneLoader.ImportMeshAsync("", `${import.meta.env.BASE_URL}content/${dir}`, file, this.scene))
       .then((result) => {
         try {
           return this.finalizeModel(result.meshes, render, path, masters, loads, key);
