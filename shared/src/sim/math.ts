@@ -249,6 +249,17 @@ export function clamp(v: number, min: number, max: number): number {
  * One tick of the ATTITUDE — both axes, in the ship's own frame (BUBBLE.md §A,
  * body-frame yaw amendment).
  *
+ * **Since the 2026-07-30 flight-frame amendment this is the LEGACY-CLAMP path
+ * only.** It stores nothing but heading/pitch, so the up axis it yaws about is
+ * re-DERIVED from those two coordinates every tick — the Rodrigues rotation
+ * below leaves its own intermediate `U` fixed, but that rotated frame is then
+ * thrown away by the decomposition, and near ±90° pitch the re-derivation names
+ * a different frame each tick (the steep-pitch barrel roll). The integrators
+ * therefore call `advanceFrame` (frame.ts), which persists the up; it delegates
+ * here exactly when a pack authors `maxPitchRad`, where the clamp keeps the
+ * nose far from the poles, the hull can never roll, and this remains
+ * bit-identical to the pre-loop sim.
+ *
  * `turn` used to be a plain `heading += delta` about world Y. That is wrong for a
  * flier that can invert, and not just by a sign: the chase rig is locked to the
  * nose, so a world-Y yaw shows up on screen as a *mixture* of turning (∝ cos p)
@@ -265,10 +276,14 @@ export function clamp(v: number, min: number, max: number): number {
  *
  * `U ⊥ N`, so Rodrigues collapses to `N' = N·cos ψ + W·sin ψ`, and `dN/dψ = W`
  * with `|W| = 1` at EVERY attitude: constant authority, the same screen direction
- * upright or inverted, no dead zone at vertical, and zero parasitic roll (rotating
- * about `U` leaves `U` fixed). At `p = 0`, `U` is world Y and this reduces to
- * `h += ψ` exactly — level flight is bit-identical to the old model, which is the
- * strongest safety property this change has.
+ * upright or inverted, and no dead zone at vertical. (An earlier revision of this
+ * comment also claimed "zero parasitic roll — rotating about `U` leaves `U`
+ * fixed"; that is true of the intermediate Rodrigues rotation but NOT of the
+ * state this function persists, which discards the rotated frame. That loss is
+ * exactly what the free-pitch integrator in frame.ts exists to fix.) At `p = 0`,
+ * `U` is world Y and this reduces to `h += ψ` exactly — level flight is
+ * bit-identical to the old model, which is the strongest safety property this
+ * change has.
  *
  * The pitch axis is unchanged: it already rotated the nose about `W`, the ship's
  * own right-hand axis, which is what a body-frame pitch is.

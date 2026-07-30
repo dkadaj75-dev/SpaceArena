@@ -15,6 +15,7 @@ function ship(x: number, y: number, z: number): ShipSnapshot {
     pos: { x, y, z },
     heading: 0,
     pitch: 0,
+    up: { x: 0, y: 1, z: 0 },
     hull: 100,
     hullMax: 100,
     energy: { cur: 100, max: 100 },

@@ -3,6 +3,7 @@ import { hardpointsOf, type AsteroidConfig, type ModuleConfig, type ShipConfig }
 import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
 import { resolveShipStats, type UpgradeLevels } from "./resolveStats.js";
 import { advancePitch } from "./math.js";
+import { seedUp } from "./frame.js";
 import { pitchTuningOf } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
@@ -59,7 +60,14 @@ export function spawnShipFromConfig(
   // ones (BUBBLE.md §A).
   const maxPitch = pitchTuningOf(world.tuning).maxPitchRad;
   const spawnPitch = Number.isFinite(pitch) ? advancePitch(0, pitch, maxPitch) : 0;
-  world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading, pitch: spawnPitch });
+  // The orientation FRAME is seeded from the authored attitude: a spawn has no
+  // roll history, so the derived up is the one legal frame for its nose.
+  world.transforms.set(id, {
+    pos: { x: pos.x, y: pos.y ?? 0, z: pos.z },
+    heading,
+    pitch: spawnPitch,
+    up: seedUp(heading, spawnPitch),
+  });
   world.velocities.set(id, { x: 0, y: 0, z: 0 });
   world.shipCores.set(id, resolveShipStats(ship, configs, { upgradeLevels, fittedModuleIds: fittingModuleIds }));
   world.colliders.set(id, { radius: ship.collider.radius });
@@ -116,7 +124,7 @@ export function spawnAsteroid(
   if (!cfg) throw new Error(`unknown asteroid config: ${asteroidId}`);
 
   const id = world.createEntity();
-  world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading: 0, pitch: 0 });
+  world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } });
   world.colliders.set(id, { radius: cfg.radius * scale });
   const hp = cfg.hp ?? Infinity;
   world.asteroids.set(id, {
@@ -155,6 +163,7 @@ export function spawnProjectile(
     pos: { x: params.pos.x, y: params.pos.y ?? 0, z: params.pos.z },
     heading: params.heading,
     pitch,
+    up: seedUp(params.heading, pitch),
   });
   const cosPitch = Math.cos(pitch);
   world.velocities.set(id, {

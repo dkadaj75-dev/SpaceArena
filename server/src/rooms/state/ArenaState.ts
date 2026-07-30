@@ -64,6 +64,16 @@ export class PlayerState extends Schema {
    * the heading codec, which folds negatives into 0..2π (see quantize.ts).
    */
   @type("int16") pitch = 0;
+  /**
+   * Authoritative ship-up axis (unit, ⊥ nose) — the roll degree of freedom that
+   * heading/pitch cannot carry (flight-frame handoff, protocol v3). All three
+   * components travel as float32 (fine at current ship counts); the client
+   * normalizes on decode. Clients must interpolate/render the FRAME from this,
+   * never reconstruct an up from the two Euler coordinates.
+   */
+  @type("float32") upX = 0;
+  @type("float32") upY = 1;
+  @type("float32") upZ = 0;
   /** Velocity, int16 centi-units. */
   @type("int16") vx = 0;
   @type("int16") vz = 0;

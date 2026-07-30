@@ -19,6 +19,7 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
     pos: { x, y: 0, z },
     heading: 0,
     pitch: 0,
+    up: { x: 0, y: 1, z: 0 },
     hull: 100,
     hullMax: 100,
     energy: { cur: 100, max: 100 },

@@ -10,8 +10,11 @@ import {
   type Scene,
 } from "@babylonjs/core";
 import {
+  bodyYawDelta,
   createLogger,
+  facingVec,
   hardpointsOf,
+  interpolateFrame,
   type AsteroidConfig,
   type AsteroidSnapshot,
   type ConfigService,
@@ -25,6 +28,7 @@ import {
   type Snapshot,
   type ThemeConfig,
   type TuningConfig,
+  type FrameAttitude,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
 import { ShipSocketRig } from "./ShipSocketRig.js";
@@ -35,8 +39,6 @@ import { explosionEffectIdFor, juiceSettingsOf, type JuiceSettings } from "./jui
 import {
   approachRoll,
   bankRollFor,
-  headingRatePerSec,
-  meshPitchFor,
   meshYawFor,
   pitchForDirection,
   yawForDirection,
@@ -79,6 +81,8 @@ interface ShipView {
    * instead of letting it decay to level.
    */
   rollTarget: number;
+  /** The node's rotation quaternion (assigning once; updated in place per frame). */
+  quat: Quaternion;
 }
 
 interface AsteroidView {
@@ -124,14 +128,6 @@ export function beamFadeMsOf(configs: Pick<ConfigService, "getAll">): number {
  * Both expose the position/rotation/enable surface the sync path uses.
  */
 type ProjectileNode = Mesh | InstancedMesh;
-
-/** Shortest-path angular interpolation. */
-function lerpAngle(a: number, b: number, t: number): number {
-  let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
-}
 
 /**
  * Maps authoritative sim entity ids to Babylon nodes and keeps them in sync with
@@ -181,6 +177,11 @@ export class ViewManager {
   // Reused scratch — no per-frame allocation.
   private readonly sFrom = new Vector3();
   private readonly sTo = new Vector3();
+  /** Scratch orientation frame + vectors for the ship pose (BUBBLE.md §C, full-frame). */
+  private readonly sFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
+  private readonly sNose = { x: 0, y: 0, z: 0 };
+  private readonly sForward = new Vector3();
+  private readonly sBankedUp = new Vector3();
 
   constructor(
     private readonly scene: Scene,
@@ -491,24 +492,43 @@ export class ViewManager {
       const y = p.pos.y + (s.pos.y - p.pos.y) * alpha;
       const z = p.pos.z + (s.pos.z - p.pos.z) * alpha;
       view.node.position.set(x, y, z);
-      // Yaw + pitch from the sim, roll from the client's own bank — all three
-      // conventions live in `shipOrientation.ts`. BOTH attitude angles take the
-      // short way round: pitch wraps now that ships can loop (BUBBLE.md §A), so
-      // a pair of samples straddling ±PI would otherwise sweep the hull a full
-      // backflip in one frame. The mesh pose itself needs no special case — the
-      // yaw/pitch/roll composition is a proper rotation at any pitch, and past
-      // vertical it simply draws the ship inverted, which is the truth.
-      view.node.rotation.y = meshYawFor(lerpAngle(p.heading, s.heading, alpha));
-      view.node.rotation.x = meshPitchFor(lerpAngle(p.pitch, s.pitch, alpha));
+      // The hull is posed from the interpolated forward/up FRAME, not from
+      // heading/pitch angles: near the poles the heading coordinate's scale is
+      // unbounded, so lerping the two Euler angles independently swept the hull
+      // through rotations it never made (the steep-pitch barrel roll). The
+      // replicated up carries the authoritative roll; the client's cosmetic bank
+      // is applied around the nose on top of it.
+      interpolateFrame(p.heading, p.pitch, p.up, s.heading, s.pitch, s.up, alpha, this.sFrame);
+      facingVec(this.sFrame.heading, this.sFrame.pitch, this.sNose);
       if (snapDt > 0) {
+        // Bank from the SIGNED BODY YAW between the two snapshots — bounded by
+        // the yaw the ship actually commanded at every attitude, where the raw
+        // heading-coordinate rate blows up near vertical and flipped the bank
+        // across the pole.
         view.rollTarget = bankRollFor(
-          headingRatePerSec(p.heading, s.heading, snapDt),
+          bodyYawDelta(p.heading, p.pitch, p.up, s.heading, s.pitch) / snapDt,
           this.juice.bank.maxRad,
           this.juice.bank.referenceRateRadPerSec,
         );
       }
       view.roll = approachRoll(view.roll, view.rollTarget, this.juice.bank.lag, frameDt);
-      view.node.rotation.z = view.roll;
+      // Positive roll lifts the right wing (a left bank): tilt the up vector
+      // toward the LEFT wing `N × U` by the drawn bank, then build the pose from
+      // look direction + banked up. Model nose is +Z, model up +Y (BUBBLE.md §C).
+      const n = this.sNose;
+      const u = this.sFrame.up;
+      const cr = Math.cos(view.roll);
+      const sr = Math.sin(view.roll);
+      const lx = n.y * u.z - n.z * u.y;
+      const ly = n.z * u.x - n.x * u.z;
+      const lz = n.x * u.y - n.y * u.x;
+      this.sForward.set(n.x, n.y, n.z);
+      this.sBankedUp.set(u.x * cr + lx * sr, u.y * cr + ly * sr, u.z * cr + lz * sr);
+      // RH, not LH, despite the engine being left-handed: Babylon's LH variant
+      // aims the model's −Z at the direction under the row-vector convention
+      // node.rotationQuaternion actually uses; RH lands +Z on the nose.
+      // `shipOrientation.test.ts` pins this against the legacy Euler pose.
+      Quaternion.FromLookDirectionRHToRef(this.sForward, this.sBankedUp, view.quat);
 
       view.rig?.updateModules(s.modules);
       view.rig?.updateShield(s, frameDtMs);
@@ -525,6 +545,10 @@ export class ViewManager {
     }
     const master = this.assets.getShipMaster(ship.render);
     const node = master.createInstance(`ship.${s.id}`);
+    // Frame-based pose: the quaternion owns the rotation from here on (once
+    // assigned, Babylon ignores `node.rotation`). Updated in place per frame.
+    const quat = Quaternion.Identity();
+    node.rotationQuaternion = quat;
     node.isPickable = true;
     node.metadata = { entityId: s.id, kind: "ship", team: s.team };
     node.parent = this.root;
@@ -545,7 +569,7 @@ export class ViewManager {
       this.juice,
     );
 
-    return { node, rig, roll: 0, rollTarget: 0 };
+    return { node, rig, roll: 0, rollTarget: 0, quat };
   }
 
   private syncAsteroids(cur: Snapshot, frameDtMs: number): void {

@@ -46,7 +46,7 @@ function paramsFor(world: World, id: number): FlightParams {
 function mirrorOf(world: World, id: number): SteerState {
   const tf = world.transforms.get(id)!;
   const vel = world.velocities.get(id)!;
-  return { pos: { ...tf.pos }, vel: { ...vel }, heading: tf.heading, pitch: tf.pitch };
+  return { pos: { ...tf.pos }, vel: { ...vel }, heading: tf.heading, pitch: tf.pitch, up: { ...tf.up } };
 }
 
 describe("flightStep ⇄ NavigationSystem parity (FLIGHT.md §1, BUBBLE.md §A)", () => {
@@ -179,7 +179,10 @@ describe("flightStep ⇄ NavigationSystem parity (FLIGHT.md §1, BUBBLE.md §A)"
     const params = paramsFor(world, id);
 
     world.queueOrder(id, { kind: "flight", throttle: 4, turn: -3, pitchStick: 5, boost: false, fire: true });
-    for (let tick = 0; tick < 120; tick++) {
+    let maxAbsPitch = 0;
+    let zeroCrossings = 0;
+    let prevSign = 0;
+    for (let tick = 0; tick < 600; tick++) {
       navigationSystem(world, DT);
       flightStep(pred, { throttle: 4, turn: -3, pitchStick: 5, boostMult: 1 }, params, DT);
       expect(pred.pos.x).toBe(tf.pos.x);
@@ -187,17 +190,25 @@ describe("flightStep ⇄ NavigationSystem parity (FLIGHT.md §1, BUBBLE.md §A)"
       expect(pred.pos.z).toBe(tf.pos.z);
       expect(pred.heading).toBe(tf.heading);
       expect(pred.pitch).toBe(tf.pitch);
+      expect(pred.up.x).toBe(tf.up.x);
+      expect(pred.up.y).toBe(tf.up.y);
+      expect(pred.up.z).toBe(tf.up.z);
+      maxAbsPitch = Math.max(maxAbsPitch, Math.abs(tf.pitch));
+      const sign = Math.sign(tf.pitch);
+      if (sign !== 0 && prevSign !== 0 && sign !== prevSign) zeroCrossings++;
+      if (sign !== 0) prevSign = sign;
     }
     // Long enough that both integrators advanced the attitude identically.
     expect(pred.pitch).toBe(tf.pitch);
     expect(pred.heading).toBe(tf.heading);
-    // Full pitch AND full yaw held together no longer drives the nose past
-    // vertical, and that is body-frame yaw working rather than a regression: yaw
-    // rotates the nose about the ship's own up, and `sin p' = sin p · cos ψ`, so a
-    // simultaneous hard turn continuously pulls the nose back toward the equator.
-    // The old world-Y yaw left the pitch axis entirely alone, so it looped.
-    expect(Math.abs(tf.pitch)).toBeLessThan(Math.PI / 2);
-    expect(Math.abs(tf.pitch)).toBeGreaterThan(1);
+    // Full pitch AND full yaw held together is CONING under the authoritative
+    // frame (flight-frame handoff): constant body rates trace a fixed tilted
+    // circle, the way a real hull flies them. The nose climbs well past level,
+    // oscillates back down, and never forms the old near-vertical trap where
+    // yaw and pitch fought each other while heading spun ~6.5 rev/s.
+    expect(maxAbsPitch).toBeGreaterThan(0.5);
+    expect(maxAbsPitch).toBeLessThan(Math.PI / 2);
+    expect(zeroCrossings).toBeGreaterThan(2);
   });
 
   it("mirrors the LEGACY pitch clamp when a pack authors one", () => {

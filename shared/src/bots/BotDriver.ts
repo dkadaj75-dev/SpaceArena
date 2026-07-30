@@ -443,13 +443,23 @@ export class BotDriver {
     const aim = bestPlan?.aim ?? null;
     const tolerance = profile.flight?.aimToleranceRad ?? DEFAULT_AIM_TOLERANCE_RAD;
     const steer = aim
-      ? steerForPoint(self.pos, self.heading, self.pitch, aim, {
-          turnRate: this.turnRateEst,
-          pitchRate: this.pitchRateEst,
-          horizonSec,
-          toleranceRad: tolerance,
-          maxPitchRad: this.maxPitch(),
-        })
+      ? steerForPoint(
+          self.pos,
+          self.heading,
+          self.pitch,
+          aim,
+          {
+            turnRate: this.turnRateEst,
+            pitchRate: this.pitchRateEst,
+            horizonSec,
+            toleranceRad: tolerance,
+            maxPitchRad: this.maxPitch(),
+          },
+          // The PERSISTED frame, not one rebuilt from heading/pitch: near the
+          // poles the rebuild names a different frame from the one the sim is
+          // integrating, and the bot would yaw about an axis its hull lacks.
+          self.up,
+        )
       : null;
     let cmd: FlightCommand = {
       turn: steer?.turn ?? 0,

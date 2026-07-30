@@ -19,6 +19,7 @@ const snapshot: Snapshot = {
     pos: { x: 0, y: 0, z: 0 },
     heading: 0,
     pitch: 0,
+    up: { x: 0, y: 1, z: 0 },
     hull: 75,
     hullMax: 100,
     energy: { cur: 60, max: 100 },

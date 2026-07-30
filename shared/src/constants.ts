@@ -2,4 +2,7 @@
 export const SIM_TICK_RATE = 30;
 
 /** Wire protocol version; bump on any breaking message/schema change. */
-export const PROTOCOL_VERSION = 2;
+// 3: PlayerState replicates the authoritative ship up-vector (upX/upY/upZ) —
+// older clients cannot reconstruct the full orientation frame from heading/pitch
+// (docs/HANDOFF-2026-07-30-FLIGHT-FRAME.md).
+export const PROTOCOL_VERSION = 3;

@@ -1,8 +1,16 @@
 import { angleDeltaTo } from "./chaseCamera.js";
 
 /**
- * BUBBLE.md §C — how a hull is POSED, as pure math so the three conventions the
- * view layer has to get right are testable without a scene.
+ * BUBBLE.md §C — the view layer's orientation conventions, as pure math so they
+ * are testable without a scene.
+ *
+ * **Since the 2026-07-30 flight-frame amendment, SHIPS are no longer posed from
+ * these Euler helpers**: a hull's rotation quaternion is built from the
+ * interpolated authoritative forward/up frame (`EntityView.syncShips`), with the
+ * cosmetic bank tilting the up around the nose. The angle helpers below remain
+ * for PROJECTILES/beams (whose wire state is a scalar heading or a direction)
+ * and as the documented convention reference the quaternion path must agree
+ * with in the roll-less case (`shipOrientation.test.ts` pins that equivalence).
  *
  * ## The three angles
  *
@@ -14,8 +22,8 @@ import { angleDeltaTo } from "./chaseCamera.js";
  *     x-rotation drops the nose. The sim's pitch is positive climbing, hence the
  *     negation ({@link meshPitchFor}).
  *  3. **Roll** — a purely visual bank, {@link bankRollFor}. The sim has no roll
- *     at all (BUBBLE.md's orientation model is yaw + pitch), so nothing here can
- *     change where a ship flies or what it can shoot.
+ *     CONTROL; the authoritative frame can carry roll as the integrated
+ *     consequence of body-frame steering, and the cosmetic bank rides on top.
  *
  * Babylon composes `node.rotation` as `RotationYawPitchRoll(y, x, z)`, i.e. roll
  * about the nose first, then pitch about the local right, then yaw about world
@@ -46,11 +54,15 @@ export function headingRatePerSec(prevHeading: number, curHeading: number, dtSec
 /**
  * Visual bank angle for a ship turning at `ratePerSec` (radians of roll).
  *
- * Derived from the OBSERVED heading delta rather than from stick input, so it
- * reads identically for the local player, a remote pilot and a bot — none of
- * whose inputs the view layer has. Saturates at `maxRad` once the turn reaches
- * `referenceRateRadPerSec`, so a ship with a huge `turnRate` leans hard but
- * never past what the theme allows.
+ * Derived from the OBSERVED rotation rather than from stick input, so it reads
+ * identically for the local player, a remote pilot and a bot — none of whose
+ * inputs the view layer has. Since the flight-frame amendment the rate fed in
+ * is the SIGNED BODY YAW between snapshots (`bodyYawDelta / dt`), which equals
+ * the heading rate at level flight and stays bounded by the commanded yaw at
+ * every attitude — the raw heading-coordinate rate is `ψ / cos p`, unbounded
+ * near the poles, and used to saturate and flip the bank across vertical.
+ * Saturates at `maxRad` once the turn reaches `referenceRateRadPerSec`, so a
+ * ship with a huge `turnRate` leans hard but never past what the theme allows.
  *
  * The SIGN: heading grows counter-clockwise, which under the chase rig sweeps the
  * nose toward screen LEFT (see `chaseCamera.ts`). A Babylon z-rotation sends the

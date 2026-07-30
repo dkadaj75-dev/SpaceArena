@@ -162,7 +162,9 @@
         "outOfRangeScale": 0.6,
         "outOfRangeOpacity": 0.4,
         "markerMinOpacity": 0.35,
-        "markerSizePx": 10
+        "markerSizePx": 10,
+        "ringRadiusPx": 92,
+        "ringOffsetYPx": 8
       },
       "orders": {
         "throttleEpsilon": 0.02,
@@ -190,7 +192,14 @@
         "segments": 12
       },
       "flight": {
-        "fire": { "anchor": "bottom-right", "radiusPx": 42, "offsetXPx": 24, "offsetYPx": 34, "icon": "FIRE", "blockedNotification": "notification.fire-blocked" }
+        "fire": {
+          "anchor": "bottom-right",
+          "radiusPx": 42,
+          "offsetXPx": 24,
+          "offsetYPx": 34,
+          "icon": "FIRE",
+          "blockedNotification": "notification.fire-blocked"
+        }
       }
     },
     "landscape": {
@@ -226,18 +235,53 @@
         "offsetYPx": 69
       },
       "flight": {
-        "joystick": { "baseRadiusPx": 56, "thumbRadiusPx": 25, "offsetXPx": 20, "offsetYPx": 18 },
-        "throttle": { "heightPx": 150, "offsetYPx": 190, "tickCount": 6 },
-        "fire": { "anchor": "bottom-right", "radiusPx": 36, "offsetXPx": 22, "offsetYPx": 30, "icon": "FIRE" }
+        "joystick": {
+          "baseRadiusPx": 56,
+          "thumbRadiusPx": 25,
+          "offsetXPx": 20,
+          "offsetYPx": 18
+        },
+        "throttle": {
+          "heightPx": 150,
+          "offsetYPx": 190,
+          "tickCount": 6
+        },
+        "fire": {
+          "anchor": "bottom-right",
+          "radiusPx": 36,
+          "offsetXPx": 22,
+          "offsetYPx": 30,
+          "icon": "FIRE"
+        },
+        "enemyArrows": {
+          "ringRadiusPx": 118,
+          "ringOffsetYPx": 4
+        }
       }
     }
   },
   "haptics": {
     "enabled": true,
-    "overheatPattern": [60, 50, 120],
-    "killPattern": [25, 40, 25],
-    "lockPattern": [18, 45, 18],
-    "fireBlockedPattern": [35, 35, 90]
+    "overheatPattern": [
+      60,
+      50,
+      120
+    ],
+    "killPattern": [
+      25,
+      40,
+      25
+    ],
+    "lockPattern": [
+      18,
+      45,
+      18
+    ],
+    "fireBlockedPattern": [
+      35,
+      35,
+      90
+    ]
   },
   "audio": {
     "enabled": true,

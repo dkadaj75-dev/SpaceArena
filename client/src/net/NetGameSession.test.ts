@@ -8,6 +8,7 @@ import {
   flightStep,
   pitchTuningOf,
   resolveShipStats,
+  seedUp,
   type ConfigService,
   type ModuleConfig,
   type ShipConfig,
@@ -226,7 +227,7 @@ describe("FlightReconciler (Finding 4)", () => {
 describe("snapPrediction (Finding 5)", () => {
   function state(): SteerState {
     // Cruising at nominal speed along +x, as the predictor would be mid-flight.
-    return { pos: { x: 10, y: 0, z: 0 }, vel: { x: 40, y: 0, z: 0 }, heading: 0, pitch: 0 };
+    return { pos: { x: 10, y: 0, z: 0 }, vel: { x: 40, y: 0, z: 0 }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
   }
 
   it("replaces velocity instead of carrying the predictor's stale speed across a snap", () => {
@@ -234,16 +235,17 @@ describe("snapPrediction (Finding 5)", () => {
     // predictor snaps onto the corrected position but keeps flying at 40 u/s,
     // races back outside SNAP_DISTANCE and snaps again, every frame.
     const pred = state();
-    snapPrediction(pred, { x: 4, y: -2, z: 1 }, 1.2, 0.3, { x: 0, y: 0, z: 0 });
+    snapPrediction(pred, { x: 4, y: -2, z: 1 }, 1.2, 0.3, { x: 0, y: 0, z: 0 }, seedUp(1.2, 0.3));
     expect(pred.pos).toEqual({ x: 4, y: -2, z: 1 });
     expect(pred.heading).toBe(1.2);
     expect(pred.pitch).toBe(0.3);
     expect(pred.vel).toEqual({ x: 0, y: 0, z: 0 });
+    expect(pred.up).toEqual(seedUp(1.2, 0.3)); // the frame snaps with the pose
   });
 
   it("adopts the authoritative velocity when one can be derived", () => {
     const pred = state();
-    snapPrediction(pred, { x: 4, y: 0, z: 1 }, 0, 0, { x: -3, y: 2, z: 7 });
+    snapPrediction(pred, { x: 4, y: 0, z: 1 }, 0, 0, { x: -3, y: 2, z: 7 }, { x: 0, y: 1, z: 0 });
     expect(pred.vel).toEqual({ x: -3, y: 2, z: 7 });
   });
 });
@@ -332,12 +334,16 @@ function driftOverRun(
   tf.pos.z = START.z;
   tf.heading = 0;
   tf.pitch = 0;
+  // The frame is authoritative: re-seed the up with the poked attitude, exactly
+  // as the predictor below seeds its own.
+  Object.assign(tf.up, seedUp(0, 0));
 
   const pred: SteerState = {
     pos: { x: START.x, y: 0, z: START.z },
     vel: { x: 0, y: 0, z: 0 },
     heading: 0,
     pitch: 0,
+    up: seedUp(0, 0),
   };
   const fittedModuleIds = fitting.filter((m): m is string => m !== null);
   const core = resolveShipStats(cfg, configs, {
@@ -435,9 +441,13 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
   });
 
   it("mirrors a DIVE, where the wire's signed pitch matters most", () => {
+    // turn −0.1, not the −0.2 this ran with under the nose-only integrator: the
+    // full-frame body coupling bends a pitched turn differently (flight-frame
+    // handoff) and the old corridor now clips a ring-nebula rock. The run's
+    // point is prediction error, so it is placed where nothing else happens.
     const { drift, hits, climb, pitch } = driftOverRun({ hull: 0, engine: 3, energy: 0, heat: 0 }, "resolved", {
       throttle: 0.8,
-      turn: -0.2,
+      turn: -0.1,
       pitchStick: -0.5,
       boost: false,
     });

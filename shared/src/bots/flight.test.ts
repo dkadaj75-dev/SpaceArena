@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { flightStep, type SteerState } from "../sim/steering.js";
+import { seedUp } from "../sim/frame.js";
 import { DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
 import {
   bearing3,
@@ -58,7 +59,7 @@ describe("turnForHeading", () => {
   it("lands the nose on the desired heading after one horizon of the sim's own integration", () => {
     // The contract that makes the whole bot flight model work: hold the returned
     // axis for `horizon` through the real integrator and the error is gone.
-    const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0, pitch: 0 };
+    const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
     const dt = 1 / 30;
     const ticks = 12;
     const horizon = ticks * dt; // a whole number of sim ticks, so no residue
@@ -213,7 +214,7 @@ describe("steerForPoint", () => {
     // rotations about different axes do not commute. Re-planning is what closes
     // the gap, and it closes it to nothing.
     const dt = 1 / 30;
-    const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0, pitch: 0 };
+    const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
     const aim = { x: 20, y: 9, z: 14 };
     for (let i = 0; i < 120; i++) {
       const steer = steerForPoint(s.pos, s.heading, s.pitch, aim, steerParams({ horizonSec: 12 / 30 }));
@@ -235,7 +236,9 @@ describe("steerForPoint", () => {
     // The payoff of planning in the ship's frame: `U` already points where the
     // hull's up points, so an upside-down bot needs no sign flip and no fold.
     const dt = 1 / 30;
-    const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.4, pitch: 2.6 };
+    // An inverted spawn state: the persisted up is the DERIVED up for this attitude
+    // (seedUp), which for pitch 2.6 points below the horizon — a genuinely inverted frame.
+    const s: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.4, pitch: 2.6, up: seedUp(0.4, 2.6) };
     const aim = { x: 25, y: -6, z: -18 };
     for (let i = 0; i < 200; i++) {
       const steer = steerForPoint(s.pos, s.heading, s.pitch, aim, steerParams({ maxPitchRad: null }));

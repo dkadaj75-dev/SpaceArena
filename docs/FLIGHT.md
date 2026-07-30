@@ -8,6 +8,17 @@ wire-quantization cap — no protocol format change), **all weapons require lock
 Design rule unchanged: NOTHING per-ship hardcoded — every knob flows through content
 configs, schemas, resolveShipStats, tuning, or theme.
 
+## Flight-frame amendment (2026-07-30)
+
+Ship orientation is now an authoritative forward/up FRAME (see the amendment at
+the top of `docs/BUBBLE.md` and `docs/HANDOFF-2026-07-30-FLIGHT-FRAME.md`):
+`Transform3D` persists a unit `up` alongside heading/pitch, both integrators
+advance the whole frame (`shared/src/sim/frame.ts`), the up replicates
+(`PROTOCOL_VERSION` 3), and the chase camera (§3), hull pose and 3D radar all
+consume the replicated frame instead of reconstructing an up from heading/pitch.
+Statements below that derive the camera or hull basis from heading/pitch alone
+describe the roll-less historical model.
+
 ## Owner presentation amendment (2026-07-30)
 
 This amendment supersedes older HUD/minimap/asteroid-LOD descriptions below:

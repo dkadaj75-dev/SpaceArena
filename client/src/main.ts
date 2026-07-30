@@ -11,6 +11,8 @@ import {
   type ShipSnapshot,
   type EntityId,
   type ThemeConfig,
+  type FrameAttitude,
+  interpolateFrame,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
@@ -47,11 +49,13 @@ import { AudioManager } from "./audio/AudioManager.js";
 import { AudioFeedback } from "./audio/AudioFeedback.js";
 import { audioSettingsOf } from "./audio/soundIds.js";
 import { ScreenShake } from "./game/juice/ScreenShake.js";
-import { angleDeltaTo } from "./game/chaseCamera.js";
 import type { FlightHudBinding } from "./game/hud/FlightControls.js";
 import type { CameraView, ProjectedPoint } from "./game/hud/flightHudLayout.js";
 
 const log = createLogger("Client");
+
+/** Scratch frame for the per-render-frame chase-camera interpolation — no allocation. */
+const chaseFrameScratch: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 
 /**
  * Arena rendered before any match resolves one (boot/menu backdrop) and for a
@@ -421,11 +425,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     tacticalCamera.camera.setTarget(tacticalCamera.camera.target);
     // In-match view IS the chase rig (FLIGHT.md §3). Enabled AFTER the setTarget
     // above, which recomputes alpha/beta/radius from the camera position and
-    // would otherwise be undone by (and undo) the chase clamps. Seed its yaw AND
-    // tilt from the spawn pose so the first frame is already behind the ship,
+    // would otherwise be undone by (and undo) the chase clamps. Seed its FRAME
+    // from the spawn pose so the first frame is already behind the ship,
     // looking the way its nose points (BUBBLE.md §C).
-    tacticalCamera.setChaseHeading(initial ? initial.heading : 0);
-    tacticalCamera.setChasePitch(initial ? initial.pitch : 0);
+    if (initial) tacticalCamera.setChaseFrame(initial.heading, initial.pitch, initial.up);
+    else tacticalCamera.setChaseFrame(0, 0, { x: 0, y: 1, z: 0 });
     tacticalCamera.setChaseMode(true);
 
     const audioFeedback = new AudioFeedback(configService, session.playerId, audio);
@@ -878,16 +882,13 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
             boundaryWarning.warningNotification,
           );
         }
-        // Chase yaw follows the same interpolated ship the view draws. Lerped
-        // the SHORT way round so a wrap past ±π never spins the camera a full
-        // turn; `chase.yawLag` inside the rig does the actual smoothing.
-        const base = pp ? pp.heading : pc.heading;
-        tacticalCamera.setChaseHeading(base + angleDeltaTo(base, pc.heading) * alpha);
-        // Pitch takes the short way round too: it wraps now that ships loop
-        // (BUBBLE.md §A), so a pair straddling ±PI would whip the camera through
-        // a full revolution between two frames.
-        const basePitch = pp ? pp.pitch : pc.pitch;
-        tacticalCamera.setChasePitch(basePitch + angleDeltaTo(basePitch, pc.pitch) * alpha);
+        // The chase rig follows the same interpolated ship the view draws — as
+        // one orientation FRAME (nose + replicated up), never as heading and
+        // pitch lerped independently, whose coordinate scales blow up near the
+        // poles. `chase.yawLag`/`pitchLag` inside the rig do the smoothing.
+        const fp = pp ?? pc;
+        interpolateFrame(fp.heading, fp.pitch, fp.up, pc.heading, pc.pitch, pc.up, alpha, chaseFrameScratch);
+        tacticalCamera.setChaseFrame(chaseFrameScratch.heading, chaseFrameScratch.pitch, chaseFrameScratch.up);
       }
 
       // Consume this frame's sim events, then render dynamic views + markers + HUD.

@@ -39,6 +39,7 @@ function ship(id: number, team: number, x: number, locked: boolean, heat = 0): S
     pos: { x, y: 0, z: 0 },
     heading: team === 0 ? 0 : Math.PI,
     pitch: 0,
+    up: { x: 0, y: 1, z: 0 },
     hull: 80,
     hullMax: 80,
     energy: { cur: 100, max: 100 },

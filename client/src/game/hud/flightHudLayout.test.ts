@@ -123,6 +123,20 @@ describe("resolveFlightHudLayout", () => {
     expect(layout.enemyArrows.minOpacity).toBe(FLIGHT_HUD_DEFAULTS.enemyArrows.minOpacity);
   });
 
+  it("resolves the centre-ring track: scaled when authored, null (edge track) when absent", () => {
+    const ringed = theme({
+      flight: { enemyArrows: { ringRadiusPx: 100, ringOffsetYPx: 8 } },
+      scale: 2,
+    });
+    const layout = resolveFlightHudLayout(ringed, PORTRAIT);
+    expect(layout.enemyArrows.ringRadiusPx).toBe(200);
+    expect(layout.enemyArrows.ringOffsetYPx).toBe(16);
+    // Unauthored stays null — the legacy viewport-edge ellipse — not NaN.
+    const plain = resolveFlightHudLayout(theme(), PORTRAIT);
+    expect(plain.enemyArrows.ringRadiusPx).toBeNull();
+    expect(plain.enemyArrows.ringOffsetYPx).toBe(0);
+  });
+
   it("resolves the throttle's wheel step (the pointer-side nudge)", () => {
     expect(resolveFlightHudLayout(theme(), PORTRAIT).throttle.wheelStepPerNotch).toBe(
       FLIGHT_HUD_DEFAULTS.throttle.wheelStepPerNotch,
@@ -548,6 +562,8 @@ describe("offScreenArrowPlacement", () => {
     enabled: true,
     insetXPx: 40, // ⇒ x radius 360
     insetYPx: 50, // ⇒ y radius 250
+    ringRadiusPx: null,
+    ringOffsetYPx: 0,
     sizePx: 20,
     safeMarginPx: 30,
     maxCount: 8,
@@ -675,11 +691,86 @@ describe("offScreenArrowPlacement", () => {
   });
 });
 
+describe("offScreenArrowPlacement — centre-ring track (interior of the vital arcs)", () => {
+  const VIEWPORT = { width: 800, height: 600 };
+  const CENTRE = { x: 400, y: 300 };
+  const RING = 92;
+  const OFFSET_Y = 8;
+  const ARROWS: EnemyArrowsLayout = {
+    enabled: true,
+    insetXPx: 40,
+    insetYPx: 50,
+    ringRadiusPx: RING,
+    ringOffsetYPx: OFFSET_Y,
+    sizePx: 20,
+    safeMarginPx: 30,
+    maxCount: 8,
+    fadeNearUnits: 60,
+    fadeFarUnits: 320,
+    minOpacity: 0.35,
+    outOfRangeScale: 0.6,
+    outOfRangeOpacity: 0.4,
+    markerMinOpacity: 0.35,
+    markerSizePx: 10,
+  };
+
+  function place(x: number, y: number, behind = false, arrows = ARROWS, viewport = VIEWPORT): ArrowPlacement | null {
+    const out: ArrowPlacement = { x: 0, y: 0, rotationRad: 0 };
+    return offScreenArrowPlacement({ x, y, behind }, viewport, arrows, out) ? out : null;
+  }
+
+  it("parks every arrow on the ring, concentric with the vital arcs", () => {
+    for (const [x, y] of [
+      [CENTRE.x, -500],
+      [2000, CENTRE.y],
+      [-300, 5000],
+      [1400, -900],
+    ]) {
+      const p = place(x!, y!)!;
+      const r = Math.hypot(p.x - CENTRE.x, p.y - (CENTRE.y + OFFSET_Y));
+      expect(r).toBeCloseTo(RING, 6);
+    }
+  });
+
+  it("still points along the true bearing — the ring changes the perch, not the direction", () => {
+    const up = place(CENTRE.x, -500)!;
+    expect(up.x).toBeCloseTo(CENTRE.x, 6);
+    expect(up.y).toBeCloseTo(CENTRE.y + OFFSET_Y - RING, 6);
+    expect(up.rotationRad).toBeCloseTo(-Math.PI / 2, 6);
+    const right = place(2000, CENTRE.y)!;
+    expect(right.x).toBeCloseTo(CENTRE.x + RING, 6);
+    expect(right.rotationRad).toBeCloseTo(0, 6);
+  });
+
+  it("keeps the on-screen safe-rect handover unchanged: only off-screen enemies ride the ring", () => {
+    expect(place(CENTRE.x + 150, CENTRE.y)).toBeNull(); // on screen, outside the ring
+    expect(place(CENTRE.x, ARROWS.safeMarginPx - 1)).not.toBeNull();
+  });
+
+  it("flips a behind-camera contact exactly like the edge track", () => {
+    const p = place(CENTRE.x - 100, CENTRE.y, true)!;
+    // Mirrored: the enemy is really to screen RIGHT.
+    expect(p.x).toBeGreaterThan(CENTRE.x);
+    expect(Math.abs(p.rotationRad)).toBeLessThan(0.01);
+  });
+
+  it("clamps the ring inside the edge ellipse on a viewport smaller than the ring", () => {
+    const tiny = { width: 160, height: 120 };
+    const p = place(500, 60, false, ARROWS, tiny)!;
+    expect(p.x).toBeGreaterThan(0);
+    expect(p.x).toBeLessThanOrEqual(tiny.width);
+    expect(p.y).toBeGreaterThan(0);
+    expect(p.y).toBeLessThanOrEqual(tiny.height);
+  });
+});
+
 describe("arrowOpacity", () => {
   const ARROWS: EnemyArrowsLayout = {
     enabled: true,
     insetXPx: 34,
     insetYPx: 46,
+    ringRadiusPx: null,
+    ringOffsetYPx: 0,
     sizePx: 20,
     safeMarginPx: 26,
     maxCount: 8,

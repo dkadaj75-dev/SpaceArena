@@ -1,7 +1,8 @@
-import { advanceAttitude, clamp, len3, type Attitude } from "./math.js";
+import { clamp, len3 } from "./math.js";
+import { advanceFrame, type FrameAttitude } from "./frame.js";
 
-/** Scratch attitude — the predictor runs per frame, so no per-call allocation. */
-const scratchAttitude: Attitude = { heading: 0, pitch: 0 };
+/** Scratch frame — the predictor runs per frame, so no per-call allocation. */
+const scratchFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 
 /** Minimal kinematic state advanced by {@link flightStep}. Mutated in place. */
 export interface SteerState {
@@ -10,6 +11,8 @@ export interface SteerState {
   heading: number;
   /** Nose elevation in radians; held state, positive climbs (BUBBLE.md §A). */
   pitch: number;
+  /** Persisted ship-up axis — the roll degree of freedom heading/pitch cannot carry. */
+  up: { x: number; y: number; z: number };
 }
 
 /** Engine knobs the integrator needs (resolved stats, never a raw ship config). */
@@ -52,26 +55,32 @@ export interface FlightInput {
  * needs no special case for that — past vertical `cos p` simply goes negative and
  * the nose swings through the pole — so a held pitch stick flies a full loop.
  *
- * Yaw is BODY-FRAME ({@link advanceAttitude}): `turn` rotates the nose about the
- * ship's own up, not world Y. At level flight the two are the same thing; the
- * difference grows with pitch and is what makes steering read the same way at
- * every attitude.
+ * Yaw is BODY-FRAME ({@link advanceFrame}): `turn` rotates the nose about the
+ * ship's PERSISTED up, not world Y and not an up reconstructed from
+ * heading/pitch. At level flight the two are the same thing; the difference
+ * grows with pitch and is what makes steering read the same way at every
+ * attitude — and persisting the up is what lets a full-deflection diagonal
+ * input cross the poles instead of spinning in a near-vertical attractor.
  *
  * This is the client-prediction mirror of the sim path; the two are asserted
  * trajectory-identical in `steering.test.ts`. Keep them edited together — the
  * operation order below is load-bearing for bit-identity.
  */
 export function flightStep(s: SteerState, input: FlightInput, p: FlightParams, dt: number): void {
-  advanceAttitude(
+  advanceFrame(
     s.heading,
     s.pitch,
+    s.up,
     clamp(input.turn, -1, 1) * p.turnRate * dt,
     clamp(input.pitchStick, -1, 1) * p.turnRate * p.pitchRateMult * dt,
     p.maxPitchRad,
-    scratchAttitude,
+    scratchFrame,
   );
-  s.heading = scratchAttitude.heading;
-  s.pitch = scratchAttitude.pitch;
+  s.heading = scratchFrame.heading;
+  s.pitch = scratchFrame.pitch;
+  s.up.x = scratchFrame.up.x;
+  s.up.y = scratchFrame.up.y;
+  s.up.z = scratchFrame.up.z;
 
   const desiredSpeed = clamp(input.throttle, 0, 1) * p.nominalSpeed * input.boostMult;
   const curSpeed = len3(s.vel.x, s.vel.y, s.vel.z);
