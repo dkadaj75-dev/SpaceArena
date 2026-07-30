@@ -65,7 +65,7 @@ describe("probeDevice", () => {
       userAgent: "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36",
     });
     expect(probe.mobile).toBe(true);
-    expect(probe.memoryGb).toBe(0);
+    expect(probe.memoryGb).toBeNull();
   });
 
   it("treats a touch-capable Macintosh UA as mobile (iPadOS desktop mode)", () => {
@@ -73,11 +73,11 @@ describe("probeDevice", () => {
     expect(probeDevice({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)", maxTouchPoints: 0 }).mobile).toBe(false);
   });
 
-  it("zeroes out missing/absurd values instead of guessing", () => {
-    expect(probeDevice(undefined)).toEqual({ cores: 0, memoryGb: 0, mobile: false });
+  it("zeroes cores and nulls memory for missing/absurd values instead of guessing", () => {
+    expect(probeDevice(undefined)).toEqual({ cores: 0, memoryGb: null, mobile: false });
     expect(probeDevice({ hardwareConcurrency: 0, deviceMemory: Number.NaN })).toEqual({
       cores: 0,
-      memoryGb: 0,
+      memoryGb: null,
       mobile: false,
     });
   });
@@ -117,6 +117,13 @@ describe("probePasses", () => {
     expect(probePasses(MED, { cores: 4, memoryGb: 3, mobile: true })).toBe(true);
     expect(probePasses(LOW, { cores: 0, memoryGb: 0, mobile: true })).toBe(true);
   });
+
+  it("skips memory floors when the browser never reports deviceMemory (Safari/Firefox)", () => {
+    expect(probePasses(MED, { cores: 8, memoryGb: null, mobile: true })).toBe(true);
+    expect(probePasses(HIGH, { cores: 8, memoryGb: null, mobile: false })).toBe(true);
+    // Cores are still enforced against an unknown memory reading.
+    expect(probePasses(MED, { cores: 2, memoryGb: null, mobile: true })).toBe(false);
+  });
 });
 
 describe("selectInitialTier", () => {
@@ -130,6 +137,10 @@ describe("selectInitialTier", () => {
 
   it("picks med on a mid-range phone", () => {
     expect(selectInitialTier(TIERS, { cores: 6, memoryGb: 4, mobile: true })).toBe("med");
+  });
+
+  it("picks med on an iPhone that reports cores but no deviceMemory", () => {
+    expect(selectInitialTier(TIERS, { cores: 6, memoryGb: null, mobile: true })).toBe("med");
   });
 
   it("falls back to low on a budget phone and on an unknown device", () => {

@@ -22,8 +22,15 @@ export const QUALITY_STORAGE_KEY = "sa.quality";
 export interface DeviceProbe {
   /** `navigator.hardwareConcurrency`, or 0 when unavailable. */
   cores: number;
-  /** `navigator.deviceMemory` in GB, or 0 when unavailable. */
-  memoryGb: number;
+  /**
+   * `navigator.deviceMemory` in GB, or null when the browser does not report
+   * it at all. Safari (macOS *and* every iOS browser) and Firefox never expose
+   * `deviceMemory`, so "missing" means "unknown", not "tiny" — memory floors
+   * are skipped for a null reading instead of failing it. Treating it as 0
+   * used to lock every iPhone to the cheapest tier (procedural-only asteroids)
+   * no matter how fast the device was.
+   */
+  memoryGb: number | null;
   /** UA hint that this is a phone/tablet. */
   mobile: boolean;
 }
@@ -38,16 +45,21 @@ export interface ProbeSource {
 }
 
 /**
- * Read device capabilities. Missing values become 0, which means "no
- * requirement satisfied" — a device that reports nothing lands on the cheapest
- * tier, which is the safe default.
+ * Read device capabilities. Missing cores become 0 ("no requirement
+ * satisfied"), but missing memory becomes null ("unknown") — deviceMemory is a
+ * Chromium-only API, so on Safari/Firefox it says nothing about the device and
+ * must not fail a tier's memory floor. Cores are still enforced everywhere
+ * (hardwareConcurrency is universally supported), and the first-seconds
+ * auto-tier demote catches a device the probe was too optimistic about.
  *
  * `navigator.userAgentData.mobile` is preferred (Chromium); the UA-string regex
  * and the touch-point count are fallbacks for Safari/Firefox.
  */
 export function probeDevice(source: ProbeSource | undefined): DeviceProbe {
   const cores = numberOr(source?.hardwareConcurrency, 0);
-  const memoryGb = numberOr(source?.deviceMemory, 0);
+  const rawMemory = source?.deviceMemory;
+  const memoryGb =
+    typeof rawMemory === "number" && Number.isFinite(rawMemory) && rawMemory > 0 ? rawMemory : null;
   const uaMobile = source?.userAgentData?.mobile;
   const ua = source?.userAgent ?? "";
   const mobile =
@@ -79,7 +91,15 @@ export function tierConfig(
 export function probePasses(config: QualityConfig, probe: DeviceProbe): boolean {
   if (probe.mobile && !config.probe.allowMobile) return false;
   if (config.probe.minCores > 0 && probe.cores < config.probe.minCores) return false;
-  if (config.probe.minMemoryGb > 0 && probe.memoryGb < config.probe.minMemoryGb) return false;
+  // A null memory reading is "browser doesn't report it" (Safari/Firefox),
+  // not "not enough" — only a real reading can fail the floor.
+  if (
+    config.probe.minMemoryGb > 0 &&
+    probe.memoryGb !== null &&
+    probe.memoryGb < config.probe.minMemoryGb
+  ) {
+    return false;
+  }
   return true;
 }
 

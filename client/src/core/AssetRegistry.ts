@@ -560,6 +560,14 @@ export class AssetRegistry {
     return load;
   }
 
+  /**
+   * Authored collision hulls inside a GLB: any mesh whose name starts with or
+   * contains a `COL_` segment (e.g. `COL_hull`, `HUM_LGT_COL_Cockpit`). They
+   * carry no material and exist for physics/picking authoring, so they must
+   * never be merged into the rendered hull.
+   */
+  private static readonly COLLIDER_MESH = /(^|_)COL_/;
+
   /** Merge, orient and cache a freshly imported model's meshes into one disabled master. */
   private finalizeModel(
     meshes: readonly AbstractMesh[],
@@ -569,7 +577,10 @@ export class AssetRegistry {
     loads: Map<string, Promise<Mesh | null>>,
     key: string,
   ): Mesh {
-    const parts = meshes.filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
+    const geometric = meshes.filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
+    const visual = geometric.filter((m) => !AssetRegistry.COLLIDER_MESH.test(m.name));
+    // A model that is ONLY collision hulls is still shown rather than dropped.
+    const parts = visual.length > 0 ? visual : geometric;
     if (parts.length === 0) throw new Error("no meshes with geometry in model");
     for (const p of parts) p.computeWorldMatrix(true);
     let merged: Mesh;
