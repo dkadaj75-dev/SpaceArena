@@ -348,6 +348,17 @@ export const enemyArrowsSchema = z.object({
   insetXPx: z.number().nonnegative().optional(),
   /** Track inset from the TOP/BOTTOM viewport edges to the ellipse's y radius. */
   insetYPx: z.number().nonnegative().optional(),
+  /**
+   * Authored, the arrow track is a CIRCLE of this radius about the screen
+   * centre instead of the viewport-edge ellipse — sized to sit in the interior
+   * of the hull/shield vital arcs, it keeps off-screen contacts inside the
+   * pilot's central field of view. Absent = the legacy edge track. The circle
+   * is clamped inside the edge ellipse, so a small viewport cannot push arrows
+   * off screen.
+   */
+  ringRadiusPx: z.number().positive().optional(),
+  /** Vertical offset of the ring centre, to stay concentric with `vitalArcs.offsetYPx`. */
+  ringOffsetYPx: z.number().optional(),
   /** Arrow glyph side length (it is drawn pointing along +x and rotated). */
   sizePx: z.number().positive().optional(),
   /**

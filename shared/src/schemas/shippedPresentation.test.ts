@@ -132,4 +132,25 @@ describe("shipped theme - compact flight HUD", () => {
     expect(hud?.flight?.fire?.ringStrokePx).toBe(0);
     expect(hud?.flight?.throttle?.opacity).toBeCloseTo(0.6, 6);
   });
+
+  it("parks the off-screen enemy arrows on a ring INSIDE the vital arcs, both orientations", () => {
+    const parsed = themeSchema.safeParse(load("themes/default.json"));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw parsed.error;
+    const hud = parsed.data.hud;
+    // Portrait: the ring is concentric with the arcs and sits in their interior,
+    // with clearance for the arrow glyph and its distance label.
+    const arcs = hud?.vitalArcs;
+    const arrows = hud?.flight?.enemyArrows;
+    expect(arrows?.ringRadiusPx).toBeGreaterThan(0);
+    expect(arrows?.ringRadiusPx ?? Infinity).toBeLessThan(arcs?.radiusPx ?? 0);
+    expect(arrows?.ringOffsetYPx).toBe(arcs?.offsetYPx);
+    // Landscape: same containment against the landscape arcs (both values are
+    // authored pre-scale, so they compare like-for-like).
+    const landArcs = hud?.landscape?.vitalArcs;
+    const landArrows = hud?.landscape?.flight?.enemyArrows;
+    expect(landArrows?.ringRadiusPx).toBeGreaterThan(0);
+    expect(landArrows?.ringRadiusPx ?? Infinity).toBeLessThan(landArcs?.radiusPx ?? 0);
+    expect(landArrows?.ringOffsetYPx).toBe(landArcs?.offsetYPx);
+  });
 });

@@ -112,6 +112,14 @@ export interface EnemyArrowsLayout {
   enabled: boolean;
   insetXPx: number;
   insetYPx: number;
+  /**
+   * Radius of the CENTRE-RING track, or null for the legacy viewport-edge
+   * ellipse. The shipped theme authors it just inside the hull/shield vital
+   * arcs so off-screen contacts read in the pilot's central field of view.
+   */
+  ringRadiusPx: number | null;
+  /** Vertical offset of the ring centre (concentric with the vital arcs). */
+  ringOffsetYPx: number;
   sizePx: number;
   safeMarginPx: number;
   maxCount: number;
@@ -211,6 +219,10 @@ export const FLIGHT_HUD_DEFAULTS = {
     enabled: true,
     insetXPx: 34,
     insetYPx: 46,
+    // Built-in default stays the legacy edge track: the centre ring is an
+    // opt-in whose radius only makes sense against a theme's own vital arcs.
+    ringRadiusPx: null as number | null,
+    ringOffsetYPx: 0,
     sizePx: 20,
     safeMarginPx: 26,
     maxCount: 8,
@@ -354,6 +366,10 @@ export function resolveFlightHudLayout(
       enabled: arrows.enabled ?? d.enemyArrows.enabled,
       insetXPx: (arrows.insetXPx ?? d.enemyArrows.insetXPx) * scale,
       insetYPx: (arrows.insetYPx ?? d.enemyArrows.insetYPx) * scale,
+      // The ring is geometry, so an authored radius scales; "unauthored" must
+      // survive scaling as null rather than becoming NaN.
+      ringRadiusPx: arrows.ringRadiusPx !== undefined ? arrows.ringRadiusPx * scale : d.enemyArrows.ringRadiusPx,
+      ringOffsetYPx: (arrows.ringOffsetYPx ?? d.enemyArrows.ringOffsetYPx) * scale,
       sizePx: (arrows.sizePx ?? d.enemyArrows.sizePx) * scale,
       safeMarginPx: (arrows.safeMarginPx ?? d.enemyArrows.safeMarginPx) * scale,
       // Not scaled: a pool ceiling and two world-space distances are neither
@@ -520,6 +536,14 @@ export interface ArrowPlacement {
  * the ellipse is `t·(c, s)` with `t = 1 / hypot(c/rx, s/ry)`, which is the
  * positive root of `(t·c/rx)² + (t·s/ry)² = 1`.
  *
+ * With `ringRadiusPx` authored the track is instead a CIRCLE of that radius
+ * about the screen centre (shifted by `ringOffsetYPx`), sized by the shipped
+ * theme to sit in the interior of the hull/shield vital arcs — off-screen
+ * contacts then read right around the ship instead of at the viewport rim. The
+ * bearing math is identical; only the parked distance changes, clamped to the
+ * edge ellipse so a viewport smaller than the ring never pushes arrows off
+ * screen.
+ *
  * **Behind-camera flip.** The projection mirrors a point behind the camera
  * through the screen centre, so the raw direction points *away* from the enemy;
  * negating it restores the true bearing. An enemy dead astern projects onto the
@@ -564,9 +588,16 @@ export function offScreenArrowPlacement(
   // The ellipse can never be inverted by a fat inset on a small viewport.
   const rx = Math.max(1, cx - arrows.insetXPx);
   const ry = Math.max(1, cy - arrows.insetYPx);
-  const t = 1 / Math.hypot(dx / rx, dy / ry);
-  out.x = cx + dx * t;
-  out.y = cy + dy * t;
+  const tEdge = 1 / Math.hypot(dx / rx, dy / ry);
+  if (arrows.ringRadiusPx !== null) {
+    const t = Math.min(arrows.ringRadiusPx, tEdge);
+    out.x = cx + dx * t;
+    out.y = cy + arrows.ringOffsetYPx + dy * t;
+    out.rotationRad = Math.atan2(dy, dx);
+    return true;
+  }
+  out.x = cx + dx * tEdge;
+  out.y = cy + dy * tEdge;
   out.rotationRad = Math.atan2(dy, dx);
   return true;
 }
