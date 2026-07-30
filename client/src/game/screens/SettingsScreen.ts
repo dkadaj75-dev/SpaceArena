@@ -18,6 +18,12 @@ import {
   type UserSettings,
   type UserSettingsStore,
 } from "../../core/userSettings.js";
+import {
+  fullscreenSupported,
+  isFullscreen,
+  onFullscreenChange,
+  toggleFullscreen,
+} from "../../core/fullscreen.js";
 import { applyMenuTheme, createMenuBackdrop, injectScreenStyle } from "./screenStyle.js";
 
 const log = createLogger("Settings");
@@ -63,6 +69,14 @@ export class SettingsScreen {
   /** Rebuilt on every show; each entry re-paints one control from the store. */
   private readonly refreshers: ((values: UserSettings) => void)[] = [];
   private readonly unsubscribe: () => void;
+  /**
+   * Repaints the fullscreen toggle from the LIVE browser state; rebuilt with
+   * the control on every show. Separate from `refreshers` because fullscreen
+   * is deliberately not a stored setting — the browser only grants it inside a
+   * user gesture, so a persisted value could never be honoured at boot.
+   */
+  private fullscreenRefresh: (() => void) | null = null;
+  private readonly unsubscribeFullscreen: () => void;
 
   constructor(
     parent: HTMLElement,
@@ -91,6 +105,8 @@ export class SettingsScreen {
     this.unsubscribe = this.host.settings.onChange((values) => {
       for (const refresh of this.refreshers) refresh(values);
     });
+    // Esc leaves fullscreen without going through our toggle; track the truth.
+    this.unsubscribeFullscreen = onFullscreenChange(() => this.fullscreenRefresh?.());
   }
 
   /** Open the screen. `onClose` fires on Back/Resume (and only then). */
@@ -119,8 +135,10 @@ export class SettingsScreen {
 
   private build(context: SettingsContext): void {
     this.refreshers.length = 0;
+    this.fullscreenRefresh = null;
     this.groups.replaceChildren();
     this.groups.append(
+      this.displayGroup(),
       this.qualityGroup(),
       this.audioGroup(),
       this.feedbackGroup(),
@@ -141,6 +159,31 @@ export class SettingsScreen {
   }
 
   // --- Groups -------------------------------------------------------------
+
+  /**
+   * Fullscreen — a LIVE browser-state toggle, not a stored setting (see the
+   * field comment on {@link fullscreenRefresh}). The click handler itself is
+   * the user gesture the Fullscreen API requires, which is why this control,
+   * like the volume sliders, acts directly instead of writing a store patch.
+   */
+  private displayGroup(): HTMLElement {
+    const group = settingsGroup("Display");
+    const supported = fullscreenSupported();
+    const toggle = toggleButton("Fullscreen", () => {
+      void toggleFullscreen().then((on) => toggle.set(on));
+    });
+    toggle.el.dataset["setting"] = "display.fullscreen";
+    toggle.el.disabled = !supported;
+    this.fullscreenRefresh = () => toggle.set(isFullscreen());
+    this.fullscreenRefresh();
+    group.append(toggle.el);
+    group.append(
+      supported
+        ? note("Esc leaves fullscreen. The state is not remembered — browsers only allow entering it from a click.")
+        : note("This browser cannot fullscreen web apps (iPhone Safari). Add the game to the home screen for a fullscreen launch instead."),
+    );
+    return group;
+  }
 
   /** Render quality: Auto (device probe + FPS) or a pinned tier. */
   private qualityGroup(): HTMLElement {
@@ -412,6 +455,8 @@ export class SettingsScreen {
 
   dispose(): void {
     this.unsubscribe();
+    this.unsubscribeFullscreen();
+    this.fullscreenRefresh = null;
     this.refreshers.length = 0;
     this.root.remove();
   }
