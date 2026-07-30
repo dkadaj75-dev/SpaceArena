@@ -5,6 +5,7 @@ import { botprofileSchema, type BotprofileConfig } from "../schemas/botprofile.j
 import { orderSchema } from "../net/protocol.js";
 import type { AsteroidSnapshot, ProjectileSnapshot, ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import { angleDelta, wrapAngle } from "../sim/math.js";
+import { seedUp } from "../sim/frame.js";
 import type { Order } from "../sim/orders.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
@@ -23,6 +24,7 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
     // `pos`/`pitch` are overridable through `over`, which is how the bubble cases
     // below put an enemy above or below the bot.
     pitch: 0,
+    up: { x: 0, y: 1, z: 0 },
     heading: 0,
     hull: 100,
     hullMax: 100,
@@ -320,7 +322,7 @@ describe("BotDriver flight orders", () => {
     let elapsed = 0;
     const sticks: number[] = [];
     for (let i = 0; i < 200; i++) {
-      const s = snap([ship(1, 0, 0, 0, { heading: 0, pitch }), enemy], [], [], elapsed);
+      const s = snap([ship(1, 0, 0, 0, { heading: 0, pitch, up: seedUp(0, pitch) }), enemy], [], [], elapsed);
       const flight = flightOrder(driver.update(s, elapsed * 1000));
       if (flight) {
         // The axis is optional on the wire (an absent one means "centred"), so
@@ -359,7 +361,7 @@ describe("BotDriver flight orders", () => {
     let pinnedTicks = 0;
     let truncatedTicks = 0;
     for (let i = 0; i < 30; i++) {
-      const s = snap([ship(1, 0, 0, 0, { pitch }), enemy], [], [], elapsed);
+      const s = snap([ship(1, 0, 0, 0, { pitch, up: seedUp(0, pitch) }), enemy], [], [], elapsed);
       const flight = flightOrder(driver.update(s, elapsed * 1000));
       if (flight) stick = flight.pitchStick ?? 0;
       const free = pitch + stick * trueRate * dt;

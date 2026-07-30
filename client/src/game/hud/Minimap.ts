@@ -236,6 +236,7 @@ export class Minimap {
       z - player.pos.z,
       player.heading,
       player.pitch,
+      player.up,
       localScratch,
     );
     projectRadarPoint(localScratch, this.geometry, projectedScratch);

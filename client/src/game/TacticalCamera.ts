@@ -10,16 +10,15 @@ import {
 } from "@babylonjs/core";
 import {
   createLogger,
+  facingVec,
   type CameraConfig,
   type ConfigService,
   type EventBus,
   type ConfigEvents,
 } from "@space-arena/shared";
 import {
-  approachHeading,
-  approachPitch,
-  chaseOffsetFor,
-  chaseUpFor,
+  approachDirection,
+  chaseOffsetForFrame,
   chaseSettingsOf,
   DEFAULT_CHASE_SETTINGS,
   type ChaseSettings,
@@ -83,14 +82,17 @@ export class TacticalCamera {
   private chase: ChaseSettings = DEFAULT_CHASE_SETTINGS;
   /** Player-local multiplier over the content-authored chase radius. */
   private chaseDistanceScale = 1;
-  /** Latest sim heading pushed in by the render loop (radians, sim convention). */
-  private chaseHeading = 0;
-  /** Smoothed heading the orbit alpha is derived from; null until the first frame seeds it. */
-  private chaseSmoothHeading: number | null = null;
-  /** Latest sim pitch pushed in by the render loop (radians, positive climbing). */
-  private chasePitch = 0;
-  /** Smoothed pitch the orbit beta is derived from; null until the first frame seeds it. */
-  private chaseSmoothPitch: number | null = null;
+  /**
+   * Latest ship orientation FRAME pushed in by the render loop — the
+   * authoritative nose + replicated up, never reconstructed from heading/pitch
+   * (flight-frame handoff). Smoothed as directions, not as Euler coordinates.
+   */
+  private readonly chaseNoseTarget = new Vector3(1, 0, 0);
+  private readonly chaseUpTarget = new Vector3(0, 1, 0);
+  /** Smoothed frame the rig is posed from; seeded from the targets on the first frame. */
+  private readonly chaseSmoothNose = new Vector3(1, 0, 0);
+  private readonly chaseSmoothUp = new Vector3(0, 1, 0);
+  private chaseSeeded = false;
   /** Scratch rig state — update() stays allocation-free (see {@link applyChasePose}). */
   private readonly chaseUp = new Vector3(0, 1, 0);
   private readonly chaseOffset = new Vector3();
@@ -305,8 +307,7 @@ export class TacticalCamera {
     if (this.chaseMode === enabled) return;
     this.chaseMode = enabled;
     this.activeTouches.clear();
-    this.chaseSmoothHeading = null;
-    this.chaseSmoothPitch = null;
+    this.chaseSeeded = false;
     if (enabled) {
       this.applyChaseLimits();
       return;
@@ -321,22 +322,19 @@ export class TacticalCamera {
   }
 
   /**
-   * Push this frame's ship heading (radians, SIM convention: 0 = +X, growing
-   * counter-clockwise). Called once per render frame from the snapshot; the
-   * `yawLag` smoothing in {@link update} is what turns it into orbit alpha, so
-   * the raw per-tick value is fine here.
+   * Push this frame's ship orientation FRAME (sim conventions: heading 0 = +X
+   * growing counter-clockwise, pitch positive climbing, `up` the ship's
+   * replicated authoritative up axis). Called once per render frame from the
+   * interpolated snapshot; the `yawLag`/`pitchLag` smoothing in {@link update}
+   * turns it into the rig pose. The raw per-frame values are fine here.
+   *
+   * The up must be the PERSISTED frame axis — deriving one from heading/pitch
+   * is the lossy reconstruction that made the camera barrel-roll at steep
+   * pitch (flight-frame handoff).
    */
-  setChaseHeading(heading: number): void {
-    this.chaseHeading = heading;
-  }
-
-  /**
-   * Push this frame's ship pitch (radians, sim convention: positive = climbing).
-   * Called once per render frame alongside {@link setChaseHeading}; the
-   * `pitchLag` smoothing in {@link update} turns it into orbit beta.
-   */
-  setChasePitch(pitch: number): void {
-    this.chasePitch = pitch;
+  setChaseFrame(heading: number, pitch: number, up: { x: number; y: number; z: number }): void {
+    facingVec(heading, pitch, this.chaseNoseTarget);
+    this.chaseUpTarget.set(up.x, up.y, up.z);
   }
 
   /**
@@ -368,29 +366,34 @@ export class TacticalCamera {
     this.camera.upperRadiusLimit = radius;
     this.camera.radius = radius;
     this.camera.fov = this.chase.fov ?? this.defaultFov;
-    this.applyChasePose(this.chaseSmoothHeading ?? this.chaseHeading, this.chaseSmoothPitch ?? this.chasePitch);
+    if (this.chaseSeeded) {
+      this.applyChasePose(this.chaseSmoothNose, this.chaseSmoothUp);
+    } else {
+      this.applyChasePose(this.chaseNoseTarget, this.chaseUpTarget);
+    }
   }
 
   /**
-   * Point the rig at a ship attitude — the whole of the loop-capable chase
-   * camera, and the one place that has to reckon with how `ArcRotateCamera`
-   * treats a non-Y `upVector`.
+   * Point the rig at a ship FRAME — the whole of the loop-capable chase camera,
+   * and the one place that has to reckon with how `ArcRotateCamera` treats a
+   * non-Y `upVector`.
    *
-   * `chaseUpFor`/`chaseOffsetFor` give the pose we want in world space. Babylon
-   * does not accept a pose: it derives its position from `alpha`/`beta` and then
-   * rotates that by `RotationAlign(Y, upVector)`. So we build the SAME alignment
-   * it will use, undo it on our desired offset, and read the orbit angles back out
-   * of the result. In ordinary flight this resolves to exactly `alpha = h + π`,
-   * `beta = chase.beta` — the rig really is "level, in the ship's frame" — but
-   * doing it by inversion rather than by assuming that keeps it correct in the one
-   * place the assumption fails: Babylon falls back to a fixed alignment axis when
-   * the up vector is within ~2.5° of −Y, which a looping ship passes through at
-   * the bottom of every revolution.
+   * The ship's replicated up and {@link chaseOffsetForFrame} give the pose we
+   * want in world space. Babylon does not accept a pose: it derives its position
+   * from `alpha`/`beta` and then rotates that by `RotationAlign(Y, upVector)`.
+   * So we build the SAME alignment it will use, undo it on our desired offset,
+   * and read the orbit angles back out of the result. In ordinary flight this
+   * resolves to exactly `alpha = h + π`, `beta = chase.beta` — the rig really is
+   * "level, in the ship's frame" — but doing it by inversion rather than by
+   * assuming that keeps it correct in the one place the assumption fails:
+   * Babylon falls back to a fixed alignment axis when the up vector is within
+   * ~2.5° of −Y, which a looping ship passes through at the bottom of every
+   * revolution.
    */
-  private applyChasePose(heading: number, pitch: number): void {
+  private applyChasePose(nose: Vector3, up: Vector3): void {
     const radius = this.effectiveChaseRadius;
-    chaseUpFor(heading, pitch, this.chaseUp);
-    chaseOffsetFor(heading, pitch, this.chase.beta, radius, this.chaseOffset);
+    this.chaseUp.copyFrom(up);
+    chaseOffsetForFrame(nose, up, this.chase.beta, radius, this.chaseOffset);
     // Assigning normalizes in place and rebuilds Babylon's own alignment matrices.
     this.camera.upVector = this.chaseUp;
     Matrix.RotationAlignToRef(Vector3.UpReadOnly, this.camera.upVector, this.yToUp);
@@ -561,24 +564,41 @@ export class TacticalCamera {
     Vector3.LerpToRef(this.followPoint, this.scratchTargetPos, t, this.followPoint);
 
     if (this.chaseMode) {
-      // Orbit angle from the SHIP, smoothed with `yawLag` (mutated in place; no
-      // allocation and no setTarget(), which would recompute alpha/beta/radius
-      // from the position and undo exactly what we just set).
-      //
-      // Both smoothers run on the ship's RAW attitude and stay there: nothing is
-      // folded any more. The rig rolls with the ship ({@link chaseUpFor}), so the
-      // azimuth never has to jump and the tilt never approaches a pole. Pitch
-      // smooths the SHORT way round because it wraps mid-loop.
-      this.chaseSmoothHeading =
-        this.chaseSmoothHeading === null
-          ? this.chaseHeading
-          : approachHeading(this.chaseSmoothHeading, this.chaseHeading, this.chase.yawLag, dt);
-      this.chaseSmoothPitch =
-        this.chaseSmoothPitch === null
-          ? this.chasePitch
-          : approachPitch(this.chaseSmoothPitch, this.chasePitch, this.chase.pitchLag, dt);
+      // The rig is posed from the ship's FRAME, smoothed as directions rather
+      // than as Euler coordinates (mutated in place; no allocation and no
+      // setTarget(), which would recompute alpha/beta/radius from the position
+      // and undo exactly what we just set). The nose smooths with `yawLag`, the
+      // up with `pitchLag` (the axis pitch/roll motion lands on); the up is
+      // then re-squared against the smoothed nose so the pose stays a frame.
+      if (!this.chaseSeeded) {
+        this.chaseSeeded = true;
+        this.chaseSmoothNose.copyFrom(this.chaseNoseTarget);
+        this.chaseSmoothUp.copyFrom(this.chaseUpTarget);
+      } else {
+        approachDirection(this.chaseSmoothNose, this.chaseNoseTarget, this.chase.yawLag, dt);
+        approachDirection(this.chaseSmoothUp, this.chaseUpTarget, this.chase.pitchLag, dt);
+      }
+      // Gram–Schmidt the smoothed up against the smoothed nose: the two
+      // smoothers run at their own lags, so orthogonality is re-imposed rather
+      // than assumed. Degenerate (up ~ parallel to nose) can only follow a
+      // teleport-scale correction; snap to the target up.
+      const n = this.chaseSmoothNose;
+      const u = this.chaseSmoothUp;
+      const dot = u.x * n.x + u.y * n.y + u.z * n.z;
+      u.x -= dot * n.x;
+      u.y -= dot * n.y;
+      u.z -= dot * n.z;
+      const lenSq = u.x * u.x + u.y * u.y + u.z * u.z;
+      if (lenSq > 1e-12) {
+        const inv = 1 / Math.sqrt(lenSq);
+        u.x *= inv;
+        u.y *= inv;
+        u.z *= inv;
+      } else {
+        u.copyFrom(this.chaseUpTarget);
+      }
       // Re-asserted every frame so a hot-reloaded chase block applies live.
-      this.applyChasePose(this.chaseSmoothHeading, this.chaseSmoothPitch);
+      this.applyChasePose(this.chaseSmoothNose, this.chaseSmoothUp);
       this.camera.target.copyFrom(this.followPoint);
       this.camera.target.y += this.chase.height;
       // No arena-bounds clamp: the target IS the ship, so it is inside the

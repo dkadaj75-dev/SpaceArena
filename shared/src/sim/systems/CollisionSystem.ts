@@ -1,9 +1,13 @@
 import type { ShipCore } from "../components.js";
-import { attitudeNear, len3, type Attitude } from "../math.js";
+import { len3, type Attitude } from "../math.js";
+import { orthonormalizeUp, spellAttitude, transportUp } from "../frame.js";
 import type { World } from "../World.js";
 
 /** Scratch attitude for the boundary nose reflection — no per-contact allocation. */
 const reflectedAttitude: Attitude = { heading: 0, pitch: 0 };
+/** Scratch nose vectors for the frame transport across a bounce — no allocation. */
+const noseBefore = { x: 0, y: 0, z: 0 };
+const noseAfter = { x: 0, y: 0, z: 0 };
 
 /**
  * CollisionSystem (1.7) — SPHERE resolution using the world spatial hash as a
@@ -232,24 +236,30 @@ function resolveBoundary(
       const reflectedX = noseX - 2 * noseOutward * outward.x;
       const reflectedY = noseY - 2 * noseOutward * outward.y;
       const reflectedZ = noseZ - 2 * noseOutward * outward.z;
+      // The persisted up rides the SAME rotation the nose just made (minimal
+      // rotation from old nose to reflected nose, flight-frame handoff), so a
+      // rolled ship keeps its roll across the bounce instead of having the
+      // frame silently reset to the derived spelling — which would snap the
+      // hull and the chase camera by whatever roll the ship was carrying.
+      noseBefore.x = noseX;
+      noseBefore.y = noseY;
+      noseBefore.z = noseZ;
+      noseAfter.x = reflectedX;
+      noseAfter.y = reflectedY;
+      noseAfter.z = reflectedZ;
+      transportUp(noseBefore, noseAfter, tf.up);
       // The reflected DIRECTION is unambiguous; the (heading, pitch) pair that
-      // names it is not, and picking the wrong one snaps the ship. `atan2/asin`
-      // alone always answer the upright spelling, so a ship that hits the rim
-      // mid-loop at pitch 2.6 would have its heading jump by PI and its pitch by
-      // ~1.5 for a reflection that barely moved the nose — the client's attitude
-      // interpolation, the chase camera and the bots would all see a violent
-      // manoeuvre that never happened. `attitudeNear` keeps the spelling the ship
-      // is already flying (BUBBLE.md §A), so an inverted bounce stays inverted and
-      // the numbers move as little as the nose does. Under the legacy clamp the
-      // hull can never be inverted, so this resolves to the old atan2/asin pair.
-      attitudeNear(
-        Math.atan2(reflectedZ, reflectedX),
-        Math.asin(Math.max(-1, Math.min(1, reflectedY))),
-        tf.pitch,
-        reflectedAttitude,
-      );
+      // names it is not, and picking the wrong one snaps every consumer of the
+      // coordinates. The spelling follows the transported up (`spellAttitude`),
+      // so an inverted bounce stays inverted and the numbers move as little as
+      // the nose does. Under the legacy clamp the hull can never be inverted,
+      // so this resolves to the old upright atan2/asin pair. Orthonormalized
+      // last: a reflection is a controlled boundary, exactly where numerical
+      // drift is corrected.
+      spellAttitude(reflectedX, reflectedY, reflectedZ, tf.up, reflectedAttitude);
       tf.heading = reflectedAttitude.heading;
       tf.pitch = reflectedAttitude.pitch;
+      orthonormalizeUp(tf.heading, tf.pitch, tf.up);
     }
   }
   if (rule.type === "damage" || rule.type === "damageAndBounce") {

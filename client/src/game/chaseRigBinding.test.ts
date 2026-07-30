@@ -1,6 +1,28 @@
 import { ArcRotateCamera, Matrix, NullEngine, Scene, Vector3 } from "@babylonjs/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { chaseOffsetFor, chaseUpFor } from "./chaseCamera.js";
+import { facingVec, upFromAttitude } from "@space-arena/shared";
+import { chaseOffsetForFrame } from "./chaseCamera.js";
+
+/** The roll-less frame pose for an attitude (what an unrolled ship replicates). */
+function chaseUpFor(heading: number, pitch: number, out: { x: number; y: number; z: number }) {
+  return upFromAttitude(heading, pitch, out);
+}
+
+function chaseOffsetFor(
+  heading: number,
+  pitch: number,
+  baseBeta: number,
+  radius: number,
+  out: { x: number; y: number; z: number },
+) {
+  return chaseOffsetForFrame(
+    facingVec(heading, pitch, { x: 0, y: 0, z: 0 }),
+    upFromAttitude(heading, pitch, { x: 0, y: 0, z: 0 }),
+    baseBeta,
+    radius,
+    out,
+  );
+}
 
 /**
  * **Does Babylon actually build the rig we solved for?** (BUBBLE.md §A)

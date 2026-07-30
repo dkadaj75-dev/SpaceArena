@@ -1,5 +1,6 @@
 export * from "./GameLoop.js";
 export * from "./math.js";
+export * from "./frame.js";
 export * from "./rng.js";
 export * from "./spatialHash.js";
 export * from "./components.js";

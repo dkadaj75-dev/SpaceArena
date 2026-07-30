@@ -6,15 +6,55 @@ and the HUD gains **off-screen enemy direction arrows**.
 
 Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchanged.
 
+## Authoritative flight-frame amendment (2026-07-30, supersedes the roll-less orientation model below)
+
+Implemented per `docs/HANDOFF-2026-07-30-FLIGHT-FRAME.md` (owner report: sudden
+barrel roll while steering near vertical). Ship orientation is now a full
+orthonormal FRAME: `Transform3D`/`SteerState` persist a unit `up {x,y,z}`
+alongside heading/pitch, and every statement below that describes the ship's up
+as *derived from* heading/pitch is historical.
+
+- The nose `N` stays derivable from heading/pitch (`facingVec`) and drives
+  velocity, targeting and the legacy codecs unchanged. `up` carries the roll
+  degree of freedom those two coordinates cannot; there is still **no player
+  roll control** — `up` changes only as the integrated consequence of body yaw
+  and pitch (`shared/src/sim/frame.ts` `advanceFrame`), so a ship that never
+  steers near vertical never rolls at all.
+- Integration applies body yaw about the PERSISTED up, then body pitch about the
+  already-yawed right axis `W = N × U`, and re-derives wrapped heading/pitch
+  from the rotated nose only as a *name* for it (`spellAttitude`: the spelling
+  whose derived up agrees with the persisted up). The old nose-only
+  `advanceAttitude` survives solely for packs that author the legacy
+  `maxPitchRad` clamp, where the hull can never roll and the pre-loop behaviour
+  stays bit-identical.
+- Consequences the old model got wrong, now pinned by tests: a yaw step at
+  80–91° pitch moves the frame by the commanded angle (not 30–90° of derived-up
+  jump); full turn + full pitch flies a smooth cone the way constant body rates
+  do on any rigid body (the near-vertical heading-spin attractor cannot form —
+  note this deliberately amends the handoff's "crosses both poles" acceptance
+  criterion, which no body-frame-consistent integrator can satisfy under a
+  constant diagonal input); pure-pitch loops and level flight are unchanged.
+- Replication: `ShipSnapshot.up` and `PlayerState.upX/upY/upZ` (float32,
+  normalized on decode; `PROTOCOL_VERSION` 3). Prediction, correction and
+  snapshot interpolation carry the frame — noses and ups are blended as
+  vectors and re-orthonormalized, never as independent Euler coordinates.
+- Presentation: hulls pose from the interpolated forward/up via quaternion,
+  with the cosmetic bank applied around the nose and driven by SIGNED BODY YAW
+  between snapshots (bounded at every attitude, unlike the raw heading rate);
+  the chase rig and 3D radar consume the replicated frame directly; boundary
+  bounces transport the up with the reflected nose.
+
 ## HUD frame amendment (2026-07-30)
 
 The absolute top-down minimap described in the historical implementation notes
 below has been replaced by a player-centred tilted 3D radar. For world delta
-`D`, it uses the raw full-loop ship basis
-`R=(sin h,0,-cos h)`, `U=(-cos h sin p,cos p,-sin h sin p)`, and
-`N=(cos p cos h,sin p,cos p sin h)`. The disc plots `D dot R` and `D dot N`;
-the lollipop stem plots `D dot U`. Do not canonicalize the attitude or fall back
-to world-y altitude: either breaks continuity while vertical or inverted.
+`D`, it uses the raw full-loop ship basis: `N=(cos p cos h,sin p,cos p sin h)`
+from heading/pitch, `U` the ship's REPLICATED up (flight-frame amendment above;
+for a roll-less ship this is the historical `(-cos h sin p,cos p,-sin h sin p)`),
+and display right `R = U × N`. The disc plots `D dot R` and `D dot N`; the
+lollipop stem plots `D dot U`. Do not canonicalize the attitude, reconstruct the
+up from heading/pitch, or fall back to world-y altitude: each breaks continuity
+while vertical, rolled, or inverted.
 
 ## Decisions (defaults chosen from the Galaxy Division reference + mobile arcade genre)
 

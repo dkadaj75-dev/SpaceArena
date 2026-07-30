@@ -1,9 +1,10 @@
 import type { ModuleConfig } from "../../schemas/index.js";
 import type { EntityId, ShipCore } from "../components.js";
-import { advanceAttitude, clamp, len3, type Attitude } from "../math.js";
+import { clamp, len3 } from "../math.js";
+import { advanceFrame, type FrameAttitude } from "../frame.js";
 
-/** Scratch attitude — the sim loops over every ship each tick, so reuse one. */
-const scratchAttitude: Attitude = { heading: 0, pitch: 0 };
+/** Scratch frame — the sim loops over every ship each tick, so reuse one. */
+const scratchFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 import { pitchTuningOf } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 
@@ -108,16 +109,20 @@ export function navigationSystem(world: World, dt: number): void {
     // steering.ts — that function is the client-prediction mirror and a test
     // asserts the two produce the same trajectory.
     const speedMult = flight.boost ? resolveBoostMult(world, id, core, dt) : 1;
-    advanceAttitude(
+    advanceFrame(
       tf.heading,
       tf.pitch,
+      tf.up,
       flight.turn * core.engine.turnRate * dt,
       flight.pitchStick * core.engine.turnRate * pitchRateMult * dt,
       maxPitch,
-      scratchAttitude,
+      scratchFrame,
     );
-    tf.heading = scratchAttitude.heading;
-    tf.pitch = scratchAttitude.pitch;
+    tf.heading = scratchFrame.heading;
+    tf.pitch = scratchFrame.pitch;
+    tf.up.x = scratchFrame.up.x;
+    tf.up.y = scratchFrame.up.y;
+    tf.up.z = scratchFrame.up.z;
 
     const desiredSpeed = flight.throttle * core.engine.nominalSpeed * speedMult;
     const curSpeed = len3(vel.x, vel.y, vel.z);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Matrix, Vector3 } from "@babylonjs/core";
+import { Matrix, Quaternion, Vector3 } from "@babylonjs/core";
+import { upFromAttitude } from "@space-arena/shared";
 import {
   approachRoll,
   bankRollFor,
@@ -191,6 +192,54 @@ describe("direction-based orientation (projectiles, beams)", () => {
       const dz = Math.sin(heading);
       expect(angleGap(yawForDirection(dx, dz), meshYawFor(heading))).toBeCloseTo(0, 9);
       expect(pitchForDirection(dx, 0, dz)).toBeCloseTo(0, 9);
+    }
+  });
+});
+
+/**
+ * Flight-frame amendment (2026-07-30): ships are posed from the authoritative
+ * forward/up frame via `Quaternion.FromLookDirectionRH`, with the cosmetic bank
+ * tilting the up around the nose (EntityView.syncShips). For a roll-less frame
+ * that quaternion must reproduce EXACTLY the pose the legacy Euler composition
+ * above describes — same nose, same wings, at every attitude and bank. This is
+ * the equivalence that makes the Euler helpers a valid convention reference.
+ */
+describe("frame-quaternion pose ≡ legacy Euler pose (roll-less frames)", () => {
+  function framePose(heading: number, pitch: number, roll: number): Matrix {
+    const n = simFacing(heading, pitch);
+    const u = upFromAttitude(heading, pitch, { x: 0, y: 0, z: 0 });
+    // Banked up = U·cos r + (N×U)·sin r — the same formula EntityView applies.
+    const cr = Math.cos(roll);
+    const sr = Math.sin(roll);
+    const lx = n.y * u.z - n.z * u.y;
+    const ly = n.z * u.x - n.x * u.z;
+    const lz = n.x * u.y - n.y * u.x;
+    const banked = new Vector3(u.x * cr + lx * sr, u.y * cr + ly * sr, u.z * cr + lz * sr);
+    // RH despite the LH engine: see EntityView.syncShips — Babylon's LH
+    // variant aims -Z at the direction under the row-vector convention.
+    const q = Quaternion.FromLookDirectionRH(n, banked);
+    const m = new Matrix();
+    Matrix.FromQuaternionToRef(q, m);
+    return m;
+  }
+
+  it("matches nose and right wing at every attitude and bank, inverted included", () => {
+    for (const heading of [0, 0.7, -2.1, Math.PI]) {
+      for (const pitch of [0, 0.6, -1.2, 1.5708, 2.6, -3.0]) {
+        for (const roll of [0, 0.35, -0.5]) {
+          const m = framePose(heading, pitch, roll);
+          const nose = Vector3.TransformCoordinates(new Vector3(0, 0, 1), m);
+          const wing = Vector3.TransformCoordinates(new Vector3(1, 0, 0), m);
+          const eulerNose = poseNose(heading, pitch, roll);
+          const eulerWing = poseRightWing(heading, pitch, roll);
+          expect(nose.x).toBeCloseTo(eulerNose.x, POSE_DIGITS);
+          expect(nose.y).toBeCloseTo(eulerNose.y, POSE_DIGITS);
+          expect(nose.z).toBeCloseTo(eulerNose.z, POSE_DIGITS);
+          expect(wing.x).toBeCloseTo(eulerWing.x, POSE_DIGITS);
+          expect(wing.y).toBeCloseTo(eulerWing.y, POSE_DIGITS);
+          expect(wing.z).toBeCloseTo(eulerWing.z, POSE_DIGITS);
+        }
+      }
     }
   });
 });

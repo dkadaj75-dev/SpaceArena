@@ -1,39 +1,43 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { flightStep, wrapAngle, type FlightParams, type SteerState } from "@space-arena/shared";
+import { flightStep, seedUp, wrapAngle, type FlightParams, type SteerState } from "@space-arena/shared";
 import { RelativeSteerInput } from "./hud/RelativeSteerInput.js";
 import { resolveFlightHudLayout } from "./hud/flightHudLayout.js";
-import { chaseOffsetFor, chaseUpFor } from "./chaseCamera.js";
+import { chaseOffsetForFrame } from "./chaseCamera.js";
 
 /**
- * **The screen invariant** (BUBBLE.md §A).
+ * **The screen invariant** (BUBBLE.md §A, as amended by the 2026-07-30
+ * flight-frame handoff).
  *
  * > At every sustained pitch, a held LEFT turn input must move the nose LEFT on
  * > screen in the rolled camera frame.
  *
  * This is the property the owner has been reporting violations of, and it is
  * stated here as a property rather than as a mechanism on purpose: the sim yaws
- * about world Y, the camera rolls with the ship, and whether those two compose
- * into "left is left" is not obvious from either one alone.
+ * about the ship's own persisted up, the camera rolls with the ship's frame,
+ * and whether those two compose into "left is left" is not obvious from either
+ * one alone.
  *
  * The chain driven below is the real one — a real {@link RelativeSteerInput}
  * taking real pointer events, its real `setShipPitch`, the real
- * `mapRelativeSteer` mapping inside it, the real `flightStep` integrator, and the
- * real {@link chaseUpFor}/{@link chaseOffsetFor} rig math — so a break anywhere
- * between the pointer and the screen shows up here.
+ * `mapRelativeSteer` mapping inside it, the real `flightStep` integrator over
+ * the real persisted frame, and the real {@link chaseOffsetForFrame} rig math
+ * fed the SHIP'S OWN up — so a break anywhere between the pointer and the
+ * screen shows up here.
  *
  * ## The frame
  *
  * Babylon's `LookAtLH` builds its basis as `zaxis = normalize(target - eye)` and
- * `xaxis = normalize(cross(up, zaxis))`, and `xaxis` IS screen-right. With the
- * rolled rig that works out to `(sin h, 0, -cos h)` — independent of pitch.
+ * `xaxis = normalize(cross(up, zaxis))`, and `xaxis` IS screen-right. The rig's
+ * up is the ship's replicated up, so screen-right is `cross(U, forward)` — the
+ * ship's own left-handed lateral axis, at every attitude.
  *
- * Under BODY-FRAME yaw the nose's response to a turn input is `dN/dψ = W`, the
- * ship's own right-hand axis, which is exactly that screen-right vector with unit
- * length at every attitude. So the response is a constant `-1` — same direction,
- * same authority, upright or inverted or straight up. There is no sign flip and
- * no dead zone to work around; an earlier world-Y-yaw model needed both and could
- * satisfy neither (see the BUBBLE.md amendment for why).
+ * Under BODY-FRAME yaw the nose's response to a turn input is `dN/dψ = W = N×U`,
+ * which is exactly that screen-right vector (negated) with unit length at every
+ * attitude. So the response is a constant `-1` — same direction, same authority,
+ * upright or inverted or straight up. There is no sign flip and no dead zone;
+ * and since the flight-frame handoff there is no pole singularity either — the
+ * persisted frame never has to be reconstructed from the two Euler coordinates.
  */
 
 const DT = 1 / 60;
@@ -74,13 +78,21 @@ function dot(a: Vec3, b: Vec3): number {
   return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-/** Screen-right of the rolled chase rig for a ship at this attitude. */
-function screenRight(heading: number, pitch: number): Vec3 {
-  const up = chaseUpFor(heading, pitch, { x: 0, y: 0, z: 0 });
-  const offset = chaseOffsetFor(heading, pitch, BASE_BETA, RADIUS, { x: 0, y: 0, z: 0 });
+/**
+ * Screen-right of the rolled chase rig for a ship carrying this FRAME — the
+ * actual rendered camera basis: forward looks down the authored offset built
+ * from the ship's own nose and up, and right is `cross(up, forward)` exactly as
+ * `LookAtLH` builds it.
+ */
+function screenRight(ship: SteerState): Vec3 {
+  const offset = chaseOffsetForFrame(nose(ship.heading, ship.pitch), ship.up, BASE_BETA, RADIUS, {
+    x: 0,
+    y: 0,
+    z: 0,
+  });
   // The camera sits at ship+offset and looks at the ship, so forward is -offset.
   const forward = normalize({ x: -offset.x, y: -offset.y, z: -offset.z });
-  return normalize(cross(up, forward));
+  return normalize(cross(ship.up, forward));
 }
 
 function pointer(
@@ -108,9 +120,7 @@ function pointer(
  * Per-tick, not start-to-finish, and the distinction is the whole measurement.
  * The chase rig follows the ship, so the screen frame moves with it; what a player
  * perceives as "the world slid left" is each frame's motion in that frame, not the
- * displacement measured against a frame the camera abandoned six ticks ago. The
- * difference is invisible in level flight and total near the poles, where a small
- * yaw swings the heading — and therefore the camera azimuth — a long way.
+ * displacement measured against a frame the camera abandoned six ticks ago.
  */
 function lateralScreenDelta(pitchDeg: number, dragX: number): number {
   const root = document.createElement("div");
@@ -124,6 +134,7 @@ function lateralScreenDelta(pitchDeg: number, dragX: number): number {
     vel: { x: 0, y: 0, z: 0 },
     heading: 0.7,
     pitch,
+    up: seedUp(0.7, pitch),
   };
 
   canvas.dispatchEvent(pointer("pointerdown", { id: 1, x: 400, y: 300, button: 2 }));
@@ -135,7 +146,7 @@ function lateralScreenDelta(pitchDeg: number, dragX: number): number {
   // what the sim would be integrating between decisions.
   let total = 0;
   for (let i = 0; i < 6; i++) {
-    const right = screenRight(ship.heading, ship.pitch);
+    const right = screenRight(ship);
     const before = nose(ship.heading, ship.pitch);
     flightStep(ship, { throttle: 0, turn: steer.turn, pitchStick: 0, boostMult: 1 }, PARAMS, DT);
     const after = nose(ship.heading, ship.pitch);
@@ -178,50 +189,42 @@ describe("screen invariant: a held LEFT turn moves the nose LEFT at every pitch"
     expect(level).toBeGreaterThan(0);
   });
 
-  it("rolls the view by yaw x tan(p) — the deliberate trade, measured", () => {
-    // Stated honestly, because it is NOT a free win. Turning while pitched rolls
-    // the horizon, and body-frame yaw rolls it MORE than world-Y yaw did:
-    // `yaw x tan p` against `yaw x sin p`. That is the price of a lateral response
-    // that is constant and never reverses.
-    //
-    // It is the right trade because the two are different KINDS of defect. A
-    // rolling horizon while you turn in a climb is what turning in a climb looks
-    // like — it is continuous, it is symmetric, and it does not lie about which
-    // way you are going. A lateral response that fades to zero and then reverses
-    // sign, which is what world-Y yaw did, makes the control itself untrustworthy,
-    // and that is what the owner kept reporting.
-    const yawStep = PARAMS.turnRate * DT;
-    for (const deg of [30, -30, 45, -45, 70, -70]) {
-      const p = (deg * Math.PI) / 180;
-      expect(viewRollPerTick(0.7, p)).toBeCloseTo(yawStep * Math.tan(p), 2);
-    }
-    // Level flight rolls not at all, on either model.
-    expect(viewRollPerTick(0.7, 0)).toBeCloseTo(0, 12);
-  });
-
   it("is IDENTICAL to the old world-yaw model in level flight", () => {
     // The safety property of the whole change: at pitch 0 the ship's up IS world
     // Y, so body-frame yaw and `heading += delta` are the same operation. Any
     // regression fixture recorded on level flight must therefore be untouched.
-    const ship: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.4, pitch: 0 };
+    const ship: SteerState = {
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      heading: 0.4,
+      pitch: 0,
+      up: seedUp(0.4, 0),
+    };
     let worldYawHeading = 0.4;
     for (let i = 0; i < 120; i++) {
       flightStep(ship, { throttle: 1, turn: 0.6, pitchStick: 0, boostMult: 1 }, PARAMS, DT);
       worldYawHeading += 0.6 * PARAMS.turnRate * DT;
     }
     expect(ship.pitch).toBe(0);
+    expect(ship.up).toEqual({ x: 0, y: 1, z: 0 });
     expect(Math.abs(wrapAngle(ship.heading - worldYawHeading))).toBeLessThan(1e-12);
   });
 });
 
-/** View roll produced by one tick of full turn input, in radians. */
+/** View roll produced by one tick of full turn input, in radians — measured on the PERSISTED frame. */
 function viewRollPerTick(heading: number, pitch: number): number {
-  const ship: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading, pitch };
+  const ship: SteerState = {
+    pos: { x: 0, y: 0, z: 0 },
+    vel: { x: 0, y: 0, z: 0 },
+    heading,
+    pitch,
+    up: seedUp(heading, pitch),
+  };
   const n0 = nose(heading, pitch);
-  const u0 = chaseUpFor(heading, pitch, { x: 0, y: 0, z: 0 });
+  const u0 = { ...ship.up };
   flightStep(ship, { throttle: 0, turn: 1, pitchStick: 0, boostMult: 1 }, PARAMS, DT);
   const n1 = nose(ship.heading, ship.pitch);
-  const u1 = chaseUpFor(ship.heading, ship.pitch, { x: 0, y: 0, z: 0 });
+  const u1 = ship.up;
   // Parallel-transport the old up onto the new nose, then measure what is left
   // over against the new frame: that residue is roll about the view axis.
   const axis = cross(n0, n1);
@@ -241,44 +244,26 @@ function viewRollPerTick(heading: number, pitch: number): number {
 }
 
 /**
- * **Honest residual: the pole is still singular, and always will be.**
+ * **The pole singularity is GONE** (flight-frame handoff, 2026-07-30).
  *
- * `BUBBLE.md`'s orientation model has no roll degree of freedom — attitude IS
- * (heading, pitch) — so the ship's up is *derived* from where the nose points. For
- * a nose pointing straight up there is no such derivation: every perpendicular is
- * equally "up", and the derived frame swings hard for any small nose movement.
- * Turning while passing exactly through vertical therefore spins the view, and no
- * choice of yaw axis avoids it; it is the Euler singularity, not a steering bug.
- *
- * What body-frame yaw changed is WHICH symptom the singularity produces. It no
- * longer touches the lateral response at all — that stays exactly correct at every
- * attitude, pole included — and instead shows up entirely as roll, which grows as
- * `tan p` and is unbounded only at the pole itself. A ship crosses the pole in a
- * few hundredths of a second. Under world-Y yaw the same singularity leaked out
- * across the whole steep-pitch band as a lateral response that faded to nothing
- * and then reversed sign, which is the defect the owner kept reporting. These
- * cases pin the trade so it is not rediscovered as a regression.
- *
- * Buying the last of it back means giving the sim a real roll axis, which is a
- * different orientation model than the one this game chose.
+ * The previous revision of this suite pinned an "honest residual": with attitude
+ * stored as (heading, pitch) alone, the ship's up was *derived* from the nose,
+ * the derivation is undefined at the poles, and turning while pitched rolled the
+ * horizon by `yaw × tan p` — unbounded at vertical, measured at >1 rad per tick
+ * AT the pole. That trade no longer exists to defend: the up is persisted state,
+ * body yaw rotates the nose ABOUT it, and so a turn input produces exactly ZERO
+ * view roll at every attitude, the pole included. These cases pin the repair the
+ * same way the old ones pinned the trade.
  */
-describe("residual: the roll-less state is singular at the pole", () => {
-  it("stays bounded away from vertical and blows up only at the pole", () => {
-    // `tan p` is finite everywhere the player actually flies and unbounded only
-    // where the derived up stops existing.
-    const yawStep = PARAMS.turnRate * DT;
-    for (const deg of [0, 45, -45, 135, -135, 180]) {
-      expect(Math.abs(viewRollPerTick(0.7, (deg * Math.PI) / 180))).toBeLessThanOrEqual(yawStep * 1.001);
+describe("the persisted frame: pure yaw never rolls the view, at any pitch", () => {
+  it("produces zero roll residue at every test pitch, the pole included", () => {
+    for (const deg of TEST_PITCHES_DEG) {
+      expect(Math.abs(viewRollPerTick(0.7, (deg * Math.PI) / 180))).toBeLessThan(1e-6);
     }
+    expect(Math.abs(viewRollPerTick(0.7, Math.PI / 2))).toBeLessThan(1e-6);
   });
 
-  it("spins the frame AT the pole, which is the derived up being undefined there", () => {
-    expect(Math.abs(viewRollPerTick(0.7, Math.PI / 2))).toBeGreaterThan(1);
-  });
-
-  it("does not cost the player any steering authority while it happens", () => {
-    // The point of the trade: even at the exact pole the lateral response is the
-    // same as level flight, so the ship still goes where it is pointed.
+  it("keeps full steering authority while crossing the pole", () => {
     expect(lateralScreenDelta(90, -120)).toBeCloseTo(lateralScreenDelta(0, -120), 6);
   });
 });

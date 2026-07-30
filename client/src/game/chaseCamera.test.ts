@@ -1,17 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { wrapAngle, type CameraConfig } from "@space-arena/shared";
+import { upFromAttitude, wrapAngle, type CameraConfig } from "@space-arena/shared";
 import {
   angleDeltaTo,
+  approachDirection,
   approachHeading,
   approachPitch,
   chaseAlphaFor,
-  chaseOffsetFor,
+  chaseOffsetForFrame,
   chaseSettingsOf,
-  chaseUpFor,
   DEFAULT_CHASE_SETTINGS,
   TURN_SIGN_FOR_SCREEN_RIGHT,
 } from "./chaseCamera.js";
 import { turnFromStick } from "./hud/flightInput.js";
+
+/** The roll-less frame for an attitude — what an unrolled ship replicates. */
+function chaseUpFor(heading: number, pitch: number, out: Vec3): Vec3 {
+  return upFromAttitude(heading, pitch, out);
+}
+
+/** Frame-based chase offset fed the DERIVED frame — the roll-less rig pose. */
+function chaseOffsetFor(heading: number, pitch: number, baseBeta: number, radius: number, out: Vec3): Vec3 {
+  return chaseOffsetForFrame(
+    noseDir3D(heading, pitch),
+    upFromAttitude(heading, pitch, { x: 0, y: 0, z: 0 }),
+    baseBeta,
+    radius,
+    out,
+  );
+}
 
 type Vec3 = { x: number; y: number; z: number };
 
@@ -325,4 +341,42 @@ describe("chaseSettingsOf", () => {
     expect(chaseSettingsOf(decoupled).pitchLag).toBe(0.05);
   });
 
+});
+
+describe("approachDirection — the frame smoother", () => {
+  it("snaps at lag 1, holds at lag 0, and normalizes the blend", () => {
+    const cur = { x: 1, y: 0, z: 0 };
+    approachDirection(cur, { x: 0, y: 1, z: 0 }, 1, 1 / 60);
+    expect(cur).toEqual({ x: 0, y: 1, z: 0 });
+    approachDirection(cur, { x: 1, y: 0, z: 0 }, 0, 1 / 60);
+    expect(cur).toEqual({ x: 0, y: 1, z: 0 });
+    approachDirection(cur, { x: 1, y: 0, z: 0 }, 0.5, 1 / 60);
+    expect(Math.hypot(cur.x, cur.y, cur.z)).toBeCloseTo(1, 12);
+    expect(cur.x).toBeGreaterThan(0);
+    expect(cur.y).toBeLessThan(1);
+  });
+
+  it("is frame-rate independent like the scalar smoothers", () => {
+    const a = { x: 1, y: 0, z: 0 };
+    approachDirection(a, { x: 0, y: 1, z: 0 }, 0.2, 2 / 60);
+    const b = { x: 1, y: 0, z: 0 };
+    approachDirection(b, { x: 0, y: 1, z: 0 }, 0.2, 1 / 60);
+    approachDirection(b, { x: 0, y: 1, z: 0 }, 0.2, 1 / 60);
+    // Nlerp of a nlerp is not algebraically identical to one big nlerp — this
+    // 90° target is the worst case, far past any real per-frame delta — but the
+    // step curve matches to a few percent, which is invisible in motion.
+    expect(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)).toBeLessThan(0.05);
+  });
+
+  it("snaps to the target through an antipodal (degenerate) blend", () => {
+    const cur = { x: 1, y: 0, z: 0 };
+    approachDirection(cur, { x: -1, y: 0, z: 0 }, 0.5, 10); // big dt -> t ~ 1, blend ~ 0-length
+    expect(Math.hypot(cur.x, cur.y, cur.z)).toBeCloseTo(1, 12);
+  });
+
+  it("converges onto the target direction", () => {
+    const cur = { x: 1, y: 0, z: 0 };
+    for (let i = 0; i < 600; i++) approachDirection(cur, { x: 0, y: 0, z: 1 }, 0.12, 1 / 60);
+    expect(cur.z).toBeCloseTo(1, 6);
+  });
 });

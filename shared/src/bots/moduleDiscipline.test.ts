@@ -56,6 +56,7 @@ function shipWith(
     pos: { x: 0, y: 0, z: 0 },
     pitch: 0,
     heading: 0,
+    up: { x: 0, y: 1, z: 0 },
     hull: 100,
     hullMax: 100,
     energy: { cur: opts.energy ?? 100, max: 100 },

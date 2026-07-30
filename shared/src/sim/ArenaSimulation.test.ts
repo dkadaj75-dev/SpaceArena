@@ -4,6 +4,7 @@ import type { TuningConfig } from "../schemas/index.js";
 import { ArenaSimulation } from "./ArenaSimulation.js";
 import { applyDamageToShip } from "./damage.js";
 import { angleDelta, facingVec } from "./math.js";
+import { seedUp } from "./frame.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { navigationSystem } from "./systems/NavigationSystem.js";
@@ -123,10 +124,13 @@ describe("CollisionSystem boundary", () => {
     const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
     const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
     const tf = world.transforms.get(id)!;
-    // Over the top of a loop, climbing out through the roof of the bubble.
+    // Over the top of a loop, climbing out through the roof of the bubble. The
+    // persisted up must be re-seeded with the poked attitude — the frame is
+    // authoritative now, and a mid-loop ship carries the INVERTED derived up.
     tf.pos.y = radius - 1;
     tf.heading = 0.4;
     tf.pitch = 2.6; // inverted: cos < 0, nose still rising
+    Object.assign(tf.up, seedUp(0.4, 2.6));
     const beforeHeading = tf.heading;
     const beforePitch = tf.pitch;
     const beforeNose = facingVec(tf.heading, tf.pitch, { x: 0, y: 0, z: 0 });

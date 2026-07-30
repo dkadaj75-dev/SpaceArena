@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advancePitch, flightStep, wrapAngle, type FlightParams, type SteerState } from "@space-arena/shared";
+import { advancePitch, flightStep, seedUp, wrapAngle, type FlightParams, type SteerState } from "@space-arena/shared";
 import { mapRelativeSteer } from "./hud/flightInput.js";
 import { FlightOrderSender, type FlightOrderPolicy } from "./hud/flightOrders.js";
 
@@ -49,7 +49,7 @@ function runHeldDrag(drag: { dx: number; dy: number }, seconds: number) {
     if (order.kind === "flight") sent.push(order.pitchStick ?? 0);
   }, POLICY);
 
-  const ship: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.7, pitch: 0 };
+  const ship: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.7, pitch: 0, up: seedUp(0.7, 0) };
   const pitches: number[] = [];
   let nowMs = 0;
   // The level-triggered state the sim is actually integrating.

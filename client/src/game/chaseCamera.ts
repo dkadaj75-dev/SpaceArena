@@ -107,67 +107,87 @@ export function chaseAlphaFor(heading: number): number {
 
 /**
  * How the rig follows a ship through a LOOP (BUBBLE.md §A) — **the camera rolls
- * with the ship**.
+ * with the ship**, and since the flight-frame handoff the up it rolls with is
+ * the SHIP'S REPLICATED up axis, not one reconstructed from heading/pitch.
  *
  * The first cut at this kept the world-up orbit and folded an inverted attitude
  * into its upright spelling. The owner flew it and reported being "bumped in the
  * other direction" on reaching vertical, and they were right: a world-up chase rig
- * simply cannot represent an inverted attitude. Staying behind the nose past the
- * pole demands a π flip of the orbit azimuth, and with the camera's up pinned to
- * world +Y that flip inverts the whole image in a single frame. The ship's
- * horizontal travel genuinely reverses at the same instant (`cos p` changes sign),
- * so the two together read as a hard kick backwards. No amount of tapering or
- * smoothing fixes it — it is topological, not a tuning problem.
+ * simply cannot represent an inverted attitude — the flip is topological, not a
+ * tuning problem. So the rig rolls: `upVector` is the ship's own up, the horizon
+ * rotates smoothly around the player, and "drag up" moves the nose toward the top
+ * of the screen at every point of the loop.
  *
- * So the rig rolls instead. `upVector` is the SHIP's own up, which sweeps
- * continuously around the loop plane, and in that frame the ship is permanently
- * level: the camera sits behind and slightly above the nose at a constant tilt,
- * the horizon rotates smoothly around the player, and "drag up" moves the nose
- * toward the top of the screen at every point of the loop. That is the arcade
- * answer, and it is the only one that keeps the input's meaning stable.
- *
- * `up` is perpendicular to the nose by construction (`up · facing = 0` for every
- * pitch) and is continuous across the ±π wrap, where it passes cleanly through
- * `(0, −1, 0)`.
+ * The second cut derived that up from heading/pitch, which is exactly the lossy
+ * reconstruction the flight-frame handoff retired: near vertical the derived
+ * frame spins even though the hull does not. The rig now consumes the
+ * authoritative nose + up directly ({@link chaseOffsetForFrame}); nothing in
+ * this module reconstructs a frame from the two Euler coordinates any more.
  */
-export function chaseUpFor(heading: number, pitch: number, out: Vec3): Vec3 {
-  const sp = Math.sin(pitch);
-  out.x = -Math.cos(heading) * sp;
-  out.y = Math.cos(pitch);
-  out.z = -Math.sin(heading) * sp;
-  return out;
-}
 
 /**
- * Where the camera sits relative to the ship, in WORLD space.
+ * Where the camera sits relative to the ship, in WORLD space, given the ship's
+ * authoritative frame: the orbit vector at the authored base tilt, expressed in
+ * the ship's own (nose, up) plane —
  *
- * Derivation: take the level chase offset (the orbit vector at `alpha = h + π`,
- * `beta = baseBeta`) and rotate the whole rig into the loop plane, i.e. by the
- * ship's pitch about the horizontal axis `w = (−sin h, 0, cos h)` that the loop
- * turns around. Rodrigues collapses almost entirely — `w` is perpendicular to the
- * level offset, so the `w(w·v)` term vanishes — and what survives is just an angle
- * addition:
+ *     offset = radius · (up·cos(baseBeta) − nose·sin(baseBeta))
  *
- *     offset = R·(−cos h·sin(baseBeta + p), cos(baseBeta + p), −sin h·sin(baseBeta + p))
- *
- * which is the plain orbit formula at `alpha = h + π`, `beta = baseBeta + p`, with
- * NO fold and NO pole clamp. That is worth stating plainly: the camera's POSITION
- * was always continuous through a loop under the naive rule. Only the roll was
- * ever broken, which is exactly why {@link chaseUpFor} is the whole fix.
+ * At level flight this is the plain orbit formula at `alpha = h + π`,
+ * `beta = baseBeta` (behind the ship, tilted down by the authored base), and
+ * through a loop it follows the frame continuously with NO fold and NO pole
+ * clamp — the camera stays behind and above the hull the ship actually has,
+ * inverted included.
  */
-export function chaseOffsetFor(
-  heading: number,
-  pitch: number,
+export function chaseOffsetForFrame(
+  nose: Vec3,
+  up: Vec3,
   baseBeta: number,
   radius: number,
   out: Vec3,
 ): Vec3 {
-  const tilt = baseBeta + pitch;
-  const s = Math.sin(tilt) * radius;
-  out.x = -Math.cos(heading) * s;
-  out.y = Math.cos(tilt) * radius;
-  out.z = -Math.sin(heading) * s;
+  const c = Math.cos(baseBeta) * radius;
+  const s = Math.sin(baseBeta) * radius;
+  out.x = up.x * c - nose.x * s;
+  out.y = up.y * c - nose.y * s;
+  out.z = up.z * c - nose.z * s;
   return out;
+}
+
+/**
+ * Frame-rate-independent exponential approach of a smoothed unit DIRECTION
+ * toward a target one — the frame smoother that replaced the per-coordinate
+ * heading/pitch smoothers (the coordinates are not independent axes of the real
+ * rotation, and near the poles smoothing them separately swept the rig through
+ * rotations the ship never made). Nlerp with the same `1 − (1 − lag)^(dt·60)`
+ * curve as every other follow in this file, renormalized; a degenerate blend
+ * (antipodal directions) snaps to the target, which is deterministic and can
+ * only arise from a teleport-scale correction. `lag >= 1` snaps; `lag <= 0`
+ * holds. Mutates `current` in place.
+ */
+export function approachDirection(current: Vec3, target: Vec3, lag: number, dt: number): Vec3 {
+  if (lag >= 1 || dt <= 0) {
+    current.x = target.x;
+    current.y = target.y;
+    current.z = target.z;
+    return current;
+  }
+  if (lag <= 0) return current;
+  const t = 1 - Math.pow(1 - lag, dt * 60);
+  const x = current.x + (target.x - current.x) * t;
+  const y = current.y + (target.y - current.y) * t;
+  const z = current.z + (target.z - current.z) * t;
+  const lenSq = x * x + y * y + z * z;
+  if (!(lenSq > 1e-12)) {
+    current.x = target.x;
+    current.y = target.y;
+    current.z = target.z;
+    return current;
+  }
+  const inv = 1 / Math.sqrt(lenSq);
+  current.x = x * inv;
+  current.y = y * inv;
+  current.z = z * inv;
+  return current;
 }
 
 /** A 3D point the rig math writes into (kept local so this module stays engine-free). */

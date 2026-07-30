@@ -2,7 +2,8 @@
 
 Date: 2026-07-30  
 Owner report: the ship sometimes performs a sudden barrel roll while steering near the vertical up/down axis.  
-Status when written: root cause reproduced; implementation follows this document.
+Status when written: root cause reproduced; implementation follows this document.  
+**Status 2026-07-30 (Claude): IMPLEMENTED** — see the implementation record at the bottom of this file for the two places the design was amended during implementation.
 
 This is the current contract for the next flight-model pass. It supersedes the passages in `docs/BUBBLE.md` and `client/src/game/screenSteering.test.ts` that deliberately accepted `yaw × tan(pitch)` horizon roll and an unbounded pole spin.
 
@@ -119,4 +120,37 @@ This is equivalent in capability to an authoritative quaternion, while matching 
 - World-up camera locking restores the previous pole flip/inverted-control defects.
 
 The fix must preserve the complete frame through simulation and replication; anything less treats the visible symptom while retaining the broken attitude state.
+
+## Implementation record (2026-07-30, Claude)
+
+Implemented as specified — `shared/src/sim/frame.ts` (advanceFrame, spellAttitude,
+transportUp, orthonormalizeUp, interpolateFrame, bodyYawDelta), persisted `up` on
+`Transform3D`/`SteerState`/`ShipSnapshot`, `PlayerState.upX/upY/upZ` float32 with
+`PROTOCOL_VERSION` 3, frame-carrying prediction/correction/interpolation, quaternion
+hull pose with body-yaw cosmetic bank, frame-driven chase rig and radar, bot steering
+from the persisted frame, and boundary reflection transporting the up. Acceptance
+criteria 2–10 are pinned by `shared/src/sim/frame.test.ts` and the updated
+steering/screenSteering/loopSteering/onlineLoop/chase suites. Two deliberate
+amendments:
+
+1. **Acceptance criterion 1 is amended, not met as written.** "Full turn + full
+   pitch crosses both poles" is unsatisfiable under this document's own chosen
+   integration: a constant body-frame angular rate is coning motion for any rigid
+   body, so that input flies a fixed tilted circle (max pitch ≈ 40° for the shipped
+   interceptor), exactly as a real hull would. What the criterion exists for IS
+   met and pinned: the near-vertical heading-spin attractor cannot form, pitch
+   oscillates smoothly, per-tick motion is bounded by the commanded rotation, and
+   pure pitch still crosses both poles.
+2. **`Quaternion.FromLookDirectionRH`, not `FromLookDirectionLH`.** Under the
+   row-vector convention `node.rotationQuaternion` actually uses, Babylon's LH
+   variant aims the model's −Z at the direction (measured on a NullEngine); the RH
+   variant lands +Z on the nose and reproduces the legacy Euler pose bit-for-bit in
+   the roll-less case (`client/src/game/shipOrientation.test.ts` pins the
+   equivalence at every attitude and bank).
+
+One consequence worth knowing when reading old fixtures: the heading/pitch SPELLING
+for a nose is now chosen by agreement with the persisted up (`spellAttitude`), not
+by nearest-to-previous-pitch — the history rule mis-picks within one integration
+step of a vertical crossing. Tests that poke `tf.heading`/`tf.pitch` directly must
+re-seed `tf.up` (`seedUp`) or they hand the sim an inconsistent frame.
 

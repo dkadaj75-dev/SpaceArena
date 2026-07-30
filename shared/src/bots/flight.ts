@@ -197,6 +197,7 @@ export function steerForPoint(
   pitch: number,
   aim: Vec3,
   params: Steer3Params,
+  up?: Vec3,
 ): Steer3 {
   const dx = aim.x - pos.x;
   const dy = (aim.y ?? 0) - (pos.y ?? 0);
@@ -208,10 +209,25 @@ export function steerForPoint(
   const sp = Math.sin(pitch);
   const ch = Math.cos(heading);
   const sh = Math.sin(heading);
-  // The ship's own frame: nose, up, and right (see the note above).
-  const alongNose = dx * (cp * ch) + dy * sp + dz * (cp * sh);
-  const alongUp = dx * (-ch * sp) + dy * cp + dz * (-sh * sp);
-  const alongRight = dx * -sh + dz * ch;
+  // The ship's own frame: nose, up, and right (see the note above). `up` is the
+  // PERSISTED frame axis when the caller has one (the sim replicates it since
+  // the flight-frame handoff); reconstructing it from heading/pitch remains
+  // only as the fallback for roll-less callers, because near the poles the
+  // reconstruction names a different frame from the one the sim is integrating
+  // and the bot would plan its yaw about an axis the hull does not have.
+  const nx = cp * ch;
+  const ny = sp;
+  const nz = cp * sh;
+  const ux = up ? up.x : -ch * sp;
+  const uy = up ? (up.y ?? 0) : cp;
+  const uz = up ? up.z : -sh * sp;
+  // W = N × U — the same right-hand flight axis the integrator yaws toward.
+  const wx = ny * uz - nz * uy;
+  const wy = nz * ux - nx * uz;
+  const wz = nx * uy - ny * ux;
+  const alongNose = dx * nx + dy * ny + dz * nz;
+  const alongUp = dx * ux + dy * uy + dz * uz;
+  const alongRight = dx * wx + dy * wy + dz * wz;
 
   // The sim applies yaw FIRST and then pitch about the already-yawed right axis,
   // and rotations do not commute, so the split has to match that order exactly:

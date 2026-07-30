@@ -12,16 +12,17 @@ import {
   encodeHeading,
   encodePitch,
   flightStep,
+  interpolateFrame,
   pitchTuningOf,
   resolveShipStats,
+  seedUp,
   wrapAngle,
   type ConfigService,
   type ShipConfig,
   type SteerState,
   type TuningConfig,
 } from "@space-arena/shared";
-import { correctPrediction, steeringSnapDistance } from "./NetGameSession.js";
-import { lerpHeading } from "./interpolation.js";
+import { correctPrediction, decodeUp, steeringSnapDistance } from "./NetGameSession.js";
 
 /**
  * **The ONLINE loop (2026-07-27).** After free pitch shipped, the owner reported
@@ -72,31 +73,48 @@ interface WireSample {
   pos: { x: number; y: number; z: number };
   heading: number;
   pitch: number;
+  up: { x: number; y: number; z: number };
 }
 
 /** Exactly what the room writes and the client decodes — nothing simulated. */
-function throughWire(pos: { x: number; y: number; z: number }, heading: number, pitch: number): WireSample {
+function throughWire(
+  pos: { x: number; y: number; z: number },
+  heading: number,
+  pitch: number,
+  up: { x: number; y: number; z: number },
+): WireSample {
+  const decodedHeading = decodeHeading(encodeHeading(heading));
+  const decodedPitch = decodePitch(encodePitch(pitch));
   return {
     pos: {
       x: decodeCenti(encodeCenti(pos.x)),
       y: decodeCenti(encodeCenti(pos.y)),
       z: decodeCenti(encodeCenti(pos.z)),
     },
-    heading: decodeHeading(encodeHeading(heading)),
-    pitch: decodePitch(encodePitch(pitch)),
+    heading: decodedHeading,
+    pitch: decodedPitch,
+    // The up rides as float32 components (ArenaState) and is normalized by the
+    // client's real decode helper.
+    up: decodeUp(Math.fround(up.x), Math.fround(up.y), Math.fround(up.z), decodedHeading, decodedPitch),
   };
 }
 
-/** The client's snapshot interpolation between two buffered samples. */
+/** The client's snapshot interpolation between two buffered samples — one FRAME, not Euler lerps. */
 function interpolateSample(a: WireSample, b: WireSample, t: number): WireSample {
+  const frame = interpolateFrame(a.heading, a.pitch, a.up, b.heading, b.pitch, b.up, t, {
+    heading: 0,
+    pitch: 0,
+    up: { x: 0, y: 1, z: 0 },
+  });
   return {
     pos: {
       x: a.pos.x + (b.pos.x - a.pos.x) * t,
       y: a.pos.y + (b.pos.y - a.pos.y) * t,
       z: a.pos.z + (b.pos.z - a.pos.z) * t,
     },
-    heading: lerpHeading(a.heading, b.heading, t),
-    pitch: lerpHeading(a.pitch, b.pitch, t),
+    heading: frame.heading,
+    pitch: frame.pitch,
+    up: frame.up,
   };
 }
 
@@ -117,6 +135,7 @@ function flyOnline({ pitchStick, turn, ticks, latency = LATENCY_TICKS }: RunOpti
   tf.pos.z = 0;
   tf.heading = 0.4;
   tf.pitch = 0;
+  Object.assign(tf.up, seedUp(0.4, 0));
 
   const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
   const core = resolveShipStats(cfg, configs, { fittedModuleIds: cfg.defaultFitting.filter((m): m is string => m !== null) });
@@ -127,7 +146,7 @@ function flyOnline({ pitchStick, turn, ticks, latency = LATENCY_TICKS }: RunOpti
     ...pitchTuningOf(tuning),
   };
 
-  const pred: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.4, pitch: 0 };
+  const pred: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.4, pitch: 0, up: seedUp(0.4, 0) };
   const serverVel = { x: 0, y: 0, z: 0 };
   const buffer: WireSample[] = [];
   const held = { throttle: 1, turn, pitchStick, boostMult: 1 };
@@ -141,7 +160,7 @@ function flyOnline({ pitchStick, turn, ticks, latency = LATENCY_TICKS }: RunOpti
   for (let i = 0; i < ticks; i++) {
     sim.tick(DT);
     const truth = sim.world.transforms.get(id)!;
-    buffer.push(throughWire(truth.pos, truth.heading, truth.pitch));
+    buffer.push(throughWire(truth.pos, truth.heading, truth.pitch, truth.up));
 
     // The client renders LATENCY_TICKS behind, interpolating between the two
     // samples that straddle its render time (t = 0.5 keeps it mid-bracket).
@@ -248,8 +267,9 @@ describe("a loop flown through the ONLINE path (wire + latency + reconciliation)
       vel: { x: 34, y: 0, z: 0 },
       heading: 0,
       pitch: 0,
+      up: { x: 0, y: 1, z: 0 },
     };
-    const far = { pos: { x: 60, y: 0, z: 0 }, heading: 0, pitch: 0 };
+    const far = { pos: { x: 60, y: 0, z: 0 }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
     correctPrediction(pred, far, { x: 0, y: 0, z: 0 }, { steering: true, dt: DT, correctionRate: 8 });
     expect(pred.pos.x).toBe(60); // snapped outright, not blended
     expect(pred.vel.x).toBe(0); // and adopted the server's velocity with it

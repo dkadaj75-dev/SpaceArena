@@ -9,8 +9,11 @@ import {
   facingVec,
   flightStep,
   headingOf,
+  interpolateFrame,
   len3,
+  orthonormalizeUp,
   pitchOf,
+  upFromAttitude,
   pitchTuningOf,
   resolveShipStats,
   MSG_ORDER,
@@ -30,11 +33,12 @@ import {
   type SteerState,
   type TuningConfig,
   type UpgradeLevels,
+  type FrameAttitude,
 } from "@space-arena/shared";
 import { GameSession } from "../game/GameSession.js";
 import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
 import type { SeatReservation } from "colyseus.js";
-import { bracket, lerpHeading, timeBasedPull } from "./interpolation.js";
+import { bracket, timeBasedPull } from "./interpolation.js";
 
 const log = createLogger("NetGameSession");
 const MAX_SNAPSHOTS = 32;
@@ -140,12 +144,16 @@ export function snapPrediction(
   heading: number,
   pitch: number,
   vel: { x: number; y: number; z: number },
+  up: { x: number; y: number; z: number },
 ): void {
   pred.pos.x = pos.x;
   pred.pos.y = pos.y;
   pred.pos.z = pos.z;
   pred.heading = heading;
   pred.pitch = pitch;
+  pred.up.x = up.x;
+  pred.up.y = up.y;
+  pred.up.z = up.z;
   pred.vel.x = vel.x;
   pred.vel.y = vel.y;
   pred.vel.z = vel.z;
@@ -203,7 +211,12 @@ export interface CorrectionParams {
  */
 export function correctPrediction(
   pred: SteerState,
-  sample: { pos: { x: number; y: number; z: number }; heading: number; pitch: number },
+  sample: {
+    pos: { x: number; y: number; z: number };
+    heading: number;
+    pitch: number;
+    up: { x: number; y: number; z: number };
+  },
   serverVel: { x: number; y: number; z: number },
   params: CorrectionParams,
 ): CorrectionError {
@@ -221,7 +234,7 @@ export function correctPrediction(
     // position and snaps back next frame. The held flight state is deliberately
     // NOT cleared: the server is still integrating it, so dropping it would leave
     // the predictor inert while the real ship keeps flying.
-    snapPrediction(pred, sample.pos, sample.heading, sample.pitch, serverVel);
+    snapPrediction(pred, sample.pos, sample.heading, sample.pitch, serverVel, sample.up);
     return { x: 0, y: 0, z: 0 };
   }
   const pull = 1 - Math.exp(-params.correctionRate * params.dt);
@@ -256,6 +269,15 @@ export function correctPrediction(
     pred.heading = correctedAttitude.heading;
     pred.pitch = correctedAttitude.pitch;
   }
+  // The UP AXIS is pulled with the same blend, then re-orthonormalized against
+  // the corrected nose — the frame is corrected as one rotation, never as
+  // independent coordinates. Skipping this would let the predictor's roll drift
+  // from the server's for as long as an input is held, and the hull/camera
+  // would visibly twist on the next snap.
+  pred.up.x += (sample.up.x - pred.up.x) * attitudePull;
+  pred.up.y += (sample.up.y - pred.up.y) * attitudePull;
+  pred.up.z += (sample.up.z - pred.up.z) * attitudePull;
+  orthonormalizeUp(pred.heading, pred.pitch, pred.up);
   return { x: errX, y: errY, z: errZ };
 }
 
@@ -351,6 +373,7 @@ export class NetGameSession extends GameSession {
     vel: { x: 0, y: 0, z: 0 },
     heading: 0,
     pitch: 0,
+    up: { x: 0, y: 1, z: 0 },
   };
   private predActive = false; // becomes true once seeded from a server snapshot
   /**
@@ -636,6 +659,9 @@ export class NetGameSession extends GameSession {
       this.pred.vel.z = 0;
       this.pred.heading = player.heading;
       this.pred.pitch = player.pitch;
+      this.pred.up.x = player.up.x;
+      this.pred.up.y = player.up.y;
+      this.pred.up.z = player.up.z;
       this.predActive = true;
     }
 
@@ -674,12 +700,15 @@ export class NetGameSession extends GameSession {
     this.errY = err.y;
     this.errZ = err.z;
 
-    // Render the local player from the predictor.
+    // Render the local player from the predictor — frame included.
     player.pos.x = this.pred.pos.x;
     player.pos.y = this.pred.pos.y;
     player.pos.z = this.pred.pos.z;
     player.heading = this.pred.heading;
     player.pitch = this.pred.pitch;
+    player.up.x = this.pred.up.x;
+    player.up.y = this.pred.up.y;
+    player.up.z = this.pred.up.z;
   }
 
   /**
@@ -749,6 +778,8 @@ export class NetGameSession extends GameSession {
       this.displayNames.set(id, String(p.displayName ?? "Pilot"));
       if (this.playerId !== id && this.net.room?.sessionId && findKey(state.players, p) === this.net.room.sessionId)
         (this as { playerId: number }).playerId = id;
+      const heading = decodeHeading(p.heading);
+      const pitch = decodePitch(p.pitch ?? 0);
       return {
         id,
         team: p.team,
@@ -756,8 +787,9 @@ export class NetGameSession extends GameSession {
         // `pitch` uses the SIGNED int16 pair — decoding it with `decodeHeading`
         // would turn every nose-down attitude into a ~2π-off climb.
         pos: { x: decodeCenti(p.x), y: decodeCenti(p.y ?? 0), z: decodeCenti(p.z) },
-        heading: decodeHeading(p.heading),
-        pitch: decodePitch(p.pitch ?? 0),
+        heading,
+        pitch,
+        up: decodeUp(p.upX, p.upY, p.upZ, heading, pitch),
         hull: p.hull,
         // Server-resolved maxima (upgrade + passive-resolved), replicated verbatim —
         // never reconstructed from the base ship config, which would ignore
@@ -854,15 +886,49 @@ export function decodeModules(raw: any): Snapshot["ships"][number]["modules"] {
   }));
 }
 
+/**
+ * Decode the replicated ship-up axis (float32 on the wire): normalized and
+ * Gram–Schmidt-corrected against the decoded nose, because the three float32
+ * components are individually rounded and the frame must stay orthonormal.
+ * A missing/degenerate up (a pre-v3 peer in a mixed-version dev setup, a
+ * zeroed field) falls back to the derived roll-less up for the same nose —
+ * always a legal frame.
+ */
+export function decodeUp(
+  upX: unknown,
+  upY: unknown,
+  upZ: unknown,
+  heading: number,
+  pitch: number,
+): { x: number; y: number; z: number } {
+  const x = Number(upX);
+  const y = Number(upY);
+  const z = Number(upZ);
+  const up = { x, y, z };
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+    return upFromAttitude(heading, pitch, up);
+  }
+  return orthonormalizeUp(heading, pitch, up);
+}
+
 function mapValues(value: any): any[] { return value?.values ? [...value.values()] : Object.values(value ?? {}); }
 function mapGet(value: any, key: string): any { return value?.get ? value.get(key) : value?.[key]; }
 function findKey(map: any, target: any): string | undefined {
   if (map?.entries) for (const [k, v] of map.entries()) if (v === target) return k;
   return undefined;
 }
+/** Scratch frame for snapshot interpolation — reset per ship, copied out below. */
+const lerpFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
+
 function interpolate(a: Snapshot, b: Snapshot, t: number): Snapshot {
   const ships = b.ships.map((s) => {
     const p = a.ships.find((x) => x.id === s.id) ?? s;
+    // The ORIENTATION is interpolated as one frame (nose + up nlerp'd and
+    // re-orthonormalized), never as heading and pitch independently: near the
+    // poles the heading coordinate's scale is unbounded, so two adjacent
+    // samples can differ by a large heading for a tiny real rotation, and a
+    // coordinate lerp sweeps the hull through a rotation it never made.
+    interpolateFrame(p.heading, p.pitch, p.up, s.heading, s.pitch, s.up, t, lerpFrame);
     return {
       ...s,
       pos: {
@@ -870,12 +936,9 @@ function interpolate(a: Snapshot, b: Snapshot, t: number): Snapshot {
         y: p.pos.y + (s.pos.y - p.pos.y) * t,
         z: p.pos.z + (s.pos.z - p.pos.z) * t,
       },
-      heading: lerpHeading(p.heading, s.heading, t),
-      // Pitch rides `lerpHeading` too — not because it is a heading, but because
-      // it WRAPS now that ships loop (BUBBLE.md §A), and two samples straddling
-      // ±PI must interpolate the short way or every remote ship going over the
-      // top is rendered spinning the wrong way through a whole revolution.
-      pitch: lerpHeading(p.pitch, s.pitch, t),
+      heading: lerpFrame.heading,
+      pitch: lerpFrame.pitch,
+      up: { x: lerpFrame.up.x, y: lerpFrame.up.y, z: lerpFrame.up.z },
       modules: s.modules.map((m) => ({ ...m })),
     };
   });

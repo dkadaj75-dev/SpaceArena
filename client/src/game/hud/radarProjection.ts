@@ -23,8 +23,12 @@ export interface RadarProjectionGeometry {
 }
 
 /**
- * World delta -> player ship frame, using raw full-loop attitude. Canonicalising
- * pitch here would flip an inverted pilot's radar for half of every loop.
+ * World delta -> player ship frame, in the REPLICATED authoritative frame
+ * (flight-frame handoff): the nose from raw full-loop heading/pitch plus the
+ * persisted up axis. Canonicalising pitch here would flip an inverted pilot's
+ * radar for half of every loop, and reconstructing the up from heading/pitch
+ * would spin the whole display near vertical — the display right is `U × N`,
+ * which for a roll-less frame is the historical `(sin h, 0, −cos h)`.
  */
 export function radarLocalPoint(
   dx: number,
@@ -32,18 +36,21 @@ export function radarLocalPoint(
   dz: number,
   heading: number,
   pitch: number,
+  up: { x: number; y: number; z: number },
   out: RadarLocalPoint,
 ): RadarLocalPoint {
-  const sinH = Math.sin(heading);
-  const cosH = Math.cos(heading);
-  const sinP = Math.sin(pitch);
   const cosP = Math.cos(pitch);
+  const nx = cosP * Math.cos(heading);
+  const ny = Math.sin(pitch);
+  const nz = cosP * Math.sin(heading);
+  // Display right R = U × N.
+  const rx = up.y * nz - up.z * ny;
+  const ry = up.z * nx - up.x * nz;
+  const rz = up.x * ny - up.y * nx;
 
-  // R=(sin h,0,-cos h), U=(-cos h sin p,cos p,-sin h sin p),
-  // N=(cos p cos h,sin p,cos p sin h).
-  out.right = dx * sinH - dz * cosH;
-  out.up = dx * (-cosH * sinP) + dy * cosP + dz * (-sinH * sinP);
-  out.forward = dx * (cosP * cosH) + dy * sinP + dz * (cosP * sinH);
+  out.right = dx * rx + dy * ry + dz * rz;
+  out.up = dx * up.x + dy * up.y + dz * up.z;
+  out.forward = dx * nx + dy * ny + dz * nz;
   return out;
 }
 

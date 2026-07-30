@@ -813,11 +813,20 @@ export class ArenaRoom extends Room<ArenaState> {
     const qz = encodeCenti(ship.pos.z);
     const qh = encodeHeading(ship.heading);
     const qp = encodePitch(ship.pitch);
+    // The up axis rides as float32 — round through Math.fround for the dirty
+    // check, or the stored 32-bit value never equals the 64-bit sim value and
+    // every field would be re-sent on every patch.
+    const qux = Math.fround(ship.up.x);
+    const quy = Math.fround(ship.up.y);
+    const quz = Math.fround(ship.up.z);
     if (ps.x !== qx) ps.x = qx;
     if (ps.y !== qy) ps.y = qy;
     if (ps.z !== qz) ps.z = qz;
     if (ps.heading !== qh) ps.heading = qh;
     if (ps.pitch !== qp) ps.pitch = qp;
+    if (ps.upX !== qux) ps.upX = qux;
+    if (ps.upY !== quy) ps.upY = quy;
+    if (ps.upZ !== quz) ps.upZ = quz;
     if (ps.hull !== ship.hull) ps.hull = ship.hull;
     // Resolved maxima (ship class + upgrades + module passives): the sim already
     // resolved these into the snapshot at spawn, so mirror them straight through.

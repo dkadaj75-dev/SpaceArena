@@ -4,16 +4,26 @@ import type { DamageType } from "../schemas/common.js";
 export type EntityId = number;
 
 /**
- * Full 3D transform inside the arena bubble (BUBBLE.md §A). Orientation is
- * yaw + pitch with no roll: `heading` wraps, `pitch` is clamped to
- * ±`tuning.maxPitchRad` so world-up never flips. Roll is a purely visual client
- * bank and never exists here.
+ * Full 3D transform inside the arena bubble (BUBBLE.md §A, as amended by the
+ * 2026-07-30 flight-frame handoff). Orientation is a full orthonormal FRAME:
+ * the nose stays derivable from `heading`/`pitch` (both wrap under free pitch),
+ * and `up` persists the roll degree of freedom those two coordinates cannot
+ * carry. There is still no player roll CONTROL — `up` only ever changes as the
+ * integrated consequence of body-frame yaw and pitch (`advanceFrame`), so a ship
+ * that never steers near vertical never rolls at all.
+ *
+ * `up` is authoritative: it is seeded from the derived value at spawn
+ * (`seedUp`) and must never be reconstructed from heading/pitch during normal
+ * integration — that reconstruction is exactly the lossy step that produced the
+ * steep-pitch barrel roll.
  */
 export interface Transform3D {
   pos: { x: number; y: number; z: number };
   heading: number;
   /** Nose elevation in radians; positive climbs. 0 for asteroids. */
   pitch: number;
+  /** Persisted ship-up axis (unit, ⊥ nose). Derived world-up for asteroids/projectiles. */
+  up: { x: number; y: number; z: number };
 }
 
 export interface Velocity {

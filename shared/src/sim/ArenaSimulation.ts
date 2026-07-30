@@ -44,6 +44,14 @@ export interface ShipSnapshot {
   heading: number;
   /** Nose elevation in radians, positive climbing. */
   pitch: number;
+  /**
+   * Authoritative ship-up axis (unit, ⊥ nose) — the roll degree of freedom the
+   * two Euler coordinates cannot carry. Everything that renders or plans in the
+   * ship's frame (hull pose, chase camera, radar, bots) must read THIS rather
+   * than reconstructing an up from heading/pitch, which is exactly the lossy
+   * step that produced the steep-pitch barrel roll.
+   */
+  up: { x: number; y: number; z: number };
   hull: number;
   hullMax: number;
   energy: { cur: number; max: number };
@@ -447,6 +455,7 @@ export class ArenaSimulation {
         pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
         heading: tf.heading,
         pitch: tf.pitch,
+        up: { x: tf.up.x, y: tf.up.y, z: tf.up.z },
         hull: core.hull,
         hullMax: core.hullMax,
         energy: { cur: core.capacitor.cur, max: core.capacitor.max },
