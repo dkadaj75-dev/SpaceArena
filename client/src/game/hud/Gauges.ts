@@ -77,6 +77,8 @@ export class Gauges {
 
   applyLayout(layout: HudLayout): void {
     this.container.dataset["anchor"] = layout.gauges.anchor;
+    this.hull.row.hidden = !layout.gauges.showHull;
+    this.shield.row.hidden = !layout.gauges.showShield;
   }
 
   private buildRow(labelText: string, cls: string): GaugeEntry {

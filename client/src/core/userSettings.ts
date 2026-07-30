@@ -34,6 +34,8 @@ export const RENDERER_KEY = "spacearena.renderer";
 export const HAPTICS_KEY = "sa.haptics";
 /** Multiplier on `camera.pan.sensitivity`. */
 export const CAMERA_PAN_SENS_KEY = "sa.camera.panSens";
+/** Multiplier on the authored `camera.chase.radius`. */
+export const CAMERA_DISTANCE_KEY = "sa.camera.chaseDistance";
 /** `"off"` disables camera micro-shake locally even when `camera.shake.enabled` is true. */
 export const CAMERA_SHAKE_KEY = "sa.camera.shake";
 /**
@@ -56,6 +58,9 @@ export const ON_VALUE = "on";
 /** Bounds on the pan-sensitivity multiplier — a slider, not a footgun. */
 export const PAN_SENS_MIN = 0.25;
 export const PAN_SENS_MAX = 2.5;
+/** Player-facing chase-distance band, expressed as a multiplier over camera.json. */
+export const CAMERA_DISTANCE_MIN = 0.8;
+export const CAMERA_DISTANCE_MAX = 1.5;
 export const STEER_SENS_MIN = 0.4;
 export const STEER_SENS_MAX = 2.5;
 
@@ -68,6 +73,8 @@ export interface UserSettings {
   haptics: boolean;
   /** Multiplier applied on top of `camera.pan.sensitivity`. */
   cameraPanSens: number;
+  /** Multiplier applied on top of `camera.chase.radius`. */
+  cameraDistanceScale: number;
   /** False only when the player disabled it locally; `camera.shake.enabled` still gates it. */
   cameraShake: boolean;
   /** True flips the flight stick's pitch axis (BUBBLE.md §C); default is push-up-to-climb. */
@@ -86,6 +93,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   sfxVolume: DEFAULT_VOLUME,
   haptics: true,
   cameraPanSens: 1,
+  cameraDistanceScale: 1,
   cameraShake: true,
   invertPitch: false,
   mouseSteerSens: 1,
@@ -102,6 +110,11 @@ export interface UserSettingsDefaults {
 export function clampPanSens(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_USER_SETTINGS.cameraPanSens;
   return Math.min(PAN_SENS_MAX, Math.max(PAN_SENS_MIN, value));
+}
+
+export function clampCameraDistance(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_USER_SETTINGS.cameraDistanceScale;
+  return Math.min(CAMERA_DISTANCE_MAX, Math.max(CAMERA_DISTANCE_MIN, value));
 }
 
 export function clampSteerSens(value: number): number {
@@ -151,6 +164,9 @@ export function readUserSettings(
     sfxVolume: clamp01(readNumber(storage, VOLUME_SFX_KEY, sfxDefault)),
     haptics: readFlag(storage, HAPTICS_KEY),
     cameraPanSens: clampPanSens(readNumber(storage, CAMERA_PAN_SENS_KEY, DEFAULT_USER_SETTINGS.cameraPanSens)),
+    cameraDistanceScale: clampCameraDistance(
+      readNumber(storage, CAMERA_DISTANCE_KEY, DEFAULT_USER_SETTINGS.cameraDistanceScale),
+    ),
     cameraShake: readFlag(storage, CAMERA_SHAKE_KEY),
     invertPitch: readOptIn(storage, INVERT_PITCH_KEY),
     mouseSteerSens: clampSteerSens(readNumber(storage, MOUSE_STEER_SENS_KEY, 1)),
@@ -174,6 +190,10 @@ export function settingsToStorage(patch: Partial<UserSettings>): [string, string
     const sens = clampPanSens(patch.cameraPanSens);
     // 1x is the config baseline — store nothing rather than a redundant "1".
     out.push([CAMERA_PAN_SENS_KEY, sens === 1 ? null : String(round2(sens))]);
+  }
+  if (patch.cameraDistanceScale !== undefined) {
+    const scale = clampCameraDistance(patch.cameraDistanceScale);
+    out.push([CAMERA_DISTANCE_KEY, scale === 1 ? null : String(round2(scale))]);
   }
   if (patch.cameraShake !== undefined) out.push([CAMERA_SHAKE_KEY, patch.cameraShake ? null : OFF_VALUE]);
   // Opt-in: "not inverted" is the default, so it is stored as an ABSENT key.
@@ -263,6 +283,7 @@ function shallowEqual(a: UserSettings, b: UserSettings): boolean {
     a.sfxVolume === b.sfxVolume &&
     a.haptics === b.haptics &&
     a.cameraPanSens === b.cameraPanSens &&
+    a.cameraDistanceScale === b.cameraDistanceScale &&
     a.cameraShake === b.cameraShake &&
     a.invertPitch === b.invertPitch &&
     a.mouseSteerSens === b.mouseSteerSens &&

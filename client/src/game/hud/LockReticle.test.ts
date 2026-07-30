@@ -109,4 +109,19 @@ describe("LockReticle distance label", () => {
     reticle.updateFeedback(2);
     expect(blocked.classList).not.toContain("visible");
   });
+
+  it("can hide the full cone circle without hiding the target bracket", () => {
+    const root = document.createElement("div");
+    const reticle = new LockReticle(
+      root,
+      resolveFlightHudLayout(
+        { hud: { flight: { reticle: { showZone: false } } } } as never,
+        { width: 800, height: 600 },
+      ),
+    );
+    reticle.update(true, 400, 300, 0.4, false, 20);
+    expect(root.querySelector(".hud-reticle-zone")!.classList).not.toContain("visible");
+    expect(root.querySelector(".hud-reticle-bracket")!.classList).toContain("visible");
+    reticle.dispose();
+  });
 });

@@ -68,4 +68,17 @@ describe("FireButton", () => {
     );
     fire.dispose();
   });
+
+  it("removes the decorative circle when the theme disables its arc", () => {
+    const root = document.createElement("div");
+    const fire = new FireButton(
+      root,
+      resolveFlightHudLayout(
+        { hud: { flight: { fire: { ringArcDeg: 0, ringStrokePx: 0 } } } } as never,
+        { width: 400, height: 800 },
+      ),
+    );
+    expect(root.querySelector<HTMLElement>(".hud-fire-ring")!.style.display).toBe("none");
+    fire.dispose();
+  });
 });

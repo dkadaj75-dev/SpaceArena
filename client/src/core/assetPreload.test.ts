@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
 import {
   arenaModelRenders,
+  preloadArenaModels,
   preloadShipModels,
   preloadShipModelsBeforeTimeout,
   shipModelRenders,
@@ -95,6 +96,32 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
 
   it("returns nothing for an arena the pack does not have", () => {
     expect(arenaModelRenders(configs, "arena.missing")).toEqual([]);
+  });
+
+  it("waits for every distinct arena model before resolving", async () => {
+    expect(configs.replace(arena(["asteroid.small-rock", "asteroid.small-rock-b"])).ok).toBe(true);
+    const releases: Array<() => void> = [];
+    const ensureModel = vi.fn(
+      () => new Promise<null>((resolve) => releases.push(() => resolve(null))),
+    );
+    const assets = { ensureModel } as unknown as AssetRegistry;
+
+    let settled = false;
+    const preload = preloadArenaModels(assets, configs, "arena.test").then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+
+    // small_a, its authored destroyed state, and small_b are each loaded once.
+    expect(ensureModel).toHaveBeenCalledTimes(3);
+    expect(settled).toBe(false);
+    releases[0]!();
+    releases[1]!();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    releases[2]!();
+    await preload;
+    expect(settled).toBe(true);
   });
 });
 

@@ -64,6 +64,7 @@ export class FireButton {
     this.ring.style.top = `${dy - ringRadius}px`;
     this.ring.style.width = `${ringRadius * 2}px`;
     this.ring.style.height = `${ringRadius * 2}px`;
+    this.ring.style.display = fire.ringArcDeg > 0 && fire.ringStrokePx > 0 ? "" : "none";
     this.renderIcon(fire.icon);
   }
 

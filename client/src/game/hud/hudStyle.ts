@@ -163,24 +163,24 @@ const CSS = `
 .hud-bracket[data-corner="tl"] { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
 .hud-bracket[data-corner="br"] { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
 
-/* --- Minimap (top-left) --- */
+/* --- Player-centred 3D radar (top-left) --- */
 .hud-minimap {
+  position: absolute;
   top: var(--hud-inset-top);
   left: var(--hud-inset-left);
-  width: var(--hud-minimap-size, 128px);
-  height: var(--hud-minimap-size, 128px);
+  width: var(--hud-radar-size, var(--hud-minimap-size, 128px));
+  height: var(--hud-radar-size, var(--hud-minimap-size, 128px));
   max-width: 40vw;
   max-height: 40vw;
+  pointer-events: none;
 }
 .hud-minimap canvas {
   width: 100%;
   height: 100%;
   display: block;
-  /* Same bevel as the frame, so a blip near the rim is cut by the chamfer
-     rather than by an invisible square. */
-  clip-path: var(--hud-clip);
+  filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) color-mix(in srgb, var(--hud-primary, #39bfff) 30%, transparent));
 }
-/* Range readout tucked into the frame's lower edge. */
+/* Small range legend under the translucent disc. */
 .hud-minimap-scale {
   position: absolute;
   bottom: 2px;
@@ -190,7 +190,7 @@ const CSS = `
   font: 0.5em/1 ui-monospace, monospace;
   letter-spacing: 0.14em;
   color: var(--hud-primary, #39bfff);
-  opacity: 0.7;
+  opacity: 0.52;
 }
 
 /* --- Gauges: hull, shield, energy, heat --- */
@@ -224,6 +224,7 @@ const CSS = `
   flex-direction: column;
   gap: 2px;
 }
+.hud-gauge[hidden] { display: none; }
 .hud-gauge-head {
   display: flex;
   align-items: baseline;
@@ -445,6 +446,7 @@ const CSS = `
   width: 0;
   height: 0;
 }
+.hud-throttle { opacity: var(--hud-throttle-opacity, 1); }
 .hud-joystick.disabled { display: none; }
 
 /* Floating touch-steer feedback. It never receives events itself. */
@@ -696,7 +698,69 @@ const CSS = `
   filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) #fff);
 }
 
-/* Lock reticle: fixed centre zone circle + a bracket projected onto the candidate. */
+/* Hull and shield now flank the ship as restrained side arcs. */
+.hud-vital-arcs {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: opacity 0.15s linear;
+}
+.hud-vital-arcs[hidden] { display: none; }
+.hud-vital-arcs svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.hud-vital-arc {
+  fill: none;
+  stroke-width: var(--hud-vital-stroke, 6px);
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.hud-vital-arc.track {
+  stroke: var(--hud-neutral, #7f9dc4);
+  opacity: var(--hud-vital-track-opacity, 0.16);
+}
+.hud-vital-arc.track.hull { stroke: var(--hud-hull, #ffb35c); }
+.hud-vital-arc.track.shield { stroke: var(--hud-shield, #39bfff); }
+.hud-vital-arc.fill.hull {
+  stroke: var(--hud-hull, #ffb35c);
+  filter: drop-shadow(0 0 calc(4px * var(--hud-glow)) var(--hud-hull, #ffb35c));
+}
+.hud-vital-arc.fill.shield {
+  stroke: var(--hud-shield, #39bfff);
+  filter: drop-shadow(0 0 calc(4px * var(--hud-glow)) var(--hud-shield, #39bfff));
+}
+.hud-vital-arcs.hull-critical .hud-vital-arc.fill.hull {
+  stroke: var(--hud-danger, #ff405c);
+}
+.hud-vital-label {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transform: translateY(-50%);
+  color: var(--hud-neutral, #7f9dc4);
+  font: 500 0.5em/1 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.hud-vital-label.hull { left: 7%; align-items: flex-start; }
+.hud-vital-label.shield { right: 7%; align-items: flex-end; }
+.hud-vital-label .value {
+  color: var(--hud-text, #dbe9ff);
+  font-size: 1.18em;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+.hud-vital-arcs.hull-critical .hud-vital-label.hull .value { color: var(--hud-danger, #ff405c); }
+
+/* Lock reticle: optional centre zone plus a bracket projected onto the candidate. */
 .hud-reticle {
   position: absolute;
   inset: 0;

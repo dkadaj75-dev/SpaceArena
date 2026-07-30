@@ -8,6 +8,8 @@ import {
 } from "@space-arena/shared";
 import type { AudioManager } from "../../audio/AudioManager.js";
 import {
+  CAMERA_DISTANCE_MAX,
+  CAMERA_DISTANCE_MIN,
   PAN_SENS_MAX,
   PAN_SENS_MIN,
   STEER_SENS_MAX,
@@ -229,6 +231,26 @@ export class SettingsScreen {
   private cameraGroup(): HTMLElement {
     const group = settingsGroup("Camera");
 
+    const distanceRow = settingsRow("Camera distance");
+    const distanceValue = distanceRow.querySelector<HTMLSpanElement>(".value")!;
+    const distanceSlider = document.createElement("input");
+    distanceSlider.type = "range";
+    distanceSlider.className = "sa-slider";
+    distanceSlider.min = String(CAMERA_DISTANCE_MIN);
+    distanceSlider.max = String(CAMERA_DISTANCE_MAX);
+    distanceSlider.step = "0.05";
+    distanceSlider.dataset["setting"] = "camera.distance";
+    distanceSlider.addEventListener("input", () => {
+      const value = Number(distanceSlider.value);
+      distanceValue.textContent = `${Math.round(value * 100)}%`;
+      this.host.settings.set({ cameraDistanceScale: value });
+    });
+    this.refreshers.push((values) => {
+      distanceSlider.value = String(values.cameraDistanceScale);
+      distanceValue.textContent = `${Math.round(values.cameraDistanceScale * 100)}%`;
+    });
+    distanceRow.append(distanceSlider);
+
     const row = settingsRow("Pan sensitivity");
     const valueEl = row.querySelector<HTMLSpanElement>(".value")!;
     const slider = document.createElement("input");
@@ -253,7 +275,12 @@ export class SettingsScreen {
     shake.el.dataset["setting"] = "camera.shake";
     this.refreshers.push((values) => shake.set(values.cameraShake));
 
-    group.append(row, shake.el, note("Multiplies the arena camera's configured pan speed (camera.json). Shake amplitudes stay data-driven — this only switches them off."));
+    group.append(
+      distanceRow,
+      row,
+      shake.el,
+      note("Distance and pan speed multiply their camera.json baselines. Shake amplitudes stay data-driven — this only switches them off."),
+    );
     return group;
   }
 

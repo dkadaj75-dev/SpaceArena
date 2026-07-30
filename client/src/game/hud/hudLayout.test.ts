@@ -100,6 +100,8 @@ describe("resolveHudLayout — portrait/landscape blocks", () => {
       offsetYPx: 12,
       gapPx: 5,
       trackHeightPx: 10,
+      showHull: true,
+      showShield: true,
       // Segment count is a look knob, not a dimension: it falls back to the
       // shared default and is deliberately NOT multiplied by `hud.scale`.
       segments: HUD_DEFAULTS.gauges.segments,
@@ -109,6 +111,30 @@ describe("resolveHudLayout — portrait/landscape blocks", () => {
     expect(l.gauges.offsetXPx).toBeCloseTo(8 * 0.85, 9);
     expect(l.gauges.offsetYPx).toBeCloseTo(8 * 0.85, 9);
     expect(hudCssVars(l)["--hud-gauge-offset-y"]).toBe(`${8 * 0.85}px`);
+  });
+
+  it("resolves the 3D radar and centre vital arcs with orientation scaling", () => {
+    const configured = theme({
+      radar: { sizePx: 140, rangeUnits: 125, elevationDeg: 32, altitudeStemMaxPx: 24 },
+      vitalArcs: { enabled: true, radiusPx: 150, strokePx: 5, arcDeg: 120, opacity: 0.6 },
+      landscape: {
+        scale: 0.5,
+        radar: { sizePx: 100 },
+        vitalArcs: { radiusPx: 130 },
+      },
+    });
+    const portrait = resolveHudLayout(configured, PORTRAIT);
+    expect(portrait.radar.sizePx).toBe(140);
+    expect(portrait.radar.rangeUnits).toBe(125);
+    expect(portrait.vitalArcs.enabled).toBe(true);
+    expect(portrait.vitalArcs.radiusPx).toBe(150);
+
+    const landscape = resolveHudLayout(configured, LANDSCAPE);
+    expect(landscape.radar.sizePx).toBe(50);
+    expect(landscape.radar.rangeUnits).toBe(125);
+    expect(landscape.vitalArcs.radiusPx).toBe(65);
+    expect(landscape.vitalArcs.opacity).toBe(0.6);
+    expect(hudCssVars(landscape)["--hud-radar-size"]).toBe("50px");
   });
 
   it("falls back to the legacy flat moduleButton* fields for pre-5.4 themes", () => {

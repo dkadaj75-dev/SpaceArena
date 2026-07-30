@@ -27,6 +27,15 @@
     "moduleButtonGapPx": 10,
     "minimapSizePx": 128,
     "minimapAltitudeTickPx": 6,
+    "radar": {
+      "sizePx": 128,
+      "rangeUnits": 140,
+      "elevationDeg": 30,
+      "altitudeScale": 0.65,
+      "altitudeStemMaxPx": 22,
+      "contactSizePx": 3.5,
+      "gridOpacity": 0.2
+    },
     "gaugeWidthPx": 132,
     "gauges": {
       "anchor": "bottom-left",
@@ -34,7 +43,18 @@
       "offsetYPx": 12,
       "gapPx": 5,
       "trackHeightPx": 10,
+      "showHull": false,
+      "showShield": false,
       "segments": 12
+    },
+    "vitalArcs": {
+      "enabled": true,
+      "radiusPx": 118,
+      "strokePx": 4,
+      "arcDeg": 126,
+      "offsetYPx": 8,
+      "opacity": 0.46,
+      "trackOpacity": 0.24
     },
     "style": {
       "chamferPx": 9,
@@ -50,12 +70,12 @@
       "layout": "arc",
       "buttonRadiusPx": 24,
       "gapPx": 10,
-      "arcRadiusPx": 102,
-      "arcStartDeg": 195,
-      "arcSweepDeg": -135,
+      "arcRadiusPx": 90,
+      "arcStartDeg": 200,
+      "arcSweepDeg": -150,
       "maxPerRow": 2,
-      "offsetXPx": 80,
-      "offsetYPx": 78
+      "offsetXPx": 82,
+      "offsetYPx": 85
     },
     "modules": {
       "familyColors": {
@@ -98,7 +118,8 @@
         "heightPx": 200,
         "thumbHeightPx": 26,
         "offsetXPx": 6,
-        "offsetYPx": 212,
+        "offsetYPx": 240,
+        "opacity": 0.6,
         "keyRampPerSec": 0.9,
         "wheelStepPerNotch": 0.06,
         "tickCount": 8
@@ -110,8 +131,8 @@
         "offsetYPx": 34,
         "icon": "FIRE",
         "ringGapPx": 7,
-        "ringStrokePx": 2,
-        "ringArcDeg": 260,
+        "ringStrokePx": 0,
+        "ringArcDeg": 0,
         "color": "#ff4655",
         "fillOpacity": 0.3,
         "borderPx": 2,
@@ -120,6 +141,7 @@
         "armedGlowPx": 18
       },
       "reticle": {
+        "showZone": false,
         "maxRadiusFraction": 0.82,
         "strokePx": 2,
         "bracketSizePx": 54,
@@ -153,11 +175,11 @@
       "moduleCluster": {
         "buttonRadiusPx": 24,
         "gapPx": 10,
-        "arcRadiusPx": 102,
-        "arcStartDeg": 195,
-        "arcSweepDeg": -135,
-        "offsetXPx": 80,
-        "offsetYPx": 78
+        "arcRadiusPx": 90,
+        "arcStartDeg": 200,
+        "arcSweepDeg": -150,
+        "offsetXPx": 82,
+        "offsetYPx": 85
       },
       "gauges": {
         "anchor": "bottom-left",
@@ -175,6 +197,16 @@
       "scale": 0.85,
       "safeAreaInsetPx": 10,
       "minimapSizePx": 104,
+      "radar": {
+        "sizePx": 140,
+        "altitudeStemMaxPx": 18,
+        "contactSizePx": 3.4
+      },
+      "vitalArcs": {
+        "radiusPx": 145,
+        "strokePx": 4,
+        "offsetYPx": 4
+      },
       "gaugeWidthPx": 120,
       "gauges": {
         "anchor": "bottom-left",
@@ -187,15 +219,15 @@
       "moduleCluster": {
         "buttonRadiusPx": 26,
         "gapPx": 10,
-        "arcRadiusPx": 109,
-        "arcStartDeg": 195,
-        "arcSweepDeg": -135,
-        "offsetXPx": 143,
-        "offsetYPx": 113
+        "arcRadiusPx": 96,
+        "arcStartDeg": 200,
+        "arcSweepDeg": -150,
+        "offsetXPx": 93,
+        "offsetYPx": 69
       },
       "flight": {
         "joystick": { "baseRadiusPx": 56, "thumbRadiusPx": 25, "offsetXPx": 20, "offsetYPx": 18 },
-        "throttle": { "heightPx": 150, "offsetYPx": 168, "tickCount": 6 },
+        "throttle": { "heightPx": 150, "offsetYPx": 190, "tickCount": 6 },
         "fire": { "anchor": "bottom-right", "radiusPx": 36, "offsetXPx": 22, "offsetYPx": 30, "icon": "FIRE" }
       }
     }

@@ -35,6 +35,14 @@ describe("shipped quality tiers — spawn markers and ambient dust", () => {
     }
   });
 
+  it("never substitutes procedural asteroid LODs in any shipped tier", () => {
+    for (const { tier, config } of tiers) {
+      expect(config.asteroids.proceduralOnly, `${tier} must use authored asteroid models`).not.toBe(true);
+      expect(config.asteroids.lodMediumDistance, `${tier} must not swap to a procedural medium LOD`).toBe(0);
+      expect(config.asteroids.lodLowDistance, `${tier} must not swap to a procedural low LOD`).toBe(0);
+    }
+  });
+
   it("authors ambient dust on every tier, and disables it on low", () => {
     for (const { tier, config } of tiers) {
       const dust = config.scene.dust;
@@ -104,5 +112,24 @@ describe("shipped tuning + theme — match start countdown", () => {
     const cues = parsed.data.audio?.cues;
     expect(cues?.countdownTick).toBeTruthy();
     expect(cues?.countdownGo).toBeTruthy();
+  });
+});
+
+describe("shipped theme - compact flight HUD", () => {
+  it("authors the 3D radar, centre vital arcs, and restrained controls", () => {
+    const parsed = themeSchema.safeParse(load("themes/default.json"));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw parsed.error;
+    const hud = parsed.data.hud;
+    expect(hud?.radar?.rangeUnits).toBeGreaterThan(0);
+    expect(hud?.radar?.elevationDeg).toBeGreaterThan(0);
+    expect(hud?.vitalArcs?.enabled).toBe(true);
+    expect(hud?.vitalArcs?.opacity).toBeLessThan(0.75);
+    expect(hud?.gauges?.showHull).toBe(false);
+    expect(hud?.gauges?.showShield).toBe(false);
+    expect(hud?.flight?.reticle?.showZone).toBe(false);
+    expect(hud?.flight?.fire?.ringArcDeg).toBe(0);
+    expect(hud?.flight?.fire?.ringStrokePx).toBe(0);
+    expect(hud?.flight?.throttle?.opacity).toBeCloseTo(0.6, 6);
   });
 });

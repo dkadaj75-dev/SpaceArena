@@ -81,6 +81,8 @@ export class TacticalCamera {
    */
   private chaseMode = false;
   private chase: ChaseSettings = DEFAULT_CHASE_SETTINGS;
+  /** Player-local multiplier over the content-authored chase radius. */
+  private chaseDistanceScale = 1;
   /** Latest sim heading pushed in by the render loop (radians, sim convention). */
   private chaseHeading = 0;
   /** Smoothed heading the orbit alpha is derived from; null until the first frame seeds it. */
@@ -202,6 +204,16 @@ export class TacticalCamera {
   /** Player pan-sensitivity multiplier (5.8 settings), used by the editor pan. Clamped to a sane band. */
   setPanSensitivityScale(scale: number): void {
     this.panSensitivityScale = Number.isFinite(scale) ? clamp(scale, 0.1, 5) : 1;
+  }
+
+  /** Player-local chase distance multiplier; content remains the baseline. */
+  setChaseDistanceScale(scale: number): void {
+    this.chaseDistanceScale = Number.isFinite(scale) ? clamp(scale, 0.1, 5) : 1;
+    if (this.chaseMode) this.applyChaseLimits();
+  }
+
+  private get effectiveChaseRadius(): number {
+    return this.chase.radius * this.chaseDistanceScale;
   }
 
   /** Config sensitivity × the player's local multiplier. */
@@ -351,9 +363,10 @@ export class TacticalCamera {
     // so the limits are opened to the full legal band rather than a narrow one.
     this.camera.lowerBetaLimit = 0;
     this.camera.upperBetaLimit = Math.PI;
-    this.camera.lowerRadiusLimit = this.chase.radius;
-    this.camera.upperRadiusLimit = this.chase.radius;
-    this.camera.radius = this.chase.radius;
+    const radius = this.effectiveChaseRadius;
+    this.camera.lowerRadiusLimit = radius;
+    this.camera.upperRadiusLimit = radius;
+    this.camera.radius = radius;
     this.camera.fov = this.chase.fov ?? this.defaultFov;
     this.applyChasePose(this.chaseSmoothHeading ?? this.chaseHeading, this.chaseSmoothPitch ?? this.chasePitch);
   }
@@ -375,14 +388,14 @@ export class TacticalCamera {
    * the bottom of every revolution.
    */
   private applyChasePose(heading: number, pitch: number): void {
+    const radius = this.effectiveChaseRadius;
     chaseUpFor(heading, pitch, this.chaseUp);
-    chaseOffsetFor(heading, pitch, this.chase.beta, this.chase.radius, this.chaseOffset);
+    chaseOffsetFor(heading, pitch, this.chase.beta, radius, this.chaseOffset);
     // Assigning normalizes in place and rebuilds Babylon's own alignment matrices.
     this.camera.upVector = this.chaseUp;
     Matrix.RotationAlignToRef(Vector3.UpReadOnly, this.camera.upVector, this.yToUp);
     this.yToUp.transposeToRef(this.upToY);
     Vector3.TransformCoordinatesToRef(this.chaseOffset, this.upToY, this.chaseLocalOffset);
-    const radius = this.chase.radius;
     this.camera.radius = radius;
     this.camera.beta = Math.acos(clamp(this.chaseLocalOffset.y / radius, -1, 1));
     this.camera.alpha = Math.atan2(this.chaseLocalOffset.z, this.chaseLocalOffset.x);

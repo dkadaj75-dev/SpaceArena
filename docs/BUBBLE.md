@@ -6,6 +6,16 @@ and the HUD gains **off-screen enemy direction arrows**.
 
 Design rule unchanged: NOTHING per-ship hardcoded; sim determinism rules unchanged.
 
+## HUD frame amendment (2026-07-30)
+
+The absolute top-down minimap described in the historical implementation notes
+below has been replaced by a player-centred tilted 3D radar. For world delta
+`D`, it uses the raw full-loop ship basis
+`R=(sin h,0,-cos h)`, `U=(-cos h sin p,cos p,-sin h sin p)`, and
+`N=(cos p cos h,sin p,cos p sin h)`. The disc plots `D dot R` and `D dot N`;
+the lollipop stem plots `D dot U`. Do not canonicalize the attitude or fall back
+to world-y altitude: either breaks continuity while vertical or inverted.
+
 ## Decisions (defaults chosen from the Galaxy Division reference + mobile arcade genre)
 
 - **Orientation model: yaw + pitch, no roll in the sim.** `heading` (yaw) wraps, and

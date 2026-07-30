@@ -4,7 +4,9 @@ import type {
   HudOrientationConfig,
   HudStyleConfig,
   ModuleClusterConfig,
+  RadarConfig,
   ThemeConfig,
+  VitalArcsConfig,
 } from "@space-arena/shared";
 
 /**
@@ -44,8 +46,10 @@ export interface HudLayout {
   safeAreaInsetPx: number;
   minimapSizePx: number;
   minimapRangeUnits: number | undefined;
+  radar: RadarLayout;
   gaugeWidthPx: number;
   gauges: GaugeLayout;
+  vitalArcs: VitalArcsLayout;
   notificationMaxVisible: number;
   thumbZoneFraction: number;
   cluster: ClusterLayout;
@@ -59,8 +63,30 @@ export interface GaugeLayout {
   offsetYPx: number;
   gapPx: number;
   trackHeightPx: number;
+  showHull: boolean;
+  showShield: boolean;
   /** Segment cells per bar; 1 renders a solid bar. */
   segments: number;
+}
+
+export interface RadarLayout {
+  sizePx: number;
+  rangeUnits: number | undefined;
+  elevationDeg: number;
+  altitudeScale: number;
+  altitudeStemMaxPx: number;
+  contactSizePx: number;
+  gridOpacity: number;
+}
+
+export interface VitalArcsLayout {
+  enabled: boolean;
+  radiusPx: number;
+  strokePx: number;
+  arcDeg: number;
+  offsetYPx: number;
+  opacity: number;
+  trackOpacity: number;
 }
 
 /**
@@ -89,6 +115,15 @@ export const HUD_DEFAULTS = {
   scale: 1,
   safeAreaInsetPx: 12,
   minimapSizePx: 128,
+  radar: {
+    sizePx: 128,
+    rangeUnits: undefined,
+    elevationDeg: 30,
+    altitudeScale: 0.65,
+    altitudeStemMaxPx: 20,
+    contactSizePx: 3.5,
+    gridOpacity: 0.22,
+  },
   gaugeWidthPx: 140,
   gauges: {
     anchor: "bottom-left",
@@ -96,7 +131,18 @@ export const HUD_DEFAULTS = {
     offsetYPx: 0,
     gapPx: 6,
     trackHeightPx: 10,
+    showHull: true,
+    showShield: true,
     segments: 12,
+  },
+  vitalArcs: {
+    enabled: false,
+    radiusPx: 142,
+    strokePx: 6,
+    arcDeg: 126,
+    offsetYPx: 10,
+    opacity: 0.68,
+    trackOpacity: 0.16,
   },
   style: {
     chamferPx: 8,
@@ -142,6 +188,14 @@ function mergeGauges(base: GaugesConfig | undefined, over: GaugesConfig | undefi
   return { ...(base ?? {}), ...stripUndefined(over ?? {}) };
 }
 
+function mergeRadar(base: RadarConfig | undefined, over: RadarConfig | undefined): RadarConfig {
+  return { ...(base ?? {}), ...stripUndefined(over ?? {}) };
+}
+
+function mergeVitalArcs(base: VitalArcsConfig | undefined, over: VitalArcsConfig | undefined): VitalArcsConfig {
+  return { ...(base ?? {}), ...stripUndefined(over ?? {}) };
+}
+
 function stripUndefined<T extends object>(value: T): T {
   const out: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(value)) if (v !== undefined) out[key] = v;
@@ -162,6 +216,8 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
   const scale = override.scale ?? hud?.scale ?? HUD_DEFAULTS.scale;
   const rawCluster = mergeCluster(hud?.moduleCluster, override.moduleCluster);
   const rawGauges = mergeGauges(hud?.gauges, override.gauges);
+  const rawRadar = mergeRadar(hud?.radar, override.radar);
+  const rawVitalArcs = mergeVitalArcs(hud?.vitalArcs, override.vitalArcs);
 
   // Legacy flat fields stay authoritative when the cluster block omits them, so
   // themes written before 5.4 keep their button size/gap.
@@ -173,8 +229,23 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
     viewport,
     scale,
     safeAreaInsetPx: override.safeAreaInsetPx ?? hud?.safeAreaInsetPx ?? HUD_DEFAULTS.safeAreaInsetPx,
-    minimapSizePx: (override.minimapSizePx ?? hud?.minimapSizePx ?? HUD_DEFAULTS.minimapSizePx) * scale,
-    minimapRangeUnits: hud?.minimapRangeUnits,
+    minimapSizePx:
+      (rawRadar.sizePx ?? override.minimapSizePx ?? hud?.minimapSizePx ?? HUD_DEFAULTS.minimapSizePx) * scale,
+    minimapRangeUnits: rawRadar.rangeUnits ?? hud?.minimapRangeUnits,
+    radar: {
+      sizePx:
+        (rawRadar.sizePx ?? override.minimapSizePx ?? hud?.minimapSizePx ?? HUD_DEFAULTS.radar.sizePx) * scale,
+      rangeUnits: rawRadar.rangeUnits ?? hud?.minimapRangeUnits,
+      elevationDeg: rawRadar.elevationDeg ?? HUD_DEFAULTS.radar.elevationDeg,
+      altitudeScale: rawRadar.altitudeScale ?? HUD_DEFAULTS.radar.altitudeScale,
+      altitudeStemMaxPx:
+        (rawRadar.altitudeStemMaxPx ??
+          override.minimapAltitudeTickPx ??
+          hud?.minimapAltitudeTickPx ??
+          HUD_DEFAULTS.radar.altitudeStemMaxPx) * scale,
+      contactSizePx: (rawRadar.contactSizePx ?? HUD_DEFAULTS.radar.contactSizePx) * scale,
+      gridOpacity: rawRadar.gridOpacity ?? HUD_DEFAULTS.radar.gridOpacity,
+    },
     gaugeWidthPx: (override.gaugeWidthPx ?? hud?.gaugeWidthPx ?? HUD_DEFAULTS.gaugeWidthPx) * scale,
     gauges: {
       anchor: rawGauges.anchor ?? HUD_DEFAULTS.gauges.anchor,
@@ -182,9 +253,20 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
       offsetYPx: (rawGauges.offsetYPx ?? HUD_DEFAULTS.gauges.offsetYPx) * scale,
       gapPx: (rawGauges.gapPx ?? HUD_DEFAULTS.gauges.gapPx) * scale,
       trackHeightPx: (rawGauges.trackHeightPx ?? HUD_DEFAULTS.gauges.trackHeightPx) * scale,
+      showHull: rawGauges.showHull ?? HUD_DEFAULTS.gauges.showHull,
+      showShield: rawGauges.showShield ?? HUD_DEFAULTS.gauges.showShield,
       // Segment COUNT, not a length — scaling it would change the readout's
       // resolution instead of its size.
       segments: rawGauges.segments ?? HUD_DEFAULTS.gauges.segments,
+    },
+    vitalArcs: {
+      enabled: rawVitalArcs.enabled ?? HUD_DEFAULTS.vitalArcs.enabled,
+      radiusPx: (rawVitalArcs.radiusPx ?? HUD_DEFAULTS.vitalArcs.radiusPx) * scale,
+      strokePx: (rawVitalArcs.strokePx ?? HUD_DEFAULTS.vitalArcs.strokePx) * scale,
+      arcDeg: rawVitalArcs.arcDeg ?? HUD_DEFAULTS.vitalArcs.arcDeg,
+      offsetYPx: (rawVitalArcs.offsetYPx ?? HUD_DEFAULTS.vitalArcs.offsetYPx) * scale,
+      opacity: rawVitalArcs.opacity ?? HUD_DEFAULTS.vitalArcs.opacity,
+      trackOpacity: rawVitalArcs.trackOpacity ?? HUD_DEFAULTS.vitalArcs.trackOpacity,
     },
     style: resolveHudStyle(hud?.style, scale),
     notificationMaxVisible: hud?.notificationMaxVisible ?? HUD_DEFAULTS.notificationMaxVisible,
@@ -324,6 +406,7 @@ export function hudCssVars(layout: HudLayout): Record<string, string> {
     "--hud-scale": String(layout.scale),
     "--hud-safe-inset": `${layout.safeAreaInsetPx}px`,
     "--hud-minimap-size": `${layout.minimapSizePx}px`,
+    "--hud-radar-size": `${layout.radar.sizePx}px`,
     "--hud-gauge-width": `${layout.gaugeWidthPx}px`,
     "--hud-gauge-offset-x": `${layout.gauges.offsetXPx}px`,
     "--hud-gauge-offset-y": `${layout.gauges.offsetYPx}px`,

@@ -29,6 +29,7 @@ export class LockReticle {
   private readonly blocked: HTMLDivElement;
   private blockedRemainingMs = 0;
   private blockedFlashMs = 650;
+  private showZone = true;
 
   private lastRadius = Number.NaN;
   private lastClamped: boolean | null = null;
@@ -135,6 +136,8 @@ export class LockReticle {
     this.bracket.style.setProperty("--hud-reticle-target-name-size", `${layout.reticle.targetNameSizePx}px`);
     this.blocked.textContent = layout.reticle.blockedText;
     this.blockedFlashMs = layout.reticle.blockedFlashMs;
+    this.showZone = layout.reticle.showZone;
+    this.zone.classList.toggle("visible", this.showZone && this.lastVisible === true);
   }
 
   /**
@@ -173,7 +176,7 @@ export class LockReticle {
     if (visible !== this.lastVisible) {
       this.lastVisible = visible;
       this.bracket.classList.toggle("visible", visible);
-      this.zone.classList.toggle("visible", visible);
+      this.zone.classList.toggle("visible", visible && this.showZone);
     }
     if (!visible) return;
 

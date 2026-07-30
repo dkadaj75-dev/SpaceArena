@@ -8,6 +8,28 @@ wire-quantization cap — no protocol format change), **all weapons require lock
 Design rule unchanged: NOTHING per-ship hardcoded — every knob flows through content
 configs, schemas, resolveShipStats, tuning, or theme.
 
+## Owner presentation amendment (2026-07-30)
+
+This amendment supersedes older HUD/minimap/asteroid-LOD descriptions below:
+
+- Every visible asteroid uses its authored GLB on low, medium, and high. The
+  shipped tiers set model-to-procedural medium/low LOD distances to zero; only
+  distance culling remains tier-specific. Arena model preloading completes
+  before `ViewManager` creates instances, while procedural recipes remain the
+  real asset-load failure fallback.
+- The upper-left instrument is now a player-centred 3D Canvas2D radar. A tilted
+  plane carries ship-relative right/forward and lollipop stems carry
+  ship-relative up, using raw heading/pitch so loops and inverted flight remain
+  continuous. Legacy minimap theme fields are accepted as fallbacks.
+- Hull and shield are subtle theme-driven arcs flanking the ship. Their legacy
+  lower-left rows are disabled in the shipped theme; energy and heat remain.
+- The projected lock-cone circle is optional and hidden in shipped content;
+  target brackets and lock progress still operate. FIRE's decorative circle is
+  disabled and the fitting-driven module arc is tighter around FIRE.
+- The throttle is raised and drawn at 60% opacity. The chase camera baseline is
+  12 units, with a persisted Settings multiplier from 0.8 to 1.5 applied over
+  the authored radius.
+
 ## 1. Flight model (sim)
 
 New order (shared/src/sim/orders.ts):

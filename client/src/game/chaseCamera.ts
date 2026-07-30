@@ -66,7 +66,7 @@ export interface ChaseSettings {
  * which keeps both axes matched for a pack that never asked for a pitch feel.
  */
 export const DEFAULT_CHASE_SETTINGS: ChaseSettings = {
-  radius: 14,
+  radius: 12,
   height: 1.4,
   beta: 1.34,
   yawLag: 0.12,

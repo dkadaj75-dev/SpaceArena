@@ -49,6 +49,7 @@ export interface ThrottleLayout {
   thumbHeightPx: number;
   offsetXPx: number;
   offsetYPx: number;
+  opacity: number;
   keyRampPerSec: number;
   wheelStepPerNotch: number;
   /** Scale ticks drawn beside the track (look only). 0 hides the scale. */
@@ -87,6 +88,7 @@ export interface ModuleVisualLayout {
 }
 
 export interface ReticleLayout {
+  showZone: boolean;
   maxRadiusFraction: number;
   strokePx: number;
   bracketSizePx: number;
@@ -164,6 +166,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     thumbHeightPx: 26,
     offsetXPx: 6,
     offsetYPx: 212,
+    opacity: 1,
     keyRampPerSec: 0.9,
     wheelStepPerNotch: 0.06,
     tickCount: 8,
@@ -194,6 +197,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     blockedNotification: undefined,
   },
   reticle: {
+    showZone: true,
     maxRadiusFraction: 0.82,
     strokePx: 2,
     bracketSizePx: 54,
@@ -303,6 +307,7 @@ export function resolveFlightHudLayout(
       thumbHeightPx: (throttle.thumbHeightPx ?? d.throttle.thumbHeightPx) * scale,
       offsetXPx: (throttle.offsetXPx ?? d.throttle.offsetXPx) * scale,
       offsetYPx: (throttle.offsetYPx ?? d.throttle.offsetYPx) * scale,
+      opacity: throttle.opacity ?? d.throttle.opacity,
       keyRampPerSec: throttle.keyRampPerSec ?? d.throttle.keyRampPerSec,
       wheelStepPerNotch: throttle.wheelStepPerNotch ?? d.throttle.wheelStepPerNotch,
       // A COUNT, not a length: scaling it would change how finely the scale is
@@ -335,6 +340,7 @@ export function resolveFlightHudLayout(
       blockedNotification: fire.blockedNotification,
     },
     reticle: {
+      showZone: reticle.showZone ?? d.reticle.showZone,
       maxRadiusFraction: reticle.maxRadiusFraction ?? d.reticle.maxRadiusFraction,
       strokePx: (reticle.strokePx ?? d.reticle.strokePx) * scale,
       bracketSizePx: (reticle.bracketSizePx ?? d.reticle.bracketSizePx) * scale,
@@ -606,6 +612,7 @@ export function flightCssVars(layout: FlightHudLayout): Record<string, string> {
     "--hud-throttle-width": `${layout.throttle.widthPx}px`,
     "--hud-throttle-height": `${layout.throttle.heightPx}px`,
     "--hud-throttle-thumb-height": `${layout.throttle.thumbHeightPx}px`,
+    "--hud-throttle-opacity": String(layout.throttle.opacity),
     // Tick pitch as a fraction of the track, so the scale is one repeating
     // gradient rather than N pooled DOM nodes.
     "--hud-throttle-tick-pct": `${layout.throttle.tickCount > 0 ? 100 / layout.throttle.tickCount : 100}%`,

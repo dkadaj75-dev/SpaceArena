@@ -129,6 +129,10 @@ export const gaugesSchema = z.object({
   offsetYPx: z.number().nonnegative().optional(),
   gapPx: z.number().nonnegative().optional(),
   trackHeightPx: z.number().positive().optional(),
+  /** Keep the legacy lower-left hull row. Defaults true for older themes. */
+  showHull: z.boolean().optional(),
+  /** Keep the legacy lower-left shield row. Defaults true for older themes. */
+  showShield: z.boolean().optional(),
   /**
    * Number of segment cells a gauge bar is divided into (the holographic
    * "cell bar" look). The fill is still continuous — the segments are a
@@ -137,6 +141,43 @@ export const gaugesSchema = z.object({
   segments: z.number().int().positive().optional(),
 });
 export type GaugesConfig = z.infer<typeof gaugesSchema>;
+
+/** Player-centred, ship-relative 3D sensor-disc presentation. */
+export const radarSchema = z.object({
+  /** Canvas side length before `hud.scale` is applied. */
+  sizePx: z.number().positive().optional(),
+  /** Sensor half-range in world units. */
+  rangeUnits: z.number().positive().optional(),
+  /** Apparent tilt of the horizontal radar plane. */
+  elevationDeg: z.number().min(5).max(80).optional(),
+  /** Strength of the ship-relative vertical displacement. */
+  altitudeScale: z.number().nonnegative().max(2).optional(),
+  /** Maximum on-screen length of one altitude stem. */
+  altitudeStemMaxPx: z.number().nonnegative().optional(),
+  /** Base radius of ship contact markers. */
+  contactSizePx: z.number().positive().optional(),
+  /** Opacity of disc rings, axes, and cardinal ticks. */
+  gridOpacity: z.number().min(0).max(1).optional(),
+});
+export type RadarConfig = z.infer<typeof radarSchema>;
+
+/** Subtle hull/shield arcs flanking the player's ship at screen centre. */
+export const vitalArcsSchema = z.object({
+  /** Defaults false so older themes retain their four lower-left bars. */
+  enabled: z.boolean().optional(),
+  /** Radius of the implied circle the left/right arcs follow. */
+  radiusPx: z.number().positive().optional(),
+  strokePx: z.number().positive().optional(),
+  /** Visible sweep of each side arc. */
+  arcDeg: z.number().min(30).max(180).optional(),
+  /** Signed vertical nudge from the viewport centre. */
+  offsetYPx: z.number().optional(),
+  /** Overall foreground opacity. */
+  opacity: z.number().min(0).max(1).optional(),
+  /** Empty-track opacity, before the overall opacity is applied. */
+  trackOpacity: z.number().min(0).max(1).optional(),
+});
+export type VitalArcsConfig = z.infer<typeof vitalArcsSchema>;
 
 /**
  * Look-only knobs shared by every HUD widget frame (the sci-fi shape language).
@@ -182,6 +223,8 @@ export const throttleStripSchema = z.object({
   offsetXPx: z.number().nonnegative().optional(),
   /** Extra push away from the anchored horizontal edge. */
   offsetYPx: z.number().nonnegative().optional(),
+  /** Overall control opacity. */
+  opacity: z.number().min(0).max(1).optional(),
   /**
    * Desktop W/S throttle-key ramp rate, in throttle fraction per second held.
    */
@@ -239,6 +282,8 @@ export type FireButtonConfig = z.infer<typeof fireButtonSchema>;
  * than the camera's field of view on screen.
  */
 export const lockReticleSchema = z.object({
+  /** Show the full projected lock-cone circle. Target brackets remain active. */
+  showZone: z.boolean().optional(),
   /** Ceiling on the reticle radius as a fraction of the viewport's SHORT side / 2. */
   maxRadiusFraction: z.number().gt(0).max(1).optional(),
   /** Circle stroke width. */
@@ -356,8 +401,10 @@ export const hudOrientationSchema = z.object({
   safeAreaInsetPx: z.number().nonnegative().optional(),
   minimapSizePx: z.number().positive().optional(),
   minimapAltitudeTickPx: z.number().nonnegative().optional(),
+  radar: radarSchema.optional(),
   gaugeWidthPx: z.number().positive().optional(),
   gauges: gaugesSchema.optional(),
+  vitalArcs: vitalArcsSchema.optional(),
   thumbZoneFraction: z.number().gt(0).max(1).optional(),
   moduleCluster: moduleClusterSchema.optional(),
   /** Flight-control geometry for this orientation (merged per sub-block). */
@@ -632,10 +679,14 @@ export const themeSchema = z.object({
        * this many px. 0 hides the ticks.
        */
       minimapAltitudeTickPx: z.number().nonnegative().optional(),
+      /** Player-centred 3D sensor disc. Legacy minimap fields remain fallbacks. */
+      radar: radarSchema.optional(),
       /** Width of the hull/shield/energy/heat gauge bars. */
       gaugeWidthPx: z.number().positive().optional(),
       /** Status-gauge placement and bar geometry. */
       gauges: gaugesSchema.optional(),
+      /** Hull/shield arcs flanking the ship at the viewport centre. */
+      vitalArcs: vitalArcsSchema.optional(),
       /** Chamfer / glow / panel-fill knobs shared by every HUD widget frame. */
       style: hudStyleSchema.optional(),
       /** Max simultaneously visible toast notifications. */

@@ -44,13 +44,18 @@ export function arenaModelRenders(configs: ConfigService, arenaId: string): Rend
 }
 
 /**
- * Kick off (once) every model load the arena needs. Fire-and-forget: a model
- * that has not landed by the time the first snapshot arrives just means those
- * rocks render as their procedural fallback for that match — `getAsteroidMaster`
- * resolves once per asteroid at spawn, so nothing pops mid-match.
+ * Load (once) every model the arena needs. Match startup awaits this promise
+ * before constructing the synchronous asteroid views, so a valid authored GLB
+ * cannot lose a race with the first snapshot. `ensureModel` resolves `null` on
+ * an actual load/decode failure, preserving the procedural fallback for that
+ * failure case without making it the normal first-match path.
  */
-export function preloadArenaModels(assets: AssetRegistry, configs: ConfigService, arenaId: string): void {
-  for (const render of arenaModelRenders(configs, arenaId)) void assets.ensureModel(render);
+export async function preloadArenaModels(
+  assets: AssetRegistry,
+  configs: ConfigService,
+  arenaId: string,
+): Promise<void> {
+  await Promise.all(arenaModelRenders(configs, arenaId).map((render) => assets.ensureModel(render)));
 }
 
 /** Every authored ship GLB, independent of the active quality tier. */
@@ -63,8 +68,8 @@ export function shipModelRenders(configs: ConfigService): RenderRecipe[] {
 
 /**
  * Ship views choose their master synchronously and keep it for their lifetime,
- * so bootstrap must await these loads. Asteroids intentionally remain
- * fire-and-forget and may be quality-gated; ships never are.
+ * so bootstrap must await these loads. Arena asteroid loads are likewise
+ * awaited when a match resolves its arena; ships are loaded once up front.
  */
 export async function preloadShipModels(assets: AssetRegistry, configs: ConfigService): Promise<void> {
   await Promise.all(shipModelRenders(configs).map((render) => assets.ensureModel(render)));

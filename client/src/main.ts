@@ -273,13 +273,13 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // Asteroid hulls are preloaded per-ARENA (unlike ship hulls, which are all
   // preloaded up front): which rocks a match needs is a property of its arena,
   // and they are ~1 MB each. Kicked off here for the fallback arena and again
-  // in `setArena` as soon as a match resolves the real one, so the loads are in
-  // flight well before the first snapshot creates any asteroid view.
-  preloadArenaModels(preloadAssets, configService, currentArenaId);
+  // in `setArena` as soon as a match resolves the real one. Match activation
+  // also awaits that resolved arena below before creating any asteroid view.
+  void preloadArenaModels(preloadAssets, configService, currentArenaId);
   bus.on("config:changed", (evt) => {
     // Authoring a rock model in the dev editor should not need a page reload.
     if (evt.type === "arena" || evt.type === "asteroid") {
-      preloadArenaModels(preloadAssets, configService, currentArenaId);
+      void preloadArenaModels(preloadAssets, configService, currentArenaId);
     }
   });
 
@@ -300,7 +300,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     if (arenaId === currentArenaId) return;
     currentArenaId = arenaId;
     sceneBuilder.buildArena(currentArenaId);
-    preloadArenaModels(preloadAssets, configService, currentArenaId);
+    void preloadArenaModels(preloadAssets, configService, currentArenaId);
   }
 
   // Camera follows a lightweight node tracking the (moving) player ship
@@ -468,6 +468,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     audio.setMasterVolume(values.masterVolume, { persist: false });
     audio.setSfxVolume(values.sfxVolume, { persist: false });
     tacticalCamera.setPanSensitivityScale(values.cameraPanSens);
+    tacticalCamera.setChaseDistanceScale(values.cameraDistanceScale);
     runtime?.screenShake.setUserEnabled(values.cameraShake);
     runtime?.hud.setHapticsEnabled(values.haptics);
     runtime?.hud.setInvertPitch(values.invertPitch);
@@ -731,6 +732,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         session.dispose();
         return;
       }
+      await prepareSessionArena(session);
+      if (run !== matchmakingRun) {
+        session.dispose();
+        return;
+      }
       matchmakingScreen.hide();
       activateSession(session, choice);
     } catch (err) {
@@ -784,6 +790,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
               // upgrade levels from the DB. See LocalPredictionHints.
               { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
             );
+      await prepareSessionArena(session);
       activateSession(session, choice);
     } catch (err) {
       log.error("failed to start match", err);
@@ -801,8 +808,17 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     }
   }
 
-  function activateSession(session: GameSession, choice: LobbyChoice): void {
+  /**
+   * Resolve and fully preload an arena before any synchronous entity view can
+   * choose (and retain) a procedural fallback master for its asteroid.
+   */
+  async function prepareSessionArena(session: GameSession): Promise<void> {
     setArena(session.arenaId);
+    await preloadArenaModels(preloadAssets, configService, session.arenaId);
+  }
+
+  /** Activate a session whose arena assets have already been prepared. */
+  function activateSession(session: GameSession, choice: LobbyChoice): void {
     runtime = createMatchRuntime(session);
     lastChoice = choice;
     applyUserSettings();

@@ -10,6 +10,11 @@ exactly one live pack, in the directory `CONTENT_DIR` points at. That directory
 is what `express.static` serves at `/content/*`, what `ConfigService` loads at
 boot, and what every room reads its rules from.
 
+> **Shipped asteroid presentation (2026-07-30):** low, medium, and high all
+> retain authored asteroid GLBs for every visible LOD. Procedural recipes remain
+> mandatory as the missing/corrupt-model fallback, not as the normal low-tier
+> presentation. Arena assets are awaited before entity views are constructed.
+
 The shipped pack contains two arenas, both fully supported — add either to a
 gamemode's `defaultArena`, or pass `arena` as a join option:
 

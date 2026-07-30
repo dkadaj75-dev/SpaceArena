@@ -11,6 +11,7 @@ import {
 } from "@space-arena/shared";
 import { GameSession } from "./GameSession.js";
 import { Minimap } from "./hud/Minimap.js";
+import { resolveHudLayout } from "./hud/hudLayout.js";
 
 /**
  * Real content pack, loaded off disk. `shared`'s `loadTestConfigs` resolves it
@@ -80,10 +81,12 @@ describe("GameSession.arenaId", () => {
  * Records every `arc` the minimap draws. happy-dom has no real 2D context, so the
  * prototype is patched for the duration of the test (restored by `restore()`).
  */
-function stubCanvas(): { arcs: number[][]; restore: () => void } {
+function stubCanvas(): { arcs: number[][]; ellipses: number[][]; restore: () => void } {
   const arcs: number[][] = [];
+  const ellipses: number[][] = [];
   const ctx = {
     arc: (...args: number[]) => arcs.push(args),
+    ellipse: (...args: number[]) => ellipses.push(args),
     setTransform: () => undefined,
     clearRect: () => undefined,
     beginPath: () => undefined,
@@ -103,7 +106,7 @@ function stubCanvas(): { arcs: number[][]; restore: () => void } {
   const proto = HTMLCanvasElement.prototype as unknown as { getContext: unknown };
   const original = proto.getContext;
   proto.getContext = () => ctx;
-  return { arcs, restore: () => (proto.getContext = original) };
+  return { arcs, ellipses, restore: () => (proto.getContext = original) };
 }
 
 const EMPTY_SNAPSHOT: Snapshot = {
@@ -124,6 +127,11 @@ function bubbleRadiusOf(arenaId: string): number {
 }
 
 describe("Minimap arena resolution", () => {
+  const legacyLayout = () =>
+    resolveHudLayout(
+      { id: "theme.test", type: "theme", version: 1, colors: {}, hud: { minimapSizePx: 128 } } as ThemeConfig,
+      { width: 128, height: 256 },
+    );
   /**
    * The view range follows the SESSION's arena (the shipped theme deliberately
    * declares no `minimapRangeUnits`, so a radius-90 nebula and a radius-300 deep
@@ -131,18 +139,38 @@ describe("Minimap arena resolution", () => {
    * world point the discriminator: the top-down bubble silhouette alone clamps to the dial
    * edge on every arena and would pass against a hardcoded id.
    */
-  function plotAsteroidAt(arenaId: string, worldX: number): number {
+  function plotAsteroidAt(arenaId: string, worldZ: number): number {
     const { arcs, restore } = stubCanvas();
     const session = { arenaId, playerId: 1, playerTeam: 0 } as unknown as GameSession;
     const minimap = new Minimap(document.createElement("div"), configs, bus, session);
+    minimap.applyLayout(legacyLayout());
     minimap.update(
-      { ...EMPTY_SNAPSHOT, asteroids: [{ id: 0, configId: "a", pos: { x: worldX, y: 0, z: 0 }, radius: 1, state: "intact" }] },
+      {
+        ...EMPTY_SNAPSHOT,
+        ships: [{
+          id: 1,
+          team: 0,
+          pos: { x: 0, y: 0, z: 0 },
+          heading: 0,
+          pitch: 0,
+          hull: 100,
+          hullMax: 100,
+          energy: { cur: 100, max: 100 },
+          heat: { cur: 0, capacity: 100 },
+          targetId: null,
+          throttle: 0,
+          lockProgress: 0,
+          locked: false,
+          modules: [],
+        }],
+        asteroids: [{ id: 0, configId: "a", pos: { x: 0, y: 0, z: worldZ }, radius: 1, state: "intact" }],
+      },
       200,
     );
     minimap.dispose();
     restore();
-    expect(arcs.length).toBe(2); // bubble silhouette + the one asteroid
-    return arcs[1]![0]!; // asteroid centre x, in canvas px
+    expect(arcs.length).toBe(1); // the one asteroid; radar grid uses ellipses
+    return arcs[0]![0]!; // asteroid centre x, in canvas px
   }
 
   it("scales the view to the session's arena, not a hardcoded one", () => {
@@ -150,27 +178,31 @@ describe("Minimap arena resolution", () => {
     const half = (theme?.hud?.minimapSizePx ?? 128) / 2;
     expect(theme?.hud?.minimapRangeUnits).toBeUndefined(); // else this proves nothing
 
-    const scale = half / SECOND_ARENA_RADIUS;
-    expect(plotAsteroidAt(SECOND_ARENA_ID, 25)).toBeCloseTo(half + 25 * scale, 6);
+    const radarRadius = (theme?.hud?.minimapSizePx ?? 128) * 0.43;
+    const scale = radarRadius / SECOND_ARENA_RADIUS;
+    // Heading zero faces +X, so world -Z is screen-right on the ship-relative radar.
+    expect(plotAsteroidAt(SECOND_ARENA_ID, -25)).toBeCloseTo(half + 25 * scale, 6);
     // Guard: the old hardcoded arena has a different radius, hence a different
     // scale, hence a visibly different dot position for the same world point.
-    expect(plotAsteroidAt("arena.ring-nebula", 25)).toBeCloseTo(
-      half + 25 * (half / bubbleRadiusOf("arena.ring-nebula")),
+    expect(plotAsteroidAt("arena.ring-nebula", -25)).toBeCloseTo(
+      half + 25 * (radarRadius / bubbleRadiusOf("arena.ring-nebula")),
       6,
     );
-    expect(plotAsteroidAt(SECOND_ARENA_ID, 25)).not.toBeCloseTo(plotAsteroidAt("arena.ring-nebula", 25), 3);
+    expect(plotAsteroidAt(SECOND_ARENA_ID, -25)).not.toBeCloseTo(plotAsteroidAt("arena.ring-nebula", -25), 3);
   });
 
-  it("still draws the top-down bubble silhouette from the arena config", () => {
-    const { arcs, restore } = stubCanvas();
+  it("draws a tilted three-ring sensor disc even before contacts arrive", () => {
+    const { ellipses, restore } = stubCanvas();
     const session = { arenaId: SECOND_ARENA_ID, playerId: 1, playerTeam: 0 } as unknown as GameSession;
     const minimap = new Minimap(document.createElement("div"), configs, bus, session);
+    minimap.applyLayout(legacyLayout());
     minimap.update(EMPTY_SNAPSHOT, 200);
 
     const half = (configs.get<ThemeConfig>("theme", "theme.default")?.hud?.minimapSizePx ?? 128) / 2;
-    expect(arcs.length).toBe(1);
-    expect(arcs[0]![0]).toBe(half);
-    expect(arcs[0]![1]).toBe(half);
+    expect(ellipses.length).toBe(3);
+    expect(ellipses[0]![0]).toBe(half);
+    expect(ellipses[0]![1]).toBeCloseTo((half * 2) * 0.54, 6);
+    expect(ellipses[0]![2]).toBeGreaterThan(ellipses[0]![3]!);
 
     minimap.dispose();
     restore();

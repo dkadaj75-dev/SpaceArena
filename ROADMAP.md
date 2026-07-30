@@ -14,6 +14,13 @@
 > input or camera**, `docs/FLIGHT.md` is the contract and this document is
 > history. In particular these are **retired, not deferred**:
 >
+> **Presentation amendment (2026-07-30):** authored asteroid GLBs remain visible
+> on every quality tier; the chase camera is closer and locally adjustable; the
+> live HUD uses a subtle player-relative 3D radar, centre hull/shield arcs,
+> energy/heat-only lower-left gauges, and a tighter module/FIRE cluster without
+> the decorative FIRE or lock-zone circles. This also supersedes the stale
+> flat-minimap/HUD-furniture sentence above.
+>
 > | Retired | Replaced by (FLIGHT.md) |
 > |---|---|
 > | Tap-to-move, `move` orders, `MoveOrder`, seek/arrival steering, asteroid avoidance | Level-triggered `flight` order (throttle / turn / boost), §1 |

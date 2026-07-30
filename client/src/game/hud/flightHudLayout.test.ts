@@ -66,6 +66,8 @@ describe("resolveFlightHudLayout", () => {
       expo: 1.35,
     });
     expect(layout.throttle.heightPx).toBe(200);
+    expect(layout.throttle.opacity).toBe(1);
+    expect(layout.reticle.showZone).toBe(true);
     expect(layout.fire).toEqual({
       anchor: "bottom-right",
       radiusPx: 34,
@@ -128,6 +130,16 @@ describe("resolveFlightHudLayout", () => {
     const custom = theme({ flight: { throttle: { wheelStepPerNotch: 0.25 } } });
     // Feel, not geometry: never scaled.
     expect(resolveFlightHudLayout(custom, LANDSCAPE).throttle.wheelStepPerNotch).toBe(0.25);
+  });
+
+  it("resolves throttle opacity and the optional lock-zone visibility switch", () => {
+    const layout = resolveFlightHudLayout(
+      theme({ flight: { throttle: { opacity: 0.6 }, reticle: { showZone: false } } }),
+      PORTRAIT,
+    );
+    expect(layout.throttle.opacity).toBe(0.6);
+    expect(layout.reticle.showZone).toBe(false);
+    expect(flightCssVars(layout)["--hud-throttle-opacity"]).toBe("0.6");
   });
 
   it("falls back to the built-in defaults for a theme with no flight block at all", () => {
@@ -265,12 +277,13 @@ describe("shipped phone control geometry", () => {
       flight.fire.offsetYPx,
       flight.fire.radiusPx,
     );
+    const fireRingVisible = flight.fire.ringArcDeg > 0 && flight.fire.ringStrokePx > 0;
     controls.push(
       around(
-        "fire-ring",
+        fireRingVisible ? "fire-ring" : "fire",
         fireCorner.x + fireOffset.dx,
         fireCorner.y + fireOffset.dy,
-        flight.fire.radiusPx + flight.fire.ringGapPx,
+        flight.fire.radiusPx + (fireRingVisible ? flight.fire.ringGapPx : 0),
       ),
     );
 

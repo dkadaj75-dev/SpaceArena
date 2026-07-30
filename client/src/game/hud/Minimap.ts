@@ -1,29 +1,30 @@
 import type {
   ArenaConfig,
+  ConfigEvents,
   ConfigService,
   EntityId,
   EventBus,
-  ConfigEvents,
+  ShipSnapshot,
   Snapshot,
   ThemeConfig,
 } from "@space-arena/shared";
-import { canonicalAttitude, createLogger, type Attitude } from "@space-arena/shared";
+import { createLogger } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
-import { altitudeTickPx, DEFAULT_ALTITUDE_TICK_PX } from "./minimapAltitude.js";
+import type { HudLayout } from "./hudLayout.js";
+import {
+  projectRadarPoint,
+  radarLocalPoint,
+  type RadarLocalPoint,
+  type RadarProjectedPoint,
+  type RadarProjectionGeometry,
+} from "./radarProjection.js";
 
-const log = createLogger("HudMinimap");
+const log = createLogger("HudRadar");
+const REDRAW_INTERVAL_MS = 50; // 20 Hz: smooth stems, still independent of render FPS.
 
-const REDRAW_INTERVAL_MS = 100; // ~10 Hz, per spec
+const localScratch: RadarLocalPoint = { right: 0, up: 0, forward: 0 };
+const projectedScratch: RadarProjectedPoint = { x: 0, baseY: 0, tipY: 0, outOfRange: false };
 
-/** Scratch attitude for blip facing — the draw loop stays allocation-free. */
-const blipAttitude: Attitude = { heading: 0, pitch: 0 };
-
-/**
- * The bubble's radius, or a `rect` arena approximated by its half-diagonal, so the
- * minimap scale still fits it. The minimap keeps its top-down (x,z) projection;
- * the third axis arrives as a per-blip altitude tick (BUBBLE.md §C, see
- * {@link altitudeTickPx}).
- */
 function boundsRadius(arena: ArenaConfig | undefined): number | undefined {
   if (!arena) return undefined;
   const b = arena.bounds;
@@ -31,29 +32,33 @@ function boundsRadius(arena: ArenaConfig | undefined): number | undefined {
 }
 
 /**
- * 2D canvas minimap (top-left, §2.3/§6 1.8): a top-down bubble silhouette,
- * asteroid dots, ships as team-colored blips, player heading tick. Cheap: redrawn at
- * ~10 Hz regardless of render frame rate, fixed device-pixel canvas size.
+ * Player-centred 3D tactical radar. The tilted disc carries right/forward;
+ * lollipop stems carry ship-relative elevation, including through full loops.
  */
 export class Minimap {
   private readonly container: HTMLDivElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly scaleEl: HTMLDivElement;
   private readonly ctx: CanvasRenderingContext2D;
-  /**
-   * Blip colors read out of the live theme (the `--hud-*` custom properties the
-   * Hud writes onto `#hud`). Resolved once per theme change, never per draw:
-   * `getComputedStyle` is a layout-flushing read and this runs at ~10 Hz.
-   */
   private palette = { friendly: "#39bfff", hostile: "#ff405c", neutral: "#7f9dc4" };
-  /** The arena the *sim* resolved — never a hardcoded id (FLIGHT.md §6). */
   private readonly arenaId: string;
   private arena: ArenaConfig | undefined;
-  private rangeUnits = 100;
+  private authoredRangeUnits: number | undefined;
   private sizePx = 128;
-  /** Saturation length of the relative-altitude ticks (0 hides them). */
-  private altitudeTickMaxPx = DEFAULT_ALTITUDE_TICK_PX;
-  private accMs = REDRAW_INTERVAL_MS; // draw immediately on first frame
+  private rangeUnits = 100;
+  private contactSizePx = 3.5;
+  private gridOpacity = 0.22;
+  private geometry: RadarProjectionGeometry = {
+    centreX: 64,
+    centreY: 68,
+    radiusX: 54,
+    radiusY: 27,
+    rangeUnits: 100,
+    elevationRad: Math.PI / 6,
+    altitudeScale: 0.65,
+    altitudeStemMaxPx: 20,
+  };
+  private accMs = REDRAW_INTERVAL_MS;
 
   constructor(
     root: HTMLElement,
@@ -62,58 +67,65 @@ export class Minimap {
     private readonly session: GameSession,
   ) {
     this.container = document.createElement("div");
-    // Shares the chamfered rim + translucent fill treatment with the gauge
-    // cluster (hudStyle.ts `.hud-frame`).
-    this.container.className = "hud-minimap hud-frame";
+    this.container.className = "hud-minimap hud-radar";
     root.appendChild(this.container);
 
     this.canvas = document.createElement("canvas");
     this.container.appendChild(this.canvas);
-
-    // Range readout tucked into the frame — the map is now bevelled rather than
-    // circular, so the scale it is drawn at should be legible rather than implied.
     this.scaleEl = document.createElement("div");
     this.scaleEl.className = "hud-minimap-scale";
     this.container.appendChild(this.scaleEl);
 
     const ctx = this.canvas.getContext("2d");
-    if (!ctx) throw new Error("Minimap: 2D canvas context unavailable");
+    if (!ctx) throw new Error("Radar: 2D canvas context unavailable");
     this.ctx = ctx;
 
     this.arenaId = session.arenaId;
     this.arena = configs.get<ArenaConfig>("arena", this.arenaId);
     if (!this.arena) log.warn(`arena config not found: ${this.arenaId}`);
-
-    this.applySize();
+    this.readPalette(configs.get<ThemeConfig>("theme", "theme.default"));
+    this.updateRange();
     this.resizeCanvas();
 
     this.bus.on("config:changed", (evt) => {
       if (evt.type === "theme") {
-        this.applySize();
-        this.resizeCanvas();
-      } else if (evt.id === this.arenaId) {
-        this.arena = configs.get<ArenaConfig>("arena", this.arenaId);
+        this.readPalette(this.configs.get<ThemeConfig>("theme", "theme.default"));
+      } else if (evt.type === "arena" && evt.id === this.arenaId) {
+        this.arena = this.configs.get<ArenaConfig>("arena", this.arenaId);
+        this.updateRange();
       }
     });
   }
 
-  private applySize(): void {
-    const theme = this.configs.get<ThemeConfig>("theme", "theme.default");
-    this.sizePx = theme?.hud?.minimapSizePx ?? 128;
-    this.rangeUnits = theme?.hud?.minimapRangeUnits ?? boundsRadius(this.arena) ?? 100;
-    this.altitudeTickMaxPx = theme?.hud?.minimapAltitudeTickPx ?? DEFAULT_ALTITUDE_TICK_PX;
-    this.scaleEl.textContent = `${Math.round(this.rangeUnits)} U`;
-    this.readPalette(theme);
+  /** Adopt the orientation-aware, scaled theme layout. */
+  applyLayout(layout: HudLayout): void {
+    const radar = layout.radar;
+    this.sizePx = radar.sizePx;
+    this.authoredRangeUnits = radar.rangeUnits;
+    this.contactSizePx = radar.contactSizePx;
+    this.gridOpacity = radar.gridOpacity;
+    const radiusX = this.sizePx * 0.43;
+    this.geometry = {
+      centreX: this.sizePx / 2,
+      centreY: this.sizePx * 0.54,
+      radiusX,
+      radiusY: radiusX * Math.sin((radar.elevationDeg * Math.PI) / 180),
+      rangeUnits: this.rangeUnits,
+      elevationRad: (radar.elevationDeg * Math.PI) / 180,
+      altitudeScale: radar.altitudeScale,
+      altitudeStemMaxPx: radar.altitudeStemMaxPx,
+    };
+    this.updateRange();
+    this.resizeCanvas();
+    this.accMs = REDRAW_INTERVAL_MS;
   }
 
-  /**
-   * Canvas has no access to CSS custom properties, so the blip colors are
-   * lifted out of the theme config directly (with the resolved computed value
-   * as the fallback, which is what a pack that overrides `--hud-primary`
-   * through some other route would want). Blips are the ONLY place the HUD
-   * paints pixels rather than DOM, so this is the one place a color has to be
-   * copied instead of inherited.
-   */
+  private updateRange(): void {
+    this.rangeUnits = this.authoredRangeUnits ?? boundsRadius(this.arena) ?? 100;
+    this.geometry.rangeUnits = this.rangeUnits;
+    this.scaleEl.textContent = `R ${Math.round(this.rangeUnits)}`;
+  }
+
   private readPalette(theme: ThemeConfig | undefined): void {
     const colors = theme?.colors ?? {};
     const computed =
@@ -124,7 +136,7 @@ export class Minimap {
       const authored = colors[prop]?.trim();
       if (authored) return authored;
       const resolved = computed?.getPropertyValue(prop).trim();
-      return resolved ? resolved : fallback;
+      return resolved || fallback;
     };
     this.palette = {
       friendly: pick("--hud-primary", "#39bfff"),
@@ -149,91 +161,108 @@ export class Minimap {
 
   private draw(cur: Snapshot): void {
     const ctx = this.ctx;
-    const size = this.sizePx;
-    const half = size / 2;
-    const scale = half / this.rangeUnits;
+    const g = this.geometry;
+    ctx.clearRect(0, 0, this.sizePx, this.sizePx);
+    this.drawDisc();
 
-    ctx.clearRect(0, 0, size, size);
+    const player = findShip(cur, this.session.playerId);
+    if (!player) return;
 
-    // Instrument crosshair + top-down bubble silhouette. The cross is the map's
-    // own frame of reference (the player is always at the centre), drawn faint
-    // enough that a blip on top of it still reads.
-    ctx.strokeStyle = withAlpha(this.palette.friendly, 0.18);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(half, 3);
-    ctx.lineTo(half, size - 3);
-    ctx.moveTo(3, half);
-    ctx.lineTo(size - 3, half);
-    ctx.stroke();
-
-    const radius = boundsRadius(this.arena);
-    if (radius !== undefined) {
-      ctx.strokeStyle = withAlpha(this.palette.friendly, 0.34);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(half, half, Math.min(half - 1, radius * scale), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    // Asteroids: dim neutral dots.
-    ctx.fillStyle = withAlpha(this.palette.neutral, 0.75);
+    // Nearby asteroids stay quiet and never pin to the rim: the disc is a
+    // tactical aid, not a second starfield.
+    ctx.fillStyle = withAlpha(this.palette.neutral, 0.42);
     for (let i = 0; i < cur.asteroids.length; i++) {
-      const a = cur.asteroids[i]!;
-      if (a.state === "destroyed") continue;
-      const px = half + a.pos.x * scale;
-      const py = half + a.pos.z * scale;
+      const asteroid = cur.asteroids[i]!;
+      if (asteroid.state === "destroyed") continue;
+      this.project(asteroid.pos.x, asteroid.pos.y, asteroid.pos.z, player);
+      if (projectedScratch.outOfRange) continue;
       ctx.beginPath();
-      ctx.arc(px, py, Math.max(1, a.radius * scale), 0, Math.PI * 2);
+      ctx.arc(projectedScratch.x, projectedScratch.tipY, Math.max(0.8, Math.min(2.4, asteroid.radius * 0.08)), 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Ships: team-colored triangles; player gets a heading wedge, everyone else
-    // an altitude tick relative to the player (BUBBLE.md §C).
-    const player = findShipPos(cur, this.session.playerId);
     for (let i = 0; i < cur.ships.length; i++) {
-      const s = cur.ships[i]!;
-      const px = half + s.pos.x * scale;
-      const py = half + s.pos.z * scale;
-      const isPlayer = s.id === this.session.playerId;
-      const color = isPlayer || s.team === this.session.playerTeam ? this.palette.friendly : this.palette.hostile;
-      const r = isPlayer ? 5 : 4;
+      const ship = cur.ships[i]!;
+      if (ship.id === player.id) continue;
+      this.project(ship.pos.x, ship.pos.y, ship.pos.z, player);
+      const color = ship.team === this.session.playerTeam ? this.palette.friendly : this.palette.hostile;
+      const alpha = projectedScratch.outOfRange ? 0.34 : 0.82;
 
-      ctx.save();
-      ctx.translate(px, py);
-      // Sim heading is math-convention (0 = +X). The triangle points up
-      // (canvas −y = world −z) at rotation 0, so rotate by π/2 + heading.
-      //
-      // The CANONICAL heading, not the raw one (BUBBLE.md §A): the minimap is a
-      // top-down projection, so what it must show is the direction the ship is
-      // travelling ACROSS the map, and past vertical `cos pitch` goes negative and
-      // that direction is 180° from what `heading` alone names. Drawing the raw
-      // value would point every looping ship — the player's own wedge included —
-      // backwards for half of every loop.
-      canonicalAttitude(s.heading, s.pitch, blipAttitude);
-      ctx.rotate(Math.PI / 2 + blipAttitude.heading);
-      ctx.fillStyle = color;
+      // Lollipop: foot on the tilted plane, stem to true ship-relative height.
+      ctx.strokeStyle = withAlpha(color, alpha * 0.55);
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(0, -r);
-      ctx.lineTo(r * 0.7, r * 0.8);
-      ctx.lineTo(-r * 0.7, r * 0.8);
+      ctx.moveTo(projectedScratch.x, projectedScratch.baseY);
+      ctx.lineTo(projectedScratch.x, projectedScratch.tipY);
+      ctx.stroke();
+      ctx.fillStyle = withAlpha(color, alpha * 0.45);
+      ctx.beginPath();
+      ctx.arc(projectedScratch.x, projectedScratch.baseY, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      const r = this.contactSizePx * (projectedScratch.outOfRange ? 0.75 : 1);
+      ctx.fillStyle = withAlpha(color, alpha);
+      ctx.beginPath();
+      ctx.moveTo(projectedScratch.x, projectedScratch.tipY - r);
+      ctx.lineTo(projectedScratch.x + r, projectedScratch.tipY);
+      ctx.lineTo(projectedScratch.x, projectedScratch.tipY + r);
+      ctx.lineTo(projectedScratch.x - r, projectedScratch.tipY);
       ctx.closePath();
       ctx.fill();
-      ctx.restore();
 
-      // Drawn OUTSIDE the rotated frame: the tick is a screen-space up/down cue,
-      // not part of the blip's facing. Nothing to draw for the player (its own
-      // altitude is the reference) or for a contact on the same level.
-      if (isPlayer || !player) continue;
-      const tick = altitudeTickPx(s.pos.y - player.y, scale, this.altitudeTickMaxPx);
-      if (tick === 0) continue;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
+      if (ship.id === player.targetId) {
+        ctx.strokeStyle = withAlpha(color, 0.9);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(projectedScratch.x, projectedScratch.tipY, r + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // Own-ship chevron at the radar origin, always pointing toward disc-forward.
+    ctx.strokeStyle = this.palette.friendly;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(g.centreX - 4, g.centreY + 3);
+    ctx.lineTo(g.centreX, g.centreY - 4);
+    ctx.lineTo(g.centreX + 4, g.centreY + 3);
+    ctx.stroke();
+  }
+
+  private project(x: number, y: number, z: number, player: ShipSnapshot): void {
+    radarLocalPoint(
+      x - player.pos.x,
+      y - player.pos.y,
+      z - player.pos.z,
+      player.heading,
+      player.pitch,
+      localScratch,
+    );
+    projectRadarPoint(localScratch, this.geometry, projectedScratch);
+  }
+
+  private drawDisc(): void {
+    const ctx = this.ctx;
+    const g = this.geometry;
+    ctx.fillStyle = withAlpha(this.palette.friendly, 0.025);
+    ctx.beginPath();
+    ctx.ellipse(g.centreX, g.centreY, g.radiusX, g.radiusY, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = withAlpha(this.palette.friendly, this.gridOpacity);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    for (const scale of [0.66, 0.33]) {
       ctx.beginPath();
-      ctx.moveTo(px + r, py);
-      ctx.lineTo(px + r, py + tick);
+      ctx.ellipse(g.centreX, g.centreY, g.radiusX * scale, g.radiusY * scale, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
+    ctx.strokeStyle = withAlpha(this.palette.friendly, this.gridOpacity * 0.7);
+    ctx.beginPath();
+    ctx.moveTo(g.centreX - g.radiusX, g.centreY);
+    ctx.lineTo(g.centreX + g.radiusX, g.centreY);
+    ctx.moveTo(g.centreX, g.centreY - g.radiusY);
+    ctx.lineTo(g.centreX, g.centreY + g.radiusY);
+    ctx.stroke();
   }
 
   dispose(): void {
@@ -241,13 +270,6 @@ export class Minimap {
   }
 }
 
-/**
- * A themed color at a given alpha, for the canvas's structural lines. Handles
- * the `#rgb`/`#rrggbb` a theme actually authors; anything else (a named color,
- * an `rgb()` string a browser resolved) is returned unchanged with
- * `globalAlpha` left to the caller — the lines are decoration, and a slightly
- * too-bright grid is a better failure than a thrown exception mid-draw.
- */
 function withAlpha(color: string, alpha: number): string {
   const hex = color.trim();
   const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(hex);
@@ -259,8 +281,9 @@ function withAlpha(color: string, alpha: number): string {
   return `rgba(${parts[0]},${parts[1]},${parts[2]},${alpha})`;
 }
 
-/** Indexed scan (no per-draw closure) for a ship's position by id. */
-function findShipPos(snap: Snapshot, id: EntityId): { x: number; y: number; z: number } | undefined {
-  for (let i = 0; i < snap.ships.length; i++) if (snap.ships[i]!.id === id) return snap.ships[i]!.pos;
+function findShip(snapshot: Snapshot, id: EntityId): ShipSnapshot | undefined {
+  for (let i = 0; i < snapshot.ships.length; i++) {
+    if (snapshot.ships[i]!.id === id) return snapshot.ships[i];
+  }
   return undefined;
 }

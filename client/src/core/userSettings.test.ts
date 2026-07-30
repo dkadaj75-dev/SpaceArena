@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  CAMERA_DISTANCE_KEY,
+  CAMERA_DISTANCE_MAX,
+  CAMERA_DISTANCE_MIN,
   CAMERA_PAN_SENS_KEY,
   CAMERA_SHAKE_KEY,
+  clampCameraDistance,
   clampPanSens,
   clampSteerSens,
   DEFAULT_USER_SETTINGS,
@@ -81,6 +85,16 @@ describe("readUserSettings", () => {
     expect(readUserSettings(fakeStorage({ [CAMERA_PAN_SENS_KEY]: "abc" })).cameraPanSens).toBe(1);
   });
 
+  it("clamps a hand-edited camera distance and ignores garbage", () => {
+    expect(readUserSettings(fakeStorage({ [CAMERA_DISTANCE_KEY]: "9" })).cameraDistanceScale).toBe(
+      CAMERA_DISTANCE_MAX,
+    );
+    expect(readUserSettings(fakeStorage({ [CAMERA_DISTANCE_KEY]: "0" })).cameraDistanceScale).toBe(
+      CAMERA_DISTANCE_MIN,
+    );
+    expect(readUserSettings(fakeStorage({ [CAMERA_DISTANCE_KEY]: "abc" })).cameraDistanceScale).toBe(1);
+  });
+
   it("reads and clamps the independent steering multipliers", () => {
     const settings = readUserSettings(fakeStorage({
       [MOUSE_STEER_SENS_KEY]: "9",
@@ -106,6 +120,7 @@ describe("settingsToStorage", () => {
     expect(settingsToStorage({ masterVolume: 0.5 })).toEqual([[VOLUME_MASTER_KEY, "0.5"]]);
     expect(settingsToStorage({ sfxVolume: 0.5 })).toEqual([[VOLUME_SFX_KEY, "0.5"]]);
     expect(settingsToStorage({ renderer: "webgpu" })).toEqual([[RENDERER_KEY, "webgpu"]]);
+    expect(settingsToStorage({ cameraDistanceScale: 1.25 })).toEqual([[CAMERA_DISTANCE_KEY, "1.25"]]);
     expect(settingsToStorage({ mouseSteerSens: 1.5 })).toEqual([[MOUSE_STEER_SENS_KEY, "1.5"]]);
     expect(settingsToStorage({ touchSteerSens: 0.75 })).toEqual([[TOUCH_STEER_SENS_KEY, "0.75"]]);
   });
@@ -116,6 +131,7 @@ describe("settingsToStorage", () => {
     expect(settingsToStorage({ haptics: true })).toEqual([[HAPTICS_KEY, null]]);
     expect(settingsToStorage({ cameraShake: true })).toEqual([[CAMERA_SHAKE_KEY, null]]);
     expect(settingsToStorage({ cameraPanSens: 1 })).toEqual([[CAMERA_PAN_SENS_KEY, null]]);
+    expect(settingsToStorage({ cameraDistanceScale: 1 })).toEqual([[CAMERA_DISTANCE_KEY, null]]);
     // ...and so does a non-inverted pitch axis, which is the default.
     expect(settingsToStorage({ invertPitch: false })).toEqual([[INVERT_PITCH_KEY, null]]);
     expect(settingsToStorage({ mouseSteerSens: 1 })).toEqual([[MOUSE_STEER_SENS_KEY, null]]);
@@ -133,6 +149,13 @@ describe("settingsToStorage", () => {
     expect(settingsToStorage({ cameraPanSens: 99 })).toEqual([[CAMERA_PAN_SENS_KEY, String(PAN_SENS_MAX)]]);
   });
 
+  it("clamps and rounds camera distance before storing it", () => {
+    expect(settingsToStorage({ cameraDistanceScale: 1.234 })).toEqual([[CAMERA_DISTANCE_KEY, "1.23"]]);
+    expect(settingsToStorage({ cameraDistanceScale: 99 })).toEqual([
+      [CAMERA_DISTANCE_KEY, String(CAMERA_DISTANCE_MAX)],
+    ]);
+  });
+
   it("ignores keys the patch does not mention", () => {
     expect(settingsToStorage({})).toEqual([]);
   });
@@ -145,6 +168,7 @@ describe("writeUserSettings", () => {
       quality: "med",
       haptics: false,
       cameraPanSens: 1.5,
+      cameraDistanceScale: 1.3,
       mouseSteerSens: 1.8,
       touchSteerSens: 0.6,
       sfxVolume: 0.2,
@@ -153,6 +177,7 @@ describe("writeUserSettings", () => {
       quality: "med",
       haptics: false,
       cameraPanSens: 1.5,
+      cameraDistanceScale: 1.3,
       mouseSteerSens: 1.8,
       touchSteerSens: 0.6,
       sfxVolume: 0.2,
@@ -218,6 +243,15 @@ describe("clampPanSens", () => {
     expect(clampPanSens(1)).toBe(1);
     expect(clampPanSens(-3)).toBe(PAN_SENS_MIN);
     expect(clampPanSens(Number.NaN)).toBe(1);
+  });
+});
+
+describe("clampCameraDistance", () => {
+  it("keeps the chase-distance multiplier inside the slider range", () => {
+    expect(clampCameraDistance(1.25)).toBe(1.25);
+    expect(clampCameraDistance(0)).toBe(CAMERA_DISTANCE_MIN);
+    expect(clampCameraDistance(99)).toBe(CAMERA_DISTANCE_MAX);
+    expect(clampCameraDistance(Number.NaN)).toBe(1);
   });
 });
 
