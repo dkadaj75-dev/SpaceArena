@@ -648,7 +648,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     boot?.note(`${SERVER_OFFLINE_MESSAGE} — offline practice still works.`, "warn");
   }
 
-  if (authService.getState().status === "authed") {
+  if (authService.getState().status === "authed" || !health.online) {
+    // No reachable server means the auth gate has exactly one working control
+    // (the "Skip" link) — a static host (GitHub Pages) or a dead server should
+    // land the player straight in the Lobby, where practice works anonymously,
+    // the SERVER OFFLINE badge explains the disabled online modes, and the
+    // "Log in / Sign up" link reopens the gate if the server comes back.
     lobby.show();
   } else {
     authScreen.show();
