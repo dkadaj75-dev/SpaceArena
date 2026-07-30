@@ -281,8 +281,8 @@
       "primary": "#2f6fb8",
       "accent": "#57d8ff"
     },
-    "model": "ships/MShip01.glb",
-    "modelScale": 4,
+    "model": "ships/human_light_lod0.glb",
+    "modelScale": 0.655,
     "modelRotationY": 0
   },
   "collider": {
