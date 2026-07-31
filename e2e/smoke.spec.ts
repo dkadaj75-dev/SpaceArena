@@ -150,6 +150,27 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // under the overlay. (Which half is which flips with orientation, in CSS.)
   await expect(page.locator(".hangar-overlay > .hangar-stage")).toHaveCount(1);
 
+  // Every slot gets a callout tag pinned to the hull in the 3D pane, and the
+  // projection has to actually run for them to land anywhere — a real browser
+  // is the only place that can be checked, so it is checked here.
+  const callouts = page.locator(".hangar-callouts .hangar-callout");
+  const slotCount = await hangar.locator(".hangar-slot").count();
+  await expect(callouts).toHaveCount(slotCount);
+  await expect(callouts.first()).toBeVisible();
+  const placed = await callouts.first().evaluate((el) => {
+    const style = (el as HTMLElement).style;
+    return style.left !== "" && style.top !== "";
+  });
+  expect(placed).toBe(true);
+
+  // Clicking a callout opens that slot's contextual list, exactly as tapping
+  // the slot in the panel does.
+  await callouts.last().click();
+  await expect(hangar.locator(".hangar-picker")).toBeVisible();
+  // The list is the rolling scroller, and every row carries its stat chips.
+  await expect(hangar.locator(".hangar-picker-list")).toBeVisible();
+  await expect(hangar.locator(".hangar-picker-item .hangar-stat-chip").first()).toBeVisible();
+
   // The hull's slots split into weapon hardpoints and the always-on internal
   // bay (2026-07-31). Only hardpoints get a HUD button, so that is the count the
   // match must show.

@@ -1,6 +1,7 @@
 import { TransformNode, Vector3, type InstancedMesh, type Observer, type Scene } from "@babylonjs/core";
 import {
   createLogger,
+  hardpointsOf,
   type ConfigService,
   type ModuleConfig,
   type ModuleSnapshot,
@@ -22,6 +23,8 @@ import {
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
+import { moduleStats } from "../moduleSummary.js";
+import { HangarCallouts, type CalloutSpec } from "./HangarCallouts.js";
 import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
 import type { TacticalCamera } from "../TacticalCamera.js";
@@ -165,6 +168,10 @@ export class Hangar {
   private readonly idleCur: ShipSnapshot;
   private previewClock = 0;
   private renderObserver: Observer<Scene> | null = null;
+  /** Labelled tags pinned to each slot on the 3D hull (2026-07-31). */
+  private readonly callouts: HangarCallouts;
+  /** Module id currently being dragged out of the picker, if any. */
+  private draggingModuleId: string | null = null;
 
   /**
    * World-space centre the camera orbits: the GEOMETRIC centre of the staged
@@ -209,6 +216,11 @@ export class Hangar {
     this.root.append(this.stage, this.panel);
     parent.append(this.root);
 
+    this.callouts = new HangarCallouts(this.stage, scene, this.stageRoot, {
+      onSelect: (index) => this.selectSlot(index),
+      onDrop: (index, moduleId) => this.dropModule(index, moduleId),
+    });
+
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
 
     this.unsubscribeAuth = this.auth.onChange(() => {
@@ -251,6 +263,7 @@ export class Hangar {
     window.addEventListener("orientationchange", this.onViewportResize);
 
     this.rebuildPreview();
+    this.rebuildCallouts();
     this.render();
     this.applyStageViewport();
 
@@ -384,6 +397,7 @@ export class Hangar {
     // it every frame so a stray pan gesture cannot drift the ship off its own
     // pivot. Orbit angle and zoom stay entirely the player's.
     this.camera.camera.target.copyFrom(this.focus);
+    this.callouts.update();
 
     if (!this.previewRig) return;
     const dtMs = this.scene.getEngine().getDeltaTime();
@@ -410,6 +424,7 @@ export class Hangar {
     this.slots = ship ? slotsFromDefaultFitting(ship) : [];
     this.persistSelection();
     this.rebuildPreview();
+    this.rebuildCallouts();
     // A different hull is a different size: re-frame it. (Swapping a MODULE
     // deliberately does not, so an edit never yanks the player's zoom back.)
     this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
@@ -425,13 +440,71 @@ export class Hangar {
     this.pickerHardpoint = null;
     this.persistSelection();
     this.rebuildPreview();
+    this.rebuildCallouts();
     this.render();
   }
 
   private selectSlot(hardpointIndex: number): void {
     if (!this.isAuthed()) return;
     this.pickerHardpoint = this.pickerHardpoint === hardpointIndex ? null : hardpointIndex;
+    this.callouts.setSelected(this.pickerHardpoint);
     this.render();
+  }
+
+  /**
+   * A module was dragged from the picker onto a slot's callout. Accepts only
+   * what that socket takes and what the player owns — the same two rules the
+   * Equip button applies, since a drop IS an equip.
+   */
+  private dropModule(hardpointIndex: number, moduleId: string): void {
+    this.endDrag();
+    const slot = this.slots[hardpointIndex];
+    const cfg = this.configs.get<ModuleConfig>("module", moduleId);
+    if (!slot || !cfg || !slotAccepts(slot, cfg.family)) return;
+    if (!this.isAuthed() || !this.apiModules.find((m) => m.id === moduleId)?.owned) return;
+    this.equip(hardpointIndex, moduleId);
+  }
+
+  /** Slot indices a module could legally be dropped into. */
+  private dropCandidatesFor(moduleId: string): Set<number> {
+    const cfg = this.configs.get<ModuleConfig>("module", moduleId);
+    const out = new Set<number>();
+    if (!cfg) return out;
+    for (const slot of this.slots) {
+      if (slotAccepts(slot, cfg.family)) out.add(slot.hardpointIndex);
+    }
+    return out;
+  }
+
+  private beginDrag(moduleId: string): void {
+    this.draggingModuleId = moduleId;
+    this.root.classList.add("dragging");
+    this.callouts.setDropCandidates(this.dropCandidatesFor(moduleId));
+  }
+
+  private endDrag(): void {
+    this.draggingModuleId = null;
+    this.root.classList.remove("dragging");
+    this.callouts.setDropCandidates(null);
+  }
+
+  /** Rebuild the 3D callout tags from the current hull + fitting. */
+  private rebuildCallouts(): void {
+    const ship = this.currentShip();
+    if (!ship) {
+      this.callouts.rebuild([], () => "");
+      return;
+    }
+    const sockets = hardpointsOf(ship);
+    const specs: CalloutSpec[] = this.slots.map((slot) => ({
+      slot,
+      offset: sockets[slot.hardpointIndex]?.transform.pos ?? [0, 0, 0],
+    }));
+    this.callouts.rebuild(specs, (slot) => {
+      const cfg = slot.moduleId ? this.configs.get<ModuleConfig>("module", slot.moduleId) : undefined;
+      return cfg?.ui.shortName ?? cfg?.ui.label ?? "Empty";
+    });
+    this.callouts.setSelected(this.pickerHardpoint);
   }
 
   private equip(hardpointIndex: number, moduleId: string | null): void {
@@ -656,10 +729,21 @@ export class Hangar {
     return wrap;
   }
 
+  /**
+   * The CONTEXTUAL module list for one slot (owner 2026-07-31): only what this
+   * socket accepts, as a rolling list that shows a few entries at a time and
+   * scrolls for the rest. Each row carries the numbers that decide the choice
+   * (see {@link moduleStats}) and is DRAGGABLE — dropping it on the ship's
+   * callout is the primary way to fit it, with the Equip button as the
+   * keyboard/tap-friendly equivalent.
+   */
   private buildModulePicker(ship: ShipConfig, hardpointIndex: number, credits: number, level: number): HTMLDivElement {
     const slot = this.slots[hardpointIndex];
     const wrap = el("div", "hangar-picker");
-    wrap.append(el("div", "hangar-section-title", `Fit ${slot?.socketId ?? ""}`));
+    const heading = el("div", "hangar-section-title", `Fit ${slot?.socketId ?? ""}`);
+    if (slot) heading.append(el("span", "hangar-picker-kind", slot.kind === "internal" ? "systems bay" : "hardpoint"));
+    wrap.append(heading);
+    wrap.append(el("div", "hangar-hint hangar-drag-hint", "Drag a module onto the ship, or use Equip."));
 
     if (slot?.moduleId) {
       const removeBtn = document.createElement("button");
@@ -675,32 +759,66 @@ export class Hangar {
       .filter((m) => slot && slotAccepts(slot, m.family))
       .sort((a, b) => a.level - b.level || (a.name ?? a.id).localeCompare(b.name ?? b.id));
 
+    // The rolling list itself: a fixed-height scroller so a long candidate list
+    // never pushes the rest of the panel off screen.
+    const list = el("div", "hangar-picker-list");
     for (const mod of candidates) {
       const api = this.apiModules.find((m) => m.id === mod.id);
       const owned = api?.owned ?? false;
       const locked = mod.requiresLevel > level;
-      const row = el("div", "hangar-picker-item");
-      row.append(el("span", "hangar-picker-name", `${mod.ui.icon} ${mod.name}`));
-      row.append(el("span", "hangar-picker-meta", locked ? `Lv ${mod.requiresLevel} required` : owned ? "Owned" : `${mod.price} cr`));
+      const fitted = slot?.moduleId === mod.id;
 
-      if (owned) {
+      const row = el("div", `hangar-picker-item${fitted ? " fitted" : ""}`);
+      row.dataset["module"] = mod.id;
+      // Only something the player can actually equip is worth dragging.
+      if (owned && !this.busy) {
+        row.draggable = true;
+        row.addEventListener("dragstart", (ev) => {
+          ev.dataTransfer?.setData("text/plain", mod.id);
+          if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "copy";
+          this.beginDrag(mod.id);
+        });
+        row.addEventListener("dragend", () => this.endDrag());
+      }
+
+      const head = el("div", "hangar-picker-head");
+      head.append(el("span", "hangar-picker-name", mod.name ?? mod.id));
+      head.append(el("span", "hangar-picker-meta", locked ? `Lv ${mod.requiresLevel}` : owned ? "Owned" : `${mod.price} cr`));
+      row.append(head);
+
+      const stats = el("div", "hangar-picker-stats");
+      for (const stat of moduleStats(mod)) {
+        const chip = el("span", "hangar-stat-chip");
+        chip.append(el("span", "k", stat.label), el("span", "v", stat.value));
+        stats.append(chip);
+      }
+      row.append(stats);
+
+      const actions = el("div", "hangar-picker-actions");
+      if (fitted) {
+        actions.append(el("span", "hangar-picker-meta", "Fitted"));
+      } else if (owned) {
         const equipBtn = document.createElement("button");
         equipBtn.className = "hangar-btn hangar-btn-primary";
         equipBtn.textContent = "Equip";
         equipBtn.disabled = this.busy;
         equipBtn.addEventListener("click", () => this.equip(hardpointIndex, mod.id));
-        row.append(equipBtn);
+        actions.append(equipBtn);
       } else if (!locked) {
         const buyBtn = document.createElement("button");
         buyBtn.className = "hangar-btn";
         buyBtn.textContent = mod.price > 0 ? `Buy (${mod.price} cr)` : "Unlock (free)";
         buyBtn.disabled = this.busy || credits < mod.price;
         buyBtn.addEventListener("click", () => void this.buyModule(mod.id));
-        row.append(buyBtn);
+        actions.append(buyBtn);
       }
-      wrap.append(row);
+      row.append(actions);
+      list.append(row);
     }
-    if (candidates.length === 0) wrap.append(el("div", "hangar-hint", "No modules fit this hardpoint's families."));
+    wrap.append(list);
+    if (candidates.length === 0) {
+      wrap.append(el("div", "hangar-hint", `No modules fit this ${slot?.kind === "internal" ? "bay" : "hardpoint"}.`));
+    }
     return wrap;
   }
 
@@ -893,6 +1011,47 @@ const HANGAR_CSS = `
   flex-direction: column;
   gap: 12px;
 }
+/* ---- 3D callout tags pinned to each slot on the hull (2026-07-31) ---- */
+/* The layer fills the stage half and is click-through; only the tags catch
+   pointer events, so orbit drags still reach the canvas between them. */
+.hangar-callouts { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.hangar-callout {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 4px;
+  max-width: 46%;
+  background: rgba(6, 12, 24, .82);
+  color: #dce9ff;
+  border: 1px solid #2f6fb8;
+  border-radius: 999px;
+  font: 500 11px/1.1 system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  transition: border-color .12s linear, background-color .12s linear, opacity .12s linear;
+}
+.hangar-callout .dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #57d8ff;
+  box-shadow: 0 0 6px rgba(87, 216, 255, .8);
+}
+.hangar-callout.kind-internal .dot { background: #63d2a4; box-shadow: 0 0 6px rgba(99, 210, 164, .8); }
+.hangar-callout.empty { opacity: .72; border-style: dashed; }
+.hangar-callout.empty .dot { background: #6f84a0; box-shadow: none; }
+.hangar-callout.selected { border-color: #57d8ff; background: rgba(28, 58, 94, .95); }
+.hangar-callout:hover { border-color: #57d8ff; }
+/* While a module is being dragged, light up the slots that would take it. */
+.hangar-callout.droppable { border-color: #5fe08c; box-shadow: 0 0 0 2px rgba(95, 224, 140, .25); }
+.hangar-callout.dimmed { opacity: .3; }
+.hangar-callout.drop-hover { background: rgba(95, 224, 140, .28); border-color: #5fe08c; }
+
 /* Landscape: the same halves, laid out left (stage) / right (panel). */
 @media (orientation: landscape) {
   .hangar-overlay { flex-direction: row; }
@@ -930,10 +1089,60 @@ const HANGAR_CSS = `
 .hangar-slot-icon { font-size: 16px; }
 .hangar-slot-label { font-size: 11px; font-weight: 600; }
 .hangar-slot-socket { font-size: 9px; color: #9fb4d0; text-align: center; }
+/* Systems-bay slots read green, matching their callouts on the hull. */
+.hangar-slot[data-kind="internal"] { border-color: #2f7d5e; }
+.hangar-slot[data-kind="internal"].filled { border-color: #63d2a4; }
 .hangar-picker { display: flex; flex-direction: column; gap: 6px; background: #0c1526; border: 1px solid #2f6fb8; border-radius: 6px; padding: 8px; }
-.hangar-picker-item { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: 12px; }
-.hangar-picker-name { flex: 1; }
+.hangar-picker-kind { margin-left: 8px; color: #6f84a0; text-transform: none; letter-spacing: 0; }
+.hangar-drag-hint { font-size: 10.5px; }
+/*
+ * Rolling list: a fixed-height scroller showing ~3-4 rows at a time, so a long
+ * candidate list scrolls INSIDE the picker instead of pushing the stat panel
+ * and fitting controls off the screen.
+ */
+.hangar-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 232px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+.hangar-picker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 8px;
+  font-size: 12px;
+  background: #12203a;
+  border: 1px solid #23456f;
+  border-radius: 6px;
+}
+.hangar-picker-item[draggable="true"] { cursor: grab; }
+.hangar-picker-item[draggable="true"]:active { cursor: grabbing; }
+.hangar-picker-item.fitted { border-color: #57d8ff; }
+.hangar-picker-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hangar-picker-name { font-weight: 600; }
 .hangar-picker-meta { color: #9fb4d0; font-size: 11px; white-space: nowrap; }
+.hangar-picker-stats { display: flex; flex-wrap: wrap; gap: 4px; }
+.hangar-stat-chip {
+  display: inline-flex;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  background: rgba(87, 216, 255, .09);
+  border-radius: 999px;
+}
+.hangar-stat-chip .k { color: #8ba3c4; }
+.hangar-stat-chip .v { color: #e8f1ff; font-variant-numeric: tabular-nums; }
+.hangar-picker-actions { display: flex; justify-content: flex-end; }
+.hangar-picker-actions:empty { display: none; }
+/* Landscape phones have little height: show fewer rows before scrolling. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .hangar-picker-list { max-height: 168px; }
+}
 .hangar-upgrades { display: flex; flex-direction: column; gap: 6px; }
 .hangar-upgrade-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
 .hangar-upgrade-label { width: 72px; }
