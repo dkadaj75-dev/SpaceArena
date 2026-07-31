@@ -129,9 +129,70 @@ export function pinLock(world: World, entityId: EntityId): void {
   ref.locked = true;
 }
 
+/**
+ * The light hull's slots in order (owner 2026-07-31): two hardpoints, then the
+ * five-bay internal block (engine, generator, transformer, heatsink, sensors).
+ * Mirrors `ship.interceptor`'s `defaultFitting` — tests that want a weapon on a
+ * specific index address 0 (laser) and 1 (missile); anything ≥ 2 is an internal.
+ */
 export const INTERCEPTOR_FITTING = [
   "module.laser-mk1",
   "module.missile-mk1",
+  "module.engine-civ",
+  "module.generator-compact",
+  "module.transformer-stock",
+  "module.heatsink-basic",
+  "module.sensors-basic",
+];
+
+/** Fitted-slot index of each internal bay on the light hull. */
+export const INTERCEPTOR_SLOTS = {
+  laser: 0,
+  missile: 1,
+  engine: 2,
+  generator: 3,
+  transformer: 4,
+  heatsink: 5,
+  sensors: 6,
+} as const;
+
+/**
+ * The light hull with a SHIELD on its second hardpoint (which accepts one) in
+ * place of the missile — for the mitigation/shield tests, since the stock light
+ * fitting carries no shield.
+ */
+export const INTERCEPTOR_FITTING_SHIELD = [
+  "module.laser-mk1",
   "module.shield-mk1",
-  "module.boost-mk1",
+  "module.engine-civ",
+  "module.generator-compact",
+  "module.transformer-stock",
+  "module.heatsink-basic",
+  "module.sensors-basic",
+];
+
+/**
+ * The light hull with a BOOSTING engine. Boost lives on the engine internal
+ * since 2026-07-31, so "does this hull have an afterburner" is a question about
+ * slot {@link INTERCEPTOR_SLOTS.engine}, not about a hardpoint.
+ */
+export const INTERCEPTOR_FITTING_BOOST = [
+  "module.laser-mk1",
+  "module.missile-mk1",
+  "module.engine-sport",
+  "module.generator-compact",
+  "module.transformer-stock",
+  "module.heatsink-basic",
+  "module.sensors-basic",
+];
+
+/** As {@link INTERCEPTOR_FITTING}, but carrying the jettisonable ablative sink. */
+export const INTERCEPTOR_FITTING_ABLATIVE = [
+  "module.laser-mk1",
+  "module.missile-mk1",
+  "module.engine-civ",
+  "module.generator-compact",
+  "module.transformer-stock",
+  "module.heatsink-ablative",
+  "module.sensors-basic",
 ];

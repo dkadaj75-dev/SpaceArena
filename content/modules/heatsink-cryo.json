@@ -1,0 +1,49 @@
+{
+  "id": "module.heatsink-cryo",
+  "type": "module",
+  "version": 1,
+  "family": "heatsink",
+  "level": 3,
+  "name": "Cryo Sink",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "jettison": {
+    "cooldownSec": 18,
+    "decoyLifetimeSec": 12,
+    "decoyRadius": 1.8
+  },
+  "passives": [
+    {
+      "target": "heat.dissipation",
+      "op": "add",
+      "value": 9
+    },
+    {
+      "target": "heat.capacity",
+      "op": "add",
+      "value": 40
+    }
+  ],
+  "onActivate": [
+    "action.play-sound-boost-up"
+  ],
+  "ui": {
+    "icon": "[ICON: heatsink]",
+    "shortName": "Cryo Sink",
+    "label": "Heatsink"
+  },
+  "price": 2600,
+  "requiresLevel": 5
+}

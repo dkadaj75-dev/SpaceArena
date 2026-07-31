@@ -73,6 +73,29 @@ export const hardpointSocket = z.object({
 export type HardpointSocket = z.infer<typeof hardpointSocket>;
 
 /**
+ * Internal socket — the ship's systems bay (owner 2026-07-31): engine,
+ * generator, transformer, heatsink, sensors. Structurally identical to a
+ * hardpoint (a named attachment point with an `accepts` list) and it shares the
+ * SAME fitted-slot index space, so a fitting is still one positional array and
+ * the sim/netcode/HUD keep addressing modules by a single index (see
+ * `fittableSocketsOf`).
+ *
+ * What differs is meaning, and the UI reads `kind` for it: an internal is
+ * always on and never toggled, so it gets no module button — it shapes the
+ * hull's resolved stats instead (`passives`), and only a heatsink's `jettison`
+ * is an action the pilot can take.
+ */
+export const internalSocket = z.object({
+  ...socketBase,
+  kind: z.literal("internal"),
+  accepts: z.array(moduleFamily).min(1),
+});
+export type InternalSocket = z.infer<typeof internalSocket>;
+
+/** Either kind of fittable slot — both are addressed by one shared index space. */
+export type FittableSocket = HardpointSocket | InternalSocket;
+
+/**
  * Emitter socket — binds a particle effect (`fx.*`) to runtime signals through
  * per-binding response curves. Pure data: engine trails, damage smoke, overheat
  * venting are all just emitter sockets with different effects + bindings.
@@ -92,5 +115,5 @@ export type EmitterSocket = z.infer<typeof emitterSocket>;
  * unknown `kind` loudly, and the renderer dispatches per kind. Nothing about
  * socket count or placement is hardcoded anywhere.
  */
-export const socketSchema = z.discriminatedUnion("kind", [hardpointSocket, emitterSocket]);
+export const socketSchema = z.discriminatedUnion("kind", [hardpointSocket, internalSocket, emitterSocket]);
 export type SocketConfig = z.infer<typeof socketSchema>;

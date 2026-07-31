@@ -5,7 +5,14 @@ import { botprofileSchema, type BotprofileConfig } from "../schemas/botprofile.j
 import type { ModuleConfig } from "../schemas/module.js";
 import type { ModuleSnapshot, ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { ModuleState } from "../sim/components.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs } from "../sim/testutil.js";
+import { INTERCEPTOR_FITTING_SHIELD as INTERCEPTOR_FITTING, loadTestConfigs } from "../sim/testutil.js";
+
+/**
+ * Slots the discipline may actually touch: the two hardpoints. The internal bay
+ * (slots 2..6 — engine, generator, transformer, heatsink, sensors) is the ship
+ * itself and is deliberately never cycled (2026-07-31).
+ */
+const TOGGLEABLE_SLOTS = 2;
 import { buildBotContext } from "./context.js";
 import { planModuleOrders } from "./moduleDiscipline.js";
 
@@ -81,6 +88,7 @@ function contextFor(self: ShipSnapshot) {
     ships: [self, enemy],
     asteroids: [],
     projectiles: [],
+    decoys: [],
   };
   return buildBotContext({
     snapshot,
@@ -109,7 +117,7 @@ describe("moduleDiscipline", () => {
   it("activates cool modules when engaged and above the energy reserve", () => {
     const self = shipWith(["retracted", "retracted", "retracted", "retracted"]);
     const { orders, decisions } = planModuleOrders(contextFor(self), configs, discipline, true);
-    expect(orders.length).toBe(INTERCEPTOR_FITTING.length);
+    expect(orders.length).toBe(TOGGLEABLE_SLOTS);
     expect(decisions.every((d) => d.activate)).toBe(true);
   });
 
@@ -142,7 +150,7 @@ describe("moduleDiscipline", () => {
   it("treats the ship heat pool as a shutdown trigger too", () => {
     const self = shipWith(["active", "active", "active", "active"], { shipHeat: 90 });
     const { decisions } = planModuleOrders(contextFor(self), configs, discipline, true);
-    expect(decisions.length).toBe(INTERCEPTOR_FITTING.length);
+    expect(decisions.length).toBe(TOGGLEABLE_SLOTS);
     expect(decisions.every((d) => !d.activate && d.reason === "heat-shutdown")).toBe(true);
   });
 

@@ -1,0 +1,41 @@
+{
+  "id": "module.transformer-efficient",
+  "type": "module",
+  "version": 1,
+  "family": "transformer",
+  "level": 2,
+  "name": "Superconducting Bus",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "efficiency.energyDraw",
+      "op": "mul",
+      "value": 0.78
+    },
+    {
+      "target": "efficiency.heatGen",
+      "op": "mul",
+      "value": 1.25
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: transformer]",
+    "shortName": "Supercond",
+    "label": "Transformer"
+  },
+  "price": 1300,
+  "requiresLevel": 3
+}

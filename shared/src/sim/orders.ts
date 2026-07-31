@@ -27,7 +27,13 @@ export type Order =
       /** True while the pilot holds the weapon trigger. */
       fire: boolean;
     }
-  | { kind: "moduleToggle"; hardpointIndex: number };
+  | { kind: "moduleToggle"; hardpointIndex: number }
+  /**
+   * Blow the fitted heatsink clear of the hull (owner 2026-07-31). Takes no
+   * arguments: a hull has exactly one heatsink bay, so the sim finds it. A no-op
+   * when the fitted sink cannot be jettisoned or is still on cooldown.
+   */
+  | { kind: "jettisonHeatsink" };
 
 export interface QueuedOrder {
   entityId: EntityId;

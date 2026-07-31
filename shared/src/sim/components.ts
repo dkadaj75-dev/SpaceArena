@@ -76,6 +76,12 @@ export interface ShipCore {
   heat: { cur: number; capacity: number; dissipation: number; criticalDamagePerSec: number };
   /** Resolved sensor suite driving the lock cone (FLIGHT.md §2). `coneDeg` is the FULL width. */
   sensors: { lockRange: number; lockTimeSec: number; coneDeg: number };
+  /**
+   * Ship-wide efficiency, the fitted TRANSFORMER's contribution (2026-07-31):
+   * every module's energy draw is multiplied by `energyDraw` and its heat
+   * generation by `heatGen`. 1 = the hull as authored.
+   */
+  efficiency: { energyDraw: number; heatGen: number };
 }
 
 export type ModuleState =
@@ -176,6 +182,22 @@ export interface AsteroidTag {
   impactDamage: number;
   /** Asset state id (`intact` / `destroyed`). */
   state: string;
+}
+
+/**
+ * A jettisoned heatsink drifting in space (owner 2026-07-31). It is not a ship
+ * and cannot be shot down — it is a LURE: for `lifetime` seconds it is the
+ * hottest thing around, so enemy auto-lock prefers it over a hull and homing
+ * missiles already in flight re-seek it. `team` is the team that dropped it, so
+ * it only ever distracts the OTHER side.
+ */
+export interface Decoy {
+  team: number;
+  /** Remaining lifetime in seconds. */
+  lifetime: number;
+  /** Total authored lifetime, so a renderer can fade it out. */
+  maxLifetime: number;
+  radius: number;
 }
 
 export interface Projectile {

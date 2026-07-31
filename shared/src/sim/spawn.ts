@@ -1,5 +1,5 @@
 import type { ConfigService } from "../core/ConfigService.js";
-import { hardpointsOf, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
+import { hardpointsOf, isInternalFamily, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
 import { resolveShipStats, type UpgradeLevels } from "./resolveStats.js";
 import { advancePitch } from "./math.js";
@@ -108,9 +108,10 @@ export function spawnShipFromConfig(
       moduleId,
       hardpointIndex,
       // Weapons come up ONLINE at spawn and respawn alike (owner 2026-07-31) —
-      // their limiter is heat, not the deploy toggle. Shield/boost/utility
-      // start retracted: those are the deliberate, energy-priced activations.
-      state: modCfg.fire ? "active" : "retracted",
+      // their limiter is heat, not the deploy toggle. Internals are always on
+      // by nature (they ARE the ship's systems). Shields start retracted: those
+      // are the deliberate, energy-priced activations.
+      state: modCfg.fire || isInternalFamily(modCfg.family) ? "active" : "retracted",
       stateTimer: 0,
       heat: 0,
       cycleTimer: 0,

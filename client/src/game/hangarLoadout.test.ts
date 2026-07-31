@@ -39,7 +39,7 @@ beforeAll(async () => {
 function playerFittingOf(session: GameSession): (string | null)[] {
   const ship = session.curSnapshot.ships.find((s) => s.id === session.playerId)!;
   const byIndex = new Map(ship.modules.map((m) => [m.hardpointIndex, m.moduleId]));
-  const count = hardpointsOf(configs.get<ShipConfig>("ship", "ship.interceptor")!).length;
+  const count = hardpointsOf(interceptor).length;
   return Array.from({ length: Math.max(count, byIndex.size) }, (_, i) => byIndex.get(i) ?? null);
 }
 
@@ -51,19 +51,34 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
   it("flies the hull and the working fitting the player left the Hangar with", () => {
     const session = practice({
       playerShipId: "ship.brawler",
-      playerFitting: ["module.laser-mk1", "module.kinetic-mk1", null, "module.shield-mk1", "module.boost-mk1"],
+      // Heavy hull (2026-07-31): four hardpoints then the five-bay internal
+      // block. Hardpoint 2 is deliberately left empty.
+      playerFitting: [
+        "module.laser-mk1",
+        "module.kinetic-mk1",
+        null,
+        "module.shield-mk1",
+        "module.engine-sport",
+        "module.generator-heavy",
+        "module.transformer-cryo",
+        "module.heatsink-ablative",
+        "module.sensors-longrange",
+      ],
     });
     const ship = session.curSnapshot.ships.find((s) => s.id === session.playerId)!;
     const fitted = ship.modules.map((m) => `${m.hardpointIndex}:${m.moduleId}`);
-    // Hardpoint 4 exists at all only on the five-socket brawler, so this is
-    // also the proof that the requested HULL was the one spawned.
-    expect(hardpointsOf(brawler)).toHaveLength(5);
-    // The emptied hardpoint (2) really is empty; the rest are as requested.
+    // Slot 8 exists at all only on the nine-slot heavy, so this is also the
+    // proof that the requested HULL was the one spawned.
+    expect(hardpointsOf(brawler)).toHaveLength(9);
     expect(fitted).toEqual([
       "0:module.laser-mk1",
       "1:module.kinetic-mk1",
       "3:module.shield-mk1",
-      "4:module.boost-mk1",
+      "4:module.engine-sport",
+      "5:module.generator-heavy",
+      "6:module.transformer-cryo",
+      "7:module.heatsink-ablative",
+      "8:module.sensors-longrange",
     ]);
   });
 
@@ -75,15 +90,27 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
   it("empties a slot whose module the hardpoint refuses rather than failing the match", () => {
     // A shield on the nose hardpoint (laser/kinetic only) is not spawnable —
     // spawnShipFromConfig throws on it — so it must be dropped, not passed on.
+    // Likewise a weapon dropped into the engine bay.
     const session = practice({
       playerShipId: "ship.interceptor",
-      playerFitting: ["module.shield-mk1", "module.missile-mk1", "module.shield-mk1", "module.boost-mk1"],
+      playerFitting: [
+        "module.shield-mk1", // nose refuses a shield
+        "module.missile-mk1",
+        "module.laser-mk1", // engine bay refuses a weapon
+        "module.generator-compact",
+        "module.transformer-stock",
+        "module.heatsink-basic",
+        "module.sensors-basic",
+      ],
     });
     expect(playerFittingOf(session)).toEqual([
       null,
       "module.missile-mk1",
-      "module.shield-mk1",
-      "module.boost-mk1",
+      null,
+      "module.generator-compact",
+      "module.transformer-stock",
+      "module.heatsink-basic",
+      "module.sensors-basic",
     ]);
   });
 

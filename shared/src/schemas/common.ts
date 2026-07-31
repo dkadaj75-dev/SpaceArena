@@ -6,14 +6,48 @@ export type DamageType = z.infer<typeof damageType>;
 
 /** Module families (MVP). New family = new optional block, not a new schema. */
 export const moduleFamily = z.enum([
+  // --- Hardpoint families: what bolts on the OUTSIDE of a hull ---
   "laser",
   "kinetic",
   "missile",
   "shield",
   "boost",
   "utility",
+  // --- Internal families (owner 2026-07-31): the ship's systems bay. One
+  // socket each on every hull; they are always on and shape the hull's stats
+  // rather than being fired. See `internalFamily` below. ---
+  "engine",
+  "generator",
+  "transformer",
+  "heatsink",
+  "sensors",
 ]);
 export type ModuleFamily = z.infer<typeof moduleFamily>;
+
+/**
+ * The families that live in a hull's INTERNAL bay rather than on a hardpoint
+ * (owner 2026-07-31). Hardpoints carry what shoots or shields; internals are the
+ * ship's systems — they never activate, they change what the hull IS:
+ *
+ *  - `engine`      — speed / acceleration / turn rate, and whether the hull has
+ *                    a boost at all (the base engine does not)
+ *  - `generator`   — capacitor size and regen, at the cost of top speed: a
+ *                    bigger plant is heavier and steals thrust
+ *  - `transformer` — how efficiently power is delivered: scales BOTH energy
+ *                    draw and heat generation across the whole ship
+ *  - `heatsink`    — dissipation and heat capacity; the good ones can be
+ *                    JETTISONED as a decoy (see `moduleSchema.jettison`)
+ *  - `sensors`     — lock range, lock time and cone width
+ *
+ * Exported as a runtime set so UI and validation share one source of truth.
+ */
+export const INTERNAL_FAMILIES = ["engine", "generator", "transformer", "heatsink", "sensors"] as const;
+export type InternalFamily = (typeof INTERNAL_FAMILIES)[number];
+
+/** Whether a family belongs in the internal bay rather than on a hardpoint. */
+export function isInternalFamily(family: ModuleFamily): family is InternalFamily {
+  return (INTERNAL_FAMILIES as readonly string[]).includes(family);
+}
 
 /** Planar coordinate on the arena ground plane (trigger zones, minimap projection). */
 export const vec2 = z.object({

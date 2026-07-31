@@ -842,6 +842,7 @@ export class NetGameSession extends GameSession {
       ships,
       asteroids,
       projectiles,
+      decoys: [],
     };
   }
 }

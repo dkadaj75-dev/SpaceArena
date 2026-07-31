@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../../core/ConfigService.js";
 import { hasLineOfSight } from "../los.js";
 import { spawnAsteroid, spawnShipFromConfig } from "../spawn.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
+import { INTERCEPTOR_FITTING_BOOST, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
 import { navigationSystem } from "./NavigationSystem.js";
 
 const DT = 1 / 30;
@@ -15,8 +15,9 @@ beforeAll(async () => {
 describe("NavigationSystem", () => {
   it("applies boost speed only when a boost module is active with headroom", () => {
     const world = makeWorld(configs);
-    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
-    const boost = world.modules.get(id)!.modules[3]!;
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING_BOOST, 0, { x: 0, z: 0 }, 0);
+    // Boost rides the ENGINE internal (slot 2) since 2026-07-31.
+    const boost = world.modules.get(id)!.modules[2]!;
     boost.state = "active";
     world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, boost: true, fire: true });
     for (let i = 0; i < 200; i++) navigationSystem(world, DT); // let it accelerate

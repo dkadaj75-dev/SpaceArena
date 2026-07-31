@@ -632,6 +632,11 @@ export class ArenaRoom extends Room<ArenaState> {
         }
         return null;
       }
+      case "jettisonHeatsink":
+        // Takes no arguments, so there is nothing to malform. Whether the fitted
+        // sink CAN be jettisoned (and is off cooldown) is a sim rule, not a
+        // validation one — an ineligible order is simply spent doing nothing.
+        return null;
     }
   }
 

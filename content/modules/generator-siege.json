@@ -1,0 +1,56 @@
+{
+  "id": "module.generator-siege",
+  "type": "module",
+  "version": 1,
+  "family": "generator",
+  "level": 3,
+  "name": "Siege Plant",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "energy.capacitor",
+      "op": "add",
+      "value": 140
+    },
+    {
+      "target": "energy.regen",
+      "op": "add",
+      "value": 16
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 0.76
+    },
+    {
+      "target": "engine.accel",
+      "op": "mul",
+      "value": 0.8
+    },
+    {
+      "target": "engine.turnRate",
+      "op": "mul",
+      "value": 0.9
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: generator]",
+    "shortName": "Siege Plant",
+    "label": "Generator"
+  },
+  "price": 2200,
+  "requiresLevel": 4
+}

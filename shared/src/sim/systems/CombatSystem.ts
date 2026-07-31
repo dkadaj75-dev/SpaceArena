@@ -85,10 +85,10 @@ export function combatSystem(world: World, dt: number): void {
         // No lock: fire straight along the nose. Energy is the only remaining
         // gate — a shot into empty space still spends its cycle, heat and energy
         // (that trade is exactly what makes heat management a decision).
-        if (core.capacitor.cur <= cfg.energy.drawActive * dt) continue;
+        if (core.capacitor.cur <= cfg.energy.drawActive * core.efficiency.energyDraw * dt) continue;
         m.cycleTimer = cfg.fire.cycleTime;
         m.workedThisTick = true;
-        m.heat += cfg.fire.heatPerShot ?? 0;
+        m.heat += (cfg.fire.heatPerShot ?? 0) * core.efficiency.heatGen;
 
         if (cfg.fire.projectile === null) {
           const hit = raycastNose(world, id, myTeam, myTf, cfg.fire.range);
@@ -140,12 +140,12 @@ export function combatSystem(world: World, dt: number): void {
       const dist = len3(dx, dy, dz);
       if (dist > cfg.fire.range) continue;
       if (cfg.fire.requiresLineOfSight && !hasLineOfSightBetween(world, id, targetId)) continue;
-      if (core.capacitor.cur <= cfg.energy.drawActive * dt) continue;
+      if (core.capacitor.cur <= cfg.energy.drawActive * core.efficiency.energyDraw * dt) continue;
 
       // Fire.
       m.cycleTimer = cfg.fire.cycleTime;
       m.workedThisTick = true;
-      m.heat += cfg.fire.heatPerShot ?? 0;
+      m.heat += (cfg.fire.heatPerShot ?? 0) * core.efficiency.heatGen;
       const heading = headingOf(dx, dz);
       // Ordnance leaves along the 3D bearing, so a shot at a climbing enemy
       // actually climbs (dumb kinetics included — they still lead nothing).
@@ -361,7 +361,7 @@ function channelTarget(world: World, ctx: ChannelCtx): EntityId | null {
   if (!firing) return null;
   const targetId = lockedLiveTarget(world, ref);
   if (targetId === null) {
-    if (core.capacitor.cur <= cfg.energy.drawActive * dt) return null;
+    if (core.capacitor.cur <= cfg.energy.drawActive * core.efficiency.energyDraw * dt) return null;
     const myTeam = world.teams.get(id)!.team;
     const hit = raycastNose(world, id, myTeam, myTf, fire.range);
     return hit !== null && !hit.isAsteroid ? hit.id : null;
@@ -370,7 +370,7 @@ function channelTarget(world: World, ctx: ChannelCtx): EntityId | null {
   const dist = len3(tgtTf.pos.x - myTf.pos.x, tgtTf.pos.y - myTf.pos.y, tgtTf.pos.z - myTf.pos.z);
   if (dist > fire.range) return null;
   if (fire.requiresLineOfSight && !hasLineOfSightBetween(world, id, targetId)) return null;
-  if (core.capacitor.cur <= cfg.energy.drawActive * dt) return null;
+  if (core.capacitor.cur <= cfg.energy.drawActive * core.efficiency.energyDraw * dt) return null;
   return targetId;
 }
 

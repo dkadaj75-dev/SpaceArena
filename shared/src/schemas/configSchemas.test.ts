@@ -537,8 +537,18 @@ describe("module schema", () => {
     expect(mutated("module", withBlock("mitigation", { damageReduction: 1 }))).toBe(true);
     expect(mutated("module", withBlock("mitigation", { damageReduction: 1.01 }))).toBe(false);
     expect(mutated("module", withBlock("mitigation", { damageReduction: 0.5, coversFamilies: ["thermal"] }))).toBe(false);
-    expect(mutated("module", withBlock("boost", { speedMult: 1.8, heatPerSec: 5 }))).toBe(true);
-    expect(mutated("module", withBlock("boost", { speedMult: 0.9, heatPerSec: 5 }))).toBe(false); // must be ≥ 1
+    // A boost block belongs to the ENGINE that provides it (2026-07-31), so the
+    // family has to move with it.
+    const withBoost = (boost: unknown) => (d: Record<string, unknown>) => {
+      delete d["fire"];
+      d["family"] = "engine";
+      d["activation"] = { deployTime: 0, retractTime: 0 };
+      d["boost"] = boost;
+    };
+    expect(mutated("module", withBoost({ speedMult: 1.8, heatPerSec: 5 }))).toBe(true);
+    expect(mutated("module", withBoost({ speedMult: 0.9, heatPerSec: 5 }))).toBe(false); // must be ≥ 1
+    // …and stays refused on a family that cannot provide one.
+    expect(mutated("module", withBlock("boost", { speedMult: 1.8, heatPerSec: 5 }))).toBe(false);
   });
 
   it("validates passive stat ops (utility modules)", () => {

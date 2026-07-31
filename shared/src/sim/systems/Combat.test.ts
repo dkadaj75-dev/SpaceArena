@@ -5,7 +5,14 @@ import type { ShipConfig } from "../../schemas/ship.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { hasLineOfSight } from "../los.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "../spawn.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial, warmLock } from "../testutil.js";
+import {
+  INTERCEPTOR_FITTING,
+  INTERCEPTOR_FITTING_SHIELD,
+  loadTestConfigs,
+  makeWorld,
+  rebuildSpatial,
+  warmLock,
+} from "../testutil.js";
 import type { World } from "../World.js";
 import { combatSystem, latchFireState } from "./CombatSystem.js";
 import { energySystem } from "./EnergySystem.js";
@@ -15,7 +22,7 @@ import { projectileSystem } from "./ProjectileSystem.js";
 const DT = 1 / 30;
 const LASER = 0;
 const MISSILE = 1;
-const SHIELD = 2;
+const SHIELD = 1; // the light hull mounts a shield on hardpoint 1 (2026-07-31)
 
 let configs: ConfigService;
 beforeAll(async () => {
@@ -301,11 +308,14 @@ describe("CombatSystem trigger discipline", () => {
     configs.replace({ ...config, fire: { ...config.fire!, heatPerShot: 3 } });
     try {
       combatSystem(world, DT);
+      // The per-shot heat lands verbatim: the stock transformer's heatGen is 1.
       expect(weapon.heat).toBe(3);
       energySystem(world, DT);
-      // Existing active heat (+0.2) and ship dissipation (-0.3) still apply
-      // after the per-shot addition on this fitting.
-      expect(weapon.heat).toBeCloseTo(2.9);
+      // Then the usual per-second active heat and ship dissipation apply. Only
+      // this weapon is hot, so it absorbs the whole dissipation budget.
+      const cfg = world.configs.get<ModuleConfig>("module", "module.laser-mk1")!;
+      const dissipation = world.shipCores.get(shooter)!.heat.dissipation;
+      expect(weapon.heat).toBeCloseTo(3 + (cfg.heat.perSecondActive - dissipation) * DT, 6);
     } finally {
       configs.replace(config);
     }
@@ -508,7 +518,7 @@ describe("ProjectileSystem", () => {
 describe("Damage pipeline — shield mitigation", () => {
   it("an active shield reduces incoming covered damage before hull", () => {
     const world = makeWorld(configs);
-    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING_SHIELD, 0, { x: 0, z: 0 }, 0);
     const shield = world.modules.get(id)!.modules[SHIELD]!;
     shield.state = "active";
     shield.shieldPool = 12; // full reservoir
@@ -543,8 +553,11 @@ describe("CombatSystem continuous channel", () => {
   const BEAM_FITTING = [
     "module.beamlaser-mk1",
     "module.missile-mk1",
-    "module.shield-mk1",
-    "module.boost-mk1",
+    "module.engine-civ",
+    "module.generator-compact",
+    "module.transformer-stock",
+    "module.heatsink-basic",
+    "module.sensors-basic",
   ];
 
   /** Same fixture as {@link duel}, fitted with the continuous beam on hardpoint 0. */

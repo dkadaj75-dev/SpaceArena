@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
 import { collider, renderRecipe, resists } from "./common.js";
-import { hardpointSocket, socketSchema, type HardpointSocket, type SocketConfig } from "./socket.js";
+import {
+  hardpointSocket,
+  socketSchema,
+  type FittableSocket,
+  type HardpointSocket,
+  type InternalSocket,
+  type SocketConfig,
+} from "./socket.js";
 
 const shipCore = z.object({
   hull: z.object({
@@ -22,6 +29,19 @@ const shipCore = z.object({
     dissipation: z.number().nonnegative(),
     criticalDamagePerSec: z.number().nonnegative(),
   }),
+  /**
+   * Ship-wide efficiency multipliers (owner 2026-07-31), the TRANSFORMER's
+   * lever: `energyDrawMult` scales every module's energy draw and `heatGenMult`
+   * scales every module's heat generation. Both default to 1 (the hull as
+   * authored) and are moved by the fitted transformer's passives, so a good one
+   * makes the whole loadout cheaper to run while a cheap one taxes it.
+   */
+  efficiency: z
+    .object({
+      energyDraw: z.number().nonnegative().default(1),
+      heatGen: z.number().nonnegative().default(1),
+    })
+    .default({ energyDraw: 1, heatGen: 1 }),
   /**
    * Sensor suite (FLIGHT.md §2). Drives the heading-relative lock cone every
    * weapon fires through, so it is a per-ship stat like engine or heat — and it
@@ -83,13 +103,42 @@ export const shipSchema = z
 export type ShipConfig = z.infer<typeof shipSchema>;
 
 /**
- * The ship's hardpoint sockets in array order. **This ordered list defines
- * `hardpointIndex`**: element `i` is the module attachment point addressed by
- * hardpoint index `i` throughout the sim, fitting validation, seeding, and the
- * netcode. All code that used to read `ship.hardpoints` reads this instead.
+ * The ship's FITTABLE sockets — hardpoints and internals alike — in array
+ * order. **This ordered list defines the module slot index**: element `i` is the
+ * attachment point addressed by index `i` throughout the sim, fitting
+ * validation, seeding and the netcode, and a fitting is one positional array
+ * over it.
+ *
+ * Internals joined this list rather than getting an index space of their own
+ * (owner 2026-07-31) precisely so none of that had to change: a ship's systems
+ * bay is just more slots, distinguished by `kind` where the distinction matters
+ * (the HUD shows buttons only for hardpoints).
+ *
+ * The runtime field is still called `hardpointIndex` — it is the wire name and
+ * the DB's `hardpointMap` key, so renaming it would be a migration for no
+ * behavioural gain.
  */
-export function hardpointsOf(ship: ShipConfig): HardpointSocket[] {
+export function hardpointsOf(ship: ShipConfig): FittableSocket[] {
+  return ship.sockets.filter((s): s is FittableSocket => s.kind === "hardpoint" || s.kind === "internal");
+}
+
+/** Only the weapon/shield sockets, in fitted-slot order. */
+export function weaponHardpointsOf(ship: ShipConfig): HardpointSocket[] {
   return ship.sockets.filter((s): s is HardpointSocket => s.kind === "hardpoint");
+}
+
+/** Only the systems-bay sockets, in fitted-slot order. */
+export function internalsOf(ship: ShipConfig): InternalSocket[] {
+  return ship.sockets.filter((s): s is InternalSocket => s.kind === "internal");
+}
+
+/**
+ * Fitted-slot index → whether that slot is an internal. Handy for the many
+ * callers that hold an index (a `ModuleRuntime`, a HUD entry) rather than a
+ * socket.
+ */
+export function isInternalSlot(ship: ShipConfig, slotIndex: number): boolean {
+  return hardpointsOf(ship)[slotIndex]?.kind === "internal";
 }
 
 /** Every emitter socket on a ship, in array order. */

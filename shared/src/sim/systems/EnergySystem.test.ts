@@ -53,9 +53,12 @@ describe("EnergySystem", () => {
     core.capacitor.cur = 0;
     for (const m of mods) m.workedThisTick = true;
     energySystem(world, DT);
-    // Boost (index 3) is dropped first.
-    expect(mods[3]!.state).toBe("retracted");
+    // Internals are never shed (2026-07-31) — cutting the engine to afford a
+    // gun would be worse than the brown-out — so the highest-index WEAPON goes
+    // first and the ship's systems stay up.
+    expect(mods[1]!.state).toBe("retracted");
     expect(mods[0]!.state).toBe("active");
+    expect(mods[2]!.state).toBe("active"); // engine bay untouched
   });
 
   it("accumulates module heat while working (dissipation off)", () => {

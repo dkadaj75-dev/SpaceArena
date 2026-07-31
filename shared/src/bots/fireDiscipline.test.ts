@@ -76,6 +76,7 @@ function context(locked: boolean, heat = 0) {
     ships: [self, enemy],
     asteroids: [],
     projectiles: [],
+    decoys: [],
   };
   return buildBotContext({
     snapshot,

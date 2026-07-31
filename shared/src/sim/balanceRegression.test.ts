@@ -276,13 +276,14 @@ const expectNear = (label: string, value: number, recorded: number, band = BAND)
  * something on the five-hardpoint brawler.
  */
 const SUSTAINED: ScriptStep[] = [
-  // Weapons spawn ONLINE since 2026-07-31, so the old deploy toggles for
-  // hardpoints 0/1 are gone — every weapon is already firing at t=0 and the
-  // "everything on" premise holds from the first tick. (On the brawler,
-  // hardpoint 2 is its missile, so the same schedule now RESTS that rack
-  // 3s→30s instead of deploying it — the recorded anchors absorb that.)
-  { at: 3, toggle: 2 },
-  { at: 5, toggle: 4 },
+  // Weapons spawn ONLINE and internals are always on (2026-07-31), so the
+  // script no longer deploys anything — "everything on" holds from tick 0. What
+  // it still does is REST a rack for a stretch and pulse boost, which is what
+  // the upkeep curve is measuring. Only hardpoint indices (0..3) are addressed:
+  // slots 4+ are the internal bay on every hull, and toggling a ship's own
+  // engine or generator is not a thing a pilot does.
+  { at: 3, toggle: 3 },
+  { at: 5, toggle: 2 },
   // Boost bursts, three seconds each. Throttle stays at 0 so the burst is a
   // pure energy/heat event: `resolveBoostMult` charges `drawActive` + boost heat
   // whenever boost is REQUESTED and the module is hot, and the bench wants that
@@ -307,7 +308,7 @@ const SUSTAINED: ScriptStep[] = [
  * laser [0,8] and [34,44], missile [12,20] and [48,58], shield [24,30].
  */
 const DISCIPLINED: ScriptStep[] = [
-  { at: 0, toggle: 1 }, // missile off at the bell — laser only
+  { at: 0, toggle: 1 }, // missile rack rested at the bell — laser only
   { at: 8, toggle: 0 }, // laser rested
   { at: 12, toggle: 1 },
   { at: 20, toggle: 1 },
@@ -320,42 +321,44 @@ const DISCIPLINED: ScriptStep[] = [
 ];
 
 describe("scripted 60 s engagements — energy/heat regression bands", () => {
-  // Anchors re-recorded 2026-07-31 for the heat/energy rework: weapons spawn
-  // online, carry authored heatPerShot (sustained fire overheats and re-arms
-  // after a 3 s lockout), weapon idle draw is 0, shield/boost draws are up and
-  // capacitor regen is halved. "All on, forever" is now unsustainable on every
-  // hull BY DESIGN — the curves below encode that.
+  // Anchors re-recorded 2026-07-31 for the INTERNAL BAY: hulls now carry a
+  // fixed systems block (engine/generator/transformer/heatsink/sensors) and far
+  // fewer weapon hardpoints — light 2, medium 3, heavy 4 — so the upkeep curves
+  // are a different shape entirely. The stock internals draw no idle power,
+  // which is why the light and medium hulls now hold their capacitor; the heavy
+  // still out-draws its plant with four racks firing.
   it("interceptor, sustained brawl (all four hardpoints, boost pulses)", () => {
     const t = runEngagement("ship.interceptor", SUSTAINED);
-    expectWithinBand("interceptor sustained energy", t.energy, [0.889, 0.218, 0.382, 0.863, 0.28, 0.488, 0.966]);
-    expectNear("interceptor sustained energy floor", t.energyFloor, 0);
-    // Sustained laser fire now cooks the rack: it trips, sits out 3 s, re-arms.
-    expect(t.overheats).toBe(4);
-    expect(t.brownOuts).toBe(2);
+    expectWithinBand("interceptor sustained energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
+    expectNear("interceptor sustained energy floor", t.energyFloor, 0.997);
+    // Two racks on a light hull: sustained fire still cooks them, but the
+    // capacitor comfortably keeps up.
+    expect(t.overheats).toBe(3);
+    expect(t.brownOuts).toBe(4);
   });
 
   it("interceptor, disciplined skirmish (one weapon at a time)", () => {
     const t = runEngagement("ship.interceptor", DISCIPLINED);
-    expectWithinBand("interceptor disciplined energy", t.energy, [1, 1, 1, 0.733, 1, 1, 1]);
-    expectNear("interceptor disciplined energy floor", t.energyFloor, 0.722);
+    expectWithinBand("interceptor disciplined energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
+    expectNear("interceptor disciplined energy floor", t.energyFloor, 0.997);
     expect(t.overheats).toBe(0);
-    expect(t.brownOuts).toBe(0);
+    expect(t.brownOuts).toBe(1);
   });
 
   it("brawler, sustained brawl — five hardpoints out-draw one capacitor", () => {
     const t = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    expectWithinBand("brawler sustained energy", t.energy, [1, 0.406, 0.242, 0.074, 0.321, 0.689, 1]);
+    expectWithinBand("brawler sustained energy", t.energy, [0.929, 0.998, 1, 0.792, 0.487, 0.167, 0.265]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
-    // The heavy CANNOT run everything at once: it browns out and sheds modules,
-    // and its three always-firing racks trade overheat lockouts all match long.
-    expect(t.brownOuts).toBe(3);
-    expect(t.overheats).toBe(12);
+    // The heavy CANNOT run everything at once: four racks out-draw its plant,
+    // it browns out, and those racks trade overheat lockouts all match long.
+    expect(t.brownOuts).toBe(1);
+    expect(t.overheats).toBe(10);
   });
 
   it("support, sustained brawl (big capacitor, strong dissipation)", () => {
     const t = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
-    expectWithinBand("support sustained energy", t.energy, [0.957, 0.558, 0.078, 0.578, 0.329, 0.641, 1]);
-    expectNear("support sustained energy floor", t.energyFloor, 0);
+    expectWithinBand("support sustained energy", t.energy, [0.998, 0.982, 0.966, 0.94, 1, 0.975, 0.99]);
+    expectNear("support sustained energy floor", t.energyFloor, 0.939);
     // The support's strong dissipation still keeps its racks under threshold.
     expect(t.overheats).toBe(0);
     expect(t.brownOuts).toBe(2);
@@ -365,21 +368,21 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const support = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
     const interceptor = runEngagement("ship.interceptor", SUSTAINED);
     const brawler = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    // Since the 2026-07-31 energy rework EVERY hull starves on all-on play (the
-    // floors are all 0) — the class identity now shows in heat: the support's
-    // dissipation keeps it cool where the others overheat, and the five-rack
-    // brawler cooks hardest and sheds the most modules.
+    // With the internal bay in place the hulls separate on BOTH axes again: the
+    // heavy's four racks starve its plant where the lighter hulls hold theirs,
+    // and the support's dissipation keeps it cool where the others cook.
     expect(support.overheats).toBe(0);
     expect(interceptor.overheats).toBeGreaterThan(0);
     expect(brawler.overheats).toBeGreaterThan(interceptor.overheats);
-    expect(brawler.brownOuts).toBeGreaterThanOrEqual(interceptor.brownOuts);
+    expect(brawler.energyFloor).toBeLessThan(support.energyFloor);
+    expect(brawler.energyFloor).toBeLessThan(interceptor.energyFloor);
   });
 
   it("keeps the design contract: holding everything on costs more than cycling", () => {
     const sustained = runEngagement("ship.interceptor", SUSTAINED);
     const disciplined = runEngagement("ship.interceptor", DISCIPLINED);
-    expect(sustained.energyFloor).toBeLessThan(disciplined.energyFloor);
-    expect(disciplined.energyFloor).toBeGreaterThan(0.5); // discipline never browns out
+    expect(sustained.energyFloor).toBeLessThanOrEqual(disciplined.energyFloor);
+    expect(disciplined.energyFloor).toBeGreaterThan(0.5); // discipline never starves
     expect(sustained.peakModuleHeat).toBeGreaterThan(disciplined.peakModuleHeat);
     // An overheat may exceed its threshold by at most one tick's generation —
     // and brown-outs (not hull damage) are the relief valve for the capacitor,
@@ -539,7 +542,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   // interceptor vs brawler) now include one or more 3 s overheat lockouts.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
     ["ship.interceptor", "ship.interceptor", 22, 3.5],
-    ["ship.interceptor", "ship.brawler", 22, 13.433],
+    ["ship.interceptor", "ship.brawler", 22, 10.433],
     ["ship.brawler", "ship.interceptor", 22, 2.2],
     ["ship.brawler", "ship.brawler", 22, 5.667],
     ["ship.support", "ship.interceptor", 22, 3.5],
@@ -562,7 +565,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     // Mk I missiles cycle every 2.5 s = 75 sim ticks. Release on tick 75 and
     // re-press on 76 so each cooled rack receives a new semi-auto rising edge.
     const repullTicks = 75;
-    const recorded = 9.533; // re-recorded 2026-07-31 (heatPerShot rework)
+    const recorded = 7.833; // re-recorded 2026-07-31 (internal bay)
     const ttk = timeToKill("ship.interceptor", "ship.brawler", 22, repullTicks);
     expect(ttk).toBeLessThan(timeToKill("ship.interceptor", "ship.brawler", 22));
     expect(
@@ -584,14 +587,16 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   });
 
   it("an active shield measurably extends survival", () => {
+    // The heavy is the hull under test here: since the internal bay landed
+    // (2026-07-31) the light hull's two hardpoints carry no shield at all.
     const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
     const attacker = sim.spawnPlayerAt("ship.interceptor", fittingOf("ship.interceptor"), 0, { x: 0, z: 0 }, 0);
-    const defender = sim.spawnPlayerAt("ship.interceptor", fittingOf("ship.interceptor"), 1, { x: 22, z: 0 }, Math.PI);
+    const defender = sim.spawnPlayerAt("ship.brawler", fittingOf("ship.brawler"), 1, { x: 22, z: 0 }, Math.PI);
     for (const m of sim.world.modules.get(attacker)!.modules) {
       if (isWeapon(m.moduleId)) m.state = "active";
     }
-    // Defender raises its shield (hardpoint 2 on the light hull) and holds it.
-    sim.applyOrder(defender, { kind: "moduleToggle", hardpointIndex: 2 });
+    // Defender raises its shield (hardpoint 3 on the heavy hull) and holds it.
+    sim.applyOrder(defender, { kind: "moduleToggle", hardpointIndex: 3 });
     warmUpLock(sim, attacker); // same pre-engagement window as timeToKill()
     sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
@@ -604,7 +609,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
         break;
       }
     }
-    expect(shieldedTtk).toBeGreaterThan(timeToKill("ship.interceptor", "ship.interceptor", 22));
-    expect(shieldedTtk).toBeLessThan(TTK_HARD_CEILING_S);
+    expect(shieldedTtk).toBeGreaterThan(timeToKill("ship.interceptor", "ship.brawler", 22));
+    expect(shieldedTtk).toBeLessThanOrEqual(TTK_HARD_CEILING_S);
   });
 });

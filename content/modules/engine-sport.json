@@ -1,0 +1,50 @@
+{
+  "id": "module.engine-sport",
+  "type": "module",
+  "version": 1,
+  "family": "engine",
+  "level": 2,
+  "name": "Sport Drive",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 16
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 45,
+    "overheatCooldown": 3.0,
+    "overheatSelfDamage": 0
+  },
+  "boost": {
+    "speedMult": 1.7,
+    "heatPerSec": 5
+  },
+  "passives": [
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 1.15
+    },
+    {
+      "target": "engine.accel",
+      "op": "mul",
+      "value": 1.2
+    },
+    {
+      "target": "engine.turnRate",
+      "op": "mul",
+      "value": 0.92
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: engine]",
+    "shortName": "Sport Drv",
+    "label": "Engine"
+  },
+  "price": 900,
+  "requiresLevel": 2
+}

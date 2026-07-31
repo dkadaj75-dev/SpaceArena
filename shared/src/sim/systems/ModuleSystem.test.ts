@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../../core/ConfigService.js";
 import { spawnShipFromConfig } from "../spawn.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld } from "../testutil.js";
+import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_SHIELD, loadTestConfigs, makeWorld } from "../testutil.js";
 import type { World } from "../World.js";
 import { moduleSystem } from "./ModuleSystem.js";
 import { energySystem } from "./EnergySystem.js";
@@ -20,6 +20,13 @@ function shipWorld(): { world: World; id: number } {
   return { world, id };
 }
 
+/** The same hull, but with a deployable SHIELD on hardpoint 1 (slot index 1). */
+function shieldWorld(): { world: World; id: number } {
+  const world = makeWorld(configs);
+  const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING_SHIELD, 0, { x: 0, z: 0 }, 0);
+  return { world, id };
+}
+
 function tickModules(world: World, n: number): void {
   for (let i = 0; i < n; i++) {
     for (const m of world.modules.get(world.shipIds()[0]!)!.modules) m.workedThisTick = false;
@@ -31,8 +38,9 @@ describe("ModuleSystem state machine", () => {
   it("spawns weapons ONLINE and support modules retracted (2026-07-31)", () => {
     const { world, id } = shipWorld();
     const states = world.modules.get(id)!.modules.map((m) => m.state);
-    // Interceptor fitting: laser, missile (weapons — online), shield, boost.
-    expect(states).toEqual(["active", "active", "retracted", "retracted"]);
+    // Light hull: laser + missile (weapons, online) then five internals, which
+    // are always-on systems — nothing on this fitting starts retracted.
+    expect(states).toEqual(["active", "active", "active", "active", "active", "active", "active"]);
   });
 
   it("cycles retracted → deploying → active → retracting → retracted", () => {
@@ -58,17 +66,17 @@ describe("ModuleSystem state machine", () => {
   });
 
   it("emits moduleStateChanged with activate action ids", () => {
-    const { world, id } = shipWorld();
+    const { world, id } = shieldWorld();
     // Shield spawns retracted, so its toggle is the deploy edge.
-    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: 2 });
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: 1 });
     moduleSystem(world, DT);
     const evt = world.events.find((e) => e.type === "moduleStateChanged" && e.to === "deploying");
     expect(evt).toBeTruthy();
   });
 
   it("overheats a support module past threshold, then cools back to retracted", () => {
-    const { world, id } = shipWorld();
-    const shield = world.modules.get(id)!.modules[2]!;
+    const { world, id } = shieldWorld();
+    const shield = world.modules.get(id)!.modules[1]!;
     shield.state = "active";
 
     // Push heat just under threshold (60) then run one worked tick via energySystem.
@@ -117,8 +125,9 @@ describe("ModuleSystem state machine", () => {
  * overheat) exits, the shield reservoir, and the no-op guards.
  */
 describe("ModuleSystem state machine — reversals, forced exits and guards", () => {
-  const SHIELD = 2;
-  const BOOST = 3;
+  // Slot layout since 2026-07-31: 0 laser, 1 missile, then the internal bay.
+  const SHIELD = 1;
+  const UTILITY_BAY = 6; // the sensors bay — the light hull's last slot
 
   /** Advance `n` ticks with every module idle (the per-tick flag reset tick() does). */
   function advance(world: World, id: number, n: number): void {
@@ -179,33 +188,35 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
   });
 
   it("a zero-duration module skips deploying/retracting entirely", () => {
-    // Utility battery: deployTime 0, retractTime 0, fitted on the boost/utility hardpoint.
+    // The sensors bay carries a zero-duration internal. Internals SPAWN active
+    // (they are always-on systems), so the first toggle here is the retract.
     const world = makeWorld(configs);
     const id = spawnShipFromConfig(
       world,
       configs,
       "ship.interceptor",
-      [null, null, null, "module.utility-capacitor-battery"],
+      [null, null, null, null, null, null, "module.sensors-basic"],
       0,
       { x: 0, z: 0 },
       0,
     );
     const mod = world.modules.get(id)!.modules[0]!;
-    expect(mod.hardpointIndex).toBe(BOOST);
+    expect(mod.hardpointIndex).toBe(UTILITY_BAY);
+    expect(mod.state).toBe("active");
 
     let mark = world.events.length;
-    toggle(world, id, BOOST);
-    expect(mod.state).toBe("active");
-    expect(transitions(world, mark)).toEqual(["retracted->active"]);
-
-    mark = world.events.length;
-    toggle(world, id, BOOST);
+    toggle(world, id, UTILITY_BAY);
     expect(mod.state).toBe("retracted");
     expect(transitions(world, mark)).toEqual(["active->retracted"]);
+
+    mark = world.events.length;
+    toggle(world, id, UTILITY_BAY);
+    expect(mod.state).toBe("active");
+    expect(transitions(world, mark)).toEqual(["retracted->active"]);
   });
 
   it("carries the module's onActivate / onDeactivate action ids on the state change", () => {
-    const { world, id } = shipWorld();
+    const { world, id } = shieldWorld();
     // shield-mk1 declares both hooks.
     toggle(world, id, SHIELD);
     const up = world.events.find((e) => e.type === "moduleStateChanged" && e.to === "deploying");
@@ -219,7 +230,7 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
   });
 
   it("a brown-out force-retracts instantly, bypassing retractTime", () => {
-    const { world, id } = shipWorld();
+    const { world, id } = shieldWorld();
     const mods = world.modules.get(id)!.modules;
     for (const m of mods) m.state = "active";
     world.shipCores.get(id)!.capacitor.cur = 0;
@@ -227,13 +238,15 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
 
     const mark = world.events.length;
     energySystem(world, DT);
-    expect(mods[BOOST]!.state).toBe("retracted"); // no `retracting` step at all
+    // Support modules shed before weapons (2026-07-31), so the shield is the
+    // one dropped — instantly, with no `retracting` step at all.
+    expect(mods[SHIELD]!.state).toBe("retracted");
     expect(transitions(world, mark)).toContain("active->retracted");
-    expect(mods[BOOST]!.workedThisTick).toBe(false); // dropped work does not draw or heat
+    expect(mods[SHIELD]!.workedThisTick).toBe(false); // dropped work does not draw or heat
   });
 
   it("regenerates the shield reservoir while active and drops it the moment it is not", () => {
-    const { world, id } = shipWorld();
+    const { world, id } = shieldWorld();
     const shield = world.modules.get(id)!.modules[SHIELD]!;
     shield.state = "active";
     advance(world, id, 30); // 1s at absorbPerSecond 12

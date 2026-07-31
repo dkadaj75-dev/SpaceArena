@@ -22,7 +22,7 @@ function resolveBoostMult(world: World, id: EntityId, core: ShipCore, dt: number
     if (m.state !== "active") continue;
     const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
     if (!cfg?.boost) continue;
-    const hasEnergy = core.capacitor.cur > cfg.energy.drawActive * dt;
+    const hasEnergy = core.capacitor.cur > cfg.energy.drawActive * core.efficiency.energyDraw * dt;
     const hasHeat = m.heat < cfg.heat.overheatThreshold;
     if (hasEnergy && hasHeat) {
       speedMult = cfg.boost.speedMult;

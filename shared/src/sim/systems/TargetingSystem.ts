@@ -64,17 +64,27 @@ export function targetingSystem(world: World, dt: number): void {
     const myTeam = world.teams.get(id)!.team;
 
     // A dead/invalid target drops immediately — no drain grace for a wreck.
-    if (ref.targetId !== null && !world.shipCores.has(ref.targetId)) {
+    // A decoy counts as a valid target while it lasts (owner 2026-07-31), and
+    // drops the instant it burns out.
+    if (ref.targetId !== null && !world.shipCores.has(ref.targetId) && !world.decoys.has(ref.targetId)) {
       dropTarget(world, id, ref);
     }
 
     // Half-cone in radians: coneDeg is the FULL width, so deg/2 → rad is /360*PI.
     const halfCone = (core.sensors.coneDeg * Math.PI) / 360;
-    // Sticky: hold the incumbent while it is still lockable; only then re-select.
+    // A jettisoned enemy heatsink OVERRIDES everything, including a lock the
+    // ship already holds (owner 2026-07-31): the sink is the brightest thing in
+    // the sky, so it pulls the seeker off whatever it was tracking. That
+    // override is the whole point — a lure that only worked on ships not yet
+    // locked would never save anyone.
+    // Otherwise: sticky — hold the incumbent while it is still lockable, and
+    // only then re-select.
+    const lure = pickDecoy(world, myTeam, tf, core, halfCone);
     const candidate =
-      ref.targetId !== null && inLockZone(world, tf, core, halfCone, ref.targetId)
+      lure ??
+      (ref.targetId !== null && inLockZone(world, tf, core, halfCone, ref.targetId)
         ? ref.targetId
-        : pickCandidate(world, id, myTeam, ships, policy, tf, core, halfCone);
+        : pickCandidate(world, id, myTeam, ships, policy, tf, core, halfCone));
 
     if (candidate !== null) {
       if (candidate !== ref.targetId) {
@@ -131,6 +141,31 @@ function dropTarget(world: World, entityId: EntityId, ref: TargetRef): void {
  * planar `angleDelta(heading, bearing)` this replaces would have locked an enemy
  * hanging straight overhead as if it were dead ahead.
  */
+/**
+ * The nearest enemy decoy inside the lock zone, or `null`. Walks sorted ids so
+ * the pick is deterministic.
+ */
+function pickDecoy(
+  world: World,
+  myTeam: number,
+  tf: Transform3D,
+  core: ShipCore,
+  halfCone: number,
+): EntityId | null {
+  let best: EntityId | null = null;
+  let bestScore = Infinity;
+  for (const decoyId of world.decoyIds()) {
+    if (world.decoys.get(decoyId)!.team === myTeam) continue;
+    if (!inLockZone(world, tf, core, halfCone, decoyId)) continue;
+    const score = distSq3(tf.pos, world.transforms.get(decoyId)!.pos);
+    if (score < bestScore) {
+      bestScore = score;
+      best = decoyId;
+    }
+  }
+  return best;
+}
+
 function inLockZone(
   world: World,
   tf: Transform3D,

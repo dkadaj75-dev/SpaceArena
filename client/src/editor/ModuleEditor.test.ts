@@ -85,6 +85,9 @@ describe("ModuleEditor", () => {
     const family = panel.element.querySelector<HTMLSelectElement>('[name="family"]')!;
     expect(Array.from(family.options).map((option) => option.textContent)).toEqual([
       "laser", "kinetic", "missile", "shield", "boost", "utility",
+      // The internal bay's families (2026-07-31) — the form is generated from
+      // the schema, so they appear here the moment the enum grows.
+      "engine", "generator", "transformer", "heatsink", "sensors",
     ]);
     expect(panel.element.querySelector('[name="fire.mode"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="fire.heatPerShot"]')).not.toBeNull();

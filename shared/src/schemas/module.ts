@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
-import { damageType, moduleFamily, renderRecipe, statOp } from "./common.js";
+import { damageType, isInternalFamily, moduleFamily, renderRecipe, statOp } from "./common.js";
 
 /** Projectile params. `null` = hitscan/beam; object = travelling ordnance. */
 const projectile = z.union([
@@ -56,10 +56,37 @@ const mitigationBlock = z.object({
   coversFamilies: z.array(damageType).optional(),
 });
 
-/** Afterburner block (boost family). */
+/**
+ * Afterburner block. Since 2026-07-31 this rides on an ENGINE internal rather
+ * than its own hardpoint: whether a hull can boost at all is a property of the
+ * engine fitted to it, and the base engine deliberately omits this block.
+ */
 const boostBlock = z.object({
   speedMult: z.number().min(1),
   heatPerSec: z.number().nonnegative(),
+});
+
+/**
+ * Jettison block (heatsink family, owner 2026-07-31). A sink that carries it can
+ * be blown clear of the hull, which:
+ *
+ *  1. **dumps the ship's heat** — every module's heat and the shared pool reset
+ *     to zero, which is the emergency out for a cooked loadout; and
+ *  2. **leaves a decoy** — the glowing sink is the hottest thing in the sky, so
+ *     enemy auto-lock prefers it and homing missiles already in flight re-seek
+ *     it (see ProjectileSystem). That is what makes it a lure and not just a
+ *     heat reset.
+ *
+ * Costs `cooldownSec` before the sink has re-formed enough mass to do it again.
+ * Cheap sinks omit the block entirely and can never do this.
+ */
+const jettisonBlock = z.object({
+  /** Seconds before this sink can be jettisoned again. */
+  cooldownSec: z.number().positive(),
+  /** How long the dropped sink survives as a lure. */
+  decoyLifetimeSec: z.number().positive(),
+  /** Collider/lock radius of the dropped sink. */
+  decoyRadius: z.number().positive().default(1.2),
 });
 
 const moduleObject = z.object({
@@ -95,6 +122,7 @@ const moduleObject = z.object({
   fire: fireBlock.optional(),
   mitigation: mitigationBlock.optional(),
   boost: boostBlock.optional(),
+  jettison: jettisonBlock.optional(),
   /**
    * Passive stat modifiers a fitted module applies to the ship's resolved core
    * (utility modules: capacitor battery, heat sink, …). Ops feed the stat
@@ -146,6 +174,30 @@ export const moduleSchema = moduleObject.superRefine((mod, ctx) => {
       code: z.ZodIssueCode.custom,
       message: "fire.mode 'continuous' requires fire.projectile: null (a channel is hitscan, it launches nothing)",
       path: ["fire", "projectile"],
+    });
+  }
+  // Internals are always-on systems, not deployables: the sim spawns them
+  // `active` and never runs their state machine, so an authored deploy time
+  // would silently do nothing. Fail loudly instead of lying to the author.
+  if (isInternalFamily(mod.family) && (mod.activation.deployTime > 0 || mod.activation.retractTime > 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `internal family '${mod.family}' is always on — activation.deployTime/retractTime must be 0`,
+      path: ["activation"],
+    });
+  }
+  if (mod.jettison && mod.family !== "heatsink") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "only a heatsink can be jettisoned",
+      path: ["jettison"],
+    });
+  }
+  if (mod.boost && mod.family !== "engine" && mod.family !== "boost") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "a boost block belongs to the engine that provides it",
+      path: ["boost"],
     });
   }
 });

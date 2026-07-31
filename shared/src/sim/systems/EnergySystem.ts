@@ -1,4 +1,4 @@
-import type { ModuleConfig } from "../../schemas/index.js";
+import { isInternalFamily, type ModuleConfig } from "../../schemas/index.js";
 import type { ModuleRuntime } from "../components.js";
 import { transition } from "./ModuleSystem.js";
 import type { World } from "../World.js";
@@ -40,7 +40,8 @@ export function energySystem(world: World, dt: number): void {
       if (!cfg) continue;
       drain += (m.workedThisTick ? cfg.energy.drawActive : cfg.energy.drawIdle) * dt;
     }
-    core.capacitor.cur -= drain;
+    // The fitted TRANSFORMER's efficiency applies to the whole bill.
+    core.capacitor.cur -= drain * core.efficiency.energyDraw;
     if (core.capacitor.cur < 0) {
       core.capacitor.cur = 0;
       brownOut(world, id, mods.modules);
@@ -51,7 +52,9 @@ export function energySystem(world: World, dt: number): void {
       if (!m.workedThisTick) continue;
       const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
       if (!cfg) continue;
-      m.heat += workingHeatRate(cfg) * dt;
+      // Same transformer lever on the heat side: a good one runs the loadout
+      // cooler, a cheap one cooks it.
+      m.heat += workingHeatRate(cfg) * core.efficiency.heatGen * dt;
     }
 
     // --- HEAT: overheat detection ---
@@ -99,16 +102,27 @@ export function energySystem(world: World, dt: number): void {
   }
 }
 
+/** Shed priority: 0 = drop first. Internals are never shed at all. */
+function shedTier(cfg: ModuleConfig | undefined): number {
+  if (cfg === undefined) return 0;
+  // The ship's own systems (engine, generator, transformer, heatsink, sensors)
+  // are not a power budget the pilot can trade away — cutting the engine to
+  // afford a shield would be worse than the brown-out. They stay on; the
+  // capacitor simply floors at 0.
+  if (isInternalFamily(cfg.family)) return Infinity;
+  // Then shields and the like: the big draws, and the deliberate activations.
+  if (cfg.fire === undefined) return 0;
+  // Weapons only as a last resort — an empty capacitor must never silently
+  // disarm a ship while a shield idles on.
+  return 1;
+}
+
 function brownOut(world: World, id: number, modules: ModuleRuntime[]): void {
-  // Support modules (shield/boost — the big energy consumers) shed first, in
-  // reverse hardpoint order; always-online weapons only as a last resort, so an
-  // empty capacitor never silently disarms the ship while a shield idles on.
-  for (const shedWeapons of [false, true]) {
+  for (const tier of [0, 1]) {
     for (let i = modules.length - 1; i >= 0; i--) {
       const m = modules[i]!;
       if (m.state === "retracted" || m.state === "overheated") continue;
-      const isWeapon = world.configs.get<ModuleConfig>("module", m.moduleId)?.fire !== undefined;
-      if (isWeapon !== shedWeapons) continue;
+      if (shedTier(world.configs.get<ModuleConfig>("module", m.moduleId)) !== tier) continue;
       // Force-retract instantly (bypass retractTime) to relieve the deficit.
       m.workedThisTick = false;
       transition(world, id, m, "retracted");

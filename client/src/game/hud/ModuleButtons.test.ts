@@ -91,6 +91,7 @@ function snapshotWithModules(
     ],
     asteroids: [],
     projectiles: [],
+    decoys: [],
   };
 }
 

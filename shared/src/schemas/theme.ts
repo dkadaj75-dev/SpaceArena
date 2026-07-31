@@ -48,6 +48,11 @@ export const hudModulesSchema = z.object({
       shield: z.string().optional(),
       boost: z.string().optional(),
       utility: z.string().optional(),
+      engine: z.string().optional(),
+      generator: z.string().optional(),
+      transformer: z.string().optional(),
+      heatsink: z.string().optional(),
+      sensors: z.string().optional(),
     })
     .optional(),
   /** Saturated family-color plate opacity. */

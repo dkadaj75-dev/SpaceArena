@@ -12,6 +12,7 @@ import { collisionSystem } from "./systems/CollisionSystem.js";
 import { cleanupSystem } from "./systems/CleanupSystem.js";
 import { combatSystem, latchFireState } from "./systems/CombatSystem.js";
 import { energySystem } from "./systems/EnergySystem.js";
+import { jettisonSystem } from "./systems/JettisonSystem.js";
 import { moduleSystem } from "./systems/ModuleSystem.js";
 import { navigationSystem } from "./systems/NavigationSystem.js";
 import { projectileSystem } from "./systems/ProjectileSystem.js";
@@ -83,6 +84,19 @@ export interface AsteroidSnapshot {
   state: string;
 }
 
+/**
+ * A drifting jettisoned heatsink (owner 2026-07-31). Replicated so remote
+ * clients can render the lure and see why their missiles turned.
+ */
+export interface DecoySnapshot {
+  id: EntityId;
+  team: number;
+  pos: { x: number; y: number; z: number };
+  radius: number;
+  /** Remaining life as a 0..1 fraction, for a burn-out fade. */
+  lifeFraction: number;
+}
+
 export interface ProjectileSnapshot {
   id: EntityId;
   kind: "kinetic" | "missile";
@@ -136,6 +150,7 @@ export interface Snapshot {
   ships: ShipSnapshot[];
   asteroids: AsteroidSnapshot[];
   projectiles: ProjectileSnapshot[];
+  decoys: DecoySnapshot[];
 }
 
 /**
@@ -341,6 +356,9 @@ export class ArenaSimulation {
 
     navigationSystem(w, dt);
     moduleSystem(w, dt);
+    // Before targeting: a heatsink jettisoned this tick must already be luring
+    // this tick, and its decoy must exist before missiles pick a seeker head.
+    jettisonSystem(w, dt);
     targetingSystem(w, dt);
     combatSystem(w, dt);
     energySystem(w, dt);
@@ -615,6 +633,17 @@ export class ArenaSimulation {
         velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
       };
     });
+    const decoys: DecoySnapshot[] = w.decoyIds().map((id) => {
+      const tf = w.transforms.get(id)!;
+      const d = w.decoys.get(id)!;
+      return {
+        id,
+        team: d.team,
+        pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
+        radius: d.radius,
+        lifeFraction: d.maxLifetime > 0 ? Math.max(0, Math.min(1, d.lifetime / d.maxLifetime)) : 0,
+      };
+    });
     const teamScores: TeamScore[] = [...this.teamsEverPresent]
       .sort((a, b) => a - b)
       .map((team) => ({ team, kills: this.teamScores.get(team) ?? 0 }));
@@ -628,6 +657,7 @@ export class ArenaSimulation {
       ships,
       asteroids,
       projectiles,
+      decoys,
     };
   }
 }
