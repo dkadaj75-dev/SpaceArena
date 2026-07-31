@@ -3,15 +3,15 @@
   "type": "gamemode",
   "version": 1,
   "name": "Practice vs Bots",
-  "teams": "1v1",
+  "teams": "2v2",
   "defaultArena": "arena.ring-nebula",
   "winCondition": {
-    "type": "destroyTargets",
-    "count": 1
+    "type": "fragLimit",
+    "count": 10
   },
-  "eliminationEndsMatch": true,
+  "eliminationEndsMatch": false,
   "respawn": {
-    "enabled": false,
+    "enabled": true,
     "delay": 3
   },
   "boundaryRule": {
@@ -32,9 +32,16 @@
       {
         "profile": "bot.rookie",
         "ship": "ship.interceptor",
-        "team": 1,
+        "team": 0,
         "count": 1
+      },
+      {
+        "profile": "bot.rookie",
+        "ship": "ship.interceptor",
+        "team": 1,
+        "count": 2
       }
     ]
-  }
+  },
+  "timeLimitCapSec": 600
 }

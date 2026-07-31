@@ -10,6 +10,7 @@ const snapshot: Snapshot = {
   elapsed: 0,
   phase: "live",
   countdownRemaining: 0,
+  teamScores: [],
   winnerTeam: null,
   projectiles: [],
   asteroids: [],

@@ -954,13 +954,16 @@ const CSS = `
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* --- Match status (top-center, above notifications) --- */
+/* --- Match status: the BLUE vs RED team scoreboard (top-center) --- */
 .hud-match-status {
   position: absolute;
   top: calc(var(--hud-inset-top) + 40px);
   left: 50%;
   transform: translateX(-50%);
   max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 0.6875em;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -969,6 +972,28 @@ const CSS = `
   padding: 3px 12px;
   clip-path: polygon(7px 0%, calc(100% - 7px) 0%, 100% 100%, 0% 100%);
   white-space: nowrap;
+}
+/* The player's team is ALWAYS blue on the left, the enemy always red on the
+   right (Overwatch convention) — MatchStatus maps sim team ids onto the sides. */
+.hud-match-status .hud-team-score {
+  font-size: 1.35em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  min-width: 1.2em;
+}
+.hud-match-status .hud-team-score.blue {
+  color: var(--hud-primary, #39bfff);
+  text-align: right;
+  text-shadow: 0 0 calc(6px * var(--hud-glow)) color-mix(in srgb, var(--hud-primary, #39bfff) 60%, transparent);
+}
+.hud-match-status .hud-team-score.red {
+  color: var(--hud-danger, #ff405c);
+  text-align: left;
+  text-shadow: 0 0 calc(6px * var(--hud-glow)) color-mix(in srgb, var(--hud-danger, #ff405c) 60%, transparent);
+}
+.hud-match-status .hud-match-meta {
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- Damage feedback --- */

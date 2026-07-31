@@ -694,6 +694,11 @@ export class ArenaRoom extends Room<ArenaState> {
     if (this.state.countdownRemaining !== snap.countdownRemaining) {
       this.state.countdownRemaining = snap.countdownRemaining;
     }
+    // Team kill counts (the scoreboard); write-on-change keeps patches quiet.
+    for (const { team, kills } of snap.teamScores) {
+      const key = String(team);
+      if (this.state.teamScores.get(key) !== kills) this.state.teamScores.set(key, kills);
+    }
 
     getMetrics().recordTick(this.roomId, performance.now() - startedAt);
 

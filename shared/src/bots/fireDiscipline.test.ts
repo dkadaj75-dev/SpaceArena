@@ -71,6 +71,7 @@ function context(locked: boolean, heat = 0) {
     elapsed: 1,
     phase: "live",
     countdownRemaining: 0,
+    teamScores: [],
     winnerTeam: null,
     ships: [self, enemy],
     asteroids: [],

@@ -61,9 +61,20 @@ export const gamemodeSchema = z.object({
   defaultArena: z.string().optional(),
   winCondition,
   /**
+   * Optional HARD time cap (seconds of live match time) layered on top of any
+   * `winCondition`: when it elapses the match ends immediately with the
+   * top-scoring team as winner — or a DRAW (winner null) on a tie. This is how
+   * a frag-limit mode gets a guaranteed end ("first to 10 kills, or whoever
+   * leads at 10 minutes"); a `timeLimit` win condition alone cannot coexist
+   * with a frag target because `winCondition` is single-choice.
+   */
+  timeLimitCapSec: z.number().positive().optional(),
+  /**
    * When true (default), a team with all ships destroyed loses immediately and
    * the last surviving team wins — an implicit elimination rule layered on top of
    * `winCondition`. Lets the player *lose* a practice `destroyTargets` match.
+   * Turn this OFF in respawn modes: between a death and its respawn the team is
+   * momentarily "wiped" and the rule would end the match on every kill.
    */
   eliminationEndsMatch: z.boolean().optional().default(true),
   respawn: z.object({

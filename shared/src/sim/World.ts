@@ -91,6 +91,19 @@ export class World {
     return id;
   }
 
+  /**
+   * Re-register a PREVIOUSLY destroyed entity id — how a respawn keeps a ship's
+   * identity stable for everything bound to it (the local player id, bot
+   * drivers, the server's PlayerState, HUD views). Only ids handed out by
+   * {@link createEntity} and since destroyed are legal; re-registering a live
+   * id is a programming error and throws.
+   */
+  restoreEntity(id: EntityId): void {
+    if (this.entities.has(id)) throw new Error(`restoreEntity: ${id} is still alive`);
+    if (id >= this.nextId) throw new Error(`restoreEntity: ${id} was never allocated`);
+    this.entities.add(id);
+  }
+
   destroyEntity(id: EntityId): void {
     this.entities.delete(id);
     this.transforms.delete(id);

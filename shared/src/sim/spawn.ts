@@ -39,6 +39,10 @@ export function resolveShipCore(
  * `pos.y` and `pitch` are the bubble's vertical seams (BUBBLE.md §A) and both
  * default to 0, so an arena authored without vertical structure spawns exactly
  * where it always did.
+ *
+ * `reuseEntityId` is the RESPAWN path: the ship is rebuilt under a previously
+ * destroyed id so every binding to that id (local player, bot driver, server
+ * PlayerState, HUD views) survives the death without rewiring.
  */
 export function spawnShipFromConfig(
   world: World,
@@ -50,11 +54,18 @@ export function spawnShipFromConfig(
   heading: number,
   upgradeLevels?: UpgradeLevels,
   pitch = 0,
+  reuseEntityId?: EntityId,
 ): EntityId {
   const ship = configs.get<ShipConfig>("ship", shipId);
   if (!ship) throw new Error(`unknown ship config: ${shipId}`);
 
-  const id = world.createEntity();
+  let id: EntityId;
+  if (reuseEntityId !== undefined) {
+    world.restoreEntity(reuseEntityId);
+    id = reuseEntityId;
+  } else {
+    id = world.createEntity();
+  }
   // An authored spawn pitch is held to the legacy clamp when a pack has one, and
   // otherwise merely WRAPPED — free pitch has no illegal value, only unspelled
   // ones (BUBBLE.md §A).
