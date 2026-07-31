@@ -51,19 +51,23 @@ describe("computeStatPanel (Hangar stat panel)", () => {
 
   it("sums idle draw and dps across the default fitting", () => {
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
-    // Weapons idle free since 2026-07-31 (heat is their budget); shield-mk1
-    // drawIdle 12, boost-mk1 drawIdle 1.
-    expect(panel.idleDrawTotal).toBe(0 + 0 + 12 + 1);
-    expect(panel.energyBudget).toBe(panel.capacitorRegen - panel.idleDrawTotal);
-    // laser 7/0.4 + missile 22/2.5 = 17.5 + 8.8 = 26.3 (shield/boost have no fire block).
+    // The light hull's stock fit: laser + missile on its two hardpoints, plus
+    // the five stock internals. Weapons idle free (heat is their budget) and the
+    // stock internals draw nothing at idle either, so the whole fit is free to
+    // simply carry — you pay when you pull the trigger.
+    expect(panel.idleDrawTotal).toBe(0);
+    expect(panel.energyBudget).toBe(panel.capacitorRegen);
+    // laser 7/0.4 + missile 22/2.5 = 17.5 + 8.8 = 26.3 (internals do not fire).
     expect(panel.dps).toBeCloseTo(7 / 0.4 + 22 / 2.5, 6);
   });
 
   it("flags a negative energy budget when idle draw exceeds regen", () => {
-    // Fit every hardpoint with the shield (heaviest idle draw) to force a deficit.
+    // Shields carry the heaviest idle draw, so a rack of them forces a deficit.
+    // (computeStatPanel sums whatever it is handed; socket legality is the
+    // Hangar's job, not the stat panel's.)
     const heavy = interceptor.defaultFitting.map(() => "module.shield-mk1");
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: heavy });
-    expect(panel.idleDrawTotal).toBe(12 * 4);
+    expect(panel.idleDrawTotal).toBe(12 * heavy.length);
     expect(panel.energyBudget).toBeLessThan(0);
   });
 

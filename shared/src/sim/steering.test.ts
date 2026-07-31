@@ -5,7 +5,8 @@ import type { TuningConfig } from "../schemas/index.js";
 import { spawnShipFromConfig } from "./spawn.js";
 import { flightStep, type FlightParams, type SteerState } from "./steering.js";
 import { navigationSystem } from "./systems/NavigationSystem.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld } from "./testutil.js";
+import { INTERCEPTOR_FITTING,
+  INTERCEPTOR_FITTING_BOOST, loadTestConfigs, makeWorld } from "./testutil.js";
 import { pitchTuningOf } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
@@ -234,10 +235,12 @@ describe("flightStep ⇄ NavigationSystem parity (FLIGHT.md §1, BUBBLE.md §A)"
 
   it("scales desired speed by boostMult exactly like the sim's boost path", () => {
     const world = makeWorld(configs);
-    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
-    const boost = world.modules.get(id)!.modules[3]!;
-    boost.state = "active"; // deployed afterburner with full energy + no heat
-    const boostMult = configs.get<ModuleConfig>("module", "module.boost-mk1")!.boost!.speedMult;
+    // Boost lives on the ENGINE internal since 2026-07-31: fit the sporting
+    // drive (slot 2, the engine bay) rather than a boost hardpoint.
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING_BOOST, 0, { x: 0, z: 0 }, 0);
+    const boost = world.modules.get(id)!.modules[2]!;
+    boost.state = "active"; // always-on drive with full energy + no heat
+    const boostMult = configs.get<ModuleConfig>("module", "module.engine-sport")!.boost!.speedMult;
 
     const tf = world.transforms.get(id)!;
     const vel = world.velocities.get(id)!;

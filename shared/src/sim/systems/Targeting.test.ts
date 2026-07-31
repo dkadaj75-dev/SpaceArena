@@ -457,12 +457,13 @@ describe("sensors come from the resolver", () => {
   it("a module statOp that extends lockRange extends the zone the sim uses", () => {
     const world = makeWorld(configs);
     const range = configs.get<ShipConfig>("ship", "ship.interceptor")!.core.sensors.lockRange;
-    // Fitted on the interceptor's utility hardpoint (index 3).
+    // Fitted in the light hull's SENSORS bay (slot 6) — where a sensor suite
+    // lives since the internal bay landed (2026-07-31).
     const res = configs.replace({
       id: "module.test-longrangesensors",
       type: "module",
       version: 1,
-      family: "utility",
+      family: "sensors",
       level: 1,
       activation: { deployTime: 0, retractTime: 0 },
       energy: { drawIdle: 0, drawActive: 0 },
@@ -478,7 +479,7 @@ describe("sensors come from the resolver", () => {
       world,
       configs,
       "ship.interceptor",
-      [null, null, null, "module.test-longrangesensors"],
+      [null, null, null, null, null, null, "module.test-longrangesensors"],
       0,
       { x: 0, z: 0 },
       0,

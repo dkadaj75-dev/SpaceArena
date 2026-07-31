@@ -13,6 +13,7 @@ function snapshot(phase: Snapshot["phase"], countdownRemaining: number): Snapsho
     ships: [],
     asteroids: [],
     projectiles: [],
+    decoys: [],
   };
 }
 

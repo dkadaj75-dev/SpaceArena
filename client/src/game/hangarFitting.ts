@@ -1,10 +1,16 @@
-import { hardpointsOf, type HardpointMap, type HardpointSocket, type ModuleFamily, type ShipConfig } from "@space-arena/shared";
+import { hardpointsOf, type HardpointMap, type FittableSocket, type ModuleFamily, type ShipConfig } from "@space-arena/shared";
 
-/** One hardpoint slot in the Hangar's fitting grid UI. */
+/** One fitted slot in the Hangar's fitting grid UI. */
 export interface HangarSlot {
   hardpointIndex: number;
   /** Socket id (used as the slot label, e.g. "hp-nose"). */
   socketId: string;
+  /**
+   * Which bay this slot belongs to: a `hardpoint` carries weapons and shields,
+   * an `internal` carries the ship's own systems (2026-07-31). They share one
+   * index space, so the UI needs this to group and label them.
+   */
+  kind: "hardpoint" | "internal";
   accepts: readonly ModuleFamily[];
   moduleId: string | null;
 }
@@ -14,6 +20,7 @@ export function slotsFromHardpointMap(ship: ShipConfig, map: HardpointMap | unde
   return hardpointsOf(ship).map((socket, i) => ({
     hardpointIndex: i,
     socketId: socket.id,
+    kind: socket.kind,
     accepts: socket.accepts,
     moduleId: map?.[String(i)] ?? null,
   }));
@@ -24,6 +31,7 @@ export function slotsFromDefaultFitting(ship: ShipConfig): HangarSlot[] {
   return hardpointsOf(ship).map((socket, i) => ({
     hardpointIndex: i,
     socketId: socket.id,
+    kind: socket.kind,
     accepts: socket.accepts,
     moduleId: ship.defaultFitting[i] ?? null,
   }));
@@ -53,7 +61,7 @@ export function slotAccepts(slot: HangarSlot, family: ModuleFamily): boolean {
   return slot.accepts.includes(family);
 }
 
-/** Re-derive a slot's `HardpointSocket` from a ship config (for accepts/label lookups after a change). */
-export function socketFor(ship: ShipConfig, hardpointIndex: number): HardpointSocket | undefined {
+/** Re-derive a slot's `FittableSocket` from a ship config (for accepts/label lookups after a change). */
+export function socketFor(ship: ShipConfig, hardpointIndex: number): FittableSocket | undefined {
   return hardpointsOf(ship)[hardpointIndex];
 }

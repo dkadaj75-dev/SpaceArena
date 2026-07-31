@@ -80,6 +80,7 @@ function context(opts: CtxOptions = {}): BotContext {
     ships: [self, enemy],
     asteroids: opts.asteroids ?? [],
     projectiles: opts.projectiles ?? [],
+    decoys: [],
   };
   return buildBotContext({
     snapshot,
@@ -183,7 +184,7 @@ describe("engage", () => {
 
   it("scores 0 without a target and grows with range beyond the band", () => {
     const noTarget = buildBotContext({
-      snapshot: { tick: 1, elapsed: 1, phase: "live", teamScores: [], countdownRemaining: 0, winnerTeam: null, ships: [ship(1, 0, 0, 0)], asteroids: [], projectiles: [] },
+      snapshot: { tick: 1, elapsed: 1, phase: "live", teamScores: [], countdownRemaining: 0, winnerTeam: null, ships: [ship(1, 0, 0, 0)], asteroids: [], projectiles: [], decoys: [] },
       self: ship(1, 0, 0, 0),
       profile: PROFILE,
       weaponRange: 40,
@@ -345,6 +346,7 @@ describe("retreat", () => {
       ships: [self, ship(2, 1, 20, 0, { pos: { x: 20, y: 30, z: 0 } }), ship(3, 1, 20, 0, { pos: { x: 20, y: -30, z: 0 } })],
       asteroids: [],
       projectiles: [],
+      decoys: [],
     };
     const ctx = buildBotContext({
       snapshot,

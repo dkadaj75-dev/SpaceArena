@@ -638,12 +638,13 @@ export class Hangar {
 
   private buildSlotGrid(ship: ShipConfig, readOnly: boolean): HTMLDivElement {
     const wrap = el("div", "hangar-slots");
-    wrap.append(el("div", "hangar-section-title", "Hardpoints"));
+    wrap.append(el("div", "hangar-section-title", "Hardpoints & systems"));
     const grid = el("div", "hangar-slot-grid");
     for (const slot of this.slots) {
       const mod = slot.moduleId ? this.configs.get<ModuleConfig>("module", slot.moduleId) : undefined;
       const btn = document.createElement("button");
       btn.className = "hangar-slot" + (slot.moduleId ? " filled" : "") + (this.pickerHardpoint === slot.hardpointIndex ? " open" : "");
+      btn.dataset["kind"] = slot.kind;
       btn.disabled = readOnly || this.busy;
       btn.append(el("span", "hangar-slot-icon", mod?.ui.icon ?? "+"));
       btn.append(el("span", "hangar-slot-label", mod?.ui.label ?? "Empty"));

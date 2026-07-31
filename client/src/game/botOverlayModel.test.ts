@@ -18,6 +18,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
     ships: [],
     asteroids: [],
     projectiles: [],
+    decoys: [],
     ...over,
   } as unknown as Snapshot;
 }

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../../core/ConfigService.js";
 import { angleDelta, len, len3 } from "../math.js";
 import { spawnAsteroid, spawnShipFromConfig } from "../spawn.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
+import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_BOOST, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
 import type { World } from "../World.js";
 import { navigationSystem } from "./NavigationSystem.js";
 
@@ -155,12 +155,16 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
 
   it("applies boost speed only with an active boost module that has headroom", () => {
     const world = makeWorld(configs);
-    const id = spawnPilot(world);
+    // Boost rides the ENGINE internal (slot 2) since 2026-07-31; park it
+    // retracted first so the "no boost available" leg still has something to
+    // assert against.
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING_BOOST, 0, { x: 0, z: 0 }, 0);
     const core = world.shipCores.get(id)!;
-    const boost = world.modules.get(id)!.modules[3]!;
+    const boost = world.modules.get(id)!.modules[2]!;
+    boost.state = "retracted";
     world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, boost: true, fire: true });
 
-    // Boost requested but the module is retracted ⇒ plain nominal speed.
+    // Boost requested but the drive is offline ⇒ plain nominal speed.
     for (let i = 0; i < 200; i++) navigationSystem(world, DT);
     expect(speedOf(world, id)).toBeCloseTo(core.engine.nominalSpeed, 6);
     expect(boost.workedThisTick).toBe(false);

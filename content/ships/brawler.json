@@ -30,6 +30,10 @@
       "lockRange": 155.0,
       "lockTimeSec": 1.4,
       "coneDeg": 80
+    },
+    "efficiency": {
+      "energyDraw": 1,
+      "heatGen": 1
     }
   },
   "upgradeTracks": {
@@ -99,18 +103,73 @@
       ]
     },
     {
-      "id": "hp-aft",
-      "kind": "hardpoint",
+      "id": "in-engine",
+      "kind": "internal",
       "transform": {
         "pos": [
           0,
-          0.1,
-          -1.4
+          0.05,
+          -1.7
         ]
       },
       "accepts": [
-        "boost",
-        "utility"
+        "engine"
+      ]
+    },
+    {
+      "id": "in-generator",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          0,
+          0.35,
+          -0.6
+        ]
+      },
+      "accepts": [
+        "generator"
+      ]
+    },
+    {
+      "id": "in-transformer",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          0.7,
+          0.1,
+          -0.9
+        ]
+      },
+      "accepts": [
+        "transformer"
+      ]
+    },
+    {
+      "id": "in-heatsink",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          -0.7,
+          0.1,
+          -0.9
+        ]
+      },
+      "accepts": [
+        "heatsink"
+      ]
+    },
+    {
+      "id": "in-sensors",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          0,
+          0.5,
+          0.9
+        ]
+      },
+      "accepts": [
+        "sensors"
       ]
     },
     {
@@ -309,7 +368,11 @@
     "module.laser-mk1",
     "module.missile-mk1",
     "module.shield-mk1",
-    "module.boost-mk1"
+    "module.engine-civ",
+    "module.generator-compact",
+    "module.transformer-stock",
+    "module.heatsink-basic",
+    "module.sensors-basic"
   ],
   "render": {
     "recipe": "procedural.brawler",

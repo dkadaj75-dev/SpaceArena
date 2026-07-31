@@ -150,11 +150,13 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // under the overlay. (Which half is which flips with orientation, in CSS.)
   await expect(page.locator(".hangar-overlay > .hangar-stage")).toHaveCount(1);
 
-  // How many hardpoints the chosen hull has — every one of them is filled at
-  // this point (the fit step emptied one slot and re-equipped it), so the match
-  // HUD must show exactly this many module buttons.
-  const hangarSlotCount = await hangar.locator(".hangar-slot").count();
-  expect(hangarSlotCount).toBeGreaterThan(0);
+  // The hull's slots split into weapon hardpoints and the always-on internal
+  // bay (2026-07-31). Only hardpoints get a HUD button, so that is the count the
+  // match must show.
+  const hangarWeaponSlots = await hangar.locator('.hangar-slot[data-kind="hardpoint"]').count();
+  const hangarInternalSlots = await hangar.locator('.hangar-slot[data-kind="internal"]').count();
+  expect(hangarWeaponSlots).toBeGreaterThan(0);
+  expect(hangarInternalSlots).toBe(5); // engine, generator, transformer, heatsink, sensors
 
   // ------------------------------------------------------- 4. back to lobby
   await hangar.locator(".hangar-close").click();
@@ -167,7 +169,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // The loadout left in the Hangar is the one flown (owner 2026-07-31) — this
   // is the end-to-end proof of it, not a count pinned to one hull.
   const moduleButtons = page.locator(".hud-modules .hud-module-btn");
-  await expect(moduleButtons).toHaveCount(hangarSlotCount);
+  await expect(moduleButtons).toHaveCount(hangarWeaponSlots);
   await expect(page.locator(".hud-fps")).toHaveCount(0);
 
   // The dummies choice carries no explicit gamemode, so the match must still

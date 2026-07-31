@@ -140,19 +140,20 @@ describe("ArenaRoom", () => {
     const ack3 = await c1.waitForMessage("orderAck");
     expect(ack3).toMatchObject({ accepted: false, reason: "malformed" });
 
-    // Weapons spawn ONLINE (2 = active) since 2026-07-31; support modules do not.
+    // Weapons spawn ONLINE (2 = active), and so does the internal bay — it is
+    // the ship's own systems (2026-07-31).
     expect(p1.modules[0]!.state).toBe(2);
+    expect(p1.modules[2]!.state).toBe(2); // engine bay
     // The continuous-channel flag rides the same per-module state; a `held`
     // laser must never set it.
     expect(p1.modules[0]!.channeling).toBe(false);
 
-    // Module toggle → the shield leaves the retracted (0) state.
-    expect(p1.modules[2]!.state).toBe(0);
-    c1.send("order", { seq: 4, order: { kind: "moduleToggle", hardpointIndex: 2 } });
+    // Module toggle → the missile rack leaves the active (2) state and retracts.
+    c1.send("order", { seq: 4, order: { kind: "moduleToggle", hardpointIndex: 1 } });
     const ack4 = await c1.waitForMessage("orderAck");
     expect(ack4).toMatchObject({ seq: 4, accepted: true });
     await advance(room, 2);
-    expect(p1.modules[2]!.state).toBeGreaterThan(0);
+    expect(p1.modules[1]!.state).not.toBe(2);
 
     await c1.leave();
     await c2.leave();
@@ -826,17 +827,18 @@ describe("ArenaRoom", () => {
   });
 
   it("preserves hardpoint positions: sparse fit toggles the right module (9)", async () => {
-    // Seed a user whose fitting leaves hardpoint 1 empty: {0:laser, 2:shield}.
+    // Seed a user whose fitting leaves slots 1 and 2 empty: {0:laser, 3:generator}.
+    // Slot 3 is the light hull's generator bay since the internal bay landed.
     usersRepo.create({ id: "u-sparse", email: null, pass_hash: null, guest_token: "gt-sparse" });
     seedNewUser(configs, "u-sparse", "Sparse");
     // Own the shield so the fit is legal, then save the sparse fitting.
-    ownedModulesRepo.grant("u-sparse", "module.shield-mk1", 1);
+    ownedModulesRepo.grant("u-sparse", "module.generator-compact", 1);
     const fit = fittingsRepo.create({
       id: "fit-sparse",
       user_id: "u-sparse",
       ship_id: "ship.interceptor",
       name: "Sparse",
-      hardpointMap: { "0": "module.laser-mk1", "2": "module.shield-mk1" },
+      hardpointMap: { "0": "module.laser-mk1", "3": "module.generator-compact" },
     });
     const token = signAccessToken("u-sparse");
 
@@ -845,23 +847,25 @@ describe("ArenaRoom", () => {
     await advance(room, 1);
 
     const ps = room.state.players.get(c.sessionId)!;
-    // Two fitted modules; the shield answers hardpoint index 2 (not compacted 1).
+    // Two fitted modules; the generator answers slot index 3 (not compacted 1).
     expect(ps.modules.length).toBe(2);
-    const shieldModule = [...ps.modules].find((m) => m.hardpointIndex === 2)!;
-    expect(shieldModule).toBeDefined();
+    const generatorModule = [...ps.modules].find((m) => m.hardpointIndex === 3)!;
+    expect(generatorModule).toBeDefined();
 
-    // Toggling hardpoint index 1 (empty) is rejected.
+    // Toggling slot index 1 (empty) is rejected.
     c.send("order", { seq: 1, order: { kind: "moduleToggle", hardpointIndex: 1 } });
     const badAck = await c.waitForMessage("orderAck");
     expect(badAck).toMatchObject({ seq: 1, accepted: false, reason: "bad-hardpoint" });
 
-    // Toggling hardpoint index 2 activates the shield module.
-    c.send("order", { seq: 2, order: { kind: "moduleToggle", hardpointIndex: 2 } });
+    // Toggling slot index 3 addresses the generator, proving the index survived
+    // the sparse fit rather than being compacted.
+    c.send("order", { seq: 2, order: { kind: "moduleToggle", hardpointIndex: 3 } });
     const okAck = await c.waitForMessage("orderAck");
     expect(okAck).toMatchObject({ seq: 2, accepted: true });
     await advance(room, 2);
-    const shieldAfter = [...ps.modules].find((m) => m.hardpointIndex === 2)!;
-    expect(shieldAfter.state).toBeGreaterThan(0);
+    // The generator is an always-on internal, so the toggle RETRACTS it (0).
+    const generatorAfter = [...ps.modules].find((m) => m.hardpointIndex === 3)!;
+    expect(generatorAfter.state).toBe(0);
 
     await c.leave();
   });
@@ -870,13 +874,13 @@ describe("ArenaRoom", () => {
     usersRepo.create({ id: "u-cheat", email: null, pass_hash: null, guest_token: "gt-cheat" });
     seedNewUser(configs, "u-cheat", "Cheater");
     // Craft an illegal fitting directly in the repo: shield-mk2 is a priced module
-    // the fresh user does not own (family-legal for hardpoint 2).
+    // the fresh user does not own (family-legal for hardpoint 1).
     const fit = fittingsRepo.create({
       id: "fit-cheat",
       user_id: "u-cheat",
       ship_id: "ship.interceptor",
       name: "Cheat",
-      hardpointMap: { "0": "module.laser-mk1", "2": "module.shield-mk2" },
+      hardpointMap: { "0": "module.laser-mk1", "1": "module.shield-mk2" },
     });
     const token = signAccessToken("u-cheat");
 

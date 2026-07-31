@@ -1,0 +1,49 @@
+{
+  "id": "module.heatsink-ablative",
+  "type": "module",
+  "version": 1,
+  "family": "heatsink",
+  "level": 2,
+  "name": "Ablative Sink",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "jettison": {
+    "cooldownSec": 25,
+    "decoyLifetimeSec": 8,
+    "decoyRadius": 1.4
+  },
+  "passives": [
+    {
+      "target": "heat.dissipation",
+      "op": "add",
+      "value": 5
+    },
+    {
+      "target": "heat.capacity",
+      "op": "add",
+      "value": 20
+    }
+  ],
+  "onActivate": [
+    "action.play-sound-boost-up"
+  ],
+  "ui": {
+    "icon": "[ICON: heatsink]",
+    "shortName": "Ablative",
+    "label": "Heatsink"
+  },
+  "price": 1500,
+  "requiresLevel": 3
+}

@@ -30,6 +30,10 @@
       "lockRange": 195.0,
       "lockTimeSec": 0.7,
       "coneDeg": 60
+    },
+    "efficiency": {
+      "energyDraw": 1,
+      "heatGen": 1
     }
   },
   "upgradeTracks": {
@@ -41,6 +45,7 @@
   "sockets": [
     {
       "id": "hp-nose",
+      "kind": "hardpoint",
       "transform": {
         "pos": [
           0,
@@ -48,7 +53,6 @@
           1.6316
         ]
       },
-      "kind": "hardpoint",
       "accepts": [
         "laser",
         "kinetic"
@@ -56,6 +60,7 @@
     },
     {
       "id": "hp-wing-l",
+      "kind": "hardpoint",
       "transform": {
         "pos": [
           -1,
@@ -63,14 +68,29 @@
           -0.9474
         ]
       },
-      "kind": "hardpoint",
       "accepts": [
         "missile",
-        "kinetic"
+        "kinetic",
+        "shield"
       ]
     },
     {
-      "id": "hp-core",
+      "id": "in-engine",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          0,
+          -0.0737,
+          -1.85
+        ]
+      },
+      "accepts": [
+        "engine"
+      ]
+    },
+    {
+      "id": "in-generator",
+      "kind": "internal",
       "transform": {
         "pos": [
           0,
@@ -78,24 +98,50 @@
           0.2105
         ]
       },
-      "kind": "hardpoint",
       "accepts": [
-        "shield"
+        "generator"
       ]
     },
     {
-      "id": "hp-wing-r",
+      "id": "in-transformer",
+      "kind": "internal",
       "transform": {
         "pos": [
-          1,
-          -0.0526,
-          -0.9474
+          0.35,
+          0.05,
+          -0.4
         ]
       },
-      "kind": "hardpoint",
       "accepts": [
-        "boost",
-        "utility"
+        "transformer"
+      ]
+    },
+    {
+      "id": "in-heatsink",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          -0.35,
+          0.05,
+          -0.4
+        ]
+      },
+      "accepts": [
+        "heatsink"
+      ]
+    },
+    {
+      "id": "in-sensors",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          0,
+          0.24,
+          0.95
+        ]
+      },
+      "accepts": [
+        "sensors"
       ]
     },
     {
@@ -272,8 +318,11 @@
   "defaultFitting": [
     "module.laser-mk1",
     "module.missile-mk1",
-    "module.shield-mk1",
-    "module.boost-mk1"
+    "module.engine-civ",
+    "module.generator-compact",
+    "module.transformer-stock",
+    "module.heatsink-basic",
+    "module.sensors-basic"
   ],
   "render": {
     "recipe": "procedural.arrowhead",

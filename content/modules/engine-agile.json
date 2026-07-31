@@ -1,0 +1,50 @@
+{
+  "id": "module.engine-agile",
+  "type": "module",
+  "version": 1,
+  "family": "engine",
+  "level": 2,
+  "name": "Vector Thrust Drive",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 12
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 45,
+    "overheatCooldown": 3.0,
+    "overheatSelfDamage": 0
+  },
+  "boost": {
+    "speedMult": 1.35,
+    "heatPerSec": 3
+  },
+  "passives": [
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 0.95
+    },
+    {
+      "target": "engine.turnRate",
+      "op": "mul",
+      "value": 1.35
+    },
+    {
+      "target": "engine.accel",
+      "op": "mul",
+      "value": 1.1
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: engine]",
+    "shortName": "Vector Drv",
+    "label": "Engine"
+  },
+  "price": 900,
+  "requiresLevel": 2
+}

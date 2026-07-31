@@ -20,6 +20,7 @@ const ship: ShipConfig = {
     engine: { nominalSpeed: 30, accel: 20, turnRate: 3 },
     energy: { capacitor: 100, regen: 10 },
     heat: { capacity: 100, dissipation: 10, criticalDamagePerSec: 1 },
+    efficiency: { energyDraw: 1, heatGen: 1 },
     sensors: { lockRange: 60, lockTimeSec: 1.5, coneDeg: 70 },
   },
   upgradeTracks: { hull: "upgrade.hull-std", engine: "upgrade.engine-std", energy: "upgrade.energy-std", heat: "upgrade.heat-std" },

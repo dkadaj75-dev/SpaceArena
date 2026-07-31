@@ -1,0 +1,30 @@
+{
+  "id": "module.transformer-stock",
+  "type": "module",
+  "version": 1,
+  "family": "transformer",
+  "level": 1,
+  "name": "Stock Bus",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [],
+  "ui": {
+    "icon": "[ICON: transformer]",
+    "shortName": "Stock Bus",
+    "label": "Transformer"
+  },
+  "price": 0,
+  "requiresLevel": 1
+}

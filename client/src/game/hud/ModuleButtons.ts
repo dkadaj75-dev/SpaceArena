@@ -1,5 +1,5 @@
 import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleFamily, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState, ThemeConfig } from "@space-arena/shared";
-import { createLogger } from "@space-arena/shared";
+import { createLogger, isInternalFamily } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
@@ -15,6 +15,13 @@ export const MODULE_FAMILY_COLOR_FALLBACKS: Readonly<Record<ModuleFamily, string
   kinetic: "#f59f35",
   utility: "#67c587",
   boost: "#e8b44f",
+  // Internals (2026-07-31). They get no HUD button, but the hangar colour-codes
+  // slots from the same map, so every family needs an entry.
+  engine: "#e8b44f",
+  generator: "#63d2a4",
+  transformer: "#b07de0",
+  heatsink: "#5ec9e8",
+  sensors: "#9aa8bd",
 };
 
 export function resolveModuleFamilyColor(
@@ -120,6 +127,17 @@ export class ModuleButtons {
     }
   }
 
+  /**
+   * Whether a fitted module deserves a HUD button. Internals (engine, generator,
+   * transformer, heatsink, sensors — 2026-07-31) are always-on systems with
+   * nothing to toggle, so they are shown in the Hangar and nowhere else. The one
+   * internal ACTION, jettisoning a heatsink, has its own control.
+   */
+  private isButtonable(moduleId: string): boolean {
+    const family = this.configs.get<ModuleConfig>("module", moduleId)?.family;
+    return family === undefined || !isInternalFamily(family);
+  }
+
   update(cur: Snapshot): void {
     // Indexed scan, not `Array.find` — per-frame hot path, no closure.
     const ship = findShipSnapshot(cur, this.playerId);
@@ -128,7 +146,8 @@ export class ModuleButtons {
     // Module count only changes on a fresh spawn (fitting is fixed for the
     // match), so this cheap length check is enough to detect a rebuild is
     // needed — the per-module work below stays keyed by hardpointIndex.
-    if (ship.modules.length !== this.builtForModuleCount) {
+    const buttonable = ship.modules.reduce((n, m) => (this.isButtonable(m.moduleId) ? n + 1 : n), 0);
+    if (buttonable !== this.builtForModuleCount) {
       this.rebuild(ship.modules);
     }
 
@@ -208,7 +227,7 @@ export class ModuleButtons {
   private rebuild(modules: readonly ModuleSnapshot[]): void {
     this.container.innerHTML = "";
     this.entries = new Map(
-      modules.map((m) => {
+      modules.filter((m) => this.isButtonable(m.moduleId)).map((m) => {
         const hardpointIndex = m.hardpointIndex;
         const moduleId = m.moduleId;
         const cfg = this.configs.get<ModuleConfig>("module", moduleId);
@@ -270,7 +289,7 @@ export class ModuleButtons {
         ] as const;
       }),
     );
-    this.builtForModuleCount = modules.length;
+    this.builtForModuleCount = this.entries.size;
     this.position();
   }
 

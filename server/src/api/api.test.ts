@@ -43,12 +43,12 @@ describe("fittings API", () => {
     expect(wrongFamily.status).toBe(400);
     expect(wrongFamily.body.error.code).toBe("family-mismatch");
 
-    // Not owned: shield-mk2 fits hardpoint 2 by family but is a priced module the
+    // Not owned: shield-mk2 fits hardpoint 1 by family but is a priced module the
     // fresh user does not own (mk1 modules are the free, pre-owned starter kit).
     const notOwned = await request(app)
       .post("/api/fittings")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", name: "Bad2", hardpointMap: { "2": "module.shield-mk2" } });
+      .send({ shipId: "ship.interceptor", name: "Bad2", hardpointMap: { "1": "module.shield-mk2" } });
     expect(notOwned.status).toBe(400);
     expect(notOwned.body.error.code).toBe("not-owned");
   });

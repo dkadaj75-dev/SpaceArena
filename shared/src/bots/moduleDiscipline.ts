@@ -1,5 +1,6 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import type { BotprofileConfig } from "../schemas/botprofile.js";
+import { isInternalFamily } from "../schemas/common.js";
 import type { ModuleConfig } from "../schemas/module.js";
 import type { ModuleSnapshot } from "../sim/ArenaSimulation.js";
 import type { Order } from "../sim/orders.js";
@@ -70,6 +71,11 @@ export function planModuleOrders(
     if (m.state === "deploying" || m.state === "retracting" || m.state === "overheated") continue;
     const cfg = configs.get<ModuleConfig>("module", m.moduleId);
     if (!cfg) continue;
+    // Never touch the internal bay (2026-07-31). Engine, generator,
+    // transformer, heatsink and sensors are the ship itself, not a power budget
+    // to cycle — a bot shutting its own engine down to save heat would simply
+    // stop flying.
+    if (isInternalFamily(cfg.family)) continue;
 
     const isActive = m.state === "active";
     const heatFrac = Math.max(moduleHeatFraction(m, cfg), ctx.heatFraction);

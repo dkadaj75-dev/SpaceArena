@@ -27,8 +27,14 @@ export function projectileSystem(world: World, dt: number): void {
       continue;
     }
 
+    // Mid-flight lure (owner 2026-07-31): an enemy heatsink dropped after this
+    // missile launched steals the seeker head. Checked every tick and BEFORE
+    // homing, so a sink jettisoned with ordnance already inbound pulls it off
+    // the hull — which is the whole point of carrying one.
+    if (proj.kind === "missile") retargetToDecoy(world, proj, tf.pos);
+
     // Homing.
-    if (proj.kind === "missile" && proj.targetId !== undefined && world.shipCores.has(proj.targetId)) {
+    if (proj.kind === "missile" && proj.targetId !== undefined && world.transforms.has(proj.targetId)) {
       const tgt = world.transforms.get(proj.targetId)!;
       const dx = tgt.pos.x - tf.pos.x;
       const dy = tgt.pos.y - tf.pos.y;
@@ -79,6 +85,43 @@ export function projectileSystem(world: World, dt: number): void {
       world.destroyEntity(id);
     }
   }
+}
+
+/**
+ * Seeker distraction: if any enemy decoy is closer to this missile than its
+ * current target, the missile switches to it. Re-evaluated every tick, so a sink
+ * dropped mid-flight steals ordnance already on its way — and a missile that
+ * outlives a burnt-out decoy simply finds nothing to switch to and keeps
+ * flying straight (its old target id no longer resolves to a transform).
+ */
+function retargetToDecoy(
+  world: World,
+  proj: { targetId?: EntityId; ownerTeam: number },
+  from: { x: number; y: number; z: number },
+): void {
+  const decoyIds = world.decoyIds();
+  if (decoyIds.length === 0) return;
+  let bestId: EntityId | undefined;
+  let bestDist = proj.targetId !== undefined ? distSqTo(world, from, proj.targetId) : Infinity;
+  for (const decoyId of decoyIds) {
+    if (world.decoys.get(decoyId)!.team === proj.ownerTeam) continue;
+    const d = distSqTo(world, from, decoyId);
+    if (d < bestDist) {
+      bestDist = d;
+      bestId = decoyId;
+    }
+  }
+  if (bestId !== undefined) proj.targetId = bestId;
+}
+
+/** Squared distance from `from` to an entity, or Infinity if it is gone. */
+function distSqTo(world: World, from: { x: number; y: number; z: number }, id: EntityId): number {
+  const tf = world.transforms.get(id);
+  if (!tf) return Infinity;
+  const dx = tf.pos.x - from.x;
+  const dy = tf.pos.y - from.y;
+  const dz = tf.pos.z - from.z;
+  return dx * dx + dy * dy + dz * dz;
 }
 
 /** Rotate one unit vector toward another by one total angular step. */

@@ -1,0 +1,46 @@
+{
+  "id": "module.sensors-snap",
+  "type": "module",
+  "version": 1,
+  "family": "sensors",
+  "level": 2,
+  "name": "Snap-Lock Array",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "sensors.lockTimeSec",
+      "op": "mul",
+      "value": 0.6
+    },
+    {
+      "target": "sensors.coneDeg",
+      "op": "mul",
+      "value": 1.2
+    },
+    {
+      "target": "sensors.lockRange",
+      "op": "mul",
+      "value": 0.85
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: sensors]",
+    "shortName": "Snap Array",
+    "label": "Sensors"
+  },
+  "price": 1000,
+  "requiresLevel": 2
+}

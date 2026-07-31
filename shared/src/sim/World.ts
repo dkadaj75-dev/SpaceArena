@@ -3,6 +3,7 @@ import type { ArenaConfig, GamemodeConfig, TuningConfig } from "../schemas/index
 import type {
   AsteroidTag,
   ColliderComp,
+  Decoy,
   EntityId,
   FlightState,
   ModulesComp,
@@ -46,6 +47,8 @@ export class World {
   readonly teams = new Map<EntityId, Team>();
   readonly asteroids = new Map<EntityId, AsteroidTag>();
   readonly projectiles = new Map<EntityId, Projectile>();
+  /** Jettisoned heatsinks acting as lures (owner 2026-07-31). */
+  readonly decoys = new Map<EntityId, Decoy>();
 
   readonly events: SimEvent[] = [];
   private readonly orderQueue: QueuedOrder[] = [];
@@ -117,6 +120,7 @@ export class World {
     this.teams.delete(id);
     this.asteroids.delete(id);
     this.projectiles.delete(id);
+    this.decoys.delete(id);
     this.boundaryContacts.delete(id);
   }
 
@@ -161,5 +165,9 @@ export class World {
 
   projectileIds(): EntityId[] {
     return Array.from(this.projectiles.keys()).sort((a, b) => a - b);
+  }
+
+  decoyIds(): EntityId[] {
+    return Array.from(this.decoys.keys()).sort((a, b) => a - b);
   }
 }
