@@ -56,6 +56,7 @@ const STAT_LABELS: Record<string, string> = {
   "sensors.coneDeg": "Cone",
   "efficiency.energyDraw": "Draw",
   "efficiency.heatGen": "Heat",
+  "power.capacity": "Power",
 };
 
 function passiveStats(passives: readonly StatOp[] | undefined): ModuleStat[] {
@@ -87,10 +88,17 @@ export function moduleStats(cfg: ModuleConfig): ModuleStat[] {
   if (cfg.boost) stats.push({ label: "Boost", value: pct(cfg.boost.speedMult) });
   if (cfg.jettison) stats.push({ label: "Jettison", value: `${num(cfg.jettison.cooldownSec)}s` });
 
-  // Power draw: the active figure is what a pilot budgets against; an
+  // The two energy axes, and they read differently on purpose (2026-07-31):
+  // "Power" is the rail current this module holds while online — a flat number
+  // budgeted against the hull's capacity — while "Energy" is the per-second
+  // capacitor drain it costs to run. A pilot fits against the first and flies
+  // against the second.
+  if (cfg.power?.draw) stats.push({ label: "Power", value: num(cfg.power.draw, 1) });
+
+  // Energy drain: the active figure is what a pilot budgets against; an
   // always-on module with only an idle draw shows that instead.
   const draw = cfg.energy.drawActive > 0 ? cfg.energy.drawActive : cfg.energy.drawIdle;
-  if (draw > 0) stats.push({ label: "Power", value: `${num(draw, 1)}/s` });
+  if (draw > 0) stats.push({ label: "Energy", value: `${num(draw, 1)}/s` });
 
   const heat = moduleHeatPerSec(cfg);
   if (heat > 0) stats.push({ label: "Heat", value: `${num(heat, 1)}/s` });

@@ -737,9 +737,31 @@ export class Hangar {
     wrap.append(statRow("Heat cap.", `${panel.heatCapacity.toFixed(0)} (-${panel.heatDissipation.toFixed(1)}/s)`));
     wrap.append(statRow("DPS (est.)", panel.dps.toFixed(1)));
     wrap.append(statRow("EHP (est.)", panel.ehpApprox.toFixed(0)));
+    wrap.append(statRow("Power rail", `${panel.powerDrawTotal.toFixed(0)} / ${panel.powerCapacity.toFixed(0)}`));
     wrap.append(this.buildBudgetBar("Idle energy budget", panel.energyBudget, panel.idleDrawTotal, panel.capacitorRegen));
+    wrap.append(this.buildPowerWarn(panel));
     wrap.append(this.buildHeatWarn(panel));
     return wrap;
+  }
+
+  /**
+   * The over-subscription notice (owner 2026-07-31). Deliberately a WARNING and
+   * not a block: fitting more than the rail can feed is a legitimate choice —
+   * carry the heavy shield, run it only when you need it — so this states the
+   * consequence rather than refusing the save.
+   */
+  private buildPowerWarn(panel: HangarStatPanel): HTMLDivElement {
+    const row = el("div", "hangar-bar-row");
+    if (!panel.powerOverSubscribed) return row;
+    const over = panel.powerDrawTotal - panel.powerCapacity;
+    row.append(
+      el(
+        "span",
+        "hangar-bar-label warn-text",
+        `Power rail over-subscribed by ${over.toFixed(0)} — these modules cannot all be online at once; activating one shuts another down.`,
+      ),
+    );
+    return row;
   }
 
   private buildBudgetBar(label: string, budget: number, draw: number, regen: number): HTMLDivElement {

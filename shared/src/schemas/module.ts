@@ -112,6 +112,17 @@ const moduleObject = z.object({
     drawIdle: z.number().nonnegative(),
     drawActive: z.number().nonnegative(),
   }),
+  /**
+   * POWER RAIL draw (owner 2026-07-31) — how much of the hull's instantaneous
+   * current this module occupies WHILE ACTIVE, independent of the energy it
+   * drains from the capacitor over time.
+   *
+   * This is what makes two big lasers mutually exclusive on a hull whose
+   * transformer cannot feed both: you may fit them, but bringing one up takes
+   * the other down. Omitted ⇒ 0, i.e. the module is always compatible with
+   * everything (internals and utilities).
+   */
+  power: z.object({ draw: z.number().nonnegative() }).optional(),
   heat: z.object({
     perSecondActive: z.number().nonnegative(),
     overheatThreshold: z.number().positive(),
@@ -184,6 +195,16 @@ export const moduleSchema = moduleObject.superRefine((mod, ctx) => {
       code: z.ZodIssueCode.custom,
       message: `internal family '${mod.family}' is always on — activation.deployTime/retractTime must be 0`,
       path: ["activation"],
+    });
+  }
+  // The rail is a HARDPOINT budget. Internals have no toggle, so a draw on one
+  // could only ever mean a bay that shuts itself off — and the transformer that
+  // *feeds* the rail is itself an internal.
+  if (mod.power && isInternalFamily(mod.family)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `internal family '${mod.family}' does not draw on the power rail — the rail is a hardpoint budget`,
+      path: ["power"],
     });
   }
   if (mod.jettison && mod.family !== "heatsink") {

@@ -186,6 +186,22 @@ export const INTERCEPTOR_FITTING_BOOST = [
   "module.sensors-basic",
 ];
 
+/**
+ * The light hull carrying a HEAVY laser and a heavy shield — deliberately more
+ * than its power rail can feed at once (owner 2026-07-31). This is the fitting
+ * the dual-energy rules are written about: legal to build, impossible to run
+ * whole, so raising the shield puts the gun out.
+ */
+export const INTERCEPTOR_FITTING_OVERSUBSCRIBED = [
+  "module.laser-mk2",
+  "module.shield-mk2",
+  "module.engine-civ",
+  "module.generator-compact",
+  "module.transformer-stock",
+  "module.heatsink-basic",
+  "module.sensors-basic",
+];
+
 /** As {@link INTERCEPTOR_FITTING}, but carrying the jettisonable ablative sink. */
 export const INTERCEPTOR_FITTING_ABLATIVE = [
   "module.laser-mk1",

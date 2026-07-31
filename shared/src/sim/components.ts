@@ -77,6 +77,13 @@ export interface ShipCore {
   /** Resolved sensor suite driving the lock cone (FLIGHT.md §2). `coneDeg` is the FULL width. */
   sensors: { lockRange: number; lockTimeSec: number; coneDeg: number };
   /**
+   * POWER RAIL (2026-07-31): the instantaneous current the hull can deliver.
+   * Every ACTIVE hardpoint module occupies its own `power.draw` out of this,
+   * which is what makes two heavy weapons mutually exclusive on a thin rail.
+   * Distinct from `capacitor`, which is a reservoir drained over time.
+   */
+  power: { capacity: number };
+  /**
    * Ship-wide efficiency, the fitted TRANSFORMER's contribution (2026-07-31):
    * every module's energy draw is multiplied by `energyDraw` and its heat
    * generation by `heatGen`. 1 = the hull as authored.

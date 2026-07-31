@@ -2,6 +2,7 @@ import type { ConfigService } from "../core/ConfigService.js";
 import { hardpointsOf, isInternalFamily, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
 import { resolveShipStats, type UpgradeLevels } from "./resolveStats.js";
+import { railAdmitted } from "./powerRail.js";
 import { advancePitch } from "./math.js";
 import { seedUp } from "./frame.js";
 import { pitchTuningOf } from "./tuningDefaults.js";
@@ -122,6 +123,15 @@ export function spawnShipFromConfig(
       overheatDamaged: false,
     });
   });
+  // POWER RAIL (2026-07-31): an over-subscribed fitting is legal, so the hull
+  // boots only as many modules as its rail can feed, in slot order. The rest sit
+  // retracted until the pilot chooses them — at which point ModuleSystem sheds
+  // whatever has to come down.
+  const railCapacity = world.shipCores.get(id)?.power.capacity ?? 0;
+  const admitted = railAdmitted(configs, modules, railCapacity);
+  for (const m of modules) {
+    if (m.state === "active" && !admitted.has(m)) m.state = "retracted";
+  }
   world.modules.set(id, { modules });
 
   return id;

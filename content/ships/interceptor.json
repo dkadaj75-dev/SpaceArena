@@ -21,6 +21,9 @@
       "capacitor": 120,
       "regen": 7
     },
+    "power": {
+      "capacity": 10
+    },
     "heat": {
       "capacity": 100,
       "dissipation": 9,

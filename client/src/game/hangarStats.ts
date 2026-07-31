@@ -1,4 +1,11 @@
-import { resolveShipStats, type ConfigService, type ModuleConfig, type ShipConfig, type UpgradeLevels } from "@space-arena/shared";
+import {
+  fittingPowerDraw,
+  resolveShipStats,
+  type ConfigService,
+  type ModuleConfig,
+  type ShipConfig,
+  type UpgradeLevels,
+} from "@space-arena/shared";
 
 /**
  * Hangar live stat panel (ROADMAP §9 4.5). Wraps the 4.1 `resolveShipStats`
@@ -25,6 +32,16 @@ export interface HangarStatPanel {
   dps: number;
   /** hullMax stretched by the ship's average kinetic/energy resist — a rough "effective HP", not sim-accurate. */
   ehpApprox: number;
+  /** Power-rail current the hull can deliver (2026-07-31), mostly from the transformer. */
+  powerCapacity: number;
+  /** Rail current the fitted hardpoints would hold if every one of them were online at once. */
+  powerDrawTotal: number;
+  /**
+   * True when the fit asks for more rail than the hull has. NOT an error — the
+   * fitting is legal and saveable, it simply cannot run whole, so the Hangar
+   * warns and the sim shuts one module down when another comes up.
+   */
+  powerOverSubscribed: boolean;
 }
 
 export interface ComputeStatPanelOptions {
@@ -50,6 +67,8 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     if (mod.fire) dps += mod.fire.damage / mod.fire.cycleTime;
   }
 
+  const powerDrawTotal = fittingPowerDraw(configs, opts.fittedModuleIds);
+
   const avgResist = (ship.core.hull.resists.kinetic + ship.core.hull.resists.energy) / 2;
   const ehpApprox = core.hullMax / Math.max(0.05, 1 - avgResist);
 
@@ -65,5 +84,8 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     heatNetPerSec: heatActiveTotal - core.heat.dissipation,
     dps,
     ehpApprox,
+    powerCapacity: core.power.capacity,
+    powerDrawTotal,
+    powerOverSubscribed: powerDrawTotal > core.power.capacity,
   };
 }

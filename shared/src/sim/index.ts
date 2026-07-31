@@ -9,6 +9,7 @@ export * from "./orders.js";
 export * from "./World.js";
 export * from "./spawn.js";
 export * from "./resolveStats.js";
+export * from "./powerRail.js";
 export * from "./signals.js";
 export * from "./damage.js";
 export * from "./los.js";

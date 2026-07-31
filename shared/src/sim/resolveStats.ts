@@ -31,6 +31,7 @@ const STAT_PATHS = [
   "sensors.lockRange",
   "sensors.lockTimeSec",
   "sensors.coneDeg",
+  "power.capacity",
   "efficiency.energyDraw",
   "efficiency.heatGen",
 ] as const;
@@ -74,6 +75,7 @@ export function resolveShipStats(
     "sensors.lockRange": c.sensors.lockRange,
     "sensors.lockTimeSec": c.sensors.lockTimeSec,
     "sensors.coneDeg": c.sensors.coneDeg,
+    "power.capacity": c.power?.capacity ?? 0,
     // Defaulted rather than required: the schema always supplies this block,
     // but hand-built configs (editor previews, balance workbench) may omit it,
     // and "no transformer opinion" is exactly a multiplier of 1.
@@ -157,6 +159,7 @@ export function resolveShipStats(
       lockTimeSec: stats["sensors.lockTimeSec"]!,
       coneDeg: stats["sensors.coneDeg"]!,
     },
+    power: { capacity: stats["power.capacity"]! },
     efficiency: {
       energyDraw: stats["efficiency.energyDraw"]!,
       heatGen: stats["efficiency.heatGen"]!,

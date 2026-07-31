@@ -30,6 +30,22 @@ const shipCore = z.object({
     criticalDamagePerSec: z.number().nonnegative(),
   }),
   /**
+   * POWER RAIL capacity (owner 2026-07-31) — the second energy axis, and the
+   * one that decides what can be online AT ONCE.
+   *
+   * Think voltage vs amperage. `energy.capacitor` is the reservoir a module
+   * drains over time; this is the instantaneous current the hull can deliver.
+   * Every active hardpoint module occupies its `power.draw` while it is up, and
+   * the total may never exceed this. Most of it comes from the fitted
+   * TRANSFORMER, so choosing one is choosing how much you can run together.
+   *
+   * A fitting whose modules sum past this is still legal to build — the Hangar
+   * warns — it simply cannot have them all online simultaneously.
+   */
+  power: z
+    .object({ capacity: z.number().nonnegative().default(0) })
+    .default({ capacity: 0 }),
+  /**
    * Ship-wide efficiency multipliers (owner 2026-07-31), the TRANSFORMER's
    * lever: `energyDrawMult` scales every module's energy draw and `heatGenMult`
    * scales every module's heat generation. Both default to 1 (the hull as

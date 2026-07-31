@@ -37,6 +37,7 @@ const SHIP = {
     engine: { nominalSpeed: 1, accel: 1, turnRate: 1 },
     energy: { capacitor: 1, regen: 0 },
     heat: { capacity: 1, dissipation: 0, criticalDamagePerSec: 0 },
+    power: { capacity: 15 },
     efficiency: { energyDraw: 1, heatGen: 1 },
     sensors: { lockRange: 1, lockTimeSec: 1, coneDeg: 1 },
   },
