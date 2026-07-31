@@ -146,6 +146,16 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(saveButton).toHaveText("Update fitting");
   await expect(hangar.locator(".hangar-error")).toHaveCount(0);
 
+  // The hangar is split in two: the ship's 3D stage and this panel, siblings
+  // under the overlay. (Which half is which flips with orientation, in CSS.)
+  await expect(page.locator(".hangar-overlay > .hangar-stage")).toHaveCount(1);
+
+  // How many hardpoints the chosen hull has — every one of them is filled at
+  // this point (the fit step emptied one slot and re-equipped it), so the match
+  // HUD must show exactly this many module buttons.
+  const hangarSlotCount = await hangar.locator(".hangar-slot").count();
+  expect(hangarSlotCount).toBeGreaterThan(0);
+
   // ------------------------------------------------------- 4. back to lobby
   await hangar.locator(".hangar-close").click();
   await expect(lobby).toBeVisible();
@@ -154,8 +164,10 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await lobby.getByRole("button", { name: "Practice — Dummies", exact: true }).click();
   await expect(lobby).toBeHidden();
 
+  // The loadout left in the Hangar is the one flown (owner 2026-07-31) — this
+  // is the end-to-end proof of it, not a count pinned to one hull.
   const moduleButtons = page.locator(".hud-modules .hud-module-btn");
-  await expect(moduleButtons).toHaveCount(4);
+  await expect(moduleButtons).toHaveCount(hangarSlotCount);
   await expect(page.locator(".hud-fps")).toHaveCount(0);
 
   // The dummies choice carries no explicit gamemode, so the match must still
@@ -172,8 +184,9 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
 
   // A real tap on the shield button issues a `moduleToggle` order; the module
   // leaves `retracted` via deploying → active (ModuleButtons.update mirrors the
-  // sim state onto a `state-*` class).
-  const shieldModule = moduleButtons.nth(2);
+  // sim state onto a `state-*` class). Found by name, not index: which
+  // hardpoint carries the shield depends on the hull the Hangar left selected.
+  const shieldModule = moduleButtons.filter({ hasText: "Shield" }).first();
   await expect(shieldModule).toHaveClass(/state-retracted/);
   await shieldModule.click();
   await expect(shieldModule).toHaveClass(/state-(deploying|active)/);

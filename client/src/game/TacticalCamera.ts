@@ -3,6 +3,7 @@ import {
   Matrix,
   PointerEventTypes,
   Vector3,
+  Viewport,
   type Observer,
   type PointerInfo,
   type Scene,
@@ -417,6 +418,28 @@ export class TacticalCamera {
     this.camera.radius = radius;
     this.camera.beta = Math.acos(clamp(this.chaseLocalOffset.y / radius, -1, 1));
     this.camera.alpha = Math.atan2(this.chaseLocalOffset.z, this.chaseLocalOffset.x);
+  }
+
+  /**
+   * Confine rendering to a sub-rectangle of the canvas (normalised, bottom-left
+   * origin), or restore the full canvas with `null`. The split Hangar uses this
+   * to give the ship its own half of the screen: Babylon derives the projection
+   * aspect from the camera's viewport, so the hull frames itself inside that
+   * rectangle instead of behind the info panel.
+   */
+  setStageViewport(rect: { x: number; y: number; width: number; height: number } | null): void {
+    const r = rect ?? { x: 0, y: 0, width: 1, height: 1 };
+    this.camera.viewport = new Viewport(r.x, r.y, r.width, r.height);
+  }
+
+  /**
+   * Zoom range for a staged preview, sized to whatever is on the stage. The
+   * Hangar derives it from the hull's bounding radius so "fully zoomed out"
+   * frames a heavy the same way it frames an interceptor.
+   */
+  setStageRadiusRange(min: number, max: number): void {
+    this.camera.lowerRadiusLimit = Math.max(0.1, min);
+    this.camera.upperRadiusLimit = Math.max(this.camera.lowerRadiusLimit + 0.1, max);
   }
 
   /** Snap the camera to look at `target` at the given radius/beta — used to stage the Hangar preview. */
