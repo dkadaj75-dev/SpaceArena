@@ -37,6 +37,13 @@ export interface HangarStatPanel {
   /** Rail current the fitted hardpoints would hold if every one of them were online at once. */
   powerDrawTotal: number;
   /**
+   * Rail current the fit draws with only its ALWAYS-ON modules up — weapons,
+   * which spawn online. The deployables (shields, and anything else the pilot
+   * raises) are the difference between this and {@link powerDrawTotal}, which
+   * is the pair of numbers the outfitting screen shows as two bars.
+   */
+  powerDrawRetracted: number;
+  /**
    * True when the fit asks for more rail than the hull has. NOT an error — the
    * fitting is legal and saveable, it simply cannot run whole, so the Hangar
    * warns and the sim shuts one module down when another comes up.
@@ -58,10 +65,14 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
   let idleDrawTotal = 0;
   let heatActiveTotal = 0;
   let dps = 0;
+  let powerDrawRetracted = 0;
   for (const moduleId of opts.fittedModuleIds) {
     if (!moduleId) continue;
     const mod = configs.get<ModuleConfig>("module", moduleId);
     if (!mod) continue;
+    // Weapons come up online at spawn, so their rail draw is what the hull
+    // carries before the pilot raises anything.
+    if (mod.fire) powerDrawRetracted += mod.power?.draw ?? 0;
     idleDrawTotal += mod.energy.drawIdle;
     heatActiveTotal += mod.boost ? mod.boost.heatPerSec : mod.heat.perSecondActive;
     if (mod.fire) dps += mod.fire.damage / mod.fire.cycleTime;
@@ -86,6 +97,7 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     ehpApprox,
     powerCapacity: core.power.capacity,
     powerDrawTotal,
+    powerDrawRetracted,
     powerOverSubscribed: powerDrawTotal > core.power.capacity,
   };
 }

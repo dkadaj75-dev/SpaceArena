@@ -106,6 +106,12 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
 
   const hangar = page.locator(".hangar-panel");
   await expect(hangar).toBeVisible();
+  // Outfitting rail (2026-07-31): a column of bays on the left decides what the
+  // panel shows. Hardpoints is where it opens.
+  const rail = (name: string) => hangar.locator(`.hangar-rail-btn[data-category="${name}"]`);
+  await expect(rail("hardpoints")).toHaveClass(/\bactive\b/);
+  await rail("ship").click();
+
   const shipButtons = hangar.locator(".hangar-ship-btn");
   await expect(shipButtons.first()).toBeVisible();
   expect(await shipButtons.count()).toBeGreaterThan(0);
@@ -125,6 +131,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(hangar.locator(".hangar-badge.main")).toBeVisible();
 
   // ----------------------------------------------------------- 3. fit a slot
+  await rail("hardpoints").click();
   const slot = hangar.locator(".hangar-slot").first();
   const slotLabel = slot.locator(".hangar-slot-label");
 
@@ -151,6 +158,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
 
   // Persist it. The button is "Save new fitting" for a fresh fit and
   // "Update fitting" once one is selected — accept whichever rendered.
+  await rail("fitting").click();
   const saveButton = hangar.locator(".hangar-fit-controls .hangar-btn-primary");
   await expect(saveButton).toHaveText(/^(Save new fitting|Update fitting)$/);
   await hangar.locator(".hangar-input").fill("E2E Smoke Fit");
@@ -167,9 +175,21 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // Every slot gets a callout tag pinned to the hull in the 3D pane, and the
   // projection has to actually run for them to land anywhere — a real browser
   // is the only place that can be checked, so it is checked here.
+  // The hull's slots split into weapon hardpoints and the always-on internal
+  // bay (2026-07-31); the rail shows one bay at a time, so count them one bay at
+  // a time. Only hardpoints get a HUD button, so that is the count the match
+  // must show.
+  await rail("hardpoints").click();
+  const hangarWeaponSlots = await hangar.locator('.hangar-slot[data-kind="hardpoint"]').count();
+  await rail("internals").click();
+  const hangarInternalSlots = await hangar.locator('.hangar-slot[data-kind="internal"]').count();
+  expect(hangarWeaponSlots).toBeGreaterThan(0);
+  expect(hangarInternalSlots).toBe(5); // engine, generator, transformer, heatsink, sensors
+
   const callouts = page.locator(".hangar-callouts .hangar-callout");
-  const slotCount = await hangar.locator(".hangar-slot").count();
-  await expect(callouts).toHaveCount(slotCount);
+  // The ship keeps every callout regardless of which bay the rail is showing —
+  // the rail filters the PANEL, not the hull.
+  await expect(callouts).toHaveCount(hangarWeaponSlots + hangarInternalSlots);
   await expect(callouts.first()).toBeVisible();
   const placed = await callouts.first().evaluate((el) => {
     const style = (el as HTMLElement).style;
@@ -184,14 +204,6 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // The list is the rolling scroller, and every row carries its stat chips.
   await expect(hangar.locator(".hangar-picker-list")).toBeVisible();
   await expect(hangar.locator(".hangar-picker-item .hangar-stat-chip").first()).toBeVisible();
-
-  // The hull's slots split into weapon hardpoints and the always-on internal
-  // bay (2026-07-31). Only hardpoints get a HUD button, so that is the count the
-  // match must show.
-  const hangarWeaponSlots = await hangar.locator('.hangar-slot[data-kind="hardpoint"]').count();
-  const hangarInternalSlots = await hangar.locator('.hangar-slot[data-kind="internal"]').count();
-  expect(hangarWeaponSlots).toBeGreaterThan(0);
-  expect(hangarInternalSlots).toBe(5); // engine, generator, transformer, heatsink, sensors
 
   // ------------------------------------------------------- 4. back to lobby
   await hangar.locator(".hangar-close").click();
