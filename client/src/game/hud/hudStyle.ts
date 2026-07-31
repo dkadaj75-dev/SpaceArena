@@ -996,6 +996,37 @@ const CSS = `
   font-variant-numeric: tabular-nums;
 }
 
+/* --- Kill announcements: DESTROYED! / FIRST BLOOD / DOUBLE KILL … --- */
+.hud-kill-announce {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  font-family: var(--hud-font-display, var(--hud-font-body, system-ui, sans-serif));
+  font-size: 1.9em;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--hud-primary, #39bfff);
+}
+.hud-kill-announce.first-blood { color: var(--hud-danger, #ff405c); }
+.hud-kill-announce.multi { color: var(--hud-module-boost-color, #e8b44f); }
+.hud-kill-announce.visible {
+  animation: hud-kill-announce 1.8s ease-out forwards;
+}
+@keyframes hud-kill-announce {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -52%) scale(0.98); }
+}
+.hud-kill-announce.visible {
+  text-shadow: 0 0 calc(14px * var(--hud-glow)) currentColor;
+}
+
 /* --- Damage feedback --- */
 .hud-vignette {
   position: absolute;

@@ -19,6 +19,8 @@ import { formatHudDistance, roundedHudMeters } from "./SpeedReadout.js";
  * the snapshot reports it, so the HUD can never disagree with what will fire.
  */
 export class LockReticle {
+  /** Display-only unit→metre factor (theme.hud.metersPerUnit). */
+  private metersPerUnit = 1;
   private readonly container: HTMLDivElement;
   private readonly zone: HTMLDivElement;
   private readonly bracket: HTMLDivElement;
@@ -129,6 +131,7 @@ export class LockReticle {
 
   /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
   applyLayout(layout: FlightHudLayout): void {
+    this.metersPerUnit = layout.metersPerUnit;
     const px = `${layout.reticle.bracketSizePx}px`;
     this.bracket.style.width = px;
     this.bracket.style.height = px;
@@ -203,7 +206,7 @@ export class LockReticle {
       this.lastTargetName = name;
       this.targetName.textContent = name;
     }
-    const distanceM = roundedHudMeters(distanceUnits);
+    const distanceM = roundedHudMeters(distanceUnits * this.metersPerUnit);
     if (distanceM !== this.lastDistanceM) {
       this.lastDistanceM = distanceM;
       this.distance.textContent = formatHudDistance(distanceM);

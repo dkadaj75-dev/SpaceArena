@@ -13,8 +13,8 @@
       }
     },
     "engine": {
-      "nominalSpeed": 22,
-      "accel": 12,
+      "nominalSpeed": 18,
+      "accel": 10,
       "turnRate": 1.8
     },
     "energy": {

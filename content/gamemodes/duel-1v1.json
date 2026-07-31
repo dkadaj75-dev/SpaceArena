@@ -5,11 +5,24 @@
   "name": "Duel 1v1",
   "teams": "1v1",
   "defaultArena": "arena.deep-field",
-  "winCondition": { "type": "fragLimit", "count": 5 },
-  "eliminationEndsMatch": true,
-  "respawn": { "enabled": true, "delay": 4 },
-  "boundaryRule": { "type": "damageAndBounce", "damagePerSec": 8, "restitution": 0.82 },
-  "rewards": { "win": 100, "loss": 25, "perKill": 10 },
+  "winCondition": {
+    "type": "fragLimit",
+    "count": 5
+  },
+  "respawn": {
+    "enabled": false,
+    "delay": 4
+  },
+  "boundaryRule": {
+    "type": "damageAndBounce",
+    "damagePerSec": 8,
+    "restitution": 0.82
+  },
+  "rewards": {
+    "win": 100,
+    "loss": 25,
+    "perKill": 10
+  },
   "bots": {
     "defaultProfile": "bot.rookie",
     "defaultShip": "ship.interceptor",

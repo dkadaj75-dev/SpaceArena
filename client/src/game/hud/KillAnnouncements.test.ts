@@ -1,0 +1,119 @@
+// @vitest-environment happy-dom
+import { describe, expect, it } from "vitest";
+import type { SimEvent } from "@space-arena/shared";
+import {
+  advanceStreak,
+  announcementFor,
+  announcementClass,
+  KillAnnouncements,
+  MULTI_KILL_WINDOW_MS,
+  type KillStreakState,
+} from "./KillAnnouncements.js";
+
+const PLAYER = 7;
+
+function kill(entityId: number, killerId: number | null): SimEvent {
+  return { type: "entityDestroyed", entityId, killerId, isAsteroid: false };
+}
+
+function freshState(): KillStreakState {
+  return { count: 0, lastKillMs: Number.NEGATIVE_INFINITY };
+}
+
+describe("advanceStreak", () => {
+  it("chains frags inside the window and restarts outside it", () => {
+    const state = freshState();
+    expect(advanceStreak(state, 1000)).toBe(1);
+    expect(advanceStreak(state, 1000 + MULTI_KILL_WINDOW_MS)).toBe(2); // exactly at the edge still chains
+    expect(advanceStreak(state, 1000 + MULTI_KILL_WINDOW_MS * 3)).toBe(1); // too late — new chain
+  });
+
+  it("measures the window from the LAST frag, not the first (a rolling chain)", () => {
+    const state = freshState();
+    advanceStreak(state, 0);
+    advanceStreak(state, 8000);
+    // 16 s after the first kill but only 8 s after the second: still chained.
+    expect(advanceStreak(state, 16000)).toBe(3);
+  });
+});
+
+describe("announcementFor", () => {
+  it("speaks League: DESTROYED!, then DOUBLE/TRIPLE/QUADRA/PENTA, first blood outranking", () => {
+    expect(announcementFor(1, true)).toBe("FIRST BLOOD");
+    expect(announcementFor(1, false)).toBe("DESTROYED!");
+    expect(announcementFor(2, false)).toBe("DOUBLE KILL");
+    expect(announcementFor(3, false)).toBe("TRIPLE KILL");
+    expect(announcementFor(4, false)).toBe("QUADRA KILL");
+    expect(announcementFor(5, false)).toBe("PENTA KILL");
+    expect(announcementFor(9, false)).toBe("PENTA KILL"); // capped
+  });
+
+  it("classes match the flavour", () => {
+    expect(announcementClass(1, true)).toBe("first-blood");
+    expect(announcementClass(1, false)).toBe("plain");
+    expect(announcementClass(3, false)).toBe("multi");
+  });
+});
+
+describe("KillAnnouncements (component)", () => {
+  function mount(): { hud: KillAnnouncements; root: HTMLDivElement } {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    return { hud: new KillAnnouncements(root, PLAYER), root };
+  }
+
+  it("announces FIRST BLOOD only for the match's very first kill — and only when it is the player's", () => {
+    const { hud } = mount();
+    hud.consumeEvents([kill(30, PLAYER)], 1000);
+    expect(hud.currentText).toBe("FIRST BLOOD");
+    hud.consumeEvents([kill(31, PLAYER)], 2000);
+    expect(hud.currentText).toBe("DOUBLE KILL"); // chained — first blood spent
+    hud.dispose();
+  });
+
+  it("a bot drawing first blood spends the flag silently; the player's own frag is then DESTROYED!", () => {
+    const { hud } = mount();
+    hud.consumeEvents([kill(30, 99)], 1000); // bot on bot — no announcement
+    expect(hud.currentText).toBe("");
+    hud.consumeEvents([kill(31, PLAYER)], 60_000); // long after — plain frag
+    expect(hud.currentText).toBe("DESTROYED!");
+    hud.dispose();
+  });
+
+  it("escalates a chain to PENTA KILL and resets after the window", () => {
+    const { hud } = mount();
+    hud.consumeEvents([kill(1, 50)], 0); // someone else took first blood
+    const names = ["DESTROYED!", "DOUBLE KILL", "TRIPLE KILL", "QUADRA KILL", "PENTA KILL"];
+    for (let i = 0; i < names.length; i++) {
+      hud.consumeEvents([kill(10 + i, PLAYER)], 1000 + i * 2000);
+      expect(hud.currentText).toBe(names[i]);
+    }
+    // A frag long after the chain restarts at DESTROYED!.
+    hud.consumeEvents([kill(20, PLAYER)], 1000 + 5 * 2000 + MULTI_KILL_WINDOW_MS * 2);
+    expect(hud.currentText).toBe("DESTROYED!");
+    hud.dispose();
+  });
+
+  it("ignores asteroid destructions and the player's own death", () => {
+    const { hud } = mount();
+    hud.consumeEvents(
+      [{ type: "entityDestroyed", entityId: 5, killerId: PLAYER, isAsteroid: true } as SimEvent],
+      100,
+    );
+    expect(hud.currentText).toBe("");
+    // A mutual kill where the player is the VICTIM must not celebrate.
+    hud.consumeEvents([kill(PLAYER, PLAYER)], 200);
+    expect(hud.currentText).toBe("");
+    hud.dispose();
+  });
+
+  it("reset() rearms first blood for a fresh match", () => {
+    const { hud } = mount();
+    hud.consumeEvents([kill(30, PLAYER)], 1000);
+    expect(hud.currentText).toBe("FIRST BLOOD");
+    hud.reset();
+    hud.consumeEvents([kill(31, PLAYER)], 2000);
+    expect(hud.currentText).toBe("FIRST BLOOD");
+    hud.dispose();
+  });
+});

@@ -136,6 +136,11 @@ export interface FlightHudLayout {
   orientation: Orientation;
   viewport: Viewport;
   scale: number;
+  /**
+   * Display-only world-unit → printed-metre factor (`theme.hud.metersPerUnit`,
+   * default 1). NOT multiplied by `hud.scale`: it scales numbers, not pixels.
+   */
+  metersPerUnit: number;
   joystick: JoystickLayout;
   relativeSteer: RelativeSteerLayout;
   throttle: ThrottleLayout;
@@ -245,7 +250,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     heartbeatMs: 250,
     minIntervalMs: 120,
   },
-} as const satisfies Omit<FlightHudLayout, "orientation" | "viewport" | "scale">;
+} as const satisfies Omit<FlightHudLayout, "orientation" | "viewport" | "scale" | "metersPerUnit">;
 
 /**
  * Share of `tuning.maxOrdersPerSec` the flight sender may spend. The rest is
@@ -295,6 +300,7 @@ export function resolveFlightHudLayout(
     orientation,
     viewport,
     scale,
+    metersPerUnit: hud?.metersPerUnit ?? 1,
     joystick: {
       enabled: joystick.enabled ?? d.joystick.enabled,
       anchor: joystick.anchor ?? d.joystick.anchor,

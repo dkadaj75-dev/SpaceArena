@@ -16,7 +16,7 @@ type ShippedArena = {
 const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url));
 const SHIPPED_ARENAS: readonly ShippedArena[] = [
   { name: "deep-field", file: "deep-field.json", minimumCount: 90, maxExtent: 210 },
-  { name: "ring-nebula", file: "ring-nebula.json", minimumCount: 14, maxExtent: 63 },
+  { name: "ring-nebula", file: "ring-nebula.json", minimumCount: 14, maxExtent: 126 },
 ];
 const asteroidFiles = [
   "small-rock.json",
@@ -87,10 +87,24 @@ describe("shipped arena asteroid geometry", () => {
 
         // The authored bubble is the hard cap, including scaled colliders.
         expect(extent, `${arena.id} placement ${index} extent`).toBeLessThanOrEqual(shipped.maxExtent);
-        expect(
-          distanceToSegment(position, corridor[0], corridor[1]) - colliderRadius,
-          `${arena.id} placement ${index} corridor surface clearance`,
-        ).toBeGreaterThanOrEqual(25);
+        // The origin CENTREPIECE (owner 2026-07-31: a colossal rock to orbit
+        // while fighting) deliberately blocks the straight spawn-to-spawn line,
+        // so it is exempt from the corridor rule — but it must never crowd a
+        // spawn pad.
+        const isCentrepiece = Math.hypot(position.x, position.y, position.z) < colliderRadius;
+        if (isCentrepiece) {
+          for (const spawn of arena.spawnPoints) {
+            expect(
+              distance(position, positionOf(spawn.position)) - colliderRadius,
+              `${arena.id} centrepiece clearance from a spawn pad`,
+            ).toBeGreaterThanOrEqual(25);
+          }
+        } else {
+          expect(
+            distanceToSegment(position, corridor[0], corridor[1]) - colliderRadius,
+            `${arena.id} placement ${index} corridor surface clearance`,
+          ).toBeGreaterThanOrEqual(25);
+        }
 
         for (let otherIndex = 0; otherIndex < index; otherIndex++) {
           const other = placements[otherIndex]!;

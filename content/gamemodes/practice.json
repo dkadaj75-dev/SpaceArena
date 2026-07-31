@@ -5,9 +5,23 @@
   "name": "Practice",
   "teams": "1v1",
   "defaultArena": "arena.deep-field",
-  "winCondition": { "type": "destroyTargets", "count": 3 },
+  "winCondition": {
+    "type": "destroyTargets",
+    "count": 3
+  },
   "eliminationEndsMatch": true,
-  "respawn": { "enabled": true, "delay": 3 },
-  "boundaryRule": { "type": "damageAndBounce", "damagePerSec": 6, "restitution": 0.82 },
-  "rewards": { "win": 0, "loss": 0, "perKill": 0 }
+  "respawn": {
+    "enabled": false,
+    "delay": 3
+  },
+  "boundaryRule": {
+    "type": "damageAndBounce",
+    "damagePerSec": 6,
+    "restitution": 0.82
+  },
+  "rewards": {
+    "win": 0,
+    "loss": 0,
+    "perKill": 0
+  }
 }

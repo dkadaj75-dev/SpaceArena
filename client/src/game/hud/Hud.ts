@@ -17,6 +17,7 @@ import { NotificationCenter } from "./Notifications.js";
 import { DamageFeedback } from "./DamageFeedback.js";
 import { MatchStatus } from "./MatchStatus.js";
 import { CountdownOverlay } from "./CountdownOverlay.js";
+import { KillAnnouncements } from "./KillAnnouncements.js";
 import { ResultsOverlay, type MatchRewards, type ResultsCallbacks } from "./ResultsOverlay.js";
 import { injectHudStyle } from "./hudStyle.js";
 import { Haptics } from "./Haptics.js";
@@ -98,6 +99,7 @@ export class Hud {
   private readonly matchStatus: MatchStatus;
   /** Match-start 3-2-1-GO numerals, driven by the sim-authoritative countdown. */
   private readonly countdown: CountdownOverlay;
+  private readonly killAnnouncements: KillAnnouncements;
   private readonly resultsOverlay: ResultsOverlay;
   private readonly haptics: Haptics;
   /** Flight controls (FLIGHT.md §4), or null when the caller passed no 3D binding. */
@@ -146,6 +148,7 @@ export class Hud {
     this.damageFx = new DamageFeedback(this.root, playerId);
     this.matchStatus = new MatchStatus(this.root, session);
     this.countdown = new CountdownOverlay(this.root);
+    this.killAnnouncements = new KillAnnouncements(this.root, playerId);
     this.resultsOverlay = new ResultsOverlay(this.root, session, playerId, callbacks, {
       offline: options.offline ?? false,
     });
@@ -330,6 +333,7 @@ export class Hud {
     this.notifications.consumeEvents(events, this.configs);
     this.damageFx.consumeEvents(events);
     this.haptics.consumeEvents(events);
+    this.killAnnouncements.consumeEvents(events);
   }
 
   dispose(): void {
@@ -340,6 +344,7 @@ export class Hud {
     window.removeEventListener("orientationchange", this.onViewportChange);
     window.visualViewport?.removeEventListener("resize", this.onViewportChange);
     this.moduleButtons.dispose();
+    this.killAnnouncements.dispose();
     this.gauges.dispose();
     this.vitalArcs.dispose();
     this.minimap.dispose();

@@ -36,6 +36,8 @@ export class SpeedReadout {
   private readonly value: HTMLSpanElement;
   private lastUpdateMs = Number.NEGATIVE_INFINITY;
   private lastSpeedMps = Number.NaN;
+  /** Display-only unit→metre factor (theme.hud.metersPerUnit). */
+  private metersPerUnit = 1;
 
   constructor(root: HTMLElement, layout: FlightHudLayout) {
     this.container = document.createElement("div");
@@ -76,6 +78,7 @@ export class SpeedReadout {
 
   /** Follow the throttle's resolved anchor and geometry in either orientation. */
   applyLayout(layout: FlightHudLayout): void {
+    this.metersPerUnit = layout.metersPerUnit;
     const t = layout.throttle;
     this.container.dataset["anchor"] = t.anchor;
     const { dx, dy } = anchoredBoxOffset(
@@ -97,7 +100,7 @@ export class SpeedReadout {
   update(cur: ShipSnapshot, prev: ShipSnapshot, elapsedDeltaSec: number, nowMs: number): void {
     if (nowMs - this.lastUpdateMs < UPDATE_INTERVAL_MS) return;
     this.lastUpdateMs = nowMs;
-    const speedMps = Math.max(0, Math.round(snapshotSpeedMps(cur, prev, elapsedDeltaSec)));
+    const speedMps = Math.max(0, Math.round(snapshotSpeedMps(cur, prev, elapsedDeltaSec) * this.metersPerUnit));
     if (speedMps === this.lastSpeedMps) return;
     this.lastSpeedMps = speedMps;
     this.value.textContent = `${speedMps} m/s`;
