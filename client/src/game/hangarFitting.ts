@@ -38,6 +38,23 @@ export function slotsFromDefaultFitting(ship: ShipConfig): HangarSlot[] {
 }
 
 /**
+ * Build the slot grid from a POSITIONAL module list — the shape the working
+ * fitting is stored in (2026-07-31), so re-opening the Hangar on your main hull
+ * shows the loadout you actually fly rather than the hull's stock one. Entries
+ * past the socket count are dropped: a fit saved against an older hull must not
+ * address sockets this one does not have.
+ */
+export function slotsFromModuleIds(ship: ShipConfig, moduleIds: readonly (string | null)[]): HangarSlot[] {
+  return hardpointsOf(ship).map((socket, i) => ({
+    hardpointIndex: i,
+    socketId: socket.id,
+    kind: socket.kind,
+    accepts: socket.accepts,
+    moduleId: moduleIds[i] ?? null,
+  }));
+}
+
+/**
  * Inverse of {@link slotsFromHardpointMap}: the wire/API shape `/api/fittings`
  * expects (`{ "<hardpointIndex>": "<moduleId>" }`, empty hardpoints omitted).
  * Pure — no ConfigService/network access, so slot-grid UI state can be turned

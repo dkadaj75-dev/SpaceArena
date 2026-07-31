@@ -110,6 +110,20 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(shipButtons.first()).toBeVisible();
   expect(await shipButtons.count()).toBeGreaterThan(0);
 
+  // The arrows step the bay the same way a swipe on the 3D stage does
+  // (2026-07-31) — browsing only, so the hull on screen changes and nothing else.
+  const currentShipName = hangar.locator(".hangar-ship-current .hangar-ship-name");
+  const before = await currentShipName.textContent();
+  await hangar.getByRole("button", { name: "Next ship" }).click();
+  await expect(currentShipName).not.toHaveText(before ?? "");
+
+  // Browsing is not choosing: making this hull the one you fly is a separate,
+  // explicit act. Pick the heavy hull, since its stock fit carries the shield
+  // the match phase below toggles.
+  await shipButtons.filter({ hasText: "Brawler" }).click();
+  await hangar.getByRole("button", { name: "★ Set as main" }).click();
+  await expect(hangar.locator(".hangar-badge.main")).toBeVisible();
+
   // ----------------------------------------------------------- 3. fit a slot
   const slot = hangar.locator(".hangar-slot").first();
   const slotLabel = slot.locator(".hangar-slot-label");

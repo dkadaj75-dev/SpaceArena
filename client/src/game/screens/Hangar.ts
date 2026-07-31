@@ -1,4 +1,13 @@
-import { TransformNode, Vector3, type InstancedMesh, type Observer, type Scene } from "@babylonjs/core";
+import {
+  Color3,
+  StandardMaterial,
+  TransformNode,
+  Vector3,
+  type AbstractMesh,
+  type InstancedMesh,
+  type Observer,
+  type Scene,
+} from "@babylonjs/core";
 import {
   createLogger,
   hardpointsOf,
@@ -20,6 +29,7 @@ import {
   slotAccepts,
   slotsFromDefaultFitting,
   slotsFromHardpointMap,
+  slotsFromModuleIds,
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
@@ -30,6 +40,8 @@ import {
   saveLocalFitting,
 } from "../offlineFittings.js";
 import { moduleStats } from "../moduleSummary.js";
+import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
+import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
 import { HangarCallouts, type CalloutSpec } from "./HangarCallouts.js";
 import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
@@ -37,8 +49,17 @@ import type { TacticalCamera } from "../TacticalCamera.js";
 
 const log = createLogger("Hangar");
 
+/**
+ * The MAIN loadout (owner 2026-07-31): the ship, the fitting and the working
+ * module list the player actually takes into a match. Browsing the hangar does
+ * NOT touch it — you can swipe through every hull in the bay without losing
+ * what you fly. It changes only when the player sets a new main, or when they
+ * edit the fit of the hull that already is one.
+ */
 const LS_SHIP = "hangar.shipId";
 const LS_FITTING = "hangar.fittingId";
+/** Where the carousel was left last time. Presentation only — never flown. */
+const LS_BROWSE = "hangar.browseShipId";
 /**
  * The selected ship's upgrade levels as `/api/ships` last reported them. Cached
  * here because a MATCH needs them (client prediction resolves the same engine
@@ -75,9 +96,13 @@ export interface HangarSelection {
   moduleIds: (string | null)[] | null;
 }
 
-/** Reads the player's last Hangar ship/fitting choice — Lobby passes this as NetGameSession join options. */
+/**
+ * The player's MAIN loadout — Lobby passes this as NetGameSession join options
+ * and the offline match spawns from it. Falls back to the starter hull so a
+ * pilot who has never opened the Hangar still launches with a real ship.
+ */
 export function loadHangarSelection(): HangarSelection {
-  const shipId = localStorage.getItem(LS_SHIP);
+  const shipId = localStorage.getItem(LS_SHIP) ?? STARTER_SHIP_ID;
   return {
     shipId,
     fittingId: localStorage.getItem(LS_FITTING),
@@ -173,6 +198,10 @@ export class Hangar {
   private error = "";
 
   private previewInstance: InstancedMesh | null = null;
+  /** Blacked-out stand-in shown in place of a hull the player does not own. */
+  private lockedPreview: AbstractMesh | null = null;
+  private lockedMaterial: StandardMaterial | null = null;
+  private swipe: SwipeWatcher | null = null;
   private previewRig: ShipSocketRig | null = null;
   private idleModules: ModuleSnapshot[] = [];
   private readonly idlePrev: ShipSnapshot;
@@ -256,10 +285,34 @@ export class Hangar {
     return !this.isAuthed();
   }
 
-  /** Whether this module can be fitted right now (owned, or offline test mode). */
+  /**
+   * Whether this module can be fitted right now. Ownership is REAL in offline
+   * mode too (owner 2026-07-31) — the prices are zero for testing, but a module
+   * still has to be bought before it can be fitted, so the unlock flow is the
+   * one we will ship rather than one we bolt on later.
+   */
   private canEquip(moduleId: string): boolean {
-    if (this.offlineFitting) return true;
+    if (this.offlineFitting) return ownsModule(this.configs, moduleId);
     return this.apiModules.find((m) => m.id === moduleId)?.owned ?? false;
+  }
+
+  /**
+   * Whether this hull can be flown. Hull ownership currently exists only in the
+   * local ledger — `/api/ships` returns the whole catalogue with no `owned`
+   * flag — so an authenticated session sees every hull unlocked until the
+   * server grows the same notion.
+   */
+  private canFly(shipId: string): boolean {
+    return this.offlineFitting ? ownsShip(shipId) : true;
+  }
+
+  /** The hull the player takes into a match, as last set. */
+  private mainShipId(): string | null {
+    return localStorage.getItem(LS_SHIP);
+  }
+
+  private isMainShip(shipId: string): boolean {
+    return this.mainShipId() === shipId;
   }
 
   private currentShip(): ShipConfig | undefined {
@@ -273,15 +326,24 @@ export class Hangar {
   }
 
   show(): void {
+    // A pilot who has never set a main gets one now, so "what do I fly" is
+    // never an unanswered question after the first visit to the bay.
+    if (!this.mainShipId()) {
+      const starter = this.ships.find((s) => s.id === STARTER_SHIP_ID) ?? this.ships[0];
+      if (starter) localStorage.setItem(LS_SHIP, starter.id);
+    }
     const stored = loadHangarSelection();
-    const idx = stored.shipId ? this.ships.findIndex((s) => s.id === stored.shipId) : -1;
+    // Open where the player left the carousel; the main hull is the fallback.
+    const browseId = localStorage.getItem(LS_BROWSE) ?? stored.shipId;
+    const idx = browseId ? this.ships.findIndex((s) => s.id === browseId) : -1;
     this.shipIndex = idx >= 0 ? idx : 0;
     this.selectedFittingId = null;
     this.pickerHardpoint = null;
     this.error = "";
 
     const ship = this.currentShip();
-    this.slots = ship ? slotsFromDefaultFitting(ship) : [];
+    // On your MAIN hull, open on the loadout you actually fly — not its stock fit.
+    this.slots = ship ? this.slotsForShip(ship) : [];
 
     this.root.style.display = "flex";
     this.camera.setHangarMode(true);
@@ -289,6 +351,15 @@ export class Hangar {
     this.renderObserver = this.scene.onBeforeRenderObservable.add(() => this.tickPreview());
     window.addEventListener("resize", this.onViewportResize);
     window.addEventListener("orientationchange", this.onViewportResize);
+    // Swipe the STAGE to change hull. Bound to the whole overlay because the
+    // stage half is pointer-events:none (the orbit camera owns those events);
+    // the watcher only observes, so orbiting still works.
+    this.swipe = new SwipeWatcher(this.root, {
+      onSwipe: (dir) => this.stepShip(dir),
+      // Only gestures that begin over the STAGE count: a horizontal flick
+      // inside the info panel belongs to whatever list it started on.
+      shouldTrack: (ev) => !(ev.target instanceof Node) || !this.panel.contains(ev.target),
+    });
 
     this.rebuildPreview();
     this.rebuildCallouts();
@@ -324,6 +395,10 @@ export class Hangar {
     this.previewRig = null;
     this.previewInstance?.dispose();
     this.previewInstance = null;
+    this.lockedPreview?.dispose(false, false);
+    this.lockedPreview = null;
+    this.swipe?.dispose();
+    this.swipe = null;
   }
 
   private async refreshFromServer(): Promise<void> {
@@ -363,11 +438,33 @@ export class Hangar {
     this.previewRig = null;
     this.previewInstance?.dispose();
     this.previewInstance = null;
+    this.lockedPreview?.dispose(false, false);
+    this.lockedPreview = null;
 
     const ship = this.currentShip();
     if (!ship) return;
 
     const master = this.assets.getShipMaster(ship.render);
+
+    // A hull the player has not bought is shown as a SILHOUETTE (2026-07-31):
+    // black and half-transparent, so its shape reads while its detail stays
+    // something to unlock. Cloned rather than instanced because an instance
+    // shares the master's material and would black out every ship in the bay.
+    if (!this.canFly(ship.id)) {
+      const clone = master.clone(`hangarLocked.${ship.id}`, this.stageRoot);
+      if (clone) {
+        clone.isPickable = false;
+        clone.position.setAll(0);
+        clone.setEnabled(true);
+        const mat = this.lockedShipMaterial();
+        for (const mesh of [clone, ...clone.getChildMeshes(false)]) mesh.material = mat;
+        this.lockedPreview = clone;
+      }
+      // No socket rig and no idle modules: there is no fitting to show yet.
+      this.idleModules = [];
+      return;
+    }
+
     const instance = master.createInstance(`hangarPreview.${ship.id}`);
     instance.isPickable = false;
     instance.parent = this.stageRoot;
@@ -389,6 +486,19 @@ export class Hangar {
       .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
   }
 
+  /** The shared black translucent material every locked hull is painted with. */
+  private lockedShipMaterial(): StandardMaterial {
+    if (this.lockedMaterial) return this.lockedMaterial;
+    const mat = new StandardMaterial("hangarLockedShip", this.scene);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = new Color3(0.02, 0.03, 0.05); // just enough not to be a hole
+    mat.alpha = 0.45;
+    mat.backFaceCulling = false; // a translucent hull reads better with its far side
+    this.lockedMaterial = mat;
+    return mat;
+  }
+
   /**
    * Point the camera at the stage half of the split screen and frame the hull
    * inside it. Re-run on resize and orientation change, so rotating the phone
@@ -408,7 +518,7 @@ export class Hangar {
    * the stage.
    */
   private frameShip(aspect: number): void {
-    const instance = this.previewInstance;
+    const instance: AbstractMesh | null = this.previewInstance ?? this.lockedPreview;
     if (!instance) {
       this.focus.copyFrom(this.stageRoot.position);
       return;
@@ -445,19 +555,62 @@ export class Hangar {
 
   // --- state transitions -----------------------------------------------------
 
+  /**
+   * The slot grid to open a hull on: the loadout you fly if this is your MAIN,
+   * its stock fitting otherwise. Browsing another hull must never inherit the
+   * main's modules — they belong to different sockets.
+   */
+  private slotsForShip(ship: ShipConfig): HangarSlot[] {
+    if (!this.isMainShip(ship.id)) return slotsFromDefaultFitting(ship);
+    const stored = loadHangarSelection();
+    return stored.moduleIds ? slotsFromModuleIds(ship, stored.moduleIds) : slotsFromDefaultFitting(ship);
+  }
+
   private selectShip(index: number): void {
     this.shipIndex = index;
     this.selectedFittingId = null;
     this.pickerHardpoint = null;
     const ship = this.currentShip();
-    this.slots = ship ? slotsFromDefaultFitting(ship) : [];
-    this.persistSelection();
+    this.slots = ship ? this.slotsForShip(ship) : [];
+    // Browsing is NOT choosing (2026-07-31): remember where the carousel is,
+    // but leave the main loadout exactly as it was.
+    this.persistBrowse();
     this.rebuildPreview();
     this.rebuildCallouts();
     // A different hull is a different size: re-frame it. (Swapping a MODULE
     // deliberately does not, so an edit never yanks the player's zoom back.)
     this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
     this.render();
+  }
+
+  /** Swipe/arrow step through the bay, wrapping at both ends. */
+  private stepShip(delta: -1 | 1): void {
+    if (this.ships.length < 2 || this.busy) return;
+    this.selectShip(wrapIndex(this.shipIndex, delta, this.ships.length));
+  }
+
+  /**
+   * Make the hull and fitting on screen the one the player flies. The single
+   * point at which browsing turns into a decision — everything else in the
+   * Hangar leaves the main loadout alone.
+   */
+  private setAsMain(): void {
+    const ship = this.currentShip();
+    if (!ship || !this.canFly(ship.id)) return;
+    localStorage.setItem(LS_SHIP, ship.id);
+    this.persistMain();
+    this.render();
+  }
+
+  /** Buy the hull on screen. Free for now — the unlock step is what is real. */
+  private buyShip(shipId: string): void {
+    if (this.offlineFitting) {
+      buyShipLocal(shipId);
+      this.rebuildPreview();
+      this.rebuildCallouts();
+      this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+      this.render();
+    }
   }
 
   private loadFitting(fittingId: string | null): void {
@@ -548,6 +701,13 @@ export class Hangar {
   }
 
   private async buyModule(moduleId: string): Promise<void> {
+    // Offline: the unlock is local and free, but it IS an unlock — a module has
+    // to be bought before it can be fitted (owner 2026-07-31).
+    if (this.offlineFitting) {
+      buyModuleLocal(moduleId);
+      this.render();
+      return;
+    }
     this.busy = true;
     this.render();
     try {
@@ -639,7 +799,28 @@ export class Hangar {
     }
   }
 
+  /** Remember where the carousel is. Presentation only — never flown. */
+  private persistBrowse(): void {
+    const shipId = this.currentShip()?.id;
+    if (shipId) localStorage.setItem(LS_BROWSE, shipId);
+    else localStorage.removeItem(LS_BROWSE);
+  }
+
+  /**
+   * Write the MAIN loadout from what is on screen — but ONLY when the hull on
+   * screen already is the main one. That is what lets a player swipe through
+   * the whole bay, and edit a fit they are just looking at, without silently
+   * changing what they launch with; `setAsMain` is the one place that promotes
+   * a different hull.
+   */
   private persistSelection(): void {
+    this.persistBrowse();
+    const ship = this.currentShip();
+    if (!ship || !this.isMainShip(ship.id)) return;
+    this.persistMain();
+  }
+
+  private persistMain(): void {
     const shipId = this.currentShip()?.id ?? null;
     if (shipId) localStorage.setItem(LS_SHIP, shipId);
     else localStorage.removeItem(LS_SHIP);
@@ -682,13 +863,19 @@ export class Hangar {
       const hint = el(
         "div",
         "hangar-hint",
-        "Offline: fitting and saving work locally. Log in or play as a guest to buy modules and upgrade.",
+        "Offline: fitting, unlocking and saving work locally, and everything is free while we test. Log in to spend real credits and upgrade.",
       );
       this.panel.append(hint);
     }
     if (this.error) this.panel.append(el("div", "hangar-error", this.error));
 
     this.panel.append(this.buildShipCarousel());
+    // A hull you have not bought shows its stats and nothing else: there is no
+    // fitting to edit and no fitting to save until it is yours.
+    if (!this.canFly(ship.id)) {
+      this.panel.append(this.buildStatPanel(ship));
+      return;
+    }
     this.panel.append(this.buildStatPanel(ship));
     this.panel.append(this.buildSlotGrid());
     if (this.pickerHardpoint !== null) {
@@ -710,18 +897,85 @@ export class Hangar {
     return header;
   }
 
+  /**
+   * The ship bay: arrows either side of the hull on screen, the full list under
+   * it, and — for a hull the player has not bought — the unlock. Swiping the 3D
+   * stage steps the same index (see {@link stepShip}), so the arrows are the
+   * pointer/keyboard equivalent of the gesture rather than a separate mode.
+   */
   private buildShipCarousel(): HTMLDivElement {
     const wrap = el("div", "hangar-ships");
+
+    const current = this.currentShip();
+    if (current) {
+      const owned = this.canFly(current.id);
+      const nav = el("div", "hangar-ship-nav");
+      nav.append(this.buildStepButton("‹", -1));
+      const centre = el("div", "hangar-ship-current");
+      const title = el("div", "hangar-ship-title");
+      title.append(el("span", "hangar-ship-name", current.name));
+      if (this.isMainShip(current.id)) title.append(el("span", "hangar-badge main", "★ MAIN"));
+      else if (!owned) title.append(el("span", "hangar-badge locked", "LOCKED"));
+      centre.append(title);
+      centre.append(el("div", "hangar-ship-class", `${current.class} hull · swipe to change ship`));
+      nav.append(centre);
+      nav.append(this.buildStepButton("›", 1));
+      wrap.append(nav);
+      wrap.append(this.buildShipActions(current, owned));
+    }
+
+    const list = el("div", "hangar-ship-list");
     this.ships.forEach((ship, i) => {
       const btn = document.createElement("button");
-      btn.className = "hangar-ship-btn" + (i === this.shipIndex ? " active" : "");
+      const owned = this.canFly(ship.id);
+      btn.className =
+        "hangar-ship-btn" + (i === this.shipIndex ? " active" : "") + (owned ? "" : " locked");
       btn.innerHTML = "";
-      btn.append(el("span", "hangar-ship-name", ship.name), el("span", "hangar-ship-class", ship.class));
+      btn.append(el("span", "hangar-ship-name", owned ? ship.name : `🔒 ${ship.name}`), el("span", "hangar-ship-class", ship.class));
       btn.disabled = this.busy;
       btn.addEventListener("click", () => this.selectShip(i));
-      wrap.append(btn);
+      list.append(btn);
     });
+    wrap.append(list);
     return wrap;
+  }
+
+  private buildStepButton(glyph: string, delta: -1 | 1): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.className = "hangar-ship-step";
+    btn.textContent = glyph;
+    btn.setAttribute("aria-label", delta < 0 ? "Previous ship" : "Next ship");
+    btn.disabled = this.busy || this.ships.length < 2;
+    btn.addEventListener("click", () => this.stepShip(delta));
+    return btn;
+  }
+
+  /** Unlock / set-as-main for the hull on screen. */
+  private buildShipActions(ship: ShipConfig, owned: boolean): HTMLDivElement {
+    const row = el("div", "hangar-ship-actions");
+    if (!owned) {
+      row.append(el("div", "hangar-hint", "You do not own this hull yet."));
+      const buy = document.createElement("button");
+      buy.className = "hangar-btn hangar-btn-primary";
+      // Free for now (testing) — the purchase still has to happen, so the flow
+      // is the real one and only the price is provisional.
+      buy.textContent = "Unlock (free)";
+      buy.disabled = this.busy || !this.offlineFitting;
+      buy.addEventListener("click", () => this.buyShip(ship.id));
+      row.append(buy);
+      return row;
+    }
+    if (this.isMainShip(ship.id)) {
+      row.append(el("div", "hangar-hint", "This ship and fitting is what you fly."));
+      return row;
+    }
+    const main = document.createElement("button");
+    main.className = "hangar-btn hangar-btn-primary";
+    main.textContent = "★ Set as main";
+    main.disabled = this.busy;
+    main.addEventListener("click", () => this.setAsMain());
+    row.append(main);
+    return row;
   }
 
   private buildStatPanel(ship: ShipConfig): HTMLDivElement {
@@ -868,7 +1122,7 @@ export class Hangar {
         el(
           "span",
           "hangar-picker-meta",
-          locked ? `Lv ${mod.requiresLevel}` : this.offlineFitting ? "Offline" : owned ? "Owned" : `${mod.price} cr`,
+          locked ? `Lv ${mod.requiresLevel}` : owned ? "Owned" : this.offlineFitting ? "Locked" : `${mod.price} cr`,
         ),
       );
       row.append(head);
@@ -894,8 +1148,10 @@ export class Hangar {
       } else if (!locked) {
         const buyBtn = document.createElement("button");
         buyBtn.className = "hangar-btn";
-        buyBtn.textContent = mod.price > 0 ? `Buy (${mod.price} cr)` : "Unlock (free)";
-        buyBtn.disabled = this.busy || credits < mod.price;
+        // Offline every module is free — but still bought, so the unlock flow
+        // is the shipped one and only the price is provisional.
+        buyBtn.textContent = this.offlineFitting || mod.price <= 0 ? "Unlock (free)" : `Buy (${mod.price} cr)`;
+        buyBtn.disabled = this.busy || (!this.offlineFitting && credits < mod.price);
         buyBtn.addEventListener("click", () => void this.buyModule(mod.id));
         actions.append(buyBtn);
       }
@@ -998,6 +1254,8 @@ export class Hangar {
     this.unsubscribeAuth();
     this.previewRig?.dispose();
     this.previewInstance?.dispose();
+    this.lockedMaterial?.dispose();
+    this.lockedMaterial = null;
     this.assets.dispose();
     this.stageRoot.dispose();
     this.root.remove();
@@ -1154,9 +1412,24 @@ const HANGAR_CSS = `
 .hangar-hint { font-size: 12px; color: #9fb4d0; background: rgba(87,216,255,.08); border: 1px solid #2f6fb8; border-radius: 6px; padding: 6px 8px; }
 .hangar-error { font-size: 12px; color: #ff8080; background: rgba(255,77,94,.1); border: 1px solid #ff4d5e; border-radius: 6px; padding: 6px 8px; }
 .hangar-section-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #9fb4d0; margin-bottom: 4px; }
-.hangar-ships { display: flex; flex-wrap: wrap; gap: 6px; }
+.hangar-ships { display: flex; flex-direction: column; gap: 8px; }
+/* Arrows either side of the hull on screen — the pointer equivalent of the
+   swipe gesture on the 3D stage (owner 2026-07-31). */
+.hangar-ship-nav { display: flex; align-items: center; gap: 8px; }
+.hangar-ship-step { flex: 0 0 auto; width: 40px; min-height: 44px; font-size: 20px; line-height: 1; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; touch-action: manipulation; }
+.hangar-ship-step:disabled { opacity: 0.35; cursor: default; }
+.hangar-ship-current { flex: 1 1 auto; min-width: 0; text-align: center; }
+.hangar-ship-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.hangar-ship-title .hangar-ship-name { font-size: 16px; }
+.hangar-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 4px; }
+.hangar-badge.main { background: #14406b; color: #9fe8ff; border: 1px solid #57d8ff; }
+.hangar-badge.locked { background: #2a1620; color: #ffb4c4; border: 1px solid #a5445f; }
+.hangar-ship-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hangar-ship-actions .hangar-hint { flex: 1 1 140px; margin: 0; }
+.hangar-ship-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .hangar-ship-btn { flex: 1 1 96px; min-height: 44px; touch-action: manipulation; display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
 .hangar-ship-btn.active { background: #1c3a5e; border-color: #57d8ff; }
+.hangar-ship-btn.locked { opacity: 0.6; border-style: dashed; }
 .hangar-ship-name { font-size: 12px; font-weight: 600; }
 .hangar-ship-class { font-size: 10px; color: #9fb4d0; text-transform: uppercase; }
 .hangar-stats { display: flex; flex-direction: column; gap: 3px; }
