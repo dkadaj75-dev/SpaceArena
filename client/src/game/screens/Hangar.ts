@@ -23,6 +23,12 @@ import {
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
+import {
+  deleteLocalFitting,
+  isLocalFittingId,
+  listLocalFittings,
+  saveLocalFitting,
+} from "../offlineFittings.js";
 import { moduleStats } from "../moduleSummary.js";
 import { HangarCallouts, type CalloutSpec } from "./HangarCallouts.js";
 import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
@@ -134,11 +140,16 @@ function loadCachedUpgrades(shipId: string | null): UpgradeLevels | null {
  * `--hud-*` custom properties — scoped to `#hud` — exist, so this follows the
  * same convention rather than depending on that scope).
  *
- * Ship/module/upgrade browsing works fully offline (local `ConfigService`);
- * ownership, credits, upgrades and fittings need `/api/*` (auth required —
- * see `server/src/api/README.md`), so a truly anonymous visitor (never
- * logged in, never played as guest) gets a read-only preview with buy/save
- * disabled and a hint to log in or play as guest.
+ * Ship/module/upgrade browsing works fully offline (local `ConfigService`).
+ *
+ * ## Offline fitting (TESTING AFFORDANCE — owner 2026-07-31, to be removed)
+ *
+ * Fitting and saving are available WITHOUT an account: every module counts as
+ * owned, level gates are ignored, and named fittings live in `localStorage`
+ * (see `offlineFittings.ts`). Only the parts that move real credits —
+ * purchases and upgrade tracks — still require `/api/*` and a real account.
+ * Removing this later means deleting `offlineFittings.ts` and the
+ * `offlineFitting` branch here; nothing else grew a second code path.
  */
 export class Hangar {
   private readonly root: HTMLDivElement;
@@ -234,6 +245,23 @@ export class Hangar {
     return this.auth.getState().status === "authed";
   }
 
+  /**
+   * Offline fitting mode — a TESTING AFFORDANCE (owner 2026-07-31), to be
+   * removed later. With no account there is no ownership to check and no
+   * server to save to, so the Hangar stays fully usable: every module counts as
+   * owned and named fittings live in localStorage (see `offlineFittings.ts`).
+   * Purchases and upgrades still need a real account — those move real credits.
+   */
+  private get offlineFitting(): boolean {
+    return !this.isAuthed();
+  }
+
+  /** Whether this module can be fitted right now (owned, or offline test mode). */
+  private canEquip(moduleId: string): boolean {
+    if (this.offlineFitting) return true;
+    return this.apiModules.find((m) => m.id === moduleId)?.owned ?? false;
+  }
+
   private currentShip(): ShipConfig | undefined {
     return this.ships[this.shipIndex];
   }
@@ -302,7 +330,8 @@ export class Hangar {
     if (!this.isAuthed()) {
       this.apiShips = [];
       this.apiModules = [];
-      this.fittings = [];
+      // Offline test mode: named fittings come from localStorage instead.
+      this.fittings = listLocalFittings();
       this.render();
       return;
     }
@@ -445,7 +474,6 @@ export class Hangar {
   }
 
   private selectSlot(hardpointIndex: number): void {
-    if (!this.isAuthed()) return;
     this.pickerHardpoint = this.pickerHardpoint === hardpointIndex ? null : hardpointIndex;
     this.callouts.setSelected(this.pickerHardpoint);
     this.render();
@@ -461,7 +489,7 @@ export class Hangar {
     const slot = this.slots[hardpointIndex];
     const cfg = this.configs.get<ModuleConfig>("module", moduleId);
     if (!slot || !cfg || !slotAccepts(slot, cfg.family)) return;
-    if (!this.isAuthed() || !this.apiModules.find((m) => m.id === moduleId)?.owned) return;
+    if (!this.canEquip(moduleId)) return;
     this.equip(hardpointIndex, moduleId);
   }
 
@@ -553,6 +581,24 @@ export class Hangar {
     const ship = this.currentShip();
     if (!ship || !name.trim()) return;
     const hardpointMap = buildHardpointMap(this.slots);
+
+    // Offline test mode: save to localStorage, no server round trip. Also the
+    // path taken for a LOCAL fitting the player is updating while signed out.
+    if (this.offlineFitting) {
+      const saved = saveLocalFitting({
+        id: this.selectedFittingId,
+        shipId: ship.id,
+        name: name.trim(),
+        hardpointMap,
+      });
+      this.selectedFittingId = saved.id;
+      this.fittings = listLocalFittings();
+      this.error = "";
+      this.persistSelection();
+      this.render();
+      return;
+    }
+
     this.busy = true;
     this.render();
     try {
@@ -574,6 +620,12 @@ export class Hangar {
 
   private async deleteFitting(): Promise<void> {
     if (!this.selectedFittingId) return;
+    if (isLocalFittingId(this.selectedFittingId)) {
+      deleteLocalFitting(this.selectedFittingId);
+      this.fittings = listLocalFittings();
+      this.loadFitting(null);
+      return;
+    }
     this.busy = true;
     this.render();
     try {
@@ -618,26 +670,32 @@ export class Hangar {
     this.panel.innerHTML = "";
     if (!ship) return;
 
-    const readOnly = !this.isAuthed();
+    // Fitting is always available (offline test mode); only the parts that
+    // spend real credits stay gated on a real account.
+    const storeLocked = !this.isAuthed();
     const profile = this.auth.getState();
     const credits = profile.status === "authed" ? profile.profile.credits : 0;
     const level = profile.status === "authed" ? profile.profile.level : 1;
 
     this.panel.append(this.buildHeader());
-    if (readOnly) {
-      const hint = el("div", "hangar-hint", "Log in or play as a guest to buy modules, upgrade, and save fittings.");
+    if (storeLocked) {
+      const hint = el(
+        "div",
+        "hangar-hint",
+        "Offline: fitting and saving work locally. Log in or play as a guest to buy modules and upgrade.",
+      );
       this.panel.append(hint);
     }
     if (this.error) this.panel.append(el("div", "hangar-error", this.error));
 
     this.panel.append(this.buildShipCarousel());
     this.panel.append(this.buildStatPanel(ship));
-    this.panel.append(this.buildSlotGrid(ship, readOnly));
+    this.panel.append(this.buildSlotGrid());
     if (this.pickerHardpoint !== null) {
       this.panel.append(this.buildModulePicker(ship, this.pickerHardpoint, credits, level));
     }
-    this.panel.append(this.buildUpgrades(ship, readOnly, credits));
-    this.panel.append(this.buildFittingControls(ship, readOnly));
+    this.panel.append(this.buildUpgrades(ship, storeLocked, credits));
+    this.panel.append(this.buildFittingControls(ship));
   }
 
   private buildHeader(): HTMLDivElement {
@@ -709,7 +767,7 @@ export class Hangar {
     return row;
   }
 
-  private buildSlotGrid(ship: ShipConfig, readOnly: boolean): HTMLDivElement {
+  private buildSlotGrid(): HTMLDivElement {
     const wrap = el("div", "hangar-slots");
     wrap.append(el("div", "hangar-section-title", "Hardpoints & systems"));
     const grid = el("div", "hangar-slot-grid");
@@ -718,7 +776,7 @@ export class Hangar {
       const btn = document.createElement("button");
       btn.className = "hangar-slot" + (slot.moduleId ? " filled" : "") + (this.pickerHardpoint === slot.hardpointIndex ? " open" : "");
       btn.dataset["kind"] = slot.kind;
-      btn.disabled = readOnly || this.busy;
+      btn.disabled = this.busy;
       btn.append(el("span", "hangar-slot-icon", mod?.ui.icon ?? "+"));
       btn.append(el("span", "hangar-slot-label", mod?.ui.label ?? "Empty"));
       btn.append(el("span", "hangar-slot-socket", `${slot.socketId} · ${slot.accepts.join("/")}`));
@@ -763,9 +821,10 @@ export class Hangar {
     // never pushes the rest of the panel off screen.
     const list = el("div", "hangar-picker-list");
     for (const mod of candidates) {
-      const api = this.apiModules.find((m) => m.id === mod.id);
-      const owned = api?.owned ?? false;
-      const locked = mod.requiresLevel > level;
+      const owned = this.canEquip(mod.id);
+      // Level gates are a progression rule, not an ownership one — offline test
+      // mode ignores them too, or half the catalogue would stay unreachable.
+      const locked = !this.offlineFitting && mod.requiresLevel > level;
       const fitted = slot?.moduleId === mod.id;
 
       const row = el("div", `hangar-picker-item${fitted ? " fitted" : ""}`);
@@ -783,7 +842,13 @@ export class Hangar {
 
       const head = el("div", "hangar-picker-head");
       head.append(el("span", "hangar-picker-name", mod.name ?? mod.id));
-      head.append(el("span", "hangar-picker-meta", locked ? `Lv ${mod.requiresLevel}` : owned ? "Owned" : `${mod.price} cr`));
+      head.append(
+        el(
+          "span",
+          "hangar-picker-meta",
+          locked ? `Lv ${mod.requiresLevel}` : this.offlineFitting ? "Offline" : owned ? "Owned" : `${mod.price} cr`,
+        ),
+      );
       row.append(head);
 
       const stats = el("div", "hangar-picker-stats");
@@ -855,13 +920,13 @@ export class Hangar {
     return wrap;
   }
 
-  private buildFittingControls(ship: ShipConfig, readOnly: boolean): HTMLDivElement {
+  private buildFittingControls(ship: ShipConfig): HTMLDivElement {
     const wrap = el("div", "hangar-fit-controls");
     wrap.append(el("div", "hangar-section-title", "Fitting"));
 
     const select = document.createElement("select");
     select.className = "hangar-select";
-    select.disabled = readOnly || this.busy;
+    select.disabled = this.busy;
     const defaultOpt = document.createElement("option");
     defaultOpt.value = "";
     defaultOpt.textContent = "Default fit";
@@ -881,7 +946,7 @@ export class Hangar {
     nameInput.type = "text";
     nameInput.placeholder = "Fitting name";
     nameInput.maxLength = 60;
-    nameInput.disabled = readOnly || this.busy;
+    nameInput.disabled = this.busy;
     const current = this.selectedFittingId ? this.fittings.find((f) => f.id === this.selectedFittingId) : undefined;
     nameInput.value = current?.name ?? "";
     wrap.append(nameInput);
@@ -890,7 +955,7 @@ export class Hangar {
     const saveBtn = document.createElement("button");
     saveBtn.className = "hangar-btn hangar-btn-primary";
     saveBtn.textContent = this.selectedFittingId ? "Update fitting" : "Save new fitting";
-    saveBtn.disabled = readOnly || this.busy;
+    saveBtn.disabled = this.busy;
     saveBtn.addEventListener("click", () => void this.saveFitting(nameInput.value));
     row.append(saveBtn);
 
@@ -898,7 +963,7 @@ export class Hangar {
       const delBtn = document.createElement("button");
       delBtn.className = "hangar-btn hangar-btn-danger";
       delBtn.textContent = "Delete";
-      delBtn.disabled = readOnly || this.busy;
+      delBtn.disabled = this.busy;
       delBtn.addEventListener("click", () => void this.deleteFitting());
       row.append(delBtn);
     }
