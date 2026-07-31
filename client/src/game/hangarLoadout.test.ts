@@ -54,8 +54,10 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
       playerFitting: ["module.laser-mk1", "module.kinetic-mk1", null, "module.shield-mk1", "module.boost-mk1"],
     });
     const ship = session.curSnapshot.ships.find((s) => s.id === session.playerId)!;
-    expect(ship.shipId ?? brawler.id).toBeDefined();
     const fitted = ship.modules.map((m) => `${m.hardpointIndex}:${m.moduleId}`);
+    // Hardpoint 4 exists at all only on the five-socket brawler, so this is
+    // also the proof that the requested HULL was the one spawned.
+    expect(hardpointsOf(brawler)).toHaveLength(5);
     // The emptied hardpoint (2) really is empty; the rest are as requested.
     expect(fitted).toEqual([
       "0:module.laser-mk1",
