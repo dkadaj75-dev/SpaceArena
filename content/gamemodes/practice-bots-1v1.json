@@ -1,9 +1,9 @@
 {
-  "id": "gamemode.practice-bots",
+  "id": "gamemode.practice-bots-1v1",
   "type": "gamemode",
   "version": 1,
-  "name": "Practice — 2v2 vs Bots",
-  "teams": "2v2",
+  "name": "Practice — 1v1 vs Bot",
+  "teams": "1v1",
   "defaultArena": "arena.ring-nebula",
   "winCondition": {
     "type": "fragLimit",
@@ -32,14 +32,8 @@
       {
         "profile": "bot.rookie",
         "ship": "ship.interceptor",
-        "team": 0,
-        "count": 1
-      },
-      {
-        "profile": "bot.rookie",
-        "ship": "ship.interceptor",
         "team": 1,
-        "count": 2
+        "count": 1
       }
     ]
   },

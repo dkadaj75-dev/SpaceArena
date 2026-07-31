@@ -527,4 +527,24 @@ describe("bots in a live ArenaSimulation", () => {
     expect(roster.filter((r) => r.team === 1).length).toBe(2);
     expect(roster.every((r) => r.profile.id === "bot.rookie")).toBe(true);
   });
+
+  it("resolves the 1v1 practice roster: one enemy rookie, no wingman (owner 2026-07-31)", () => {
+    const gm = configs.get<GamemodeConfig>("gamemode", "gamemode.practice-bots-1v1")!;
+    expect(gm.teams).toBe("1v1");
+    const roster = resolveBotRoster(gm, configs);
+    expect(roster.length).toBe(1);
+    expect(roster[0]!.team).toBe(1);
+    expect(roster[0]!.profile.id).toBe("bot.rookie");
+  });
+
+  it("both practice-vs-bots modes share one ruleset — only the team size differs", () => {
+    const solo = configs.get<GamemodeConfig>("gamemode", "gamemode.practice-bots-1v1")!;
+    const duo = configs.get<GamemodeConfig>("gamemode", "gamemode.practice-bots")!;
+    expect(solo.winCondition).toEqual(duo.winCondition); // first to 10 frags
+    expect(solo.timeLimitCapSec).toBe(duo.timeLimitCapSec); // same hard cap
+    expect(solo.respawn).toEqual(duo.respawn);
+    expect(solo.eliminationEndsMatch).toBe(false); // respawn modes must not end on a wipe
+    expect(solo.boundaryRule).toEqual(duo.boundaryRule);
+    expect(solo.defaultArena).toBe(duo.defaultArena);
+  });
 });
