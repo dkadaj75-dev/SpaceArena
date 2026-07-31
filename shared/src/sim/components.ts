@@ -207,6 +207,36 @@ export interface Decoy {
   radius: number;
 }
 
+/** Where a capture-the-flag flag is right now. */
+export type FlagState = "home" | "carried" | "dropped";
+
+/**
+ * A capture-the-flag flag (owner 2026-07-31). The entity carries the transform;
+ * this is the rest of it. One per team, spawned from `arena.flagBases` when the
+ * gamemode authors a `ctf` block.
+ */
+export interface Flag {
+  /** The team this flag BELONGS to — the one that must defend it. */
+  team: number;
+  state: FlagState;
+  /** Ship carrying it, or null. Always an enemy of {@link Flag.team}. */
+  carrierId: EntityId | null;
+  /** Seconds left before a dropped flag returns itself home. */
+  dropTimer: number;
+  /** Base position: where it sits at home and where it returns to. */
+  home: { x: number; y: number; z: number };
+  /** Capture/return sphere of its base. */
+  baseRadius: number;
+  /** Fly within this of the flag to take it. */
+  pickupRadius: number;
+  /**
+   * Wake behind a moving flag, oldest first, bounded by the mode's
+   * `trailLength`. Drawn in 3D and on the radar; cleared when the flag is home
+   * (a flag on its stand is not going anywhere).
+   */
+  trail: { x: number; y: number; z: number }[];
+}
+
 export interface Projectile {
   kind: "kinetic" | "missile";
   damage: number;

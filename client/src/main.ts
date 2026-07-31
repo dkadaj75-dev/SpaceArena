@@ -931,6 +931,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       runtime.session.clearFrameEvents();
 
       runtime.screenShake.update(dtMs);
+      // Flags are coloured by allegiance, so the view needs to know whose side
+      // the camera is on before it builds one.
+      runtime.viewManager.setPlayerTeam(runtime.session.playerTeam);
       runtime.viewManager.render(prev, cur, alpha, dtMs);
       runtime.hud.update(cur, prev, dtMs, alpha);
       runtime.netOverlay?.update();

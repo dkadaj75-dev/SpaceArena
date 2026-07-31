@@ -22,5 +22,6 @@ export * from "./systems/EnergySystem.js";
 export * from "./systems/ProjectileSystem.js";
 export * from "./systems/CollisionSystem.js";
 export * from "./systems/CleanupSystem.js";
+export * from "./systems/CtfSystem.js";
 export * from "./steering.js";
 export * from "./tuningDefaults.js";

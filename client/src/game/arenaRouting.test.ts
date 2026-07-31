@@ -120,6 +120,7 @@ const EMPTY_SNAPSHOT: Snapshot = {
   asteroids: [],
   projectiles: [],
   decoys: [],
+      flags: [],
 };
 
 function bubbleRadiusOf(arenaId: string): number {

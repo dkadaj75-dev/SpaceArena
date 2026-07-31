@@ -261,6 +261,28 @@
       "heading": 4.367
     }
   ],
+  "flagBases": [
+    {
+      "id": "flag-base-blue",
+      "team": 0,
+      "position": {
+        "x": -72.0,
+        "y": 0.0,
+        "z": -72.0
+      },
+      "radius": 16.0
+    },
+    {
+      "id": "flag-base-red",
+      "team": 1,
+      "position": {
+        "x": 72.0,
+        "y": 0.0,
+        "z": 72.0
+      },
+      "radius": 16.0
+    }
+  ],
   "lighting": {
     "ambientColor": "#1a2233",
     "ambientIntensity": 0.4,

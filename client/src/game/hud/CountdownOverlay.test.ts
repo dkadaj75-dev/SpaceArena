@@ -14,6 +14,7 @@ function snapshot(phase: Snapshot["phase"], countdownRemaining: number): Snapsho
     asteroids: [],
     projectiles: [],
     decoys: [],
+      flags: [],
   };
 }
 

@@ -54,7 +54,7 @@ describe("GamemodeEditor", () => {
 
     // Discriminated union -> a `type` <select> plus only the chosen branch's fields.
     const kind = panel.element.querySelector<HTMLSelectElement>('[name="winCondition.type"]')!;
-    expect(Array.from(kind.options).map((o) => o.textContent)).toEqual(["destroyTargets", "fragLimit", "timeLimit"]);
+    expect(Array.from(kind.options).map((o) => o.textContent)).toEqual(["destroyTargets", "fragLimit", "timeLimit", "captureLimit"]);
     expect(panel.element.querySelector('[name="winCondition.count"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="winCondition.seconds"]')).toBeNull();
 

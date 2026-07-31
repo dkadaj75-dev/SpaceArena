@@ -1,6 +1,7 @@
 export * from "./context.js";
 export * from "./flight.js";
 export * from "./behaviors.js";
+export * from "./ctfBehavior.js";
 export * from "./moduleDiscipline.js";
 export * from "./fireDiscipline.js";
 export * from "./BotDriver.js";

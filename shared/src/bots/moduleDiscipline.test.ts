@@ -89,6 +89,7 @@ function contextFor(self: ShipSnapshot) {
     asteroids: [],
     projectiles: [],
     decoys: [],
+    flags: [],
   };
   return buildBotContext({
     snapshot,

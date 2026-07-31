@@ -56,11 +56,53 @@ export function announcementClass(streakCount: number, firstBloodOfMatch: boolea
   return streakCount > 1 ? "multi" : "plain";
 }
 
+/**
+ * One capture-the-flag announcement, phrased from the VIEWER's side (owner
+ * 2026-07-31): "they have your flag" and "you have theirs" are the same event
+ * seen from two chairs, and a pilot should never have to work out which team
+ * number they are mid-fight.
+ *
+ * Returns null for events that are not CTF, or that the viewer has no side in.
+ */
+export function flagAnnouncementFor(
+  ev: SimEvent,
+  playerId: EntityId,
+  playerTeam: number | null,
+): { text: string; flavour: string } | null {
+  if (playerTeam === null) return null;
+  switch (ev.type) {
+    case "flagTaken":
+      if (ev.carrierId === playerId) return { text: "YOU HAVE THE ENEMY FLAG", flavour: "flag-good" };
+      if (ev.carrierTeam === playerTeam) return { text: "ENEMY FLAG TAKEN", flavour: "flag-good" };
+      if (ev.flagTeam === playerTeam) return { text: "ENEMY HAS YOUR FLAG", flavour: "flag-bad" };
+      return null;
+    case "flagDropped":
+      return ev.flagTeam === playerTeam
+        ? { text: "YOUR FLAG DROPPED", flavour: "flag-info" }
+        : { text: "ENEMY FLAG DROPPED", flavour: "flag-info" };
+    case "flagReturned":
+      return ev.flagTeam === playerTeam
+        ? { text: "YOUR FLAG IS BACK", flavour: "flag-good" }
+        : { text: "ENEMY FLAG RETURNED", flavour: "flag-bad" };
+    case "flagCaptured":
+      return ev.scoringTeam === playerTeam
+        ? { text: "FLAG CAPTURED!", flavour: "flag-good" }
+        : { text: "ENEMY SCORES", flavour: "flag-bad" };
+    default:
+      return null;
+  }
+}
+
+/** Every class `show` may apply, so a new announcement clears the last one. */
+const FLAVOURS = ["plain", "multi", "first-blood", "flag-good", "flag-bad", "flag-info"] as const;
+
 export class KillAnnouncements {
   private readonly el: HTMLDivElement;
   private readonly streak: KillStreakState = { count: 0, lastKillMs: Number.NEGATIVE_INFINITY };
   /** True once ANY ship in the match has died — first blood is match-global. */
   private matchHasBlood = false;
+  /** The viewer's team, needed to phrase flag calls; null until a frame lands. */
+  private playerTeam: number | null = null;
 
   constructor(root: HTMLElement, private readonly playerId: EntityId) {
     this.el = document.createElement("div");
@@ -72,6 +114,13 @@ export class KillAnnouncements {
   /** Feed the frame's drained sim events. `nowMs` is injectable for tests. */
   consumeEvents(events: readonly SimEvent[], nowMs: number = performance.now()): void {
     for (const ev of events) {
+      // Flag beats announce in the same place, in the same style: they are the
+      // loudest thing that can happen in a capture match.
+      const flagCall = flagAnnouncementFor(ev, this.playerId, this.playerTeam);
+      if (flagCall) {
+        this.show(flagCall.text, flagCall.flavour);
+        continue;
+      }
       if (ev.type !== "entityDestroyed" || ev.isAsteroid) continue;
       const firstBlood = !this.matchHasBlood;
       this.matchHasBlood = true;
@@ -81,12 +130,18 @@ export class KillAnnouncements {
     }
   }
 
+  /** Tell the announcer which side the viewer is on (fed from each snapshot). */
+  setPlayerTeam(team: number | null): void {
+    this.playerTeam = team;
+  }
+
   /** New match in the same HUD (respawn does NOT reset this — only a new match). */
   reset(): void {
     this.streak.count = 0;
     this.streak.lastKillMs = Number.NEGATIVE_INFINITY;
     this.matchHasBlood = false;
-    this.el.classList.remove("visible", "plain", "multi", "first-blood");
+    this.el.classList.remove("visible", ...FLAVOURS);
+    this.playerTeam = null;
   }
 
   /** Currently displayed announcement text (tests / dev probe). */
@@ -96,7 +151,7 @@ export class KillAnnouncements {
 
   private show(text: string, flavour: string): void {
     this.el.textContent = text;
-    this.el.classList.remove("visible", "plain", "multi", "first-blood");
+    this.el.classList.remove("visible", ...FLAVOURS);
     // Force a style flush so re-adding the class restarts the CSS animation
     // even when two frags land on consecutive frames.
     void this.el.offsetWidth;

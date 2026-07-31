@@ -181,6 +181,8 @@ export class Minimap {
       ctx.fill();
     }
 
+    this.drawFlags(cur, player);
+
     for (let i = 0; i < cur.ships.length; i++) {
       const ship = cur.ships[i]!;
       if (ship.id === player.id) continue;
@@ -227,6 +229,58 @@ export class Minimap {
     ctx.lineTo(g.centreX, g.centreY - 4);
     ctx.lineTo(g.centreX + 4, g.centreY + 3);
     ctx.stroke();
+  }
+
+  /**
+   * Capture-the-flag flags and their wakes (owner 2026-07-31). The trail is the
+   * point of drawing them here at all: a diamond only says where a flag IS, a
+   * fading ribbon says where it is GOING, which is what a defender needs from
+   * across the arena. Oldest segments are faintest, so the bright end of the
+   * ribbon is the runner.
+   *
+   * Colour is by ALLEGIANCE, not by flag id: your flag is friendly-blue even
+   * while an enemy is running off with it, because it is still the thing you
+   * have to get back.
+   */
+  private drawFlags(cur: Snapshot, player: ShipSnapshot): void {
+    if (cur.flags.length === 0) return;
+    const ctx = this.ctx;
+    for (const flag of cur.flags) {
+      const color = flag.team === this.session.playerTeam ? this.palette.friendly : this.palette.hostile;
+
+      ctx.lineWidth = 1.5;
+      for (let i = 1; i < flag.trail.length; i++) {
+        const fade = (i / flag.trail.length) * 0.55;
+        this.project(flag.trail[i - 1]!.x, flag.trail[i - 1]!.y, flag.trail[i - 1]!.z, player);
+        const fromX = projectedScratch.x;
+        const fromY = projectedScratch.tipY;
+        this.project(flag.trail[i]!.x, flag.trail[i]!.y, flag.trail[i]!.z, player);
+        ctx.strokeStyle = withAlpha(color, fade);
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(projectedScratch.x, projectedScratch.tipY);
+        ctx.stroke();
+      }
+
+      this.project(flag.pos.x, flag.pos.y, flag.pos.z, player);
+      const alpha = projectedScratch.outOfRange ? 0.5 : 1;
+      const r = this.contactSizePx * 1.3;
+      // A carried flag pulses bright; one sitting at home or adrift is steady.
+      ctx.fillStyle = withAlpha(color, flag.state === "carried" ? alpha : alpha * 0.75);
+      ctx.beginPath();
+      ctx.moveTo(projectedScratch.x, projectedScratch.tipY - r);
+      ctx.lineTo(projectedScratch.x + r * 0.8, projectedScratch.tipY);
+      ctx.lineTo(projectedScratch.x, projectedScratch.tipY + r);
+      ctx.closePath();
+      ctx.fill();
+      // The staff, so a flag never reads as just another contact diamond.
+      ctx.strokeStyle = withAlpha(color, alpha);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(projectedScratch.x, projectedScratch.tipY - r);
+      ctx.lineTo(projectedScratch.x, projectedScratch.tipY + r);
+      ctx.stroke();
+    }
   }
 
   private project(x: number, y: number, z: number, player: ShipSnapshot): void {

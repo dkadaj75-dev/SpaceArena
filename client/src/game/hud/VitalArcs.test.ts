@@ -14,6 +14,7 @@ const snapshot: Snapshot = {
   winnerTeam: null,
   projectiles: [],
   decoys: [],
+      flags: [],
   asteroids: [],
   ships: [{
     id: 1,

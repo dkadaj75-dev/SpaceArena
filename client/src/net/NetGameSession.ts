@@ -31,6 +31,7 @@ import {
   type SimEventMessage,
   type Snapshot,
   type SteerState,
+  type TeamScore,
   type TuningConfig,
   type UpgradeLevels,
   type FrameAttitude,
@@ -843,6 +844,7 @@ export class NetGameSession extends GameSession {
       asteroids,
       projectiles,
       decoys: [],
+      flags: [],
     };
   }
 }
@@ -913,13 +915,17 @@ export function decodeUp(
   return orthonormalizeUp(heading, pitch, up);
 }
 
-/** Replicated team scores → snapshot shape, ascending by team id. Absent map = no scores yet. */
-function decodeTeamScores(raw: any): { team: number; kills: number }[] {
-  const out: { team: number; kills: number }[] = [];
+/**
+ * Replicated team scores → snapshot shape, ascending by team id. Absent map = no
+ * scores yet. `captures` is always 0 here: capture-the-flag runs offline for now
+ * (like the heatsink decoys above, the room state carries no flags yet).
+ */
+function decodeTeamScores(raw: any): TeamScore[] {
+  const out: TeamScore[] = [];
   if (raw?.entries) {
-    for (const [key, kills] of raw.entries()) out.push({ team: Number(key), kills: Number(kills) });
+    for (const [key, kills] of raw.entries()) out.push({ team: Number(key), kills: Number(kills), captures: 0 });
   } else if (raw) {
-    for (const key of Object.keys(raw)) out.push({ team: Number(key), kills: Number(raw[key]) });
+    for (const key of Object.keys(raw)) out.push({ team: Number(key), kills: Number(raw[key]), captures: 0 });
   }
   out.sort((a, b) => a.team - b.team);
   return out;

@@ -1014,6 +1014,11 @@ const CSS = `
 }
 .hud-kill-announce.first-blood { color: var(--hud-danger, #ff405c); }
 .hud-kill-announce.multi { color: var(--hud-module-boost-color, #e8b44f); }
+/* Capture-the-flag calls share the kill announcer's slot and animation; only the
+   colour says whose news it is. */
+.hud-kill-announce.flag-good { color: var(--hud-friendly, #57d8ff); }
+.hud-kill-announce.flag-bad { color: var(--hud-danger, #ff405c); }
+.hud-kill-announce.flag-info { color: var(--hud-module-boost-color, #e8b44f); }
 .hud-kill-announce.visible {
   animation: hud-kill-announce 1.8s ease-out forwards;
 }

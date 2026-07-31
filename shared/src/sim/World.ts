@@ -5,6 +5,7 @@ import type {
   ColliderComp,
   Decoy,
   EntityId,
+  Flag,
   FlightState,
   ModulesComp,
   Projectile,
@@ -49,6 +50,8 @@ export class World {
   readonly projectiles = new Map<EntityId, Projectile>();
   /** Jettisoned heatsinks acting as lures (owner 2026-07-31). */
   readonly decoys = new Map<EntityId, Decoy>();
+  /** Capture-the-flag flags, one per team (owner 2026-07-31). */
+  readonly flags = new Map<EntityId, Flag>();
 
   readonly events: SimEvent[] = [];
   private readonly orderQueue: QueuedOrder[] = [];
@@ -121,6 +124,7 @@ export class World {
     this.asteroids.delete(id);
     this.projectiles.delete(id);
     this.decoys.delete(id);
+    this.flags.delete(id);
     this.boundaryContacts.delete(id);
   }
 
@@ -169,5 +173,10 @@ export class World {
 
   decoyIds(): EntityId[] {
     return Array.from(this.decoys.keys()).sort((a, b) => a - b);
+  }
+
+  /** Flag entity ids in ascending order (deterministic iteration). */
+  flagIds(): EntityId[] {
+    return Array.from(this.flags.keys()).sort((a, b) => a - b);
   }
 }

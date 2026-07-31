@@ -109,7 +109,9 @@ describe("BotProfileEditor panel", () => {
     const addable = Array.from(
       panel.element.querySelectorAll<HTMLSelectElement>(".ed-record > .ed-record-add select")[0]!.options,
     ).map((o) => o.value);
-    expect(addable).toEqual(["", "breakLoS", "retreat", "dodge", "avoidRocks"]);
+    // `objective` is the capture-the-flag behaviour (2026-07-31); it registers
+    // like any other, so it shows up in the add list.
+    expect(addable).toEqual(["", "breakLoS", "retreat", "dodge", "avoidRocks", "objective"]);
   });
 
   it("commits behaviour add/remove and param edits through the config service", () => {
