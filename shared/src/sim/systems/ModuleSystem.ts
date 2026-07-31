@@ -10,7 +10,7 @@ import type { World } from "../World.js";
  *        ▲                                          │
  *        └─ retracting(retractTime) ←─(toggle)──────┘
  *   any active/deploying ─(heat ≥ threshold, in EnergySystem)→ overheated
- *        overheated ─(overheatCooldown)→ retracted
+ *        overheated ─(overheatCooldown)→ retracted (weapons: → active)
  *
  * Heat generation, overheat *detection*, dissipation and energy live in
  * EnergySystem (after combat) since they depend on the worked-this-tick flags.
@@ -45,7 +45,11 @@ export function moduleSystem(world: World, dt: number): void {
         if (m.stateTimer <= 0) {
           m.heat = 0;
           m.overheatDamaged = false;
-          transition(world, id, m, "retracted");
+          // Weapons come straight back ONLINE after the lockout — they are
+          // always-on (spawned active, see spawn.ts) and the overheat cooldown
+          // IS their punishment; making the pilot re-toggle would double it.
+          // Support modules (shield/boost) return retracted as before.
+          transition(world, id, m, cfg.fire ? "active" : "retracted");
         }
       }
 

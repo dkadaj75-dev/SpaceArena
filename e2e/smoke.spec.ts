@@ -83,6 +83,14 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // `?login=1` suppresses main.ts's DEV auto-login so the real guest flow runs.
   await page.goto("/?login=1");
 
+  // The launch fullscreen offer is a real modal over the first screen — a
+  // player answers it before anything else, and so does this pilot. ("Not now":
+  // requestFullscreen inside a headless run has nothing useful to do.)
+  const fullscreenPrompt = page.locator(".sa-fullscreen-prompt");
+  await expect(fullscreenPrompt).toBeVisible();
+  await fullscreenPrompt.getByText("Not now", { exact: true }).click();
+  await expect(fullscreenPrompt).toBeHidden();
+
   const authOverlay = page.locator(".auth-overlay");
   await expect(authOverlay).toBeVisible();
   await authOverlay.getByRole("button", { name: "Play as Guest", exact: true }).click();
@@ -158,14 +166,18 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   ).toBe("arena.deep-field");
 
   // ----------------------------------------------------- 6. drive the match
-  // A real tap on the first module button issues a `moduleToggle` order; the
-  // module leaves `retracted` via deploying → active (ModuleButtons.update
-  // mirrors the sim state onto a `state-*` class).
-  const firstModule = moduleButtons.first();
-  await expect(firstModule).toHaveClass(/state-retracted/);
-  await firstModule.click();
-  await expect(firstModule).toHaveClass(/state-(deploying|active)/);
-  await expect(firstModule).not.toHaveClass(/state-retracted/);
+  // Weapons spawn ONLINE (2026-07-31) and the support modules spawn retracted,
+  // so the button row shows both states from the first frame.
+  await expect(moduleButtons.first()).toHaveClass(/state-active/);
+
+  // A real tap on the shield button issues a `moduleToggle` order; the module
+  // leaves `retracted` via deploying → active (ModuleButtons.update mirrors the
+  // sim state onto a `state-*` class).
+  const shieldModule = moduleButtons.nth(2);
+  await expect(shieldModule).toHaveClass(/state-retracted/);
+  await shieldModule.click();
+  await expect(shieldModule).toHaveClass(/state-(deploying|active)/);
+  await expect(shieldModule).not.toHaveClass(/state-retracted/);
 
   // A real LMB trigger edge must now produce real damage. First use ordinary
   // flight orders to settle the nose and wait for the armed module + server

@@ -10,13 +10,13 @@
     "retractTime": 0.35
   },
   "energy": {
-    "drawIdle": 3,
+    "drawIdle": 0,
     "drawActive": 20
   },
   "heat": {
-    "perSecondActive": 14,
+    "perSecondActive": 16,
     "overheatThreshold": 55,
-    "overheatCooldown": 5.0,
+    "overheatCooldown": 3.0,
     "overheatSelfDamage": 0
   },
   "fire": {

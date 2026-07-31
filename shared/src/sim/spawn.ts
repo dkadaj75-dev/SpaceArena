@@ -107,7 +107,10 @@ export function spawnShipFromConfig(
     modules.push({
       moduleId,
       hardpointIndex,
-      state: "retracted",
+      // Weapons come up ONLINE at spawn and respawn alike (owner 2026-07-31) —
+      // their limiter is heat, not the deploy toggle. Shield/boost/utility
+      // start retracted: those are the deliberate, energy-priced activations.
+      state: modCfg.fire ? "active" : "retracted",
       stateTimer: 0,
       heat: 0,
       cycleTimer: 0,

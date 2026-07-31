@@ -165,7 +165,10 @@ export class ModuleButtons {
       const noEnergy = m.state === "retracted" && ship.energy.cur < drawIdle;
       const armed = m.state === "active" && entry.cfg?.fire !== undefined;
       const cooling = m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0;
-      const unarmable = m.state === "active" && entry.cfg?.fire !== undefined && !ship.locked;
+      // Only homing weapons still hard-require a lock; straight-fire weapons
+      // (laser/kinetic/beam) shoot down the nose without one and never grey out.
+      const unarmable =
+        m.state === "active" && entry.cfg?.fire?.projectile?.turnRate !== undefined && !ship.locked;
 
       if (m.state !== entry.lastState) {
         if (entry.lastState) entry.root.classList.remove(`state-${entry.lastState}`);

@@ -449,10 +449,17 @@ export class ArenaSimulation {
     for (const ev of this.world.events) {
       if (ev.type === "entityDestroyed" && !ev.isAsteroid) {
         this.destroyedShips += 1;
-        if (ev.killerId !== null) {
-          const kt = this.world.teams.get(ev.killerId)?.team;
-          if (kt !== undefined) this.teamScores.set(kt, (this.teamScores.get(kt) ?? 0) + 1);
+        // The killer's team scores. Environment and self deaths (boundary,
+        // asteroid impact, overheat — `killerId: null`) and team-kills instead
+        // credit the team OPPOSING the victim, so every ship death moves the
+        // scoreboard (owner report 2026-07-31: a boundary death "did not
+        // count"). Only decidable when the victim faces exactly one other team.
+        let credit = ev.killerId !== null ? this.world.teams.get(ev.killerId)?.team : undefined;
+        if (credit === undefined || credit === ev.team) {
+          const others = [...this.teamsEverPresent].filter((t) => t !== ev.team);
+          credit = others.length === 1 ? others[0] : undefined;
         }
+        if (credit !== undefined) this.teamScores.set(credit, (this.teamScores.get(credit) ?? 0) + 1);
       }
     }
     if (this.phase === "ended") return;

@@ -19,7 +19,7 @@
     },
     "energy": {
       "capacitor": 120,
-      "regen": 14
+      "regen": 7
     },
     "heat": {
       "capacity": 100,

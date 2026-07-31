@@ -100,13 +100,20 @@ export function energySystem(world: World, dt: number): void {
 }
 
 function brownOut(world: World, id: number, modules: ModuleRuntime[]): void {
-  for (let i = modules.length - 1; i >= 0; i--) {
-    const m = modules[i]!;
-    if (m.state === "retracted" || m.state === "overheated") continue;
-    // Force-retract instantly (bypass retractTime) to relieve the deficit.
-    m.workedThisTick = false;
-    transition(world, id, m, "retracted");
-    return;
+  // Support modules (shield/boost — the big energy consumers) shed first, in
+  // reverse hardpoint order; always-online weapons only as a last resort, so an
+  // empty capacitor never silently disarms the ship while a shield idles on.
+  for (const shedWeapons of [false, true]) {
+    for (let i = modules.length - 1; i >= 0; i--) {
+      const m = modules[i]!;
+      if (m.state === "retracted" || m.state === "overheated") continue;
+      const isWeapon = world.configs.get<ModuleConfig>("module", m.moduleId)?.fire !== undefined;
+      if (isWeapon !== shedWeapons) continue;
+      // Force-retract instantly (bypass retractTime) to relieve the deficit.
+      m.workedThisTick = false;
+      transition(world, id, m, "retracted");
+      return;
+    }
   }
 }
 

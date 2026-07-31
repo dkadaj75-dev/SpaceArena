@@ -1,7 +1,7 @@
 import type { ModuleConfig } from "../../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore, TargetRef, Transform3D } from "../components.js";
-import { applyDamageToShip } from "../damage.js";
-import { headingOf, len3, pitchOf } from "../math.js";
+import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
+import { headingOf, len3, pitchOf, segmentIntersectsSphere } from "../math.js";
 import { hasLineOfSightBetween } from "../los.js";
 import { spawnProjectile } from "../spawn.js";
 import type { World } from "../World.js";
@@ -17,10 +17,14 @@ import type { World } from "../World.js";
 export const CHANNEL_EVENT_INTERVAL_SEC = 0.25;
 
 /**
- * CombatSystem (1.6) — active weapon modules auto-fire when the ship holds a
- * LOCK on its target (FLIGHT.md §2 — every weapon kind requires it, no
- * exceptions and no per-driver carve-outs), the target is in weapon range, has
- * LoS (if required), the cycle has elapsed and energy is available.
+ * CombatSystem (1.6) — active weapon modules fire while the trigger is held.
+ * WITH a lock (FLIGHT.md §2) shots are aimed at the locked target: range, LoS
+ * (if required), cycle and energy gates all apply, exactly as before.
+ * WITHOUT a lock, non-homing weapons fire STRAIGHT along the ship's nose
+ * (owner request 2026-07-31): beams raycast out to `fire.range` and damage the
+ * first enemy ship or asteroid on the line, kinetics launch a dumb projectile
+ * down the nose. Homing missiles are the exception — they need a target to
+ * home on, so `turnRate` weapons keep the hard lock requirement.
  *   - beam (`projectile: null`): instant damage (projectileFired + damage events)
  *   - kinetic: dumb projectile aimed at the target's *current* position (leads
  *     nothing, so it can miss a mover — intentional)
@@ -71,19 +75,63 @@ export function combatSystem(world: World, dt: number): void {
       if (!triggered) continue;
 
       // Lock gate (checked after the cycle timer: a weapon keeps cooling down
-      // whether or not the pilot is holding a lock).
-      if (!ref?.locked) continue;
-      const targetId = ref.targetId;
-      if (targetId === null) continue;
-      // Hull, not mere existence. CleanupSystem removes the wreck at the END of
-      // the tick, so between the shot that kills a ship and that removal the
-      // entity is still present with hull ≤ 0 — and every attacker with a higher
-      // entity id runs later in this same loop. Checking existence alone let all
-      // of them spend a cycle timer and a tick of energy shooting a corpse.
-      const tgtCore = world.shipCores.get(targetId);
-      if (!tgtCore || tgtCore.hull <= 0) continue;
-      const tgtTf = world.transforms.get(targetId)!;
+      // whether or not the pilot is holding a lock). Homing weapons hard-require
+      // it; the rest fall through to the straight-fire path below.
+      const targetId = lockedLiveTarget(world, ref);
+      const homing = cfg.fire.projectile?.turnRate !== undefined;
+      if (homing && targetId === null) continue;
 
+      if (targetId === null) {
+        // No lock: fire straight along the nose. Energy is the only remaining
+        // gate — a shot into empty space still spends its cycle, heat and energy
+        // (that trade is exactly what makes heat management a decision).
+        if (core.capacitor.cur <= cfg.energy.drawActive * dt) continue;
+        m.cycleTimer = cfg.fire.cycleTime;
+        m.workedThisTick = true;
+        m.heat += cfg.fire.heatPerShot ?? 0;
+
+        if (cfg.fire.projectile === null) {
+          const hit = raycastNose(world, id, myTeam, myTf, cfg.fire.range);
+          if (hit !== null) {
+            if (hit.isAsteroid) applyDamageToAsteroid(world, hit.id, id, cfg.fire.damage, cfg.fire.damageType);
+            else applyDamageToShip(world, hit.id, id, cfg.fire.damage, cfg.fire.damageType);
+          }
+          world.emit({
+            type: "projectileFired",
+            ownerId: id,
+            moduleId: m.moduleId,
+            kind: "beam",
+            targetId: hit?.id ?? null,
+            actions: cfg.onFire,
+          });
+        } else {
+          const proj = cfg.fire.projectile;
+          const pid = spawnProjectile(world, {
+            kind: "kinetic",
+            damage: cfg.fire.damage,
+            damageType: cfg.fire.damageType,
+            speed: proj.speed,
+            lifetime: proj.lifetime,
+            ownerId: id,
+            ownerTeam: myTeam,
+            pos: { x: myTf.pos.x, y: myTf.pos.y, z: myTf.pos.z },
+            heading: myTf.heading,
+            pitch: myTf.pitch,
+          });
+          world.emit({
+            type: "projectileFired",
+            ownerId: id,
+            moduleId: m.moduleId,
+            kind: "kinetic",
+            projectileId: pid,
+            targetId: null,
+            actions: cfg.onFire,
+          });
+        }
+        continue;
+      }
+
+      const tgtTf = world.transforms.get(targetId)!;
       const dx = tgtTf.pos.x - myTf.pos.x;
       const dy = tgtTf.pos.y - myTf.pos.y;
       const dz = tgtTf.pos.z - myTf.pos.z;
@@ -142,6 +190,89 @@ export function combatSystem(world: World, dt: number): void {
       }
     }
   }
+}
+
+/** The ship's locked target if it is alive, else `null`.
+ *
+ * Hull, not mere existence. CleanupSystem removes the wreck at the END of
+ * the tick, so between the shot that kills a ship and that removal the
+ * entity is still present with hull ≤ 0 — and every attacker with a higher
+ * entity id runs later in the same loop. Checking existence alone let all
+ * of them spend a cycle timer and a tick of energy shooting a corpse.
+ */
+function lockedLiveTarget(world: World, ref: TargetRef | undefined): EntityId | null {
+  if (!ref?.locked) return null;
+  const targetId = ref.targetId;
+  if (targetId === null) return null;
+  const core = world.shipCores.get(targetId);
+  if (!core || core.hull <= 0) return null;
+  return targetId;
+}
+
+/** Sweep radius for straight-fire hitscan (same as travelling ordnance). */
+const NOSE_RAY_RADIUS = 0.4;
+
+interface NoseHit {
+  id: EntityId;
+  isAsteroid: boolean;
+}
+
+/**
+ * First thing on the shooter's nose line, out to `range`: enemy ships (alive)
+ * and intact asteroids, nearest-along-ray wins. Same broadphase + swept-sphere
+ * narrow phase as ProjectileSystem's hit sweep, so a straight beam and a
+ * straight bullet agree about what is in the way. Deterministic — no engine
+ * raycasts. Exported for tests.
+ */
+export function raycastNose(
+  world: World,
+  shooterId: EntityId,
+  shooterTeam: number,
+  tf: Transform3D,
+  range: number,
+): NoseHit | null {
+  const cosPitch = Math.cos(tf.pitch);
+  const dirX = cosPitch * Math.cos(tf.heading);
+  const dirY = Math.sin(tf.pitch);
+  const dirZ = cosPitch * Math.sin(tf.heading);
+  const from = tf.pos;
+  const to = { x: from.x + dirX * range, y: from.y + dirY * range, z: from.z + dirZ * range };
+
+  const minX = Math.min(from.x, to.x) - NOSE_RAY_RADIUS;
+  const maxX = Math.max(from.x, to.x) + NOSE_RAY_RADIUS;
+  const minZ = Math.min(from.z, to.z) - NOSE_RAY_RADIUS;
+  const maxZ = Math.max(from.z, to.z) + NOSE_RAY_RADIUS;
+  const candidates = world.spatial.queryAABB(minX, minZ, maxX, maxZ);
+  const minY = Math.min(from.y, to.y);
+  const maxY = Math.max(from.y, to.y);
+
+  let best: NoseHit | null = null;
+  let bestAlong = Infinity;
+  for (const cid of candidates) {
+    if (cid === shooterId) continue;
+    const col = world.colliders.get(cid);
+    const ct = world.transforms.get(cid);
+    if (!col || !ct) continue;
+
+    const isAsteroid = world.asteroids.has(cid);
+    const isShip = world.shipCores.has(cid);
+    if (!isAsteroid && !isShip) continue;
+    if (isShip) {
+      if (world.teams.get(cid)?.team === shooterTeam) continue;
+      if (world.shipCores.get(cid)!.hull <= 0) continue;
+    }
+    if (isAsteroid && world.asteroids.get(cid)!.state === "destroyed") continue;
+
+    const reach = col.radius + NOSE_RAY_RADIUS;
+    if (ct.pos.y + reach < minY || ct.pos.y - reach > maxY) continue;
+    if (!segmentIntersectsSphere(from, to, ct.pos, reach)) continue;
+    const along = (ct.pos.x - from.x) * dirX + (ct.pos.y - from.y) * dirY + (ct.pos.z - from.z) * dirZ;
+    if (along < bestAlong) {
+      bestAlong = along;
+      best = { id: cid, isAsteroid };
+    }
+  }
+  return best;
 }
 
 interface ChannelCtx {
@@ -218,18 +349,23 @@ function channelStep(world: World, ctx: ChannelCtx): void {
 
 /**
  * The entity this channel may damage this tick, or `null` if any gate fails.
- * Mirrors the discrete path's checks in the same order.
+ * Mirrors the discrete path's checks in the same order. Without a lock the
+ * channel runs the same straight-nose raycast as the discrete path — it damages
+ * the enemy ship the nose crosses (asteroids block the line but a channel does
+ * not chew them: the banked-damage ledger is ship-shaped).
  */
 function channelTarget(world: World, ctx: ChannelCtx): EntityId | null {
   const { id, m, cfg, core, ref, firing, myTf, dt } = ctx;
   const fire = cfg.fire!;
   if (m.state !== "active") return null;
   if (!firing) return null;
-  if (!ref?.locked) return null;
-  const targetId = ref.targetId;
-  if (targetId === null) return null;
-  const tgtCore = world.shipCores.get(targetId);
-  if (!tgtCore || tgtCore.hull <= 0) return null;
+  const targetId = lockedLiveTarget(world, ref);
+  if (targetId === null) {
+    if (core.capacitor.cur <= cfg.energy.drawActive * dt) return null;
+    const myTeam = world.teams.get(id)!.team;
+    const hit = raycastNose(world, id, myTeam, myTf, fire.range);
+    return hit !== null && !hit.isAsteroid ? hit.id : null;
+  }
   const tgtTf = world.transforms.get(targetId)!;
   const dist = len3(tgtTf.pos.x - myTf.pos.x, tgtTf.pos.y - myTf.pos.y, tgtTf.pos.z - myTf.pos.z);
   if (dist > fire.range) return null;
