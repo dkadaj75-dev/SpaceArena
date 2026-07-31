@@ -37,14 +37,14 @@ describe("ModuleSystem state machine", () => {
     moduleSystem(world, DT);
     expect(mod.state).toBe("deploying");
 
-    tickModules(world, 45); // deployTime 1.5s
+    tickModules(world, 45); // well past deployTime (0.5s)
     expect(mod.state).toBe("active");
 
     world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
     moduleSystem(world, DT);
     expect(mod.state).toBe("retracting");
 
-    tickModules(world, 30); // retractTime 1.0s
+    tickModules(world, 30); // well past retractTime (0.35s)
     expect(mod.state).toBe("retracted");
   });
 
@@ -120,14 +120,14 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
     const { world, id } = shipWorld();
     const mod = world.modules.get(id)!.modules[LASER]!;
     toggle(world, id, LASER);
-    advance(world, id, 10); // 0.33s into a 1.5s deploy
+    advance(world, id, 5); // 0.17s into a 0.5s deploy
     expect(mod.state).toBe("deploying");
 
     const mark = world.events.length;
     toggle(world, id, LASER);
     expect(mod.state).toBe("retracting");
     expect(transitions(world, mark)).toEqual(["deploying->retracting"]);
-    expect(mod.stateTimer).toBeCloseTo(1.0 - DT, 6); // full retractTime, not the remaining deploy
+    expect(mod.stateTimer).toBeCloseTo(0.35 - DT, 6); // full retractTime, not the remaining deploy
 
     advance(world, id, 30);
     expect(mod.state).toBe("retracted");
@@ -140,14 +140,14 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
     advance(world, id, 45);
     expect(mod.state).toBe("active");
     toggle(world, id, LASER);
-    advance(world, id, 10); // 0.33s into a 1.0s retract
+    advance(world, id, 6); // 0.2s into a 0.35s retract
     expect(mod.state).toBe("retracting");
 
     const mark = world.events.length;
     toggle(world, id, LASER);
     expect(mod.state).toBe("deploying");
     expect(transitions(world, mark)).toEqual(["retracting->deploying"]);
-    expect(mod.stateTimer).toBeCloseTo(1.5 - DT, 6);
+    expect(mod.stateTimer).toBeCloseTo(0.5 - DT, 6);
 
     advance(world, id, 45);
     expect(mod.state).toBe("active");

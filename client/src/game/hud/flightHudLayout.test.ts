@@ -210,7 +210,7 @@ describe("flightCssVars", () => {
     expect(vars["--hud-joy-base-radius"]).toBe("62px");
     expect(vars["--hud-throttle-height"]).toBe("200px");
     expect(vars["--hud-fire-radius"]).toBe("34px");
-    expect(vars["--hud-module-fill-pct"]).toBe("90%");
+    expect(vars["--hud-module-fill-pct"]).toBe("32%"); // restrained active-fill default (2026-07-31)
     expect(vars["--hud-fire-color"]).toBe("#ff4655");
     expect(vars["--hud-steer-origin-radius"]).toBe("7px");
   });

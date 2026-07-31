@@ -5,8 +5,14 @@
   "family": "missile",
   "level": 2,
   "name": "Seeker Missile Mk II",
-  "activation": { "deployTime": 2.0, "retractTime": 1.0 },
-  "energy": { "drawIdle": 3, "drawActive": 8 },
+  "activation": {
+    "deployTime": 0.7,
+    "retractTime": 0.4
+  },
+  "energy": {
+    "drawIdle": 3,
+    "drawActive": 8
+  },
   "heat": {
     "perSecondActive": 5,
     "overheatThreshold": 55,
@@ -15,16 +21,29 @@
   },
   "fire": {
     "mode": "semi",
-    "range": 62,
+    "range": 155.0,
     "cycleTime": 2.0,
     "damage": 30,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
-    "projectile": { "speed": 46, "turnRate": 2.6, "lifetime": 4.5 }
+    "projectile": {
+      "speed": 46,
+      "turnRate": 2.6,
+      "lifetime": 4.5
+    }
   },
-  "onFire": ["action.play-sound-missile"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: missile]", "shortName": "Missile Mk2", "label": "Missile II" },
+  "onFire": [
+    "action.play-sound-missile"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: missile]",
+    "shortName": "Missile Mk2",
+    "label": "Missile II"
+  },
   "price": 450,
   "requiresLevel": 3
 }

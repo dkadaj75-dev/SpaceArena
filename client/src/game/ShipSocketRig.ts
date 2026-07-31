@@ -147,6 +147,10 @@ export class ShipSocketRig {
   private buildHardpoints(fittedModuleIds: readonly (string | null | undefined)[]): void {
     const accent = this.ship.render.palette?.accent ?? this.ship.render.palette?.primary;
     const palette: Record<string, string> = accent ? { primary: accent } : {};
+    // Theme kill-switch for the hardpoint meshes (placeholder-era hulls fly
+    // clean). Attachments are still built — the deploy tween simply has no
+    // instance to pose — so the state machine and HUD stay identical.
+    const showMeshes = this.juice.deploy.showMeshes;
 
     hardpointsOf(this.ship).forEach((socket, i) => {
       const node = new TransformNode(`hp.${this.ship.id}.${socket.id}`, this.scene);
@@ -158,7 +162,7 @@ export class ShipSocketRig {
       const mod = moduleId ? this.configs.get<ModuleConfig>("module", moduleId) : undefined;
       let instance: InstancedMesh | null = null;
       let sourceMaster: Mesh | null = null;
-      if (mod) {
+      if (mod && showMeshes) {
         const master = this.assets.getModuleMaster(mod, palette);
         sourceMaster = master;
         instance = master.createInstance(`hpmesh.${this.ship.id}.${socket.id}`);
@@ -175,7 +179,7 @@ export class ShipSocketRig {
       };
       this.hardpoints.push(attachment);
 
-      if (mod?.render?.model) {
+      if (mod?.render?.model && showMeshes) {
         const fallback = instance;
         void this.assets.ensureModel(mod.render).then((modelMaster) => {
           if (!modelMaster || modelMaster === sourceMaster || this.disposed || attachment.instance !== fallback) return;

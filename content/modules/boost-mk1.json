@@ -5,19 +5,39 @@
   "family": "boost",
   "level": 1,
   "name": "Afterburner Mk I",
-  "activation": { "deployTime": 0.5, "retractTime": 0.5 },
-  "energy": { "drawIdle": 1, "drawActive": 9 },
+  "activation": {
+    "deployTime": 0.25,
+    "retractTime": 0.25
+  },
+  "energy": {
+    "drawIdle": 1,
+    "drawActive": 9
+  },
   "heat": {
     "perSecondActive": 5,
     "overheatThreshold": 45,
     "overheatCooldown": 4.0,
     "overheatSelfDamage": 0
   },
-  "boost": { "speedMult": 1.8, "heatPerSec": 5 },
-  "onActivate": ["action.play-sound-boost-up"],
-  "onDeactivate": ["action.play-sound-boost-down"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: boost]", "shortName": "Boost Mk1", "label": "Boost" },
+  "boost": {
+    "speedMult": 1.8,
+    "heatPerSec": 5
+  },
+  "onActivate": [
+    "action.play-sound-boost-up"
+  ],
+  "onDeactivate": [
+    "action.play-sound-boost-down"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: boost]",
+    "shortName": "Boost Mk1",
+    "label": "Boost"
+  },
   "price": 0,
   "requiresLevel": 1
 }

@@ -64,7 +64,7 @@ describe("CombatSystem beam", () => {
   });
 
   it("does not fire out of range", () => {
-    const { world, target } = duel({ x: 50, z: 0 }); // laser range 38
+    const { world, target } = duel({ x: 110, z: 0 }); // laser range 95 (2.5x pass, 2026-07-31)
     const before = world.shipCores.get(target)!.hull;
     combatSystem(world, DT);
     expect(world.shipCores.get(target)!.hull).toBe(before);
@@ -541,7 +541,7 @@ describe("CombatSystem continuous channel", () => {
   });
 
   it("stops out of range and past a line-of-sight blocker", () => {
-    const far = channelDuel({ x: 60, z: 0 }); // beam range is 34
+    const far = channelDuel({ x: 95, z: 0 }); // beam range is 85 (2.5x pass, 2026-07-31)
     const beforeFar = far.world.shipCores.get(far.target)!.hull;
     channelTick(far.world);
     expect(far.world.shipCores.get(far.target)!.hull).toBe(beforeFar);

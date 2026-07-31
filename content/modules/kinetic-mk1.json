@@ -5,8 +5,14 @@
   "family": "kinetic",
   "level": 1,
   "name": "Autocannon Mk I",
-  "activation": { "deployTime": 1.0, "retractTime": 0.8 },
-  "energy": { "drawIdle": 2, "drawActive": 7 },
+  "activation": {
+    "deployTime": 0.4,
+    "retractTime": 0.3
+  },
+  "energy": {
+    "drawIdle": 2,
+    "drawActive": 7
+  },
   "heat": {
     "perSecondActive": 5,
     "overheatThreshold": 55,
@@ -15,16 +21,28 @@
   },
   "fire": {
     "mode": "held",
-    "range": 30,
+    "range": 75.0,
     "cycleTime": 0.6,
     "damage": 9,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
-    "projectile": { "speed": 60, "lifetime": 1.2 }
+    "projectile": {
+      "speed": 60,
+      "lifetime": 1.5
+    }
   },
-  "onFire": ["action.play-sound-kinetic"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: kinetic]", "shortName": "Cannon Mk1", "label": "Autocannon" },
+  "onFire": [
+    "action.play-sound-kinetic"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: kinetic]",
+    "shortName": "Cannon Mk1",
+    "label": "Autocannon"
+  },
   "price": 0,
   "requiresLevel": 1
 }

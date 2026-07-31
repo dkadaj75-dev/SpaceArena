@@ -180,8 +180,10 @@ export const FLIGHT_HUD_DEFAULTS = {
     tickCount: 8,
   },
   modules: {
-    fillOpacity: 0.9,
-    innerBorderOpacity: 0.38,
+    // Restrained circular buttons (2026-07-31): the family colour fills only
+    // the ACTIVE state at this opacity, and the rim carries it otherwise.
+    fillOpacity: 0.32,
+    innerBorderOpacity: 0.55,
     labelGapPx: 4,
     labelHeightPx: 11,
     labelMaxWidthPx: 64,

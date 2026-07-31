@@ -508,11 +508,11 @@ describe("bots in a live ArenaSimulation", () => {
     expect(flips).toBeLessThanOrEqual(Math.max(4, sticks.length / 4));
   });
 
-  it("resolves the practice-bots roster from content", () => {
+  it("resolves the practice-bots roster from content: a single rookie (owner 2026-07-31 — 1v1, easier bot)", () => {
     const gm = configs.get<GamemodeConfig>("gamemode", "gamemode.practice-bots")!;
     const roster = resolveBotRoster(gm, configs);
-    expect(roster.length).toBe(2);
-    expect(roster.every((r) => r.team === 1)).toBe(true);
-    expect(roster.map((r) => r.profile.id)).toEqual(["bot.aggressive", "bot.cautious"]);
+    expect(roster.length).toBe(1);
+    expect(roster[0]!.team).toBe(1);
+    expect(roster[0]!.profile.id).toBe("bot.rookie");
   });
 });

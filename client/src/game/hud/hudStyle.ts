@@ -328,31 +328,33 @@ const CSS = `
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition: filter 0.15s linear, opacity 0.15s linear;
+  /* Restrained circular buttons (owner presentation pass 2026-07-31): a quiet
+     translucent plate with a thin family-tinted ring — the family colour only
+     FILLS the button while the module is genuinely on. The old design painted
+     the whole hex in solid family colour at 90%, which shouted over the arena. */
   --hud-btn-rim: color-mix(
     in srgb,
     var(--hud-module-family-color, var(--hud-primary, #39bfff))
-      calc(100% - var(--hud-module-inner-border-pct, 38%)),
-    #fff
+      var(--hud-module-inner-border-pct, 55%),
+    transparent
   );
+  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 66%, transparent);
+  --hud-btn-fill: var(--hud-btn-plate);
 }
-/* Rim + fill plates on the hex bevel (same two-layer trick as .hud-frame, with
-   the harder silhouette). */
+/* Rim + fill plates (same two-layer trick as .hud-frame, circular silhouette). */
 .hud-module-btn::before,
 .hud-module-btn::after {
   content: "";
   position: absolute;
-  clip-path: var(--hud-clip-hex);
+  border-radius: 50%;
   pointer-events: none;
 }
 .hud-module-btn::before { inset: 0; background: var(--hud-btn-rim); }
 .hud-module-btn::after {
-  inset: 1px;
-  background: color-mix(
-    in srgb,
-    var(--hud-module-family-color, var(--hud-primary, #39bfff))
-      var(--hud-module-fill-pct, 90%),
-    transparent
-  );
+  inset: 1.5px;
+  background: var(--hud-btn-fill);
+  backdrop-filter: blur(var(--hud-blur));
+  -webkit-backdrop-filter: blur(var(--hud-blur));
 }
 /* State ring: a conic wedge masked to an annulus just inside the bevel, so
    deploy/retract/cooldown progress reads as a filling arc. Its own node rather
@@ -396,15 +398,22 @@ const CSS = `
   font-weight: 700;
   opacity: 0.92;
 }
-.hud-module-btn.state-retracted { filter: saturate(0.72) brightness(0.78); }
+.hud-module-btn.state-retracted { filter: saturate(0.6) brightness(0.72); }
 .hud-module-btn.state-deploying { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 82%, transparent); }
 .hud-module-btn.state-active {
   --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 88%, #fff);
+  /* ON is the one state that earns the family colour as a fill — layered over
+     the dark plate so it stays a tint, not a paint bucket. */
+  --hud-btn-fill: color-mix(
+    in srgb,
+    var(--hud-module-family-color, var(--hud-primary, #39bfff)) var(--hud-module-fill-pct, 32%),
+    var(--hud-btn-plate)
+  );
 }
 /* Glow only in the states that mean something — a filter on four idle buttons
    would be compositing cost with nothing to say. */
 .hud-module-btn.state-active::before {
-  filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-module-family-color));
+  filter: drop-shadow(0 0 calc(9px * var(--hud-glow)) var(--hud-module-family-color));
 }
 .hud-module-btn.state-retracting { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 45%, transparent); }
 .hud-module-btn.state-overheated {
@@ -418,7 +427,7 @@ const CSS = `
   --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 72%, #fff);
 }
 .hud-module-btn.armed::before {
-  filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-module-family-color));
+  filter: drop-shadow(0 0 calc(11px * var(--hud-glow)) var(--hud-module-family-color));
 }
 .hud-module-btn.cooling > .ring {
   background: conic-gradient(#fff calc(var(--ring, 0) * 1%), transparent 0);

@@ -310,6 +310,7 @@ describe("chaseSettingsOf", () => {
     const camera = {
       chase: {
         radius: 20,
+        landscapeRadiusScale: 0.6,
         height: 2,
         beta: 1.2,
         yawLag: 0.3,
@@ -319,6 +320,7 @@ describe("chaseSettingsOf", () => {
     } as unknown as CameraConfig;
     expect(chaseSettingsOf(camera)).toEqual({
       radius: 20,
+      landscapeRadiusScale: 0.6,
       height: 2,
       beta: 1.2,
       yawLag: 0.3,

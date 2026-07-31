@@ -41,6 +41,32 @@ This amendment supersedes older HUD/minimap/asteroid-LOD descriptions below:
   12 units, with a persisted Settings multiplier from 0.8 to 1.5 applied over
   the authored radius.
 
+## Owner presentation amendment (2026-07-31)
+
+- **Module meshes are hidden on the hulls** while the module models are
+  placeholders: `theme.juice.deploy.showMeshes: false`. The deploy/retract
+  state machine, HUD buttons, emitters and shield are untouched; flipping the
+  flag back re-mounts the meshes with no code change.
+- **Module activation is fast**: deploy/retract times were cut roughly 3×
+  across the shipped modules (lasers 0.5/0.35s, kinetics/shields 0.4/0.3s,
+  missiles 0.7/0.4s, boosts 0.25s).
+- **Weapon ranges are 2.5×** (kinetic 75/85, beam 85, laser 95/105, missile
+  137.5/155), with ship `sensors.lockRange` scaled 2.5× to match — all weapons
+  require lock, so an unscaled lock range would have silently capped the
+  increase. Projectile lifetimes were extended so speed × lifetime covers the
+  new reach.
+- **The shield bubble is a faint rim**, not a balloon: an opacity fresnel keeps
+  the shell's centre near-transparent, and the shipped ripple block drops to
+  radiusScale 1.18 / maxAlpha 0.1.
+- **Module buttons are restrained circles**: quiet translucent plate, thin
+  family-tinted ring; the family colour only fills the button while the module
+  is ON (`hud.modules.fillOpacity` now means the active-fill tint).
+- **Landscape chase camera defaults to 70%** of the authored radius
+  (`camera.chase.landscapeRadiusScale`); the player's distance setting
+  multiplies on top.
+- **Practice vs bots is a 1v1** against `bot.rookie` (the easy profile);
+  the aggressive+cautious pair roster is retired from the shipped mode.
+
 ## 1. Flight model (sim)
 
 New order (shared/src/sim/orders.ts):

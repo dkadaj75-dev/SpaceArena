@@ -5,19 +5,39 @@
   "family": "boost",
   "level": 2,
   "name": "Afterburner Mk II",
-  "activation": { "deployTime": 0.5, "retractTime": 0.5 },
-  "energy": { "drawIdle": 1, "drawActive": 12 },
+  "activation": {
+    "deployTime": 0.25,
+    "retractTime": 0.25
+  },
+  "energy": {
+    "drawIdle": 1,
+    "drawActive": 12
+  },
   "heat": {
     "perSecondActive": 6,
     "overheatThreshold": 50,
     "overheatCooldown": 4.0,
     "overheatSelfDamage": 0
   },
-  "boost": { "speedMult": 2.1, "heatPerSec": 6 },
-  "onActivate": ["action.play-sound-boost-up"],
-  "onDeactivate": ["action.play-sound-boost-down"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: boost]", "shortName": "Boost Mk2", "label": "Boost II" },
+  "boost": {
+    "speedMult": 2.1,
+    "heatPerSec": 6
+  },
+  "onActivate": [
+    "action.play-sound-boost-up"
+  ],
+  "onDeactivate": [
+    "action.play-sound-boost-down"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: boost]",
+    "shortName": "Boost Mk2",
+    "label": "Boost II"
+  },
   "price": 300,
   "requiresLevel": 2
 }

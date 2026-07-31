@@ -39,6 +39,12 @@ import type { CameraConfig } from "@space-arena/shared";
 /** The camera config's `chase` block, fully defaulted. */
 export interface ChaseSettings {
   radius: number;
+  /**
+   * Multiplier on `radius` while the viewport is landscape (1 = same as
+   * portrait). The shipped pack pulls the wide-screen default in to 0.7×; the
+   * player's camera-distance setting multiplies on top of this baseline.
+   */
+  landscapeRadiusScale: number;
   height: number;
   /** BASE tilt — the tilt seen while flying LEVEL; the ship's pitch is added to it. */
   beta: number;
@@ -67,6 +73,7 @@ export interface ChaseSettings {
  */
 export const DEFAULT_CHASE_SETTINGS: ChaseSettings = {
   radius: 12,
+  landscapeRadiusScale: 1,
   height: 1.4,
   beta: 1.34,
   yawLag: 0.12,
@@ -81,6 +88,7 @@ export function chaseSettingsOf(camera: CameraConfig | undefined): ChaseSettings
   const yawLag = c?.yawLag ?? d.yawLag;
   return {
     radius: c?.radius ?? d.radius,
+    landscapeRadiusScale: c?.landscapeRadiusScale ?? d.landscapeRadiusScale,
     height: c?.height ?? d.height,
     beta: c?.beta ?? d.beta,
     yawLag,

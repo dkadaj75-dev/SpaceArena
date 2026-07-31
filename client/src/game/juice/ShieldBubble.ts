@@ -1,4 +1,12 @@
-import { Color3, MeshBuilder, StandardMaterial, type Mesh, type Scene, type TransformNode } from "@babylonjs/core";
+import {
+  Color3,
+  FresnelParameters,
+  MeshBuilder,
+  StandardMaterial,
+  type Mesh,
+  type Scene,
+  type TransformNode,
+} from "@babylonjs/core";
 import { shieldRipplePose, type ShieldRippleSettings } from "./juiceSettings.js";
 
 /**
@@ -88,8 +96,19 @@ export class ShieldBubble {
     material.disableLighting = true;
     material.backFaceCulling = false;
     material.alpha = this.settings.minAlpha;
+    // Rim-only shell (owner presentation note 2026-07-31): a fresnel on the
+    // opacity keeps the bubble's CENTRE near-transparent and draws only a soft
+    // limb where the shell curves away — the flat solid ball read as an ugly
+    // balloon over the hull. Theme alphas still scale the whole thing.
+    const fresnel = new FresnelParameters();
+    fresnel.isEnabled = true;
+    fresnel.leftColor = Color3.White(); // grazing angles: full themed alpha
+    fresnel.rightColor = Color3.Black(); // face-on centre: fades out
+    fresnel.bias = 0.15;
+    fresnel.power = 2.2;
+    material.opacityFresnelParameters = fresnel;
 
-    const mesh = MeshBuilder.CreateSphere(`shieldbubble.${this.name}`, { diameter: 2, segments: 12 }, this.scene);
+    const mesh = MeshBuilder.CreateSphere(`shieldbubble.${this.name}`, { diameter: 2, segments: 24 }, this.scene);
     mesh.material = material;
     mesh.isPickable = false;
     mesh.parent = this.parent;

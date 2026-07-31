@@ -5,18 +5,36 @@
   "name": "Practice vs Bots",
   "teams": "1v1",
   "defaultArena": "arena.ring-nebula",
-  "winCondition": { "type": "destroyTargets", "count": 2 },
+  "winCondition": {
+    "type": "destroyTargets",
+    "count": 1
+  },
   "eliminationEndsMatch": true,
-  "respawn": { "enabled": false, "delay": 3 },
-  "boundaryRule": { "type": "damageAndBounce", "damagePerSec": 20, "restitution": 0.82 },
-  "rewards": { "win": 0, "loss": 0, "perKill": 0 },
+  "respawn": {
+    "enabled": false,
+    "delay": 3
+  },
+  "boundaryRule": {
+    "type": "damageAndBounce",
+    "damagePerSec": 20,
+    "restitution": 0.82
+  },
+  "rewards": {
+    "win": 0,
+    "loss": 0,
+    "perKill": 0
+  },
   "bots": {
-    "defaultProfile": "bot.aggressive",
+    "defaultProfile": "bot.rookie",
     "defaultShip": "ship.interceptor",
     "backfillWaitMs": 15000,
     "roster": [
-      { "profile": "bot.aggressive", "ship": "ship.interceptor", "team": 1, "count": 1 },
-      { "profile": "bot.cautious", "ship": "ship.brawler", "team": 1, "count": 1 }
+      {
+        "profile": "bot.rookie",
+        "ship": "ship.interceptor",
+        "team": 1,
+        "count": 1
+      }
     ]
   }
 }

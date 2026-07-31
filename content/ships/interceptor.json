@@ -27,7 +27,7 @@
       "criticalDamagePerSec": 4
     },
     "sensors": {
-      "lockRange": 78,
+      "lockRange": 195.0,
       "lockTimeSec": 0.7,
       "coneDeg": 60
     }
