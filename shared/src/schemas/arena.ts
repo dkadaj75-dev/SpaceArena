@@ -115,6 +115,22 @@ const spawnPoint = z.object({
   pitch: z.number().gt(-Math.PI / 2).lt(Math.PI / 2).optional(),
 });
 
+/**
+ * A team's flag base (owner 2026-07-31) — where that team's flag lives, where it
+ * returns to, and the sphere a carrier must reach to score. Only capture-the-flag
+ * gamemodes look at these; every other mode ignores them, so an arena may carry
+ * bases and still be played as a deathmatch.
+ */
+const flagBase = z.object({
+  id: z.string(),
+  /** Owning team. Exactly one base per team is expected by the CTF rules. */
+  team: z.number().int().nonnegative(),
+  /** Bubble position of the flag stand; `y` omitted ⇒ 0. */
+  position: vec3,
+  /** Capture/return sphere radius, in world units. */
+  radius: z.number().positive(),
+});
+
 /** Trigger-zone stub (fleshed out by Map Editor + Event Editor later). */
 const zone = z.object({
   id: z.string(),
@@ -197,6 +213,8 @@ export const arenaSchema = z
     bounds: arenaBounds,
     asteroidPlacements: z.array(asteroidPlacement),
     spawnPoints: z.array(spawnPoint).min(1),
+    /** Per-team flag bases; required only by capture-the-flag gamemodes. */
+    flagBases: z.array(flagBase).optional(),
     lighting: z
       .object({
         ambientColor: z.string().optional(),

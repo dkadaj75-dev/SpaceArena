@@ -18,6 +18,10 @@ import {
   type FlightCommand,
 } from "./behaviors.js";
 import { boolParam, buildBotContext, numParam, strParam, type BehaviorParams, type BotContext } from "./context.js";
+// Side-effect import: behaviours self-register on load, and nothing else here
+// pulls this one in — without it a capture-the-flag profile would name an
+// `objective` behaviour the registry has never heard of and silently ignore it.
+import "./ctfBehavior.js";
 import { steerForPoint } from "./flight.js";
 import { decideFire, type FireDecisionReason } from "./fireDiscipline.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";

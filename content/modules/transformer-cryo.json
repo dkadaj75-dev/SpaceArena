@@ -21,6 +21,11 @@
   },
   "passives": [
     {
+      "target": "power.capacity",
+      "op": "add",
+      "value": 6
+    },
+    {
       "target": "efficiency.heatGen",
       "op": "mul",
       "value": 0.7

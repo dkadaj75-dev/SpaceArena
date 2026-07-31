@@ -19,7 +19,13 @@
     "overheatCooldown": 0,
     "overheatSelfDamage": 0
   },
-  "passives": [],
+  "passives": [
+    {
+      "target": "power.capacity",
+      "op": "add",
+      "value": 5
+    }
+  ],
   "ui": {
     "icon": "[ICON: transformer]",
     "shortName": "Stock Bus",

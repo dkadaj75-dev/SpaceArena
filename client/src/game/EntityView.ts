@@ -7,6 +7,7 @@ import {
   TransformNode,
   Vector3,
   type InstancedMesh,
+  type LinesMesh,
   type Scene,
 } from "@babylonjs/core";
 import {
@@ -33,6 +34,7 @@ import {
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
 import { ShipSocketRig } from "./ShipSocketRig.js";
+import { resampleTrail, trailAlphas, TRAIL_POINTS, type TrailPoint } from "./flagTrail.js";
 import { resolveSoundId } from "../audio/soundIds.js";
 import { ExplosionFx } from "./juice/ExplosionFx.js";
 import { HitFlashPool } from "./juice/HitFlash.js";
@@ -96,6 +98,17 @@ interface AsteroidView {
   dyingMs: number;
 }
 
+/**
+ * One capture-the-flag flag in the scene (owner 2026-07-31): a glowing marker
+ * plus the fading ribbon behind it. The ribbon is a fixed-length updatable line
+ * mesh — see `flagTrail.ts` for why the point count is constant.
+ */
+interface FlagView {
+  marker: Mesh;
+  trail: LinesMesh;
+  team: number;
+}
+
 interface BeamSlot {
   mesh: Mesh;
   life: number; // ms remaining
@@ -146,6 +159,13 @@ export class ViewManager {
 
   private readonly ships = new Map<EntityId, ShipView>();
   private readonly asteroids = new Map<EntityId, AsteroidView>();
+  /** Capture-the-flag flags and their wakes (owner 2026-07-31). */
+  private readonly flags = new Map<EntityId, FlagView>();
+  /** The viewer's team, so a flag can be coloured by allegiance. */
+  private playerTeam: number | null = null;
+  /** Scratch trail ladder — resampled in place every frame, never reallocated. */
+  private readonly sTrail: TrailPoint[] = [];
+  private readonly sTrailVectors: Vector3[] = [];
 
   // Projectile pools (shown/hidden, never reallocated).
   private readonly kineticPool: ProjectileNode[] = [];
@@ -463,6 +483,7 @@ export class ViewManager {
   render(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
     this.syncShips(prev, cur, alpha, frameDtMs);
     this.syncAsteroids(cur, frameDtMs);
+    this.syncFlags(cur, frameDtMs);
     this.syncProjectiles(prev, cur, alpha);
     // Before updateBeams: a still-channelling slot gets its life refreshed here
     // and so never reaches the fade path below.
@@ -618,6 +639,96 @@ export class ViewManager {
         this.asteroids.delete(id);
       }
     }
+  }
+
+  /** Which team the viewer flies for — flags are coloured by allegiance. */
+  setPlayerTeam(team: number | null): void {
+    this.playerTeam = team;
+  }
+
+  /**
+   * Capture-the-flag flags and their wakes (owner 2026-07-31).
+   *
+   * The marker spins and bobs so a flag reads as an OBJECTIVE rather than as
+   * scenery, and the ribbon behind it fades from nothing at its oldest end to
+   * bright at the runner — the gradient is what tells a defender which way the
+   * flag is heading, which a solid line could not.
+   */
+  private syncFlags(cur: Snapshot, frameDtMs: number): void {
+    for (const flag of cur.flags) {
+      let view = this.flags.get(flag.id);
+      if (!view) {
+        view = this.createFlagView(flag.id, flag.team);
+        this.flags.set(flag.id, view);
+      }
+      view.marker.position.set(flag.pos.x, flag.pos.y, flag.pos.z);
+      view.marker.rotation.y += (frameDtMs / 1000) * 1.6;
+      // A loose flag sits still; a carried one is doing something, so it spins
+      // faster and rides slightly proud of the hull carrying it.
+      view.marker.position.y += flag.state === "carried" ? 1.2 : 0;
+
+      if (resampleTrail(flag.trail, this.sTrail, TRAIL_POINTS)) {
+        for (let i = 0; i < TRAIL_POINTS; i++) {
+          this.sTrailVectors[i]!.set(this.sTrail[i]!.x, this.sTrail[i]!.y, this.sTrail[i]!.z);
+        }
+        MeshBuilder.CreateLines(view.trail.name, { points: this.sTrailVectors, instance: view.trail }, this.scene);
+        view.trail.setEnabled(true);
+      } else {
+        view.trail.setEnabled(false);
+      }
+    }
+
+    // A mode change or match reset can drop flags entirely.
+    for (const [id, view] of this.flags) {
+      if (cur.flags.some((f) => f.id === id)) continue;
+      view.marker.dispose();
+      view.trail.dispose();
+      this.flags.delete(id);
+    }
+  }
+
+  private createFlagView(id: EntityId, team: number): FlagView {
+    // Allegiance, not identity: your flag stays "yours" while an enemy runs off
+    // with it, because it is still the thing you have to get back.
+    const friendly = this.playerTeam === null || team === this.playerTeam;
+    const colour = friendly ? new Color3(0.22, 0.75, 1.0) : new Color3(1.0, 0.25, 0.36);
+
+    const mat = new StandardMaterial(`mat.flag.${id}`, this.scene);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = colour;
+    const marker = MeshBuilder.CreateCylinder(
+      `flag.${id}`,
+      { diameterTop: 0, diameterBottom: 2.2, height: 3.4, tessellation: 4 },
+      this.scene,
+    );
+    marker.material = mat;
+    marker.isPickable = false;
+    marker.parent = this.root;
+
+    for (let i = this.sTrailVectors.length; i < TRAIL_POINTS; i++) this.sTrailVectors.push(new Vector3());
+    const seed = this.sTrailVectors.slice(0, TRAIL_POINTS);
+    const trail = MeshBuilder.CreateLines(
+      `flagTrail.${id}`,
+      { points: seed, colors: trailAlphas().map(() => colour.toColor4(1)), updatable: true },
+      this.scene,
+    );
+    trail.color = colour;
+    trail.isPickable = false;
+    trail.parent = this.root;
+    trail.setEnabled(false);
+    // The fade lives in the VERTEX COLOURS, written once: the ribbon's shape
+    // changes every frame but its gradient never does, so there is nothing to
+    // recompute on the hot path.
+    if (trail.getVerticesData("color")) {
+      trail.setVerticesData(
+        "color",
+        trailAlphas().flatMap((a) => [colour.r, colour.g, colour.b, a]),
+        true,
+      );
+    }
+
+    return { marker, trail, team };
   }
 
   private createAsteroidView(a: AsteroidSnapshot): AsteroidView | undefined {
@@ -782,6 +893,11 @@ export class ViewManager {
     this.ships.clear();
     for (const v of this.asteroids.values()) v.instance.dispose();
     this.asteroids.clear();
+    for (const v of this.flags.values()) {
+      v.marker.dispose();
+      v.trail.dispose();
+    }
+    this.flags.clear();
     for (const m of this.kineticPool) m.dispose();
     for (const m of this.missilePool) m.dispose();
     for (const b of this.beamPool) {

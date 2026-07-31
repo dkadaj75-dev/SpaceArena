@@ -695,14 +695,14 @@ describe("Respawn, team scoreboard and the hard time cap (owner 2026-07-31)", ()
   it("credits the killer's team on the snapshot scoreboard", () => {
     const { sim, player, enemy } = duelSim();
     expect(sim.snapshot().teamScores).toEqual([
-      { team: 0, kills: 0 },
-      { team: 1, kills: 0 },
+      { team: 0, kills: 0, captures: 0 },
+      { team: 1, kills: 0, captures: 0 },
     ]);
     applyDamageToShip(sim.world, enemy, player, 100000, "kinetic");
     tickDrained(sim);
     expect(sim.snapshot().teamScores).toEqual([
-      { team: 0, kills: 1 },
-      { team: 1, kills: 0 },
+      { team: 0, kills: 1, captures: 0 },
+      { team: 1, kills: 0, captures: 0 },
     ]);
   });
 
@@ -712,8 +712,8 @@ describe("Respawn, team scoreboard and the hard time cap (owner 2026-07-31)", ()
     applyDamageToShip(sim.world, player, null, 100000, "kinetic");
     tickDrained(sim);
     expect(sim.snapshot().teamScores).toEqual([
-      { team: 0, kills: 0 },
-      { team: 1, kills: 1 }, // the enemy team scores — a death always counts
+      { team: 0, kills: 0, captures: 0 },
+      { team: 1, kills: 1, captures: 0 }, // the enemy team scores — a death always counts
     ]);
   });
 
@@ -722,8 +722,8 @@ describe("Respawn, team scoreboard and the hard time cap (owner 2026-07-31)", ()
     applyDamageToShip(sim.world, player, player, 100000, "kinetic");
     tickDrained(sim);
     expect(sim.snapshot().teamScores).toEqual([
-      { team: 0, kills: 0 },
-      { team: 1, kills: 1 },
+      { team: 0, kills: 0, captures: 0 },
+      { team: 1, kills: 1, captures: 0 },
     ]);
   });
 

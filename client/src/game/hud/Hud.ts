@@ -267,6 +267,9 @@ export class Hud {
     this.moduleButtons.update(cur);
     this.minimap.update(cur, dtMs);
     this.matchStatus.update(cur);
+    // Flag calls are phrased from the viewer's side, so the announcer needs to
+    // know which team that is; it can change across a match (respawn, rejoin).
+    this.killAnnouncements.setPlayerTeam(cur.ships.find((s) => s.id === this.playerId)?.team ?? null);
     this.countdown.update(cur, dtMs);
     this.notifications.update(dtMs);
     this.damageFx.update(dtMs);

@@ -41,12 +41,17 @@ export class MatchStatus {
 
     // Blue is ALWAYS the player's team; red aggregates everyone else (there are
     // only two teams in shipped modes, but a sum is the honest generalisation).
+    // In capture the flag the number on the scoreboard is CAPTURES, not kills:
+    // a team can win having lost every fight, and showing frags there would be
+    // showing the wrong game (owner 2026-07-31).
+    const isCtf = gamemode.ctf !== undefined;
     const playerTeam = this.session.playerTeam;
-    let blueKills = 0;
-    let redKills = 0;
+    let blueScore = 0;
+    let redScore = 0;
     for (const score of cur.teamScores) {
-      if (score.team === playerTeam) blueKills += score.kills;
-      else redKills += score.kills;
+      const value = isCtf ? score.captures : score.kills;
+      if (score.team === playerTeam) blueScore += value;
+      else redScore += value;
     }
 
     // The countdown numerals are CountdownOverlay's job; this line only names
@@ -59,7 +64,7 @@ export class MatchStatus {
       meta = "STANDBY";
     } else {
       const parts: string[] = [];
-      if (wc.type === "fragLimit") parts.push(`FIRST TO ${wc.count}`);
+      if (wc.type === "fragLimit" || wc.type === "captureLimit") parts.push(`FIRST TO ${wc.count}`);
       else if (wc.type === "destroyTargets") {
         parts.push(`TARGETS ${Math.min(this.session.destroyedTargets, wc.count)}/${wc.count}`);
       }
@@ -71,8 +76,8 @@ export class MatchStatus {
       meta = parts.join(" · ") || "LIVE";
     }
 
-    const blue = String(blueKills);
-    const red = String(redKills);
+    const blue = String(blueScore);
+    const red = String(redScore);
     if (blue !== this.lastBlue) {
       this.lastBlue = blue;
       this.blueEl.textContent = blue;

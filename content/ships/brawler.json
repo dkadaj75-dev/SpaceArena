@@ -21,6 +21,9 @@
       "capacitor": 140,
       "regen": 6
     },
+    "power": {
+      "capacity": 14
+    },
     "heat": {
       "capacity": 180,
       "dissipation": 12,
@@ -379,7 +382,10 @@
     "palette": {
       "primary": "#b8542f",
       "accent": "#ffb257"
-    }
+    },
+    "model": "ships/LShip01.glb",
+    "modelScale": 0.9,
+    "modelRotationY": 0
   },
   "collider": {
     "shape": "circle",

@@ -909,7 +909,12 @@ describe("ArenaRoom", () => {
     expect(botKeys.length).toBe(1); // 1v1: one empty slot filled
     const bot = room.state.players.get(botKeys[0]!)!;
     expect(bot.team).not.toBe(room.state.players.get(c1.sessionId)!.team);
-    expect(bot.displayName).toBe("Aggressive");
+    // Bots wear player-like handles rather than their profile id (2026-07-31):
+    // "Aggressive" reads as furniture on a scoreboard. The exact name is a
+    // seeded roll, so assert the SHAPE — a non-empty, whitespace-free handle
+    // that is not simply the profile's name.
+    expect(bot.displayName).not.toBe("Aggressive");
+    expect(bot.displayName).toMatch(/^\S{3,24}$/);
 
     // The bot drives itself through the normal order pipeline: it moves and
     // brings modules online.

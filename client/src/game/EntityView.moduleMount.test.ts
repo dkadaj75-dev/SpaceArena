@@ -89,6 +89,7 @@ describe("EntityView fitted module integration", () => {
       asteroids: [],
       projectiles: [],
       decoys: [],
+      flags: [],
     } satisfies Snapshot;
 
     view.render(snapshot, snapshot, 1, 16);

@@ -52,6 +52,29 @@ export type SimEvent =
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
   /**
+   * Capture-the-flag beats (owner 2026-07-31). `flagTeam` is always the team the
+   * flag BELONGS to — the one defending it — so a HUD can phrase every one of
+   * these from the viewer's side ("they have your flag" vs "you have theirs")
+   * without tracking flag identity itself.
+   */
+  | { type: "flagTaken"; flagId: EntityId; flagTeam: number; carrierId: EntityId; carrierTeam: number }
+  /** A carrier died or left: the flag is loose in space with `returnSec` on its clock. */
+  | { type: "flagDropped"; flagId: EntityId; flagTeam: number; carrierId: EntityId | null; returnSec: number }
+  /**
+   * The flag is back on its stand. `byId` is the defender who touched it home,
+   * or null when its drop timer simply ran out.
+   */
+  | { type: "flagReturned"; flagId: EntityId; flagTeam: number; byId: EntityId | null; timedOut: boolean }
+  /** A run scored. `scoringTeam` took `flagTeam`'s flag to its own base. */
+  | {
+      type: "flagCaptured";
+      flagId: EntityId;
+      flagTeam: number;
+      carrierId: EntityId;
+      scoringTeam: number;
+      captures: number;
+    }
+  /**
    * One whole second ticked off the start countdown. `remaining` is the number
    * now on screen (3, then 2, then 1) — the same integer the HUD displays, so
    * the audio cue and the numeral can never disagree. Emitted by the sim, which

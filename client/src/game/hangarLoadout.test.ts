@@ -5,6 +5,7 @@ import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ConfigService, hardpointsOf, type ShipConfig } from "@space-arena/shared";
 import { GameSession } from "./GameSession.js";
+import { STARTER_SHIP_ID } from "./offlineOwnership.js";
 import { loadHangarSelection } from "./screens/Hangar.js";
 
 /** Same content loader as `hangarStats.test.ts` — see the note there. */
@@ -169,5 +170,15 @@ describe("loadHangarSelection working fitting", () => {
 
   it("reports no fitting at all when no ship was ever chosen", () => {
     expect(loadHangarSelection().moduleIds).toBeNull();
+  });
+
+  it("falls back to the STARTER hull when no main was ever set (2026-07-31)", () => {
+    expect(loadHangarSelection().shipId).toBe(STARTER_SHIP_ID);
+  });
+
+  it("reads the MAIN hull, not wherever the carousel was left", () => {
+    localStorage.setItem("hangar.shipId", "ship.brawler");
+    localStorage.setItem("hangar.browseShipId", "ship.support");
+    expect(loadHangarSelection().shipId).toBe("ship.brawler");
   });
 });

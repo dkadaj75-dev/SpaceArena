@@ -1,4 +1,13 @@
-import { TransformNode, Vector3, type InstancedMesh, type Observer, type Scene } from "@babylonjs/core";
+import {
+  Color3,
+  StandardMaterial,
+  TransformNode,
+  Vector3,
+  type AbstractMesh,
+  type InstancedMesh,
+  type Observer,
+  type Scene,
+} from "@babylonjs/core";
 import {
   createLogger,
   hardpointsOf,
@@ -20,6 +29,7 @@ import {
   slotAccepts,
   slotsFromDefaultFitting,
   slotsFromHardpointMap,
+  slotsFromModuleIds,
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
@@ -30,6 +40,8 @@ import {
   saveLocalFitting,
 } from "../offlineFittings.js";
 import { moduleStats } from "../moduleSummary.js";
+import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
+import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
 import { HangarCallouts, type CalloutSpec } from "./HangarCallouts.js";
 import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
@@ -37,8 +49,17 @@ import type { TacticalCamera } from "../TacticalCamera.js";
 
 const log = createLogger("Hangar");
 
+/**
+ * The MAIN loadout (owner 2026-07-31): the ship, the fitting and the working
+ * module list the player actually takes into a match. Browsing the hangar does
+ * NOT touch it — you can swipe through every hull in the bay without losing
+ * what you fly. It changes only when the player sets a new main, or when they
+ * edit the fit of the hull that already is one.
+ */
 const LS_SHIP = "hangar.shipId";
 const LS_FITTING = "hangar.fittingId";
+/** Where the carousel was left last time. Presentation only — never flown. */
+const LS_BROWSE = "hangar.browseShipId";
 /**
  * The selected ship's upgrade levels as `/api/ships` last reported them. Cached
  * here because a MATCH needs them (client prediction resolves the same engine
@@ -59,6 +80,9 @@ const STAGE_POS = new Vector3(0, 5, 300); // far from the arena (radius 90) — 
 const UPGRADE_TRACKS: readonly UpgradeTrackName[] = ["hull", "engine", "energy", "heat"];
 const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine: "Engine", energy: "Capacitor", heat: "Heat Sink" };
 
+/** Which outfitting bay the panel is showing (owner 2026-07-31). */
+type HangarCategory = "hardpoints" | "internals" | "ship" | "fitting";
+
 export interface HangarSelection {
   shipId: string | null;
   fittingId: string | null;
@@ -75,9 +99,13 @@ export interface HangarSelection {
   moduleIds: (string | null)[] | null;
 }
 
-/** Reads the player's last Hangar ship/fitting choice — Lobby passes this as NetGameSession join options. */
+/**
+ * The player's MAIN loadout — Lobby passes this as NetGameSession join options
+ * and the offline match spawns from it. Falls back to the starter hull so a
+ * pilot who has never opened the Hangar still launches with a real ship.
+ */
 export function loadHangarSelection(): HangarSelection {
-  const shipId = localStorage.getItem(LS_SHIP);
+  const shipId = localStorage.getItem(LS_SHIP) ?? STARTER_SHIP_ID;
   return {
     shipId,
     fittingId: localStorage.getItem(LS_FITTING),
@@ -169,10 +197,15 @@ export class Hangar {
   private selectedFittingId: string | null = null;
   private slots: HangarSlot[] = [];
   private pickerHardpoint: number | null = null;
+  private category: HangarCategory = "hardpoints";
   private busy = false;
   private error = "";
 
   private previewInstance: InstancedMesh | null = null;
+  /** Blacked-out stand-in shown in place of a hull the player does not own. */
+  private lockedPreview: AbstractMesh | null = null;
+  private lockedMaterial: StandardMaterial | null = null;
+  private swipe: SwipeWatcher | null = null;
   private previewRig: ShipSocketRig | null = null;
   private idleModules: ModuleSnapshot[] = [];
   private readonly idlePrev: ShipSnapshot;
@@ -256,10 +289,34 @@ export class Hangar {
     return !this.isAuthed();
   }
 
-  /** Whether this module can be fitted right now (owned, or offline test mode). */
+  /**
+   * Whether this module can be fitted right now. Ownership is REAL in offline
+   * mode too (owner 2026-07-31) — the prices are zero for testing, but a module
+   * still has to be bought before it can be fitted, so the unlock flow is the
+   * one we will ship rather than one we bolt on later.
+   */
   private canEquip(moduleId: string): boolean {
-    if (this.offlineFitting) return true;
+    if (this.offlineFitting) return ownsModule(this.configs, moduleId);
     return this.apiModules.find((m) => m.id === moduleId)?.owned ?? false;
+  }
+
+  /**
+   * Whether this hull can be flown. Hull ownership currently exists only in the
+   * local ledger — `/api/ships` returns the whole catalogue with no `owned`
+   * flag — so an authenticated session sees every hull unlocked until the
+   * server grows the same notion.
+   */
+  private canFly(shipId: string): boolean {
+    return this.offlineFitting ? ownsShip(shipId) : true;
+  }
+
+  /** The hull the player takes into a match, as last set. */
+  private mainShipId(): string | null {
+    return localStorage.getItem(LS_SHIP);
+  }
+
+  private isMainShip(shipId: string): boolean {
+    return this.mainShipId() === shipId;
   }
 
   private currentShip(): ShipConfig | undefined {
@@ -273,15 +330,25 @@ export class Hangar {
   }
 
   show(): void {
+    // A pilot who has never set a main gets one now, so "what do I fly" is
+    // never an unanswered question after the first visit to the bay.
+    if (!this.mainShipId()) {
+      const starter = this.ships.find((s) => s.id === STARTER_SHIP_ID) ?? this.ships[0];
+      if (starter) localStorage.setItem(LS_SHIP, starter.id);
+    }
     const stored = loadHangarSelection();
-    const idx = stored.shipId ? this.ships.findIndex((s) => s.id === stored.shipId) : -1;
+    // Open where the player left the carousel; the main hull is the fallback.
+    const browseId = localStorage.getItem(LS_BROWSE) ?? stored.shipId;
+    const idx = browseId ? this.ships.findIndex((s) => s.id === browseId) : -1;
     this.shipIndex = idx >= 0 ? idx : 0;
     this.selectedFittingId = null;
     this.pickerHardpoint = null;
+    this.category = "hardpoints";
     this.error = "";
 
     const ship = this.currentShip();
-    this.slots = ship ? slotsFromDefaultFitting(ship) : [];
+    // On your MAIN hull, open on the loadout you actually fly — not its stock fit.
+    this.slots = ship ? this.slotsForShip(ship) : [];
 
     this.root.style.display = "flex";
     this.camera.setHangarMode(true);
@@ -289,6 +356,15 @@ export class Hangar {
     this.renderObserver = this.scene.onBeforeRenderObservable.add(() => this.tickPreview());
     window.addEventListener("resize", this.onViewportResize);
     window.addEventListener("orientationchange", this.onViewportResize);
+    // Swipe the STAGE to change hull. Bound to the whole overlay because the
+    // stage half is pointer-events:none (the orbit camera owns those events);
+    // the watcher only observes, so orbiting still works.
+    this.swipe = new SwipeWatcher(this.root, {
+      onSwipe: (dir) => this.stepShip(dir),
+      // Only gestures that begin over the STAGE count: a horizontal flick
+      // inside the info panel belongs to whatever list it started on.
+      shouldTrack: (ev) => !(ev.target instanceof Node) || !this.panel.contains(ev.target),
+    });
 
     this.rebuildPreview();
     this.rebuildCallouts();
@@ -324,6 +400,10 @@ export class Hangar {
     this.previewRig = null;
     this.previewInstance?.dispose();
     this.previewInstance = null;
+    this.lockedPreview?.dispose(false, false);
+    this.lockedPreview = null;
+    this.swipe?.dispose();
+    this.swipe = null;
   }
 
   private async refreshFromServer(): Promise<void> {
@@ -363,11 +443,33 @@ export class Hangar {
     this.previewRig = null;
     this.previewInstance?.dispose();
     this.previewInstance = null;
+    this.lockedPreview?.dispose(false, false);
+    this.lockedPreview = null;
 
     const ship = this.currentShip();
     if (!ship) return;
 
     const master = this.assets.getShipMaster(ship.render);
+
+    // A hull the player has not bought is shown as a SILHOUETTE (2026-07-31):
+    // black and half-transparent, so its shape reads while its detail stays
+    // something to unlock. Cloned rather than instanced because an instance
+    // shares the master's material and would black out every ship in the bay.
+    if (!this.canFly(ship.id)) {
+      const clone = master.clone(`hangarLocked.${ship.id}`, this.stageRoot);
+      if (clone) {
+        clone.isPickable = false;
+        clone.position.setAll(0);
+        clone.setEnabled(true);
+        const mat = this.lockedShipMaterial();
+        for (const mesh of [clone, ...clone.getChildMeshes(false)]) mesh.material = mat;
+        this.lockedPreview = clone;
+      }
+      // No socket rig and no idle modules: there is no fitting to show yet.
+      this.idleModules = [];
+      return;
+    }
+
     const instance = master.createInstance(`hangarPreview.${ship.id}`);
     instance.isPickable = false;
     instance.parent = this.stageRoot;
@@ -389,6 +491,19 @@ export class Hangar {
       .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
   }
 
+  /** The shared black translucent material every locked hull is painted with. */
+  private lockedShipMaterial(): StandardMaterial {
+    if (this.lockedMaterial) return this.lockedMaterial;
+    const mat = new StandardMaterial("hangarLockedShip", this.scene);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = new Color3(0.02, 0.03, 0.05); // just enough not to be a hole
+    mat.alpha = 0.45;
+    mat.backFaceCulling = false; // a translucent hull reads better with its far side
+    this.lockedMaterial = mat;
+    return mat;
+  }
+
   /**
    * Point the camera at the stage half of the split screen and frame the hull
    * inside it. Re-run on resize and orientation change, so rotating the phone
@@ -408,7 +523,7 @@ export class Hangar {
    * the stage.
    */
   private frameShip(aspect: number): void {
-    const instance = this.previewInstance;
+    const instance: AbstractMesh | null = this.previewInstance ?? this.lockedPreview;
     if (!instance) {
       this.focus.copyFrom(this.stageRoot.position);
       return;
@@ -445,19 +560,62 @@ export class Hangar {
 
   // --- state transitions -----------------------------------------------------
 
+  /**
+   * The slot grid to open a hull on: the loadout you fly if this is your MAIN,
+   * its stock fitting otherwise. Browsing another hull must never inherit the
+   * main's modules — they belong to different sockets.
+   */
+  private slotsForShip(ship: ShipConfig): HangarSlot[] {
+    if (!this.isMainShip(ship.id)) return slotsFromDefaultFitting(ship);
+    const stored = loadHangarSelection();
+    return stored.moduleIds ? slotsFromModuleIds(ship, stored.moduleIds) : slotsFromDefaultFitting(ship);
+  }
+
   private selectShip(index: number): void {
     this.shipIndex = index;
     this.selectedFittingId = null;
     this.pickerHardpoint = null;
     const ship = this.currentShip();
-    this.slots = ship ? slotsFromDefaultFitting(ship) : [];
-    this.persistSelection();
+    this.slots = ship ? this.slotsForShip(ship) : [];
+    // Browsing is NOT choosing (2026-07-31): remember where the carousel is,
+    // but leave the main loadout exactly as it was.
+    this.persistBrowse();
     this.rebuildPreview();
     this.rebuildCallouts();
     // A different hull is a different size: re-frame it. (Swapping a MODULE
     // deliberately does not, so an edit never yanks the player's zoom back.)
     this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
     this.render();
+  }
+
+  /** Swipe/arrow step through the bay, wrapping at both ends. */
+  private stepShip(delta: -1 | 1): void {
+    if (this.ships.length < 2 || this.busy) return;
+    this.selectShip(wrapIndex(this.shipIndex, delta, this.ships.length));
+  }
+
+  /**
+   * Make the hull and fitting on screen the one the player flies. The single
+   * point at which browsing turns into a decision — everything else in the
+   * Hangar leaves the main loadout alone.
+   */
+  private setAsMain(): void {
+    const ship = this.currentShip();
+    if (!ship || !this.canFly(ship.id)) return;
+    localStorage.setItem(LS_SHIP, ship.id);
+    this.persistMain();
+    this.render();
+  }
+
+  /** Buy the hull on screen. Free for now — the unlock step is what is real. */
+  private buyShip(shipId: string): void {
+    if (this.offlineFitting) {
+      buyShipLocal(shipId);
+      this.rebuildPreview();
+      this.rebuildCallouts();
+      this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+      this.render();
+    }
   }
 
   private loadFitting(fittingId: string | null): void {
@@ -474,6 +632,10 @@ export class Hangar {
   }
 
   private selectSlot(hardpointIndex: number): void {
+    // A callout on the hull can address a bay the rail is not currently showing;
+    // follow it, or the module list would open under the wrong heading.
+    const kind = this.slots[hardpointIndex]?.kind;
+    if (kind) this.category = kind === "internal" ? "internals" : "hardpoints";
     this.pickerHardpoint = this.pickerHardpoint === hardpointIndex ? null : hardpointIndex;
     this.callouts.setSelected(this.pickerHardpoint);
     this.render();
@@ -548,6 +710,13 @@ export class Hangar {
   }
 
   private async buyModule(moduleId: string): Promise<void> {
+    // Offline: the unlock is local and free, but it IS an unlock — a module has
+    // to be bought before it can be fitted (owner 2026-07-31).
+    if (this.offlineFitting) {
+      buyModuleLocal(moduleId);
+      this.render();
+      return;
+    }
     this.busy = true;
     this.render();
     try {
@@ -639,7 +808,28 @@ export class Hangar {
     }
   }
 
+  /** Remember where the carousel is. Presentation only — never flown. */
+  private persistBrowse(): void {
+    const shipId = this.currentShip()?.id;
+    if (shipId) localStorage.setItem(LS_BROWSE, shipId);
+    else localStorage.removeItem(LS_BROWSE);
+  }
+
+  /**
+   * Write the MAIN loadout from what is on screen — but ONLY when the hull on
+   * screen already is the main one. That is what lets a player swipe through
+   * the whole bay, and edit a fit they are just looking at, without silently
+   * changing what they launch with; `setAsMain` is the one place that promotes
+   * a different hull.
+   */
   private persistSelection(): void {
+    this.persistBrowse();
+    const ship = this.currentShip();
+    if (!ship || !this.isMainShip(ship.id)) return;
+    this.persistMain();
+  }
+
+  private persistMain(): void {
     const shipId = this.currentShip()?.id ?? null;
     if (shipId) localStorage.setItem(LS_SHIP, shipId);
     else localStorage.removeItem(LS_SHIP);
@@ -678,24 +868,128 @@ export class Hangar {
     const level = profile.status === "authed" ? profile.profile.level : 1;
 
     this.panel.append(this.buildHeader());
-    if (storeLocked) {
-      const hint = el(
-        "div",
-        "hangar-hint",
-        "Offline: fitting and saving work locally. Log in or play as a guest to buy modules and upgrade.",
-      );
-      this.panel.append(hint);
-    }
-    if (this.error) this.panel.append(el("div", "hangar-error", this.error));
 
-    this.panel.append(this.buildShipCarousel());
-    this.panel.append(this.buildStatPanel(ship));
-    this.panel.append(this.buildSlotGrid());
-    if (this.pickerHardpoint !== null) {
-      this.panel.append(this.buildModulePicker(ship, this.pickerHardpoint, credits, level));
+    const owned = this.canFly(ship.id);
+    const body = el("div", "hangar-body");
+    body.append(this.buildCategoryRail(owned));
+
+    const content = el("div", "hangar-content");
+    if (storeLocked) {
+      content.append(
+        el(
+          "div",
+          "hangar-hint",
+          "Offline: fitting, unlocking and saving work locally, and everything is free while we test. Log in to spend real credits and upgrade.",
+        ),
+      );
     }
-    this.panel.append(this.buildUpgrades(ship, storeLocked, credits));
-    this.panel.append(this.buildFittingControls(ship));
+    if (this.error) content.append(el("div", "hangar-error", this.error));
+
+    // A hull you have not bought shows its stats and the unlock, nothing else:
+    // there is no fitting to edit and no fitting to save until it is yours.
+    if (!owned) {
+      content.append(this.buildShipCarousel());
+      content.append(this.buildStatPanel(ship));
+    } else if (this.category === "ship") {
+      content.append(this.buildShipCarousel());
+      content.append(this.buildStatPanel(ship));
+      content.append(this.buildUpgrades(ship, storeLocked, credits));
+    } else if (this.category === "fitting") {
+      content.append(this.buildFittingControls(ship));
+      content.append(this.buildStatPanel(ship));
+    } else {
+      content.append(this.buildSlotGrid(this.category === "internals" ? "internal" : "hardpoint"));
+      if (this.pickerHardpoint !== null) {
+        content.append(this.buildModulePicker(ship, this.pickerHardpoint, credits, level));
+      }
+    }
+    body.append(content);
+    this.panel.append(body);
+    this.panel.append(this.buildStatusBar(ship));
+  }
+
+  /**
+   * The outfitting rail (owner 2026-07-31) — the screen's spine, in the shape
+   * every space sim's outfitting screen has: a column of BAYS on the left, the
+   * ship filling the view, and the numbers that decide a fit along the bottom.
+   * Picking a bay changes what the panel shows; it never changes the ship.
+   */
+  private buildCategoryRail(owned: boolean): HTMLDivElement {
+    const rail = el("div", "hangar-rail");
+    const entries: { key: HangarCategory; label: string; hint: string }[] = [
+      { key: "hardpoints", label: "Hardpoints", hint: "Weapons and shields" },
+      { key: "internals", label: "Core internal", hint: "Engine, reactor, bus, sink, sensors" },
+      { key: "ship", label: "Ship", hint: "Hull, stats and upgrades" },
+      { key: "fitting", label: "Fitting", hint: "Save and load loadouts" },
+    ];
+    for (const entry of entries) {
+      const btn = document.createElement("button");
+      btn.className = "hangar-rail-btn" + (this.category === entry.key ? " active" : "");
+      btn.dataset["category"] = entry.key;
+      // An unowned hull has no bays to open — only the SHIP page, which carries
+      // the unlock.
+      btn.disabled = this.busy || (!owned && entry.key !== "ship");
+      btn.append(el("span", "hangar-rail-label", entry.label), el("span", "hangar-rail-hint", entry.hint));
+      btn.addEventListener("click", () => this.selectCategory(entry.key));
+      rail.append(btn);
+    }
+    const back = document.createElement("button");
+    back.className = "hangar-rail-btn back";
+    back.disabled = this.busy;
+    back.append(el("span", "hangar-rail-label", "Back"));
+    back.addEventListener("click", () => this.onClose());
+    rail.append(back);
+    return rail;
+  }
+
+  private selectCategory(category: HangarCategory): void {
+    this.category = category;
+    // A picker belongs to the bay it was opened from; carrying it across would
+    // show a hardpoint's module list under the internals heading.
+    this.pickerHardpoint = null;
+    this.callouts.setSelected(null);
+    this.render();
+  }
+
+  /**
+   * The bottom instrument strip: the handful of numbers a pilot judges a fit on,
+   * and the POWER RAIL as two bars — what the hull draws with only its guns up,
+   * and what it would draw with everything up. The gap between them is exactly
+   * the choice the rail forces (see `powerRail.ts`).
+   */
+  private buildStatusBar(ship: ShipConfig): HTMLDivElement {
+    const panel = computeStatPanel(ship, this.configs, {
+      upgradeLevels: this.currentUpgradeLevels(),
+      fittedModuleIds: fittedModuleIdsOf(this.slots),
+    });
+    const bar = el("div", "hangar-statusbar");
+
+    const specs = el("div", "hangar-specs");
+    specs.append(el("div", "hangar-specs-title", "Ship specs"));
+    specs.append(specRow("Integrity", panel.hullMax.toFixed(0)));
+    specs.append(specRow("Top speed", `${panel.nominalSpeed.toFixed(0)} m/s`));
+    specs.append(specRow("Heat capacity", panel.heatCapacity.toFixed(0)));
+    specs.append(specRow("DPS (est.)", panel.dps.toFixed(1)));
+    bar.append(specs);
+
+    const power = el("div", "hangar-power");
+    const head = el("div", "hangar-power-head");
+    head.append(el("span", "hangar-specs-title", "Total power"));
+    head.append(el("span", "hangar-power-max", `MAX ${panel.powerCapacity.toFixed(0)}`));
+    power.append(head);
+    power.append(powerBar("Retracted", panel.powerDrawRetracted, panel.powerCapacity));
+    power.append(powerBar("Deployed", panel.powerDrawTotal, panel.powerCapacity));
+    if (panel.powerOverSubscribed) {
+      power.append(
+        el(
+          "div",
+          "hangar-power-warn",
+          `Over-subscribed by ${(panel.powerDrawTotal - panel.powerCapacity).toFixed(0)} — activating one module shuts another down.`,
+        ),
+      );
+    }
+    bar.append(power);
+    return bar;
   }
 
   private buildHeader(): HTMLDivElement {
@@ -710,18 +1004,85 @@ export class Hangar {
     return header;
   }
 
+  /**
+   * The ship bay: arrows either side of the hull on screen, the full list under
+   * it, and — for a hull the player has not bought — the unlock. Swiping the 3D
+   * stage steps the same index (see {@link stepShip}), so the arrows are the
+   * pointer/keyboard equivalent of the gesture rather than a separate mode.
+   */
   private buildShipCarousel(): HTMLDivElement {
     const wrap = el("div", "hangar-ships");
+
+    const current = this.currentShip();
+    if (current) {
+      const owned = this.canFly(current.id);
+      const nav = el("div", "hangar-ship-nav");
+      nav.append(this.buildStepButton("‹", -1));
+      const centre = el("div", "hangar-ship-current");
+      const title = el("div", "hangar-ship-title");
+      title.append(el("span", "hangar-ship-name", current.name));
+      if (this.isMainShip(current.id)) title.append(el("span", "hangar-badge main", "★ MAIN"));
+      else if (!owned) title.append(el("span", "hangar-badge locked", "LOCKED"));
+      centre.append(title);
+      centre.append(el("div", "hangar-ship-class", `${current.class} hull · swipe to change ship`));
+      nav.append(centre);
+      nav.append(this.buildStepButton("›", 1));
+      wrap.append(nav);
+      wrap.append(this.buildShipActions(current, owned));
+    }
+
+    const list = el("div", "hangar-ship-list");
     this.ships.forEach((ship, i) => {
       const btn = document.createElement("button");
-      btn.className = "hangar-ship-btn" + (i === this.shipIndex ? " active" : "");
+      const owned = this.canFly(ship.id);
+      btn.className =
+        "hangar-ship-btn" + (i === this.shipIndex ? " active" : "") + (owned ? "" : " locked");
       btn.innerHTML = "";
-      btn.append(el("span", "hangar-ship-name", ship.name), el("span", "hangar-ship-class", ship.class));
+      btn.append(el("span", "hangar-ship-name", owned ? ship.name : `🔒 ${ship.name}`), el("span", "hangar-ship-class", ship.class));
       btn.disabled = this.busy;
       btn.addEventListener("click", () => this.selectShip(i));
-      wrap.append(btn);
+      list.append(btn);
     });
+    wrap.append(list);
     return wrap;
+  }
+
+  private buildStepButton(glyph: string, delta: -1 | 1): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.className = "hangar-ship-step";
+    btn.textContent = glyph;
+    btn.setAttribute("aria-label", delta < 0 ? "Previous ship" : "Next ship");
+    btn.disabled = this.busy || this.ships.length < 2;
+    btn.addEventListener("click", () => this.stepShip(delta));
+    return btn;
+  }
+
+  /** Unlock / set-as-main for the hull on screen. */
+  private buildShipActions(ship: ShipConfig, owned: boolean): HTMLDivElement {
+    const row = el("div", "hangar-ship-actions");
+    if (!owned) {
+      row.append(el("div", "hangar-hint", "You do not own this hull yet."));
+      const buy = document.createElement("button");
+      buy.className = "hangar-btn hangar-btn-primary";
+      // Free for now (testing) — the purchase still has to happen, so the flow
+      // is the real one and only the price is provisional.
+      buy.textContent = "Unlock (free)";
+      buy.disabled = this.busy || !this.offlineFitting;
+      buy.addEventListener("click", () => this.buyShip(ship.id));
+      row.append(buy);
+      return row;
+    }
+    if (this.isMainShip(ship.id)) {
+      row.append(el("div", "hangar-hint", "This ship and fitting is what you fly."));
+      return row;
+    }
+    const main = document.createElement("button");
+    main.className = "hangar-btn hangar-btn-primary";
+    main.textContent = "★ Set as main";
+    main.disabled = this.busy;
+    main.addEventListener("click", () => this.setAsMain());
+    row.append(main);
+    return row;
   }
 
   private buildStatPanel(ship: ShipConfig): HTMLDivElement {
@@ -737,9 +1098,31 @@ export class Hangar {
     wrap.append(statRow("Heat cap.", `${panel.heatCapacity.toFixed(0)} (-${panel.heatDissipation.toFixed(1)}/s)`));
     wrap.append(statRow("DPS (est.)", panel.dps.toFixed(1)));
     wrap.append(statRow("EHP (est.)", panel.ehpApprox.toFixed(0)));
+    wrap.append(statRow("Power rail", `${panel.powerDrawTotal.toFixed(0)} / ${panel.powerCapacity.toFixed(0)}`));
     wrap.append(this.buildBudgetBar("Idle energy budget", panel.energyBudget, panel.idleDrawTotal, panel.capacitorRegen));
+    wrap.append(this.buildPowerWarn(panel));
     wrap.append(this.buildHeatWarn(panel));
     return wrap;
+  }
+
+  /**
+   * The over-subscription notice (owner 2026-07-31). Deliberately a WARNING and
+   * not a block: fitting more than the rail can feed is a legitimate choice —
+   * carry the heavy shield, run it only when you need it — so this states the
+   * consequence rather than refusing the save.
+   */
+  private buildPowerWarn(panel: HangarStatPanel): HTMLDivElement {
+    const row = el("div", "hangar-bar-row");
+    if (!panel.powerOverSubscribed) return row;
+    const over = panel.powerDrawTotal - panel.powerCapacity;
+    row.append(
+      el(
+        "span",
+        "hangar-bar-label warn-text",
+        `Power rail over-subscribed by ${over.toFixed(0)} — these modules cannot all be online at once; activating one shuts another down.`,
+      ),
+    );
+    return row;
   }
 
   private buildBudgetBar(label: string, budget: number, draw: number, regen: number): HTMLDivElement {
@@ -767,11 +1150,14 @@ export class Hangar {
     return row;
   }
 
-  private buildSlotGrid(): HTMLDivElement {
+  private buildSlotGrid(kind: "hardpoint" | "internal"): HTMLDivElement {
     const wrap = el("div", "hangar-slots");
-    wrap.append(el("div", "hangar-section-title", "Hardpoints & systems"));
+    wrap.append(
+      el("div", "hangar-section-title", kind === "internal" ? "Core internal bays" : "Hardpoints"),
+    );
     const grid = el("div", "hangar-slot-grid");
     for (const slot of this.slots) {
+      if (slot.kind !== kind) continue;
       const mod = slot.moduleId ? this.configs.get<ModuleConfig>("module", slot.moduleId) : undefined;
       const btn = document.createElement("button");
       btn.className = "hangar-slot" + (slot.moduleId ? " filled" : "") + (this.pickerHardpoint === slot.hardpointIndex ? " open" : "");
@@ -846,7 +1232,7 @@ export class Hangar {
         el(
           "span",
           "hangar-picker-meta",
-          locked ? `Lv ${mod.requiresLevel}` : this.offlineFitting ? "Offline" : owned ? "Owned" : `${mod.price} cr`,
+          locked ? `Lv ${mod.requiresLevel}` : owned ? "Owned" : this.offlineFitting ? "Locked" : `${mod.price} cr`,
         ),
       );
       row.append(head);
@@ -872,8 +1258,10 @@ export class Hangar {
       } else if (!locked) {
         const buyBtn = document.createElement("button");
         buyBtn.className = "hangar-btn";
-        buyBtn.textContent = mod.price > 0 ? `Buy (${mod.price} cr)` : "Unlock (free)";
-        buyBtn.disabled = this.busy || credits < mod.price;
+        // Offline every module is free — but still bought, so the unlock flow
+        // is the shipped one and only the price is provisional.
+        buyBtn.textContent = this.offlineFitting || mod.price <= 0 ? "Unlock (free)" : `Buy (${mod.price} cr)`;
+        buyBtn.disabled = this.busy || (!this.offlineFitting && credits < mod.price);
         buyBtn.addEventListener("click", () => void this.buyModule(mod.id));
         actions.append(buyBtn);
       }
@@ -976,6 +1364,8 @@ export class Hangar {
     this.unsubscribeAuth();
     this.previewRig?.dispose();
     this.previewInstance?.dispose();
+    this.lockedMaterial?.dispose();
+    this.lockedMaterial = null;
     this.assets.dispose();
     this.stageRoot.dispose();
     this.root.remove();
@@ -1015,6 +1405,31 @@ function el(tag: string, className?: string, text?: string): HTMLDivElement {
   return node;
 }
 
+/** One label/value line in the bottom instrument strip. */
+function specRow(label: string, value: string): HTMLDivElement {
+  const row = el("div", "hangar-spec-row");
+  row.append(el("span", "hangar-spec-label", label), el("span", "hangar-spec-value", value));
+  return row;
+}
+
+/**
+ * One power-rail bar. Fills against CAPACITY, so the empty remainder is the
+ * headroom the pilot still has — and a bar that runs past its track is a fit
+ * that cannot be online all at once.
+ */
+function powerBar(label: string, draw: number, capacity: number): HTMLDivElement {
+  const row = el("div", "hangar-power-row");
+  row.append(el("span", "hangar-power-label", label));
+  const track = el("div", "hangar-power-track");
+  const over = capacity > 0 && draw > capacity;
+  const fill = el("div", "hangar-power-fill" + (over ? " over" : ""));
+  fill.style.width = `${capacity > 0 ? Math.min(100, (draw / capacity) * 100) : 0}%`;
+  track.append(fill);
+  row.append(track);
+  row.append(el("span", "hangar-power-value", draw.toFixed(0)));
+  return row;
+}
+
 function statRow(label: string, value: string): HTMLDivElement {
   const row = el("div", "hangar-stat-row");
   row.append(el("span", "hangar-stat-label", label), el("span", "hangar-stat-value", value));
@@ -1032,21 +1447,33 @@ function injectHangarStyle(): void {
 
 const HANGAR_CSS = `
 /*
- * Split screen (owner 2026-07-31): the ship's 3D stage gets one half, its info
- * and modules the other — STACKED in portrait (stage on top) and SIDE BY SIDE
- * in landscape. The stage half is a transparent hole onto the shared Babylon
- * canvas; \`hangarLayout.stageViewport()\` confines the camera to exactly the
- * same rectangle, so the two must be changed together.
+ * OUTFITTING (owner 2026-07-31) — restyled after the space-sim outfitting
+ * screens the game is aiming at: flat charcoal panels, square corners, hairline
+ * rules, condensed uppercase labels, and ONE accent colour (amber) that means
+ * "this is the thing you have selected". No rounded chrome, no glass, no second
+ * accent competing for attention.
+ *
+ * The split itself is unchanged: the ship's 3D stage gets one half — STACKED in
+ * portrait, SIDE BY SIDE in landscape — and \`hangarLayout.stageViewport()\`
+ * confines the camera to exactly the same rectangle, so the two must always be
+ * changed together.
  */
 .hangar-overlay {
   position: fixed;
   inset: 0;
   z-index: 15;
   pointer-events: none;
-  font-family: system-ui;
-  color: #e8f1ff;
+  font-family: "Roboto Condensed", "Segoe UI", system-ui, sans-serif;
+  color: #d9dde2;
   display: flex;
   flex-direction: column; /* portrait: stage above, panel below */
+  --hg-accent: #f07b05;
+  --hg-accent-dim: rgba(240, 123, 5, .18);
+  --hg-panel: rgba(14, 16, 19, .95);
+  --hg-panel-2: rgba(26, 29, 33, .95);
+  --hg-line: #3a3f45;
+  --hg-dim: #8b939b;
+  --hg-danger: #ff5a5a;
 }
 /* The stage takes its half of the flex box but never any pointer events —
    orbit and zoom drags belong to the canvas underneath it. */
@@ -1065,18 +1492,46 @@ const HANGAR_CSS = `
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  background: rgba(6, 10, 20, 0.94);
-  border-top: 1px solid #2f6fb8;
+  background: var(--hg-panel);
+  border-top: 1px solid var(--hg-line);
   padding:
-    14px
-    calc(env(safe-area-inset-right, 0px) + 14px)
-    calc(env(safe-area-inset-bottom, 0px) + 14px)
-    calc(env(safe-area-inset-left, 0px) + 14px);
+    10px
+    calc(env(safe-area-inset-right, 0px) + 12px)
+    calc(env(safe-area-inset-bottom, 0px) + 10px)
+    calc(env(safe-area-inset-left, 0px) + 12px);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
-/* ---- 3D callout tags pinned to each slot on the hull (2026-07-31) ---- */
+/* Rail + content, with the instrument strip pinned under both. */
+.hangar-body { display: flex; gap: 10px; align-items: flex-start; min-height: 0; }
+.hangar-content { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+
+/* ---- the outfitting rail ---- */
+.hangar-rail { flex: 0 0 132px; display: flex; flex-direction: column; gap: 2px; }
+.hangar-rail-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  padding: 7px 9px;
+  min-height: 42px;
+  background: var(--hg-panel-2);
+  color: #d9dde2;
+  border: 0;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.hangar-rail-btn:hover:not(:disabled) { background: #23272c; }
+.hangar-rail-btn.active { background: var(--hg-accent); color: #140b02; border-left-color: #ffb35c; }
+.hangar-rail-btn.active .hangar-rail-hint { color: rgba(20, 11, 2, .72); }
+.hangar-rail-btn:disabled { opacity: .35; cursor: default; }
+.hangar-rail-btn.back { margin-top: 8px; background: transparent; border: 1px solid var(--hg-line); }
+.hangar-rail-label { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.hangar-rail-hint { font-size: 9.5px; color: var(--hg-dim); line-height: 1.15; }
+
+/* ---- 3D callout tags pinned to each slot on the hull ---- */
 /* The layer fills the stage half and is click-through; only the tags catch
    pointer events, so orbit drags still reach the canvas between them. */
 .hangar-callouts { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
@@ -1086,90 +1541,122 @@ const HANGAR_CSS = `
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px 3px 4px;
+  padding: 2px 8px 2px 5px;
   max-width: 46%;
-  background: rgba(6, 12, 24, .82);
-  color: #dce9ff;
-  border: 1px solid #2f6fb8;
-  border-radius: 999px;
-  font: 500 11px/1.1 system-ui, sans-serif;
+  background: rgba(14, 16, 19, .86);
+  color: #d9dde2;
+  border: 1px solid var(--hg-line);
+  border-left: 2px solid var(--hg-accent);
+  font: 600 10.5px/1.15 "Roboto Condensed", system-ui, sans-serif;
+  letter-spacing: .06em;
+  text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
   pointer-events: auto;
   touch-action: manipulation;
   transition: border-color .12s linear, background-color .12s linear, opacity .12s linear;
 }
-.hangar-callout .dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #57d8ff;
-  box-shadow: 0 0 6px rgba(87, 216, 255, .8);
-}
-.hangar-callout.kind-internal .dot { background: #63d2a4; box-shadow: 0 0 6px rgba(99, 210, 164, .8); }
-.hangar-callout.empty { opacity: .72; border-style: dashed; }
-.hangar-callout.empty .dot { background: #6f84a0; box-shadow: none; }
-.hangar-callout.selected { border-color: #57d8ff; background: rgba(28, 58, 94, .95); }
-.hangar-callout:hover { border-color: #57d8ff; }
+.hangar-callout .dot { width: 6px; height: 6px; flex: 0 0 auto; background: var(--hg-accent); }
+.hangar-callout.kind-internal { border-left-color: #6fb2d2; }
+.hangar-callout.kind-internal .dot { background: #6fb2d2; }
+.hangar-callout.empty { opacity: .6; border-style: dashed; }
+.hangar-callout.empty .dot { background: var(--hg-dim); }
+.hangar-callout.selected { background: var(--hg-accent); color: #140b02; border-color: #ffb35c; }
+.hangar-callout.selected .dot { background: #140b02; }
+.hangar-callout:hover { border-color: var(--hg-accent); }
 /* While a module is being dragged, light up the slots that would take it. */
-.hangar-callout.droppable { border-color: #5fe08c; box-shadow: 0 0 0 2px rgba(95, 224, 140, .25); }
-.hangar-callout.dimmed { opacity: .3; }
-.hangar-callout.drop-hover { background: rgba(95, 224, 140, .28); border-color: #5fe08c; }
+.hangar-callout.droppable { border-color: var(--hg-accent); box-shadow: 0 0 0 1px var(--hg-accent-dim); }
+.hangar-callout.dimmed { opacity: .25; }
+.hangar-callout.drop-hover { background: var(--hg-accent); color: #140b02; }
 
 /* Landscape: the same halves, laid out left (stage) / right (panel). */
 @media (orientation: landscape) {
   .hangar-overlay { flex-direction: row; }
   .hangar-panel {
     border-top: none;
-    border-left: 1px solid #2f6fb8;
-    padding-top: calc(env(safe-area-inset-top, 0px) + 14px);
+    border-left: 1px solid var(--hg-line);
+    padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
   }
 }
-.hangar-header { display: flex; align-items: center; justify-content: space-between; }
-.hangar-title { letter-spacing: .25em; font-weight: 300; color: #57d8ff; font-size: 16px; }
-.hangar-close { background: transparent; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; padding: 8px 12px; min-height: 36px; cursor: pointer; touch-action: manipulation; }
-.hangar-hint { font-size: 12px; color: #9fb4d0; background: rgba(87,216,255,.08); border: 1px solid #2f6fb8; border-radius: 6px; padding: 6px 8px; }
-.hangar-error { font-size: 12px; color: #ff8080; background: rgba(255,77,94,.1); border: 1px solid #ff4d5e; border-radius: 6px; padding: 6px 8px; }
-.hangar-section-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #9fb4d0; margin-bottom: 4px; }
-.hangar-ships { display: flex; flex-wrap: wrap; gap: 6px; }
-.hangar-ship-btn { flex: 1 1 96px; min-height: 44px; touch-action: manipulation; display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
-.hangar-ship-btn.active { background: #1c3a5e; border-color: #57d8ff; }
-.hangar-ship-name { font-size: 12px; font-weight: 600; }
-.hangar-ship-class { font-size: 10px; color: #9fb4d0; text-transform: uppercase; }
-.hangar-stats { display: flex; flex-direction: column; gap: 3px; }
-.hangar-stat-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
-.hangar-stat-label { color: #9fb4d0; }
+.hangar-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--hg-line); padding-bottom: 6px; }
+.hangar-title { letter-spacing: .3em; font-weight: 700; color: var(--hg-accent); font-size: 14px; text-transform: uppercase; }
+.hangar-close { background: transparent; color: #d9dde2; border: 1px solid var(--hg-line); padding: 6px 12px; min-height: 34px; cursor: pointer; touch-action: manipulation; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+.hangar-hint { font-size: 11px; color: var(--hg-dim); border-left: 2px solid var(--hg-line); padding: 4px 8px; }
+.hangar-error { font-size: 11px; color: var(--hg-danger); border-left: 2px solid var(--hg-danger); padding: 4px 8px; }
+.hangar-section-title { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--hg-dim); margin-bottom: 4px; }
+.hangar-ships { display: flex; flex-direction: column; gap: 8px; }
+/* Arrows either side of the hull on screen — the pointer equivalent of the
+   swipe gesture on the 3D stage. */
+.hangar-ship-nav { display: flex; align-items: center; gap: 8px; }
+.hangar-ship-step { flex: 0 0 auto; width: 38px; min-height: 42px; font-size: 20px; line-height: 1; background: var(--hg-panel-2); color: #d9dde2; border: 1px solid var(--hg-line); cursor: pointer; touch-action: manipulation; }
+.hangar-ship-step:disabled { opacity: 0.3; cursor: default; }
+.hangar-ship-current { flex: 1 1 auto; min-width: 0; text-align: center; }
+.hangar-ship-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.hangar-ship-title .hangar-ship-name { font-size: 15px; letter-spacing: .1em; text-transform: uppercase; }
+.hangar-badge { font-size: 9.5px; font-weight: 700; letter-spacing: .1em; padding: 2px 6px; }
+.hangar-badge.main { background: var(--hg-accent); color: #140b02; }
+.hangar-badge.locked { background: transparent; color: var(--hg-danger); border: 1px solid var(--hg-danger); }
+.hangar-ship-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hangar-ship-actions .hangar-hint { flex: 1 1 140px; margin: 0; }
+.hangar-ship-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.hangar-ship-btn { flex: 1 1 96px; min-height: 42px; touch-action: manipulation; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--hg-panel-2); color: #d9dde2; border: 1px solid var(--hg-line); border-left: 3px solid transparent; cursor: pointer; }
+.hangar-ship-btn.active { border-left-color: var(--hg-accent); background: #23272c; }
+.hangar-ship-btn.locked { opacity: 0.55; border-style: dashed; }
+.hangar-ship-name { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; }
+.hangar-ship-class { font-size: 9.5px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .1em; }
+.hangar-stats { display: flex; flex-direction: column; gap: 2px; }
+.hangar-stat-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; border-bottom: 1px solid rgba(58, 63, 69, .5); padding: 2px 0; }
+.hangar-stat-label { color: var(--hg-dim); text-transform: uppercase; letter-spacing: .06em; }
+.hangar-stat-value { font-variant-numeric: tabular-nums; }
 .hangar-bar-row { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
-.hangar-bar-label { font-size: 11px; color: #9fb4d0; }
-.hangar-bar-label.warn-text { color: #ff8080; }
-.hangar-bar-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
-.hangar-bar-fill { height: 100%; background: #5fe08c; }
-.hangar-bar-fill.warn { background: #ff4d5e; }
-.hangar-slot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; }
-.hangar-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; min-height: 60px; touch-action: manipulation; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
-.hangar-slot.filled { border-color: #57d8ff; }
-.hangar-slot.open { background: #1c3a5e; }
-.hangar-slot:disabled { opacity: .5; cursor: default; }
-.hangar-slot-icon { font-size: 16px; }
-.hangar-slot-label { font-size: 11px; font-weight: 600; }
-.hangar-slot-socket { font-size: 9px; color: #9fb4d0; text-align: center; }
-/* Systems-bay slots read green, matching their callouts on the hull. */
-.hangar-slot[data-kind="internal"] { border-color: #2f7d5e; }
-.hangar-slot[data-kind="internal"].filled { border-color: #63d2a4; }
-.hangar-picker { display: flex; flex-direction: column; gap: 6px; background: #0c1526; border: 1px solid #2f6fb8; border-radius: 6px; padding: 8px; }
-.hangar-picker-kind { margin-left: 8px; color: #6f84a0; text-transform: none; letter-spacing: 0; }
-.hangar-drag-hint { font-size: 10.5px; }
+.hangar-bar-label { font-size: 10.5px; color: var(--hg-dim); }
+.hangar-bar-label.warn-text { color: var(--hg-danger); }
+.hangar-bar-track { height: 5px; background: rgba(255,255,255,.07); overflow: hidden; }
+.hangar-bar-fill { height: 100%; background: var(--hg-accent); }
+.hangar-bar-fill.warn { background: var(--hg-danger); }
+
+/* ---- bottom instrument strip ---- */
+.hangar-statusbar { display: flex; gap: 16px; flex-wrap: wrap; border-top: 1px solid var(--hg-line); padding-top: 8px; margin-top: auto; }
+.hangar-specs { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.hangar-specs-title { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--hg-accent); margin-bottom: 3px; }
+.hangar-spec-row { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+.hangar-spec-label { color: var(--hg-dim); text-transform: uppercase; letter-spacing: .06em; }
+.hangar-spec-value { font-variant-numeric: tabular-nums; }
+.hangar-power { flex: 2 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.hangar-power-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hangar-power-max { font-size: 10px; letter-spacing: .1em; color: var(--hg-dim); font-variant-numeric: tabular-nums; }
+.hangar-power-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
+.hangar-power-label { flex: 0 0 68px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .08em; }
+.hangar-power-track { flex: 1 1 auto; height: 8px; background: rgba(255,255,255,.07); overflow: hidden; }
+.hangar-power-fill { height: 100%; background: var(--hg-accent); }
+.hangar-power-fill.over { background: var(--hg-danger); }
+.hangar-power-value { flex: 0 0 28px; text-align: right; font-variant-numeric: tabular-nums; }
+.hangar-power-warn { font-size: 10.5px; color: var(--hg-danger); }
+
+.hangar-slot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 4px; }
+.hangar-slot { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 8px; min-height: 56px; touch-action: manipulation; background: var(--hg-panel-2); color: #d9dde2; border: 1px solid var(--hg-line); border-left: 3px solid var(--hg-line); cursor: pointer; text-align: left; }
+.hangar-slot.filled { border-left-color: var(--hg-accent); }
+.hangar-slot.open { background: var(--hg-accent); color: #140b02; }
+.hangar-slot.open .hangar-slot-socket { color: rgba(20, 11, 2, .72); }
+.hangar-slot:disabled { opacity: .45; cursor: default; }
+.hangar-slot-icon { font-size: 14px; }
+.hangar-slot-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.hangar-slot-socket { font-size: 9px; color: var(--hg-dim); letter-spacing: .04em; }
+/* Systems-bay slots read cool, matching their callouts on the hull. */
+.hangar-slot[data-kind="internal"].filled { border-left-color: #6fb2d2; }
+.hangar-picker { display: flex; flex-direction: column; gap: 6px; background: var(--hg-panel-2); border: 1px solid var(--hg-line); padding: 8px; }
+.hangar-picker-kind { margin-left: 8px; color: var(--hg-dim); letter-spacing: .06em; }
+.hangar-drag-hint { font-size: 10px; }
 /*
  * Rolling list: a fixed-height scroller showing ~3-4 rows at a time, so a long
- * candidate list scrolls INSIDE the picker instead of pushing the stat panel
- * and fitting controls off the screen.
+ * candidate list scrolls INSIDE the picker instead of pushing the instrument
+ * strip off the screen.
  */
 .hangar-picker-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 232px;
+  gap: 4px;
+  max-height: 224px;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -1179,46 +1666,47 @@ const HANGAR_CSS = `
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 7px 8px;
-  font-size: 12px;
-  background: #12203a;
-  border: 1px solid #23456f;
-  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11.5px;
+  background: rgba(0, 0, 0, .25);
+  border: 1px solid var(--hg-line);
+  border-left: 3px solid transparent;
 }
 .hangar-picker-item[draggable="true"] { cursor: grab; }
 .hangar-picker-item[draggable="true"]:active { cursor: grabbing; }
-.hangar-picker-item.fitted { border-color: #57d8ff; }
+.hangar-picker-item.fitted { border-left-color: var(--hg-accent); }
 .hangar-picker-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.hangar-picker-name { font-weight: 600; }
-.hangar-picker-meta { color: #9fb4d0; font-size: 11px; white-space: nowrap; }
-.hangar-picker-stats { display: flex; flex-wrap: wrap; gap: 4px; }
+.hangar-picker-name { font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.hangar-picker-meta { color: var(--hg-dim); font-size: 10.5px; white-space: nowrap; text-transform: uppercase; letter-spacing: .06em; }
+.hangar-picker-stats { display: flex; flex-wrap: wrap; gap: 3px; }
 .hangar-stat-chip {
   display: inline-flex;
   gap: 4px;
-  padding: 1px 6px;
-  font-size: 10.5px;
-  background: rgba(87, 216, 255, .09);
-  border-radius: 999px;
+  padding: 1px 5px;
+  font-size: 10px;
+  background: rgba(240, 123, 5, .1);
+  border-left: 2px solid var(--hg-accent-dim);
 }
-.hangar-stat-chip .k { color: #8ba3c4; }
-.hangar-stat-chip .v { color: #e8f1ff; font-variant-numeric: tabular-nums; }
+.hangar-stat-chip .k { color: var(--hg-dim); text-transform: uppercase; letter-spacing: .05em; }
+.hangar-stat-chip .v { color: #d9dde2; font-variant-numeric: tabular-nums; }
 .hangar-picker-actions { display: flex; justify-content: flex-end; }
 .hangar-picker-actions:empty { display: none; }
 /* Landscape phones have little height: show fewer rows before scrolling. */
 @media (orientation: landscape) and (max-height: 520px) {
-  .hangar-picker-list { max-height: 168px; }
+  .hangar-picker-list { max-height: 152px; }
+  .hangar-rail { flex-basis: 116px; }
 }
-.hangar-upgrades { display: flex; flex-direction: column; gap: 6px; }
-.hangar-upgrade-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
-.hangar-upgrade-label { width: 72px; }
+.hangar-upgrades { display: flex; flex-direction: column; gap: 5px; }
+.hangar-upgrade-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11.5px; }
+.hangar-upgrade-label { width: 72px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .06em; }
 .hangar-pips { display: flex; flex-wrap: wrap; gap: 3px; flex: 1 1 60px; }
-.pip { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.15); border: 1px solid #2f6fb8; }
-.pip.filled { background: #57d8ff; }
+.pip { width: 9px; height: 5px; background: rgba(255,255,255,.12); }
+.pip.filled { background: var(--hg-accent); }
 .hangar-fit-controls { display: flex; flex-direction: column; gap: 6px; }
 .hangar-fit-btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.hangar-select, .hangar-input { width: 100%; box-sizing: border-box; padding: 8px; min-height: 40px; font-size: 16px; background: #0c1526; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; }
-.hangar-btn { padding: 8px 12px; min-height: 36px; touch-action: manipulation; font-size: 12px; background: #12203a; color: #e8f1ff; border: 1px solid #2f6fb8; border-radius: 6px; cursor: pointer; }
-.hangar-btn:disabled { opacity: .5; cursor: default; }
-.hangar-btn-primary { background: #57d8ff; color: #04101f; font-weight: 600; border: none; }
-.hangar-btn-danger { background: transparent; color: #ff8080; border-color: #ff4d5e; }
+.hangar-select, .hangar-input { width: 100%; box-sizing: border-box; padding: 8px; min-height: 38px; font-size: 16px; background: rgba(0,0,0,.35); color: #d9dde2; border: 1px solid var(--hg-line); }
+.hangar-btn { padding: 7px 12px; min-height: 34px; touch-action: manipulation; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; background: var(--hg-panel-2); color: #d9dde2; border: 1px solid var(--hg-line); cursor: pointer; }
+.hangar-btn:disabled { opacity: .45; cursor: default; }
+.hangar-btn-primary { background: var(--hg-accent); color: #140b02; font-weight: 700; border-color: var(--hg-accent); }
+.hangar-btn-danger { background: transparent; color: var(--hg-danger); border-color: var(--hg-danger); }
 `;

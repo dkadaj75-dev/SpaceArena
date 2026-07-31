@@ -13,6 +13,9 @@
     "drawIdle": 0,
     "drawActive": 20
   },
+  "power": {
+    "draw": 6
+  },
   "heat": {
     "perSecondActive": 16,
     "overheatThreshold": 55,

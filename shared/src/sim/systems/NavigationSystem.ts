@@ -6,6 +6,7 @@ import { advanceFrame, type FrameAttitude } from "../frame.js";
 /** Scratch frame — the sim loops over every ship each tick, so reuse one. */
 const scratchFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 import { pitchTuningOf } from "../tuningDefaults.js";
+import { carriedFlagOf } from "./CtfSystem.js";
 import type { World } from "../World.js";
 
 /**
@@ -16,6 +17,10 @@ import type { World } from "../World.js";
  */
 function resolveBoostMult(world: World, id: EntityId, core: ShipCore, dt: number): number {
   let speedMult = 1;
+  // A FLAG CARRIER has no afterburner (owner 2026-07-31). Not a penalty bolted
+  // on afterwards — it is what gives a defence time to arrive, and what makes
+  // the run a fight rather than a sprint.
+  if (carriedFlagOf(world, id)) return speedMult;
   const mods = world.modules.get(id);
   if (!mods) return speedMult;
   for (const m of mods.modules) {

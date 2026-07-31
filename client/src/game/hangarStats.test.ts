@@ -88,6 +88,33 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     expect(upgraded.hullMax).toBe(170); // 80 + upgrade.hull-std levels[4] add 90
   });
 
+  it("reports the power rail, and calls the stock fit comfortable (2026-07-31)", () => {
+    const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
+    expect(panel.powerCapacity).toBeGreaterThan(0);
+    expect(panel.powerDrawTotal).toBeLessThanOrEqual(panel.powerCapacity);
+    expect(panel.powerOverSubscribed).toBe(false);
+  });
+
+  it("flags an over-subscribed fit without pretending it is illegal", () => {
+    // A heavy gun AND a heavy shield on a light hull: buildable, saveable, and
+    // simply cannot run whole — which is exactly what the warning says.
+    const fit = [...interceptor.defaultFitting];
+    fit[0] = "module.laser-mk2";
+    fit[1] = "module.shield-mk2";
+    const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: fit });
+    expect(panel.powerDrawTotal).toBeGreaterThan(panel.powerCapacity);
+    expect(panel.powerOverSubscribed).toBe(true);
+  });
+
+  it("counts the transformer as the thing that widens the rail", () => {
+    const swap = (t: string) =>
+      interceptor.defaultFitting.map((m) => (m?.startsWith("module.transformer") ? t : m));
+    const stock = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.transformer-stock") });
+    const better = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.transformer-efficient") });
+    expect(better.powerCapacity).toBeGreaterThan(stock.powerCapacity);
+    expect(better.powerDrawTotal).toBe(stock.powerDrawTotal);
+  });
+
   it("is deterministic for identical inputs", () => {
     const a = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
     const b = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });

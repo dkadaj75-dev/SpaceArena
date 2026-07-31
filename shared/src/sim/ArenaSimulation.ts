@@ -1,6 +1,6 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import type { ArenaConfig, GamemodeConfig, TuningConfig } from "../schemas/index.js";
-import type { EntityId, ModuleState, ShipCore, TargetRef } from "./components.js";
+import type { EntityId, FlagState, ModuleState, ShipCore, TargetRef } from "./components.js";
 import type { SimEvent } from "./events.js";
 import type { Order } from "./orders.js";
 import { clamp } from "./math.js";
@@ -10,6 +10,7 @@ import type { UpgradeLevels } from "./resolveStats.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { cleanupSystem } from "./systems/CleanupSystem.js";
+import { ctfSystem, returnFlagHome, tryCapture } from "./systems/CtfSystem.js";
 import { combatSystem, latchFireState } from "./systems/CombatSystem.js";
 import { energySystem } from "./systems/EnergySystem.js";
 import { jettisonSystem } from "./systems/JettisonSystem.js";
@@ -97,6 +98,27 @@ export interface DecoySnapshot {
   lifeFraction: number;
 }
 
+/**
+ * A capture-the-flag flag (owner 2026-07-31), with everything a HUD, a renderer
+ * or a bot needs to play the objective: where it is, who has it, how long a
+ * dropped one has left, and the wake behind it.
+ */
+export interface FlagSnapshot {
+  id: EntityId;
+  /** The team it BELONGS to (defends it), not the team holding it. */
+  team: number;
+  state: FlagState;
+  carrierId: EntityId | null;
+  pos: { x: number; y: number; z: number };
+  /** Base position — where it returns to and where its owners score. */
+  home: { x: number; y: number; z: number };
+  baseRadius: number;
+  /** Seconds left before a dropped flag returns itself; 0 when not dropped. */
+  dropRemaining: number;
+  /** Wake positions, oldest first. Empty while the flag is home. */
+  trail: { x: number; y: number; z: number }[];
+}
+
 export interface ProjectileSnapshot {
   id: EntityId;
   kind: "kinetic" | "missile";
@@ -127,6 +149,12 @@ const COUNTDOWN_EPSILON = 1e-9;
 export interface TeamScore {
   team: number;
   kills: number;
+  /**
+   * Flag captures (owner 2026-07-31). Always present, always 0 outside a
+   * capture-the-flag mode — a scoreboard that has to ask "is this CTF?" before
+   * reading a number is a scoreboard that will read the wrong one.
+   */
+  captures: number;
 }
 
 export interface Snapshot {
@@ -151,6 +179,8 @@ export interface Snapshot {
   asteroids: AsteroidSnapshot[];
   projectiles: ProjectileSnapshot[];
   decoys: DecoySnapshot[];
+  /** Capture-the-flag flags; empty in every other mode. */
+  flags: FlagSnapshot[];
 }
 
 /**
@@ -201,6 +231,8 @@ export class ArenaSimulation {
   private lastCountdownAnnounced = -1;
   private winnerTeam: number | null = null;
   private readonly teamScores = new Map<number, number>();
+  /** Flag captures per team (capture-the-flag only). */
+  private readonly teamCaptures = new Map<number, number>();
   private readonly teamsEverPresent = new Set<number>();
   private destroyedShips = 0;
   /**
@@ -242,6 +274,41 @@ export class ArenaSimulation {
 
     for (const p of arena.asteroidPlacements) {
       spawnAsteroid(this.world, configs, p.asteroidId, p.position, p.scale ?? 1);
+    }
+    this.spawnFlags(arena, gamemode);
+  }
+
+  /**
+   * Stand up one flag per authored base (owner 2026-07-31). Only a gamemode with
+   * a `ctf` block does this: an arena may carry flag bases and still be played
+   * as a deathmatch, in which case they are scenery the sim never touches.
+   *
+   * A team with no base simply has no flag. That is a content mistake rather
+   * than a crash — the match is still playable, it just cannot be won on
+   * captures — so it is left to the content gate to complain about.
+   */
+  private spawnFlags(arena: ArenaConfig, gamemode: GamemodeConfig): void {
+    const rules = gamemode.ctf;
+    if (!rules) return;
+    for (const base of arena.flagBases ?? []) {
+      const home = { x: base.position.x, y: base.position.y ?? 0, z: base.position.z };
+      const id = this.world.createEntity();
+      this.world.transforms.set(id, {
+        pos: { ...home },
+        heading: 0,
+        pitch: 0,
+        up: { x: 0, y: 1, z: 0 },
+      });
+      this.world.flags.set(id, {
+        team: base.team,
+        state: "home",
+        carrierId: null,
+        dropTimer: 0,
+        home,
+        baseRadius: base.radius,
+        pickupRadius: rules.pickupRadius,
+        trail: [],
+      });
     }
   }
 
@@ -364,13 +431,45 @@ export class ArenaSimulation {
     energySystem(w, dt);
     projectileSystem(w, dt);
     collisionSystem(w, dt);
+    // Between collision and cleanup on purpose: a carrier killed this tick still
+    // has a transform, so its flag drops where it died rather than at the origin.
+    ctfSystem(w, dt);
     cleanupSystem(w);
     latchFireState(w);
 
     this.elapsed += dt;
     this.tickNo += 1;
+    this.processCaptures();
     this.processRespawns(dt);
     this.evaluateWinCondition();
+  }
+
+  /**
+   * Cash any completed run (owner 2026-07-31): a carrier standing in its own
+   * base, with its own team's flag at home, scores and the flag goes back.
+   *
+   * Scoring lives here rather than in CtfSystem because the score is the
+   * MATCH's, not the flag's — the same reason kills are tallied in
+   * `evaluateWinCondition` instead of in CombatSystem.
+   */
+  private processCaptures(): void {
+    if (!this.world.gamemode.ctf) return;
+    for (const flagId of this.world.flagIds()) {
+      const flag = this.world.flags.get(flagId)!;
+      const scored = tryCapture(this.world, flagId, flag);
+      if (!scored) continue;
+      const captures = (this.teamCaptures.get(scored.team) ?? 0) + 1;
+      this.teamCaptures.set(scored.team, captures);
+      this.world.emit({
+        type: "flagCaptured",
+        flagId,
+        flagTeam: flag.team,
+        carrierId: scored.carrierId,
+        scoringTeam: scored.team,
+        captures,
+      });
+      returnFlagHome(this.world, flagId, flag);
+    }
   }
 
   /**
@@ -505,6 +604,14 @@ export class ArenaSimulation {
         ended = true;
         winner = this.topTeam();
       }
+    } else if (wc.type === "captureLimit") {
+      for (const [team, captures] of this.teamCaptures) {
+        if (captures >= wc.count) {
+          ended = true;
+          winner = team;
+          break;
+        }
+      }
     }
 
     // Hard time cap layered over ANY win condition (frag-limit modes need a
@@ -538,16 +645,28 @@ export class ArenaSimulation {
     }
   }
 
+  /**
+   * Who is ahead. In a capture-the-flag match that means CAPTURES — a team that
+   * lost the fight but won the objective has won the match — with kills only as
+   * the tiebreak. Everywhere else it is kills, as it always was. A genuine tie
+   * returns null, which the caller reads as a draw.
+   */
   private topTeam(): number | null {
+    const isCtf = this.world.gamemode.ctf !== undefined;
     let best: number | null = null;
-    let bestScore = -1;
+    let bestPrimary = -1;
+    let bestSecondary = -1;
     let tie = false;
-    for (const [team, score] of this.teamScores) {
-      if (score > bestScore) {
-        bestScore = score;
+    for (const team of this.teamsEverPresent) {
+      const kills = this.teamScores.get(team) ?? 0;
+      const primary = isCtf ? (this.teamCaptures.get(team) ?? 0) : kills;
+      const secondary = isCtf ? kills : 0;
+      if (primary > bestPrimary || (primary === bestPrimary && secondary > bestSecondary)) {
+        bestPrimary = primary;
+        bestSecondary = secondary;
         best = team;
         tie = false;
-      } else if (score === bestScore) {
+      } else if (primary === bestPrimary && secondary === bestSecondary) {
         tie = true;
       }
     }
@@ -644,9 +763,28 @@ export class ArenaSimulation {
         lifeFraction: d.maxLifetime > 0 ? Math.max(0, Math.min(1, d.lifetime / d.maxLifetime)) : 0,
       };
     });
+    const flags: FlagSnapshot[] = w.flagIds().map((id) => {
+      const tf = w.transforms.get(id)!;
+      const f = w.flags.get(id)!;
+      return {
+        id,
+        team: f.team,
+        state: f.state,
+        carrierId: f.carrierId,
+        pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
+        home: { x: f.home.x, y: f.home.y, z: f.home.z },
+        baseRadius: f.baseRadius,
+        dropRemaining: f.state === "dropped" ? Math.max(0, f.dropTimer) : 0,
+        trail: f.trail.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+      };
+    });
     const teamScores: TeamScore[] = [...this.teamsEverPresent]
       .sort((a, b) => a - b)
-      .map((team) => ({ team, kills: this.teamScores.get(team) ?? 0 }));
+      .map((team) => ({
+        team,
+        kills: this.teamScores.get(team) ?? 0,
+        captures: this.teamCaptures.get(team) ?? 0,
+      }));
     return {
       tick: this.tickNo,
       elapsed: this.elapsed,
@@ -658,6 +796,7 @@ export class ArenaSimulation {
       asteroids,
       projectiles,
       decoys,
+      flags,
     };
   }
 }

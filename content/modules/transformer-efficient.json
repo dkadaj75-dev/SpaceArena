@@ -21,6 +21,11 @@
   },
   "passives": [
     {
+      "target": "power.capacity",
+      "op": "add",
+      "value": 10
+    },
+    {
       "target": "efficiency.energyDraw",
       "op": "mul",
       "value": 0.78

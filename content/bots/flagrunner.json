@@ -1,0 +1,63 @@
+{
+  "id": "bot.flagrunner",
+  "type": "botprofile",
+  "version": 1,
+  "name": "Flag Runner",
+  "decisionIntervalMs": 800,
+  "orderJitterMs": 250,
+  "preferredRange": [
+    24,
+    50
+  ],
+  "flight": {
+    "turnHorizonMult": 1.0,
+    "aimToleranceRad": 0.14,
+    "turnEpsilon": 0.12,
+    "pitchEpsilon": 0.12,
+    "throttleEpsilon": 0.1
+  },
+  "behaviors": {
+    "objective": {
+      "baseWeight": 1.6,
+      "throttle": 1.0,
+      "boostChance": 0.5,
+      "carryUrgency": 3.0,
+      "recoverUrgency": 2.2,
+      "recoverRange": 90,
+      "chaseUrgency": 1.6,
+      "attackUrgency": 1.0,
+      "arriveRange": 30,
+      "arriveThrottle": 0.4
+    },
+    "engage": {
+      "baseWeight": 0.9,
+      "throttleApproach": 1.0,
+      "throttleBand": 0.55,
+      "throttleClose": 0.3,
+      "hardTurnRad": 1.4,
+      "throttleTurn": 0.5,
+      "targetPreference": "nearest",
+      "holdLockTarget": true,
+      "boostChance": 0.15
+    },
+    "kite": {
+      "baseWeight": 0.7,
+      "urgencyGain": 0.4,
+      "breakRange": 12,
+      "standoffFrac": 0.5,
+      "slipRad": 0.4,
+      "throttleRun": 1.0
+    }
+  },
+  "moduleDiscipline": {
+    "heatShutdownAt": 0.98,
+    "reactivateBelow": 0.85,
+    "energyReserve": 0.05,
+    "shieldOnlyWhenEngaged": false
+  },
+  "fireDiscipline": {
+    "engageRangeMult": 0.7,
+    "heatHeadroom": 0.75,
+    "minEnergyFraction": 0.05
+  }
+}

@@ -5,6 +5,7 @@ import {
   advanceStreak,
   announcementFor,
   announcementClass,
+  flagAnnouncementFor,
   KillAnnouncements,
   MULTI_KILL_WINDOW_MS,
   type KillStreakState,
@@ -114,6 +115,87 @@ describe("KillAnnouncements (component)", () => {
     hud.reset();
     hud.consumeEvents([kill(31, PLAYER)], 2000);
     expect(hud.currentText).toBe("FIRST BLOOD");
+    hud.dispose();
+  });
+});
+
+describe("flagAnnouncementFor — phrased from the viewer's side (2026-07-31)", () => {
+  const BLUE = 0;
+  const RED = 1;
+  const taken = (carrierId: number, carrierTeam: number, flagTeam: number): SimEvent => ({
+    type: "flagTaken",
+    flagId: 90,
+    flagTeam,
+    carrierId,
+    carrierTeam,
+  });
+
+  it("says YOU when the viewer is the one holding it", () => {
+    expect(flagAnnouncementFor(taken(PLAYER, BLUE, RED), PLAYER, BLUE)?.text).toBe("YOU HAVE THE ENEMY FLAG");
+  });
+
+  it("distinguishes an ally's grab from an enemy stealing yours", () => {
+    expect(flagAnnouncementFor(taken(8, BLUE, RED), PLAYER, BLUE)?.text).toBe("ENEMY FLAG TAKEN");
+    expect(flagAnnouncementFor(taken(9, RED, BLUE), PLAYER, BLUE)?.text).toBe("ENEMY HAS YOUR FLAG");
+  });
+
+  it("reads the SAME event the opposite way for the opposite team", () => {
+    const ev = taken(9, RED, BLUE);
+    expect(flagAnnouncementFor(ev, PLAYER, BLUE)?.text).toBe("ENEMY HAS YOUR FLAG");
+    expect(flagAnnouncementFor(ev, PLAYER, RED)?.text).toBe("ENEMY FLAG TAKEN");
+  });
+
+  it("colours good news and bad news differently", () => {
+    const capture: SimEvent = { type: "flagCaptured", flagId: 90, flagTeam: RED, carrierId: PLAYER, scoringTeam: BLUE, captures: 1 };
+    expect(flagAnnouncementFor(capture, PLAYER, BLUE)).toEqual({ text: "FLAG CAPTURED!", flavour: "flag-good" });
+    expect(flagAnnouncementFor(capture, PLAYER, RED)).toEqual({ text: "ENEMY SCORES", flavour: "flag-bad" });
+  });
+
+  it("calls drops and returns for whichever flag it was", () => {
+    const dropped: SimEvent = { type: "flagDropped", flagId: 90, flagTeam: BLUE, carrierId: 9, returnSec: 10 };
+    expect(flagAnnouncementFor(dropped, PLAYER, BLUE)?.text).toBe("YOUR FLAG DROPPED");
+    expect(flagAnnouncementFor(dropped, PLAYER, RED)?.text).toBe("ENEMY FLAG DROPPED");
+    const returned: SimEvent = { type: "flagReturned", flagId: 90, flagTeam: BLUE, byId: null, timedOut: true };
+    expect(flagAnnouncementFor(returned, PLAYER, BLUE)?.text).toBe("YOUR FLAG IS BACK");
+    expect(flagAnnouncementFor(returned, PLAYER, RED)?.text).toBe("ENEMY FLAG RETURNED");
+  });
+
+  it("stays silent for non-flag events and before the viewer's team is known", () => {
+    expect(flagAnnouncementFor(kill(3, PLAYER), PLAYER, BLUE)).toBeNull();
+    expect(flagAnnouncementFor(taken(PLAYER, BLUE, RED), PLAYER, null)).toBeNull();
+  });
+});
+
+describe("flag calls on the live announcer", () => {
+  function mount(): { hud: KillAnnouncements } {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    return { hud: new KillAnnouncements(root, PLAYER) };
+  }
+
+  it("announces once the viewer's team is known, and not before", () => {
+    const { hud } = mount();
+    const ev: SimEvent = { type: "flagCaptured", flagId: 90, flagTeam: 1, carrierId: PLAYER, scoringTeam: 0, captures: 1 };
+    hud.consumeEvents([ev], 100);
+    expect(hud.currentText).toBe("");
+    hud.setPlayerTeam(0);
+    hud.consumeEvents([ev], 200);
+    expect(hud.currentText).toBe("FLAG CAPTURED!");
+    hud.dispose();
+  });
+
+  it("does not spend a kill streak on a flag call", () => {
+    const { hud } = mount();
+    hud.setPlayerTeam(0);
+    hud.consumeEvents([kill(30, PLAYER)], 1000); // FIRST BLOOD
+    hud.consumeEvents(
+      [{ type: "flagTaken", flagId: 90, flagTeam: 1, carrierId: PLAYER, carrierTeam: 0 } as SimEvent],
+      1100,
+    );
+    expect(hud.currentText).toBe("YOU HAVE THE ENEMY FLAG");
+    hud.consumeEvents([kill(31, PLAYER)], 1200);
+    // Still a chain of two — the flag call did not reset or advance it.
+    expect(hud.currentText).toBe("DOUBLE KILL");
     hud.dispose();
   });
 });
