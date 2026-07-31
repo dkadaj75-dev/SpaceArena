@@ -302,7 +302,10 @@ export class FlightControls {
     this.refreshBoostState(ship);
     const fire = this.fireButton.held || this.canvasFire.held || keys.fire;
     this.fireButton.setKeyActive(this.canvasFire.held || keys.fire);
-    if (fire && !this.fireWasHeld && !ship.locked) {
+    // "NO LOCK" feedback only when the pull genuinely does nothing — i.e. every
+    // fitted weapon is a homing one that still hard-requires a lock. Straight-
+    // fire weapons (laser/kinetic/beam) now shoot down the nose without a lock.
+    if (fire && !this.fireWasHeld && !ship.locked && !this.hasStraightFireWeapon(ship)) {
       this.reticle.flashNoLock();
       this.onBlockedFire?.();
     }
@@ -473,6 +476,15 @@ export class FlightControls {
     const module = ship.modules[index]!;
     this.boostHardpointIndex = module.hardpointIndex;
     this.boostActive = module.state === "active";
+  }
+
+  /** Whether any fitted weapon can fire without a lock (non-homing `fire`). */
+  private hasStraightFireWeapon(ship: ShipSnapshot): boolean {
+    for (const m of ship.modules) {
+      const fire = this.configs.get<ModuleConfig>("module", m.moduleId)?.fire;
+      if (fire && fire.projectile?.turnRate === undefined) return true;
+    }
+    return false;
   }
 
   /**

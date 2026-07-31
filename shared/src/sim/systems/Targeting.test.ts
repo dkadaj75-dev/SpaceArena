@@ -386,16 +386,30 @@ describe("CombatSystem lock gate", () => {
     return before - world.shipCores.get(foe)!.hull;
   }
 
-  it("holds fire until the lock completes, then shoots", () => {
-    const { world, me, foe } = scene({ x: 20, z: 0 });
+  it("an off-nose target inside the cone is safe until the lock completes, then the aim takes over", () => {
+    // Off the nose ray (z=8 at x=20 ≈ 22° — inside the 30° half-cone, well past
+    // the 1.8-unit ray reach): straight fire misses, so damage starts exactly
+    // when the lock fills and the aimed path engages.
+    const { world, me, foe } = scene({ x: 20, z: 8 });
     const laser = world.modules.get(me)!.modules[LASER]!;
     laser.state = "active";
     const lockTicks = ticksToLock(sensorsOf(world, me).lockTimeSec);
 
     // Every tick up to (but excluding) the one that fills the lock: no damage.
+    // (Straight fire is happening the whole time — it just cannot connect off
+    // the nose line, which is what makes this a clean read of the lock gate.)
     expect(fireFor(world, foe, lockTicks - 1)).toBe(0);
     expect(world.targets.get(me)!.locked).toBe(false);
-    expect(fireFor(world, foe, 1)).toBeGreaterThan(0);
+    // Once locked, the next cleared cycle lands on the target.
+    expect(fireFor(world, foe, 15)).toBeGreaterThan(0);
+  });
+
+  it("a target dead on the nose line is hit by straight fire before any lock completes", () => {
+    const { world, me, foe } = scene({ x: 20, z: 0 });
+    const lockTicks = ticksToLock(sensorsOf(world, me).lockTimeSec);
+    const dealt = fireFor(world, foe, Math.min(2, lockTicks - 1));
+    expect(world.targets.get(me)!.locked).toBe(false);
+    expect(dealt).toBeGreaterThan(0);
   });
 
   it("keeps firing through the drain grace and stops when the lock breaks", () => {

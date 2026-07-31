@@ -28,10 +28,19 @@ function tickModules(world: World, n: number): void {
 }
 
 describe("ModuleSystem state machine", () => {
+  it("spawns weapons ONLINE and support modules retracted (2026-07-31)", () => {
+    const { world, id } = shipWorld();
+    const states = world.modules.get(id)!.modules.map((m) => m.state);
+    // Interceptor fitting: laser, missile (weapons — online), shield, boost.
+    expect(states).toEqual(["active", "active", "retracted", "retracted"]);
+  });
+
   it("cycles retracted → deploying → active → retracting → retracted", () => {
     const { world, id } = shipWorld();
     const mod = world.modules.get(id)!.modules[LASER]!;
-    expect(mod.state).toBe("retracted");
+    // Weapons spawn active now; park it retracted to walk the full cycle with
+    // the laser's authored timers (deploy 0.5s / retract 0.35s).
+    mod.state = "retracted";
 
     world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
     moduleSystem(world, DT);
@@ -50,31 +59,45 @@ describe("ModuleSystem state machine", () => {
 
   it("emits moduleStateChanged with activate action ids", () => {
     const { world, id } = shipWorld();
-    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
+    // Shield spawns retracted, so its toggle is the deploy edge.
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: 2 });
     moduleSystem(world, DT);
     const evt = world.events.find((e) => e.type === "moduleStateChanged" && e.to === "deploying");
     expect(evt).toBeTruthy();
   });
 
-  it("overheats when heat crosses threshold, then cools back to retracted", () => {
+  it("overheats a support module past threshold, then cools back to retracted", () => {
     const { world, id } = shipWorld();
-    const mod = world.modules.get(id)!.modules[LASER]!;
-    // Bring it to active.
-    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
-    tickModules(world, 46);
-    expect(mod.state).toBe("active");
+    const shield = world.modules.get(id)!.modules[2]!;
+    shield.state = "active";
 
-    // Push heat just under threshold (55) then run one worked tick via energySystem.
-    mod.heat = 54.9;
-    mod.workedThisTick = true;
+    // Push heat just under threshold (60) then run one worked tick via energySystem.
+    shield.heat = 59.9;
+    shield.workedThisTick = true;
     energySystem(world, DT);
-    expect(mod.state).toBe("overheated");
+    expect(shield.state).toBe("overheated");
     expect(world.events.some((e) => e.type === "overheated")).toBe(true);
 
     // Cooldown (5s ≈ 150 ticks; a margin covers float drift) → retracted.
     tickModules(world, 160);
-    expect(mod.state).toBe("retracted");
-    expect(mod.heat).toBe(0);
+    expect(shield.state).toBe("retracted");
+    expect(shield.heat).toBe(0);
+  });
+
+  it("re-arms a WEAPON straight to active after its overheat lockout", () => {
+    const { world, id } = shipWorld();
+    const laser = world.modules.get(id)!.modules[LASER]!;
+    expect(laser.state).toBe("active");
+
+    laser.heat = 54.9; // threshold 55
+    laser.workedThisTick = true;
+    energySystem(world, DT);
+    expect(laser.state).toBe("overheated");
+
+    // 3 s lockout (90 ticks; margin for float drift) → straight back online.
+    tickModules(world, 100);
+    expect(laser.state).toBe("active");
+    expect(laser.heat).toBe(0);
   });
 
   it("ignores toggles while overheated", () => {
@@ -119,6 +142,7 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
   it("a toggle mid-deploy reverses straight into retracting (deploy is cancellable)", () => {
     const { world, id } = shipWorld();
     const mod = world.modules.get(id)!.modules[LASER]!;
+    mod.state = "retracted"; // weapons spawn active; the test wants the deploy edge
     toggle(world, id, LASER);
     advance(world, id, 5); // 0.17s into a 0.5s deploy
     expect(mod.state).toBe("deploying");
@@ -136,6 +160,7 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
   it("a toggle mid-retract re-deploys from the start of deployTime", () => {
     const { world, id } = shipWorld();
     const mod = world.modules.get(id)!.modules[LASER]!;
+    mod.state = "retracted"; // weapons spawn active; the test wants the deploy edge
     toggle(world, id, LASER);
     advance(world, id, 45);
     expect(mod.state).toBe("active");

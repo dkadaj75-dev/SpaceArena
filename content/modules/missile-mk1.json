@@ -10,19 +10,20 @@
     "retractTime": 0.4
   },
   "energy": {
-    "drawIdle": 2,
+    "drawIdle": 0,
     "drawActive": 6
   },
   "heat": {
     "perSecondActive": 4,
     "overheatThreshold": 50,
-    "overheatCooldown": 6.0,
+    "overheatCooldown": 3.0,
     "overheatSelfDamage": 0
   },
   "fire": {
     "mode": "semi",
     "range": 137.5,
     "cycleTime": 2.5,
+    "heatPerShot": 12,
     "damage": 22,
     "damageType": "kinetic",
     "requiresLineOfSight": true,

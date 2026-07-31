@@ -23,6 +23,23 @@ function fakeConfigs(): ConfigService {
       },
     },
     "module.shield-mk1": { name: "Deflector Shield Mk I", family: "shield", ui: { icon: "S", label: "Shield" }, activation: { deployTime: 1, retractTime: 1 }, energy: { drawIdle: 8, drawActive: 14 }, heat: { perSecondActive: 3, overheatThreshold: 60, overheatCooldown: 5, overheatSelfDamage: 0 } },
+    "module.missile-mk1": {
+      name: "Seeker Missile Mk I",
+      family: "missile",
+      ui: { icon: "M", label: "Missile", shortName: "Missile Mk1" },
+      activation: { deployTime: 1, retractTime: 1 },
+      energy: { drawIdle: 0, drawActive: 6 },
+      heat: { perSecondActive: 4, overheatThreshold: 50, overheatCooldown: 3, overheatSelfDamage: 0 },
+      fire: {
+        mode: "semi",
+        range: 55,
+        cycleTime: 2.5,
+        damage: 22,
+        damageType: "kinetic",
+        projectile: { speed: 40, turnRate: 2.2, lifetime: 4.5 },
+        requiresLineOfSight: true,
+      },
+    },
   };
   return { get: (_type: string, id: string) => modules[id] as ModuleConfig | undefined } as unknown as ConfigService;
 }
@@ -172,16 +189,20 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       snapshotWithModules(
         [
           { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", cycleTimer: 0.4 },
+          { hardpointIndex: 1, moduleId: "module.missile-mk1", state: "active" },
           { hardpointIndex: 2, moduleId: "module.shield-mk1", state: "active" },
         ],
         { locked: false },
       ),
     );
-    const [laser, shield] = [...root.querySelectorAll<HTMLElement>(".hud-module-btn")];
+    const [laser, missile, shield] = [...root.querySelectorAll<HTMLElement>(".hud-module-btn")];
     expect(laser!.classList).toContain("armed");
     expect(laser!.classList).toContain("cooling");
-    expect(laser!.classList).toContain("unarmable");
+    // Straight-fire weapons (2026-07-31) shoot without a lock — never greyed.
+    expect(laser!.classList).not.toContain("unarmable");
     expect(laser!.style.getPropertyValue("--ring")).toBe("40");
+    // Homing missiles still hard-require the lock, so THEY grey out.
+    expect(missile!.classList).toContain("unarmable");
     expect(shield!.classList).not.toContain("armed");
     expect(shield!.classList).not.toContain("cooling");
     expect(shield!.classList).not.toContain("unarmable");

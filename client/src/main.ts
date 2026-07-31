@@ -36,6 +36,7 @@ import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
 import { MatchmakingScreen } from "./game/screens/MatchmakingScreen.js";
+import { FullscreenPrompt } from "./game/screens/FullscreenPrompt.js";
 import { UserSettingsStore, type UserSettings } from "./core/userSettings.js";
 import { NetGameSession } from "./net/NetGameSession.js";
 import { MatchmakingClient } from "./net/MatchmakingClient.js";
@@ -677,6 +678,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // it once here before meeting the same message as a lobby badge.
   boot?.subtitle(health.online ? "READY" : "READY — OFFLINE");
   void boot?.dismiss(health.online ? 0 : 1600);
+
+  // Launch fullscreen offer, over whichever screen just appeared. The
+  // Fullscreen API needs a user gesture, so this dialog's button IS the
+  // gesture — the page cannot simply requestFullscreen() on load.
+  FullscreenPrompt.maybeShow();
 
   /** The Hangar's last-saved ship/fitting choice (ROADMAP §9 4.5), as additive NetGameSession join options. */
   function hangarJoinOptions(): { shipId?: string; fittingId?: string } {

@@ -140,16 +140,19 @@ describe("ArenaRoom", () => {
     const ack3 = await c1.waitForMessage("orderAck");
     expect(ack3).toMatchObject({ accepted: false, reason: "malformed" });
 
-    // Module toggle → module leaves the retracted (0) state.
-    expect(p1.modules[0]!.state).toBe(0);
+    // Weapons spawn ONLINE (2 = active) since 2026-07-31; support modules do not.
+    expect(p1.modules[0]!.state).toBe(2);
     // The continuous-channel flag rides the same per-module state; a `held`
     // laser must never set it.
     expect(p1.modules[0]!.channeling).toBe(false);
-    c1.send("order", { seq: 4, order: { kind: "moduleToggle", hardpointIndex: 0 } });
+
+    // Module toggle → the shield leaves the retracted (0) state.
+    expect(p1.modules[2]!.state).toBe(0);
+    c1.send("order", { seq: 4, order: { kind: "moduleToggle", hardpointIndex: 2 } });
     const ack4 = await c1.waitForMessage("orderAck");
     expect(ack4).toMatchObject({ seq: 4, accepted: true });
     await advance(room, 2);
-    expect(p1.modules[0]!.state).toBeGreaterThan(0);
+    expect(p1.modules[2]!.state).toBeGreaterThan(0);
 
     await c1.leave();
     await c2.leave();
@@ -192,15 +195,15 @@ describe("ArenaRoom", () => {
     c1.onMessage("fireEvent", (m) => fireEvents.push(m));
     c1.onMessage("simEvent", (m) => simEvents.push(m as { type: string }));
 
-    // Focus the enemy and activate the laser (hardpoint 0).
+    // Focus the enemy and pull the trigger — the laser spawns ONLINE (2026-07-31),
+    // so no moduleToggle is needed (one would retract it).
     c1.send("order", { seq: 1, order: { kind: "target", targetId: enemyId } });
-    c1.send("order", { seq: 2, order: { kind: "moduleToggle", hardpointIndex: 0 } });
     c1.send("order", {
-      seq: 3,
+      seq: 2,
       order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true },
     });
 
-    // Enough ticks for deploy (1.5s) + a few laser cycles to kill 8 hull.
+    // Enough ticks for the lock + a few laser cycles to kill 8 hull.
     for (let i = 0; i < 200 && room.state.matchPhase !== "ended"; i++) {
       await advance(room, 1);
     }
@@ -788,10 +791,10 @@ describe("ArenaRoom", () => {
     c1.onMessage("simEvent", (m) => rewards.push(m as { type: string; credits: number; xp: number }));
 
     // The enemy is parked dead ahead inside the sensor cone, so automatic
-    // targeting (FLIGHT.md §2) locks it; bring the laser up and let it fire.
-    c1.send("order", { seq: 1, order: { kind: "moduleToggle", hardpointIndex: 0 } });
+    // targeting (FLIGHT.md §2) locks it; the laser spawns ONLINE (2026-07-31),
+    // so pulling the trigger is all it takes.
     c1.send("order", {
-      seq: 2,
+      seq: 1,
       order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true },
     });
 

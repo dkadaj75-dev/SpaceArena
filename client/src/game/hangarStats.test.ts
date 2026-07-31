@@ -51,8 +51,9 @@ describe("computeStatPanel (Hangar stat panel)", () => {
 
   it("sums idle draw and dps across the default fitting", () => {
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
-    // laser-mk1 drawIdle 3, missile-mk1 drawIdle 2, shield-mk1 drawIdle 8, boost-mk1 drawIdle 1.
-    expect(panel.idleDrawTotal).toBe(3 + 2 + 8 + 1);
+    // Weapons idle free since 2026-07-31 (heat is their budget); shield-mk1
+    // drawIdle 12, boost-mk1 drawIdle 1.
+    expect(panel.idleDrawTotal).toBe(0 + 0 + 12 + 1);
     expect(panel.energyBudget).toBe(panel.capacitorRegen - panel.idleDrawTotal);
     // laser 7/0.4 + missile 22/2.5 = 17.5 + 8.8 = 26.3 (shield/boost have no fire block).
     expect(panel.dps).toBeCloseTo(7 / 0.4 + 22 / 2.5, 6);
@@ -62,7 +63,7 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     // Fit every hardpoint with the shield (heaviest idle draw) to force a deficit.
     const heavy = interceptor.defaultFitting.map(() => "module.shield-mk1");
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: heavy });
-    expect(panel.idleDrawTotal).toBe(8 * 4);
+    expect(panel.idleDrawTotal).toBe(12 * 4);
     expect(panel.energyBudget).toBeLessThan(0);
   });
 

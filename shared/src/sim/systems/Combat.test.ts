@@ -26,7 +26,8 @@ beforeAll(async () => {
  * Shooter (team 0) with an active weapon targeting an enemy (team 1). The shooter
  * faces +x (heading 0) and every `targetPos` used here sits on that axis inside
  * `sensors.lockRange`, so {@link warmLock} can drive the real lock to full before
- * the assertions — weapons cannot fire unlocked (FLIGHT.md §2).
+ * the assertions — the aimed (locked) firing path is the one under test here;
+ * the no-lock straight-fire path has its own describe below.
  */
 function duel(
   targetPos: { x: number; z: number },
@@ -35,6 +36,10 @@ function duel(
   const world = makeWorld(configs);
   const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
   const target = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, targetPos, 0);
+  // Weapons spawn ONLINE now — park everything but the weapon under test so the
+  // assertions keep isolating one module, exactly as before.
+  for (const other of world.modules.get(shooter)!.modules) other.state = "retracted";
+  for (const other of world.modules.get(target)!.modules) other.state = "retracted";
   const mod = world.modules.get(shooter)!.modules[weapon]!;
   mod.state = "active";
   mod.cycleTimer = 0;
@@ -85,6 +90,97 @@ describe("CombatSystem beam", () => {
     const before = world.shipCores.get(target)!.hull;
     combatSystem(world, DT);
     expect(world.shipCores.get(target)!.hull).toBe(before);
+  });
+});
+
+describe("CombatSystem straight fire — no lock, non-homing weapons (2026-07-31)", () => {
+  /** duel() with the lock stripped: trigger held, nothing locked. */
+  function noLockDuel(targetPos: { x: number; z: number }, weapon = LASER) {
+    const fixture = duel(targetPos, weapon);
+    const ref = fixture.world.targets.get(fixture.shooter)!;
+    ref.locked = false;
+    ref.lockProgress = 0;
+    ref.targetId = null;
+    return fixture;
+  }
+
+  it("a hitscan laser damages the enemy sitting dead ahead on the nose line", () => {
+    const { world, target } = noLockDuel({ x: 20, z: 0 });
+    const before = world.shipCores.get(target)!.hull;
+    combatSystem(world, DT);
+    expect(world.shipCores.get(target)!.hull).toBeLessThan(before);
+    const shot = world.events.find((e) => e.type === "projectileFired");
+    expect(shot).toMatchObject({ kind: "beam", targetId: target });
+  });
+
+  it("a miss still spends the shot — cycle, heat, energy — and reports no victim", () => {
+    const { world, shooter, target } = noLockDuel({ x: 20, z: 0 });
+    world.transforms.get(shooter)!.heading = Math.PI / 2; // nose off the target
+    rebuildSpatial(world);
+    const before = world.shipCores.get(target)!.hull;
+
+    combatSystem(world, DT);
+
+    expect(world.shipCores.get(target)!.hull).toBe(before);
+    const weapon = world.modules.get(shooter)!.modules[LASER]!;
+    expect(weapon.workedThisTick).toBe(true);
+    expect(weapon.cycleTimer).toBeGreaterThan(0);
+    expect(weapon.heat).toBeGreaterThan(0); // authored heatPerShot
+    expect(world.events.find((e) => e.type === "projectileFired")).toMatchObject({
+      kind: "beam",
+      targetId: null,
+    });
+  });
+
+  it("an asteroid on the nose line soaks the beam instead of the ship behind it", () => {
+    const { world, target } = noLockDuel({ x: 20, z: 0 });
+    const rock = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 10, z: 0 });
+    rebuildSpatial(world);
+    const shipBefore = world.shipCores.get(target)!.hull;
+    const rockBefore = world.asteroids.get(rock)!.hp;
+
+    combatSystem(world, DT);
+
+    expect(world.shipCores.get(target)!.hull).toBe(shipBefore);
+    expect(world.asteroids.get(rock)!.hp).toBeLessThan(rockBefore);
+  });
+
+  it("a kinetic weapon launches a dumb round down the nose that hits the ship ahead", () => {
+    const KINETIC_FITTING = ["module.kinetic-mk1", null, null, null];
+    const world = makeWorld(configs);
+    const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", KINETIC_FITTING, 0, { x: 0, z: 0 }, 0);
+    const target = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 20, z: 0 }, 0);
+    for (const m of world.modules.get(target)!.modules) m.state = "retracted";
+    world.flightStates.set(shooter, {
+      throttle: 0,
+      turn: 0,
+      pitchStick: 0,
+      boost: false,
+      fire: true,
+      firePrev: false,
+    });
+    rebuildSpatial(world);
+
+    const before = world.shipCores.get(target)!.hull;
+    combatSystem(world, DT); // weapon spawned online; no lock at all
+    expect(world.events.find((e) => e.type === "projectileFired")).toMatchObject({
+      kind: "kinetic",
+      targetId: null,
+    });
+    for (let i = 0; i < 30 && world.projectileIds().length > 0; i++) {
+      rebuildSpatial(world);
+      projectileSystem(world, DT);
+    }
+    expect(world.shipCores.get(target)!.hull).toBeLessThan(before);
+  });
+
+  it("the nose ray never reaches past fire.range", () => {
+    const { world, target } = noLockDuel({ x: 110, z: 0 }); // laser range 95
+    const before = world.shipCores.get(target)!.hull;
+    combatSystem(world, DT);
+    expect(world.shipCores.get(target)!.hull).toBe(before);
+    // The shot itself still leaves (a visible miss), it just cannot connect.
+    expect(world.events.find((e) => e.type === "projectileFired")).toMatchObject({ targetId: null });
   });
 });
 
@@ -158,8 +254,10 @@ describe("CombatSystem trigger discipline", () => {
     expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
   });
 
-  it("an unlocked trigger pull spends no firing energy and emits nothing", () => {
-    const { world, shooter } = duel({ x: 20, z: 0 });
+  it("an unlocked trigger pull on a HOMING weapon spends nothing and emits nothing", () => {
+    // Missiles are the one weapon class that still hard-requires a lock — they
+    // need a target to home on. Straight-fire weapons are covered below.
+    const { world, shooter } = duel({ x: 20, z: 0 }, MISSILE);
     world.targets.get(shooter)!.locked = false;
     const core = world.shipCores.get(shooter)!;
     const before = core.capacitor.cur;
@@ -167,7 +265,7 @@ describe("CombatSystem trigger discipline", () => {
     combatSystem(world, DT);
 
     expect(core.capacitor.cur).toBe(before);
-    expect(world.modules.get(shooter)!.modules[LASER]!.workedThisTick).toBe(false);
+    expect(world.modules.get(shooter)!.modules[MISSILE]!.workedThisTick).toBe(false);
     expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
   });
 
@@ -229,7 +327,11 @@ describe("CombatSystem — a dead target is not a target (review Finding 6)", ()
     const first = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
     const second = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 6 }, 0);
     const target = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 20, z: 3 }, 0);
+    // Weapons spawn ONLINE — park everything, then arm only the lasers so the
+    // shot ledger below counts one weapon per shooter.
+    for (const m of world.modules.get(target)!.modules) m.state = "retracted";
     for (const shooter of [first, second]) {
+      for (const m of world.modules.get(shooter)!.modules) m.state = "retracted";
       const mod = world.modules.get(shooter)!.modules[LASER]!;
       mod.state = "active";
       mod.cycleTimer = 0;
@@ -248,25 +350,32 @@ describe("CombatSystem — a dead target is not a target (review Finding 6)", ()
     return { world, first, second, target };
   }
 
-  it("the second attacker spends no cycle and no energy once the first one's shot kills the target", () => {
+  it("a wreck takes no further hits — the second attacker's held trigger degrades to a straight miss", () => {
     const { world, first, second, target } = twoOnOne();
     // One laser tick is enough to finish it.
     world.shipCores.get(target)!.hull = 1;
-    const energyBefore = world.shipCores.get(second)!.capacitor.cur;
 
     combatSystem(world, DT);
 
     // The lower-id attacker fired and killed.
-    expect(world.shipCores.get(target)!.hull).toBeLessThanOrEqual(0);
+    expect(world.shipCores.get(target)!.hull).toBe(0);
     expect(world.modules.get(first)!.modules[LASER]!.cycleTimer).toBeGreaterThan(0);
 
-    // The second one found a wreck: no cooldown started, no energy earmarked,
-    // and exactly one shot exists for the whole tick.
-    const secondMod = world.modules.get(second)!.modules[LASER]!;
-    expect(secondMod.cycleTimer).toBe(0);
-    expect(secondMod.workedThisTick).toBe(false);
-    expect(world.shipCores.get(second)!.capacitor.cur).toBe(energyBefore);
-    expect(world.events.filter((e) => e.type === "projectileFired").length).toBe(1);
+    // The second one's lock target is a corpse, so its held trigger falls back
+    // to the straight-fire path — and the nose raycast SKIPS dead hulls, so the
+    // wreck is not hit again: no damage event names it after the kill.
+    const events = world.events;
+    const killIndex = events.findIndex((e) => e.type === "entityDestroyed");
+    expect(killIndex).toBeGreaterThanOrEqual(0);
+    const postKillHits = events
+      .slice(killIndex + 1)
+      .filter((e) => e.type === "damage" && e.targetId === target);
+    expect(postKillHits).toHaveLength(0);
+    // The straight shot still happened (heat/energy are the pilot's problem) —
+    // as a beam with no victim.
+    const shots = events.filter((e) => e.type === "projectileFired");
+    expect(shots).toHaveLength(2);
+    expect(shots[1]).toMatchObject({ ownerId: second, targetId: null });
   });
 
   it("both attackers still fire while the target is alive", () => {
@@ -446,6 +555,10 @@ describe("CombatSystem continuous channel", () => {
     const world = makeWorld(cfgs);
     const shooter = spawnShipFromConfig(world, cfgs, "ship.interceptor", BEAM_FITTING, 0, { x: 0, z: 0 }, 0);
     const target = spawnShipFromConfig(world, cfgs, "ship.interceptor", INTERCEPTOR_FITTING, 1, targetPos, 0);
+    // Weapons spawn ONLINE — retract everything, then arm only the beam so the
+    // channel is measured in isolation (the semi missile would fire too).
+    for (const other of world.modules.get(shooter)!.modules) other.state = "retracted";
+    for (const other of world.modules.get(target)!.modules) other.state = "retracted";
     const mod = world.modules.get(shooter)!.modules[BEAM]!;
     mod.state = "active";
     world.flightStates.set(shooter, {
@@ -518,15 +631,48 @@ describe("CombatSystem continuous channel", () => {
     expect(world.modules.get(shooter)!.modules[BEAM]!.channel).toBe(null);
   });
 
-  it("stops instantly when the lock breaks (FLIGHT.md section 2 — no lock, no weapon)", () => {
+  it("on lock loss falls back to the straight nose channel — off the nose line it stops", () => {
     const { world, shooter, target } = channelDuel();
     for (let i = 0; i < 10; i++) channelTick(world);
 
+    // Lock breaks AND the target slides off the nose line: nothing on the ray,
+    // so the channel stops that tick.
     world.targets.get(shooter)!.locked = false;
+    world.transforms.get(target)!.pos.z += 30;
+    rebuildSpatial(world);
     const atLockLoss = world.shipCores.get(target)!.hull;
     channelTick(world);
 
     expect(world.shipCores.get(target)!.hull).toBe(atLockLoss);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(false);
+  });
+
+  it("without a lock the channel chews whatever enemy the nose crosses (straight fire)", () => {
+    const { world, shooter, target, dps } = channelDuel(); // target dead ahead at x=20
+    world.targets.get(shooter)!.locked = false;
+    world.targets.get(shooter)!.targetId = null;
+
+    const before = world.shipCores.get(target)!.hull;
+    const ticks = 30;
+    for (let i = 0; i < ticks; i++) channelTick(world);
+
+    expect(before - world.shipCores.get(target)!.hull).toBeCloseTo(dps * ticks * DT, 9);
+    expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(true);
+  });
+
+  it("a no-lock channel is blocked by an asteroid on the line and does not chew the rock", () => {
+    const { world, shooter, target } = channelDuel();
+    world.targets.get(shooter)!.locked = false;
+    world.targets.get(shooter)!.targetId = null;
+    const rock = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 10, z: 0 });
+    rebuildSpatial(world);
+
+    const shipBefore = world.shipCores.get(target)!.hull;
+    const rockBefore = world.asteroids.get(rock)!.hp;
+    for (let i = 0; i < 10; i++) channelTick(world);
+
+    expect(world.shipCores.get(target)!.hull).toBe(shipBefore);
+    expect(world.asteroids.get(rock)!.hp).toBe(rockBefore);
     expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(false);
   });
 

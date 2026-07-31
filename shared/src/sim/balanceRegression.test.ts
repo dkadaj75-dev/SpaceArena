@@ -276,8 +276,11 @@ const expectNear = (label: string, value: number, recorded: number, band = BAND)
  * something on the five-hardpoint brawler.
  */
 const SUSTAINED: ScriptStep[] = [
-  { at: 0, toggle: 0 },
-  { at: 1, toggle: 1 },
+  // Weapons spawn ONLINE since 2026-07-31, so the old deploy toggles for
+  // hardpoints 0/1 are gone — every weapon is already firing at t=0 and the
+  // "everything on" premise holds from the first tick. (On the brawler,
+  // hardpoint 2 is its missile, so the same schedule now RESTS that rack
+  // 3s→30s instead of deploying it — the recorded anchors absorb that.)
   { at: 3, toggle: 2 },
   { at: 5, toggle: 4 },
   // Boost bursts, three seconds each. Throttle stays at 0 so the burst is a
@@ -298,11 +301,14 @@ const SUSTAINED: ScriptStep[] = [
 
 /**
  * Disciplined skirmish: one weapon at a time, shield only in bursts, no boost.
- * The "playing well is rewarded" curve.
+ * The "playing well is rewarded" curve. Weapons spawn online, so discipline is
+ * now expressed by RESTING the rack you are not using — the toggles below
+ * produce exactly the same active windows as the pre-2026-07-31 script did:
+ * laser [0,8] and [34,44], missile [12,20] and [48,58], shield [24,30].
  */
 const DISCIPLINED: ScriptStep[] = [
-  { at: 0, toggle: 0 },
-  { at: 8, toggle: 0 },
+  { at: 0, toggle: 1 }, // missile off at the bell — laser only
+  { at: 8, toggle: 0 }, // laser rested
   { at: 12, toggle: 1 },
   { at: 20, toggle: 1 },
   { at: 24, toggle: 2 },
@@ -314,50 +320,59 @@ const DISCIPLINED: ScriptStep[] = [
 ];
 
 describe("scripted 60 s engagements — energy/heat regression bands", () => {
+  // Anchors re-recorded 2026-07-31 for the heat/energy rework: weapons spawn
+  // online, carry authored heatPerShot (sustained fire overheats and re-arms
+  // after a 3 s lockout), weapon idle draw is 0, shield/boost draws are up and
+  // capacitor regen is halved. "All on, forever" is now unsustainable on every
+  // hull BY DESIGN — the curves below encode that.
   it("interceptor, sustained brawl (all four hardpoints, boost pulses)", () => {
     const t = runEngagement("ship.interceptor", SUSTAINED);
-    expectWithinBand("interceptor sustained energy", t.energy, [0.994, 0.791, 0.361, 0.249, 0.892, 0.987, 0.997]);
-    expectNear("interceptor sustained energy floor", t.energyFloor, 0.247);
-    expectNear("interceptor sustained peak module heat", t.peakModuleHeat, 0.001, 0.03);
-    expect(t.overheats).toBe(0);
-    expect(t.brownOuts).toBe(0);
+    expectWithinBand("interceptor sustained energy", t.energy, [0.889, 0.218, 0.382, 0.863, 0.28, 0.488, 0.966]);
+    expectNear("interceptor sustained energy floor", t.energyFloor, 0);
+    // Sustained laser fire now cooks the rack: it trips, sits out 3 s, re-arms.
+    expect(t.overheats).toBe(4);
+    expect(t.brownOuts).toBe(2);
   });
 
   it("interceptor, disciplined skirmish (one weapon at a time)", () => {
     const t = runEngagement("ship.interceptor", DISCIPLINED);
-    expectWithinBand("interceptor disciplined energy", t.energy, [0.999, 1, 0.999, 0.998, 0.999, 0.999, 1]);
-    expectNear("interceptor disciplined energy floor", t.energyFloor, 0.996);
+    expectWithinBand("interceptor disciplined energy", t.energy, [1, 1, 1, 0.733, 1, 1, 1]);
+    expectNear("interceptor disciplined energy floor", t.energyFloor, 0.722);
     expect(t.overheats).toBe(0);
     expect(t.brownOuts).toBe(0);
   });
 
   it("brawler, sustained brawl — five hardpoints out-draw one capacitor", () => {
     const t = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    expectWithinBand("brawler sustained energy", t.energy, [0.998, 0.673, 0, 0.068, 0.491, 0.812, 0.999]);
+    expectWithinBand("brawler sustained energy", t.energy, [1, 0.406, 0.242, 0.074, 0.321, 0.689, 1]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
-    // The heavy CANNOT run everything at once: it browns out and sheds modules.
-    // That tradeoff is the intended cost of five hardpoints — if this count moves,
-    // the heavy's identity moved with it.
+    // The heavy CANNOT run everything at once: it browns out and sheds modules,
+    // and its three always-firing racks trade overheat lockouts all match long.
     expect(t.brownOuts).toBe(3);
-    expect(t.overheats).toBe(0);
+    expect(t.overheats).toBe(12);
   });
 
   it("support, sustained brawl (big capacitor, strong dissipation)", () => {
     const t = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
-    expectWithinBand("support sustained energy", t.energy, [0.997, 0.98, 0.96, 0.997, 0.999, 0.996, 0.998]);
-    expectNear("support sustained energy floor", t.energyFloor, 0.941);
+    expectWithinBand("support sustained energy", t.energy, [0.957, 0.558, 0.078, 0.578, 0.329, 0.641, 1]);
+    expectNear("support sustained energy floor", t.energyFloor, 0);
+    // The support's strong dissipation still keeps its racks under threshold.
     expect(t.overheats).toBe(0);
-    expect(t.brownOuts).toBe(0);
+    expect(t.brownOuts).toBe(2);
   });
 
-  it("keeps the class fantasy on upkeep: support sustains, interceptor dips, brawler starves", () => {
+  it("keeps the class fantasy on upkeep: dissipation and capacitor still separate the hulls", () => {
     const support = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
     const interceptor = runEngagement("ship.interceptor", SUSTAINED);
     const brawler = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    expect(support.energyFloor).toBeGreaterThan(interceptor.energyFloor);
-    expect(interceptor.energyFloor).toBeGreaterThan(brawler.energyFloor);
-    expect(support.brownOuts).toBe(0);
-    expect(brawler.brownOuts).toBeGreaterThan(0);
+    // Since the 2026-07-31 energy rework EVERY hull starves on all-on play (the
+    // floors are all 0) — the class identity now shows in heat: the support's
+    // dissipation keeps it cool where the others overheat, and the five-rack
+    // brawler cooks hardest and sheds the most modules.
+    expect(support.overheats).toBe(0);
+    expect(interceptor.overheats).toBeGreaterThan(0);
+    expect(brawler.overheats).toBeGreaterThan(interceptor.overheats);
+    expect(brawler.brownOuts).toBeGreaterThanOrEqual(interceptor.brownOuts);
   });
 
   it("keeps the design contract: holding everything on costs more than cycling", () => {
@@ -366,20 +381,20 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     expect(sustained.energyFloor).toBeLessThan(disciplined.energyFloor);
     expect(disciplined.energyFloor).toBeGreaterThan(0.5); // discipline never browns out
     expect(sustained.peakModuleHeat).toBeGreaterThan(disciplined.peakModuleHeat);
-    // …and a legal all-on fit is never an instant self-destruct either.
-    expect(sustained.peakModuleHeat).toBeLessThan(1);
-    expect(sustained.energyFloor).toBeGreaterThan(0);
+    // An overheat may exceed its threshold by at most one tick's generation —
+    // and brown-outs (not hull damage) are the relief valve for the capacitor,
+    // so a legal all-on fit is still never an instant self-destruct.
+    expect(sustained.peakModuleHeat).toBeLessThan(1.1);
+    expect(disciplined.overheats).toBe(0);
   });
 
-  it("no shipped default fitting can cook itself in a 60 s all-on engagement", () => {
-    // The current heat contract: weapons only heat on the tick they FIRE, so at
-    // shipped cycle times their duty cycle sits far under every hull's
-    // dissipation. If a tuning pass ever makes heat bind, this fails and the
-    // bands above must be re-recorded deliberately.
+  it("a 60 s all-on engagement stays survivable: pool heat never goes critical", () => {
+    // Heat now BINDS on the shipped fittings (that is the point of the rework):
+    // individual racks trip and re-arm, but the SHIP pool must stay well under
+    // the critical-damage line and the capacitor invariants hold every tick.
     for (const ship of ["ship.interceptor", "ship.brawler", "ship.support"]) {
       const t = runEngagement(ship, SUSTAINED, ship === "ship.brawler" ? "ship.interceptor" : "ship.brawler");
-      expect(t.overheats, `${ship} overheated`).toBe(0);
-      expect(t.peakPoolHeat, `${ship} pool heat`).toBeLessThan(0.5);
+      expect(t.peakPoolHeat, `${ship} pool heat`).toBeLessThan(0.75);
     }
   });
 
@@ -404,7 +419,7 @@ describe("heat model stress (synthetic fitting that out-paces dissipation)", () 
     const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
     const subject = sim.spawnPlayerAt("ship.interceptor", HOT_FITTING, 0, { x: 0, z: 0 }, 0);
     const target = sim.spawnPlayerAt("ship.brawler", fittingOf("ship.brawler"), 1, { x: 22, z: 0 }, Math.PI);
-    sim.applyOrder(subject, { kind: "moduleToggle", hardpointIndex: 0 });
+    // The hot laser spawns ONLINE (weapons do since 2026-07-31) — no toggle.
     sim.applyOrder(subject, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
     const targetCore = sim.world.shipCores.get(target)!;
@@ -433,20 +448,24 @@ describe("heat model stress (synthetic fitting that out-paces dissipation)", () 
 
   it("accumulates past the threshold, forces the module offline, then re-arms", () => {
     const r = runHot(20);
-    expect(r.overheats).toBeGreaterThan(0);
+    expect(r.overheats).toBeGreaterThan(1);
     expect(r.statesSeen).toContain("overheated");
-    expect(r.statesSeen).toContain("retracted");
+    // Weapons re-arm straight to active after the lockout (2026-07-31) — the
+    // module never passes through retracted any more.
+    expect(r.statesSeen).toContain("active");
+    expect(r.statesSeen).not.toContain("retracted");
     expect(r.peakHeat).toBeGreaterThan(40);
   });
 
-  it("cycles overheat → 4 s cooldown → retracted at a stable, recorded rate", () => {
+  it("cycles overheat → 4 s lockout → straight back online at a stable, recorded rate", () => {
     // 60 s at cycleTime 0.2 / 240 heat-per-second-of-work / 9 dissipation:
-    // the module trips, sits out 4 s, and is left retracted (it does not
-    // auto-redeploy) — so exactly one overheat per scripted deployment.
+    // the rack trips, sits out its 4 s cooldown, comes back ONLINE (weapons
+    // auto-re-arm) and immediately starts climbing again — a stable
+    // trip/lockout/resume duty cycle, eleven times in a minute.
     const r = runHot(60);
-    expect(r.overheats).toBe(1);
-    expect(r.finalState).toBe("retracted");
-    expect(r.finalHeat).toBe(0);
+    expect(r.overheats).toBe(11);
+    expect(["active", "overheated"]).toContain(r.finalState);
+    expect(r.statesSeen).toEqual(["active", "overheated"]);
   });
 });
 
@@ -516,12 +535,14 @@ function timeToKill(
 }
 
 describe("TTK sanity bounds (default fittings, weapons hot)", () => {
+  // Re-recorded 2026-07-31: authored heatPerShot means long grinds (notably
+  // interceptor vs brawler) now include one or more 3 s overheat lockouts.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    ["ship.interceptor", "ship.interceptor", 22, 3.033],
-    ["ship.interceptor", "ship.brawler", 22, 10.433],
+    ["ship.interceptor", "ship.interceptor", 22, 3.5],
+    ["ship.interceptor", "ship.brawler", 22, 13.433],
     ["ship.brawler", "ship.interceptor", 22, 2.2],
-    ["ship.brawler", "ship.brawler", 22, 5.233],
-    ["ship.support", "ship.interceptor", 22, 3.033],
+    ["ship.brawler", "ship.brawler", 22, 5.667],
+    ["ship.support", "ship.interceptor", 22, 3.5],
   ];
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {
@@ -541,7 +562,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     // Mk I missiles cycle every 2.5 s = 75 sim ticks. Release on tick 75 and
     // re-press on 76 so each cooled rack receives a new semi-auto rising edge.
     const repullTicks = 75;
-    const recorded = 7.833;
+    const recorded = 9.533; // re-recorded 2026-07-31 (heatPerShot rework)
     const ttk = timeToKill("ship.interceptor", "ship.brawler", 22, repullTicks);
     expect(ttk).toBeLessThan(timeToKill("ship.interceptor", "ship.brawler", 22));
     expect(

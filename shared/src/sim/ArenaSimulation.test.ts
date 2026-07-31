@@ -706,6 +706,27 @@ describe("Respawn, team scoreboard and the hard time cap (owner 2026-07-31)", ()
     ]);
   });
 
+  it("an environment death (boundary/rock/overheat — killerId null) credits the OPPOSING team", () => {
+    const { sim, player } = duelSim();
+    // The player cooks itself / hits the rim: no killer entity on the event.
+    applyDamageToShip(sim.world, player, null, 100000, "kinetic");
+    tickDrained(sim);
+    expect(sim.snapshot().teamScores).toEqual([
+      { team: 0, kills: 0 },
+      { team: 1, kills: 1 }, // the enemy team scores — a death always counts
+    ]);
+  });
+
+  it("a self/team kill also credits the opposing team, never the victim's own", () => {
+    const { sim, player } = duelSim();
+    applyDamageToShip(sim.world, player, player, 100000, "kinetic");
+    tickDrained(sim);
+    expect(sim.snapshot().teamScores).toEqual([
+      { team: 0, kills: 0 },
+      { team: 1, kills: 1 },
+    ]);
+  });
+
   it("a ship REMOVED while dead never respawns (a leaver is not a ghost)", () => {
     const { sim, player, enemy } = duelSim();
     applyDamageToShip(sim.world, enemy, player, 100000, "kinetic");

@@ -20,6 +20,7 @@ import {
   type ConfigService,
   type EffectConfig,
   type EntityId,
+  type ModuleConfig,
   type ProjectileSnapshot,
   type ShipConfig,
   type ShipSnapshot,
@@ -335,7 +336,7 @@ export class ViewManager {
     for (let i = 0; i < events.length; i++) {
       const ev = events[i]!;
       if (ev.type === "projectileFired" && ev.kind === "beam") {
-        this.spawnBeam(ev.ownerId, ev.targetId, cur);
+        this.spawnBeam(ev.ownerId, ev.targetId, ev.moduleId, cur);
       } else if (ev.type === "damage") {
         this.flashHit(ev.targetId, ev.isAsteroid);
       } else if (ev.type === "entityDestroyed") {
@@ -411,15 +412,28 @@ export class ViewManager {
     return configId ? this.configs.get<ShipConfig>("ship", configId) : undefined;
   }
 
-  private spawnBeam(ownerId: EntityId, targetId: EntityId | null, cur: Snapshot): void {
-    if (targetId === null) return;
+  private spawnBeam(ownerId: EntityId, targetId: EntityId | null, moduleId: string, cur: Snapshot): void {
     const from = findShip(cur, ownerId);
-    const to = findShip(cur, targetId) ?? findAsteroid(cur, targetId);
-    if (!from || !to) return;
+    if (!from) return;
+    if (targetId !== null) {
+      const to = findShip(cur, targetId) ?? findAsteroid(cur, targetId);
+      if (!to) return;
+      this.sTo.set(to.pos.x, to.pos.y, to.pos.z);
+    } else {
+      // A no-lock straight shot that hit nothing: draw the beam down the
+      // shooter's nose out to the module's range, so the miss reads as a shot
+      // into space rather than nothing happening.
+      const range = this.configs.get<ModuleConfig>("module", moduleId)?.fire?.range ?? 60;
+      const cosPitch = Math.cos(from.pitch);
+      this.sTo.set(
+        from.pos.x + cosPitch * Math.cos(from.heading) * range,
+        from.pos.y + Math.sin(from.pitch) * range,
+        from.pos.z + cosPitch * Math.sin(from.heading) * range,
+      );
+    }
     const slot = firstFreeBeam(this.beamPool);
     if (!slot) return; // pool exhausted this frame — acceptable, no alloc
     this.sFrom.set(from.pos.x, from.pos.y, from.pos.z);
-    this.sTo.set(to.pos.x, to.pos.y, to.pos.z);
     this.orientBeam(slot.mesh, this.sFrom, this.sTo);
     slot.life = slot.maxLife;
     slot.mesh.setEnabled(true);
@@ -683,14 +697,23 @@ export class ViewManager {
     this.liveChannels.clear();
     for (let s = 0; s < cur.ships.length; s++) {
       const ship = cur.ships[s]!;
-      if (ship.targetId === null) continue;
-      let to: { pos: { x: number; y: number; z: number } } | null = null;
+      // The channel's endpoint: the ship's target when it has one, else (a
+      // no-lock straight channel) a point down the nose at the module's range.
+      const to =
+        ship.targetId !== null ? (findShip(cur, ship.targetId) ?? findAsteroid(cur, ship.targetId) ?? null) : null;
       for (let i = 0; i < ship.modules.length; i++) {
         const m = ship.modules[i]!;
         if (!m.channeling) continue;
-        if (to === null) {
-          to = findShip(cur, ship.targetId) ?? findAsteroid(cur, ship.targetId) ?? null;
-          if (to === null) break; // target already gone this frame — nothing to draw to
+        if (to !== null) {
+          this.sTo.set(to.pos.x, to.pos.y, to.pos.z);
+        } else {
+          const range = this.configs.get<ModuleConfig>("module", m.moduleId)?.fire?.range ?? 60;
+          const cosPitch = Math.cos(ship.pitch);
+          this.sTo.set(
+            ship.pos.x + cosPitch * Math.cos(ship.heading) * range,
+            ship.pos.y + Math.sin(ship.pitch) * range,
+            ship.pos.z + cosPitch * Math.sin(ship.heading) * range,
+          );
         }
         const key = ship.id * CHANNEL_KEY_STRIDE + m.hardpointIndex;
         let slot = this.channelBeams.get(key);
@@ -700,7 +723,6 @@ export class ViewManager {
           this.channelBeams.set(key, slot);
         }
         this.sFrom.set(ship.pos.x, ship.pos.y, ship.pos.z);
-        this.sTo.set(to.pos.x, to.pos.y, to.pos.z);
         this.orientBeam(slot.mesh, this.sFrom, this.sTo);
         slot.life = slot.maxLife;
         slot.mesh.setEnabled(true);

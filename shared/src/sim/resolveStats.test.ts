@@ -18,7 +18,7 @@ describe("resolveShipStats (4.1)", () => {
     expect(core.hullMax).toBe(80);
     expect(core.engine.nominalSpeed).toBe(27);
     expect(core.capacitor.max).toBe(120);
-    expect(core.capacitor.regen).toBe(14);
+    expect(core.capacitor.regen).toBe(7); // halved 2026-07-31: shield/boost are energy-budgeted
     expect(core.heat.capacity).toBe(100);
     expect(core.heat.dissipation).toBe(9);
     // Sensor suite comes through the same pipeline as engine/heat (FLIGHT.md §2).
@@ -47,7 +47,7 @@ describe("resolveShipStats (4.1)", () => {
     });
     // battery: capacitor +40, regen +4.
     expect(core.capacitor.max).toBe(160);
-    expect(core.capacitor.regen).toBe(18);
+    expect(core.capacitor.regen).toBe(11);
     // heat sink: dissipation +5, capacity *1.1.
     expect(core.heat.dissipation).toBe(14);
     expect(core.heat.capacity).toBeCloseTo(110, 6);
@@ -104,7 +104,7 @@ describe("resolveShipStats — pipeline edges", () => {
     expect(core.engine.nominalSpeed).toBeCloseTo(27 * 1.45, 6);
     expect(core.engine.accel).toBeCloseTo(18 * 1.3, 6);
     expect(core.capacitor.max).toBe(230); // 120 + 110
-    expect(core.capacitor.regen).toBe(26); // 14 + 12
+    expect(core.capacitor.regen).toBe(19); // 7 + 12
     expect(core.heat.capacity).toBe(190); // 100 + 90
     expect(core.heat.dissipation).toBe(18); // 9 + 9
     expect(core.heat.criticalDamagePerSec).toBe(4); // untouched by every track
