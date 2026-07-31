@@ -17,7 +17,7 @@ const CAMERA: CameraConfig = {
   beta: { min: 0.6, max: 1.15, default: 0.9 },
   radius: { min: 25, max: 100, default: 55 },
   followLag: 0.15,
-  chase: { radius: 12, height: 1.4, beta: 1.34, yawLag: 0.12 },
+  chase: { radius: 12, height: 1.4, beta: 1.34, yawLag: 0.12, landscapeRadiusScale: 0.7 },
 };
 
 const disposers: (() => void)[] = [];
@@ -66,5 +66,24 @@ describe("TacticalCamera chase distance", () => {
 
     rigCamera.setChaseDistanceScale(Number.NaN);
     expect(rigCamera.camera.radius).toBeCloseTo(12, 9);
+  });
+
+  it("applies the authored landscape scale as the orientation baseline, under the player multiplier", () => {
+    // Owner 2026-07-31: a wide screen already shows more arena, so landscape
+    // defaults closer (0.7x authored). The player's distance setting multiplies
+    // ON TOP of that baseline rather than replacing it.
+    const rigCamera = rig();
+    rigCamera.setChaseMode(true);
+    expect(rigCamera.camera.radius).toBeCloseTo(12, 9);
+
+    rigCamera.setLandscapeOrientation(true);
+    expect(rigCamera.camera.radius).toBeCloseTo(8.4, 9);
+    expect(rigCamera.camera.lowerRadiusLimit).toBeCloseTo(8.4, 9);
+
+    rigCamera.setChaseDistanceScale(1.5);
+    expect(rigCamera.camera.radius).toBeCloseTo(12.6, 9);
+
+    rigCamera.setLandscapeOrientation(false);
+    expect(rigCamera.camera.radius).toBeCloseTo(18, 9);
   });
 });

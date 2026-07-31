@@ -5,8 +5,14 @@
   "family": "shield",
   "level": 1,
   "name": "Deflector Shield Mk I",
-  "activation": { "deployTime": 1.0, "retractTime": 0.8 },
-  "energy": { "drawIdle": 8, "drawActive": 14 },
+  "activation": {
+    "deployTime": 0.4,
+    "retractTime": 0.3
+  },
+  "energy": {
+    "drawIdle": 8,
+    "drawActive": 14
+  },
   "heat": {
     "perSecondActive": 3,
     "overheatThreshold": 60,
@@ -16,12 +22,26 @@
   "mitigation": {
     "damageReduction": 0.5,
     "absorbPerSecond": 12,
-    "coversFamilies": ["kinetic", "energy"]
+    "coversFamilies": [
+      "kinetic",
+      "energy"
+    ]
   },
-  "onActivate": ["action.play-sound-shield-up"],
-  "onDeactivate": ["action.play-sound-shield-down"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: shield]", "shortName": "Shield Mk1", "label": "Shield" },
+  "onActivate": [
+    "action.play-sound-shield-up"
+  ],
+  "onDeactivate": [
+    "action.play-sound-shield-down"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: shield]",
+    "shortName": "Shield Mk1",
+    "label": "Shield"
+  },
   "price": 0,
   "requiresLevel": 1
 }

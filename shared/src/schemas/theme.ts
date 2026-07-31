@@ -525,6 +525,13 @@ export const juiceSchema = z.object({
    */
   deploy: z
     .object({
+      /**
+       * Whether fitted module meshes are drawn on the hull at all (omitted =
+       * true). The shipped theme turns this OFF while the module models are
+       * placeholders; the deploy/retract state machine, HUD buttons, emitters
+       * and shield bubble are untouched — only the hardpoint meshes vanish.
+       */
+      showMeshes: z.boolean().optional(),
       /** World units the module mesh rises along its socket's local +Y while deploying. */
       extendDistance: z.number().nonnegative().optional(),
       /** Back-ease overshoot amount (0 = plain ease-out, no overshoot). */

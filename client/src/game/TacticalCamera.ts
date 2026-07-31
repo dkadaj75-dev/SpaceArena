@@ -82,6 +82,8 @@ export class TacticalCamera {
   private chase: ChaseSettings = DEFAULT_CHASE_SETTINGS;
   /** Player-local multiplier over the content-authored chase radius. */
   private chaseDistanceScale = 1;
+  /** True while the viewport is landscape — applies `chase.landscapeRadiusScale`. */
+  private landscapeOrientation = false;
   /**
    * Latest ship orientation FRAME pushed in by the render loop — the
    * authoritative nose + replicated up, never reconstructed from heading/pitch
@@ -214,8 +216,21 @@ export class TacticalCamera {
     if (this.chaseMode) this.applyChaseLimits();
   }
 
+  /**
+   * Viewport orientation, pushed by the render shell on resize/rotate. In
+   * landscape the authored `chase.landscapeRadiusScale` scales the DEFAULT
+   * chase distance (the shipped pack pulls it in to 70%); the player's local
+   * distance setting still multiplies on top of that baseline.
+   */
+  setLandscapeOrientation(landscape: boolean): void {
+    if (this.landscapeOrientation === landscape) return;
+    this.landscapeOrientation = landscape;
+    if (this.chaseMode) this.applyChaseLimits();
+  }
+
   private get effectiveChaseRadius(): number {
-    return this.chase.radius * this.chaseDistanceScale;
+    const orientationScale = this.landscapeOrientation ? this.chase.landscapeRadiusScale : 1;
+    return this.chase.radius * orientationScale * this.chaseDistanceScale;
   }
 
   /** Config sensitivity × the player's local multiplier. */

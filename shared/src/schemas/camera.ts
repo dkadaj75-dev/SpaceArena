@@ -84,6 +84,13 @@ export const cameraSchema = z.object({
       pitchLag: z.number().min(0).max(1).optional(),
       /** Vertical field of view (radians) while chasing. Omitted keeps the engine default. */
       fov: z.number().positive().optional(),
+      /**
+       * Multiplier on `radius` while the viewport is LANDSCAPE (omitted = 1).
+       * A wide screen already shows more of the arena, so the shipped pack
+       * pulls the default chase distance in to 0.7× there; the player's local
+       * camera-distance setting still multiplies on top of this baseline.
+       */
+      landscapeRadiusScale: z.number().positive().optional(),
     })
     .optional(),
   /**

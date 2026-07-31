@@ -5,8 +5,14 @@
   "family": "laser",
   "level": 1,
   "name": "Pulse Laser Mk I",
-  "activation": { "deployTime": 1.5, "retractTime": 1.0 },
-  "energy": { "drawIdle": 3, "drawActive": 11 },
+  "activation": {
+    "deployTime": 0.5,
+    "retractTime": 0.35
+  },
+  "energy": {
+    "drawIdle": 3,
+    "drawActive": 11
+  },
   "heat": {
     "perSecondActive": 6,
     "overheatThreshold": 55,
@@ -15,16 +21,25 @@
   },
   "fire": {
     "mode": "held",
-    "range": 38,
+    "range": 95.0,
     "cycleTime": 0.4,
     "damage": 7,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null
   },
-  "onFire": ["action.play-sound-laser"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: laser]", "shortName": "Laser Mk1", "label": "Laser" },
+  "onFire": [
+    "action.play-sound-laser"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: laser]",
+    "shortName": "Laser Mk1",
+    "label": "Laser"
+  },
   "price": 0,
   "requiresLevel": 1
 }

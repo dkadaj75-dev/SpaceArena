@@ -86,8 +86,8 @@
         "utility": "#67c587",
         "boost": "#e8b44f"
       },
-      "fillOpacity": 0.9,
-      "innerBorderOpacity": 0.38,
+      "fillOpacity": 0.32,
+      "innerBorderOpacity": 0.55,
       "labelGapPx": 2,
       "labelHeightPx": 8,
       "labelMaxWidthPx": 46
@@ -360,15 +360,16 @@
       "enabled": true,
       "color": "#57d8ff",
       "periodMs": 1400,
-      "radiusScale": 1.5,
-      "scaleWobble": 0.06,
-      "minAlpha": 0.1,
-      "maxAlpha": 0.26
+      "radiusScale": 1.18,
+      "scaleWobble": 0.02,
+      "minAlpha": 0.04,
+      "maxAlpha": 0.1
     },
     "deploy": {
       "extendDistance": 0.18,
       "overshoot": 0.9,
-      "spinDegrees": 45
+      "spinDegrees": 45,
+      "showMeshes": false
     },
     "bank": {
       "maxRad": 0.45,

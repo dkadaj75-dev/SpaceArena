@@ -1044,9 +1044,13 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // scaling multiplier have to be re-applied against the new value.
     quality.refreshDevicePixelRatio(window.devicePixelRatio || 1);
     engine.resize();
+    // Orientation drives the chase camera's default distance (the authored
+    // landscapeRadiusScale) — same width>height rule the HUD layout uses.
+    tacticalCamera.setLandscapeOrientation(canvas.clientWidth > canvas.clientHeight);
   });
   resizeObserver.observe(canvas);
   engine.resize();
+  tacticalCamera.setLandscapeOrientation(canvas.clientWidth > canvas.clientHeight);
 
   window.addEventListener("beforeunload", () => {
     runtime?.dispose();

@@ -5,8 +5,14 @@
   "family": "laser",
   "level": 2,
   "name": "Pulse Laser Mk II",
-  "activation": { "deployTime": 1.5, "retractTime": 1.0 },
-  "energy": { "drawIdle": 4, "drawActive": 15 },
+  "activation": {
+    "deployTime": 0.5,
+    "retractTime": 0.35
+  },
+  "energy": {
+    "drawIdle": 4,
+    "drawActive": 15
+  },
   "heat": {
     "perSecondActive": 8,
     "overheatThreshold": 60,
@@ -15,16 +21,25 @@
   },
   "fire": {
     "mode": "held",
-    "range": 42,
+    "range": 105.0,
     "cycleTime": 0.35,
     "damage": 10,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null
   },
-  "onFire": ["action.play-sound-laser"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: laser]", "shortName": "Laser Mk2", "label": "Laser II" },
+  "onFire": [
+    "action.play-sound-laser"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: laser]",
+    "shortName": "Laser Mk2",
+    "label": "Laser II"
+  },
   "price": 350,
   "requiresLevel": 2
 }

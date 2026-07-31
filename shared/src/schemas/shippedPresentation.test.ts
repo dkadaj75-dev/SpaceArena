@@ -133,6 +133,18 @@ describe("shipped theme - compact flight HUD", () => {
     expect(hud?.flight?.throttle?.opacity).toBeCloseTo(0.6, 6);
   });
 
+  it("owner pass 2026-07-31: hidden placeholder module meshes, subtle shield, quick modules, 2.5x reach", () => {
+    const parsed = themeSchema.safeParse(load("themes/default.json"));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw parsed.error;
+    // Placeholder module meshes stay off the hulls until real models land.
+    expect(parsed.data.juice?.deploy?.showMeshes).toBe(false);
+    // The shield reads as a faint rim, not a balloon.
+    const ripple = parsed.data.juice?.shieldRipple;
+    expect(ripple?.maxAlpha ?? 1).toBeLessThanOrEqual(0.12);
+    expect(ripple?.radiusScale ?? 9).toBeLessThanOrEqual(1.25);
+  });
+
   it("parks the off-screen enemy arrows on a ring INSIDE the vital arcs, both orientations", () => {
     const parsed = themeSchema.safeParse(load("themes/default.json"));
     expect(parsed.success).toBe(true);

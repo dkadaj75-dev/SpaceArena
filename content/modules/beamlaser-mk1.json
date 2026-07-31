@@ -5,8 +5,14 @@
   "family": "laser",
   "level": 1,
   "name": "Sustained Beam Mk I",
-  "activation": { "deployTime": 1.5, "retractTime": 1.0 },
-  "energy": { "drawIdle": 3, "drawActive": 20 },
+  "activation": {
+    "deployTime": 0.5,
+    "retractTime": 0.35
+  },
+  "energy": {
+    "drawIdle": 3,
+    "drawActive": 20
+  },
   "heat": {
     "perSecondActive": 14,
     "overheatThreshold": 55,
@@ -15,16 +21,25 @@
   },
   "fire": {
     "mode": "continuous",
-    "range": 34,
+    "range": 85.0,
     "cycleTime": 0.1,
     "damage": 16,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null
   },
-  "onFire": ["action.play-sound-laser"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: laser]", "shortName": "Beam Mk1", "label": "Beam" },
+  "onFire": [
+    "action.play-sound-laser"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: laser]",
+    "shortName": "Beam Mk1",
+    "label": "Beam"
+  },
   "price": 0,
   "requiresLevel": 1
 }
