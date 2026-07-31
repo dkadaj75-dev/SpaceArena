@@ -836,6 +836,7 @@ export class NetGameSession extends GameSession {
       tick: Math.round((state.matchTimer ?? 0) * 30),
       elapsed: state.matchTimer ?? 0,
       phase,
+      teamScores: decodeTeamScores(state.teamScores),
       countdownRemaining,
       winnerTeam: state.winnerTeam === -1 ? null : state.winnerTeam,
       ships,
@@ -909,6 +910,18 @@ export function decodeUp(
     return upFromAttitude(heading, pitch, up);
   }
   return orthonormalizeUp(heading, pitch, up);
+}
+
+/** Replicated team scores → snapshot shape, ascending by team id. Absent map = no scores yet. */
+function decodeTeamScores(raw: any): { team: number; kills: number }[] {
+  const out: { team: number; kills: number }[] = [];
+  if (raw?.entries) {
+    for (const [key, kills] of raw.entries()) out.push({ team: Number(key), kills: Number(kills) });
+  } else if (raw) {
+    for (const key of Object.keys(raw)) out.push({ team: Number(key), kills: Number(raw[key]) });
+  }
+  out.sort((a, b) => a.team - b.team);
+  return out;
 }
 
 function mapValues(value: any): any[] { return value?.values ? [...value.values()] : Object.values(value ?? {}); }

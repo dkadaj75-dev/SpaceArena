@@ -58,6 +58,7 @@ describe("EntityView fitted module integration", () => {
       elapsed: 1,
       phase: "live",
       countdownRemaining: 0,
+      teamScores: [],
       winnerTeam: null,
       ships: [{
         id: 7,

@@ -66,6 +66,7 @@ export class SettingsScreen {
   private readonly root: HTMLDivElement;
   private readonly groups: HTMLDivElement;
   private onClose: (() => void) | null = null;
+  private onQuitToMenu: (() => void) | null = null;
   /** Rebuilt on every show; each entry re-paints one control from the store. */
   private readonly refreshers: ((values: UserSettings) => void)[] = [];
   private readonly unsubscribe: () => void;
@@ -109,9 +110,14 @@ export class SettingsScreen {
     this.unsubscribeFullscreen = onFullscreenChange(() => this.fullscreenRefresh?.());
   }
 
-  /** Open the screen. `onClose` fires on Back/Resume (and only then). */
-  show(options: { context?: SettingsContext; onClose?: () => void } = {}): void {
+  /**
+   * Open the screen. `onClose` fires on Back/Resume (and only then);
+   * `onQuitToMenu` (match context) abandons the match for the main menu and
+   * deliberately does NOT fire `onClose` — the match teardown owns the cleanup.
+   */
+  show(options: { context?: SettingsContext; onClose?: () => void; onQuitToMenu?: () => void } = {}): void {
     this.onClose = options.onClose ?? null;
+    this.onQuitToMenu = options.onQuitToMenu ?? null;
     applyMenuTheme(this.root, this.host.configs.get<ThemeConfig>("theme", THEME_ID));
     this.build(options.context ?? "menu");
     this.root.style.display = "flex";
@@ -153,6 +159,23 @@ export class SettingsScreen {
     back.textContent = context === "match" ? "Resume match" : "Back";
     back.addEventListener("click", () => this.close());
     this.groups.append(back);
+
+    // Mid-match escape hatch (owner 2026-07-31): abandon the match and return
+    // to the main menu, without hunting for the results screen.
+    if (context === "match" && this.onQuitToMenu) {
+      const quit = document.createElement("button");
+      quit.className = "sa-screen-btn";
+      quit.dataset["settingsQuit"] = "";
+      quit.textContent = "Quit to main menu";
+      quit.addEventListener("click", () => {
+        this.hide();
+        const cb = this.onQuitToMenu;
+        this.onQuitToMenu = null;
+        this.onClose = null;
+        cb?.();
+      });
+      this.groups.append(quit);
+    }
 
     const values = this.host.settings.current;
     for (const refresh of this.refreshers) refresh(values);

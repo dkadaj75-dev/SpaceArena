@@ -112,11 +112,15 @@ export class GameSession {
     // existing dummy flow is untouched for modes without one.
     const gamemode = this.sim.world.gamemode;
     const roster = options.bots === null ? [] : resolveBotRoster(gamemode, configs);
+    const enemyBotIds: EntityId[] = [];
     for (const slot of roster) {
       const botShip = configs.get<ShipConfig>("ship", slot.shipId);
       if (!botShip) continue;
       const id = this.sim.spawnPlayer(slot.shipId, botShip.defaultFitting, slot.team);
       this.shipConfigIds.set(id, slot.shipId);
+      // 2v2 rosters can put a bot on the PLAYER's team — an ally is never one of
+      // the "targets" the destroyTargets objective counts.
+      if (slot.team !== 0) enemyBotIds.push(id);
       // Seeded from the SESSION seed + the bot's entity id, so a practice match
       // replayed on the same seed produces the same opponents rather than a
       // fresh `Math.random` roll of orbit signs and decision jitter.
@@ -152,7 +156,7 @@ export class GameSession {
       this.dummyIds.push(id);
     }
     this.dummyId = this.dummyIds[0];
-    this.dummyIdSet = new Set([...this.dummyIds, ...this.bots.keys()]);
+    this.dummyIdSet = new Set([...this.dummyIds, ...enemyBotIds]);
 
     this.prev = this.sim.snapshot();
     this.cur = this.prev;
@@ -184,15 +188,18 @@ export class GameSession {
 
   /**
    * Feed every live bot the current snapshot and push its orders through the
-   * normal order queue — the exact path a human tap takes. Dead bots are
-   * dropped. Called before the sim step so orders land on this tick.
+   * normal order queue — the exact path a human tap takes. A DEAD bot is not
+   * dropped any more: respawn modes rebuild the ship under the same entity id
+   * (`ArenaSimulation.processRespawns`), so the driver just goes quiet while the
+   * ship is gone — with its memory reset once, so calibration and cadence start
+   * fresh on the new hull — and resumes when the id comes back.
    */
   private driveBots(fixedDt: number): void {
     if (this.bots.size === 0) return;
     this.elapsedMs += fixedDt * 1000;
     for (const [entityId, driver] of this.bots) {
       if (!this.sim.hasShip(entityId)) {
-        this.bots.delete(entityId);
+        driver.reset();
         continue;
       }
       for (const order of driver.update(this.cur, this.elapsedMs)) {

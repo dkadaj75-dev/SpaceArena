@@ -4,6 +4,7 @@ import type { EntityId, ModuleState, ShipCore, TargetRef } from "./components.js
 import type { SimEvent } from "./events.js";
 import type { Order } from "./orders.js";
 import { clamp } from "./math.js";
+import { deriveRng } from "./rng.js";
 import { matchCountdownSecOf } from "./tuningDefaults.js";
 import type { UpgradeLevels } from "./resolveStats.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
@@ -108,10 +109,23 @@ export type MatchPhase = "countdown" | "live" | "ended";
  */
 const COUNTDOWN_EPSILON = 1e-9;
 
+/** One team's running kill count (frag-limit scoreboards; draws stay visible). */
+export interface TeamScore {
+  team: number;
+  kills: number;
+}
+
 export interface Snapshot {
   tick: number;
   elapsed: number;
   phase: MatchPhase;
+  /**
+   * Kill count per team that has ever fielded a ship, ascending by team id.
+   * Kills credit the KILLER's team (`entityDestroyed.killerId`); environment
+   * deaths (asteroids, boundary) credit nobody. Drives the top-of-screen
+   * team scoreboard and the `fragLimit` win condition alike.
+   */
+  teamScores: TeamScore[];
   /**
    * Seconds left on the start countdown, `0` once the match is live. Display
    * with `Math.ceil` — the sim emits a `countdownTick` event on each whole-second
@@ -174,6 +188,18 @@ export class ArenaSimulation {
   private readonly teamScores = new Map<number, number>();
   private readonly teamsEverPresent = new Set<number>();
   private destroyedShips = 0;
+  /**
+   * What each live ship was spawned AS, kept so `gamemode.respawn` can rebuild
+   * it after a death — same ship, same fitting, same upgrades, same entity id.
+   */
+  private readonly spawnRecords = new Map<
+    EntityId,
+    { shipId: string; fitting: readonly (string | null)[]; team: number; upgradeLevels?: UpgradeLevels }
+  >();
+  /** Deaths waiting out `respawn.delay`, in death order. */
+  private readonly pendingRespawns: { entityId: EntityId; timer: number }[] = [];
+  /** Deterministic spawn-point picker for respawns (own stream off the session seed). */
+  private readonly respawnRng: () => number;
 
   constructor(
     private readonly configs: ConfigService,
@@ -189,6 +215,9 @@ export class ArenaSimulation {
     if (!tuning) throw new Error("no tuning config loaded");
 
     this.world = new World(configs, tuning, arena, gamemode, seed);
+    // Its own derived stream: respawn placement must not perturb any other
+    // seeded randomness (bot decisions, spawn scatter) and vice versa.
+    this.respawnRng = deriveRng(seed, 0x5e5f);
 
     // Resolved once at construction, NOT per tick: a tuning hot-reload halfway
     // through a countdown must not lengthen the lead-in one client is already
@@ -216,7 +245,7 @@ export class ArenaSimulation {
     const used = this.world.shipIds().length;
     const sp = spawns[used % Math.max(1, spawns.length)] ?? this.world.arena.spawnPoints[0]!;
     this.teamsEverPresent.add(team);
-    return spawnShipFromConfig(
+    const id = spawnShipFromConfig(
       this.world,
       this.configs,
       shipId,
@@ -227,6 +256,8 @@ export class ArenaSimulation {
       upgradeLevels,
       sp.pitch ?? 0,
     );
+    this.spawnRecords.set(id, { shipId, fitting, team, upgradeLevels });
+    return id;
   }
 
   /**
@@ -243,7 +274,9 @@ export class ArenaSimulation {
     pitch = 0,
   ): EntityId {
     this.teamsEverPresent.add(team);
-    return spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, pos, heading, upgradeLevels, pitch);
+    const id = spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, pos, heading, upgradeLevels, pitch);
+    this.spawnRecords.set(id, { shipId, fitting, team, upgradeLevels });
+    return id;
   }
 
   applyOrder(entityId: EntityId, order: Order): void {
@@ -256,6 +289,9 @@ export class ArenaSimulation {
    * does not emit destruction events (this is a leave, not a kill).
    */
   removeShip(entityId: EntityId): void {
+    // A deliberate leave forgets the spawn record too — a disconnected player
+    // must not keep respawning as a ghost.
+    this.spawnRecords.delete(entityId);
     if (!this.world.shipCores.has(entityId)) return;
     this.world.destroyEntity(entityId);
   }
@@ -315,7 +351,68 @@ export class ArenaSimulation {
 
     this.elapsed += dt;
     this.tickNo += 1;
+    this.processRespawns(dt);
     this.evaluateWinCondition();
+  }
+
+  /**
+   * Respawn pipeline (`gamemode.respawn`): a destroyed ship with a spawn record
+   * waits out `respawn.delay`, then is rebuilt UNDER ITS OLD ENTITY ID at one of
+   * its team's spawn points, picked by the sim's own seeded stream — "somewhere
+   * in the map", but always an authored-safe pad, never inside a rock. The id
+   * reuse is the whole trick: the local player id, bot drivers, the server's
+   * PlayerState and every HUD binding survive the death untouched.
+   *
+   * Timers advance BEFORE this tick's deaths are scheduled, so a fresh death
+   * always waits the full delay. Relies on the same host invariant the win
+   * condition tally does: events are drained once per tick.
+   */
+  private processRespawns(dt: number): void {
+    const respawn = this.world.gamemode.respawn;
+    if (!respawn.enabled) return;
+
+    for (let i = this.pendingRespawns.length - 1; i >= 0; i--) {
+      const pending = this.pendingRespawns[i]!;
+      pending.timer -= dt;
+      if (pending.timer > 0) continue;
+      this.pendingRespawns.splice(i, 1);
+      const record = this.spawnRecords.get(pending.entityId);
+      if (!record) continue; // left the match while dead — no ghost respawns
+      if (this.world.isAlive(pending.entityId)) continue; // already back (defensive)
+      const spawns = this.world.arena.spawnPoints.filter((s) => s.team === record.team);
+      const sp =
+        spawns.length > 0
+          ? spawns[Math.min(spawns.length - 1, Math.floor(this.respawnRng() * spawns.length))]!
+          : this.world.arena.spawnPoints[0]!;
+      spawnShipFromConfig(
+        this.world,
+        this.configs,
+        record.shipId,
+        record.fitting,
+        record.team,
+        sp.position,
+        sp.heading,
+        record.upgradeLevels,
+        sp.pitch ?? 0,
+        pending.entityId,
+      );
+    }
+
+    for (const ev of this.world.events) {
+      if (ev.type !== "entityDestroyed" || ev.isAsteroid) continue;
+      if (!this.spawnRecords.has(ev.entityId)) continue;
+      // One pending per entity: a host that skips a drain re-presents the same
+      // event next tick, and a duplicate would try to restore a live id later.
+      let alreadyPending = false;
+      for (const pending of this.pendingRespawns) {
+        if (pending.entityId === ev.entityId) {
+          alreadyPending = true;
+          break;
+        }
+      }
+      if (alreadyPending || this.world.isAlive(ev.entityId)) continue;
+      this.pendingRespawns.push({ entityId: ev.entityId, timer: respawn.delay });
+    }
   }
 
   /**
@@ -383,6 +480,14 @@ export class ArenaSimulation {
         ended = true;
         winner = this.topTeam();
       }
+    }
+
+    // Hard time cap layered over ANY win condition (frag-limit modes need a
+    // guaranteed end): whoever leads when it lands wins; a tie is a DRAW.
+    const cap = this.world.gamemode.timeLimitCapSec;
+    if (!ended && cap !== undefined && this.elapsed >= cap) {
+      ended = true;
+      winner = this.topTeam();
     }
 
     // Implicit elimination rule (default on): a fully-wiped team loses; the last
@@ -503,10 +608,14 @@ export class ArenaSimulation {
         velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
       };
     });
+    const teamScores: TeamScore[] = [...this.teamsEverPresent]
+      .sort((a, b) => a - b)
+      .map((team) => ({ team, kills: this.teamScores.get(team) ?? 0 }));
     return {
       tick: this.tickNo,
       elapsed: this.elapsed,
       phase: this.phase,
+      teamScores,
       countdownRemaining: this.countdownRemaining,
       winnerTeam: this.winnerTeam,
       ships,

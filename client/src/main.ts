@@ -532,6 +532,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           setSimPaused(false);
         }
       },
+      // Mid-match only: abandon the match outright and land in the lobby.
+      // endMatch() already unwinds the settings pause and the chase rig.
+      onQuitToMenu:
+        context === "match"
+          ? () => {
+              log.info("quit to main menu from settings");
+              endMatch();
+              lobby.show();
+            }
+          : undefined,
     });
   }
 

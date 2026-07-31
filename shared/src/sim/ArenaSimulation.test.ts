@@ -643,3 +643,87 @@ describe("Scripted 60s engagement (regression anchor)", () => {
     expect(diedTick).toBeLessThan(1800); // dead within the minute
   });
 });
+
+describe("Respawn, team scoreboard and the hard time cap (owner 2026-07-31)", () => {
+  // gamemode.practice-bots authors the full ruleset: fragLimit 10, a 600 s hard
+  // cap, respawn {enabled, delay 3}, eliminationEndsMatch false.
+  const GAMEMODE = "gamemode.practice-bots";
+
+  function duelSim(seed = 7) {
+    const sim = new ArenaSimulation(configs, "arena.ring-nebula", GAMEMODE, seed);
+    const player = sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0);
+    const enemy = sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 1);
+    return { sim, player, enemy };
+  }
+
+  /** Tick once and drain — the host invariant every real driver follows. */
+  function tickDrained(sim: ArenaSimulation, dt = DT): void {
+    sim.tick(dt);
+    sim.getEvents();
+  }
+
+  it("respawns a destroyed ship under the SAME entity id, full hull, on one of its team's pads", () => {
+    const { sim, player, enemy } = duelSim();
+    const hullMax = sim.world.shipCores.get(enemy)!.hullMax;
+    applyDamageToShip(sim.world, enemy, player, 100000, "kinetic");
+    tickDrained(sim);
+    expect(sim.hasShip(enemy)).toBe(false);
+
+    // Sit out the 3 s delay (respawn timers only advance while live).
+    for (let i = 0; i < 92 && !sim.hasShip(enemy); i++) tickDrained(sim);
+
+    expect(sim.hasShip(enemy)).toBe(true); // the same id — no rebinding anywhere
+    const core = sim.world.shipCores.get(enemy)!;
+    expect(core.hull).toBe(hullMax);
+    const tf = sim.world.transforms.get(enemy)!;
+    const pads = sim.world.arena.spawnPoints.filter((sp) => sp.team === 1);
+    const onPad = pads.some(
+      (sp) => Math.hypot(tf.pos.x - sp.position.x, tf.pos.y - (sp.position.y ?? 0), tf.pos.z - sp.position.z) < 1e-9,
+    );
+    expect(onPad).toBe(true);
+    // The frame is freshly seeded for the pad attitude.
+    expect(Math.hypot(tf.up.x, tf.up.y, tf.up.z)).toBeCloseTo(1, 9);
+    // The match did NOT end on the momentary team wipe (eliminationEndsMatch false).
+    expect(sim.isEnded).toBe(false);
+  });
+
+  it("credits the killer's team on the snapshot scoreboard", () => {
+    const { sim, player, enemy } = duelSim();
+    expect(sim.snapshot().teamScores).toEqual([
+      { team: 0, kills: 0 },
+      { team: 1, kills: 0 },
+    ]);
+    applyDamageToShip(sim.world, enemy, player, 100000, "kinetic");
+    tickDrained(sim);
+    expect(sim.snapshot().teamScores).toEqual([
+      { team: 0, kills: 1 },
+      { team: 1, kills: 0 },
+    ]);
+  });
+
+  it("a ship REMOVED while dead never respawns (a leaver is not a ghost)", () => {
+    const { sim, player, enemy } = duelSim();
+    applyDamageToShip(sim.world, enemy, player, 100000, "kinetic");
+    tickDrained(sim);
+    sim.removeShip(enemy);
+    for (let i = 0; i < 120; i++) tickDrained(sim);
+    expect(sim.hasShip(enemy)).toBe(false);
+  });
+
+  it("ends an even match at the hard time cap as a DRAW", () => {
+    const { sim } = duelSim();
+    // Coarse dt on purpose: the cap is a wall-clock rule, not a per-tick one.
+    for (let i = 0; i < 601 && !sim.isEnded; i++) tickDrained(sim, 1);
+    expect(sim.isEnded).toBe(true);
+    expect(sim.snapshot().winnerTeam).toBeNull();
+  });
+
+  it("the leading team wins at the cap", () => {
+    const { sim, player, enemy } = duelSim();
+    applyDamageToShip(sim.world, enemy, player, 100000, "kinetic");
+    tickDrained(sim);
+    for (let i = 0; i < 601 && !sim.isEnded; i++) tickDrained(sim, 1);
+    expect(sim.isEnded).toBe(true);
+    expect(sim.snapshot().winnerTeam).toBe(0);
+  });
+});

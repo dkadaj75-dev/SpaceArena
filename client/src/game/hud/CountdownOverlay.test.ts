@@ -7,6 +7,7 @@ function snapshot(phase: Snapshot["phase"], countdownRemaining: number): Snapsho
     tick: 0,
     elapsed: 0,
     phase,
+    teamScores: [],
     countdownRemaining,
     winnerTeam: null,
     ships: [],

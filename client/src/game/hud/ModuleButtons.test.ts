@@ -44,6 +44,7 @@ function snapshotWithModules(
     elapsed: 0,
     phase: "live",
     countdownRemaining: 0,
+    teamScores: [],
     winnerTeam: null,
     ships: [
       {

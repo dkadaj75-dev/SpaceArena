@@ -3,12 +3,15 @@
   "type": "botprofile",
   "version": 2,
   "name": "Rookie",
-  "decisionIntervalMs": 700,
-  "orderJitterMs": 250,
-  "preferredRange": [26, 52],
+  "decisionIntervalMs": 950,
+  "orderJitterMs": 300,
+  "preferredRange": [
+    26,
+    52
+  ],
   "flight": {
     "turnHorizonMult": 1.0,
-    "aimToleranceRad": 0.08,
+    "aimToleranceRad": 0.14,
     "turnEpsilon": 0.12,
     "pitchEpsilon": 0.12,
     "throttleEpsilon": 0.1
@@ -41,8 +44,8 @@
     "shieldOnlyWhenEngaged": false
   },
   "fireDiscipline": {
-    "engageRangeMult": 1.1,
-    "heatHeadroom": 0.95,
+    "engageRangeMult": 0.7,
+    "heatHeadroom": 0.75,
     "minEnergyFraction": 0.05
   }
 }

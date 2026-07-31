@@ -76,6 +76,7 @@ function contextFor(self: ShipSnapshot) {
     elapsed: 1,
     phase: "live",
     countdownRemaining: 0,
+    teamScores: [],
     winnerTeam: null,
     ships: [self, enemy],
     asteroids: [],

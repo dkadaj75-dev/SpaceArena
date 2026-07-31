@@ -148,6 +148,12 @@ export class ArenaState extends Schema {
   @type("float32") countdownRemaining = 0;
   /** Winning team, or -1 for none/draw. */
   @type("int8") winnerTeam = -1;
+  /**
+   * Kill count per team (keyed by team id as a string) — the top-of-screen
+   * scoreboard and frag-limit progress. Additive schema state; clients that
+   * predate it simply see no scores.
+   */
+  @type({ map: "uint16" }) teamScores = new MapSchema<number>();
   /** Keyed by client sessionId. */
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   /** Missiles only. Keyed by sim entity id (string). */
