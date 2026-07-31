@@ -3,7 +3,10 @@ import {
   BotDriver,
   createLogger,
   deriveRng,
+  generateBotNames,
   hardpointsOf,
+  pickBotShip,
+  randomBotFitting,
   resolveBotRoster,
   type ConfigService,
   type EntityId,
@@ -124,6 +127,11 @@ export class GameSession {
    * `driver.lastDecision` — behaviour, utility scores, chosen move point.
    */
   readonly bots = new Map<EntityId, BotDriver>();
+  /**
+   * Player-like display name per bot entity (owner 2026-07-31). Deterministic
+   * from the session seed, so a replay fields the same roster.
+   */
+  readonly botNames = new Map<EntityId, string>();
 
   private prev: Snapshot;
   private cur: Snapshot;
@@ -164,11 +172,21 @@ export class GameSession {
     const gamemode = this.sim.world.gamemode;
     const roster = options.bots === null ? [] : resolveBotRoster(gamemode, configs);
     const enemyBotIds: EntityId[] = [];
-    for (const slot of roster) {
-      const botShip = configs.get<ShipConfig>("ship", slot.shipId);
+    // One stream for every roster decision, derived from the session seed: same
+    // seed ⇒ same hulls, same fittings, same names.
+    const rosterRng = deriveRng(seed, 0xb0715);
+    const names = generateBotNames(rosterRng, roster.length);
+    const randomize = gamemode.bots?.randomizeLoadouts === true;
+    for (const [rosterIndex, slot] of roster.entries()) {
+      const shipId = randomize
+        ? pickBotShip(configs, rosterRng, slot.shipId, gamemode.bots?.shipPool)
+        : slot.shipId;
+      const botShip = configs.get<ShipConfig>("ship", shipId);
       if (!botShip) continue;
-      const id = this.sim.spawnPlayer(slot.shipId, botShip.defaultFitting, slot.team);
-      this.shipConfigIds.set(id, slot.shipId);
+      const fitting = randomize ? randomBotFitting(configs, shipId, rosterRng) : botShip.defaultFitting;
+      const id = this.sim.spawnPlayer(shipId, fitting, slot.team);
+      this.shipConfigIds.set(id, shipId);
+      this.botNames.set(id, names[rosterIndex] ?? `Bot ${rosterIndex + 1}`);
       // 2v2 rosters can put a bot on the PLAYER's team — an ally is never one of
       // the "targets" the destroyTargets objective counts.
       if (slot.team !== 0) enemyBotIds.push(id);

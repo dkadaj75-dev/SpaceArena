@@ -23,6 +23,7 @@
     "gamemodes/duel-1v1.json",
     "gamemodes/practice-bots.json",
     "gamemodes/practice-bots-1v1.json",
+    "gamemodes/practice-bots-5v5.json",
     "bots/rookie.json",
     "bots/aggressive.json",
     "bots/cautious.json",

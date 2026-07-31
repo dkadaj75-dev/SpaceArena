@@ -3,6 +3,9 @@ import {
   ArenaSimulation,
   BotDriver,
   deriveRng,
+  generateBotName,
+  pickBotShip,
+  randomBotFitting,
   resolveBackfillBot,
   teamSizeOf,
   SIM_TICK_RATE,
@@ -490,17 +493,30 @@ export class ArenaRoom extends Room<ArenaState> {
     }
 
     let spawned = 0;
+    // Roster decisions (hull, fitting, name) come off one seeded stream, so two
+    // rooms built from the same seed field the same opposition.
+    const rosterRng = deriveRng(this.seed, 0xb0715);
+    const randomize = this.sim.world.gamemode.bots?.randomizeLoadouts === true;
     for (let team = 0; team < 2; team++) {
       for (let i = perTeam.get(team) ?? 0; i < teamSize; i++) {
-        const entityId = this.sim.spawnPlayer(backfill.shipId, ship.defaultFitting, team);
+        const botShipId = randomize
+          ? pickBotShip(configs, rosterRng, backfill.shipId, this.sim.world.gamemode.bots?.shipPool)
+          : backfill.shipId;
+        const botShip = configs.get<ShipConfig>("ship", botShipId) ?? ship;
+        const botFitting = randomize
+          ? randomBotFitting(configs, botShipId, rosterRng)
+          : botShip.defaultFitting;
+        const entityId = this.sim.spawnPlayer(botShipId, botFitting, team);
         const key = `bot-${entityId}`;
         const ps = new PlayerState();
         ps.entityId = entityId;
         ps.team = team;
-        ps.shipId = backfill.shipId;
-        ps.displayName = backfill.profile.name ?? backfill.profile.id;
+        ps.shipId = botShipId;
+        // A player-like handle, not the profile id: "Rookie" reads as furniture
+        // on a scoreboard, "Vortexrunner_77" reads as an opponent.
+        ps.displayName = generateBotName(rosterRng);
         ps.connected = false;
-        for (let m = 0; m < ship.defaultFitting.filter((x) => x !== null).length; m++) ps.modules.push(new ModuleState());
+        for (let m = 0; m < botFitting.filter((x) => x !== null).length; m++) ps.modules.push(new ModuleState());
         this.state.players.set(key, ps);
         this.keyToEntity.set(key, entityId);
         this.entityToKey.set(entityId, key);

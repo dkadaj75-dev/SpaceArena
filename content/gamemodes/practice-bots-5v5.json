@@ -1,0 +1,46 @@
+{
+  "id": "gamemode.practice-bots-5v5",
+  "type": "gamemode",
+  "version": 1,
+  "name": "Practice \u2014 5v5 vs Bots",
+  "teams": "2v2",
+  "defaultArena": "arena.ring-nebula",
+  "winCondition": {
+    "type": "fragLimit",
+    "count": 25
+  },
+  "eliminationEndsMatch": false,
+  "respawn": {
+    "enabled": true,
+    "delay": 3
+  },
+  "boundaryRule": {
+    "type": "damageAndBounce",
+    "damagePerSec": 20,
+    "restitution": 0.82
+  },
+  "rewards": {
+    "win": 0,
+    "loss": 0,
+    "perKill": 0
+  },
+  "bots": {
+    "defaultProfile": "bot.rookie",
+    "defaultShip": "ship.interceptor",
+    "backfillWaitMs": 15000,
+    "randomizeLoadouts": true,
+    "roster": [
+      {
+        "profile": "bot.rookie",
+        "team": 0,
+        "count": 4
+      },
+      {
+        "profile": "bot.rookie",
+        "team": 1,
+        "count": 5
+      }
+    ]
+  },
+  "timeLimitCapSec": 900
+}

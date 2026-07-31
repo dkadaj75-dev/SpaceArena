@@ -5,3 +5,5 @@ export * from "./moduleDiscipline.js";
 export * from "./fireDiscipline.js";
 export * from "./BotDriver.js";
 export * from "./roster.js";
+export * from "./botNames.js";
+export * from "./botLoadout.js";

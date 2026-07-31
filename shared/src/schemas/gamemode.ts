@@ -49,6 +49,18 @@ export const gamemodeBots = z.object({
   defaultShip: z.string().optional(),
   backfillWaitMs: z.number().nonnegative().optional(),
   roster: z.array(gamemodeBotSlot).optional(),
+  /**
+   * Roll each bot a random hull and weapon fitting instead of flying the slot's
+   * authored ship on its stock loadout (owner 2026-07-31) — practice stops
+   * looking like a mirror match. Bounded to entry-tier weapons and stock
+   * internals (see `botLoadout.ts`), so it varies shape, not strength.
+   */
+  randomizeLoadouts: z.boolean().optional(),
+  /**
+   * Hull ids the randomiser may draw from. Omitted ⇒ every ship in the pack.
+   * Only consulted when `randomizeLoadouts` is on.
+   */
+  shipPool: z.array(z.string()).optional(),
 });
 export type GamemodeBots = z.infer<typeof gamemodeBots>;
 
