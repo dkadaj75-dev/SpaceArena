@@ -22,6 +22,7 @@ import {
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
+import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
 import type { TacticalCamera } from "../TacticalCamera.js";
 
@@ -37,6 +38,14 @@ const LS_FITTING = "hangar.fittingId";
  * which loads the authoritative levels from the DB at spawn.
  */
 const LS_UPGRADES = "hangar.upgrades";
+/**
+ * The WORKING fitting — the module ids currently in the slots, saved or not.
+ * Stored so that whatever is on screen when the player leaves the Hangar is
+ * what they fly (owner 2026-07-31). Kept beside the ship id for the same reason
+ * {@link LS_UPGRADES} is: a module list belonging to another hull would not fit
+ * this one's sockets.
+ */
+const LS_MODULES = "hangar.moduleIds";
 const STAGE_POS = new Vector3(0, 5, 300); // far from the arena (radius 90) — nothing else renders out here
 const UPGRADE_TRACKS: readonly UpgradeTrackName[] = ["hull", "engine", "energy", "heat"];
 const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine: "Engine", energy: "Capacitor", heat: "Heat Sink" };
@@ -46,12 +55,46 @@ export interface HangarSelection {
   fittingId: string | null;
   /** Upgrade levels cached for {@link HangarSelection.shipId}; null when unknown (never logged in / never opened Hangar). */
   upgradeLevels: UpgradeLevels | null;
+  /**
+   * The working fitting for {@link HangarSelection.shipId} as a POSITIONAL
+   * module-id array (index = hardpoint index, `null` = empty), or null when
+   * unknown. This is what the player last had in the slots — a saved fitting
+   * they selected, or unsaved edits. Offline matches spawn from it directly;
+   * online matches still send `fittingId`, because the server validates module
+   * ownership against the DB and cannot take an arbitrary list on trust.
+   */
+  moduleIds: (string | null)[] | null;
 }
 
 /** Reads the player's last Hangar ship/fitting choice — Lobby passes this as NetGameSession join options. */
 export function loadHangarSelection(): HangarSelection {
   const shipId = localStorage.getItem(LS_SHIP);
-  return { shipId, fittingId: localStorage.getItem(LS_FITTING), upgradeLevels: loadCachedUpgrades(shipId) };
+  return {
+    shipId,
+    fittingId: localStorage.getItem(LS_FITTING),
+    upgradeLevels: loadCachedUpgrades(shipId),
+    moduleIds: loadCachedModules(shipId),
+  };
+}
+
+/**
+ * The working fitting, but only if it was stored for `shipId` — a list from
+ * another hull would address sockets this one does not have (spawn throws on a
+ * fitting whose family a hardpoint refuses), so an unknown fit is safer than a
+ * wrong one: callers fall back to the ship's `defaultFitting`.
+ */
+function loadCachedModules(shipId: string | null): (string | null)[] | null {
+  if (!shipId) return null;
+  const raw = localStorage.getItem(LS_MODULES);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { shipId?: string; moduleIds?: unknown };
+    if (parsed.shipId !== shipId || !Array.isArray(parsed.moduleIds)) return null;
+    return parsed.moduleIds.map((id) => (typeof id === "string" && id.length > 0 ? id : null));
+  } catch {
+    // Corrupt/hand-edited storage is not worth a crash on the way into a match.
+    return null;
+  }
 }
 
 const ZERO_LEVELS: UpgradeLevels = { hull: 0, engine: 0, energy: 0, heat: 0 };
@@ -96,6 +139,8 @@ function loadCachedUpgrades(shipId: string | null): UpgradeLevels | null {
  */
 export class Hangar {
   private readonly root: HTMLDivElement;
+  /** Transparent half the 3D stage renders into (see `.hangar-stage` CSS). */
+  private readonly stage: HTMLDivElement;
   private readonly panel: HTMLDivElement;
   private readonly api: HangarApi;
   private readonly assets: AssetRegistry;
@@ -122,14 +167,12 @@ export class Hangar {
   private renderObserver: Observer<Scene> | null = null;
 
   /**
-   * When the panel is a full-width bottom sheet (phones), the ship must center
-   * in the strip ABOVE it, not in the full viewport (where the sheet hides it).
-   * `panelShiftFrac` = the fraction of the full viewport height the visible
-   * center is displaced upward: panelHeight / (2 * viewportHeight). 0 when the
-   * panel docks right (desktop). Applied per-frame so it tracks pinch zoom.
+   * World-space centre the camera orbits: the GEOMETRIC centre of the staged
+   * hull (its bounding-box centre), not the stage root — a ship whose mesh sits
+   * off its own origin would otherwise swing around a point outside itself.
    */
-  private panelShiftFrac = 0;
-  private readonly onViewportResize = (): void => this.measurePanelShift();
+  private readonly focus = new Vector3(0, 0, 0);
+  private readonly onViewportResize = (): void => this.applyStageViewport();
 
   constructor(
     parent: HTMLElement,
@@ -156,9 +199,14 @@ export class Hangar {
     injectHangarStyle();
     this.root = document.createElement("div");
     this.root.className = "hangar-overlay game-screen";
+    // Half the screen is a hole onto the 3D stage: it must NOT take pointer
+    // events, or it would eat the orbit/zoom drags meant for the canvas below.
+    this.stage = document.createElement("div");
+    this.stage.className = "hangar-stage";
+    this.stage.setAttribute("aria-hidden", "true");
     this.panel = document.createElement("div");
     this.panel.className = "hangar-panel";
-    this.root.append(this.panel);
+    this.root.append(this.stage, this.panel);
     parent.append(this.root);
 
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
@@ -204,7 +252,7 @@ export class Hangar {
 
     this.rebuildPreview();
     this.render();
-    this.measurePanelShift();
+    this.applyStageViewport();
 
     void this.refreshFromServer().then(() => {
       if (stored.fittingId && this.fittings.some((f) => f.id === stored.fittingId && f.ship_id === ship?.id)) {
@@ -217,7 +265,8 @@ export class Hangar {
     this.root.style.display = "none";
     window.removeEventListener("resize", this.onViewportResize);
     window.removeEventListener("orientationchange", this.onViewportResize);
-    this.panelShiftFrac = 0;
+    // Hand the whole canvas back — a match must never render into half of it.
+    this.camera.setStageViewport(null);
     if (this.renderObserver) {
       this.scene.onBeforeRenderObservable.remove(this.renderObserver);
       this.renderObserver = null;
@@ -298,25 +347,43 @@ export class Hangar {
       .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
   }
 
-  /** Idle preview animation: a gentle synthetic throttle wave so engine trails visibly breathe at rest. */
-  /** Re-measure how much of the viewport the panel sheet covers (phones only). */
-  private measurePanelShift(): void {
-    const rect = this.panel.getBoundingClientRect();
-    const vw = window.innerWidth || 1;
-    const vh = window.innerHeight || 1;
-    // Bottom-sheet mode = panel spans (nearly) the full width. Right-dock mode
-    // leaves the ship visible already and gets no shift.
-    this.panelShiftFrac = rect.width >= vw * 0.95 && rect.height > 0 ? rect.height / (2 * vh) : 0;
+  /**
+   * Point the camera at the stage half of the split screen and frame the hull
+   * inside it. Re-run on resize and orientation change, so rotating the phone
+   * flips the split (stacked ⇄ side by side) and re-fits the ship in one step.
+   */
+  private applyStageViewport(): void {
+    const w = window.innerWidth || 1;
+    const h = window.innerHeight || 1;
+    this.camera.setStageViewport(stageViewport(w, h));
+    this.frameShip(stageAspect(w, h));
+  }
+
+  /**
+   * Centre the orbit on the hull's geometric centre and pull back far enough to
+   * see all of it, then let the player zoom within a range scaled to the hull —
+   * so "zoom out" always means the same thing regardless of which ship is on
+   * the stage.
+   */
+  private frameShip(aspect: number): void {
+    const instance = this.previewInstance;
+    if (!instance) {
+      this.focus.copyFrom(this.stageRoot.position);
+      return;
+    }
+    instance.computeWorldMatrix(true);
+    const bounds = instance.getBoundingInfo().boundingSphere;
+    this.focus.copyFrom(bounds.centerWorld);
+    const radius = framingRadius(bounds.radiusWorld, this.camera.camera.fov, aspect);
+    this.camera.setStageRadiusRange(radius * 0.35, radius * 2.5);
+    this.camera.stageAt(this.focus, radius, this.camera.camera.alpha, this.camera.camera.beta);
   }
 
   private tickPreview(): void {
-    // Keep the staged ship centered in the UNOBSCURED part of the screen: shift
-    // the orbit target down by the sheet's half-height expressed in world units
-    // at the current radius, so the ship rides up above the panel. Tracks pinch
-    // zoom because it re-derives from the live radius every frame.
-    const cam = this.camera.camera;
-    const worldViewHeight = 2 * cam.radius * Math.tan(cam.fov / 2);
-    cam.target.y = this.stageRoot.position.y - this.panelShiftFrac * worldViewHeight;
+    // The orbit centre IS the hull's geometric centre (owner 2026-07-31): hold
+    // it every frame so a stray pan gesture cannot drift the ship off its own
+    // pivot. Orbit angle and zoom stay entirely the player's.
+    this.camera.camera.target.copyFrom(this.focus);
 
     if (!this.previewRig) return;
     const dtMs = this.scene.getEngine().getDeltaTime();
@@ -343,6 +410,9 @@ export class Hangar {
     this.slots = ship ? slotsFromDefaultFitting(ship) : [];
     this.persistSelection();
     this.rebuildPreview();
+    // A different hull is a different size: re-frame it. (Swapping a MODULE
+    // deliberately does not, so an edit never yanks the player's zoom back.)
+    this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
     this.render();
   }
 
@@ -369,6 +439,9 @@ export class Hangar {
     if (!slot) return;
     slot.moduleId = moduleId;
     this.pickerHardpoint = null;
+    // Persist immediately: an unsaved edit still flies (owner 2026-07-31), so
+    // the working fit must survive walking straight out of the Hangar.
+    this.persistSelection();
     this.rebuildPreview();
     this.render();
   }
@@ -454,6 +527,14 @@ export class Hangar {
       localStorage.setItem(LS_UPGRADES, JSON.stringify({ shipId, levels: this.currentUpgradeLevels() }));
     } else {
       localStorage.removeItem(LS_UPGRADES);
+    }
+    // The WORKING fitting, saved or not: what is in the slots right now is what
+    // the player flies next (owner 2026-07-31). Written on every fit change, so
+    // simply walking out of the Hangar keeps the loadout on screen.
+    if (shipId) {
+      localStorage.setItem(LS_MODULES, JSON.stringify({ shipId, moduleIds: fittedModuleIdsOf(this.slots) }));
+    } else {
+      localStorage.removeItem(LS_MODULES);
     }
   }
 
@@ -766,6 +847,13 @@ function injectHangarStyle(): void {
 }
 
 const HANGAR_CSS = `
+/*
+ * Split screen (owner 2026-07-31): the ship's 3D stage gets one half, its info
+ * and modules the other — STACKED in portrait (stage on top) and SIDE BY SIDE
+ * in landscape. The stage half is a transparent hole onto the shared Babylon
+ * canvas; \`hangarLayout.stageViewport()\` confines the camera to exactly the
+ * same rectangle, so the two must be changed together.
+ */
 .hangar-overlay {
   position: fixed;
   inset: 0;
@@ -773,47 +861,45 @@ const HANGAR_CSS = `
   pointer-events: none;
   font-family: system-ui;
   color: #e8f1ff;
+  display: flex;
+  flex-direction: column; /* portrait: stage above, panel below */
+}
+/* The stage takes its half of the flex box but never any pointer events —
+   orbit and zoom drags belong to the canvas underneath it. */
+.hangar-stage {
+  flex: 1 1 50%;
+  min-height: 0;
+  min-width: 0;
+  pointer-events: none;
 }
 .hangar-panel {
   pointer-events: auto;
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(380px, 100vw);
+  flex: 1 1 50%;
+  min-height: 0;
+  min-width: 0;
   box-sizing: border-box;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
   background: rgba(6, 10, 20, 0.94);
-  border-left: 1px solid #2f6fb8;
+  border-top: 1px solid #2f6fb8;
   padding:
-    calc(env(safe-area-inset-top, 0px) + 14px)
+    14px
     calc(env(safe-area-inset-right, 0px) + 14px)
     calc(env(safe-area-inset-bottom, 0px) + 14px)
-    14px;
+    calc(env(safe-area-inset-left, 0px) + 14px);
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-/* Phones: the panel becomes a bottom sheet so the staged ship stays visible
-   and every control sits in the thumb half of the screen. */
-@media (max-width: 700px) {
+/* Landscape: the same halves, laid out left (stage) / right (panel). */
+@media (orientation: landscape) {
+  .hangar-overlay { flex-direction: row; }
   .hangar-panel {
-    top: auto;
-    left: 0;
-    right: 0;
-    width: 100%;
-    max-height: 60vh;
-    border-left: none;
-    border-top: 1px solid #2f6fb8;
-    border-radius: 12px 12px 0 0;
-    padding-left: calc(env(safe-area-inset-left, 0px) + 14px);
+    border-top: none;
+    border-left: 1px solid #2f6fb8;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 14px);
   }
-}
-/* Landscape phones have very little height — give the sheet more of it. */
-@media (max-width: 900px) and (max-height: 480px) {
-  .hangar-panel { max-height: 78vh; }
 }
 .hangar-header { display: flex; align-items: center; justify-content: space-between; }
 .hangar-title { letter-spacing: .25em; font-weight: 300; color: #57d8ff; font-size: 16px; }

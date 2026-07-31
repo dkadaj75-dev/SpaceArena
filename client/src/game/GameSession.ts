@@ -3,9 +3,11 @@ import {
   BotDriver,
   createLogger,
   deriveRng,
+  hardpointsOf,
   resolveBotRoster,
   type ConfigService,
   type EntityId,
+  type ModuleConfig,
   type Order,
   type ShipConfig,
   type SimEvent,
@@ -13,6 +15,41 @@ import {
 } from "@space-arena/shared";
 
 const log = createLogger("GameSession");
+
+/** Hull flown when the caller names none (or names one this pack does not have). */
+const DEFAULT_PLAYER_SHIP = "ship.interceptor";
+
+/** The requested hull if this pack actually has it, else the stock one. */
+function resolvePlayerShipId(configs: ConfigService, requested: string | null | undefined): string {
+  if (requested && configs.get<ShipConfig>("ship", requested)) return requested;
+  if (requested) log.warn(`unknown ship ${requested}; flying ${DEFAULT_PLAYER_SHIP}`);
+  return DEFAULT_PLAYER_SHIP;
+}
+
+/**
+ * The requested fitting, sanitised against `ship`'s sockets: an entry is kept
+ * only where the hull HAS that hardpoint and the hardpoint accepts the module's
+ * family. Anything else becomes an empty slot rather than a spawn-time throw —
+ * a stale loadout in localStorage must never block a match. An entirely empty
+ * (or absent) request falls back to the hull's `defaultFitting`, since a ship
+ * with no modules at all is not a playable state.
+ */
+function resolvePlayerFitting(
+  configs: ConfigService,
+  ship: ShipConfig,
+  requested: readonly (string | null)[] | null | undefined,
+): readonly (string | null)[] {
+  if (!requested?.length) return ship.defaultFitting;
+  const hardpoints = hardpointsOf(ship);
+  const fitting = requested.slice(0, hardpoints.length).map((moduleId, index) => {
+    if (!moduleId) return null;
+    const family = configs.get<ModuleConfig>("module", moduleId)?.family;
+    if (!family) return null;
+    return hardpoints[index]?.accepts.includes(family) ? moduleId : null;
+  });
+  if (fitting.every((m) => m === null)) return ship.defaultFitting;
+  return fitting;
+}
 
 /**
  * Owns an authoritative {@link ArenaSimulation} for single-player practice mode.
@@ -58,6 +95,18 @@ export interface GameSessionOptions {
    * deterministic — this exists so a test can pin a specific sequence.
    */
   botRng?: () => number;
+  /**
+   * The hull the PLAYER flies (owner 2026-07-31 — the Hangar's choice reaches
+   * offline practice too). Unknown or unfittable ids fall back to the default
+   * hull rather than throwing on the way into a match.
+   */
+  playerShipId?: string | null;
+  /**
+   * The player's fitting as a POSITIONAL module-id array (index = hardpoint
+   * index, `null` = empty) — the Hangar's working loadout. Omitted, empty or
+   * invalid ⇒ the hull's `defaultFitting`.
+   */
+  playerFitting?: readonly (string | null)[] | null;
 }
 
 export class GameSession {
@@ -94,10 +143,12 @@ export class GameSession {
   ) {
     this.sim = new ArenaSimulation(configs, arenaId, gamemodeId, seed);
 
-    const shipId = "ship.interceptor";
+    // The Hangar's ship/fitting when the caller passes one, else the stock
+    // interceptor on its default fitting.
+    const shipId = resolvePlayerShipId(configs, options.playerShipId);
     const ship = configs.get<ShipConfig>("ship", shipId);
     if (!ship) throw new Error(`GameSession: unknown ship ${shipId}`);
-    const fitting = ship.defaultFitting;
+    const fitting = resolvePlayerFitting(configs, ship, options.playerFitting);
 
     // Player: team 0 at its spawn point.
     this.playerId = this.sim.spawnPlayer(shipId, fitting, 0);

@@ -794,9 +794,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       // session runs — a choice without an explicit gamemode must still land
       // on gamemode.practice's defaultArena, not the fallback arena.
       const practiceMode = choice.gamemode ?? "gamemode.practice";
+      const hangar = loadHangarSelection();
       const session =
         choice.kind === "practice"
-          ? new GameSession(configService, practiceArena(practiceMode) ?? FALLBACK_ARENA_ID, practiceMode)
+          ? new GameSession(configService, practiceArena(practiceMode) ?? FALLBACK_ARENA_ID, practiceMode, 1, {
+              // Offline practice flies the Hangar's loadout too (owner
+              // 2026-07-31) — including edits that were never saved to a named
+              // fitting, which an online room cannot accept on trust.
+              playerShipId: hangar.shipId,
+              playerFitting: hangar.moduleIds,
+            })
           : await NetGameSession.join(
               configService,
               {
