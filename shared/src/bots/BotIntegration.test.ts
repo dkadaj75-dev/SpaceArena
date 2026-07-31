@@ -91,7 +91,18 @@ function runMatch(
     const profile = configs.get<BotprofileConfig>("botprofile", profileId)!;
     const shipId = "ship.interceptor";
     const ship = configs.get<ShipConfig>("ship", shipId)!;
-    const id = sim.spawnPlayer(shipId, ship.defaultFitting, i);
+    // PINNED engagement geometry: these suites bound the merge (time to lock,
+    // to first hit, to damage), so the merge distance must not drift with arena
+    // content — the shipped pads moved out to r~82 with a colossal centrepiece
+    // between them (owner 2026-07-31). 60 units apart, facing off, away from
+    // the central rock.
+    const id = sim.spawnPlayerAt(
+      shipId,
+      ship.defaultFitting,
+      i,
+      { x: i === 0 ? -30 : 30, y: 0, z: 70 },
+      i === 0 ? 0 : Math.PI,
+    );
     const y = opts.spawnY?.[i];
     if (y !== undefined) sim.world.transforms.get(id)!.pos.y = y;
     drivers.set(

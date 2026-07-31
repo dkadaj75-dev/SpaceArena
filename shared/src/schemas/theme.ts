@@ -676,6 +676,13 @@ export const themeSchema = z.object({
   hud: z
     .object({
       scale: z.number().positive().optional(),
+      /**
+       * DISPLAY-ONLY scale from world units to the metres the HUD prints
+       * (speed readout, contact/target distance labels). Purely cosmetic — the
+       * sim, wire and radar geometry all stay in world units; this just makes
+       * the numbers read at the fiction's scale (shipped: 2 m per unit).
+       */
+      metersPerUnit: z.number().positive().optional(),
       moduleButtonRadiusPx: z.number().positive().optional(),
       safeAreaInsetPx: z.number().nonnegative().optional(),
       /** Gap between module buttons in the bottom-right radial cluster. */

@@ -16,7 +16,7 @@ describe("resolveShipStats (4.1)", () => {
   it("returns ship-class base stats with no upgrades or passives", () => {
     const core = resolveShipStats(interceptor, configs);
     expect(core.hullMax).toBe(80);
-    expect(core.engine.nominalSpeed).toBe(34);
+    expect(core.engine.nominalSpeed).toBe(27);
     expect(core.capacitor.max).toBe(120);
     expect(core.capacitor.regen).toBe(14);
     expect(core.heat.capacity).toBe(100);
@@ -31,7 +31,7 @@ describe("resolveShipStats (4.1)", () => {
       upgradeLevels: { hull: 5, engine: 2, energy: 0, heat: 0 },
     });
     expect(core.hullMax).toBe(170); // 80 + 90
-    expect(core.engine.nominalSpeed).toBeCloseTo(34 * 1.08, 6);
+    expect(core.engine.nominalSpeed).toBeCloseTo(27 * 1.08, 6);
   });
 
   it("count 0 and count 1 both resolve to base (level 1 is the free base line)", () => {
@@ -101,8 +101,8 @@ describe("resolveShipStats — pipeline edges", () => {
   it("applies all four tracks together without cross-talk", () => {
     const core = resolveShipStats(interceptor, configs, { upgradeLevels: { hull: 5, engine: 5, energy: 5, heat: 5 } });
     expect(core.hullMax).toBe(170); // 80 + 90
-    expect(core.engine.nominalSpeed).toBeCloseTo(34 * 1.45, 6);
-    expect(core.engine.accel).toBeCloseTo(22 * 1.3, 6);
+    expect(core.engine.nominalSpeed).toBeCloseTo(27 * 1.45, 6);
+    expect(core.engine.accel).toBeCloseTo(18 * 1.3, 6);
     expect(core.capacitor.max).toBe(230); // 120 + 110
     expect(core.capacitor.regen).toBe(26); // 14 + 12
     expect(core.heat.capacity).toBe(190); // 100 + 90

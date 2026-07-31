@@ -291,7 +291,7 @@ export class EnemyArrows {
       slot.lastDeg = deg;
       slot.glyph.style.transform = `rotate(${deg}deg)`;
     }
-    const distanceM = roundedHudMeters(distanceUnits);
+    const distanceM = roundedHudMeters(distanceUnits * this.layout.metersPerUnit);
     if (distanceM !== slot.lastDistanceM) {
       slot.lastDistanceM = distanceM;
       slot.distance.textContent = formatHudDistance(distanceM);

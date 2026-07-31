@@ -24,17 +24,19 @@ describe("CollisionSystem boundary", () => {
     const world = makeWorld(configs, {
       gamemodeOverride: { boundaryRule: { type: "bounce", restitution: 1 } },
     });
-    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 89, z: 0 }, 0);
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: radius - 1, z: 0 }, 0);
     world.velocities.get(id)!.x = 30;
     collisionSystem(world, DT);
     expect(world.velocities.get(id)!.x).toBeLessThan(0); // reflected inward
     const p = world.transforms.get(id)!.pos;
-    expect(Math.sqrt(p.x * p.x + p.z * p.z)).toBeLessThanOrEqual(90);
+    expect(Math.sqrt(p.x * p.x + p.z * p.z)).toBeLessThanOrEqual(radius);
   });
 
   it("damages a ship that leaves a damaging boundary", () => {
     const world = makeWorld(configs, { gamemodeId: "gamemode.duel-1v1" }); // boundary: damage
-    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 100, z: 0 }, 0);
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: radius + 10, z: 0 }, 0);
     const before = world.shipCores.get(id)!.hull;
     collisionSystem(world, DT);
     expect(world.shipCores.get(id)!.hull).toBeLessThan(before);
@@ -47,13 +49,14 @@ describe("CollisionSystem boundary", () => {
         boundaryRule: { type: "damageAndBounce", damagePerSec: 30, restitution: 0.8 },
       },
     });
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
     const id = spawnShipFromConfig(
       world,
       configs,
       "ship.interceptor",
       INTERCEPTOR_FITTING,
       0,
-      { x: 100, z: 0 },
+      { x: radius + 10, z: 0 },
       0,
     );
     world.velocities.get(id)!.x = 30;
@@ -74,13 +77,14 @@ describe("CollisionSystem boundary", () => {
         boundaryRule: { type: "damageAndBounce", damagePerSec: 30, restitution: 0.8 },
       },
     });
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
     const id = spawnShipFromConfig(
       world,
       configs,
       "ship.interceptor",
       INTERCEPTOR_FITTING,
       0,
-      { x: 88.5, z: 0 },
+      { x: radius - 1.5, z: 0 },
       0,
     );
     world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, pitchStick: 0, boost: false, fire: true });
@@ -185,13 +189,14 @@ describe("CollisionSystem boundary", () => {
     const world = makeWorld(configs, {
       gamemodeOverride: { boundaryRule: { type: "warning" } },
     });
+    const radius = world.arena.bounds.shape === "sphere" ? world.arena.bounds.radius : 0;
     const id = spawnShipFromConfig(
       world,
       configs,
       "ship.interceptor",
       INTERCEPTOR_FITTING,
       0,
-      { x: 100, z: 0 },
+      { x: radius + 10, z: 0 },
       0,
     );
 

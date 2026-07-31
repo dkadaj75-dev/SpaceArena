@@ -258,7 +258,8 @@
           "ringOffsetYPx": 4
         }
       }
-    }
+    },
+    "metersPerUnit": 2
   },
   "haptics": {
     "enabled": true,
