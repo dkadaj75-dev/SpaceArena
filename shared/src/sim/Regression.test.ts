@@ -45,7 +45,11 @@ describe("Bug 1 — collision grind death", () => {
   it("a sustained high-speed ram damages once, then respects the cooldown", () => {
     const world = makeWorld(configs);
     const ast = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 0, z: 0 });
-    const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: -4 }, 0);
+    // Inside contact range from the first tick: this test never integrates
+    // position (it calls `collisionSystem` directly), and the rock's collision
+    // sphere is inscribed in its silhouette rather than matching its drawn
+    // radius (2026-07-31), so the old z: -4 no longer touches it.
+    const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: -3 }, 0);
     const impactDamage = world.asteroids.get(ast)!.impactDamage;
 
     let damageEvents = 0;

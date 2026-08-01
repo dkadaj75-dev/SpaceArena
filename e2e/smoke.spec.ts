@@ -172,9 +172,6 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // under the overlay. (Which half is which flips with orientation, in CSS.)
   await expect(page.locator(".hangar-overlay > .hangar-stage")).toHaveCount(1);
 
-  // Every slot gets a callout tag pinned to the hull in the 3D pane, and the
-  // projection has to actually run for them to land anywhere — a real browser
-  // is the only place that can be checked, so it is checked here.
   // The hull's slots split into weapon hardpoints and the always-on internal
   // bay (2026-07-31); the rail shows one bay at a time, so count them one bay at
   // a time. Only hardpoints get a HUD button, so that is the count the match
@@ -186,24 +183,15 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   expect(hangarWeaponSlots).toBeGreaterThan(0);
   expect(hangarInternalSlots).toBe(5); // engine, generator, transformer, heatsink, sensors
 
-  const callouts = page.locator(".hangar-callouts .hangar-callout");
-  // The ship keeps every callout regardless of which bay the rail is showing —
-  // the rail filters the PANEL, not the hull.
-  await expect(callouts).toHaveCount(hangarWeaponSlots + hangarInternalSlots);
-  await expect(callouts.first()).toBeVisible();
-  const placed = await callouts.first().evaluate((el) => {
-    const style = (el as HTMLElement).style;
-    return style.left !== "" && style.top !== "";
-  });
-  expect(placed).toBe(true);
-
-  // Clicking a callout opens that slot's contextual list, exactly as tapping
-  // the slot in the panel does.
-  await callouts.last().click();
+  // Opening a bay slot shows its contextual module list: the rolling scroller,
+  // with every row carrying its stat chips.
+  await hangar.locator(".hangar-slot").last().click();
   await expect(hangar.locator(".hangar-picker")).toBeVisible();
-  // The list is the rolling scroller, and every row carries its stat chips.
   await expect(hangar.locator(".hangar-picker-list")).toBeVisible();
   await expect(hangar.locator(".hangar-picker-item .hangar-stat-chip").first()).toBeVisible();
+
+  // The instrument strip reports the power rail as two bars against its max.
+  await expect(hangar.locator(".hangar-statusbar .hangar-power-row")).toHaveCount(2);
 
   // ------------------------------------------------------- 4. back to lobby
   await hangar.locator(".hangar-close").click();

@@ -731,13 +731,15 @@ export class ArenaSimulation {
     });
     const asteroids: AsteroidSnapshot[] = w.asteroidIds().map((id) => {
       const tf = w.transforms.get(id)!;
-      const col = w.colliders.get(id)!;
       const tag = w.asteroids.get(id)!;
       return {
         id,
         configId: tag.configId,
         pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
-        radius: col.radius,
+        // The DRAWN radius, not the (smaller) collision sphere — this feeds the
+        // renderer, the radar and bot line-of-sight, all of which reason about
+        // the rock a pilot can see.
+        radius: tag.visualRadius,
         state: tag.state,
       };
     });

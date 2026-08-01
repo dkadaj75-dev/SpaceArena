@@ -624,8 +624,11 @@ describe("Determinism", () => {
 describe("Scripted 60s engagement (regression anchor)", () => {
   it("interceptor vs static target: energy never negative, target dies in sane time", () => {
     const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.duel-1v1");
-    const shooter = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 });
-    const target = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 22, z: 0 });
+    // Open space, 22 apart. The arena's centrepiece sits at the origin, and
+    // parking the pair on top of it made this anchor a test of where the
+    // collision pushout happened to leave them rather than of the engagement.
+    const shooter = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: -11, z: 90 });
+    const target = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 11, z: 90 });
     // Bring shooter's laser + missile online directly and lock the target.
     const mods = sim.world.modules.get(shooter)!.modules;
     mods[0]!.state = "active";
