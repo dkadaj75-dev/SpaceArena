@@ -1340,7 +1340,6 @@ export class Hangar {
     if (current) {
       const owned = this.canFly(current.id);
       const nav = el("div", "hangar-ship-nav");
-      nav.append(this.buildStepButton("‹", -1));
       const centre = el("div", "hangar-ship-current");
       const title = el("div", "hangar-ship-title");
       title.append(el("span", "hangar-ship-name", current.name));
@@ -1349,7 +1348,6 @@ export class Hangar {
       centre.append(title);
       centre.append(el("div", "hangar-ship-class", `${current.class} hull · swipe to change ship`));
       nav.append(centre);
-      nav.append(this.buildStepButton("›", 1));
       wrap.append(nav);
       wrap.append(this.buildShipActions(current, owned));
     }
@@ -1368,16 +1366,6 @@ export class Hangar {
     });
     wrap.append(list);
     return wrap;
-  }
-
-  private buildStepButton(glyph: string, delta: -1 | 1): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.className = "hangar-ship-step";
-    btn.textContent = glyph;
-    btn.setAttribute("aria-label", delta < 0 ? "Previous ship" : "Next ship");
-    btn.disabled = this.busy || this.ships.length < 2;
-    btn.addEventListener("click", () => this.stepShip(delta));
-    return btn;
   }
 
   /** Unlock / set-as-main for the hull on screen. */
@@ -1925,8 +1913,8 @@ const HANGAR_CSS = `
   background: var(--hg-accent-dim);
   padding: 1px 5px;
 }
-.hangar-gauge { display: grid; grid-template-columns: 48px 1fr auto; align-items: center; column-gap: 6px; }
-.hangar-gauge-label { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--hg-dim); }
+.hangar-gauge { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; column-gap: 6px; }
+.hangar-gauge-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--hg-dim); }
 .hangar-gauge-track { position: relative; height: 7px; background: rgba(255, 255, 255, .08); overflow: hidden; }
 .hangar-gauge-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--hg-accent); }
 .hangar-gauge-fill.warn { background: var(--hg-danger); }
@@ -1965,7 +1953,7 @@ const HANGAR_CSS = `
 /* Phones: the stage half is small, so the block gives the hull more room. */
 @media (max-width: 520px), (orientation: landscape) and (max-height: 480px) {
   .hangar-gauges { width: min(216px, 68%); padding: 5px 7px 6px; gap: 3px; }
-  .hangar-gauge { grid-template-columns: 42px 1fr auto; column-gap: 5px; }
+  .hangar-gauge { grid-template-columns: 64px 1fr auto; column-gap: 5px; }
   .hangar-gauge-read { min-width: 66px; }
 }
 .hangar-panel {
@@ -2041,11 +2029,7 @@ const HANGAR_CSS = `
 .hangar-error { font-size: 11px; color: var(--hg-danger); border-left: 2px solid var(--hg-danger); padding: 4px 8px; }
 .hangar-section-title { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--hg-dim); margin-bottom: 4px; }
 .hangar-ships { display: flex; flex-direction: column; gap: 8px; }
-/* Arrows either side of the hull on screen — the pointer equivalent of the
-   swipe gesture on the 3D stage. */
 .hangar-ship-nav { display: flex; align-items: center; gap: 8px; }
-.hangar-ship-step { flex: 0 0 auto; width: 38px; min-height: 42px; font-size: 20px; line-height: 1; background: var(--hg-panel-2); color: #d9dde2; border: 1px solid var(--hg-line); cursor: pointer; touch-action: manipulation; }
-.hangar-ship-step:disabled { opacity: 0.3; cursor: default; }
 .hangar-ship-current { flex: 1 1 auto; min-width: 0; text-align: center; }
 .hangar-ship-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .hangar-ship-title .hangar-ship-name { font-size: 15px; letter-spacing: .1em; text-transform: uppercase; }
