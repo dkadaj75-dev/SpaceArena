@@ -15,6 +15,7 @@ import {
   interpolateFrame,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
+import { createUpdateGate } from "./core/swUpdate.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
 import { preloadArenaModels, preloadShipModelsBeforeTimeout } from "./core/assetPreload.js";
 import { QualityManager } from "./core/QualityManager.js";
@@ -460,6 +461,19 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   /** True while the sim is frozen *because the settings screen is open* (5.8). */
   let pausedBySettings = false;
 
+  // Workbox immediately activates a fresh worker. The running page is still
+  // its old bundle, so reload as soon as it is safe; `runtime` is the one
+  // authoritative signal that a live match exists.
+  const updateGate = createUpdateGate({ isMatchLive: () => runtime !== null });
+  if ("serviceWorker" in navigator) {
+    let hadController = navigator.serviceWorker.controller !== null;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      const reloadNow = updateGate.noteControllerChange(hadController);
+      hadController = true;
+      if (reloadNow) location.reload();
+    });
+  }
+
   /**
    * The single place a player setting turns into behaviour (§10 5.8). Called on
    * boot, on every settings change, and once per new match runtime (a fresh
@@ -511,6 +525,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // flying (FLIGHT.md §3), and leaving it restores the tactical orbit limits.
     tacticalCamera.setChaseMode(false);
     void authService.refreshProfile();
+    if (updateGate.onSafeMoment()) location.reload();
   }
 
   /**
