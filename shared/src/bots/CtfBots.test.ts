@@ -52,6 +52,47 @@ function playCtf(seed: number, seconds: number) {
   return { sim, events };
 }
 
+function carryFlagHome(seed: number, seconds: number) {
+  const sim = new ArenaSimulation(configs, "arena.ring-nebula", CTF, seed);
+  const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
+  const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+  const own = sim.snapshot().flags.find((flag) => flag.team === 0)!;
+  // Start 100 units away and broadside to home. This makes the test exercise
+  // arrival/turning rather than granting the runner a straight-line approach.
+  const id = sim.spawnPlayerAt(
+    "ship.interceptor",
+    ship.defaultFitting,
+    0,
+    { x: own.home.x + 100, y: own.home.y, z: own.home.z },
+    Math.PI / 2,
+  );
+  const enemyFlagId = sim.world.flagIds().find((flagId) => sim.world.flags.get(flagId)!.team === 1)!;
+  const enemyFlag = sim.world.flags.get(enemyFlagId)!;
+  enemyFlag.state = "carried";
+  enemyFlag.carrierId = id;
+  const flagTf = sim.world.transforms.get(enemyFlagId)!;
+  Object.assign(flagTf.pos, sim.world.transforms.get(id)!.pos);
+
+  const driver = new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id) });
+  const events: SimEvent[] = [];
+  const distances: number[] = [];
+  let nowMs = 0;
+  for (let i = 0; i < Math.round(seconds / DT); i++) {
+    nowMs += DT * 1000;
+    const snapshot = sim.snapshot();
+    const carrier = snapshot.ships.find((candidate) => candidate.id === id);
+    if (!carrier) break;
+    if (i % 30 === 0) {
+      distances.push(Math.hypot(carrier.pos.x - own.home.x, carrier.pos.y - own.home.y, carrier.pos.z - own.home.z));
+    }
+    for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
+    sim.tick(DT);
+    events.push(...sim.getEvents());
+    if (events.some((event) => event.type === "flagCaptured")) break;
+  }
+  return { events, distances };
+}
+
 describe("bots play capture the flag (owner 2026-07-31)", () => {
   it("get the flag off its stand and run with it", () => {
     const { events } = playCtf(42, 120);
@@ -71,6 +112,14 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
     expect(captures.length).toBeGreaterThan(0);
     const scores = sim.snapshot().teamScores;
     expect(scores.reduce((n, s) => n + s.captures, 0)).toBeGreaterThan(0);
+  });
+
+  it("delivers a carried flag from a broadside approach", () => {
+    const { events, distances } = carryFlagHome(42, 60);
+    expect(
+      events.some((event) => event.type === "flagCaptured"),
+      `carrier distance to home each second: ${distances.map((distance) => distance.toFixed(2)).join(", ")}`,
+    ).toBe(true);
   });
 
   it("leave every flag in a legal state at the end of the run", () => {
