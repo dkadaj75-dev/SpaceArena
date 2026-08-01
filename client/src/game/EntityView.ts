@@ -105,6 +105,7 @@ interface AsteroidView {
  */
 interface FlagView {
   marker: Mesh;
+  material: StandardMaterial;
   trail: LinesMesh;
   team: number;
 }
@@ -681,6 +682,7 @@ export class ViewManager {
     // A mode change or match reset can drop flags entirely.
     for (const [id, view] of this.flags) {
       if (cur.flags.some((f) => f.id === id)) continue;
+      view.material.dispose();
       view.marker.dispose();
       view.trail.dispose();
       this.flags.delete(id);
@@ -730,7 +732,7 @@ export class ViewManager {
       );
     }
 
-    return { marker, trail, team };
+    return { marker, material: mat, trail, team };
   }
 
   private createAsteroidView(a: AsteroidSnapshot): AsteroidView | undefined {
@@ -896,6 +898,7 @@ export class ViewManager {
     for (const v of this.asteroids.values()) v.instance.dispose();
     this.asteroids.clear();
     for (const v of this.flags.values()) {
+      v.material.dispose();
       v.marker.dispose();
       v.trail.dispose();
     }

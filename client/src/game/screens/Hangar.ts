@@ -392,6 +392,7 @@ export class Hangar {
     // the Lobby, so a second `show()` without an intervening `hide()` must not
     // stack a second render observer / swipe watcher on the same screen.
     this.releaseVisitBindings();
+    this.resetIdlePreview();
     // A pilot who has never set a main gets one now, so "what do I fly" is
     // never an unanswered question after the first visit to the bay.
     if (!this.mainShipId()) {
@@ -518,6 +519,7 @@ export class Hangar {
   // --- 3D preview -----------------------------------------------------------
 
   private rebuildPreview(): void {
+    this.resetIdlePreview();
     this.previewRig?.dispose();
     this.previewRig = null;
     this.previewInstance?.dispose();
@@ -540,7 +542,10 @@ export class Hangar {
     if (!this.modelsRequested.has(loadingFor)) {
       this.modelsRequested.add(loadingFor);
       void this.assets.ensureModel(ship.render).then((loaded) => {
-        if (!loaded) return; // no model authored, or the fetch failed: keep the stand-in
+        if (!loaded) {
+          this.modelsRequested.delete(loadingFor);
+          return; // no model authored, or the fetch failed: keep the stand-in
+        }
         if (this.currentShip()?.id !== loadingFor) return;
         if (this.root.style.display === "none") return;
         this.rebuildPreview();
@@ -669,16 +674,22 @@ export class Hangar {
     if (!this.previewRig) return;
     const dtMs = this.scene.getEngine().getDeltaTime();
     this.previewClock += dtMs / 1000;
-    const wave = 0.35 + 0.25 * Math.sin(this.previewClock * 0.6);
+    const wave = Math.sin(this.previewClock * 0.6);
 
     this.idlePrev.pos.x = this.idleCur.pos.x;
     this.idlePrev.pos.z = this.idleCur.pos.z;
-    this.idleCur.pos.x += wave * 0.02;
+    this.idleCur.pos.x = wave * 0.35;
     this.idleCur.modules = this.idleModules;
     this.idlePrev.modules = this.idleModules;
 
     this.previewRig.updateModules(this.idleCur.modules);
     this.previewRig.updateEmitters(this.idleCur, this.idlePrev, performance.now());
+  }
+
+  private resetIdlePreview(): void {
+    this.previewClock = 0;
+    Object.assign(this.idlePrev, idleSnapshot());
+    Object.assign(this.idleCur, idleSnapshot());
   }
 
   // --- state transitions -----------------------------------------------------

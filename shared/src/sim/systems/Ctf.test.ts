@@ -99,6 +99,27 @@ describe("taking a flag", () => {
     expect(flagOf(sim, 0).state).toBe("home");
   });
 
+  it.each([
+    ["friendly lower id", [0, 1]],
+    ["friendly higher id", [1, 0]],
+  ] as const)("lets an enemy take a home flag with a simultaneous %s defender", (_order, teams) => {
+    const sim = ctfSim();
+    const first = sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, teams[0]);
+    const second = sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, teams[1]);
+    const defender = teams[0] === 0 ? first : second;
+    const runner = teams[0] === 1 ? first : second;
+    const home = flagOf(sim, 0).home;
+    place(sim, defender, home);
+    place(sim, runner, home);
+
+    expect(defender < runner).toBe(teams[0] === 0);
+    const events = tickEvents(sim);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "flagTaken", flagTeam: 0, carrierId: runner, carrierTeam: 1 }),
+    );
+    expect(flagOf(sim, 0)).toMatchObject({ state: "carried", carrierId: runner });
+  });
+
   it("cannot be taken off a carrier — you have to kill them first", () => {
     const sim = ctfSim();
     const runner = sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0);

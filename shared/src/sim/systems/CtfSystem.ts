@@ -70,7 +70,8 @@ export function ctfSystem(world: World, dt: number): void {
 
         if (team === flag.team) {
           // Your own flag: nothing at home, an instant return when loose.
-          if (flag.state === "dropped") sendHome(world, flagId, flag, shipId, false);
+          if (flag.state === "home") continue;
+          sendHome(world, flagId, flag, shipId, false);
           break;
         }
         take(world, flagId, flag, shipId, team);
