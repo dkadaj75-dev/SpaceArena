@@ -129,6 +129,37 @@ export class AsteroidState extends Schema {
   @type("boolean") destroyed = false;
 }
 
+/** A jettisoned heatsink lure; keyed by its stable sim entity id. */
+export class DecoyState extends Schema {
+  @type("number") entityId = 0;
+  @type("uint8") team = 0;
+  @type("int16") x = 0;
+  @type("int16") y = 0;
+  @type("int16") z = 0;
+  @type("float32") radius = 0;
+  @type("float32") lifeFraction = 0;
+}
+
+/** Dynamic CTF objective state. Static base data comes from the arena config. */
+export class FlagState extends Schema {
+  @type("number") entityId = 0;
+  @type("uint8") team = 0;
+  /** See shared `FLAG_STATE_CODE`. */
+  @type("uint8") state = 0;
+  @type("int16") x = 0;
+  @type("int16") y = 0;
+  @type("int16") z = 0;
+  /** Sim entity id of the carrier, or -1. */
+  @type("number") carrierEntityId = -1;
+  @type("float32") dropRemaining = 0;
+}
+
+/** Both scoreboard dimensions for one team. */
+export class TeamScoreState extends Schema {
+  @type("uint16") kills = 0;
+  @type("uint16") captures = 0;
+}
+
 export class ArenaState extends Schema {
   /** "waiting" | "live" | "ended". */
   @type("string") matchPhase = "waiting";
@@ -149,15 +180,17 @@ export class ArenaState extends Schema {
   /** Winning team, or -1 for none/draw. */
   @type("int8") winnerTeam = -1;
   /**
-   * Kill count per team (keyed by team id as a string) — the top-of-screen
-   * scoreboard and frag-limit progress. Additive schema state; clients that
-   * predate it simply see no scores.
+   * Kill/capture counts per team (keyed by team id as a string).
    */
-  @type({ map: "uint16" }) teamScores = new MapSchema<number>();
+  @type({ map: TeamScoreState }) teamScores = new MapSchema<TeamScoreState>();
   /** Keyed by client sessionId. */
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   /** Missiles only. Keyed by sim entity id (string). */
   @type({ map: ProjectileState }) projectiles = new MapSchema<ProjectileState>();
   /** Keyed by arena-config placement index (string). */
   @type({ map: AsteroidState }) asteroids = new MapSchema<AsteroidState>();
+  /** Jettisoned heatsinks, keyed by sim entity id. */
+  @type({ map: DecoyState }) decoys = new MapSchema<DecoyState>();
+  /** CTF flags, keyed by stable sim entity id. */
+  @type({ map: FlagState }) flags = new MapSchema<FlagState>();
 }

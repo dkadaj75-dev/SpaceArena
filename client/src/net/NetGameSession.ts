@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Colyseus schema state is runtime-generated. */
 import {
   decodeCenti,
+  decodeFlagState,
   decodeHeading,
   decodeModuleState,
   decodePitch,
@@ -408,6 +409,9 @@ export class NetGameSession extends GameSession {
   private readonly pendingToggles = new Map<number, PendingToggle>();
   private readonly seqSentAt = new Map<number, number>();
   private readonly seqKinds = new Map<number, Order["kind"]>();
+  /** Network flags omit breadcrumbs; rebuild their bounded wakes from patches. */
+  private readonly flagTrails = new FlagTrailAccumulator();
+  private readonly flagTrailLength: number;
 
   // --- telemetry (NetDebugOverlay) ---
   ordersSent = 0;
@@ -434,6 +438,7 @@ export class NetGameSession extends GameSession {
     this.current = this.previous;
     this.arena = configs.get<ArenaConfig>("arena", arenaId)!;
     this.netConfigs = configs;
+    this.flagTrailLength = configs.get<GamemodeConfig>("gamemode", gamemodeId)?.ctf?.trailLength ?? 0;
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
     this.pitchTuning = pitchTuningOf(tuning ?? ({} as TuningConfig));
     this.renderDelay = tuning?.netRenderDelayMs ?? 100;
@@ -572,6 +577,7 @@ export class NetGameSession extends GameSession {
     this.events.length = 0;
     this.lagQueue.length = 0;
     this.flight.clear();
+    this.flagTrails.clear();
   }
 
   /** Prediction error magnitude in 3D — the same figure the snap test uses. */
@@ -821,6 +827,13 @@ export class NetGameSession extends GameSession {
       pos: { x: decodeCenti(p.x), y: decodeCenti(p.y ?? 0), z: decodeCenti(p.z) },
       heading: decodeHeading(p.heading),
     }));
+    const decoys = decodeDecoys(state.decoys);
+    const flags = decodeFlags(
+      state.flags,
+      this.arena,
+      this.flagTrails,
+      this.flagTrailLength,
+    );
     // Phase from the room lifecycle + the sim's replicated countdown. A room
     // that has not started yet ("waiting") is reported as `countdown` too: its
     // sim is not being ticked at all, so "frozen, cannot move or fire, GO is
@@ -843,8 +856,8 @@ export class NetGameSession extends GameSession {
       ships,
       asteroids,
       projectiles,
-      decoys: [],
-      flags: [],
+      decoys,
+      flags,
     };
   }
 }
@@ -916,19 +929,106 @@ export function decodeUp(
 }
 
 /**
- * Replicated team scores → snapshot shape, ascending by team id. Absent map = no
- * scores yet. `captures` is always 0 here: capture-the-flag runs offline for now
- * (like the heatsink decoys above, the room state carries no flags yet).
+ * Replicated team scores → snapshot shape, ascending by team id. Accepts the
+ * current `{kills,captures}` entries and the former numeric-kills wire shape.
  */
-function decodeTeamScores(raw: any): TeamScore[] {
+export function decodeTeamScores(raw: any): TeamScore[] {
   const out: TeamScore[] = [];
   if (raw?.entries) {
-    for (const [key, kills] of raw.entries()) out.push({ team: Number(key), kills: Number(kills), captures: 0 });
+    for (const [key, score] of raw.entries()) out.push(decodeTeamScore(key, score));
   } else if (raw) {
-    for (const key of Object.keys(raw)) out.push({ team: Number(key), kills: Number(raw[key]), captures: 0 });
+    for (const key of Object.keys(raw)) out.push(decodeTeamScore(key, raw[key]));
   }
   out.sort((a, b) => a.team - b.team);
   return out;
+}
+
+function decodeTeamScore(key: unknown, raw: any): TeamScore {
+  return typeof raw === "number"
+    ? { team: Number(key), kills: Number(raw), captures: 0 }
+    : { team: Number(key), kills: Number(raw?.kills ?? 0), captures: Number(raw?.captures ?? 0) };
+}
+
+/** Pure wire decoder for jettisoned heatsinks. */
+export function decodeDecoys(raw: any): Snapshot["decoys"] {
+  return mapValues(raw).map((d: any) => ({
+    id: Number(d.entityId),
+    team: Number(d.team),
+    pos: { x: decodeCenti(d.x), y: decodeCenti(d.y ?? 0), z: decodeCenti(d.z) },
+    radius: Number(d.radius),
+    lifeFraction: Number(d.lifeFraction),
+  }));
+}
+
+type TrailPoint = { x: number; y: number; z: number };
+
+/** Stateful client-side counterpart of the sim's CTF `pushTrail`. */
+export class FlagTrailAccumulator {
+  private readonly trails = new Map<number, TrailPoint[]>();
+
+  update(id: number, state: Snapshot["flags"][number]["state"], pos: TrailPoint, maxLength: number): TrailPoint[] {
+    if (state === "home" || maxLength <= 0) {
+      this.trails.delete(id);
+      return [];
+    }
+    const trail = this.trails.get(id) ?? [];
+    const last = trail[trail.length - 1];
+    if (!last || distance(last, pos) >= 0.5) {
+      if (last && distance(last, pos) > maxLength) trail.length = 0;
+      trail.push({ ...pos });
+      let length = 0;
+      for (let i = trail.length - 1; i > 0; i--) {
+        length += distance(trail[i]!, trail[i - 1]!);
+        if (length > maxLength) {
+          trail.splice(0, i - 1);
+          break;
+        }
+      }
+    }
+    this.trails.set(id, trail);
+    return trail.map((point) => ({ ...point }));
+  }
+
+  retain(ids: ReadonlySet<number>): void {
+    for (const id of this.trails.keys()) if (!ids.has(id)) this.trails.delete(id);
+  }
+
+  clear(): void { this.trails.clear(); }
+}
+
+/** Decode dynamic flag state and join it with static arena base data. */
+export function decodeFlags(
+  raw: any,
+  arena: ArenaConfig,
+  trails: FlagTrailAccumulator,
+  trailLength: number,
+): Snapshot["flags"] {
+  const live = new Set<number>();
+  const flags = mapValues(raw).map((f: any) => {
+    const id = Number(f.entityId);
+    live.add(id);
+    const team = Number(f.team);
+    const state = decodeFlagState(Number(f.state));
+    const pos = { x: decodeCenti(f.x), y: decodeCenti(f.y ?? 0), z: decodeCenti(f.z) };
+    const base = arena.flagBases?.find((candidate) => candidate.team === team);
+    return {
+      id,
+      team,
+      state,
+      carrierId: f.carrierEntityId === undefined || Number(f.carrierEntityId) < 0 ? null : Number(f.carrierEntityId),
+      pos,
+      home: base ? { x: base.position.x, y: base.position.y ?? 0, z: base.position.z } : { ...pos },
+      baseRadius: base?.radius ?? 0,
+      dropRemaining: state === "dropped" ? Math.max(0, Number(f.dropRemaining ?? 0)) : 0,
+      trail: trails.update(id, state, pos, trailLength),
+    };
+  });
+  trails.retain(live);
+  return flags;
+}
+
+function distance(a: TrailPoint, b: TrailPoint): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 function mapValues(value: any): any[] { return value?.values ? [...value.values()] : Object.values(value ?? {}); }

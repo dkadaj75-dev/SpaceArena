@@ -11,6 +11,7 @@ import {
   SIM_TICK_RATE,
   createLogger,
   encodeCenti,
+  encodeFlagState,
   encodeHeading,
   encodeModuleState,
   encodePitch,
@@ -39,7 +40,10 @@ import { fittingsRepo, ownedModulesRepo, profilesRepo, shipUpgradesRepo } from "
 import { hardpointMapToFitting, validateFitting } from "../api/fittingValidation.js";
 import { finalizeMatch, type Participant } from "../progression/service.js";
 import { getMetrics, instrumentClientEgress } from "../telemetry/metrics.js";
-import { ArenaState, PlayerState, ProjectileState, ModuleState, AsteroidState } from "./state/ArenaState.js";
+import {
+  ArenaState, PlayerState, ProjectileState, ModuleState, AsteroidState,
+  DecoyState, FlagState, TeamScoreState,
+} from "./state/ArenaState.js";
 
 const log = createLogger("ArenaRoom");
 
@@ -715,10 +719,16 @@ export class ArenaRoom extends Room<ArenaState> {
     if (this.state.countdownRemaining !== snap.countdownRemaining) {
       this.state.countdownRemaining = snap.countdownRemaining;
     }
-    // Team kill counts (the scoreboard); write-on-change keeps patches quiet.
-    for (const { team, kills } of snap.teamScores) {
+    // Team scores; write-on-change keeps patches quiet.
+    for (const { team, kills, captures } of snap.teamScores) {
       const key = String(team);
-      if (this.state.teamScores.get(key) !== kills) this.state.teamScores.set(key, kills);
+      let score = this.state.teamScores.get(key);
+      if (!score) {
+        score = new TeamScoreState();
+        this.state.teamScores.set(key, score);
+      }
+      if (score.kills !== kills) score.kills = kills;
+      if (score.captures !== captures) score.captures = captures;
     }
 
     getMetrics().recordTick(this.roomId, performance.now() - startedAt);
@@ -812,6 +822,45 @@ export class ArenaRoom extends Room<ArenaState> {
     for (const pk of [...this.state.projectiles.keys()]) {
       if (!liveMissiles.has(pk)) this.state.projectiles.delete(pk);
     }
+
+    const liveDecoys = new Set<string>();
+    for (const d of snap.decoys) {
+      const key = String(d.id);
+      liveDecoys.add(key);
+      let state = this.state.decoys.get(key);
+      if (!state) {
+        state = new DecoyState();
+        state.entityId = d.id;
+        this.state.decoys.set(key, state);
+      }
+      state.team = d.team;
+      state.x = encodeCenti(d.pos.x);
+      state.y = encodeCenti(d.pos.y);
+      state.z = encodeCenti(d.pos.z);
+      state.radius = d.radius;
+      state.lifeFraction = d.lifeFraction;
+    }
+    for (const key of [...this.state.decoys.keys()]) if (!liveDecoys.has(key)) this.state.decoys.delete(key);
+
+    const liveFlags = new Set<string>();
+    for (const f of snap.flags) {
+      const key = String(f.id);
+      liveFlags.add(key);
+      let state = this.state.flags.get(key);
+      if (!state) {
+        state = new FlagState();
+        state.entityId = f.id;
+        this.state.flags.set(key, state);
+      }
+      state.team = f.team;
+      state.state = encodeFlagState(f.state);
+      state.x = encodeCenti(f.pos.x);
+      state.y = encodeCenti(f.pos.y);
+      state.z = encodeCenti(f.pos.z);
+      state.carrierEntityId = f.carrierId ?? -1;
+      state.dropRemaining = f.dropRemaining;
+    }
+    for (const key of [...this.state.flags.keys()]) if (!liveFlags.has(key)) this.state.flags.delete(key);
 
     // Asteroids: hp/destroyed only.
     this.asteroidEntityIds.forEach((id, i) => {
@@ -909,6 +958,10 @@ export class ArenaRoom extends Room<ArenaState> {
     this.state.matchPhase = "ended";
     const winnerTeam = snap.winnerTeam ?? null;
     this.state.winnerTeam = winnerTeam ?? -1;
+    // Transient objective/lure entities do not outlive the match. Clearing the
+    // schema maps also tells clients to dispose markers and local flag trails.
+    this.state.decoys.clear();
+    this.state.flags.clear();
     this.lock();
     log.info("match ended", { winnerTeam: this.state.winnerTeam });
 

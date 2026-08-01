@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ModuleState } from "../sim/components.js";
+import type { FlagState, ModuleState } from "../sim/components.js";
 import type { EntityId } from "../sim/components.js";
 import type { Order } from "../sim/orders.js";
 
@@ -35,6 +35,24 @@ export function encodeModuleState(state: ModuleState): number {
 
 export function decodeModuleState(code: number): ModuleState {
   return MODULE_STATE_BY_CODE[code] ?? "retracted";
+}
+
+/** Compact wire encoding for capture-the-flag state. */
+export const FLAG_STATE_CODE: Record<FlagState, number> = {
+  home: 0,
+  dropped: 1,
+  carried: 2,
+};
+
+/** Inverse of {@link FLAG_STATE_CODE}; index by the uint8 wire value. */
+export const FLAG_STATE_BY_CODE: readonly FlagState[] = ["home", "dropped", "carried"];
+
+export function encodeFlagState(state: FlagState): number {
+  return FLAG_STATE_CODE[state];
+}
+
+export function decodeFlagState(code: number): FlagState {
+  return FLAG_STATE_BY_CODE[code] ?? "home";
 }
 
 // ---------------------------------------------------------------------------
