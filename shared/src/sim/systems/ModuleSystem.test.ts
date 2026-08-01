@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../../core/ConfigService.js";
+import type { ModuleConfig } from "../../schemas/module.js";
 import { spawnShipFromConfig } from "../spawn.js";
 import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_SHIELD, loadTestConfigs, makeWorld } from "../testutil.js";
 import type { World } from "../World.js";
@@ -81,7 +82,7 @@ describe("ModuleSystem state machine", () => {
 
     // Start at the authored threshold: the balance pass deliberately reduced
     // the one-tick heat increment, so a fixed 0.1 headroom no longer crosses it.
-    shield.heat = configs.get<any>("module", shield.moduleId)!.heat.overheatThreshold;
+    shield.heat = configs.get<ModuleConfig>("module", shield.moduleId)!.heat.overheatThreshold;
     shield.workedThisTick = true;
     energySystem(world, DT);
     expect(shield.state).toBe("overheated");
@@ -98,7 +99,7 @@ describe("ModuleSystem state machine", () => {
     const laser = world.modules.get(id)!.modules[LASER]!;
     expect(laser.state).toBe("active");
 
-    laser.heat = configs.get<any>("module", laser.moduleId)!.heat.overheatThreshold;
+    laser.heat = configs.get<ModuleConfig>("module", laser.moduleId)!.heat.overheatThreshold;
     laser.workedThisTick = true;
     energySystem(world, DT);
     expect(laser.state).toBe("overheated");
