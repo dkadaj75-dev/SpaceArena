@@ -15,6 +15,7 @@ import {
   type ModuleSnapshot,
   type ShipConfig,
   type ShipSnapshot,
+  type ThemeConfig,
   type UpgradeConfig,
   type UpgradeLevels,
   type UpgradeTrackName,
@@ -42,6 +43,8 @@ import { moduleStats } from "../moduleSummary.js";
 import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
 import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
 import { HangarBay } from "./HangarBay.js";
+import { juiceSettingsOf } from "../juice/juiceSettings.js";
+import { moduleIconId, moduleIconSvg } from "../hud/moduleIcons.js";
 import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
 import type { TacticalCamera } from "../TacticalCamera.js";
@@ -75,6 +78,7 @@ const LS_UPGRADES = "hangar.upgrades";
  * this one's sockets.
  */
 const LS_MODULES = "hangar.moduleIds";
+const THEME_ID = "theme.default";
 const STAGE_POS = new Vector3(0, 5, 300); // far from the arena (radius 90) — nothing else renders out here
 const UPGRADE_TRACKS: readonly UpgradeTrackName[] = ["hull", "engine", "energy", "heat"];
 const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine: "Engine", energy: "Capacitor", heat: "Heat Sink" };
@@ -502,6 +506,13 @@ export class Hangar {
       instance,
       fittedModuleIds,
       this.particleQuality,
+      // The THEME's juice, not the library defaults (owner report 2026-08-01:
+      // "remove these weird cubes"). The shipped theme sets
+      // `juice.deploy.showMeshes: false` because the module models are still
+      // placeholders — a rig built on the defaults ignores that and parks white
+      // boxes on the hull. The match path has always passed this; this screen
+      // was the one place that did not.
+      juiceSettingsOf(this.configs.get<ThemeConfig>("theme", THEME_ID)),
     );
     this.idleModules = this.slots
       .filter((s): s is HangarSlot & { moduleId: string } => s.moduleId !== null)
@@ -1133,7 +1144,11 @@ export class Hangar {
       btn.className = "hangar-slot" + (slot.moduleId ? " filled" : "") + (this.pickerHardpoint === slot.hardpointIndex ? " open" : "");
       btn.dataset["kind"] = slot.kind;
       btn.disabled = this.busy;
-      btn.append(el("span", "hangar-slot-icon", mod?.ui.icon ?? "+"));
+      // The real glyph set, not the content's `[ICON: laser]` placeholder text.
+      const icon = el("span", "hangar-slot-icon");
+      icon.innerHTML = mod ? moduleIconSvg(moduleIconId(mod)) : "";
+      if (!mod) icon.textContent = "+";
+      btn.append(icon);
       btn.append(el("span", "hangar-slot-label", mod?.ui.label ?? "Empty"));
       btn.append(el("span", "hangar-slot-socket", `${slot.socketId} · ${slot.accepts.join("/")}`));
       btn.addEventListener("click", () => this.selectSlot(slot.hardpointIndex));
@@ -1569,7 +1584,11 @@ const HANGAR_CSS = `
 .hangar-slot.open { background: var(--hg-accent); color: #140b02; }
 .hangar-slot.open .hangar-slot-socket { color: rgba(20, 11, 2, .72); }
 .hangar-slot:disabled { opacity: .45; cursor: default; }
-.hangar-slot-icon { font-size: 14px; }
+/* The slot's glyph is an inline SVG from the shared module icon set; an empty
+   slot falls back to a "+" character, so size both paths the same. */
+.hangar-slot-icon { font-size: 14px; line-height: 1; color: var(--hg-accent); }
+.hangar-slot-icon .hud-icon-svg { width: 16px; height: 16px; display: block; }
+.hangar-slot.open .hangar-slot-icon { color: #140b02; }
 .hangar-slot-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .hangar-slot-socket { font-size: 9px; color: var(--hg-dim); letter-spacing: .04em; }
 /* Systems-bay slots read cool, so a bay never looks like a hardpoint. */
