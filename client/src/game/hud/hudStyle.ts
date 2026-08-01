@@ -931,6 +931,9 @@ const CSS = `
 /* Angular banner: a parallelogram-ended plate with a colour-coded leading bar. */
 .hud-toast {
   position: relative;
+  /* border-box so the 30px of horizontal padding stays INSIDE the stack's
+     safe-area max-width instead of spilling 15px past each screen edge. */
+  box-sizing: border-box;
   padding: 5px 16px 5px 14px;
   max-width: 100%;
   text-align: center;
@@ -960,6 +963,7 @@ const CSS = `
   top: calc(var(--hud-inset-top) + 40px);
   left: 50%;
   transform: translateX(-50%);
+  box-sizing: border-box;
   max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
   display: flex;
   align-items: center;
@@ -976,6 +980,8 @@ const CSS = `
 /* The player's team is ALWAYS blue on the left, the enemy always red on the
    right (Overwatch convention) — MatchStatus maps sim team ids onto the sides. */
 .hud-match-status .hud-team-score {
+  /* The two numbers are the scoreboard — they never give ground. */
+  flex: 0 0 auto;
   font-size: 1.35em;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
@@ -992,11 +998,30 @@ const CSS = `
   text-align: left;
   text-shadow: 0 0 calc(6px * var(--hud-glow)) color-mix(in srgb, var(--hud-danger, #ff405c) 60%, transparent);
 }
+/* The meta line is the only part that can grow without bound ("FIRST TO 10 ·
+   2:30 · RESPAWNING…"); with the row set to nowrap it would push the scores off
+   both edges of a narrow phone, so it is the one item allowed to shrink, and it
+   ellipsises rather than overflowing. */
 .hud-match-status .hud-match-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
 }
 
-/* --- Kill announcements: DESTROYED! / FIRST BLOOD / DOUBLE KILL … --- */
+/* --- Kill announcements: DESTROYED! / FIRST BLOOD / DOUBLE KILL … ---
+   The slot also carries the CTF calls, which are far longer than any frag line
+   ("YOU HAVE THE ENEMY FLAG"), so the type has to survive a portrait phone:
+    - font-size shrinks with the viewport (the 1.9em design size is the CAP, only
+      reachable once the screen is wide enough for it) — a slightly smaller single
+      line keeps the League-style punch that a two-line wrap would lose;
+    - max-width is the safe area, so a wider display face wraps (centred, balanced)
+      instead of running off both edges — the text is never clipped or truncated;
+    - the pop-in overshoot is part of the width budget: the box is laid out at
+      scale 1 but painted at --hud-announce-pop, so the max-width is divided by it
+      and the overshoot itself is trimmed on the narrow screens where a 1.5x punch
+      could not fit. Wide screens keep the original 1.5. */
 .hud-kill-announce {
   position: absolute;
   left: 50%;
@@ -1005,12 +1030,23 @@ const CSS = `
   pointer-events: none;
   opacity: 0;
   font-family: var(--hud-font-display, var(--hud-font-body, system-ui, sans-serif));
-  font-size: 1.9em;
+  --hud-announce-pop: 1.5;
+  font-size: clamp(12px, 4vw, 1.9em);
   font-weight: 800;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  white-space: nowrap;
+  text-align: center;
+  text-wrap: balance;
+  max-width: calc(
+    (100vw - var(--hud-inset-left) - var(--hud-inset-right) - 16px) / var(--hud-announce-pop)
+  );
   color: var(--hud-primary, #39bfff);
+}
+/* Below this width the longest call at its capped size could not survive a 1.5x
+   overshoot inside the safe area, so the punch is dialled back rather than the
+   text pushed off-screen. */
+@media (max-width: 960px) {
+  .hud-kill-announce { --hud-announce-pop: 1.12; }
 }
 .hud-kill-announce.first-blood { color: var(--hud-danger, #ff405c); }
 .hud-kill-announce.multi { color: var(--hud-module-boost-color, #e8b44f); }
@@ -1023,7 +1059,7 @@ const CSS = `
   animation: hud-kill-announce 1.8s ease-out forwards;
 }
 @keyframes hud-kill-announce {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(var(--hud-announce-pop, 1.5)); }
   12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   70% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -52%) scale(0.98); }
@@ -1093,8 +1129,12 @@ const CSS = `
   gap: 16px;
   padding: min(32px, 6vh) min(44px, 8vw);
   margin: var(--hud-inset-top) var(--hud-inset-right) var(--hud-inset-bottom) var(--hud-inset-left);
-  max-width: min(420px, 100%);
-  max-height: 100%;
+  /* border-box + inset-aware cap: content-box would have added up to 88px of
+     padding AND the two margins on top of a full-viewport 100%, running the
+     panel off both sides of a portrait phone. */
+  box-sizing: border-box;
+  max-width: min(420px, calc(100% - var(--hud-inset-left) - var(--hud-inset-right)));
+  max-height: calc(100% - var(--hud-inset-top) - var(--hud-inset-bottom));
   overflow-y: auto;
   background: transparent;
 }
