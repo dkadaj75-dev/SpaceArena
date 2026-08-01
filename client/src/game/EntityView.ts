@@ -1,5 +1,6 @@
 import {
   Color3,
+  FresnelParameters,
   Mesh,
   MeshBuilder,
   Quaternion,
@@ -21,6 +22,7 @@ import {
   type ConfigService,
   type EffectConfig,
   type EntityId,
+  type FlagSnapshot,
   type ModuleConfig,
   type ProjectileSnapshot,
   type ShipConfig,
@@ -35,6 +37,7 @@ import {
 import { AssetRegistry } from "../core/AssetRegistry.js";
 import { ShipSocketRig } from "./ShipSocketRig.js";
 import { resampleTrail, trailAlphas, TRAIL_POINTS, type TrailPoint } from "./flagTrail.js";
+import { advanceBeaconClock, beaconPhase, beaconPulse, beaconRadius } from "./flagBeacon.js";
 import { resolveSoundId } from "../audio/soundIds.js";
 import { ExplosionFx } from "./juice/ExplosionFx.js";
 import { HitFlashPool } from "./juice/HitFlash.js";
@@ -102,11 +105,21 @@ interface AsteroidView {
  * One capture-the-flag flag in the scene (owner 2026-07-31): a glowing marker
  * plus the fading ribbon behind it. The ribbon is a fixed-length updatable line
  * mesh — see `flagTrail.ts` for why the point count is constant.
+ *
+ * It also owns the BASE BEACON (owner 2026-08-01) — the shell standing on the
+ * flag's home, which is what tells a carrier where to deliver. The beacon is
+ * tied to the flag view purely for lifetime: it never follows the flag, and it
+ * stays lit whether the flag is home, dropped or carried.
  */
 interface FlagView {
   marker: Mesh;
   material: StandardMaterial;
   trail: LinesMesh;
+  /** Base beacon shell, parked on `flag.home` for the life of the view. */
+  beacon: Mesh;
+  beaconMaterial: StandardMaterial;
+  /** Where this beacon sits in the shared breath, so bases don't pulse as one. */
+  beaconPhase: number;
   team: number;
 }
 
@@ -164,6 +177,8 @@ export class ViewManager {
   private readonly flags = new Map<EntityId, FlagView>();
   /** The viewer's team, so a flag can be coloured by allegiance. */
   private playerTeam: number | null = null;
+  /** Shared beacon breath clock, wrapped to one period (see `flagBeacon.ts`). */
+  private beaconClockMs = 0;
   /** Scratch trail ladder — resampled in place every frame, never reallocated. */
   private readonly sTrail: TrailPoint[] = [];
   private readonly sTrailVectors: Vector3[] = [];
@@ -654,14 +669,26 @@ export class ViewManager {
    * scenery, and the ribbon behind it fades from nothing at its oldest end to
    * bright at the runner — the gradient is what tells a defender which way the
    * flag is heading, which a solid line could not.
+   *
+   * The base beacon (owner 2026-08-01) breathes off a single shared clock. It
+   * is recomputed from that clock every frame rather than nudged, so a frame
+   * hitch cannot leave a base permanently the wrong size or opacity.
    */
   private syncFlags(cur: Snapshot, frameDtMs: number): void {
+    this.beaconClockMs = advanceBeaconClock(this.beaconClockMs, frameDtMs);
+
     for (const flag of cur.flags) {
       let view = this.flags.get(flag.id);
       if (!view) {
-        view = this.createFlagView(flag.id, flag.team);
+        view = this.createFlagView(flag);
         this.flags.set(flag.id, view);
       }
+
+      // The beacon marks the BASE, so it ignores everything the flag is doing.
+      const pulse = beaconPulse(this.beaconClockMs, view.beaconPhase);
+      view.beacon.scaling.setAll(pulse.scale);
+      view.beaconMaterial.alpha = pulse.alpha;
+
       view.marker.position.set(flag.pos.x, flag.pos.y, flag.pos.z);
       view.marker.rotation.y += (frameDtMs / 1000) * 1.6;
       // A loose flag sits still; a carried one is doing something, so it spins
@@ -682,17 +709,16 @@ export class ViewManager {
     // A mode change or match reset can drop flags entirely.
     for (const [id, view] of this.flags) {
       if (cur.flags.some((f) => f.id === id)) continue;
-      view.material.dispose();
-      view.marker.dispose();
-      view.trail.dispose();
+      disposeFlagView(view);
       this.flags.delete(id);
     }
   }
 
-  private createFlagView(id: EntityId, team: number): FlagView {
+  private createFlagView(flag: FlagSnapshot): FlagView {
+    const id: EntityId = flag.id;
     // Allegiance, not identity: your flag stays "yours" while an enemy runs off
     // with it, because it is still the thing you have to get back.
-    const friendly = this.playerTeam === null || team === this.playerTeam;
+    const friendly = this.playerTeam === null || flag.team === this.playerTeam;
     const colour = friendly ? new Color3(0.22, 0.75, 1.0) : new Color3(1.0, 0.25, 0.36);
 
     const mat = new StandardMaterial(`mat.flag.${id}`, this.scene);
@@ -732,7 +758,51 @@ export class ViewManager {
       );
     }
 
-    return { marker, material: mat, trail, team };
+    const radius = beaconRadius(flag.baseRadius);
+    const beaconMat = new StandardMaterial(`mat.flagBeacon.${id}`, this.scene);
+    beaconMat.diffuseColor = Color3.Black();
+    // A little specular is what sells "shiny" rather than "coloured fog".
+    beaconMat.specularColor = colour.scale(0.35);
+    beaconMat.specularPower = 96;
+    beaconMat.emissiveColor = colour;
+    beaconMat.alpha = beaconPulse(0, beaconPhase(id)).alpha;
+    // Rim glow, clear middle — the objective-beacon look. The fresnel ramps
+    // emission and opacity toward grazing angles, so the shell reads as a hard
+    // bubble from outside while the fight inside it stays legible.
+    beaconMat.emissiveFresnelParameters = fresnel(colour, colour.scale(0.12), 0.2, 2.6);
+    beaconMat.opacityFresnelParameters = fresnel(
+      new Color3(1, 1, 1),
+      new Color3(0.3, 0.3, 0.3),
+      0.1,
+      2.2,
+    );
+    // Both faces, because a shell you can fly INTO must not vanish from inside.
+    beaconMat.backFaceCulling = false;
+    // Never write depth: this thing is bigger than the fight it contains, and a
+    // depth-writing transparent shell would punch holes in the trails and
+    // particles drawn inside it.
+    beaconMat.disableDepthWrite = true;
+
+    const beacon = MeshBuilder.CreateSphere(
+      `flagBeacon.${id}`,
+      { diameter: radius * 2, segments: 20 },
+      this.scene,
+    );
+    beacon.material = beaconMat;
+    beacon.isPickable = false;
+    beacon.parent = this.root;
+    // The base never moves, so this is the only position write it ever needs.
+    beacon.position.set(flag.home.x, flag.home.y, flag.home.z);
+
+    return {
+      marker,
+      material: mat,
+      trail,
+      beacon,
+      beaconMaterial: beaconMat,
+      beaconPhase: beaconPhase(id),
+      team: flag.team,
+    };
   }
 
   private createAsteroidView(a: AsteroidSnapshot): AsteroidView | undefined {
@@ -897,11 +967,7 @@ export class ViewManager {
     this.ships.clear();
     for (const v of this.asteroids.values()) v.instance.dispose();
     this.asteroids.clear();
-    for (const v of this.flags.values()) {
-      v.material.dispose();
-      v.marker.dispose();
-      v.trail.dispose();
-    }
+    for (const v of this.flags.values()) disposeFlagView(v);
     this.flags.clear();
     for (const m of this.kineticPool) m.dispose();
     for (const m of this.missilePool) m.dispose();
@@ -935,6 +1001,30 @@ export class ViewManager {
     if (kMaster) this.fillPool(kMaster, "proj.kinetic", this.kineticPool);
     if (mMaster) this.fillPool(mMaster, "proj.missile", this.missilePool);
   }
+}
+
+/**
+ * The single place a flag view is torn down — both exit routes (a flag leaving
+ * the snapshot, and view teardown) go through here so a material can never be
+ * leaked by one of them drifting out of step with the other.
+ */
+function disposeFlagView(view: FlagView): void {
+  view.material.dispose();
+  view.marker.dispose();
+  view.trail.dispose();
+  view.beaconMaterial.dispose();
+  view.beacon.dispose();
+}
+
+/** A `FresnelParameters` with `left` at grazing angles and `right` head-on. */
+function fresnel(left: Color3, right: Color3, bias: number, power: number): FresnelParameters {
+  const f = new FresnelParameters();
+  f.isEnabled = true;
+  f.leftColor = left;
+  f.rightColor = right;
+  f.bias = bias;
+  f.power = power;
+  return f;
 }
 
 function findAsteroid(snap: Snapshot, id: EntityId): AsteroidSnapshot | undefined {
