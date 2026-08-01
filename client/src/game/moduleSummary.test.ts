@@ -69,7 +69,7 @@ describe("moduleStats — the numbers each family is judged on", () => {
     // The two energy axes read differently on purpose: "Power" is the flat rail
     // current the module holds while online, "Energy" the per-second capacitor
     // drain it costs to run.
-    expect(valueOf("module.laser-mk1", "Power")).toBe("5");
+    expect(valueOf("module.laser-mk1", "Power")).toBe("2.5");
     expect(valueOf("module.laser-mk1", "Energy")).toBe("11/s");
   });
 
@@ -124,7 +124,7 @@ describe("moduleStats — the numbers each family is judged on", () => {
 describe("moduleSummaryLine", () => {
   it("joins the chips into one readable line", () => {
     expect(moduleSummaryLine(mod("module.laser-mk1"))).toBe(
-      "DPS 17.5 · Range 95 · Power 5 · Energy 11/s · Heat 21/s",
+      "DPS 17.5 · Range 95 · Power 2.5 · Energy 11/s · Heat 16.5/s",
     );
   });
 

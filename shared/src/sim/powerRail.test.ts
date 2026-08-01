@@ -16,6 +16,10 @@ import type { World } from "./World.js";
 const DT = 1 / 30;
 const GUN = 0;
 const SHIELD = 1;
+// The balance pass halves the heavy gun + shield to 12 rail draw. Keep this
+// fixture deliberately over capacity so the admission/displacement behavior is
+// still exercised.
+const OVERSUBSCRIBED_CAPACITY = 10;
 
 let configs: ConfigService;
 beforeAll(async () => {
@@ -29,6 +33,7 @@ const railOf = (shipId: string, fitting: readonly string[]) =>
 function spawn(fitting: readonly string[]): { world: World; id: number } {
   const world = makeWorld(configs);
   const id = spawnShipFromConfig(world, configs, "ship.interceptor", fitting, 0, { x: 0, z: 0 }, 0);
+  if (fitting === INTERCEPTOR_FITTING_OVERSUBSCRIBED) world.shipCores.get(id)!.power.capacity = OVERSUBSCRIBED_CAPACITY;
   return { world, id };
 }
 
@@ -146,7 +151,7 @@ describe("an over-subscribed fitting in flight", () => {
     const { world, id } = spawn(INTERCEPTOR_FITTING_OVERSUBSCRIBED);
     expect(world.modules.get(id)!.modules).toHaveLength(INTERCEPTOR_FITTING_OVERSUBSCRIBED.length);
     expect(fittingPowerDraw(configs, INTERCEPTOR_FITTING_OVERSUBSCRIBED)).toBeGreaterThan(
-      railOf("ship.interceptor", INTERCEPTOR_FITTING_OVERSUBSCRIBED),
+      OVERSUBSCRIBED_CAPACITY,
     );
   });
 

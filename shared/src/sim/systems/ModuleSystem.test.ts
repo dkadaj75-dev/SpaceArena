@@ -79,8 +79,9 @@ describe("ModuleSystem state machine", () => {
     const shield = world.modules.get(id)!.modules[1]!;
     shield.state = "active";
 
-    // Push heat just under threshold (60) then run one worked tick via energySystem.
-    shield.heat = 59.9;
+    // Start at the authored threshold: the balance pass deliberately reduced
+    // the one-tick heat increment, so a fixed 0.1 headroom no longer crosses it.
+    shield.heat = configs.get<any>("module", shield.moduleId)!.heat.overheatThreshold;
     shield.workedThisTick = true;
     energySystem(world, DT);
     expect(shield.state).toBe("overheated");
@@ -97,7 +98,7 @@ describe("ModuleSystem state machine", () => {
     const laser = world.modules.get(id)!.modules[LASER]!;
     expect(laser.state).toBe("active");
 
-    laser.heat = 54.9; // threshold 55
+    laser.heat = configs.get<any>("module", laser.moduleId)!.heat.overheatThreshold;
     laser.workedThisTick = true;
     energySystem(world, DT);
     expect(laser.state).toBe("overheated");

@@ -14,10 +14,10 @@
     "drawActive": 10
   },
   "power": {
-    "draw": 7
+    "draw": 3.5
   },
   "heat": {
-    "perSecondActive": 7,
+    "perSecondActive": 1.8,
     "overheatThreshold": 60,
     "overheatCooldown": 5.0,
     "overheatSelfDamage": 1

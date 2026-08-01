@@ -96,11 +96,12 @@ describe("computeStatPanel (Hangar stat panel)", () => {
   });
 
   it("flags an over-subscribed fit without pretending it is illegal", () => {
-    // A heavy gun AND a heavy shield on a light hull: buildable, saveable, and
-    // simply cannot run whole — which is exactly what the warning says.
+    // A heavy gun and two heavy shields on a light hull: buildable, saveable,
+    // and simply cannot run whole — which is exactly what the warning says.
     const fit = [...interceptor.defaultFitting];
     fit[0] = "module.laser-mk2";
     fit[1] = "module.shield-mk2";
+    fit[2] = "module.shield-mk2";
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: fit });
     expect(panel.powerDrawTotal).toBeGreaterThan(panel.powerCapacity);
     expect(panel.powerOverSubscribed).toBe(true);

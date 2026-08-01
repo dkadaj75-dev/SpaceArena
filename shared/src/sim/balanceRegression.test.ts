@@ -333,7 +333,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     expectNear("interceptor sustained energy floor", t.energyFloor, 0.997);
     // Two racks on a light hull: sustained fire still cooks them, but the
     // capacitor comfortably keeps up.
-    expect(t.overheats).toBe(3);
+    expect(t.overheats).toBe(2);
     expect(t.brownOuts).toBe(4);
   });
 

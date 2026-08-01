@@ -21,7 +21,7 @@
   },
   "boost": {
     "speedMult": 1.35,
-    "heatPerSec": 3
+    "heatPerSec": 0.8
   },
   "passives": [
     {

@@ -14,17 +14,17 @@
     "drawActive": 18
   },
   "power": {
-    "draw": 3
+    "draw": 1.5
   },
   "heat": {
-    "perSecondActive": 5,
+    "perSecondActive": 1.3,
     "overheatThreshold": 45,
     "overheatCooldown": 3.0,
     "overheatSelfDamage": 0
   },
   "boost": {
     "speedMult": 1.8,
-    "heatPerSec": 2
+    "heatPerSec": 0.5
   },
   "onActivate": [
     "action.play-sound-boost-up"

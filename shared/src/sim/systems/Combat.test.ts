@@ -746,6 +746,10 @@ describe("CombatSystem continuous channel", () => {
     const cfg = configs.get<ModuleConfig>("module", "module.beamlaser-mk1")!;
     const core = world.shipCores.get(shooter)!;
     core.capacitor.cur = core.capacitor.max;
+    // The rebalance puts the beam's authored heat generation below the stock
+    // heatsink's dissipation. Disable that unrelated cooling here so this test
+    // continues to prove the channel applies its per-tick heat cost.
+    core.heat.dissipation = 0;
     const energyBefore = core.capacitor.cur;
 
     for (let i = 0; i < 30; i++) {
