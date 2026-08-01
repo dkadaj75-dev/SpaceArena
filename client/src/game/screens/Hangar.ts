@@ -43,6 +43,7 @@ import { moduleStats } from "../moduleSummary.js";
 import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
 import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
 import { HangarBay } from "./HangarBay.js";
+import { swapFrame, SWAP_DISTANCE_RADII, SWAP_DURATION_SEC } from "../shipSwap.js";
 import { juiceSettingsOf } from "../juice/juiceSettings.js";
 import { moduleIconId, moduleIconSvg } from "../hud/moduleIcons.js";
 import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
@@ -210,6 +211,15 @@ export class Hangar {
   /** The bay the ship is parked in — built with the screen, sized to the hull. */
   private bay: HangarBay | null = null;
   private bayRadius = 0;
+  /**
+   * The node the preview hull hangs off, so a swap can slide the SHIP without
+   * moving the bay it is parked in.
+   */
+  private readonly shipPivot: TransformNode;
+  /** In-flight ship-swap transition, or null when the bay is at rest. */
+  private swap: { direction: -1 | 1; elapsed: number; distance: number; applied: boolean } | null = null;
+  /** Stage-overlay arrows, kept so they can be disabled mid-transition. */
+  private stageArrows: HTMLButtonElement[] = [];
   /** Blacked-out stand-in shown in place of a hull the player does not own. */
   private lockedPreview: AbstractMesh | null = null;
   private lockedMaterial: StandardMaterial | null = null;
@@ -247,6 +257,8 @@ export class Hangar {
     this.assets = new AssetRegistry(scene);
     this.stageRoot = new TransformNode("hangarStage", scene);
     this.stageRoot.position.copyFrom(STAGE_POS);
+    this.shipPivot = new TransformNode("hangarShipPivot", scene);
+    this.shipPivot.parent = this.stageRoot;
 
     this.idleCur = idleSnapshot();
     this.idlePrev = idleSnapshot();
@@ -262,6 +274,12 @@ export class Hangar {
     this.panel = document.createElement("div");
     this.panel.className = "hangar-panel";
     this.root.append(this.stage, this.panel);
+    // Stylised arrows OVER the 3D stage: the primary way to walk the bay on a
+    // pointer, and the visible twin of the swipe gesture. They live in the stage
+    // half (which is otherwise click-through) and re-enable themselves when a
+    // transition finishes.
+    this.stageArrows = [this.buildStageArrow(-1), this.buildStageArrow(1)];
+    this.stage.append(...this.stageArrows);
     parent.append(this.root);
 
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
@@ -271,6 +289,21 @@ export class Hangar {
     });
 
     this.root.style.display = "none";
+  }
+
+  /** One stage-overlay arrow. `delta` is the direction it walks the bay. */
+  private buildStageArrow(delta: -1 | 1): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.className = `hangar-stage-arrow ${delta < 0 ? "prev" : "next"}`;
+    btn.type = "button";
+    btn.setAttribute("aria-label", delta < 0 ? "Previous ship" : "Next ship");
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
+      (delta < 0 ? '<path d="M15 4 L7 12 L15 20" />' : '<path d="M9 4 L17 12 L9 20" />') +
+      "</svg>";
+    btn.addEventListener("click", () => this.stepShip(delta));
+    return btn;
   }
 
   private isAuthed(): boolean {
@@ -477,7 +510,7 @@ export class Hangar {
     // something to unlock. Cloned rather than instanced because an instance
     // shares the master's material and would black out every ship in the bay.
     if (!this.canFly(ship.id)) {
-      const clone = master.clone(`hangarLocked.${ship.id}`, this.stageRoot);
+      const clone = master.clone(`hangarLocked.${ship.id}`, this.shipPivot);
       if (clone) {
         clone.isPickable = false;
         clone.position.setAll(0);
@@ -493,7 +526,7 @@ export class Hangar {
 
     const instance = master.createInstance(`hangarPreview.${ship.id}`);
     instance.isPickable = false;
-    instance.parent = this.stageRoot;
+    instance.parent = this.shipPivot;
     instance.position.setAll(0);
     this.previewInstance = instance;
 
@@ -572,7 +605,9 @@ export class Hangar {
     }
     instance.computeWorldMatrix(true);
     const bounds = instance.getBoundingInfo().boundingSphere;
-    this.focus.copyFrom(bounds.centerWorld);
+    // Centre on where the hull SITS, not where a swap has slid it to — otherwise
+    // re-framing mid-transition would drag the camera along with the animation.
+    this.focus.copyFrom(bounds.centerWorld).subtractInPlace(this.shipPivot.position);
     this.rebuildBay(bounds.radius);
     const radius = framingRadius(bounds.radiusWorld, this.camera.camera.fov, aspect);
     this.camera.setStageRadiusRange(radius * 0.35, radius * 2.5);
@@ -584,6 +619,7 @@ export class Hangar {
     // it every frame so a stray pan gesture cannot drift the ship off its own
     // pivot. Orbit angle and zoom stay entirely the player's.
     this.camera.camera.target.copyFrom(this.focus);
+    this.tickSwap(this.scene.getEngine().getDeltaTime() / 1000);
 
     if (!this.previewRig) return;
     const dtMs = this.scene.getEngine().getDeltaTime();
@@ -629,10 +665,61 @@ export class Hangar {
     this.render();
   }
 
-  /** Swipe/arrow step through the bay, wrapping at both ends. */
+  /**
+   * Step through the bay, wrapping at both ends. The hull on screen SLIDES out
+   * opposite the arrow and the next one slides in behind it (see `shipSwap.ts`);
+   * the actual model swap happens at the midpoint, hidden by the motion.
+   *
+   * A step during a transition is ignored rather than queued: a mashed arrow
+   * should not spool up four animations the player then has to sit through.
+   */
   private stepShip(delta: -1 | 1): void {
-    if (this.ships.length < 2 || this.busy) return;
-    this.selectShip(wrapIndex(this.shipIndex, delta, this.ships.length));
+    if (this.ships.length < 2 || this.busy || this.swap) return;
+    const bounds = this.previewInstance?.getBoundingInfo().boundingSphere;
+    const distance = Math.max(4, (bounds?.radiusWorld ?? 3) * SWAP_DISTANCE_RADII);
+    this.swap = { direction: delta, elapsed: 0, distance, applied: false };
+    this.setArrowsEnabled(false);
+  }
+
+  /** Advance an in-flight swap; called from the per-frame preview tick. */
+  private tickSwap(dtSec: number): void {
+    const swap = this.swap;
+    if (!swap) return;
+    swap.elapsed += dtSec;
+    const frame = swapFrame(swap.elapsed, swap.direction, swap.distance, SWAP_DURATION_SEC);
+
+    // Slide along the CAMERA's right axis, so "out to the left" means left on
+    // screen whatever angle the player has orbited to.
+    const right = this.camera.camera.getDirection(Vector3.Right());
+    right.y = 0;
+    if (right.lengthSquared() > 1e-6) right.normalize();
+    else right.set(1, 0, 0);
+    this.shipPivot.position.set(right.x * frame.offset, 0, right.z * frame.offset);
+    this.setPreviewVisibility(frame.visibility);
+
+    // Midpoint: the hull is off screen, so this is where the swap is invisible.
+    if (frame.swapped && !swap.applied) {
+      swap.applied = true;
+      this.selectShip(wrapIndex(this.shipIndex, swap.direction, this.ships.length));
+      // The hull that just arrived is still off screen; keep it faded until the
+      // second half of the slide brings it in.
+      this.setPreviewVisibility(frame.visibility);
+    }
+    if (frame.done) {
+      this.swap = null;
+      this.shipPivot.position.setAll(0);
+      this.setPreviewVisibility(1);
+      this.setArrowsEnabled(true);
+    }
+  }
+
+  private setPreviewVisibility(v: number): void {
+    if (this.previewInstance) this.previewInstance.visibility = v;
+    if (this.lockedPreview) this.lockedPreview.visibility = v;
+  }
+
+  private setArrowsEnabled(enabled: boolean): void {
+    for (const btn of this.stageArrows) btn.disabled = !enabled || this.busy || this.ships.length < 2;
   }
 
   /**
@@ -1452,11 +1539,38 @@ const HANGAR_CSS = `
 /* The stage takes its half of the flex box but never any pointer events —
    orbit and zoom drags belong to the canvas underneath it. */
 .hangar-stage {
+  position: relative;
   flex: 1 1 50%;
   min-height: 0;
   min-width: 0;
   pointer-events: none;
 }
+/* Stage arrows: the only thing in the stage half that takes pointer events, so
+   orbit and zoom drags still reach the canvas between them. */
+.hangar-stage-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: linear-gradient(90deg, rgba(14, 16, 19, 0) 0%, rgba(14, 16, 19, .72) 100%);
+  color: var(--hg-accent);
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  opacity: .78;
+  transition: opacity .12s linear, color .12s linear;
+}
+.hangar-stage-arrow.prev { left: 0; background: linear-gradient(270deg, rgba(14, 16, 19, 0) 0%, rgba(14, 16, 19, .72) 100%); }
+.hangar-stage-arrow.next { right: 0; }
+.hangar-stage-arrow svg { width: 26px; height: 26px; display: block; filter: drop-shadow(0 0 5px rgba(240, 123, 5, .45)); }
+.hangar-stage-arrow:hover:not(:disabled) { opacity: 1; color: #ffb35c; }
+.hangar-stage-arrow:disabled { opacity: .22; cursor: default; }
 .hangar-panel {
   pointer-events: auto;
   flex: 1 1 50%;

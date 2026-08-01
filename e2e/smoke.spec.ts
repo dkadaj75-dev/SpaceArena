@@ -116,11 +116,13 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(shipButtons.first()).toBeVisible();
   expect(await shipButtons.count()).toBeGreaterThan(0);
 
-  // The arrows step the bay the same way a swipe on the 3D stage does
-  // (2026-07-31) — browsing only, so the hull on screen changes and nothing else.
+  // Arrows over the 3D stage step the bay the same way a swipe does — browsing
+  // only, so the hull on screen changes and nothing else. Stepping runs a slide
+  // transition first, so this waits for the name rather than expecting it on the
+  // next frame.
   const currentShipName = hangar.locator(".hangar-ship-current .hangar-ship-name");
   const before = await currentShipName.textContent();
-  await hangar.getByRole("button", { name: "Next ship" }).click();
+  await page.locator(".hangar-stage-arrow.next").click();
   await expect(currentShipName).not.toHaveText(before ?? "");
 
   // Browsing is not choosing: making this hull the one you fly is a separate,
