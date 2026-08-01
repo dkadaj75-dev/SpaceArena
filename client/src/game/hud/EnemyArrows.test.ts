@@ -22,6 +22,42 @@ describe("EnemyArrows distance labels", () => {
     arrows.dispose();
   });
 
+  it("places an in-view flag as a small pennant marker with its distance", () => {
+    const root = document.createElement("div");
+    const arrows = new EnemyArrows(root, LAYOUT);
+
+    arrows.begin();
+    expect(arrows.placeFlag({ x: 400, y: 300, behind: false }, 141.6, false)).toBe(true);
+    arrows.finish();
+
+    const flag = root.querySelector<HTMLElement>(".hud-enemy-arrow.flag.visible")!;
+    expect(flag.classList).toContain("on-screen-marker");
+    expect(flag.classList).not.toContain("friendly");
+    expect(flag.style.transform).toContain(`scale(${LAYOUT.enemyArrows.outOfRangeScale})`);
+    expect(flag.querySelector<HTMLElement>(".hud-enemy-arrow-distance")!.textContent).toBe("142m");
+    arrows.dispose();
+  });
+
+  it("reserves independent base beacons and switches them between centre and edge modes", () => {
+    const root = document.createElement("div");
+    const arrows = new EnemyArrows(root, LAYOUT);
+
+    arrows.begin();
+    expect(arrows.placeFlag({ x: -200, y: 300, behind: false }, 90, true)).toBe(true);
+    expect(arrows.placeFlag({ x: 1_000, y: 300, behind: false }, 90, false)).toBe(true);
+    expect(arrows.placeBase({ x: 400, y: 300, behind: false }, 100, true)).toBe(true);
+    expect(arrows.placeBase({ x: -200, y: 300, behind: false }, 100, false)).toBe(true);
+    arrows.finish();
+
+    const bases = root.querySelectorAll<HTMLElement>(".hud-enemy-arrow.base.visible");
+    expect(bases).toHaveLength(2);
+    expect(bases[0]!.classList).toContain("friendly");
+    expect(bases[0]!.classList).toContain("on-screen-marker");
+    expect(bases[1]!.classList).not.toContain("on-screen-marker");
+    expect(root.querySelectorAll(".hud-enemy-arrow.flag.visible")).toHaveLength(2);
+    arrows.dispose();
+  });
+
   it("reuses one label node and only changes its text when rounded metres change", () => {
     const root = document.createElement("div");
     const arrows = new EnemyArrows(root, LAYOUT);
@@ -44,7 +80,7 @@ describe("EnemyArrows distance labels", () => {
     arrows.finish();
     expect(root.querySelector(".hud-enemy-arrow-distance")).toBe(label);
     expect(label.textContent).toBe("143m");
-    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag) .hud-enemy-arrow-distance")).toHaveLength(
+    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag):not(.base) .hud-enemy-arrow-distance")).toHaveLength(
       LAYOUT.enemyArrows.maxCount,
     );
     arrows.dispose();
@@ -98,19 +134,19 @@ describe("EnemyArrows distance labels", () => {
   it("does not leak pooled labels across match disposal/remount", () => {
     const root = document.createElement("div");
     const first = new EnemyArrows(root, LAYOUT);
-    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag) .hud-enemy-arrow-distance")).toHaveLength(
+    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag):not(.base) .hud-enemy-arrow-distance")).toHaveLength(
       LAYOUT.enemyArrows.maxCount,
     );
     first.dispose();
     expect(root.querySelectorAll(".hud-enemy-arrow-distance")).toHaveLength(0);
 
     const second = new EnemyArrows(root, LAYOUT);
-    const labels = root.querySelectorAll(".hud-enemy-arrow:not(.flag) .hud-enemy-arrow-distance");
+    const labels = root.querySelectorAll(".hud-enemy-arrow:not(.flag):not(.base) .hud-enemy-arrow-distance");
     expect(labels).toHaveLength(LAYOUT.enemyArrows.maxCount);
     second.begin();
     second.place({ x: 400, y: 300, behind: false }, 200, false);
     second.finish();
-    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag) .hud-enemy-arrow-distance")).toHaveLength(labels.length);
+    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag):not(.base) .hud-enemy-arrow-distance")).toHaveLength(labels.length);
     second.dispose();
   });
 });

@@ -245,6 +245,22 @@ export class Minimap {
   private drawFlags(cur: Snapshot, player: ShipSnapshot): void {
     if (cur.flags.length === 0) return;
     const ctx = this.ctx;
+
+    // Bases sit under their flags: when a flag is home the quiet ring still
+    // identifies the capture zone, while the pennant remains the readable top
+    // layer. They are steady locations, unlike a moving flag's wake/pulse.
+    for (const flag of cur.flags) {
+      const color = flag.team === this.session.playerTeam ? this.palette.friendly : this.palette.hostile;
+      this.project(flag.home.x, flag.home.y, flag.home.z, player);
+      const alpha = projectedScratch.outOfRange ? 0.34 : 0.62;
+      const r = Math.max(2.2, this.contactSizePx * 1.15);
+      ctx.strokeStyle = withAlpha(color, alpha);
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.arc(projectedScratch.x, projectedScratch.tipY, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     for (const flag of cur.flags) {
       const color = flag.team === this.session.playerTeam ? this.palette.friendly : this.palette.hostile;
 

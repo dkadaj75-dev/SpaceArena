@@ -387,15 +387,25 @@ export class FlightControls {
         const distance = Math.hypot(x - px, y - py, z - pz);
         this.enemyArrows.place(this.projected, distance, enemy.id === ship.targetId);
       }
-      // CTF objectives get their own reserved pennant slots. Unlike ships,
-      // flags are never lock candidates; their 3D model handles the in-view
-      // case and this cue owns only the off-screen/edge case.
+      // CTF flags and delivery bases get separate reserved pools. Unlike ships,
+      // objectives are never lock candidates; their projected markers remain
+      // visible in the central play area as well as on the directional track.
       if (cur.flags.length > 0) {
         for (let i = 0; i < cur.flags.length; i++) {
           const flag = cur.flags[i]!;
           if (!this.binding.project(flag.pos.x, flag.pos.y, flag.pos.z, this.projected)) continue;
           const distance = Math.hypot(flag.pos.x - px, flag.pos.y - py, flag.pos.z - pz);
           this.enemyArrows.placeFlag(this.projected, distance, flag.team === ship.team);
+        }
+        for (let i = 0; i < cur.flags.length; i++) {
+          const flag = cur.flags[i]!;
+          // At home, the flag and its base occupy the same point. The pennant
+          // owns that HUD cue so the two symbols never stack into an illegible
+          // blob; once it moves, its delivery location is independently shown.
+          if (flag.state === "home") continue;
+          if (!this.binding.project(flag.home.x, flag.home.y, flag.home.z, this.projected)) continue;
+          const distance = Math.hypot(flag.home.x - px, flag.home.y - py, flag.home.z - pz);
+          this.enemyArrows.placeBase(this.projected, distance, flag.team === ship.team);
         }
       }
     }

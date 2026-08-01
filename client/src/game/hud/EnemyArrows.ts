@@ -23,8 +23,8 @@ interface ArrowSlot {
   lastMarker: boolean | null;
   lastScale: number;
   lastFriendly: boolean | null;
-  /** Flag slots use the objective pennant rather than an enemy chevron. */
-  flag: boolean;
+  /** Objective slot appearance; enemy slots retain the regular chevron. */
+  kind: "enemy" | "flag" | "base";
   visible: boolean;
 }
 
@@ -38,8 +38,8 @@ interface ArrowSlot {
  * DOM, is tagged {@link HUD_CONTROL_ATTR}, takes every dimension from the
  * resolved theme layout, and only touches the DOM when a value actually changed.
  *
- * Allocation discipline: an enemy pool at `maxCount` plus two reserved CTF
- * objective slots are built ONCE and reused forever. The placement math writes
+ * Allocation discipline: an enemy pool at `maxCount` plus two reserved flag
+ * slots and two reserved base slots are built ONCE and reused forever. The placement math writes
  * into a single scratch object, and the caller drives it with a plain indexed
  * loop — see {@link begin} / {@link place} / {@link finish}.
  *
@@ -52,12 +52,15 @@ export class EnemyArrows {
   private readonly slots: ArrowSlot[] = [];
   /** Objectives have reserved nodes, so enemy count can never hide a flag. */
   private readonly flagSlots: ArrowSlot[] = [];
+  /** Bases have their own reservation, independent of both flags and ships. */
+  private readonly baseSlots: ArrowSlot[] = [];
   private layout: FlightHudLayout;
   /** Per-frame scratch — nothing here allocates. */
   private readonly placement: ArrowPlacement = { x: 0, y: 0, rotationRad: 0 };
   /** How many slots the current frame has claimed so far. */
   private used = 0;
   private flagUsed = 0;
+  private baseUsed = 0;
 
   constructor(root: HTMLElement, layout: FlightHudLayout) {
     this.layout = layout;
@@ -109,6 +112,13 @@ export class EnemyArrows {
         background: transparent;
         filter: none;
       }
+      /* A flag remains a pennant when it is projected into the play area. */
+      .hud-enemy-arrow.flag.on-screen-marker .hud-enemy-arrow-glyph {
+        display: block;
+      }
+      .hud-enemy-arrow.flag.on-screen-marker .hud-enemy-marker-glyph {
+        display: none;
+      }
       .hud-enemy-arrow.flag .hud-enemy-arrow-glyph::before {
         content: "";
         position: absolute;
@@ -146,6 +156,25 @@ export class EnemyArrows {
       .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-distance {
         color: var(--hud-primary, #39bfff);
       }
+      /* Bases are locations, not entities: in view they use a hollow beacon
+         instead of either an enemy diamond or a moving flag pennant. Off-screen
+         they retain the directional chevron that makes an edge cue useful. */
+      .hud-enemy-arrow.base .hud-enemy-marker-glyph {
+        border-color: var(--hud-danger, #ff405c);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-danger, #ff405c));
+      }
+      .hud-enemy-arrow.base.friendly .hud-enemy-marker-glyph {
+        border-color: var(--hud-primary, #39bfff);
+        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-primary, #39bfff));
+      }
+      .hud-enemy-arrow.base.friendly .hud-enemy-arrow-glyph {
+        background: var(--hud-primary, #39bfff);
+        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-primary, #39bfff));
+      }
+      .hud-enemy-arrow.base .hud-enemy-arrow-distance { color: var(--hud-danger, #ff405c); }
+      .hud-enemy-arrow.base.friendly .hud-enemy-arrow-distance { color: var(--hud-primary, #39bfff); }
       .hud-enemy-arrow-distance {
         position: absolute;
         left: 50%;
@@ -171,8 +200,9 @@ export class EnemyArrows {
     this.container.appendChild(style);
     root.appendChild(this.container);
 
-    this.buildPool(layout.enemyArrows.maxCount, this.slots, false);
-    this.buildPool(2, this.flagSlots, true);
+    this.buildPool(layout.enemyArrows.maxCount, this.slots, "enemy");
+    this.buildPool(2, this.flagSlots, "flag");
+    this.buildPool(2, this.baseSlots, "base");
   }
 
   /**
@@ -182,7 +212,7 @@ export class EnemyArrows {
    */
   applyLayout(layout: FlightHudLayout): void {
     this.layout = layout;
-    this.buildPool(layout.enemyArrows.maxCount, this.slots, false);
+    this.buildPool(layout.enemyArrows.maxCount, this.slots, "enemy");
     const markerPx = `${layout.enemyArrows.markerSizePx}px`;
     for (let i = 0; i < this.slots.length; i++) {
       this.slots[i]!.marker.style.width = markerPx;
@@ -192,16 +222,20 @@ export class EnemyArrows {
       this.flagSlots[i]!.marker.style.width = markerPx;
       this.flagSlots[i]!.marker.style.height = markerPx;
     }
+    for (let i = 0; i < this.baseSlots.length; i++) {
+      this.baseSlots[i]!.marker.style.width = markerPx;
+      this.baseSlots[i]!.marker.style.height = markerPx;
+    }
     // Geometry moved under every arrow; the next frame re-places the live ones
     // and this hides whatever is currently parked at a stale position.
     this.begin();
     this.finish();
   }
 
-  private buildPool(count: number, slots: ArrowSlot[], flag: boolean): void {
+  private buildPool(count: number, slots: ArrowSlot[], kind: ArrowSlot["kind"]): void {
     for (let i = slots.length; i < count; i++) {
       const el = document.createElement("div");
-      el.className = flag ? "hud-enemy-arrow flag" : "hud-enemy-arrow";
+      el.className = kind === "enemy" ? "hud-enemy-arrow" : `hud-enemy-arrow ${kind}`;
       el.setAttribute(HUD_CONTROL_ATTR, "enemy-arrow");
       el.setAttribute("aria-hidden", "true");
       const glyph = document.createElement("div");
@@ -228,7 +262,7 @@ export class EnemyArrows {
         lastMarker: null,
         lastScale: Number.NaN,
         lastFriendly: null,
-        flag,
+        kind,
         visible: false,
       });
     }
@@ -238,6 +272,7 @@ export class EnemyArrows {
   begin(): void {
     this.used = 0;
     this.flagUsed = 0;
+    this.baseUsed = 0;
   }
 
   /**
@@ -297,23 +332,52 @@ export class EnemyArrows {
   }
 
   /**
-   * Place an off-screen objective pennant. Flag slots are separate from enemy
-   * slots, so the two CTF objectives remain discoverable in a crowded fight.
+   * Place an objective pennant. Flag slots are separate from enemy slots, so
+   * the two CTF objectives remain discoverable in a crowded fight.
    */
   placeFlag(point: ProjectedPoint, distanceUnits: number, friendly: boolean): boolean {
     const arrows = this.layout.enemyArrows;
     if (!arrows.enabled || this.flagUsed >= this.flagSlots.length) return false;
-    if (!offScreenArrowPlacement(point, this.layout.viewport, arrows, this.placement)) return false;
-
     const slot = this.flagSlots[this.flagUsed++]!;
+    const offScreen = offScreenArrowPlacement(point, this.layout.viewport, arrows, this.placement);
+    if (!offScreen) {
+      this.placement.x = point.x;
+      this.placement.y = point.y;
+      this.placement.rotationRad = 0;
+    }
     this.write(
       slot,
       this.placement,
       distanceUnits,
       Math.max(arrows.markerMinOpacity, arrowOpacity(distanceUnits, arrows)),
       false,
+      !offScreen,
+      offScreen ? 1.25 : arrows.outOfRangeScale,
+      friendly,
+    );
+    return true;
+  }
+
+  /** Place a CTF delivery base as a location beacon, on-screen or at the edge. */
+  placeBase(point: ProjectedPoint, distanceUnits: number, friendly: boolean): boolean {
+    const arrows = this.layout.enemyArrows;
+    if (!arrows.enabled || this.baseUsed >= this.baseSlots.length) return false;
+
+    const slot = this.baseSlots[this.baseUsed++]!;
+    const offScreen = offScreenArrowPlacement(point, this.layout.viewport, arrows, this.placement);
+    if (!offScreen) {
+      this.placement.x = point.x;
+      this.placement.y = point.y;
+      this.placement.rotationRad = 0;
+    }
+    this.write(
+      slot,
+      this.placement,
+      distanceUnits,
+      Math.max(arrows.markerMinOpacity, arrowOpacity(distanceUnits, arrows)),
       false,
-      1.25,
+      !offScreen,
+      offScreen ? 1 : arrows.outOfRangeScale,
       friendly,
     );
     return true;
@@ -329,6 +393,12 @@ export class EnemyArrows {
     }
     for (let i = this.flagUsed; i < this.flagSlots.length; i++) {
       const slot = this.flagSlots[i]!;
+      if (!slot.visible) continue;
+      slot.visible = false;
+      slot.el.classList.remove("visible");
+    }
+    for (let i = this.baseUsed; i < this.baseSlots.length; i++) {
+      const slot = this.baseSlots[i]!;
       if (!slot.visible) continue;
       slot.visible = false;
       slot.el.classList.remove("visible");
@@ -396,7 +466,7 @@ export class EnemyArrows {
       slot.lastMarker = marker;
       slot.el.classList.toggle("on-screen-marker", marker);
     }
-    if (slot.flag && friendly !== slot.lastFriendly) {
+    if (slot.kind !== "enemy" && friendly !== slot.lastFriendly) {
       slot.lastFriendly = friendly ?? false;
       slot.el.classList.toggle("friendly", slot.lastFriendly);
     }
@@ -405,6 +475,7 @@ export class EnemyArrows {
   dispose(): void {
     this.slots.length = 0;
     this.flagSlots.length = 0;
+    this.baseSlots.length = 0;
     this.container.remove();
   }
 }
