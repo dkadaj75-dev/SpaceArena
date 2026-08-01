@@ -45,10 +45,10 @@ export function hasLineOfSight(world: World, a: LosPoint, b: LosPoint): boolean 
     if (!ast || ast.state === "destroyed") continue;
     const t = world.transforms.get(id);
     if (!t) continue;
-    // The DRAWN radius, not the (smaller) collision sphere: cover is the rock a
-    // pilot can see, and this has to agree with `hasLineOfSightAmong`, which
-    // bots build from snapshot radii (2026-07-31).
-    if (segmentIntersectsSphere(load(losA, a), load(losB, b), t.pos, ast.visualRadius)) return false;
+    // Use the same authored collision sphere as impacts and bot navigation.
+    // This keeps all gameplay geometry on one authoritative radius.
+    const collider = world.colliders.get(id);
+    if (collider && segmentIntersectsSphere(load(losA, a), load(losB, b), t.pos, collider.radius)) return false;
   }
   return true;
 }

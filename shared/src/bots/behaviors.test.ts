@@ -523,12 +523,21 @@ describe("avoidRocks", () => {
     expect(mirrored.turn).toBeLessThan(BASE.turn);
   });
 
-  it("scales the nudge with imminence, so distant scenery barely moves the stick", () => {
+  it("commits to a clearing turn for the whole collision corridor", () => {
     const near = overlay(context({ asteroids: [rock(9, 3, -2, 5)], enemyAt: { x: 60, z: 0 } }));
     const far = overlay(context({ asteroids: [rock(9, 18, -2, 5)], enemyAt: { x: 60, z: 0 } }));
-    expect(near.turn - BASE.turn).toBeGreaterThan(far.turn - BASE.turn);
-    expect(far.turn - BASE.turn).toBeLessThan(0.2);
-    expect(near.throttle).toBeLessThan(far.throttle);
+    expect(near.turn - BASE.turn).toBeCloseTo(0.8);
+    expect(far.turn - BASE.turn).toBeCloseTo(0.8);
+    expect(near.throttle).toBeCloseTo(BASE.throttle * 0.5);
+    expect(far.throttle).toBeCloseTo(BASE.throttle * 0.5);
+  });
+
+  it("clears the authoritative collider plus the ship radius and safety margin", () => {
+    const asteroid = { ...rock(9, 10, 8, 9), colliderRadius: 4 };
+    const clear = context({ asteroids: [asteroid], self: { colliderRadius: 1.5 } });
+    expect(overlay(clear)).toEqual(BASE); // offset 8 > 4 + 1.5 + 2
+    asteroid.pos.z = 7;
+    expect(overlay(context({ asteroids: [asteroid], self: { colliderRadius: 1.5 } })).turn).not.toBe(BASE.turn);
   });
 
   it("passes the command through untouched with a clear corridor", () => {

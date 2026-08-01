@@ -190,8 +190,8 @@ export interface AsteroidTag {
   /**
    * Radius the rock is DRAWN at, which is larger than its collision sphere (see
    * `asteroid.colliderScale`). Snapshots report this, so the renderer, the radar
-   * and bot line-of-sight all reason about the rock you can see; only the
-   * collision test uses the smaller sphere in `world.colliders`.
+   * reason about the rock you can see; gameplay collision, navigation, and
+   * line-of-sight use the smaller sphere in `world.colliders`.
    */
   visualRadius: number;
   /** Asset state id (`intact` / `destroyed`). */

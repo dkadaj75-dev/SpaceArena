@@ -92,9 +92,9 @@ describe("hasLineOfSightAmong (world-free variant used by bots/overlays)", () =>
 
   it("agrees with the World variant for the same geometry", () => {
     const world = makeWorld(configs);
-    spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 }); // radius 8
+    const rock = spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 });
     rebuildSpatial(world);
-    const blockers = [{ pos: { x: 0, z: 0 }, radius: 8 }];
+    const blockers = [{ pos: { x: 0, z: 0 }, radius: world.colliders.get(rock)!.radius }];
     for (const [a, b] of [
       [{ x: -30, z: 0 }, { x: 30, z: 0 }],
       [{ x: -30, z: 20 }, { x: 30, z: 20 }],

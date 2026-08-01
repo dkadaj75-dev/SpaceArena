@@ -44,6 +44,8 @@ export interface ShipSnapshot {
   team: number;
   /** Bubble position; `y` is the vertical axis (BUBBLE.md §A). */
   pos: { x: number; y: number; z: number };
+  /** Authoritative collision radius used by navigation clearance. */
+  colliderRadius?: number;
   heading: number;
   /** Nose elevation in radians, positive climbing. */
   pitch: number;
@@ -82,6 +84,8 @@ export interface AsteroidSnapshot {
   configId: string;
   pos: { x: number; y: number; z: number };
   radius: number;
+  /** Authoritative collision radius; `radius` remains the drawn radius. */
+  colliderRadius?: number;
   state: string;
 }
 
@@ -702,6 +706,7 @@ export class ArenaSimulation {
         id,
         team: w.teams.get(id)!.team,
         pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
+        colliderRadius: w.colliders.get(id)!.radius,
         heading: tf.heading,
         pitch: tf.pitch,
         up: { x: tf.up.x, y: tf.up.y, z: tf.up.z },
@@ -737,9 +742,9 @@ export class ArenaSimulation {
         configId: tag.configId,
         pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
         // The DRAWN radius, not the (smaller) collision sphere — this feeds the
-        // renderer, the radar and bot line-of-sight, all of which reason about
-        // the rock a pilot can see.
+        // renderer and radar. Gameplay geometry uses `colliderRadius` below.
         radius: tag.visualRadius,
+        colliderRadius: w.colliders.get(id)!.radius,
         state: tag.state,
       };
     });

@@ -112,7 +112,7 @@ export function buildBotContext(input: BuildContextInput): BotContext {
   const blockers: LosCircle[] = [];
   for (const a of snapshot.asteroids) {
     if (a.state === "destroyed") continue;
-    blockers.push({ pos: a.pos, radius: a.radius });
+    blockers.push({ pos: a.pos, radius: a.colliderRadius ?? a.radius });
   }
 
   const target = input.targetId !== null ? (enemies.find((e) => e.id === input.targetId) ?? null) : null;

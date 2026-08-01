@@ -536,14 +536,12 @@ const avoidRocks: BotBehavior = {
   overlay(ctx, params, cmd) {
     const hit = threat(ctx, params);
     if (!hit) return cmd;
-    // Imminence-scaled, not a flat offset: a rock at the far end of the corridor
-    // barely moves the stick, one about to be hit moves it fully. A flat bias is
-    // a permanent aim error whenever any scenery is roughly ahead, and measurably
-    // costs more lock time than the impacts it prevents.
-    const lookahead = Math.max(numParam(params, "lookahead", 16), 1e-3);
-    const urgency = clamp(1 - hit.along / lookahead, 0, 1);
-    const bias = numParam(params, "turnBias", 0.8) * urgency * hit.side;
-    const slow = 1 - (1 - numParam(params, "throttleFactor", 1)) * urgency;
+    // Once a collision course is detected, commit to clearing it. Scaling the
+    // turn down at the far edge of the corridor delays the response by most of
+    // a decision interval at cruise speed, which is enough to pin a carrier to
+    // ring-nebula's enlarged centre collider before the next command arrives.
+    const bias = numParam(params, "turnBias", 0.8) * hit.side;
+    const slow = numParam(params, "throttleFactor", 1);
     return {
       ...cmd,
       turn: clamp(cmd.turn + bias, -1, 1),
@@ -565,7 +563,7 @@ function threat(ctx: BotContext, params: BehaviorParams) {
     ctx.self.pitch,
     ctx.blockers,
     numParam(params, "lookahead", 16),
-    numParam(params, "clearance", 2),
+    (ctx.self.colliderRadius ?? 0) + numParam(params, "clearance", 2),
   );
 }
 
@@ -685,7 +683,7 @@ export const BEHAVIOR_PARAM_SPECS: Readonly<Record<string, readonly BehaviorPara
   ],
   avoidRocks: [
     { key: "lookahead", kind: "number", fallback: 16, min: 0, max: 80, doc: "Nose-corridor length scanned for asteroids (0 = disabled)." },
-    { key: "clearance", kind: "number", fallback: 2, min: 0, max: 20, doc: "Extra corridor half-width beyond the rock's radius." },
+    { key: "clearance", kind: "number", fallback: 2, min: 0, max: 20, doc: "Safety margin beyond the authoritative rock and ship collider radii." },
     { key: "turnBias", kind: "number", fallback: 0.8, min: 0, max: 1, doc: "Turn-axis bias applied away from the blocking rock." },
     { key: "throttleFactor", kind: "number", fallback: 1, min: 0, max: 1, doc: "Throttle multiplier while a rock is in the corridor." },
     { key: "throttle", kind: "number", fallback: 0.6, min: 0, max: 1, doc: "Throttle if the profile weights this high enough to win a decision outright." },
