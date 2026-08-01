@@ -4,13 +4,20 @@
   "version": 1,
   "name": "Colossal Rock B",
   "radius": 18,
+  "colliderScale": 0.7,
   "destructible": false,
   "impactDamage": 32,
   "render": {
     "recipe": "procedural.rock-large",
-    "palette": { "primary": "#2b2520", "accent": "#5c3c29" },
+    "palette": {
+      "primary": "#2b2520",
+      "accent": "#5c3c29"
+    },
     "model": "asteroids/large_b.glb",
     "modelScale": 18,
-    "spin": { "minDegPerSec": 0.3, "maxDegPerSec": 1.5 }
+    "spin": {
+      "minDegPerSec": 0.3,
+      "maxDegPerSec": 1.5
+    }
   }
 }

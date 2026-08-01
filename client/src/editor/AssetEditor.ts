@@ -65,7 +65,17 @@ export class AssetEditor implements EditorPanel {
     const id = nextId(configs.map((c) => c.id));
     const clone: AsteroidConfig = template
       ? { ...structuredClone(template), id, name: id }
-      : { id, type: "asteroid", version: 1, name: id, radius: 3, destructible: true, impactDamage: 5, render: { recipe: "procedural.rock-small" } };
+      : {
+          id,
+          type: "asteroid",
+          version: 1,
+          name: id,
+          radius: 3,
+          colliderScale: 1,
+          destructible: true,
+          impactDamage: 5,
+          render: { recipe: "procedural.rock-small" },
+        };
     const result = this.host.configService.replace(clone);
     if (!result.ok) {
       this.report(result.errors.map((e) => e.message).join("; "));

@@ -10,7 +10,6 @@ import {
 } from "@babylonjs/core";
 import {
   createLogger,
-  hardpointsOf,
   type ConfigService,
   type ModuleConfig,
   type ModuleSnapshot,
@@ -42,7 +41,7 @@ import {
 import { moduleStats } from "../moduleSummary.js";
 import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
 import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
-import { HangarCallouts, type CalloutSpec } from "./HangarCallouts.js";
+import { HangarBay } from "./HangarBay.js";
 import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
 import type { TacticalCamera } from "../TacticalCamera.js";
@@ -202,6 +201,11 @@ export class Hangar {
   private error = "";
 
   private previewInstance: InstancedMesh | null = null;
+  /** Hull ids whose GLB has already been requested (see `rebuildPreview`). */
+  private readonly modelsRequested = new Set<string>();
+  /** The bay the ship is parked in — built with the screen, sized to the hull. */
+  private bay: HangarBay | null = null;
+  private bayRadius = 0;
   /** Blacked-out stand-in shown in place of a hull the player does not own. */
   private lockedPreview: AbstractMesh | null = null;
   private lockedMaterial: StandardMaterial | null = null;
@@ -212,10 +216,6 @@ export class Hangar {
   private readonly idleCur: ShipSnapshot;
   private previewClock = 0;
   private renderObserver: Observer<Scene> | null = null;
-  /** Labelled tags pinned to each slot on the 3D hull (2026-07-31). */
-  private readonly callouts: HangarCallouts;
-  /** Module id currently being dragged out of the picker, if any. */
-  private draggingModuleId: string | null = null;
 
   /**
    * World-space centre the camera orbits: the GEOMETRIC centre of the staged
@@ -259,11 +259,6 @@ export class Hangar {
     this.panel.className = "hangar-panel";
     this.root.append(this.stage, this.panel);
     parent.append(this.root);
-
-    this.callouts = new HangarCallouts(this.stage, scene, this.stageRoot, {
-      onSelect: (index) => this.selectSlot(index),
-      onDrop: (index, moduleId) => this.dropModule(index, moduleId),
-    });
 
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
 
@@ -367,7 +362,6 @@ export class Hangar {
     });
 
     this.rebuildPreview();
-    this.rebuildCallouts();
     this.render();
     this.applyStageViewport();
 
@@ -402,6 +396,9 @@ export class Hangar {
     this.previewInstance = null;
     this.lockedPreview?.dispose(false, false);
     this.lockedPreview = null;
+    this.bay?.dispose();
+    this.bay = null;
+    this.bayRadius = 0;
     this.swipe?.dispose();
     this.swipe = null;
   }
@@ -449,6 +446,26 @@ export class Hangar {
     const ship = this.currentShip();
     if (!ship) return;
 
+    // The hull's GLB has to be FETCHED before `getShipMaster` can hand it back;
+    // without this the Hangar always fell through to the procedural stand-in and
+    // showed a box (owner report 2026-07-31). The match path preloads models
+    // before it spawns anything — this screen has to do the same for itself.
+    // The stale-guard is the ship id: a player swiping through the bay can
+    // easily change hull before a load lands.
+    // Requested ONCE per hull: `ensureModel` resolves immediately once the model
+    // is cached, so re-requesting on every rebuild would loop forever.
+    const loadingFor = ship.id;
+    if (!this.modelsRequested.has(loadingFor)) {
+      this.modelsRequested.add(loadingFor);
+      void this.assets.ensureModel(ship.render).then((loaded) => {
+        if (!loaded) return; // no model authored, or the fetch failed: keep the stand-in
+        if (this.currentShip()?.id !== loadingFor) return;
+        if (this.root.style.display === "none") return;
+        this.rebuildPreview();
+        this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+      });
+    }
+
     const master = this.assets.getShipMaster(ship.render);
 
     // A hull the player has not bought is shown as a SILHOUETTE (2026-07-31):
@@ -491,6 +508,20 @@ export class Hangar {
       .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
   }
 
+  /**
+   * (Re)build the bay around a hull of `hullRadius`. Rebuilt rather than scaled
+   * because the walls, pillars and lamp ranges are all derived from the pad
+   * size — a light hull and a heavy one want a differently proportioned room,
+   * not the same room stretched.
+   */
+  private rebuildBay(hullRadius: number): void {
+    const padRadius = Math.max(4, hullRadius * 2.1);
+    if (this.bay && Math.abs(this.bayRadius - padRadius) < 0.01) return;
+    this.bay?.dispose();
+    this.bayRadius = padRadius;
+    this.bay = new HangarBay(this.scene, this.stageRoot, { padRadius });
+  }
+
   /** The shared black translucent material every locked hull is painted with. */
   private lockedShipMaterial(): StandardMaterial {
     if (this.lockedMaterial) return this.lockedMaterial;
@@ -531,6 +562,7 @@ export class Hangar {
     instance.computeWorldMatrix(true);
     const bounds = instance.getBoundingInfo().boundingSphere;
     this.focus.copyFrom(bounds.centerWorld);
+    this.rebuildBay(bounds.radius);
     const radius = framingRadius(bounds.radiusWorld, this.camera.camera.fov, aspect);
     this.camera.setStageRadiusRange(radius * 0.35, radius * 2.5);
     this.camera.stageAt(this.focus, radius, this.camera.camera.alpha, this.camera.camera.beta);
@@ -541,7 +573,6 @@ export class Hangar {
     // it every frame so a stray pan gesture cannot drift the ship off its own
     // pivot. Orbit angle and zoom stay entirely the player's.
     this.camera.camera.target.copyFrom(this.focus);
-    this.callouts.update();
 
     if (!this.previewRig) return;
     const dtMs = this.scene.getEngine().getDeltaTime();
@@ -581,7 +612,6 @@ export class Hangar {
     // but leave the main loadout exactly as it was.
     this.persistBrowse();
     this.rebuildPreview();
-    this.rebuildCallouts();
     // A different hull is a different size: re-frame it. (Swapping a MODULE
     // deliberately does not, so an edit never yanks the player's zoom back.)
     this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
@@ -612,7 +642,6 @@ export class Hangar {
     if (this.offlineFitting) {
       buyShipLocal(shipId);
       this.rebuildPreview();
-      this.rebuildCallouts();
       this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
       this.render();
     }
@@ -627,7 +656,6 @@ export class Hangar {
     this.pickerHardpoint = null;
     this.persistSelection();
     this.rebuildPreview();
-    this.rebuildCallouts();
     this.render();
   }
 
@@ -637,64 +665,7 @@ export class Hangar {
     const kind = this.slots[hardpointIndex]?.kind;
     if (kind) this.category = kind === "internal" ? "internals" : "hardpoints";
     this.pickerHardpoint = this.pickerHardpoint === hardpointIndex ? null : hardpointIndex;
-    this.callouts.setSelected(this.pickerHardpoint);
     this.render();
-  }
-
-  /**
-   * A module was dragged from the picker onto a slot's callout. Accepts only
-   * what that socket takes and what the player owns — the same two rules the
-   * Equip button applies, since a drop IS an equip.
-   */
-  private dropModule(hardpointIndex: number, moduleId: string): void {
-    this.endDrag();
-    const slot = this.slots[hardpointIndex];
-    const cfg = this.configs.get<ModuleConfig>("module", moduleId);
-    if (!slot || !cfg || !slotAccepts(slot, cfg.family)) return;
-    if (!this.canEquip(moduleId)) return;
-    this.equip(hardpointIndex, moduleId);
-  }
-
-  /** Slot indices a module could legally be dropped into. */
-  private dropCandidatesFor(moduleId: string): Set<number> {
-    const cfg = this.configs.get<ModuleConfig>("module", moduleId);
-    const out = new Set<number>();
-    if (!cfg) return out;
-    for (const slot of this.slots) {
-      if (slotAccepts(slot, cfg.family)) out.add(slot.hardpointIndex);
-    }
-    return out;
-  }
-
-  private beginDrag(moduleId: string): void {
-    this.draggingModuleId = moduleId;
-    this.root.classList.add("dragging");
-    this.callouts.setDropCandidates(this.dropCandidatesFor(moduleId));
-  }
-
-  private endDrag(): void {
-    this.draggingModuleId = null;
-    this.root.classList.remove("dragging");
-    this.callouts.setDropCandidates(null);
-  }
-
-  /** Rebuild the 3D callout tags from the current hull + fitting. */
-  private rebuildCallouts(): void {
-    const ship = this.currentShip();
-    if (!ship) {
-      this.callouts.rebuild([], () => "");
-      return;
-    }
-    const sockets = hardpointsOf(ship);
-    const specs: CalloutSpec[] = this.slots.map((slot) => ({
-      slot,
-      offset: sockets[slot.hardpointIndex]?.transform.pos ?? [0, 0, 0],
-    }));
-    this.callouts.rebuild(specs, (slot) => {
-      const cfg = slot.moduleId ? this.configs.get<ModuleConfig>("module", slot.moduleId) : undefined;
-      return cfg?.ui.shortName ?? cfg?.ui.label ?? "Empty";
-    });
-    this.callouts.setSelected(this.pickerHardpoint);
   }
 
   private equip(hardpointIndex: number, moduleId: string | null): void {
@@ -947,7 +918,6 @@ export class Hangar {
     // A picker belongs to the bay it was opened from; carrying it across would
     // show a hardpoint's module list under the internals heading.
     this.pickerHardpoint = null;
-    this.callouts.setSelected(null);
     this.render();
   }
 
@@ -1187,7 +1157,6 @@ export class Hangar {
     const heading = el("div", "hangar-section-title", `Fit ${slot?.socketId ?? ""}`);
     if (slot) heading.append(el("span", "hangar-picker-kind", slot.kind === "internal" ? "systems bay" : "hardpoint"));
     wrap.append(heading);
-    wrap.append(el("div", "hangar-hint hangar-drag-hint", "Drag a module onto the ship, or use Equip."));
 
     if (slot?.moduleId) {
       const removeBtn = document.createElement("button");
@@ -1215,16 +1184,6 @@ export class Hangar {
 
       const row = el("div", `hangar-picker-item${fitted ? " fitted" : ""}`);
       row.dataset["module"] = mod.id;
-      // Only something the player can actually equip is worth dragging.
-      if (owned && !this.busy) {
-        row.draggable = true;
-        row.addEventListener("dragstart", (ev) => {
-          ev.dataTransfer?.setData("text/plain", mod.id);
-          if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "copy";
-          this.beginDrag(mod.id);
-        });
-        row.addEventListener("dragend", () => this.endDrag());
-      }
 
       const head = el("div", "hangar-picker-head");
       head.append(el("span", "hangar-picker-name", mod.name ?? mod.id));
@@ -1503,9 +1462,18 @@ const HANGAR_CSS = `
   flex-direction: column;
   gap: 10px;
 }
-/* Rail + content, with the instrument strip pinned under both. */
-.hangar-body { display: flex; gap: 10px; align-items: flex-start; min-height: 0; }
+/*
+ * Rail + content, with the instrument strip under both.
+ *
+ * Every direct child of the scrolling panel is \`flex-shrink: 0\`. Without it a
+ * flex column SHRINKS its children below their content instead of scrolling,
+ * and the overflow paints straight over the next section — which is exactly how
+ * the ship specs ended up printed across the rail (owner report 2026-07-31).
+ */
+.hangar-header, .hangar-body, .hangar-statusbar { flex: 0 0 auto; }
+.hangar-body { display: flex; gap: 10px; align-items: flex-start; }
 .hangar-content { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.hangar-rail { flex: 0 0 132px; }
 
 /* ---- the outfitting rail ---- */
 .hangar-rail { flex: 0 0 132px; display: flex; flex-direction: column; gap: 2px; }
@@ -1530,44 +1498,6 @@ const HANGAR_CSS = `
 .hangar-rail-btn.back { margin-top: 8px; background: transparent; border: 1px solid var(--hg-line); }
 .hangar-rail-label { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .hangar-rail-hint { font-size: 9.5px; color: var(--hg-dim); line-height: 1.15; }
-
-/* ---- 3D callout tags pinned to each slot on the hull ---- */
-/* The layer fills the stage half and is click-through; only the tags catch
-   pointer events, so orbit drags still reach the canvas between them. */
-.hangar-callouts { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.hangar-callout {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px 2px 5px;
-  max-width: 46%;
-  background: rgba(14, 16, 19, .86);
-  color: #d9dde2;
-  border: 1px solid var(--hg-line);
-  border-left: 2px solid var(--hg-accent);
-  font: 600 10.5px/1.15 "Roboto Condensed", system-ui, sans-serif;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: manipulation;
-  transition: border-color .12s linear, background-color .12s linear, opacity .12s linear;
-}
-.hangar-callout .dot { width: 6px; height: 6px; flex: 0 0 auto; background: var(--hg-accent); }
-.hangar-callout.kind-internal { border-left-color: #6fb2d2; }
-.hangar-callout.kind-internal .dot { background: #6fb2d2; }
-.hangar-callout.empty { opacity: .6; border-style: dashed; }
-.hangar-callout.empty .dot { background: var(--hg-dim); }
-.hangar-callout.selected { background: var(--hg-accent); color: #140b02; border-color: #ffb35c; }
-.hangar-callout.selected .dot { background: #140b02; }
-.hangar-callout:hover { border-color: var(--hg-accent); }
-/* While a module is being dragged, light up the slots that would take it. */
-.hangar-callout.droppable { border-color: var(--hg-accent); box-shadow: 0 0 0 1px var(--hg-accent-dim); }
-.hangar-callout.dimmed { opacity: .25; }
-.hangar-callout.drop-hover { background: var(--hg-accent); color: #140b02; }
 
 /* Landscape: the same halves, laid out left (stage) / right (panel). */
 @media (orientation: landscape) {
@@ -1616,7 +1546,7 @@ const HANGAR_CSS = `
 .hangar-bar-fill.warn { background: var(--hg-danger); }
 
 /* ---- bottom instrument strip ---- */
-.hangar-statusbar { display: flex; gap: 16px; flex-wrap: wrap; border-top: 1px solid var(--hg-line); padding-top: 8px; margin-top: auto; }
+.hangar-statusbar { display: flex; gap: 16px; flex-wrap: wrap; border-top: 1px solid var(--hg-line); padding-top: 8px; }
 .hangar-specs { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .hangar-specs-title { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--hg-accent); margin-bottom: 3px; }
 .hangar-spec-row { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
@@ -1642,11 +1572,10 @@ const HANGAR_CSS = `
 .hangar-slot-icon { font-size: 14px; }
 .hangar-slot-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .hangar-slot-socket { font-size: 9px; color: var(--hg-dim); letter-spacing: .04em; }
-/* Systems-bay slots read cool, matching their callouts on the hull. */
+/* Systems-bay slots read cool, so a bay never looks like a hardpoint. */
 .hangar-slot[data-kind="internal"].filled { border-left-color: #6fb2d2; }
 .hangar-picker { display: flex; flex-direction: column; gap: 6px; background: var(--hg-panel-2); border: 1px solid var(--hg-line); padding: 8px; }
 .hangar-picker-kind { margin-left: 8px; color: var(--hg-dim); letter-spacing: .06em; }
-.hangar-drag-hint { font-size: 10px; }
 /*
  * Rolling list: a fixed-height scroller showing ~3-4 rows at a time, so a long
  * candidate list scrolls INSIDE the picker instead of pushing the instrument

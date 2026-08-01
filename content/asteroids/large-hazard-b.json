@@ -4,13 +4,20 @@
   "version": 1,
   "name": "Large Hazard B",
   "radius": 8,
+  "colliderScale": 0.7,
   "destructible": false,
   "impactDamage": 18,
   "render": {
     "recipe": "procedural.rock-large",
-    "palette": { "primary": "#41372f", "accent": "#7d5537" },
+    "palette": {
+      "primary": "#41372f",
+      "accent": "#7d5537"
+    },
     "model": "asteroids/large_b.glb",
     "modelScale": 8,
-    "spin": { "minDegPerSec": 1, "maxDegPerSec": 4 }
+    "spin": {
+      "minDegPerSec": 1,
+      "maxDegPerSec": 4
+    }
   }
 }

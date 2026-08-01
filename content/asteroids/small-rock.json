@@ -4,17 +4,28 @@
   "version": 1,
   "name": "Small Rock",
   "radius": 3.5,
+  "colliderScale": 0.7,
   "hp": 40,
   "destructible": true,
   "impactDamage": 6,
   "render": {
     "recipe": "procedural.rock-small",
-    "palette": { "primary": "#5b5148", "accent": "#7d7266" },
+    "palette": {
+      "primary": "#5b5148",
+      "accent": "#7d7266"
+    },
     "model": "asteroids/small_a.glb",
     "modelScale": 3.5
   },
   "states": [
-    { "id": "intact" },
-    { "id": "destroyed", "render": { "recipe": "procedural.debris" } }
+    {
+      "id": "intact"
+    },
+    {
+      "id": "destroyed",
+      "render": {
+        "recipe": "procedural.debris"
+      }
+    }
   ]
 }
