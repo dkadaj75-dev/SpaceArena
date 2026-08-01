@@ -22,7 +22,7 @@ import {
 } from "@space-arena/shared";
 import { AssetRegistry } from "../../core/AssetRegistry.js";
 import type { AuthService } from "../../core/AuthService.js";
-import { HangarApi, HangarApiError, type ApiFitting, type ApiModule, type ApiShip } from "../HangarApi.js";
+import { HangarApi, HangarApiError, HangarRefreshScope, type ApiFitting, type ApiModule, type ApiShip } from "../HangarApi.js";
 import {
   buildHardpointMap,
   fittedModuleIdsOf,
@@ -193,6 +193,11 @@ export class Hangar {
   private readonly assets: AssetRegistry;
   private readonly stageRoot: TransformNode;
   private readonly unsubscribeAuth: () => void;
+  private readonly refreshScope = new HangarRefreshScope();
+  private visitToken = 0;
+  /** Bumped whenever the player changes the hull or working fitting. */
+  private fittingContextToken = 0;
+  private disposed = false;
 
   private ships: ShipConfig[] = [];
   private shipIndex = 0;
@@ -335,6 +340,10 @@ export class Hangar {
     return this.auth.getState().status === "authed";
   }
 
+  private get isVisible(): boolean {
+    return !this.disposed && this.root.style.display !== "none";
+  }
+
   /**
    * Offline fitting mode — a TESTING AFFORDANCE (owner 2026-07-31), to be
    * removed later. With no account there is no ownership to check and no
@@ -392,6 +401,8 @@ export class Hangar {
     // the Lobby, so a second `show()` without an intervening `hide()` must not
     // stack a second render observer / swipe watcher on the same screen.
     this.releaseVisitBindings();
+    this.refreshScope.invalidate();
+    const visitToken = ++this.visitToken;
     this.resetIdlePreview();
     // A pilot who has never set a main gets one now, so "what do I fly" is
     // never an unanswered question after the first visit to the bay.
@@ -405,6 +416,7 @@ export class Hangar {
     const idx = browseId ? this.ships.findIndex((s) => s.id === browseId) : -1;
     this.shipIndex = idx >= 0 ? idx : 0;
     this.selectedFittingId = null;
+    const fittingContextToken = ++this.fittingContextToken;
     this.pickerHardpoint = null;
     this.category = "hardpoints";
     this.error = "";
@@ -439,8 +451,9 @@ export class Hangar {
     this.render();
     this.applyStageViewport();
 
-    void this.refreshFromServer().then(() => {
-      if (stored.fittingId && this.fittings.some((f) => f.id === stored.fittingId && f.ship_id === ship?.id)) {
+    const storedShipId = ship?.id;
+    void this.refreshFromServer().then((applied) => {
+      if (applied && this.isVisible && this.visitToken === visitToken && this.fittingContextToken === fittingContextToken && this.currentShip()?.id === storedShipId && stored.fittingId && this.fittings.some((f) => f.id === stored.fittingId && f.ship_id === storedShipId)) {
         this.loadFitting(stored.fittingId);
       }
     });
@@ -463,6 +476,8 @@ export class Hangar {
   }
 
   hide(): void {
+    this.refreshScope.invalidate();
+    this.visitToken++;
     this.root.style.display = "none";
     this.releaseVisitBindings();
     // Hand the whole canvas back — a match must never render into half of it.
@@ -486,19 +501,23 @@ export class Hangar {
     this.bayRadius = 0;
   }
 
-  private async refreshFromServer(): Promise<void> {
+  private async refreshFromServer(): Promise<boolean> {
+    const request = this.refreshScope.begin();
     if (!this.isAuthed()) {
+      if (!this.refreshScope.isCurrent(request.token, request.signal) || !this.isVisible) return false;
       this.apiShips = [];
       this.apiModules = [];
       // Offline test mode: named fittings come from localStorage instead.
       this.fittings = listLocalFittings();
+      this.busy = false;
       this.render();
-      return;
+      return true;
     }
     this.busy = true;
-    this.render();
+    if (this.isVisible) this.render();
     try {
-      const [shipsRes, modulesRes, fittingsRes] = await Promise.all([this.api.ships(), this.api.modules(), this.api.fittings()]);
+      const [shipsRes, modulesRes, fittingsRes] = await Promise.all([this.api.ships(request.signal), this.api.modules(request.signal), this.api.fittings(request.signal)]);
+      if (!this.refreshScope.isCurrent(request.token, request.signal) || !this.isVisible) return false;
       this.apiShips = shipsRes.ships;
       this.apiModules = modulesRes.modules;
       this.fittings = fittingsRes.fittings;
@@ -507,12 +526,18 @@ export class Hangar {
       // a purchase made this visit would stay invisible to it until the player
       // happened to re-pick a ship.
       this.persistSelection();
+      return true;
     } catch (err) {
+      if (!this.refreshScope.isCurrent(request.token, request.signal) || isAbortError(err)) return false;
       this.error = errorMessage(err, "Failed to load hangar data");
       log.warn("refreshFromServer failed", err);
+      return false;
     } finally {
-      this.busy = false;
-      this.render();
+      // No `return` in a finally: it would override the try/catch's result.
+      if (this.refreshScope.isCurrent(request.token, request.signal) && this.isVisible) {
+        this.busy = false;
+        this.render();
+      }
     }
   }
 
@@ -708,6 +733,7 @@ export class Hangar {
   private selectShip(index: number): void {
     this.shipIndex = index;
     this.selectedFittingId = null;
+    this.fittingContextToken++;
     this.pickerHardpoint = null;
     const ship = this.currentShip();
     this.slots = ship ? this.slotsForShip(ship) : [];
@@ -805,6 +831,7 @@ export class Hangar {
     const ship = this.currentShip();
     if (!ship) return;
     this.selectedFittingId = fittingId;
+    this.fittingContextToken++;
     const fitting = fittingId ? this.fittings.find((f) => f.id === fittingId) : undefined;
     this.slots = fitting ? slotsFromHardpointMap(ship, fitting.hardpointMap) : slotsFromDefaultFitting(ship);
     this.pickerHardpoint = null;
@@ -826,6 +853,7 @@ export class Hangar {
     const slot = this.slots[hardpointIndex];
     if (!slot) return;
     slot.moduleId = moduleId;
+    this.fittingContextToken++;
     this.pickerHardpoint = null;
     // Persist immediately: an unsaved edit still flies (owner 2026-07-31), so
     // the working fit must survive walking straight out of the Hangar.
@@ -849,6 +877,7 @@ export class Hangar {
       await this.auth.refreshProfile();
       await this.refreshFromServer();
     } catch (err) {
+      if (!this.isVisible) return;
       this.error = errorMessage(err, "Purchase failed");
       this.busy = false;
       this.render();
@@ -865,6 +894,7 @@ export class Hangar {
       await this.auth.refreshProfile();
       await this.refreshFromServer();
     } catch (err) {
+      if (!this.isVisible) return;
       this.error = errorMessage(err, "Upgrade failed");
       this.busy = false;
       this.render();
@@ -906,6 +936,7 @@ export class Hangar {
       this.persistSelection();
       await this.refreshFromServer();
     } catch (err) {
+      if (!this.isVisible) return;
       this.error = errorMessage(err, "Save failed");
       this.busy = false;
       this.render();
@@ -927,6 +958,7 @@ export class Hangar {
       this.loadFitting(null);
       await this.refreshFromServer();
     } catch (err) {
+      if (!this.isVisible) return;
       this.error = errorMessage(err, "Delete failed");
       this.busy = false;
       this.render();
@@ -1656,6 +1688,7 @@ export class Hangar {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.hide();
     this.unsubscribeAuth();
     this.previewRig?.dispose();
@@ -1686,6 +1719,10 @@ function idleSnapshot(): ShipSnapshot {
     locked: false,
     modules: [],
   };
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
 }
 
 function errorMessage(err: unknown, fallback: string): string {

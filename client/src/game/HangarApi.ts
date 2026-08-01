@@ -50,6 +50,33 @@ export class HangarApiError extends Error {
 }
 
 /**
+ * Owns the single inventory read allowed for a Hangar visit. Starting a new
+ * read aborts and invalidates the old one, so callers can safely ignore late
+ * completions even when a transport cannot honour an abort immediately.
+ */
+export class HangarRefreshScope {
+  private version = 0;
+  private controller: AbortController | null = null;
+
+  begin(): { token: number; signal: AbortSignal } {
+    this.controller?.abort();
+    this.controller = new AbortController();
+    return { token: ++this.version, signal: this.controller.signal };
+  }
+
+  isCurrent(token: number, signal: AbortSignal): boolean {
+    return token === this.version && this.controller?.signal === signal && !signal.aborted;
+  }
+
+  /** Abort the active read and make all of its callbacks permanently stale. */
+  invalidate(): void {
+    this.controller?.abort();
+    this.controller = null;
+    this.version++;
+  }
+}
+
+/**
  * Thin fetch wrapper over the auth-required fittings/ships/modules REST
  * surface (`server/src/api/README.md`). Deliberately standalone rather than
  * reusing {@link AuthService}'s private `request()` (that class lives outside
@@ -68,12 +95,12 @@ export class HangarApi {
     private readonly baseUrl = httpServerUrl(),
   ) {}
 
-  ships(): Promise<{ ships: ApiShip[] }> {
-    return this.request("GET", "/api/ships");
+  ships(signal?: AbortSignal): Promise<{ ships: ApiShip[] }> {
+    return this.request("GET", "/api/ships", undefined, signal);
   }
 
-  modules(): Promise<{ modules: ApiModule[] }> {
-    return this.request("GET", "/api/modules");
+  modules(signal?: AbortSignal): Promise<{ modules: ApiModule[] }> {
+    return this.request("GET", "/api/modules", undefined, signal);
   }
 
   buyModule(moduleId: string): Promise<{ moduleId: string; credits: number }> {
@@ -84,8 +111,8 @@ export class HangarApi {
     return this.request("POST", `/api/ships/${encodeURIComponent(shipId)}/upgrade`, { track });
   }
 
-  fittings(): Promise<{ fittings: ApiFitting[] }> {
-    return this.request("GET", "/api/fittings");
+  fittings(signal?: AbortSignal): Promise<{ fittings: ApiFitting[] }> {
+    return this.request("GET", "/api/fittings", undefined, signal);
   }
 
   createFitting(shipId: string, name: string, hardpointMap: HardpointMap): Promise<{ fitting: ApiFitting }> {
@@ -100,7 +127,7 @@ export class HangarApi {
     return this.request("DELETE", `/api/fittings/${encodeURIComponent(id)}`);
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     const token = this.auth.getAccessToken();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -108,6 +135,7 @@ export class HangarApi {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
     });
     if (!res.ok) {
       let code = "unknown";
