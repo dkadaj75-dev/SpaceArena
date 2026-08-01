@@ -264,21 +264,24 @@ export class Minimap {
 
       this.project(flag.pos.x, flag.pos.y, flag.pos.z, player);
       const alpha = projectedScratch.outOfRange ? 0.5 : 1;
-      const r = this.contactSizePx * 1.3;
+      // Deliberately larger than a contact diamond: the staff and broad pennant
+      // make an objective legible at a glance, even in a crowded radar disc.
+      const r = this.contactSizePx * 2.15;
       // A carried flag pulses bright; one sitting at home or adrift is steady.
-      ctx.fillStyle = withAlpha(color, flag.state === "carried" ? alpha : alpha * 0.75);
+      const carriedPulse = flag.state === "carried" ? 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(cur.elapsed * 7)) : 0.75;
+      ctx.fillStyle = withAlpha(color, alpha * carriedPulse);
       ctx.beginPath();
-      ctx.moveTo(projectedScratch.x, projectedScratch.tipY - r);
-      ctx.lineTo(projectedScratch.x + r * 0.8, projectedScratch.tipY);
-      ctx.lineTo(projectedScratch.x, projectedScratch.tipY + r);
+      ctx.moveTo(projectedScratch.x, projectedScratch.tipY - r * 0.9);
+      ctx.lineTo(projectedScratch.x + r * 1.25, projectedScratch.tipY - r * 0.52);
+      ctx.lineTo(projectedScratch.x, projectedScratch.tipY - r * 0.12);
       ctx.closePath();
       ctx.fill();
-      // The staff, so a flag never reads as just another contact diamond.
+      // The staff anchors the pennant, so it never reads as another diamond.
       ctx.strokeStyle = withAlpha(color, alpha);
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.4;
       ctx.beginPath();
       ctx.moveTo(projectedScratch.x, projectedScratch.tipY - r);
-      ctx.lineTo(projectedScratch.x, projectedScratch.tipY + r);
+      ctx.lineTo(projectedScratch.x, projectedScratch.tipY + r * 0.95);
       ctx.stroke();
     }
   }

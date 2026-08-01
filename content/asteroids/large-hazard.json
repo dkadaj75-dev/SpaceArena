@@ -4,7 +4,7 @@
   "version": 1,
   "name": "Large Hazard",
   "radius": 8,
-  "colliderScale": 0.7,
+  "colliderScale": 0.92,
   "destructible": false,
   "impactDamage": 18,
   "render": {

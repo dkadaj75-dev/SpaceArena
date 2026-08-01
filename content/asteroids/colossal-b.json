@@ -4,7 +4,7 @@
   "version": 1,
   "name": "Colossal Rock B",
   "radius": 18,
-  "colliderScale": 0.7,
+  "colliderScale": 0.95,
   "destructible": false,
   "impactDamage": 32,
   "render": {

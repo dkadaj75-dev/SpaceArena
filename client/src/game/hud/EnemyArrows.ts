@@ -22,6 +22,9 @@ interface ArrowSlot {
   lastCandidate: boolean | null;
   lastMarker: boolean | null;
   lastScale: number;
+  lastFriendly: boolean | null;
+  /** Flag slots use the objective pennant rather than an enemy chevron. */
+  flag: boolean;
   visible: boolean;
 }
 
@@ -35,10 +38,10 @@ interface ArrowSlot {
  * DOM, is tagged {@link HUD_CONTROL_ATTR}, takes every dimension from the
  * resolved theme layout, and only touches the DOM when a value actually changed.
  *
- * Allocation discipline: the node pool is built ONCE at `maxCount` and reused
- * forever (this runs every frame with one entry per enemy ship), the placement
- * math writes into a single scratch object, and the caller drives it with a
- * plain indexed loop — see {@link begin} / {@link place} / {@link finish}.
+ * Allocation discipline: an enemy pool at `maxCount` plus two reserved CTF
+ * objective slots are built ONCE and reused forever. The placement math writes
+ * into a single scratch object, and the caller drives it with a plain indexed
+ * loop — see {@link begin} / {@link place} / {@link finish}.
  *
  * Tints are the reticle's own custom properties rather than new theme fields:
  * `--hud-danger` for a plain enemy and `--hud-primary` for the current lock
@@ -47,11 +50,14 @@ interface ArrowSlot {
 export class EnemyArrows {
   private readonly container: HTMLDivElement;
   private readonly slots: ArrowSlot[] = [];
+  /** Objectives have reserved nodes, so enemy count can never hide a flag. */
+  private readonly flagSlots: ArrowSlot[] = [];
   private layout: FlightHudLayout;
   /** Per-frame scratch — nothing here allocates. */
   private readonly placement: ArrowPlacement = { x: 0, y: 0, rotationRad: 0 };
   /** How many slots the current frame has claimed so far. */
   private used = 0;
+  private flagUsed = 0;
 
   constructor(root: HTMLElement, layout: FlightHudLayout) {
     this.layout = layout;
@@ -98,6 +104,48 @@ export class EnemyArrows {
         background: var(--hud-primary, #39bfff);
         filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, #39bfff));
       }
+      .hud-enemy-arrow.flag .hud-enemy-arrow-glyph {
+        clip-path: none;
+        background: transparent;
+        filter: none;
+      }
+      .hud-enemy-arrow.flag .hud-enemy-arrow-glyph::before {
+        content: "";
+        position: absolute;
+        left: 28%;
+        top: 8%;
+        width: 12%;
+        height: 84%;
+        background: var(--hud-danger, #ff405c);
+        box-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c);
+      }
+      .hud-enemy-arrow.flag .hud-enemy-arrow-glyph::after {
+        content: "";
+        position: absolute;
+        left: 38%;
+        top: 10%;
+        width: 54%;
+        height: 48%;
+        clip-path: polygon(0 0, 100% 22%, 70% 56%, 100% 100%, 0 78%);
+        background: var(--hud-danger, #ff405c);
+        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c));
+      }
+      .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-glyph::before,
+      .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-glyph::after {
+        background: var(--hud-primary, #39bfff);
+      }
+      .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-glyph::before {
+        box-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-primary, #39bfff);
+      }
+      .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-glyph::after {
+        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-primary, #39bfff));
+      }
+      .hud-enemy-arrow.flag .hud-enemy-arrow-distance {
+        color: var(--hud-danger, #ff405c);
+      }
+      .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-distance {
+        color: var(--hud-primary, #39bfff);
+      }
       .hud-enemy-arrow-distance {
         position: absolute;
         left: 50%;
@@ -123,7 +171,8 @@ export class EnemyArrows {
     this.container.appendChild(style);
     root.appendChild(this.container);
 
-    this.buildPool(layout.enemyArrows.maxCount);
+    this.buildPool(layout.enemyArrows.maxCount, this.slots, false);
+    this.buildPool(2, this.flagSlots, true);
   }
 
   /**
@@ -133,11 +182,15 @@ export class EnemyArrows {
    */
   applyLayout(layout: FlightHudLayout): void {
     this.layout = layout;
-    this.buildPool(layout.enemyArrows.maxCount);
+    this.buildPool(layout.enemyArrows.maxCount, this.slots, false);
     const markerPx = `${layout.enemyArrows.markerSizePx}px`;
     for (let i = 0; i < this.slots.length; i++) {
       this.slots[i]!.marker.style.width = markerPx;
       this.slots[i]!.marker.style.height = markerPx;
+    }
+    for (let i = 0; i < this.flagSlots.length; i++) {
+      this.flagSlots[i]!.marker.style.width = markerPx;
+      this.flagSlots[i]!.marker.style.height = markerPx;
     }
     // Geometry moved under every arrow; the next frame re-places the live ones
     // and this hides whatever is currently parked at a stale position.
@@ -145,10 +198,10 @@ export class EnemyArrows {
     this.finish();
   }
 
-  private buildPool(count: number): void {
-    for (let i = this.slots.length; i < count; i++) {
+  private buildPool(count: number, slots: ArrowSlot[], flag: boolean): void {
+    for (let i = slots.length; i < count; i++) {
       const el = document.createElement("div");
-      el.className = "hud-enemy-arrow";
+      el.className = flag ? "hud-enemy-arrow flag" : "hud-enemy-arrow";
       el.setAttribute(HUD_CONTROL_ATTR, "enemy-arrow");
       el.setAttribute("aria-hidden", "true");
       const glyph = document.createElement("div");
@@ -161,7 +214,7 @@ export class EnemyArrows {
       distance.className = "hud-enemy-arrow-distance";
       el.append(glyph, marker, distance);
       this.container.appendChild(el);
-      this.slots.push({
+      slots.push({
         el,
         glyph,
         marker,
@@ -174,6 +227,8 @@ export class EnemyArrows {
         lastCandidate: null,
         lastMarker: null,
         lastScale: Number.NaN,
+        lastFriendly: null,
+        flag,
         visible: false,
       });
     }
@@ -182,6 +237,7 @@ export class EnemyArrows {
   /** Start a frame: the next {@link place} call claims the first slot again. */
   begin(): void {
     this.used = 0;
+    this.flagUsed = 0;
   }
 
   /**
@@ -240,10 +296,39 @@ export class EnemyArrows {
     return true;
   }
 
+  /**
+   * Place an off-screen objective pennant. Flag slots are separate from enemy
+   * slots, so the two CTF objectives remain discoverable in a crowded fight.
+   */
+  placeFlag(point: ProjectedPoint, distanceUnits: number, friendly: boolean): boolean {
+    const arrows = this.layout.enemyArrows;
+    if (!arrows.enabled || this.flagUsed >= this.flagSlots.length) return false;
+    if (!offScreenArrowPlacement(point, this.layout.viewport, arrows, this.placement)) return false;
+
+    const slot = this.flagSlots[this.flagUsed++]!;
+    this.write(
+      slot,
+      this.placement,
+      distanceUnits,
+      Math.max(arrows.markerMinOpacity, arrowOpacity(distanceUnits, arrows)),
+      false,
+      false,
+      1.25,
+      friendly,
+    );
+    return true;
+  }
+
   /** End a frame: hide every slot the frame did not claim. */
   finish(): void {
     for (let i = this.used; i < this.slots.length; i++) {
       const slot = this.slots[i]!;
+      if (!slot.visible) continue;
+      slot.visible = false;
+      slot.el.classList.remove("visible");
+    }
+    for (let i = this.flagUsed; i < this.flagSlots.length; i++) {
+      const slot = this.flagSlots[i]!;
       if (!slot.visible) continue;
       slot.visible = false;
       slot.el.classList.remove("visible");
@@ -269,6 +354,7 @@ export class EnemyArrows {
     candidate: boolean,
     marker: boolean,
     scale: number,
+    friendly?: boolean,
   ): void {
     if (!slot.visible) {
       slot.visible = true;
@@ -310,10 +396,15 @@ export class EnemyArrows {
       slot.lastMarker = marker;
       slot.el.classList.toggle("on-screen-marker", marker);
     }
+    if (slot.flag && friendly !== slot.lastFriendly) {
+      slot.lastFriendly = friendly ?? false;
+      slot.el.classList.toggle("friendly", slot.lastFriendly);
+    }
   }
 
   dispose(): void {
     this.slots.length = 0;
+    this.flagSlots.length = 0;
     this.container.remove();
   }
 }

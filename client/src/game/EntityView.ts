@@ -665,7 +665,7 @@ export class ViewManager {
       view.marker.rotation.y += (frameDtMs / 1000) * 1.6;
       // A loose flag sits still; a carried one is doing something, so it spins
       // faster and rides slightly proud of the hull carrying it.
-      view.marker.position.y += flag.state === "carried" ? 1.2 : 0;
+      view.marker.position.y += flag.state === "carried" ? 3.6 : 0;
 
       if (resampleTrail(flag.trail, this.sTrail, TRAIL_POINTS)) {
         for (let i = 0; i < TRAIL_POINTS; i++) {
@@ -699,7 +699,9 @@ export class ViewManager {
     mat.emissiveColor = colour;
     const marker = MeshBuilder.CreateCylinder(
       `flag.${id}`,
-      { diameterTop: 0, diameterBottom: 2.2, height: 3.4, tessellation: 4 },
+      // Objectives need to read at combat distance; this is intentionally 3×
+      // the original marker, with the carried offset above scaled to match.
+      { diameterTop: 0, diameterBottom: 6.6, height: 10.2, tessellation: 4 },
       this.scene,
     );
     marker.material = mat;

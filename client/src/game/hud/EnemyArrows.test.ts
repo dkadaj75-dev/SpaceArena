@@ -6,6 +6,22 @@ import { LockReticle } from "./LockReticle.js";
 const LAYOUT = resolveFlightHudLayout(undefined, { width: 800, height: 600 });
 
 describe("EnemyArrows distance labels", () => {
+  it("reserves a distinct friendly pennant for an off-screen CTF flag", () => {
+    const root = document.createElement("div");
+    const arrows = new EnemyArrows(root, LAYOUT);
+
+    arrows.begin();
+    expect(arrows.placeFlag({ x: -200, y: 300, behind: false }, 141.6, true)).toBe(true);
+    arrows.finish();
+
+    const flag = root.querySelector<HTMLElement>(".hud-enemy-arrow.flag.visible")!;
+    expect(flag).not.toBeNull();
+    expect(flag.classList).toContain("friendly");
+    expect(flag.classList).not.toContain("on-screen-marker");
+    expect(flag.querySelector(".hud-enemy-arrow-glyph")).not.toBeNull();
+    arrows.dispose();
+  });
+
   it("reuses one label node and only changes its text when rounded metres change", () => {
     const root = document.createElement("div");
     const arrows = new EnemyArrows(root, LAYOUT);
@@ -28,7 +44,7 @@ describe("EnemyArrows distance labels", () => {
     arrows.finish();
     expect(root.querySelector(".hud-enemy-arrow-distance")).toBe(label);
     expect(label.textContent).toBe("143m");
-    expect(root.querySelectorAll(".hud-enemy-arrow-distance")).toHaveLength(
+    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag) .hud-enemy-arrow-distance")).toHaveLength(
       LAYOUT.enemyArrows.maxCount,
     );
     arrows.dispose();
@@ -82,19 +98,19 @@ describe("EnemyArrows distance labels", () => {
   it("does not leak pooled labels across match disposal/remount", () => {
     const root = document.createElement("div");
     const first = new EnemyArrows(root, LAYOUT);
-    expect(root.querySelectorAll(".hud-enemy-arrow-distance")).toHaveLength(
+    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag) .hud-enemy-arrow-distance")).toHaveLength(
       LAYOUT.enemyArrows.maxCount,
     );
     first.dispose();
     expect(root.querySelectorAll(".hud-enemy-arrow-distance")).toHaveLength(0);
 
     const second = new EnemyArrows(root, LAYOUT);
-    const labels = root.querySelectorAll(".hud-enemy-arrow-distance");
+    const labels = root.querySelectorAll(".hud-enemy-arrow:not(.flag) .hud-enemy-arrow-distance");
     expect(labels).toHaveLength(LAYOUT.enemyArrows.maxCount);
     second.begin();
     second.place({ x: 400, y: 300, behind: false }, 200, false);
     second.finish();
-    expect(root.querySelectorAll(".hud-enemy-arrow-distance")).toHaveLength(labels.length);
+    expect(root.querySelectorAll(".hud-enemy-arrow:not(.flag) .hud-enemy-arrow-distance")).toHaveLength(labels.length);
     second.dispose();
   });
 });

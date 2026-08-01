@@ -4,7 +4,7 @@
   "version": 1,
   "name": "Small Rock B",
   "radius": 3.5,
-  "colliderScale": 0.7,
+  "colliderScale": 0.88,
   "hp": 40,
   "destructible": true,
   "impactDamage": 6,

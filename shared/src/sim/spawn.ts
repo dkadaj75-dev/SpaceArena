@@ -151,8 +151,9 @@ export function spawnAsteroid(
   const id = world.createEntity();
   world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } });
   // The rock you SEE and the rock you can CRASH INTO are two different radii
-  // (owner report 2026-07-31). The collision sphere is inscribed in the model's
-  // irregular silhouette, so a pilot never dies in clear space beside a rock.
+  // (owner report 2026-07-31). The collision sphere stays inscribed in the
+  // model's irregular silhouette so a pilot never dies in clear space, but the
+  // authored scale deliberately hugs its solid-looking outer rock.
   const visualRadius = cfg.radius * scale;
   world.colliders.set(id, { radius: visualRadius * (cfg.colliderScale ?? 1) });
   const hp = cfg.hp ?? Infinity;

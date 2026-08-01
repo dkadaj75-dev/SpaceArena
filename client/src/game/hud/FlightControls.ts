@@ -387,6 +387,17 @@ export class FlightControls {
         const distance = Math.hypot(x - px, y - py, z - pz);
         this.enemyArrows.place(this.projected, distance, enemy.id === ship.targetId);
       }
+      // CTF objectives get their own reserved pennant slots. Unlike ships,
+      // flags are never lock candidates; their 3D model handles the in-view
+      // case and this cue owns only the off-screen/edge case.
+      if (cur.flags.length > 0) {
+        for (let i = 0; i < cur.flags.length; i++) {
+          const flag = cur.flags[i]!;
+          if (!this.binding.project(flag.pos.x, flag.pos.y, flag.pos.z, this.projected)) continue;
+          const distance = Math.hypot(flag.pos.x - px, flag.pos.y - py, flag.pos.z - pz);
+          this.enemyArrows.placeFlag(this.projected, distance, flag.team === ship.team);
+        }
+      }
     }
     this.enemyArrows.finish();
   }
