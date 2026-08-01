@@ -33,6 +33,7 @@ import {
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
+import { buildOverlayModel, type HangarGauge } from "../hangarOverlayModel.js";
 import {
   deleteLocalFitting,
   isLocalFittingId,
@@ -220,6 +221,25 @@ export class Hangar {
   private swap: { direction: -1 | 1; elapsed: number; distance: number; applied: boolean } | null = null;
   /** Stage-overlay arrows, kept so they can be disabled mid-transition. */
   private stageArrows: HTMLButtonElement[] = [];
+  /**
+   * The characteristics block over the 3D stage. Built once and refreshed in
+   * place: `render()` wipes the info panel wholesale, and this lives in the
+   * other half of the split.
+   */
+  private readonly gauges: HTMLDivElement;
+  /**
+   * The module the player is CONSIDERING but has not equipped — the hover /
+   * keyboard focus / tapped row in the picker, or the "remove" affordance
+   * (`moduleId: null`). Drives the ghost levels on {@link gauges}; cleared by
+   * every `render()`, since that rebuilds the picker the hover belongs to.
+   */
+  private preview: { hardpointIndex: number; moduleId: string | null } | null = null;
+  /**
+   * True when {@link preview} was PINNED by a tap/click rather than merely
+   * hovered. A touch pointer has no hover to hold, so the tap is what keeps the
+   * ghost on screen long enough to read it.
+   */
+  private previewPinned = false;
   /** Blacked-out stand-in shown in place of a hull the player does not own. */
   private lockedPreview: AbstractMesh | null = null;
   private lockedMaterial: StandardMaterial | null = null;
@@ -279,7 +299,12 @@ export class Hangar {
     // half (which is otherwise click-through) and re-enable themselves when a
     // transition finishes.
     this.stageArrows = [this.buildStageArrow(-1), this.buildStageArrow(1)];
-    this.stage.append(...this.stageArrows);
+    // The characteristics block sits in the same click-through half, anchored to
+    // a corner so it never covers the hull. `pointer-events: none` (CSS) is what
+    // keeps orbit/zoom drags reaching the canvas through it — unlike the arrows,
+    // it has nothing to click.
+    this.gauges = el("div", "hangar-gauges");
+    this.stage.append(this.gauges, ...this.stageArrows);
     parent.append(this.root);
 
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
@@ -362,6 +387,11 @@ export class Hangar {
   }
 
   show(): void {
+    // Re-entry safe: the per-visit subscriptions below are all torn down in
+    // `hide()`, but the Hangar is reachable from the results screen as well as
+    // the Lobby, so a second `show()` without an intervening `hide()` must not
+    // stack a second render observer / swipe watcher on the same screen.
+    this.releaseVisitBindings();
     // A pilot who has never set a main gets one now, so "what do I fly" is
     // never an unanswered question after the first visit to the bay.
     if (!this.mainShipId()) {
@@ -384,7 +414,13 @@ export class Hangar {
 
     this.root.style.display = "flex";
     this.camera.setHangarMode(true);
-    this.camera.stageAt(this.stageRoot.position, 9, -Math.PI / 2, 1.15);
+    // ENTRY resets the view (owner report 2026-08-01: a hull framed from an odd
+    // angle after a match). The rig is shared with the in-match chase camera,
+    // which leaves both its orbit angles AND a rolled `upVector` behind, so the
+    // reset has to level the rig — not merely re-assign alpha/beta. Everything
+    // after this point (`frameShip`, the ship-swap re-frame) deliberately keeps
+    // whatever the player has orbited to; only entering the Hangar snaps back.
+    this.camera.resetStageOrbit(this.stageRoot.position);
     this.renderObserver = this.scene.onBeforeRenderObservable.add(() => this.tickPreview());
     window.addEventListener("resize", this.onViewportResize);
     window.addEventListener("orientationchange", this.onViewportResize);
@@ -409,16 +445,27 @@ export class Hangar {
     });
   }
 
-  hide(): void {
-    this.root.style.display = "none";
+  /**
+   * Drop everything bound for the duration of ONE visit (per-frame observer,
+   * window listeners, swipe watcher). Shared by `hide()` and the re-entry guard
+   * in `show()` so the two can never disagree about what a visit owns.
+   */
+  private releaseVisitBindings(): void {
     window.removeEventListener("resize", this.onViewportResize);
     window.removeEventListener("orientationchange", this.onViewportResize);
-    // Hand the whole canvas back — a match must never render into half of it.
-    this.camera.setStageViewport(null);
     if (this.renderObserver) {
       this.scene.onBeforeRenderObservable.remove(this.renderObserver);
       this.renderObserver = null;
     }
+    this.swipe?.dispose();
+    this.swipe = null;
+  }
+
+  hide(): void {
+    this.root.style.display = "none";
+    this.releaseVisitBindings();
+    // Hand the whole canvas back — a match must never render into half of it.
+    this.camera.setStageViewport(null);
     this.camera.setHangarMode(false);
     // Dispose the staged preview rather than leaving it running off-screen: a
     // ParticleSystem keeps animating every scene frame once started regardless
@@ -436,8 +483,6 @@ export class Hangar {
     this.bay?.dispose();
     this.bay = null;
     this.bayRadius = 0;
-    this.swipe?.dispose();
-    this.swipe = null;
   }
 
   private async refreshFromServer(): Promise<void> {
@@ -922,11 +967,178 @@ export class Hangar {
     }
   }
 
+  // --- stage overlay (ship characteristics) --------------------------------
+
+  /**
+   * Start showing what a module WOULD do, without fitting it. Called from every
+   * "the player is considering this" signal in the picker — pointer hover,
+   * keyboard focus, and the tap that pins it — plus the remove affordance, which
+   * considers `null` (the slot emptied).
+   *
+   * Cheap enough to run on hover: it re-resolves two stat panels and rewrites a
+   * dozen spans, and it deliberately does NOT call `render()`, which would
+   * rebuild the very row the pointer is on.
+   */
+  private considerModule(hardpointIndex: number, moduleId: string | null, pinned = false): void {
+    const same = this.preview?.hardpointIndex === hardpointIndex && this.preview.moduleId === moduleId;
+    // Moving on to a DIFFERENT candidate takes the pin with it — a pin holds one
+    // module's ghost on screen, it does not freeze the gauges on the first one.
+    const nextPinned = same ? this.previewPinned || pinned : pinned;
+    if (same && nextPinned === this.previewPinned) return;
+    this.preview = { hardpointIndex, moduleId };
+    this.previewPinned = nextPinned;
+    this.renderGauges();
+    this.syncPreviewHighlight();
+  }
+
+  /**
+   * Stop considering `moduleId` — the pointer left, or focus moved on. A PINNED
+   * preview survives: on a touch screen the tap that pinned it is immediately
+   * followed by the pointer leaving, and the whole point of the pin is to keep
+   * the ghost readable after that.
+   */
+  private stopConsidering(hardpointIndex: number, moduleId: string | null): void {
+    if (this.previewPinned) return;
+    if (this.preview?.hardpointIndex !== hardpointIndex || this.preview.moduleId !== moduleId) return;
+    this.clearPreview();
+  }
+
+  private clearPreview(): void {
+    if (!this.preview && !this.previewPinned) return;
+    this.preview = null;
+    this.previewPinned = false;
+    this.renderGauges();
+    this.syncPreviewHighlight();
+  }
+
+  /**
+   * Wire every "considering this module" signal an element can raise onto the
+   * stage gauges. One place, so a pointer, a keyboard and a touch screen all
+   * reach the same preview:
+   *
+   *  - `pointerenter`/`pointerleave` — the mouse hover;
+   *  - `focusin`/`focusout` — keyboard tabbing (the picker's buttons are inside
+   *    the row, and both events bubble, so focusing Equip previews its row);
+   *  - `click` — a TAP pins the preview, because a touch pointer leaves the row
+   *    the instant the finger lifts and would otherwise flash the ghost.
+   *
+   * A click on a button inside the row is left alone: that button already does
+   * the real thing (equip/buy), and `equip()` re-renders, which clears the ghost.
+   */
+  private bindPreviewSignals(
+    node: HTMLElement,
+    hardpointIndex: number,
+    moduleId: string | null,
+    opts: { pinOnClick: boolean },
+  ): void {
+    node.addEventListener("pointerenter", () => this.considerModule(hardpointIndex, moduleId));
+    node.addEventListener("pointerleave", () => this.stopConsidering(hardpointIndex, moduleId));
+    node.addEventListener("focusin", () => this.considerModule(hardpointIndex, moduleId));
+    node.addEventListener("focusout", () => this.stopConsidering(hardpointIndex, moduleId));
+    if (!opts.pinOnClick) return;
+    node.addEventListener("click", (ev) => {
+      if (ev.target instanceof Element && ev.target.closest("button")) return;
+      this.togglePreviewPin(hardpointIndex, moduleId);
+    });
+  }
+
+  /** Tap/click on a picker row: pin the preview, or unpin the one already pinned. */
+  private togglePreviewPin(hardpointIndex: number, moduleId: string | null): void {
+    const same = this.preview?.hardpointIndex === hardpointIndex && this.preview.moduleId === moduleId;
+    if (same && this.previewPinned) {
+      this.clearPreview();
+      return;
+    }
+    this.considerModule(hardpointIndex, moduleId, true);
+  }
+
+  /**
+   * Mark the row the ghost belongs to, without re-rendering the list — a
+   * rebuild here would destroy the element the pointer is hovering. Candidates
+   * tag themselves with `data-preview-module` (empty string = "empty the slot").
+   */
+  private syncPreviewHighlight(): void {
+    const wanted: string | null | undefined = this.preview ? this.preview.moduleId : undefined;
+    for (const node of this.panel.querySelectorAll<HTMLElement>("[data-preview-module]")) {
+      const raw = node.dataset["previewModule"] ?? "";
+      const id: string | null = raw === "" ? null : raw;
+      node.classList.toggle("considering", wanted !== undefined && id === wanted);
+    }
+  }
+
+  /**
+   * The fit the preview would produce: the working fitting with the candidate
+   * dropped into its slot — which also REMOVES whatever was in there, so
+   * swapping a module is costed as the swap it is. Null when nothing is being
+   * considered, or when the candidate is already in that slot (no ghost to draw).
+   */
+  private previewModuleIds(): (string | null)[] | null {
+    const preview = this.preview;
+    if (!preview) return null;
+    const ids = fittedModuleIdsOf(this.slots);
+    if (preview.hardpointIndex < 0 || preview.hardpointIndex >= ids.length) return null;
+    if (ids[preview.hardpointIndex] === preview.moduleId) return null;
+    ids[preview.hardpointIndex] = preview.moduleId;
+    return ids;
+  }
+
+  private statPanelFor(fittedModuleIds: readonly (string | null)[]): HangarStatPanel | null {
+    const ship = this.currentShip();
+    if (!ship) return null;
+    return computeStatPanel(ship, this.configs, { upgradeLevels: this.currentUpgradeLevels(), fittedModuleIds });
+  }
+
+  /**
+   * The characteristics block over the 3D stage (owner 2026-08-01) — the
+   * PRIMARY power/fit signal, in the half of the screen the player is looking at
+   * while they judge a hull. Gauges read the current fit; while a module is
+   * being considered they grow a ghost segment out to the projected value, so
+   * "what does this cost me" is answered before the module is equipped.
+   */
+  private renderGauges(): void {
+    const base = this.statPanelFor(fittedModuleIdsOf(this.slots));
+    this.gauges.innerHTML = "";
+    if (!base) {
+      this.gauges.style.display = "none";
+      return;
+    }
+    this.gauges.style.display = "";
+    const previewIds = this.previewModuleIds();
+    const model = buildOverlayModel(base, previewIds ? this.statPanelFor(previewIds) : null);
+    this.gauges.classList.toggle("previewing", model.previewing);
+
+    const head = el("div", "hangar-gauges-head");
+    head.append(el("span", "hangar-gauges-title", "Characteristics"));
+    if (model.previewing) head.append(el("span", "hangar-gauges-preview", "Preview"));
+    this.gauges.append(head);
+
+    for (const gauge of model.gauges) this.gauges.append(gaugeRow(gauge));
+
+    // The rail is the one gauge a fit can outright break, so it gets words as
+    // well as a colour — for the fit on the ship, or for the one being weighed.
+    const over = model.previewing ? model.projectedPowerOverBy : model.powerOverBy;
+    if (over > 0) {
+      this.gauges.append(
+        el(
+          "div",
+          "hangar-gauges-warn",
+          `${model.previewing ? "Would be over" : "Over"} power by ${over.toFixed(0)} — modules will shut each other down.`,
+        ),
+      );
+    }
+  }
+
   // --- rendering ---------------------------------------------------------
 
   private render(): void {
     const ship = this.currentShip();
+    // A full render rebuilds the picker, so whatever module the pointer was over
+    // no longer exists: the ghost goes with it (equipping, changing bay, ship or
+    // fitting all land here, and all of them mean "that consideration is over").
+    this.preview = null;
+    this.previewPinned = false;
     this.panel.innerHTML = "";
+    this.renderGauges();
     if (!ship) return;
 
     // Fitting is always available (offline test mode); only the parts that
@@ -1178,6 +1390,10 @@ export class Hangar {
    * not a block: fitting more than the rail can feed is a legitimate choice —
    * carry the heavy shield, run it only when you need it — so this states the
    * consequence rather than refusing the save.
+   *
+   * Kept SHORT since 2026-08-01: the stage gauges are the primary power signal
+   * now (they colour the rail and ghost a candidate's draw before it is fitted),
+   * so this is the footnote rather than the announcement.
    */
   private buildPowerWarn(panel: HangarStatPanel): HTMLDivElement {
     const row = el("div", "hangar-bar-row");
@@ -1187,7 +1403,7 @@ export class Hangar {
       el(
         "span",
         "hangar-bar-label warn-text",
-        `Power rail over-subscribed by ${over.toFixed(0)} — these modules cannot all be online at once; activating one shuts another down.`,
+        `Power rail over-subscribed by ${over.toFixed(0)} — activating one module shuts another down.`,
       ),
     );
     return row;
@@ -1265,6 +1481,10 @@ export class Hangar {
       removeBtn.className = "hangar-btn";
       removeBtn.textContent = "Remove module";
       removeBtn.disabled = this.busy;
+      // Emptying the slot is a fit change like any other, so it previews like
+      // one: hovering it ghosts the gauges DOWN by what the module was giving.
+      removeBtn.dataset["previewModule"] = "";
+      this.bindPreviewSignals(removeBtn, hardpointIndex, null, { pinOnClick: false });
       removeBtn.addEventListener("click", () => this.equip(hardpointIndex, null));
       wrap.append(removeBtn);
     }
@@ -1286,6 +1506,10 @@ export class Hangar {
 
       const row = el("div", `hangar-picker-item${fitted ? " fitted" : ""}`);
       row.dataset["module"] = mod.id;
+      // "The player is considering this one": hover, keyboard focus (it bubbles
+      // from the row's own Equip/Buy button) and a tap all raise the ghost.
+      row.dataset["previewModule"] = mod.id;
+      this.bindPreviewSignals(row, hardpointIndex, mod.id, { pinOnClick: true });
 
       const head = el("div", "hangar-picker-head");
       head.append(el("span", "hangar-picker-name", mod.name ?? mod.id));
@@ -1491,6 +1715,53 @@ function powerBar(label: string, draw: number, capacity: number): HTMLDivElement
   return row;
 }
 
+/**
+ * One gauge line on the STAGE overlay: caption, track, reading. The ghost is a
+ * SEGMENT covering the ground between the current fill and the projected one —
+ * hatched where a candidate would add, dimmed where it would take away — so the
+ * direction of a change reads before its number does.
+ */
+function gaugeRow(gauge: HangarGauge): HTMLDivElement {
+  const row = el("div", "hangar-gauge");
+  row.dataset["key"] = gauge.key;
+  row.append(el("span", "hangar-gauge-label", gauge.label));
+
+  const track = el("div", "hangar-gauge-track");
+  const fill = el("div", "hangar-gauge-fill" + (gauge.warn ? " warn" : ""));
+  fill.style.width = pct(gauge.fraction);
+  track.append(fill);
+  if (gauge.ghostFraction !== null) {
+    const rising = gauge.ghostFraction > gauge.fraction;
+    const lo = Math.min(gauge.fraction, gauge.ghostFraction);
+    const hi = Math.max(gauge.fraction, gauge.ghostFraction);
+    const ghost = el("div", `hangar-gauge-ghost ${rising ? "up" : "down"}${gauge.ghostWarn ? " warn" : ""}`);
+    ghost.style.left = pct(lo);
+    ghost.style.width = pct(hi - lo);
+    track.append(ghost);
+  }
+  // Power's reference line: where the rail runs out. Nothing else has one.
+  if (gauge.limitFraction !== null) {
+    const limit = el("div", "hangar-gauge-limit");
+    limit.style.left = pct(gauge.limitFraction);
+    track.append(limit);
+  }
+  row.append(track);
+
+  const read = el("div", "hangar-gauge-read");
+  read.append(el("span", "hangar-gauge-value" + (gauge.warn ? " warn" : ""), gauge.valueText));
+  if (gauge.deltaText !== null) {
+    read.append(
+      el("span", `hangar-gauge-delta ${gauge.trend}${gauge.ghostWarn ? " warn" : ""}`, gauge.deltaText),
+    );
+  }
+  row.append(read);
+  return row;
+}
+
+function pct(fraction: number): string {
+  return `${(fraction * 100).toFixed(2)}%`;
+}
+
 function statRow(label: string, value: string): HTMLDivElement {
   const row = el("div", "hangar-stat-row");
   row.append(el("span", "hangar-stat-label", label), el("span", "hangar-stat-value", value));
@@ -1571,6 +1842,84 @@ const HANGAR_CSS = `
 .hangar-stage-arrow svg { width: 26px; height: 26px; display: block; filter: drop-shadow(0 0 5px rgba(240, 123, 5, .45)); }
 .hangar-stage-arrow:hover:not(:disabled) { opacity: 1; color: #ffb35c; }
 .hangar-stage-arrow:disabled { opacity: .22; cursor: default; }
+/*
+ * ---- ship characteristics, over the 3D stage (owner 2026-08-01) ----
+ *
+ * The primary read on a fit, put where the player is already looking. Anchored
+ * to the stage's top-left CORNER (the hull frames itself in the middle) and,
+ * like the rest of the stage half, click-through: an orbit drag that starts on
+ * these gauges must still reach the canvas underneath.
+ */
+.hangar-gauges {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: calc(env(safe-area-inset-left, 0px) + 8px);
+  width: min(258px, 62%);
+  box-sizing: border-box;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 9px 8px;
+  background: rgba(10, 12, 15, .62);
+  border: 1px solid rgba(58, 63, 69, .8);
+  border-left: 2px solid var(--hg-accent);
+  backdrop-filter: blur(2px);
+}
+.hangar-gauges.previewing { border-left-color: #ffb35c; }
+.hangar-gauges-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hangar-gauges-title { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--hg-accent); }
+.hangar-gauges-preview {
+  font-size: 8.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #ffd9ac;
+  background: var(--hg-accent-dim);
+  padding: 1px 5px;
+}
+.hangar-gauge { display: grid; grid-template-columns: 48px 1fr auto; align-items: center; column-gap: 6px; }
+.hangar-gauge-label { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--hg-dim); }
+.hangar-gauge-track { position: relative; height: 7px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.hangar-gauge-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--hg-accent); }
+.hangar-gauge-fill.warn { background: var(--hg-danger); }
+/*
+ * The GHOST: the ground between the current value and the projected one. Going
+ * UP it is a translucent hatch drawn past the fill (what the module would add);
+ * coming DOWN it dims the part of the fill that would be given back.
+ */
+.hangar-gauge-ghost { position: absolute; top: 0; bottom: 0; }
+.hangar-gauge-ghost.up {
+  background:
+    repeating-linear-gradient(135deg, rgba(240, 123, 5, .85) 0 3px, rgba(240, 123, 5, .3) 3px 6px);
+}
+.hangar-gauge-ghost.down {
+  background:
+    repeating-linear-gradient(135deg, rgba(217, 221, 226, .5) 0 3px, rgba(10, 12, 15, .65) 3px 6px);
+}
+.hangar-gauge-ghost.up.warn {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 90, 90, .9) 0 3px, rgba(255, 90, 90, .35) 3px 6px);
+}
+.hangar-gauge-ghost.down.warn {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 90, 90, .6) 0 3px, rgba(10, 12, 15, .65) 3px 6px);
+}
+/* Where the power rail runs out — the one line a fit must not cross. */
+.hangar-gauge-limit { position: absolute; top: -1px; bottom: -1px; width: 1px; background: #e8ecf1; opacity: .7; }
+.hangar-gauge-read { display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; min-width: 74px; }
+.hangar-gauge-value { font-size: 10px; font-variant-numeric: tabular-nums; }
+.hangar-gauge-value.warn { color: var(--hg-danger); font-weight: 700; }
+.hangar-gauge-delta { font-size: 9.5px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.hangar-gauge-delta.better { color: #7fd18a; }
+.hangar-gauge-delta.worse { color: #ffb35c; }
+.hangar-gauge-delta.warn { color: var(--hg-danger); }
+.hangar-gauges-warn { font-size: 9.5px; line-height: 1.2; color: var(--hg-danger); }
+/* Phones: the stage half is small, so the block gives the hull more room. */
+@media (max-width: 520px), (orientation: landscape) and (max-height: 480px) {
+  .hangar-gauges { width: min(216px, 68%); padding: 5px 7px 6px; gap: 3px; }
+  .hangar-gauge { grid-template-columns: 42px 1fr auto; column-gap: 5px; }
+  .hangar-gauge-read { min-width: 66px; }
+}
 .hangar-panel {
   pointer-events: auto;
   flex: 1 1 50%;
@@ -1737,6 +2086,9 @@ const HANGAR_CSS = `
 .hangar-picker-item[draggable="true"] { cursor: grab; }
 .hangar-picker-item[draggable="true"]:active { cursor: grabbing; }
 .hangar-picker-item.fitted { border-left-color: var(--hg-accent); }
+/* The candidate whose ghost is on the stage gauges right now. */
+.hangar-picker-item.considering { border-left-color: #ffb35c; background: rgba(240, 123, 5, .12); }
+.hangar-btn.considering { border-color: #ffb35c; }
 .hangar-picker-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .hangar-picker-name { font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .hangar-picker-meta { color: var(--hg-dim); font-size: 10.5px; white-space: nowrap; text-transform: uppercase; letter-spacing: .06em; }

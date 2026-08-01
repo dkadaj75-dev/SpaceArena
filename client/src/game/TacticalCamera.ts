@@ -48,6 +48,16 @@ const EDITOR_DRAG_SLOP_PX = 4;
 const EDITOR_TARGET_LIMIT = 300;
 
 /**
+ * The CANONICAL hangar framing — the orbit a fresh Hangar boot uses, and the
+ * one {@link TacticalCamera.resetStageOrbit} snaps back to on every entry.
+ * Exported so the Hangar (and its tests) name the same three numbers this rig
+ * does rather than repeating literals on both sides.
+ */
+export const HANGAR_STAGE_ALPHA = -Math.PI / 2;
+export const HANGAR_STAGE_BETA = 1.15;
+export const HANGAR_STAGE_RADIUS = 9;
+
+/**
  * `ArcRotateCamera` rig with three modes, all fed by `camera.json` and
  * re-applied live on hot-reload:
  *
@@ -292,6 +302,10 @@ export class TacticalCamera {
     this.hangarMode = enabled;
     if (enabled) {
       this.followTarget = null;
+      // The staged hull is framed with `framingRadius(..., camera.fov, ...)`, so
+      // a chase FOV left behind by a match would mis-frame it. Restored here
+      // rather than relying on the match teardown having run first.
+      this.camera.fov = this.defaultFov;
       this.camera.lowerBetaLimit = 0.25;
       this.camera.upperBetaLimit = Math.PI / 2 - 0.05;
       this.camera.lowerRadiusLimit = 4;
@@ -448,6 +462,30 @@ export class TacticalCamera {
     this.camera.radius = radius;
     this.camera.alpha = alpha;
     this.camera.beta = beta;
+  }
+
+  /**
+   * Put the staged orbit back to its CANONICAL framing — what the Hangar calls
+   * on every entry, so returning from a match always opens on the same view of
+   * the ship instead of on wherever the last thing to drive the rig left it.
+   *
+   * Resetting alpha/beta/radius alone is not enough. Chase mode poses the rig by
+   * ROLLING it: {@link applyChasePose} writes the ship's own up axis into
+   * `camera.upVector`, and Babylon then rotates the whole orbit by
+   * `RotationAlign(Y, upVector)` — so the same alpha/beta describe a completely
+   * different view until the up is levelled again (a match that ended mid-loop
+   * is the extreme case, and the reported "odd angles" one). The inertial
+   * offsets go too: a flick left over from the last visit's orbit drag would
+   * otherwise keep decaying into the fresh framing.
+   */
+  resetStageOrbit(target: Vector3): void {
+    this.camera.upVector = Vector3.Up();
+    this.camera.inertialAlphaOffset = 0;
+    this.camera.inertialBetaOffset = 0;
+    this.camera.inertialRadiusOffset = 0;
+    this.camera.inertialPanningX = 0;
+    this.camera.inertialPanningY = 0;
+    this.stageAt(target, HANGAR_STAGE_RADIUS, HANGAR_STAGE_ALPHA, HANGAR_STAGE_BETA);
   }
 
   /**

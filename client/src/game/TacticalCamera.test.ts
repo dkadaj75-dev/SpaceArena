@@ -1,4 +1,4 @@
-import { NullEngine, Scene } from "@babylonjs/core";
+import { NullEngine, Scene, Vector3 } from "@babylonjs/core";
 import {
   EventBus,
   type CameraConfig,
@@ -6,7 +6,12 @@ import {
   type ConfigService,
 } from "@space-arena/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import { TacticalCamera } from "./TacticalCamera.js";
+import {
+  HANGAR_STAGE_ALPHA,
+  HANGAR_STAGE_BETA,
+  HANGAR_STAGE_RADIUS,
+  TacticalCamera,
+} from "./TacticalCamera.js";
 
 const CAMERA: CameraConfig = {
   id: "camera.default",
@@ -42,6 +47,68 @@ function rig(): TacticalCamera {
   });
   return camera;
 }
+
+describe("TacticalCamera staged (hangar) orbit reset", () => {
+  const STAGE = new Vector3(0, 5, 300);
+
+  it("snaps back to the canonical framing whatever the player left it on", () => {
+    const rigCamera = rig();
+    rigCamera.setHangarMode(true);
+    rigCamera.stageAt(STAGE, 14, 2.4, 0.7); // the player orbited somewhere else
+
+    rigCamera.resetStageOrbit(STAGE);
+
+    expect(rigCamera.camera.alpha).toBeCloseTo(HANGAR_STAGE_ALPHA, 9);
+    expect(rigCamera.camera.beta).toBeCloseTo(HANGAR_STAGE_BETA, 9);
+    expect(rigCamera.camera.radius).toBeCloseTo(HANGAR_STAGE_RADIUS, 9);
+    expect(rigCamera.camera.target.equals(STAGE)).toBe(true);
+  });
+
+  it("LEVELS the rig a match left rolled — the reported 'odd angle' on re-entry", () => {
+    // Chase mode poses the camera by rolling it: the ship's own up axis goes
+    // into `upVector`, and Babylon rotates the whole orbit by it. Re-assigning
+    // alpha/beta alone would therefore reproduce the match's tilt in the hangar.
+    const rigCamera = rig();
+    rigCamera.setChaseFrame(1.2, 0.6, { x: 0.3, y: -0.4, z: 0.86 });
+    rigCamera.setChaseMode(true);
+    expect(rigCamera.camera.upVector.y).toBeLessThan(0.99);
+
+    rigCamera.setChaseMode(false);
+    rigCamera.setHangarMode(true);
+    rigCamera.resetStageOrbit(STAGE);
+
+    expect(rigCamera.camera.upVector.x).toBeCloseTo(0, 9);
+    expect(rigCamera.camera.upVector.y).toBeCloseTo(1, 9);
+    expect(rigCamera.camera.upVector.z).toBeCloseTo(0, 9);
+    // Levelled AND framed: the hull sits directly in front of the rig again.
+    rigCamera.camera.getViewMatrix(true);
+    expect(rigCamera.camera.position.y - STAGE.y).toBeGreaterThan(0);
+    expect(rigCamera.camera.position.subtract(STAGE).length()).toBeCloseTo(HANGAR_STAGE_RADIUS, 5);
+  });
+
+  it("drops leftover orbit inertia, so a flick from the last visit cannot drift the fresh view", () => {
+    const rigCamera = rig();
+    rigCamera.setHangarMode(true);
+    rigCamera.camera.inertialAlphaOffset = 0.4;
+    rigCamera.camera.inertialBetaOffset = -0.2;
+    rigCamera.camera.inertialRadiusOffset = 3;
+
+    rigCamera.resetStageOrbit(STAGE);
+
+    expect(rigCamera.camera.inertialAlphaOffset).toBe(0);
+    expect(rigCamera.camera.inertialBetaOffset).toBe(0);
+    expect(rigCamera.camera.inertialRadiusOffset).toBe(0);
+  });
+
+  it("restores the default FOV when the hangar takes the rig back from a match", () => {
+    const rigCamera = rig();
+    const fov = rigCamera.camera.fov;
+    rigCamera.setChaseMode(true);
+    rigCamera.camera.fov = 1.1; // whatever the chase block asked for
+    rigCamera.setHangarMode(true);
+    expect(rigCamera.camera.fov).toBeCloseTo(fov, 9);
+  });
+});
 
 describe("TacticalCamera chase distance", () => {
   it("multiplies the authored radius and pins every chase radius surface to it", () => {
