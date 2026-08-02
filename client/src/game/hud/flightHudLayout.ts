@@ -78,6 +78,24 @@ export interface FireLayout extends CircularControlLayout {
   blockedNotification?: string;
 }
 
+/**
+ * The dedicated BOOST toggle (FLIGHT.md §4). It has no theme block of its own —
+ * `theme.hud.flight` is owned by the shared schema and knows nothing about a
+ * boost control — so its geometry is DERIVED from the FIRE control by
+ * {@link boostLayoutFrom}: same inset from the screen edge, mirrored onto the
+ * opposite bottom corner, and lifted clear of the gauges stacked there. A theme
+ * that moves or resizes FIRE therefore moves BOOST with it, and the pilot always
+ * gets one primary control under each thumb.
+ */
+export interface BoostLayout {
+  anchor: HudAnchorName;
+  radiusPx: number;
+  offsetXPx: number;
+  offsetYPx: number;
+  /** The boost family's colour — the same one the hangar tints a boost slot with. */
+  color: string;
+}
+
 export interface ModuleVisualLayout {
   fillOpacity: number;
   innerBorderOpacity: number;
@@ -146,6 +164,7 @@ export interface FlightHudLayout {
   throttle: ThrottleLayout;
   modules: ModuleVisualLayout;
   fire: FireLayout;
+  boost: BoostLayout;
   reticle: ReticleLayout;
   enemyArrows: EnemyArrowsLayout;
   orders: FlightOrderLayout;
@@ -250,7 +269,60 @@ export const FLIGHT_HUD_DEFAULTS = {
     heartbeatMs: 250,
     minIntervalMs: 120,
   },
-} as const satisfies Omit<FlightHudLayout, "orientation" | "viewport" | "scale" | "metersPerUnit">;
+  // `boost` is deliberately absent: it has no authored block and no defaults of
+  // its own — {@link boostLayoutFrom} derives every number from `fire`.
+} as const satisfies Omit<
+  FlightHudLayout,
+  "orientation" | "viewport" | "scale" | "metersPerUnit" | "boost"
+>;
+
+/**
+ * BOOST's radius as a fraction of FIRE's. It is the secondary control of the
+ * pair, but the ratio is chosen so the shipped theme still clears a 44 px touch
+ * target at landscape scale (36 px × 0.85 × 2 × 0.72 ≈ 44 px).
+ */
+export const BOOST_RADIUS_RATIO = 0.72;
+
+/**
+ * How far BOOST is lifted off its corner inset, in FIRE RADII, on top of FIRE's
+ * own offset. The mirrored corner is where the gauge stack lives, and this is
+ * the shortest lift that clears it in both orientations of the shipped theme
+ * while keeping the button inside the bottom thumb band — the
+ * "shipped phone control geometry" audit in flightHudLayout.test.ts is what
+ * holds that claim honest.
+ */
+export const BOOST_LIFT_RADII = 3;
+
+/** Mirror an anchor across the vertical axis (bottom-right ⇄ bottom-left). */
+export function mirrorAnchorX(anchor: HudAnchorName): HudAnchorName {
+  switch (anchor) {
+    case "bottom-right":
+      return "bottom-left";
+    case "bottom-left":
+      return "bottom-right";
+    case "top-right":
+      return "top-left";
+    default:
+      return "top-right";
+  }
+}
+
+/**
+ * BOOST's geometry, derived from the already-scaled FIRE layout (so nothing here
+ * multiplies by `hud.scale` a second time).
+ *
+ * See {@link BOOST_LIFT_RADII} for why it is lifted rather than sitting at
+ * FIRE's own height.
+ */
+export function boostLayoutFrom(fire: FireLayout, color: string): BoostLayout {
+  return {
+    anchor: mirrorAnchorX(fire.anchor),
+    radiusPx: fire.radiusPx * BOOST_RADIUS_RATIO,
+    offsetXPx: fire.offsetXPx,
+    offsetYPx: fire.offsetYPx + fire.radiusPx * BOOST_LIFT_RADII,
+    color,
+  };
+}
 
 /**
  * Share of `tuning.maxOrdersPerSec` the flight sender may spend. The rest is
@@ -295,6 +367,25 @@ export function resolveFlightHudLayout(
   const orders: FlightOrdersConfig = merge(base.orders, over.orders);
   const d = FLIGHT_HUD_DEFAULTS;
   const turnEpsilon = orders.turnEpsilon ?? d.orders.turnEpsilon;
+  const boostColor = modules.familyColors?.boost ?? d.modules.boostColor;
+  // Resolved up front, not inline: BOOST's geometry is derived from it.
+  const fireLayout: FireLayout = {
+    anchor: fire.anchor ?? d.fire.anchor,
+    radiusPx: (fire.radiusPx ?? d.fire.radiusPx) * scale,
+    offsetXPx: (fire.offsetXPx ?? d.fire.offsetXPx) * scale,
+    offsetYPx: (fire.offsetYPx ?? d.fire.offsetYPx) * scale,
+    icon: fire.icon ?? d.fire.icon,
+    ringGapPx: (fire.ringGapPx ?? d.fire.ringGapPx) * scale,
+    ringStrokePx: (fire.ringStrokePx ?? d.fire.ringStrokePx) * scale,
+    ringArcDeg: fire.ringArcDeg ?? d.fire.ringArcDeg,
+    color: fire.color ?? d.fire.color,
+    fillOpacity: fire.fillOpacity ?? d.fire.fillOpacity,
+    borderPx: (fire.borderPx ?? d.fire.borderPx) * scale,
+    glowPx: (fire.glowPx ?? d.fire.glowPx) * scale,
+    armedFillOpacity: fire.armedFillOpacity ?? d.fire.armedFillOpacity,
+    armedGlowPx: (fire.armedGlowPx ?? d.fire.armedGlowPx) * scale,
+    blockedNotification: fire.blockedNotification,
+  };
 
   return {
     orientation,
@@ -340,25 +431,10 @@ export function resolveFlightHudLayout(
       labelGapPx: (modules.labelGapPx ?? d.modules.labelGapPx) * scale,
       labelHeightPx: (modules.labelHeightPx ?? d.modules.labelHeightPx) * scale,
       labelMaxWidthPx: (modules.labelMaxWidthPx ?? d.modules.labelMaxWidthPx) * scale,
-      boostColor: modules.familyColors?.boost ?? d.modules.boostColor,
+      boostColor,
     },
-    fire: {
-      anchor: fire.anchor ?? d.fire.anchor,
-      radiusPx: (fire.radiusPx ?? d.fire.radiusPx) * scale,
-      offsetXPx: (fire.offsetXPx ?? d.fire.offsetXPx) * scale,
-      offsetYPx: (fire.offsetYPx ?? d.fire.offsetYPx) * scale,
-      icon: fire.icon ?? d.fire.icon,
-      ringGapPx: (fire.ringGapPx ?? d.fire.ringGapPx) * scale,
-      ringStrokePx: (fire.ringStrokePx ?? d.fire.ringStrokePx) * scale,
-      ringArcDeg: fire.ringArcDeg ?? d.fire.ringArcDeg,
-      color: fire.color ?? d.fire.color,
-      fillOpacity: fire.fillOpacity ?? d.fire.fillOpacity,
-      borderPx: (fire.borderPx ?? d.fire.borderPx) * scale,
-      glowPx: (fire.glowPx ?? d.fire.glowPx) * scale,
-      armedFillOpacity: fire.armedFillOpacity ?? d.fire.armedFillOpacity,
-      armedGlowPx: (fire.armedGlowPx ?? d.fire.armedGlowPx) * scale,
-      blockedNotification: fire.blockedNotification,
-    },
+    fire: fireLayout,
+    boost: boostLayoutFrom(fireLayout, boostColor),
     reticle: {
       showZone: reticle.showZone ?? d.reticle.showZone,
       maxRadiusFraction: reticle.maxRadiusFraction ?? d.reticle.maxRadiusFraction,
@@ -671,6 +747,8 @@ export function flightCssVars(layout: FlightHudLayout): Record<string, string> {
     "--hud-fire-glow": `${layout.fire.glowPx}px`,
     "--hud-fire-armed-fill-pct": `${layout.fire.armedFillOpacity * 100}%`,
     "--hud-fire-armed-glow": `${layout.fire.armedGlowPx}px`,
+    "--hud-boost-radius": `${layout.boost.radiusPx}px`,
+    "--hud-boost-color": layout.boost.color,
     "--hud-reticle-stroke": `${layout.reticle.strokePx}px`,
     "--hud-reticle-ring-stroke": `${layout.reticle.ringStrokePx}px`,
     "--hud-enemy-arrow-size": `${layout.enemyArrows.sizePx}px`,

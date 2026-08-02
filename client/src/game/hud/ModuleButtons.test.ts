@@ -22,6 +22,15 @@ function fakeConfigs(): ConfigService {
         requiresLineOfSight: true,
       },
     },
+    "module.boost-mk1": {
+      name: "Afterburner Mk I",
+      family: "boost",
+      ui: { icon: "[ICON: boost]", label: "Boost", shortName: "Boost Mk1" },
+      activation: { deployTime: 0.25, retractTime: 0.25 },
+      energy: { drawIdle: 1, drawActive: 18 },
+      heat: { perSecondActive: 1.3, overheatThreshold: 45, overheatCooldown: 3, overheatSelfDamage: 0 },
+      boost: { speedMult: 1.8, heatPerSec: 0.5 },
+    },
     "module.shield-mk1": { name: "Deflector Shield Mk I", family: "shield", ui: { icon: "S", label: "Shield" }, activation: { deployTime: 1, retractTime: 1 }, energy: { drawIdle: 8, drawActive: 14 }, heat: { perSecondActive: 3, overheatThreshold: 60, overheatCooldown: 5, overheatSelfDamage: 0 } },
     "module.missile-mk1": {
       name: "Seeker Missile Mk I",
@@ -173,6 +182,39 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     // rendered[0] is hardpoint 0 (laser, still retracted), rendered[1] is hardpoint 2 (shield, now active).
     expect(rendered[0]!.classList.contains("state-active")).toBe(false);
     expect(rendered[1]!.classList.contains("state-active")).toBe(true);
+
+    buttons.dispose();
+  });
+
+  /**
+   * Boost has its own control in the flight HUD (BoostButton) — a tester
+   * reported the boost system as absent from the UI precisely because, as a
+   * generic hex in this arc, it was indistinguishable from a weapon and could
+   * not show that a flag carrier has no afterburner. It must not be built twice.
+   */
+  it("leaves the boost family to its dedicated control instead of clustering it", () => {
+    const root = document.createElement("div");
+    const buttons = new ModuleButtons(
+      root,
+      fakeConfigs(),
+      {} as EventBus<ConfigEvents>,
+      { order: vi.fn() } as unknown as GameSession,
+      1,
+    );
+
+    buttons.update(
+      snapshotWithModules([
+        { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "retracted" },
+        { hardpointIndex: 1, moduleId: "module.boost-mk1", state: "active" },
+        { hardpointIndex: 2, moduleId: "module.shield-mk1", state: "retracted" },
+      ]),
+    );
+
+    const labels = [...root.querySelectorAll(".hud-module-btn .label")].map((el) => el.textContent);
+    expect(labels).toEqual(["Laser Mk1", "Deflector Sh"]);
+    // …and the arc is laid out for the buttons that remain, not for a gap.
+    const rendered = [...root.querySelectorAll<HTMLElement>(".hud-module-btn")];
+    expect(rendered.every((btn) => btn.style.left !== "")).toBe(true);
 
     buttons.dispose();
   });

@@ -100,6 +100,7 @@ const CSS = `
 .hud-module-btn,
 .hud-throttle-track,
 .hud-fire-btn,
+.hud-boost-btn,
 .hud-results-panel {
   isolation: isolate;
 }
@@ -111,6 +112,8 @@ const CSS = `
 .hud-throttle-track::after,
 .hud-fire-btn::before,
 .hud-fire-btn::after,
+.hud-boost-btn::before,
+.hud-boost-btn::after,
 .hud-results-panel::before,
 .hud-results-panel::after {
   z-index: -1;
@@ -450,11 +453,14 @@ const CSS = `
 /* Zero-size pivots pinned to the themed anchor corner, exactly like .hud-modules. */
 .hud-joystick,
 .hud-throttle,
-.hud-fire {
+.hud-fire,
+.hud-boost {
   position: absolute;
   width: 0;
   height: 0;
 }
+/* A fitting with no boost module renders no control at all. */
+.hud-boost[hidden] { display: none; }
 .hud-throttle { opacity: var(--hud-throttle-opacity, 1); }
 .hud-joystick.disabled { display: none; }
 
@@ -497,16 +503,20 @@ const CSS = `
 }
 .hud-joystick[data-anchor="bottom-right"],
 .hud-throttle[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
-.hud-fire[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
+.hud-fire[data-anchor="bottom-right"],
+.hud-boost[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
 .hud-joystick[data-anchor="bottom-left"],
 .hud-throttle[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
-.hud-fire[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
+.hud-fire[data-anchor="bottom-left"],
+.hud-boost[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
 .hud-joystick[data-anchor="top-right"],
 .hud-throttle[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
-.hud-fire[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
+.hud-fire[data-anchor="top-right"],
+.hud-boost[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
 .hud-joystick[data-anchor="top-left"],
 .hud-throttle[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
-.hud-fire[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
+.hud-fire[data-anchor="top-left"],
+.hud-boost[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
 
 /* Steering stick: fixed base ring, spring-return thumb. */
 .hud-joystick-base {
@@ -705,6 +715,126 @@ const CSS = `
 }
 .hud-fire-btn.active .label {
   filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) #fff);
+}
+
+/* BOOST: the fitted boost module's own control, opposite FIRE.
+   Deliberately NOT skinned like a module hex — it wears the boost family colour
+   as its own rim, captions itself BOOST rather than whatever the fitted module
+   is called, and carries a heat bar, so a pilot can find the afterburner
+   without reading four labels. Geometry (position, size) is written inline by
+   BoostButton from layout.boost; only the look lives here. */
+.hud-boost-btn {
+  pointer-events: auto;
+  position: absolute;
+  box-sizing: border-box;
+  touch-action: manipulation;
+  width: calc(var(--hud-boost-radius, 30px) * 2);
+  height: calc(var(--hud-boost-radius, 30px) * 2);
+  background: transparent;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 0.15s linear, opacity 0.15s linear;
+  --hud-btn-rim: color-mix(in srgb, var(--hud-boost-color, #e8b44f) 58%, transparent);
+  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 72%, transparent);
+  --hud-btn-fill: var(--hud-btn-plate);
+}
+/* Same two-plate chamfer contract as FIRE, on the flat-top hex silhouette. */
+.hud-boost-btn::before,
+.hud-boost-btn::after {
+  content: "";
+  position: absolute;
+  clip-path: var(--hud-clip-hex);
+  pointer-events: none;
+}
+.hud-boost-btn::before {
+  inset: 0;
+  background: var(--hud-btn-rim);
+  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-boost-color, #e8b44f));
+}
+.hud-boost-btn::after {
+  inset: 2px;
+  background: var(--hud-btn-fill);
+  backdrop-filter: blur(var(--hud-blur));
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+}
+.hud-boost-btn > * { position: relative; z-index: 1; }
+.hud-boost-btn > .icon {
+  width: 50%;
+  max-width: 26px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hud-boost-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
+.hud-boost-btn > .label {
+  color: #fff;
+  font: 700 0.5em/1 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing: 0.14em;
+  opacity: 0.92;
+}
+/* Heat: a hairline bar across the base of the plate, filled from the module's
+   heat against ITS OWN overheat threshold — the number that actually cuts the
+   afterburner off, which the ship-wide heat gauge does not show. */
+.hud-boost-btn > .heat {
+  position: absolute;
+  left: 26%;
+  right: 26%;
+  bottom: 16%;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--hud-text, #dbe9ff) 20%, transparent);
+}
+.hud-boost-btn > .heat::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--heat, 0) * 1%);
+  background: var(--hud-heat, var(--hud-accent, #ffb35c));
+}
+/* ON. The module is asking for boost — whether the sim grants it this tick is
+   the ship's business, and the speed readout already tells that story. */
+.hud-boost-btn.active {
+  --hud-btn-rim: color-mix(in srgb, var(--hud-boost-color, #e8b44f) 92%, #fff);
+  --hud-btn-fill: color-mix(
+    in srgb,
+    var(--hud-boost-color, #e8b44f) var(--hud-module-fill-pct, 32%),
+    var(--hud-btn-plate)
+  );
+}
+.hud-boost-btn.active::before {
+  filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-boost-color, #e8b44f));
+}
+.hud-boost-btn.active > .icon { animation: hud-boost-surge 0.7s ease-in-out infinite; }
+.hud-boost-btn.pressed { filter: brightness(1.22); }
+.hud-boost-btn.state-overheated {
+  --hud-btn-rim: var(--hud-danger, #ff405c);
+}
+.hud-boost-btn.state-overheated > .icon { color: var(--hud-danger, #ff405c); }
+.hud-boost-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
+/* Refused by the RULES, not by the module: a flag carrier has no afterburner.
+   Greyed and inert, never hidden — the flag is picked up mid-flight, and a
+   control that disappears teaches the pilot nothing. */
+.hud-boost-btn.disabled {
+  cursor: default;
+  opacity: 0.72;
+  filter: saturate(0.22) brightness(0.62);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-neutral, #7f9dc4) 55%, transparent);
+}
+.hud-boost-btn.disabled::before { filter: none; }
+.hud-boost-btn.disabled > .icon { animation: none; }
+@keyframes hud-boost-surge {
+  0%, 100% { transform: translateX(-7%); }
+  50% { transform: translateX(7%); }
 }
 
 /* Hull and shield now flank the ship as restrained side arcs. */
@@ -1357,6 +1487,8 @@ const CSS = `
    information — a hit marker that never appears is a hit the player never saw. */
 @media (prefers-reduced-motion: reduce) {
   .hud-module-btn.state-overheated::before,
+  .hud-boost-btn.state-overheated::before,
+  .hud-boost-btn.active > .icon,
   .hud-reticle-bracket.locked .ring,
   .hud-gauge.critical .hud-gauge-value {
     animation: none;
@@ -1369,7 +1501,8 @@ const CSS = `
     opacity: 1;
     transform: none;
   }
-  .hud-module-btn.state-overheated::before {
+  .hud-module-btn.state-overheated::before,
+  .hud-boost-btn.state-overheated::before {
     filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-danger, #ff405c));
   }
 }

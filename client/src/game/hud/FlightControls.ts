@@ -14,6 +14,7 @@ import type { GameSession } from "../GameSession.js";
 import { VirtualJoystick } from "./VirtualJoystick.js";
 import { ThrottleStrip } from "./ThrottleStrip.js";
 import { FireButton } from "./FireButton.js";
+import { BoostButton, type BoostButtonState } from "./BoostButton.js";
 import { CanvasFireInput } from "./CanvasFireInput.js";
 import { LockReticle } from "./LockReticle.js";
 import { EnemyArrows } from "./EnemyArrows.js";
@@ -38,6 +39,15 @@ import { FlightOrderSender, type FlightOrderPolicy } from "./flightOrders.js";
 const log = createLogger("FlightControls");
 const DEFAULT_MAX_ORDERS_PER_SEC = 20;
 
+/** Pushed at the BOOST control by a fitting that has no boost module. */
+const NO_BOOST_FITTED: BoostButtonState = {
+  hardpointIndex: null,
+  active: false,
+  overheated: false,
+  heatPct: 0,
+  blocked: false,
+};
+
 /** Array index of the first fitted boost module, or -1 when this fitting has none. */
 export function firstBoostModuleIndex(
   configs: Pick<ConfigService, "get">,
@@ -47,6 +57,20 @@ export function firstBoostModuleIndex(
     if (configs.get<ModuleConfig>("module", modules[i]!.moduleId)?.boost) return i;
   }
   return -1;
+}
+
+/**
+ * Whether `id` is currently carrying a CTF flag. A carrier gets NO afterburner —
+ * the sim refuses the speed multiplier outright (`resolveBoostMult` in
+ * shared/src/sim/systems/NavigationSystem.ts), which is what turns a flag run
+ * into a fight rather than a sprint. The HUD reads the same fact off the
+ * snapshot so the BOOST control can say so instead of silently doing nothing.
+ */
+export function carriesFlag(snapshot: Pick<Snapshot, "flags">, id: EntityId): boolean {
+  for (let i = 0; i < snapshot.flags.length; i++) {
+    if (snapshot.flags[i]!.carrierId === id) return true;
+  }
+  return false;
 }
 
 /**
@@ -91,6 +115,7 @@ export class FlightControls {
   private readonly relativeSteer: RelativeSteerInput;
   private readonly throttleStrip: ThrottleStrip;
   private readonly fireButton: FireButton;
+  private readonly boostButton: BoostButton;
   private readonly canvasFire: CanvasFireInput;
   private readonly reticle: LockReticle;
   private readonly enemyArrows: EnemyArrows;
@@ -141,7 +166,7 @@ export class FlightControls {
     if (!key) return;
     this.heldKeys.add(key);
     if (key === "shift" && this.boostHardpointIndex !== null) {
-      this.session.order({ kind: "moduleToggle", hardpointIndex: this.boostHardpointIndex });
+      this.toggleBoost(this.boostHardpointIndex);
     }
     // Arrows scroll the page (and W/S can trigger browser quick-find); a flight
     // control that also scrolls the document is not a flight control.
@@ -181,6 +206,10 @@ export class FlightControls {
     this.relativeSteer = new RelativeSteerInput(this.container, binding.inputSurface, layout);
     this.throttleStrip = new ThrottleStrip(this.container, layout);
     this.fireButton = new FireButton(this.container, layout);
+    // Same order path as the Shift shortcut below — one way to ask for boost.
+    this.boostButton = new BoostButton(this.container, layout, (hardpointIndex) =>
+      this.toggleBoost(hardpointIndex),
+    );
     this.canvasFire = new CanvasFireInput(binding.inputSurface);
     this.reticle = new LockReticle(this.container, layout);
     this.enemyArrows = new EnemyArrows(this.container, layout);
@@ -203,6 +232,7 @@ export class FlightControls {
     this.relativeSteer.applyLayout(layout);
     this.throttleStrip.applyLayout(layout);
     this.fireButton.applyLayout(layout);
+    this.boostButton.applyLayout(layout);
     this.reticle.applyLayout(layout);
     this.enemyArrows.applyLayout(layout);
     this.speedReadout.applyLayout(layout);
@@ -234,6 +264,7 @@ export class FlightControls {
       this.fireWasHeld = false;
       this.boostHardpointIndex = null;
       this.boostActive = false;
+      this.boostButton.clear();
       // The container is hidden anyway, but a disarmed HUD must not come back
       // with last frame's arrows parked around a screen that has moved on.
       this.enemyArrows.clear();
@@ -299,7 +330,7 @@ export class FlightControls {
 
     const pitchStick = this.joystick.active ? this.joystick.pitch : this.relativeSteer.pitchStick;
 
-    this.refreshBoostState(ship);
+    this.refreshBoostState(cur, ship);
     const fire = this.fireButton.held || this.canvasFire.held || keys.fire;
     this.fireButton.setKeyActive(this.canvasFire.held || keys.fire);
     // "NO LOCK" feedback only when the pull genuinely does nothing — i.e. every
@@ -489,14 +520,34 @@ export class FlightControls {
    * active module keeps requesting boost, and the sim continues to decide
    * whether that request can work on each tick.
    */
-  private refreshBoostState(ship: ShipSnapshot): void {
+  private refreshBoostState(cur: Snapshot, ship: ShipSnapshot): void {
     this.boostHardpointIndex = null;
     this.boostActive = false;
     const index = firstBoostModuleIndex(this.configs, ship.modules);
-    if (index < 0) return;
+    if (index < 0) {
+      // No boost fitted: the control is not rendered at all (rather than shown
+      // dead), because there is nothing about this ship it could explain.
+      this.boostButton.update(NO_BOOST_FITTED);
+      return;
+    }
     const module = ship.modules[index]!;
     this.boostHardpointIndex = module.hardpointIndex;
     this.boostActive = module.state === "active";
+    // Heat against the module's OWN overheat threshold, not the ship's capacity:
+    // the threshold is what actually shuts the afterburner off.
+    const threshold = this.configs.get<ModuleConfig>("module", module.moduleId)?.heat.overheatThreshold ?? 0;
+    this.boostButton.update({
+      hardpointIndex: module.hardpointIndex,
+      active: this.boostActive,
+      overheated: module.state === "overheated",
+      heatPct: threshold > 0 ? (100 * module.heat) / threshold : 0,
+      blocked: carriesFlag(cur, ship.id),
+    });
+  }
+
+  /** The single boost order path: the touch control and Shift both come here. */
+  private toggleBoost(hardpointIndex: number): void {
+    this.session.order({ kind: "moduleToggle", hardpointIndex });
   }
 
   /** Whether any fitted weapon can fire without a lock (non-homing `fire`). */
@@ -536,6 +587,7 @@ export class FlightControls {
     this.relativeSteer.dispose();
     this.throttleStrip.dispose();
     this.fireButton.dispose();
+    this.boostButton.dispose();
     this.canvasFire.dispose();
     this.reticle.dispose();
     this.enemyArrows.dispose();

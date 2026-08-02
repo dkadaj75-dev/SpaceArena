@@ -6,6 +6,9 @@ import {
   anchoredOffset,
   arrowOpacity,
   flightCssVars,
+  mirrorAnchorX,
+  BOOST_LIFT_RADII,
+  BOOST_RADIUS_RATIO,
   FLIGHT_HUD_DEFAULTS,
   FLIGHT_ORDER_BUDGET_SHARE,
   offScreenArrowPlacement,
@@ -19,6 +22,7 @@ import {
   type ProjectedPoint,
 } from "./flightHudLayout.js";
 import { anchorSigns, clusterOffsets, resolveHudLayout } from "./hudLayout.js";
+import { MODULE_FAMILY_COLOR_FALLBACKS } from "./ModuleButtons.js";
 
 /** The shipped theme's flight block, inlined so the test pins behaviour, not content. */
 function theme(overrides: Partial<NonNullable<ThemeConfig["hud"]>> = {}): ThemeConfig {
@@ -191,6 +195,59 @@ describe("resolveFlightHudLayout", () => {
   });
 });
 
+/**
+ * BOOST is the one flight control with no theme block of its own — `hud.flight`
+ * knows nothing about it, so everything it needs is derived from FIRE. These pin
+ * that derivation, because a theme author's only handle on the boost control is
+ * the FIRE block and the boost family colour.
+ */
+describe("boost control geometry (derived from FIRE)", () => {
+  it("mirrors FIRE onto the opposite corner, at a fraction of its size", () => {
+    const layout = resolveFlightHudLayout(theme(), PORTRAIT);
+    expect(layout.boost).toEqual({
+      anchor: "bottom-left",
+      radiusPx: 34 * BOOST_RADIUS_RATIO,
+      offsetXPx: 24,
+      offsetYPx: 34 + 34 * BOOST_LIFT_RADII,
+      color: MODULE_FAMILY_COLOR_FALLBACKS.boost,
+    });
+  });
+
+  it("mirrors whichever corner the theme actually put FIRE on", () => {
+    expect(mirrorAnchorX("bottom-right")).toBe("bottom-left");
+    expect(mirrorAnchorX("bottom-left")).toBe("bottom-right");
+    expect(mirrorAnchorX("top-right")).toBe("top-left");
+    expect(mirrorAnchorX("top-left")).toBe("top-right");
+
+    const flipped = resolveFlightHudLayout(
+      theme({ flight: { fire: { anchor: "bottom-left", radiusPx: 34, offsetXPx: 24, offsetYPx: 34 } } }),
+      PORTRAIT,
+    );
+    expect(flipped.boost.anchor).toBe("bottom-right");
+  });
+
+  it("moves and scales with FIRE — including through the orientation override", () => {
+    const landscape = resolveFlightHudLayout(theme(), LANDSCAPE);
+    // The landscape block halves the HUD; BOOST inherits that once, not twice.
+    expect(landscape.boost.radiusPx).toBeCloseTo(landscape.fire.radiusPx * BOOST_RADIUS_RATIO, 9);
+    expect(landscape.boost.offsetXPx).toBeCloseTo(landscape.fire.offsetXPx, 9);
+    expect(landscape.boost.offsetYPx).toBeCloseTo(
+      landscape.fire.offsetYPx + landscape.fire.radiusPx * BOOST_LIFT_RADII,
+      9,
+    );
+  });
+
+  it("takes the boost family's authored colour, so the hangar and the HUD agree", () => {
+    const tinted = resolveFlightHudLayout(
+      theme({ modules: { familyColors: { boost: "#00ff88" } } }),
+      PORTRAIT,
+    );
+    expect(tinted.boost.color).toBe("#00ff88");
+    expect(flightCssVars(tinted)["--hud-boost-color"]).toBe("#00ff88");
+    expect(flightCssVars(tinted)["--hud-boost-radius"]).toBe(`${tinted.boost.radiusPx}px`);
+  });
+});
+
 describe("anchor offsets", () => {
   it("grows away from whichever corner the theme names", () => {
     expect(anchoredOffset("bottom-left", 20, 30, 10)).toEqual({ dx: 30, dy: -40 });
@@ -301,6 +358,24 @@ describe("shipped phone control geometry", () => {
       ),
     );
 
+    // BOOST: derived from FIRE and mirrored onto the opposite bottom corner, so
+    // the audit below is what proves it clears the gauge stack parked there.
+    const boostCorner = flightPivot(flight.boost.anchor);
+    const boostOffset = anchoredOffset(
+      flight.boost.anchor,
+      flight.boost.offsetXPx,
+      flight.boost.offsetYPx,
+      flight.boost.radiusPx,
+    );
+    controls.push(
+      around(
+        "boost",
+        boostCorner.x + boostOffset.dx,
+        boostCorner.y + boostOffset.dy,
+        flight.boost.radiusPx,
+      ),
+    );
+
     const throttleCorner = flightPivot(flight.throttle.anchor);
     const throttleOffset = anchoredBoxOffset(
       flight.throttle.anchor,
@@ -359,6 +434,7 @@ describe("shipped phone control geometry", () => {
       touchDiameters: [
         hud.cluster.buttonRadiusPx * 2,
         flight.fire.radiusPx * 2,
+        flight.boost.radiusPx * 2,
       ],
       inset: hud.safeAreaInsetPx,
     };

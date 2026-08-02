@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TURN_SIGN_FOR_SCREEN_RIGHT } from "../chaseCamera.js";
 import type { ConfigService, ModuleSnapshot } from "@space-arena/shared";
-import { firstBoostModuleIndex, isTextEntry } from "./FlightControls.js";
+import { carriesFlag, firstBoostModuleIndex, isTextEntry } from "./FlightControls.js";
 import {
   flightKeyOf,
   keyAxesFrom,
@@ -214,6 +214,26 @@ describe("Shift boost-module lookup", () => {
       module(5, "module.boost-mk2"),
     ])).toBe(1);
     expect(firstBoostModuleIndex(configs, [module(0, "module.laser-mk1")])).toBe(-1);
+  });
+});
+
+/**
+ * The BOOST control greys out for exactly the reason the sim refuses the speed
+ * multiplier: a flag carrier has no afterburner (NavigationSystem's
+ * `resolveBoostMult`). The HUD reads that off the snapshot's flags, never off a
+ * flag on the ship.
+ */
+describe("carriesFlag", () => {
+  const flag = (carrierId: number | null) => ({ carrierId }) as never;
+
+  it("is true only for the ship that is actually holding a flag", () => {
+    const snapshot = { flags: [flag(null), flag(7)] };
+    expect(carriesFlag(snapshot, 7)).toBe(true);
+    expect(carriesFlag(snapshot, 3)).toBe(false);
+  });
+
+  it("is false in every mode with no flags at all", () => {
+    expect(carriesFlag({ flags: [] }, 7)).toBe(false);
   });
 });
 

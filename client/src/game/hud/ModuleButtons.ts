@@ -128,14 +128,22 @@ export class ModuleButtons {
   }
 
   /**
-   * Whether a fitted module deserves a HUD button. Internals (engine, generator,
-   * transformer, heatsink, sensors — 2026-07-31) are always-on systems with
-   * nothing to toggle, so they are shown in the Hangar and nowhere else. The one
-   * internal ACTION, jettisoning a heatsink, has its own control.
+   * Whether a fitted module deserves a button in THIS cluster. Two exclusions:
+   *
+   *  - Internals (engine, generator, transformer, heatsink, sensors —
+   *    2026-07-31) are always-on systems with nothing to toggle, so they are
+   *    shown in the Hangar and nowhere else. The one internal ACTION,
+   *    jettisoning a heatsink, has its own control.
+   *  - `boost` has its own control too: {@link import("./BoostButton.js").BoostButton},
+   *    in the flight HUD. As a generic hex it was one more anonymous glyph in
+   *    this arc, with no way to show that a flag carrier cannot boost — which is
+   *    exactly why a tester reported the boost system as absent from the UI. It
+   *    still toggles through the same `moduleToggle` order; only the button moved.
    */
   private isButtonable(moduleId: string): boolean {
     const family = this.configs.get<ModuleConfig>("module", moduleId)?.family;
-    return family === undefined || !isInternalFamily(family);
+    if (family === undefined) return true;
+    return family !== "boost" && !isInternalFamily(family);
   }
 
   update(cur: Snapshot): void {
