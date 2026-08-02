@@ -305,6 +305,73 @@ describe("bots in a live ArenaSimulation", () => {
     }
   });
 
+  it("keeps tuned marksmanship honest against a laterally moving target", () => {
+    const trial = (withError: boolean, seed: number) => {
+      const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice-bots", seed);
+      const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+      const fitting = [...ship.defaultFitting];
+      fitting[0] = "module.kinetic-mk1";
+      fitting[1] = "module.kinetic-mk1";
+      const base = configs.get<BotprofileConfig>("botprofile", "bot.rookie")!;
+      const profile = {
+        ...base,
+        id: withError ? "bot.measure-tuned" : "bot.measure-perfect",
+        behaviors: {
+          ...base.behaviors,
+          engage: {
+            ...base.behaviors.engage!,
+            aimErrorRad: withError ? base.behaviors.engage?.aimErrorRad : 0,
+            velocityErrorSec: withError ? base.behaviors.engage?.velocityErrorSec : 0,
+          },
+        },
+        fireDiscipline: { ...base.fireDiscipline, engageRangeMult: 1 },
+      } as BotprofileConfig;
+      const bot = sim.spawnPlayerAt("ship.interceptor", fitting, 0, { x: 0, y: 0, z: 70 }, 0);
+      const target = sim.spawnPlayerAt("ship.interceptor", ship.defaultFitting, 1, { x: 0, y: 0, z: 125 }, Math.PI);
+      const driver = new BotDriver({ entityId: bot, profile, configs, rng: deriveRng(seed, bot) });
+      let fired = 0;
+      let hits = 0;
+      let nowMs = 0;
+      for (let tick = 0; tick < 30 * 35; tick++) {
+        const t = tick / 30;
+        const targetTf = sim.world.transforms.get(target)!;
+        targetTf.pos.x = Math.sin(t * 1.7) * 22;
+        targetTf.pos.z = 125;
+        Object.assign(sim.world.velocities.get(target)!, { x: 0, y: 0, z: 0 });
+        // Keep the measurement alive after hits without changing collision size.
+        sim.world.shipCores.get(target)!.hull = sim.world.shipCores.get(target)!.hullMax;
+        nowMs += DT * 1000;
+        const snapshot = sim.snapshot();
+        for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(bot, order);
+        sim.tick(DT);
+        for (const event of sim.getEvents()) {
+          if (event.type === "projectileFired" && event.ownerId === bot && event.kind === "kinetic") fired++;
+          if (event.type === "damage" && event.sourceId === bot && event.targetId === target) hits++;
+        }
+      }
+      return { fired, hits, fraction: fired === 0 ? 0 : hits / fired };
+    };
+
+    const aggregate = (withError: boolean) => {
+      let fired = 0;
+      let hits = 0;
+      for (const seed of [17, 31, 47, 59, 73, 89, 101, 127]) {
+        const result = trial(withError, seed);
+        fired += result.fired;
+        hits += result.hits;
+      }
+      return { fired, hits, fraction: hits / fired };
+    };
+    const perfect = aggregate(false);
+    const tuned = aggregate(true);
+    const evidence = `perfect=${JSON.stringify(perfect)} tuned=${JSON.stringify(tuned)}`;
+    expect(perfect.fired, evidence).toBeGreaterThan(8);
+    expect(tuned.fired, evidence).toBeGreaterThan(5);
+    expect(tuned.fraction, evidence).toBeGreaterThan(0.1);
+    expect(tuned.fraction, evidence).toBeLessThan(0.5);
+    expect(tuned.fraction, evidence).toBeLessThan(perfect.fraction);
+  });
+
   /**
    * The T4 acceptance test (BUBBLE.md §D). The shipped offsets are intentionally
    * modest, so a bots-vs-bots match can still look entirely healthy while the pitch

@@ -4,6 +4,7 @@ import type { BotprofileConfig, GamemodeConfig, ShipConfig } from "../schemas/in
 import { ArenaSimulation } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import type { SimEvent } from "../sim/events.js";
+import { angleDelta } from "../sim/math.js";
 import { deriveRng } from "../sim/rng.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { BotDriver } from "./BotDriver.js";
@@ -160,6 +161,46 @@ function carryFlagAcrossCentre(seed: number, seconds: number) {
   return { events, samples, maxContactSec: maxContactTicks * DT };
 }
 
+function blockedCarrierLoiter(seed: number, seconds: number, holding = true) {
+  const sim = new ArenaSimulation(configs, "arena.ring-nebula", CTF, seed);
+  const shipped = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
+  const objective = shipped.behaviors.objective!;
+  const profile = {
+    ...shipped,
+    id: holding ? "bot.hold-measure" : "bot.old-arrival-measure",
+    behaviors: { ...shipped.behaviors, objective: { ...objective, holdRange: holding ? 5 : 0 } },
+  } as BotprofileConfig;
+  const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+  const own = sim.snapshot().flags.find((flag) => flag.team === 0)!;
+  const enemy = sim.snapshot().flags.find((flag) => flag.team === 1)!;
+  const id = sim.spawnPlayerAt("ship.interceptor", ship.defaultFitting, 0, { x: own.home.x + 4, y: own.home.y, z: own.home.z }, Math.PI / 2);
+  const thief = sim.spawnPlayerAt("ship.interceptor", ship.defaultFitting, 1, { x: 0, y: 0, z: 0 }, 0);
+  Object.assign(sim.world.flags.get(own.id)!, { state: "carried", carrierId: thief });
+  Object.assign(sim.world.flags.get(enemy.id)!, { state: "carried", carrierId: id });
+  const driver = new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id) });
+  const radii: number[] = [];
+  let angularProgress = 0;
+  let lastAngle: number | null = null;
+  let maxThrottle = 0;
+  let nowMs = 0;
+  for (let i = 0; i < Math.round(seconds / DT); i++) {
+    nowMs += DT * 1000;
+    const snapshot = sim.snapshot();
+    const carrier = snapshot.ships.find((candidate) => candidate.id === id)!;
+    const dx = carrier.pos.x - own.home.x;
+    const dz = carrier.pos.z - own.home.z;
+    radii.push(Math.hypot(dx, carrier.pos.y - own.home.y, dz));
+    const angle = Math.atan2(dx, dz);
+    if (lastAngle !== null) angularProgress += Math.abs(angleDelta(lastAngle, angle));
+    lastAngle = angle;
+    for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
+    maxThrottle = Math.max(maxThrottle, driver.lastDecision?.flight?.throttle ?? 0);
+    sim.tick(DT);
+    sim.getEvents();
+  }
+  return { angularProgress, radialSpan: Math.max(...radii) - Math.min(...radii), maxThrottle };
+}
+
 describe("bots play capture the flag (owner 2026-07-31)", () => {
   it("get the flag off its stand and run with it", () => {
     const { events } = playCtf(42, 120);
@@ -194,6 +235,19 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
     const result = carryFlagAcrossCentre(42, 90);
     expect(result.events.some((event) => event.type === "flagCaptured"), JSON.stringify(result.samples)).toBe(true);
     expect(result.maxContactSec, JSON.stringify(result.samples)).toBeLessThan(3);
+  });
+
+  it("loiters instead of circling when a capture is blocked by its stolen flag", () => {
+    const before = blockedCarrierLoiter(42, 12, false);
+    const trace = blockedCarrierLoiter(42, 12);
+    const evidence = `before=${JSON.stringify(before)} after=${JSON.stringify(trace)}`;
+    expect(before.maxThrottle, evidence).toBe(0.4);
+    expect(trace.maxThrottle, evidence).toBe(0);
+    // Circling detector: sustained angular travel around a fixed point without
+    // useful radial progress is the tester-visible failure mode.
+    expect(trace.angularProgress, evidence).toBeLessThan(0.35);
+    expect(trace.radialSpan, evidence).toBeLessThan(1);
+    expect(trace.angularProgress, evidence).toBeLessThan(before.angularProgress);
   });
 
   it("leave every flag in a legal state at the end of the run", () => {

@@ -37,10 +37,15 @@ const objective: BotBehavior = {
     // own base and orbits it forever; easing off inside `arriveRange` is what
     // actually lets a ship enter the capture sphere.
     const range = Math.max(numParam(params, "arriveRange", 30), 1e-3);
-    const close = dist3(ctx.self.pos, { x: job.aim.x, y: job.aim.y ?? 0, z: job.aim.z }) < range;
+    const distance = dist3(ctx.self.pos, { x: job.aim.x, y: job.aim.y ?? 0, z: job.aim.z });
+    const close = distance < range;
+    // A capture is blocked while our own flag is away. Once safely inside the
+    // capture sphere, visibly wait instead of carrying enough throttle to orbit
+    // the base indefinitely. Velocity drag brings this to a calm loiter.
+    const holding = job.blockedAtHome && distance < numParam(params, "holdRange", 5);
     return {
       aim: job.aim,
-      throttle: close ? numParam(params, "arriveThrottle", 0.4) : numParam(params, "throttle", 1),
+      throttle: holding ? 0 : close ? numParam(params, "arriveThrottle", 0.4) : numParam(params, "throttle", 1),
       // A carrier CANNOT boost (the sim refuses it), so asking would only burn
       // energy and heat for nothing. Everyone else may run.
       boost: !job.carrying && numParam(params, "boostChance", 0.5) > ctx.rng(),
@@ -53,6 +58,7 @@ interface ObjectiveJob {
   aim: { x: number; y: number; z: number };
   urgency: number;
   carrying: boolean;
+  blockedAtHome?: boolean;
 }
 
 function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null {
@@ -64,7 +70,12 @@ function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null
 
   // 1. I have the enemy flag: nothing else matters, go home.
   if (enemyFlag && enemyFlag.carrierId === ctx.self.id) {
-    return { aim: own?.home ?? enemyFlag.home, urgency: numParam(params, "carryUrgency", 3), carrying: true };
+    return {
+      aim: own?.home ?? enemyFlag.home,
+      urgency: numParam(params, "carryUrgency", 3),
+      carrying: true,
+      blockedAtHome: own?.state !== "home",
+    };
   }
 
   // 2. My flag is loose in space: touching it sends it home instantly, and

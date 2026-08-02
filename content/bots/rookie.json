@@ -26,6 +26,9 @@
       "throttleTurn": 0.5,
       "targetPreference": "nearest",
       "holdLockTarget": true,
+      "aimErrorRad": 0.42,
+      "velocityErrorSec": 0.38,
+      "aimErrorHoldMs": 1500,
       "boostChance": 0.1
     },
     "kite": {

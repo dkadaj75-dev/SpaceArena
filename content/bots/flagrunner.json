@@ -27,7 +27,8 @@
       "chaseUrgency": 1.6,
       "attackUrgency": 1.0,
       "arriveRange": 30,
-      "arriveThrottle": 0.4
+      "arriveThrottle": 0.4,
+      "holdRange": 5
     },
     "engage": {
       "baseWeight": 0.9,
@@ -38,6 +39,9 @@
       "throttleTurn": 0.5,
       "targetPreference": "nearest",
       "holdLockTarget": true,
+      "aimErrorRad": 0.36,
+      "velocityErrorSec": 0.32,
+      "aimErrorHoldMs": 1400,
       "boostChance": 0.15
     },
     "kite": {

@@ -195,6 +195,9 @@ export class BotDriver {
   private lastHeading: number | null = null;
   private lastPitch: number | null = null;
   private lastElapsed = 0;
+  /** Seeded combat-aim bias, held across decisions so misses look human, not noisy. */
+  private marksmanship = { yaw: 0, pitch: 0, velocitySec: 0, untilMs: 0 };
+  private targetMotion: { id: EntityId; pos: Required<Vec3>; atMs: number } | null = null;
 
   constructor(options: BotDriverOptions) {
     this.entityId = options.entityId;
@@ -253,6 +256,8 @@ export class BotDriver {
     this.lastHeading = null;
     this.lastPitch = null;
     this.lastElapsed = 0;
+    this.marksmanship = { yaw: 0, pitch: 0, velocitySec: 0, untilMs: 0 };
+    this.targetMotion = null;
   }
 
   /**
@@ -444,7 +449,10 @@ export class BotDriver {
     const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, engaged);
 
     // --- flight order: aim point -> both sticks, then overlays, then epsilon gate ---
-    const aim = bestPlan?.aim ?? null;
+    const plannedAim = bestPlan?.aim ?? null;
+    const aim = plannedAim && engaged && ctx.target
+      ? this.imperfectCombatAim(plannedAim, ctx, profile, nowMs)
+      : plannedAim;
     const tolerance = profile.flight?.aimToleranceRad ?? DEFAULT_AIM_TOLERANCE_RAD;
     const steer = aim
       ? steerForPoint(
@@ -523,6 +531,61 @@ export class BotDriver {
       orders,
     };
     return orders;
+  }
+
+  /**
+   * Apply one deterministic, sustained error sample to combat pursuit. The
+   * angular component grows toward the authored error over preferred range, so
+   * knife-range spatial error stays small. The velocity component models a bad
+   * estimate of lateral motion rather than omniscient frame-perfect tracking.
+   */
+  private imperfectCombatAim(
+    exact: Vec3,
+    ctx: BotContext,
+    profile: BotprofileConfig,
+    nowMs: number,
+  ): Required<Vec3> {
+    const tuning = profile.behaviors.engage;
+    if (!tuning || !Object.hasOwn(tuning, "aimErrorRad")) return aimPoint(exact);
+    if (nowMs >= this.marksmanship.untilMs) {
+      const angular = numParam(tuning, "aimErrorRad", 0);
+      const velocity = numParam(tuning, "velocityErrorSec", 0);
+      this.marksmanship = {
+        yaw: (this.rng() * 2 - 1) * angular,
+        pitch: (this.rng() * 2 - 1) * angular * 0.6,
+        velocitySec: (this.rng() * 2 - 1) * velocity,
+        untilMs: nowMs + numParam(tuning, "aimErrorHoldMs", 1200),
+      };
+    }
+    const target = ctx.target;
+    const prior = this.targetMotion;
+    const samplePos = target ? aimPoint(target.pos) : aimPoint(exact);
+    let targetVelocity = { x: 0, y: 0, z: 0 };
+    if (target && prior?.id === target.id && nowMs > prior.atMs) {
+      const dt = (nowMs - prior.atMs) / 1000;
+      targetVelocity = {
+        x: (samplePos.x - prior.pos.x) / dt,
+        y: (samplePos.y - prior.pos.y) / dt,
+        z: (samplePos.z - prior.pos.z) / dt,
+      };
+    }
+    if (target) this.targetMotion = { id: target.id, pos: samplePos, atMs: nowMs };
+    const tx = exact.x + (targetVelocity?.x ?? 0) * this.marksmanship.velocitySec;
+    const ty = (exact.y ?? ctx.self.pos.y) + (targetVelocity?.y ?? 0) * this.marksmanship.velocitySec;
+    const tz = exact.z + (targetVelocity?.z ?? 0) * this.marksmanship.velocitySec;
+    const dx = tx - ctx.self.pos.x;
+    const dy = ty - ctx.self.pos.y;
+    const dz = tz - ctx.self.pos.z;
+    const range = Math.max(Math.hypot(dx, dy, dz), 1e-6);
+    const rangeScale = clamp(ctx.distance / Math.max(ctx.preferredMax, 1), 0.12, 1);
+    const yaw = Math.atan2(dx, dz) + this.marksmanship.yaw * rangeScale;
+    const pitch = Math.atan2(dy, Math.hypot(dx, dz)) + this.marksmanship.pitch * rangeScale;
+    const horizontal = Math.cos(pitch) * range;
+    return {
+      x: ctx.self.pos.x + Math.sin(yaw) * horizontal,
+      y: ctx.self.pos.y + Math.sin(pitch) * range,
+      z: ctx.self.pos.z + Math.cos(yaw) * horizontal,
+    };
   }
 
   /**
