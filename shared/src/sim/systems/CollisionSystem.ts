@@ -162,14 +162,22 @@ function resolveBoundary(
   let penetration = 0;
 
   if (bounds.shape === "sphere") {
-    // The bubble: one radial test, so climbing out through the "top" is bounded
-    // exactly like flying out sideways (BUBBLE.md §A).
-    const d = len3(tf.pos.x, tf.pos.y, tf.pos.z);
-    const limit = bounds.radius - col.radius;
-    if (d > limit) {
-      const inv = d === 0 ? 0 : 1 / d;
-      outward = { x: tf.pos.x * inv, y: tf.pos.y * inv, z: tf.pos.z * inv };
-      penetration = d - limit;
+    const floorLimit = bounds.floorY === undefined ? undefined : bounds.floorY + col.radius;
+    if (floorLimit !== undefined && tf.pos.y < floorLimit) {
+      // `outward` follows the shell convention (out of the play volume), so
+      // this is the negative of the floor's inward plane normal [0, 1, 0].
+      outward = { x: 0, y: -1, z: 0 };
+      penetration = floorLimit - tf.pos.y;
+    } else {
+      // The bubble: one radial test, so climbing out through the "top" is bounded
+      // exactly like flying out sideways (BUBBLE.md §A).
+      const d = len3(tf.pos.x, tf.pos.y, tf.pos.z);
+      const limit = bounds.radius - col.radius;
+      if (d > limit) {
+        const inv = d === 0 ? 0 : 1 / d;
+        outward = { x: tf.pos.x * inv, y: tf.pos.y * inv, z: tf.pos.z * inv };
+        penetration = d - limit;
+      }
     }
   } else {
     // Rect arenas are boxes: x walls, z walls, plus a real ceiling/floor.

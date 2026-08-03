@@ -629,6 +629,29 @@ describe("arena schema", () => {
     expect(mutated("arena", (d) => (d["bounds"] = { shape: "circle", radius: 90 }))).toBe(false);
   });
 
+  it("accepts a sphere floor in (-radius, 0] and rejects unsupported planes", () => {
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 90, floorY: -30 }))).toBe(true);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 90, floorY: 0 }))).toBe(true);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 90, floorY: -90 }))).toBe(false);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 90, floorY: -91 }))).toBe(false);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 90, floorY: 1 }))).toBe(false);
+  });
+
+  it("rejects a spawn below a sphere floor", () => {
+    expect(
+      mutated("arena", (d) => {
+        d["bounds"] = { shape: "sphere", radius: 90, floorY: -30 };
+        d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: 0, y: -30, z: 0 }, heading: 0 }];
+      }),
+    ).toBe(true);
+    expect(
+      mutated("arena", (d) => {
+        d["bounds"] = { shape: "sphere", radius: 90, floorY: -30 };
+        d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: 0, y: -30.01, z: 0 }, heading: 0 }];
+      }),
+    ).toBe(false);
+  });
+
   it("takes optional y on placements and spawns, and an optional spawn pitch", () => {
     expect(
       mutated("arena", (d) => {

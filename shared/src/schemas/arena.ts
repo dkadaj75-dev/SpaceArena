@@ -15,7 +15,7 @@ export interface ArenaWireIssue {
 /** Schema-local check: authored arena geometry itself must fit on the wire. */
 export function arenaWireBoundsIssues(
   bounds:
-    | { shape: "sphere"; radius: number }
+    | { shape: "sphere"; radius: number; floorY?: number }
     | { shape: "rect"; width: number; height: number; verticalExtent: number },
 ): ArenaWireIssue[] {
   if (bounds.shape === "sphere") {
@@ -49,7 +49,7 @@ export function arenaWireBoundsIssues(
  */
 export function arenaWireEnvelopeIssues(
   bounds:
-    | { shape: "sphere"; radius: number }
+    | { shape: "sphere"; radius: number; floorY?: number }
     | { shape: "rect"; width: number; height: number; verticalExtent: number },
   margin: number,
 ): ArenaWireIssue[] {
@@ -81,19 +81,31 @@ export function arenaWireEnvelopeIssues(
 /**
  * Arena bounds. The planar `circle` is RETIRED (BUBBLE.md): ships fly in 3D, so
  * the play space is a **sphere** — a bubble of the same radius the circle had —
- * and every boundary/cull check works on 3D radial distance. `rect` survives for
- * non-spherical fields as a bounded 3D box. `height` is its z extent and
- * `verticalExtent` is its y extent.
+ * and every boundary/cull check works on 3D radial distance. A sphere may have
+ * a `floorY` world-space plane in (-radius, 0], making its play space the dome
+ * above that plane; floors above the sphere's centre are not supported. `rect`
+ * survives for non-spherical fields as a bounded 3D box. `height` is its z
+ * extent and `verticalExtent` is its y extent.
  */
-export const arenaBounds = z.discriminatedUnion("shape", [
-  z.object({ shape: z.literal("sphere"), radius: z.number().positive() }),
-  z.object({
-    shape: z.literal("rect"),
-    width: z.number().positive(),
-    height: z.number().positive(),
-    verticalExtent: z.number().positive(),
-  }),
-]);
+export const arenaBounds = z
+  .discriminatedUnion("shape", [
+    z.object({ shape: z.literal("sphere"), radius: z.number().positive(), floorY: z.number().optional() }),
+    z.object({
+      shape: z.literal("rect"),
+      width: z.number().positive(),
+      height: z.number().positive(),
+      verticalExtent: z.number().positive(),
+    }),
+  ])
+  .superRefine((bounds, ctx) => {
+    if (bounds.shape === "sphere" && bounds.floorY !== undefined && (bounds.floorY <= -bounds.radius || bounds.floorY > 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["floorY"],
+        message: "floorY must be greater than -radius and at most 0",
+      });
+    }
+  });
 export type ArenaBounds = z.infer<typeof arenaBounds>;
 
 const asteroidPlacement = z.object({
@@ -241,7 +253,8 @@ export const arenaSchema = z
       const y = spawn.position.y ?? 0;
       const inside =
         arena.bounds.shape === "sphere"
-          ? Math.hypot(spawn.position.x, y, spawn.position.z) <= arena.bounds.radius
+          ? Math.hypot(spawn.position.x, y, spawn.position.z) <= arena.bounds.radius &&
+            (arena.bounds.floorY === undefined || y >= arena.bounds.floorY)
           : Math.abs(spawn.position.x) <= arena.bounds.width / 2 &&
             Math.abs(spawn.position.z) <= arena.bounds.height / 2 &&
             Math.abs(y) <= arena.bounds.verticalExtent / 2;
