@@ -18,6 +18,8 @@ const SHIPPED_ARENAS: readonly ShippedArena[] = [
   { name: "deep-field", file: "deep-field.json", minimumCount: 90, maxExtent: 210 },
   { name: "ring-nebula", file: "ring-nebula.json", minimumCount: 14, maxExtent: 126 },
   { name: "lunar-crater", file: "lunar-crater.json", minimumCount: 25, maxExtent: 126 },
+  { name: "broken-halo", file: "broken-halo.json", minimumCount: 14, maxExtent: 150 },
+  { name: "twin-titans", file: "twin-titans.json", minimumCount: 14, maxExtent: 100 },
 ];
 const asteroidFiles = [
   "small-rock.json",
