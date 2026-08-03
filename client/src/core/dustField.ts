@@ -95,11 +95,15 @@ export class DustField {
    */
   private readonly center = new Vector3();
   private readonly system: ParticleSystem;
+  private readonly halfExtent: number;
+  private readonly floorY: number | undefined;
   private enabled = true;
 
-  constructor(scene: Scene, params: DustParams) {
+  constructor(scene: Scene, params: DustParams, floorY?: number) {
     const system = new ParticleSystem("arenaDust", params.count, scene);
     this.system = system;
+    this.halfExtent = params.halfExtent;
+    this.floorY = floorY;
     // The shared soft sprite is drawn into a `DynamicTexture`, which needs a real
     // 2D canvas context — absent under Babylon's NullEngine (headless tests, any
     // future server-side scene). Dust is decoration: an untextured system is a
@@ -149,6 +153,10 @@ export class DustField {
    */
   setCenter(x: number, y: number, z: number): void {
     this.center.set(x, y, z);
+    // Emit-box coordinates are relative to the world-space centre. Keep newly
+    // recycled motes on/above visible terrain instead of beneath the floor.
+    this.system.minEmitBox.y =
+      this.floorY === undefined ? -this.halfExtent : Math.max(-this.halfExtent, this.floorY - y);
   }
 
   /**
