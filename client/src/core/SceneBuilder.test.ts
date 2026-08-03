@@ -318,6 +318,25 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     builder.dispose();
   });
 
+  it("adds a sphere-intersection floor disc and measures proximity to it", () => {
+    expect(configs.replace({ ...ARENA, version: 2, bounds: { shape: "sphere", radius: 90, floorY: -30 } }).ok).toBe(
+      true,
+    );
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+
+    const shell = scene.getMeshByName("boundsShell")!;
+    const floor = scene.getMeshByName("boundsFloor")!;
+    expect(floor).not.toBeNull();
+    expect(floor.position.y).toBe(-30);
+    expect(floor.material).toBe(shell.material);
+    const floorExtent = floor.getBoundingInfo().boundingBox.extendSize;
+    expect(Math.max(floorExtent.x, floorExtent.z)).toBeCloseTo(Math.sqrt(90 ** 2 - 30 ** 2), 4);
+    expect(builder.updatePlayerPosition(0, -29, 0)).toBe(1);
+
+    builder.dispose();
+  });
+
   it("uses the hex shader normally and the live plain-shell fallback on low", () => {
     const shaderBuilder = new SceneBuilder(scene, configs, bus, quality());
     shaderBuilder.buildArena("arena.test");

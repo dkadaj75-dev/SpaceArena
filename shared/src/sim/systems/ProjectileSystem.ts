@@ -168,7 +168,10 @@ function outsideBounds(world: World, pos: { x: number; y: number; z: number }, m
     // 3D radial distance: ordnance that climbs out of the bubble is as far gone
     // as ordnance that flies out sideways.
     const limit = bounds.radius + margin;
-    return pos.x * pos.x + pos.y * pos.y + pos.z * pos.z > limit * limit;
+    return (
+      pos.x * pos.x + pos.y * pos.y + pos.z * pos.z > limit * limit ||
+      (bounds.floorY !== undefined && pos.y < bounds.floorY - margin)
+    );
   }
   return (
     Math.abs(pos.x) > bounds.width / 2 + margin ||

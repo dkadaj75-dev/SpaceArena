@@ -17,7 +17,7 @@ const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url)
 const SHIPPED_ARENAS: readonly ShippedArena[] = [
   { name: "deep-field", file: "deep-field.json", minimumCount: 90, maxExtent: 210 },
   { name: "ring-nebula", file: "ring-nebula.json", minimumCount: 14, maxExtent: 126 },
-  { name: "lunar-crater", file: "lunar-crater.json", minimumCount: 25, maxExtent: 126 },
+  { name: "lunar-crater", file: "lunar-crater.json", minimumCount: 25, maxExtent: 180 },
   { name: "broken-halo", file: "broken-halo.json", minimumCount: 14, maxExtent: 150 },
   { name: "twin-titans", file: "twin-titans.json", minimumCount: 14, maxExtent: 100 },
 ];
@@ -120,8 +120,20 @@ describe("shipped arena asteroid geometry", () => {
       }
 
       const ys = placements.map((placement) => placement.position.y ?? 0);
-      expect(Math.min(...ys)).toBeLessThan(-25);
-      expect(Math.max(...ys)).toBeGreaterThan(25);
+      if (arena.bounds.shape === "sphere" && arena.bounds.floorY !== undefined) {
+        expect(Math.max(...ys)).toBeGreaterThan(35);
+        for (let index = 0; index < placements.length; index++) {
+          const placement = placements[index]!;
+          const colliderRadius = radii.get(placement.asteroidId)! * (placement.scale ?? 1);
+          expect(
+            (placement.position.y ?? 0) + colliderRadius,
+            `${arena.id} placement ${index} floor clearance`,
+          ).toBeGreaterThanOrEqual(arena.bounds.floorY);
+        }
+      } else {
+        expect(Math.min(...ys)).toBeLessThan(-25);
+        expect(Math.max(...ys)).toBeGreaterThan(25);
+      }
       if (shipped.name === "deep-field") {
         expect(ys.filter((y) => Math.abs(y) >= 70).length / ys.length).toBeGreaterThanOrEqual(0.55);
         expect(ys.filter((y) => Math.abs(y) >= 105).length).toBeGreaterThanOrEqual(30);

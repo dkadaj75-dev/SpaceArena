@@ -517,6 +517,20 @@ export class SceneBuilder {
           this.boundaryMaterial = shellMat;
         }
         shell.parent = root;
+
+        if (arena.bounds.floorY !== undefined) {
+          const floorRadius = Math.sqrt(arena.bounds.radius ** 2 - arena.bounds.floorY ** 2);
+          const floor = MeshBuilder.CreateDisc(
+            "boundsFloor",
+            { radius: floorRadius, tessellation: 48, sideOrientation: Mesh.DOUBLESIDE },
+            this.scene,
+          );
+          floor.position.y = arena.bounds.floorY;
+          floor.rotation.x = Math.PI / 2;
+          floor.material = shell.material;
+          floor.isPickable = false;
+          floor.parent = root;
+        }
       }
 
     } else {
@@ -560,7 +574,10 @@ export class SceneBuilder {
     const bounds = arena.bounds;
     const distance =
       bounds.shape === "sphere"
-        ? bounds.radius - Math.hypot(x, y, z)
+        ? Math.min(
+            bounds.radius - Math.hypot(x, y, z),
+            bounds.floorY === undefined ? Number.POSITIVE_INFINITY : y - bounds.floorY,
+          )
         : Math.min(
             bounds.width / 2 - Math.abs(x),
             bounds.verticalExtent / 2 - Math.abs(y),

@@ -20,6 +20,40 @@ beforeAll(async () => {
 });
 
 describe("CollisionSystem boundary", () => {
+  it("damages and bounces a ship diving through a sphere floor", () => {
+    const base = makeWorld(configs, {
+      gamemodeOverride: {
+        boundaryRule: { type: "damageAndBounce", damagePerSec: 30, restitution: 0.8 },
+      },
+    });
+    if (base.arena.bounds.shape !== "sphere") throw new Error("test arena must be spherical");
+    const world = new World(
+      configs,
+      base.tuning,
+      { ...base.arena, bounds: { ...base.arena.bounds, floorY: -20 } },
+      base.gamemode,
+    );
+    const id = spawnShipFromConfig(
+      world,
+      configs,
+      "ship.interceptor",
+      INTERCEPTOR_FITTING,
+      0,
+      { x: 0, y: -20, z: 0 },
+      0,
+    );
+    const colliderRadius = world.colliders.get(id)!.radius;
+    world.transforms.get(id)!.pos.y = -20 + colliderRadius - 1;
+    world.velocities.get(id)!.y = -10;
+    const before = world.shipCores.get(id)!.hull;
+
+    collisionSystem(world, DT);
+
+    expect(world.shipCores.get(id)!.hull).toBeCloseTo(before - 1);
+    expect(world.velocities.get(id)!.y).toBeCloseTo(8);
+    expect(world.transforms.get(id)!.pos.y).toBeCloseTo(-20 + colliderRadius);
+  });
+
   it("bounces a ship off the bubble", () => {
     const world = makeWorld(configs, {
       gamemodeOverride: { boundaryRule: { type: "bounce", restitution: 1 } },
@@ -320,6 +354,35 @@ describe("CollisionSystem 3D narrowphase (BUBBLE.md §A)", () => {
 });
 
 describe("ProjectileSystem in 3D (BUBBLE.md §A)", () => {
+  it("culls ordnance below a sphere floor plus the projectile margin", () => {
+    const base = makeWorld(configs);
+    if (base.arena.bounds.shape !== "sphere") throw new Error("test arena must be spherical");
+    const world = new World(
+      configs,
+      base.tuning,
+      { ...base.arena, bounds: { ...base.arena.bounds, floorY: -20 } },
+      base.gamemode,
+    );
+    const margin = world.tuning.projectileBoundsMargin ?? 20;
+    const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const pid = spawnProjectile(world, {
+      kind: "kinetic",
+      damage: 10,
+      damageType: "kinetic",
+      speed: 1,
+      lifetime: 60,
+      ownerId: shooter,
+      ownerTeam: 0,
+      pos: { x: 0, y: -20 - margin - 1, z: 0 },
+      heading: 0,
+    });
+    rebuildSpatial(world);
+
+    projectileSystem(world, DT);
+
+    expect(world.projectiles.has(pid)).toBe(false);
+  });
+
   it("misses a target that is only planar-aligned, and hits one it truly passes through", () => {
     for (const [dy, expectHit] of [
       [12, false],
