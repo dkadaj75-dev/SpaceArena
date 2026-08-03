@@ -4,7 +4,7 @@
   "version": 1,
   "name": "Capture the Flag — 5v5",
   "teams": "2v2",
-  "defaultArena": "arena.ring-nebula",
+  "defaultArena": "arena.lunar-crater",
   "winCondition": {
     "type": "captureLimit",
     "count": 3
@@ -47,5 +47,5 @@
       }
     ]
   },
-  "timeLimitCapSec": 900
+  "timeLimitCapSec": 600
 }
