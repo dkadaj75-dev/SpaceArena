@@ -1,6 +1,6 @@
 /* global process, console, document, Image */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const OUT = process.argv[2] ?? "content/skyboxes";
@@ -51,7 +51,12 @@ function discDirection(spec, radialFraction) {
   return directionAt(spec, angle, Math.sign(radialFraction));
 }
 
-const browser = await chromium.launch();
+const installedChromium = "/opt/pw-browsers/chromium";
+const browser = await chromium.launch(
+  existsSync(installedChromium)
+    ? { executablePath: installedChromium, args: ["--no-sandbox"] }
+    : undefined,
+);
 const page = await browser.newPage();
 let failed = false;
 for (const [name, spec] of Object.entries(SPECS)) {

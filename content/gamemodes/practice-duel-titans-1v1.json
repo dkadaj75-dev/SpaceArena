@@ -1,0 +1,41 @@
+{
+  "id": "gamemode.practice-duel-titans-1v1",
+  "type": "gamemode",
+  "version": 1,
+  "name": "Duel — Twin Titans",
+  "teams": "1v1",
+  "defaultArena": "arena.twin-titans",
+  "winCondition": {
+    "type": "fragLimit",
+    "count": 10
+  },
+  "eliminationEndsMatch": false,
+  "respawn": {
+    "enabled": true,
+    "delay": 3
+  },
+  "boundaryRule": {
+    "type": "damageAndBounce",
+    "damagePerSec": 20,
+    "restitution": 0.82
+  },
+  "rewards": {
+    "win": 0,
+    "loss": 0,
+    "perKill": 0
+  },
+  "bots": {
+    "defaultProfile": "bot.rookie",
+    "defaultShip": "ship.interceptor",
+    "backfillWaitMs": 15000,
+    "roster": [
+      {
+        "profile": "bot.rookie",
+        "ship": "ship.interceptor",
+        "team": 1,
+        "count": 1
+      }
+    ]
+  },
+  "timeLimitCapSec": 600
+}

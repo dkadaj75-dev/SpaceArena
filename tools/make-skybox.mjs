@@ -48,6 +48,27 @@ const PALETTES = {
     },
     sun: { dir: [-0.677, -0.208, -0.706], color: [220, 228, 255], discDeg: 3.0, glowDeg: 24 },
   },
+  "lunar-crater": {
+    base: [2, 3, 5],
+    dustA: { col: [18, 18, 19], hot: [30, 30, 32], lo: 0.98, hi: 1.1 },
+    dustB: { col: [12, 12, 13], hot: [24, 24, 25], lo: 0.99, hi: 1.1 },
+    dustC: { col: [10, 10, 11], hot: [20, 20, 21], lo: 0.99, hi: 1.1 },
+    core: [40, 40, 42],
+    warp: 0.2, starGain: 0.9, seed: 61, gain: 0.55,
+    bandN: [0, 1, 0], bandWidth: 0.2, bandGain: 0,
+    ground: {
+      horizon: -0.065,
+      surface: [104, 106, 108],
+      rim: [151, 152, 153],
+      craters: [
+        { phi: 0.45, y: -0.43, radius: 0.13 },
+        { phi: 2.25, y: -0.31, radius: 0.09 },
+        { phi: 4.15, y: -0.55, radius: 0.16 },
+        { phi: 5.55, y: -0.25, radius: 0.07 },
+      ],
+    },
+    sun: { dir: [-0.707, 0.5, -0.5], color: [255, 255, 255], discDeg: 3.2, glowDeg: 24 },
+  },
 };
 
 const PAGE_SCRIPT = `
@@ -221,6 +242,37 @@ function makeNebula(W, H, P) {
         }
       }
 
+      // Optional painted terrain for arenas whose enclosing panorama also has
+      // to provide the ground. It intentionally lives in direction space: the
+      // horizon wraps seamlessly and the lower hemisphere reads as a distant,
+      // bowl-shaped floor without requiring an engine terrain mesh.
+      if (P.ground) {
+        const ground = P.ground;
+        const rimNoise = fbm(dx * 5.5 + 401, 0, dz * 5.5, 4, 0.55) - 0.5;
+        const rimTop = ground.horizon + rimNoise * 0.045;
+        if (dy < rimTop) {
+          const coarse = fbm(dx * 4.2 + 503, dy * 4.2, dz * 4.2, 5, 0.58);
+          const fine = fbm(dx * 18 + 607, dy * 18, dz * 18, 4, 0.52);
+          const rock = (coarse - 0.5) * 34 + (fine - 0.5) * 16;
+          let shade = rock;
+          for (const crater of ground.craters ?? []) {
+            let dphi = Math.abs(phi - crater.phi);
+            dphi = Math.min(dphi, Math.PI * 2 - dphi);
+            const dist = Math.hypot(dphi * Math.max(0.3, st), (dy - crater.y) * 2.1);
+            const bowl = 1 - smoothRange(crater.radius * 0.35, crater.radius, dist);
+            const lip = smoothRange(crater.radius * 0.72, crater.radius * 0.9, dist)
+              * (1 - smoothRange(crater.radius * 0.9, crater.radius * 1.12, dist));
+            shade += lip * 25 - bowl * 35;
+          }
+          const rimMix = 1 - smoothRange(rimTop - 0.105, rimTop - 0.025, dy);
+          const grazingLight = smoothRange(-0.75, ground.horizon, dy) * 10;
+          for (let ch = 0; ch < 3; ch++) {
+            const base = ground.surface[ch] * (1 - rimMix) + ground.rim[ch] * rimMix;
+            out[ch] = base + shade + grazingLight;
+          }
+        }
+      }
+
       // The nearby star is painted LAST so it dominates the planet, dust and stars.
       // cosAng near 1 = looking straight at the sun. Disc is hard-saturated,
       // glow falls off smoothly, plus a wide faint halo warming the sky around.
@@ -248,7 +300,12 @@ function makeNebula(W, H, P) {
 }
 `;
 
-const browser = await chromium.launch();
+const installedChromium = "/opt/pw-browsers/chromium";
+const browser = await chromium.launch(
+  fs.existsSync(installedChromium)
+    ? { executablePath: installedChromium, args: ["--no-sandbox"] }
+    : undefined,
+);
 const page = await browser.newPage();
 for (const [name, palette] of Object.entries(PALETTES)) {
   if (ONLY && name !== ONLY) continue;
