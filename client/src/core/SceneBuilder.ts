@@ -2,6 +2,7 @@ import {
   Color3,
   Color4,
   DirectionalLight,
+  DynamicTexture,
   FresnelParameters,
   GlowLayer,
   HemisphericLight,
@@ -13,6 +14,8 @@ import {
   Texture,
   TransformNode,
   Vector3,
+  VertexBuffer,
+  VertexData,
   type CloudPoint,
   type Material,
   type Node,
@@ -241,7 +244,8 @@ export class SceneBuilder {
     this.dust = null;
     const params = resolveDustParams(this.quality.scene.dust);
     if (!params) return;
-    this.dust = new DustField(this.scene, params);
+    const floorY = this.arena?.bounds.shape === "sphere" ? this.arena.bounds.floorY : undefined;
+    this.dust = new DustField(this.scene, params, floorY);
     this.dust.setEnabled(this.visible);
   }
 
@@ -367,11 +371,17 @@ export class SceneBuilder {
         bias: 1,
         power: 1,
       });
+      // invertY=false: with the default flip, the equirectangular panorama
+      // rendered upside down (image top row at the NADIR) — unnoticeable on a
+      // nebula, glaring on a pano with a painted ground, and the reason a
+      // painted sun never sat where `sun.dir` said it was. Marker-texture
+      // probe: BACKSIDE sphere + default invertY shows the image BOTTOM at
+      // the zenith; invertY=false restores "image top = up".
       const panorama = new Texture(
         `${import.meta.env.BASE_URL}content/${authored.texture}`,
         this.scene,
         undefined,
-        undefined,
+        false,
         undefined,
         () => {
           if (generation !== this.generation) return;
@@ -518,20 +528,11 @@ export class SceneBuilder {
         }
         shell.parent = root;
 
-        if (arena.bounds.floorY !== undefined) {
-          const floorRadius = Math.sqrt(arena.bounds.radius ** 2 - arena.bounds.floorY ** 2);
-          const floor = MeshBuilder.CreateDisc(
-            "boundsFloor",
-            { radius: floorRadius, tessellation: 48, sideOrientation: Mesh.DOUBLESIDE },
-            this.scene,
-          );
-          floor.position.y = arena.bounds.floorY;
-          floor.rotation.x = Math.PI / 2;
-          floor.material = shell.material;
-          floor.isPickable = false;
-          floor.parent = root;
-        }
       }
+
+      // A floor is physical terrain, not another face of the energy shield.
+      // Build it even when an arena elects not to render a boundary shield.
+      if (arena.bounds.floorY !== undefined) this.buildTerrain(arena.bounds.radius, arena.bounds.floorY, root);
 
     } else {
       // Box arena: six translucent walls matching the sim's finite y bounds.
@@ -572,12 +573,11 @@ export class SceneBuilder {
     const arena = this.arena;
     if (!arena) return Number.POSITIVE_INFINITY;
     const bounds = arena.bounds;
+    // Warnings and shield glow describe the enclosing shell only. The simulation
+    // still owns floor collision/damage, but visible terrain needs no HUD alarm.
     const distance =
       bounds.shape === "sphere"
-        ? Math.min(
-            bounds.radius - Math.hypot(x, y, z),
-            bounds.floorY === undefined ? Number.POSITIVE_INFINITY : y - bounds.floorY,
-          )
+        ? bounds.radius - Math.hypot(x, y, z)
         : Math.min(
             bounds.width / 2 - Math.abs(x),
             bounds.verticalExtent / 2 - Math.abs(y),
@@ -604,6 +604,39 @@ export class SceneBuilder {
       clampColorInPlace(material.emissiveColor);
     }
     return distance;
+  }
+
+  /** Build deterministic, diffuse-lit lunar regolith at the collision floor. */
+  private buildTerrain(radius: number, floorY: number, root: TransformNode): void {
+    // A small overshoot closes the numerical seam where terrain meets the shell.
+    const terrainRadius = Math.sqrt(Math.max(0, radius ** 2 - floorY ** 2)) * 1.005;
+    const lowTier = !this.quality.scene.boundaryShieldShader;
+    const rings = lowTier ? 24 : 40;
+    const segments = lowTier ? 72 : 112;
+    const floor = createTerrainDisc(this.scene, terrainRadius, rings, segments);
+    floor.name = "terrainGround";
+    floor.position.y = floorY;
+    floor.isPickable = false;
+    floor.parent = root;
+
+    const material = new StandardMaterial("mat.terrainRegolith", this.scene);
+    material.diffuseColor = new Color3(0.52, 0.51, 0.49);
+    material.emissiveColor = Color3.Black();
+    material.specularColor = new Color3(0.015, 0.015, 0.015);
+    material.specularPower = 4;
+    const textureSize = lowTier ? 256 : 512;
+    const textures = createRegolithTextures(this.scene, textureSize, !lowTier && this.quality.scene.skyboxEnabled);
+    if (textures) {
+      material.diffuseTexture = textures.albedo;
+      material.diffuseTexture.hasAlpha = true;
+      material.useAlphaFromDiffuseTexture = true;
+      if (textures.bump) {
+        material.bumpTexture = textures.bump;
+        material.bumpTexture.level = 0.75;
+      }
+    }
+    material.backFaceCulling = false;
+    floor.material = material;
   }
 
   /** Stable authored warning knobs for the active arena; no per-frame object. */
@@ -701,6 +734,147 @@ export class SceneBuilder {
     this.glowLayer?.dispose();
     this.glowLayer = null;
   }
+}
+
+/** Concentric-ring mesh gives the terrain real interior vertices (unlike CreateDisc's fan). */
+function createTerrainDisc(scene: Scene, radius: number, rings: number, segments: number): Mesh {
+  const mesh = new Mesh("terrainGround", scene);
+  const positions: number[] = [0, terrainHeight(0, 0, radius), 0];
+  const uvs: number[] = [0.5, 0.5];
+  const indices: number[] = [];
+  for (let ring = 1; ring <= rings; ring++) {
+    const r = (ring / rings) * radius;
+    for (let segment = 0; segment < segments; segment++) {
+      const angle = (segment / segments) * Math.PI * 2;
+      const x = Math.cos(angle) * r;
+      const z = Math.sin(angle) * r;
+      positions.push(x, terrainHeight(x, z, radius), z);
+      uvs.push(x / (radius * 2) + 0.5, z / (radius * 2) + 0.5);
+    }
+  }
+  for (let segment = 0; segment < segments; segment++) {
+    indices.push(0, 1 + segment, 1 + ((segment + 1) % segments));
+  }
+  for (let ring = 2; ring <= rings; ring++) {
+    const inner = 1 + (ring - 2) * segments;
+    const outer = 1 + (ring - 1) * segments;
+    for (let segment = 0; segment < segments; segment++) {
+      const next = (segment + 1) % segments;
+      indices.push(inner + segment, outer + segment, outer + next, inner + segment, outer + next, inner + next);
+    }
+  }
+  const normals = new Array<number>(positions.length).fill(0);
+  VertexData.ComputeNormals(positions, indices, normals);
+  mesh.setVerticesData(VertexBuffer.PositionKind, positions);
+  mesh.setVerticesData(VertexBuffer.NormalKind, normals);
+  mesh.setVerticesData(VertexBuffer.UVKind, uvs);
+  mesh.setIndices(indices);
+  return mesh;
+}
+
+/** Gentle deterministic relief; edge returns to the collision plane at the horizon. */
+function terrainHeight(x: number, z: number, radius: number): number {
+  const radial = Math.hypot(x, z) / radius;
+  const edgeTaper = Math.max(0, Math.min(1, (1 - radial) * 8));
+  const broad = valueNoise(x * 0.025, z * 0.025, 0x51f15e) * 1.35;
+  const fine = valueNoise(x * 0.085, z * 0.085, 0xa17e3) * 0.55;
+  return (broad + fine) * edgeTaper;
+}
+
+interface RegolithTextures {
+  albedo: DynamicTexture;
+  bump: DynamicTexture | null;
+}
+
+/** Canvas textures: layered grain/mottling plus crater floors and raised rims. */
+function createRegolithTextures(scene: Scene, size: number, includeBump: boolean): RegolithTextures | null {
+  try {
+    const albedo = new DynamicTexture("terrain.regolith.albedo", { width: size, height: size }, scene, false);
+    const albedoContext = albedo.getContext();
+    const albedoImage = albedoContext.getImageData(0, 0, size, size);
+    const bump = includeBump
+      ? new DynamicTexture("terrain.regolith.height", { width: size, height: size }, scene, false)
+      : null;
+    const bumpContext = bump?.getContext() ?? null;
+    const bumpImage = bumpContext?.getImageData(0, 0, size, size) ?? null;
+    const craters = makeCraters(0xc0ffee, 34);
+
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const u = px / (size - 1);
+        const v = py / (size - 1);
+        const grain = valueNoise(u * 92, v * 92, 0x8d12) * 0.055;
+        const medium = valueNoise(u * 24, v * 24, 0x4ab3) * 0.075;
+        const mottle = valueNoise(u * 5.5, v * 5.5, 0x912f) * 0.1;
+        let height = grain * 0.35 + medium * 0.5 + mottle * 0.4;
+        let shade = grain + medium + mottle;
+        for (const crater of craters) {
+          const d = Math.hypot(u - crater.x, v - crater.y) / crater.radius;
+          if (d < 1) {
+            const floor = (1 - Math.min(1, d / 0.72)) * crater.depth;
+            const rim = Math.exp(-((d - 0.86) ** 2) / 0.006) * crater.depth * 1.15;
+            height += rim - floor;
+            shade += rim * 0.65 - floor * 0.75;
+          }
+        }
+        const radial = Math.hypot(u - 0.5, v - 0.5) * 2;
+        const edgeAlpha = Math.max(0, Math.min(1, (1 - radial) * 16));
+        const base = Math.max(0.19, Math.min(0.68, 0.43 + shade));
+        const i = (py * size + px) * 4;
+        albedoImage.data[i] = Math.round(base * 255);
+        albedoImage.data[i + 1] = Math.round(base * 0.985 * 255);
+        albedoImage.data[i + 2] = Math.round(base * 0.955 * 255);
+        albedoImage.data[i + 3] = Math.round(edgeAlpha * 255);
+        if (bumpImage) {
+          const h = Math.round(Math.max(0, Math.min(1, 0.5 + height * 1.8)) * 255);
+          bumpImage.data[i] = h;
+          bumpImage.data[i + 1] = h;
+          bumpImage.data[i + 2] = h;
+          bumpImage.data[i + 3] = 255;
+        }
+      }
+    }
+    albedoContext.putImageData(albedoImage, 0, 0);
+    albedo.update(false);
+    if (bump && bumpContext && bumpImage) {
+      bumpContext.putImageData(bumpImage, 0, 0);
+      bump.update(false);
+    }
+    return { albedo, bump };
+  } catch {
+    // NullEngine and other canvas-less hosts still get lit geometry/material.
+    return null;
+  }
+}
+
+function makeCraters(seed: number, count: number): Array<{ x: number; y: number; radius: number; depth: number }> {
+  let state = seed >>> 0;
+  const random = (): number => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x1_0000_0000;
+  };
+  return Array.from({ length: count }, (_, index) => ({
+    x: random(),
+    y: random(),
+    radius: (index < 5 ? 0.055 : 0.012) + random() * (index < 5 ? 0.09 : 0.038),
+    depth: 0.035 + random() * 0.075,
+  }));
+}
+
+/** Smooth deterministic value noise in [-1, 1]. */
+function valueNoise(x: number, y: number, seed: number): number {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const tx = (x - x0) ** 2 * (3 - 2 * (x - x0));
+  const ty = (y - y0) ** 2 * (3 - 2 * (y - y0));
+  const hash = (ix: number, iy: number): number => {
+    let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ seed;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 0xffff_ffff * 2 - 1;
+  };
+  const a = hash(x0, y0) * (1 - tx) + hash(x0 + 1, y0) * tx;
+  const b = hash(x0, y0 + 1) * (1 - tx) + hash(x0 + 1, y0 + 1) * tx;
+  return a * (1 - ty) + b * ty;
 }
 
 function disposeRecursive(node: Node): void {

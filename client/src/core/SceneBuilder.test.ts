@@ -318,7 +318,7 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     builder.dispose();
   });
 
-  it("adds a sphere-intersection floor disc and measures proximity to it", () => {
+  it("adds diffuse-lit terrain at the sphere-intersection floor without coupling it to shield proximity", () => {
     expect(configs.replace({ ...ARENA, version: 2, bounds: { shape: "sphere", radius: 90, floorY: -30 } }).ok).toBe(
       true,
     );
@@ -326,13 +326,22 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     builder.buildArena("arena.test");
 
     const shell = scene.getMeshByName("boundsShell")!;
-    const floor = scene.getMeshByName("boundsFloor")!;
+    const floor = scene.getMeshByName("terrainGround")!;
     expect(floor).not.toBeNull();
     expect(floor.position.y).toBe(-30);
-    expect(floor.material).toBe(shell.material);
+    expect(floor.material).not.toBe(shell.material);
+    const terrainMaterial = floor.material as StandardMaterial;
+    expect(terrainMaterial).toBeInstanceOf(StandardMaterial);
+    expect(terrainMaterial.disableLighting).toBe(false);
+    expect(terrainMaterial.emissiveColor.equals(Color3.Black())).toBe(true);
+    expect(terrainMaterial.specularColor.r).toBeLessThan(0.02);
     const floorExtent = floor.getBoundingInfo().boundingBox.extendSize;
-    expect(Math.max(floorExtent.x, floorExtent.z)).toBeCloseTo(Math.sqrt(90 ** 2 - 30 ** 2), 4);
-    expect(builder.updatePlayerPosition(0, -29, 0)).toBe(1);
+    expect(Math.max(floorExtent.x, floorExtent.z)).toBeCloseTo(Math.sqrt(90 ** 2 - 30 ** 2) * 1.005, 4);
+
+    expect(builder.updatePlayerPosition(0, -29, 0)).toBeCloseTo(61);
+    // One unit above the floor is still far from the spherical shell: neither
+    // the returned HUD distance nor the shield glow is floor-coupled.
+    expect((shell.material as ShaderMaterial).name).toBe("mat.boundsShell.hex");
 
     builder.dispose();
   });
