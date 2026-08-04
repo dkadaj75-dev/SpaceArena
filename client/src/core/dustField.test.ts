@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DUST, resolveDustParams, type DustQuality } from "./dustField.js";
 
-/** The three shipped tiers, as authored in `content/quality/*.json`. */
+/** The shipped tiers, as authored in `content/quality/*.json`. */
 const SHIPPED: Record<string, NonNullable<DustQuality>> = {
   low: { count: 0, size: 0.35, alpha: 0.3, driftSpeed: 0.8, boxSize: 120 },
   med: { count: 180, size: 0.35, alpha: 0.3, driftSpeed: 0.8, boxSize: 120 },
   high: { count: 340, size: 0.4, alpha: 0.34, driftSpeed: 1.0, boxSize: 120 },
+  ultra: { count: 560, size: 0.45, alpha: 0.38, driftSpeed: 1.2, boxSize: 140 },
 };
 
 describe("resolveDustParams", () => {

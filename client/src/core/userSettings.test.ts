@@ -8,6 +8,7 @@ import {
   clampCameraDistance,
   clampPanSens,
   clampSteerSens,
+  defaultRendererPreference,
   DEFAULT_USER_SETTINGS,
   HAPTICS_KEY,
   INVERT_PITCH_KEY,
@@ -59,7 +60,7 @@ describe("readUserSettings", () => {
 
   it("reads a quality override and ignores an unknown tier", () => {
     expect(readUserSettings(fakeStorage({ [QUALITY_STORAGE_KEY]: "high" })).quality).toBe("high");
-    expect(readUserSettings(fakeStorage({ [QUALITY_STORAGE_KEY]: "ultra" })).quality).toBeNull();
+    expect(readUserSettings(fakeStorage({ [QUALITY_STORAGE_KEY]: "ultra" })).quality).toBe("ultra");
   });
 
   it("treats only the literal \"off\" as disabled for flag keys", () => {
@@ -104,9 +105,13 @@ describe("readUserSettings", () => {
     expect(settings.touchSteerSens).toBe(STEER_SENS_MIN);
   });
 
-  it("reads the renderer preference, defaulting to webgl", () => {
+  it("reads the renderer preference, defaulting by platform only when no key exists", () => {
     expect(readUserSettings(fakeStorage({ [RENDERER_KEY]: "webgpu" })).renderer).toBe("webgpu");
     expect(readUserSettings(fakeStorage({ [RENDERER_KEY]: "vulkan" })).renderer).toBe("webgl");
+    const safari = { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Version/17.0 Safari/605.1.15" };
+    expect(defaultRendererPreference(safari)).toBe("webgpu");
+    expect(readUserSettings(fakeStorage(), {}, safari).renderer).toBe("webgpu");
+    expect(readUserSettings(fakeStorage({ [RENDERER_KEY]: "webgl" }), {}, safari).renderer).toBe("webgl");
   });
 
   it("survives storage being unavailable entirely", () => {
@@ -117,6 +122,7 @@ describe("readUserSettings", () => {
 describe("settingsToStorage", () => {
   it("maps each setting to its documented key", () => {
     expect(settingsToStorage({ quality: "low" })).toEqual([[QUALITY_STORAGE_KEY, "low"]]);
+    expect(settingsToStorage({ quality: "ultra" })).toEqual([[QUALITY_STORAGE_KEY, "ultra"]]);
     expect(settingsToStorage({ masterVolume: 0.5 })).toEqual([[VOLUME_MASTER_KEY, "0.5"]]);
     expect(settingsToStorage({ sfxVolume: 0.5 })).toEqual([[VOLUME_SFX_KEY, "0.5"]]);
     expect(settingsToStorage({ renderer: "webgpu" })).toEqual([[RENDERER_KEY, "webgpu"]]);

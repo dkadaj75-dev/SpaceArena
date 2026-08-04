@@ -6,7 +6,7 @@ import { baseShape } from "./base.js";
  * by tier selection and by the auto-tier promote/demote step — there is no
  * separate `rank` field to keep in sync.
  */
-export const QUALITY_TIERS = ["low", "med", "high"] as const;
+export const QUALITY_TIERS = ["low", "med", "high", "ultra"] as const;
 export type QualityTier = (typeof QUALITY_TIERS)[number];
 
 /** Rank of a tier (0 = cheapest). Used for ordering/comparison. */
@@ -90,8 +90,8 @@ export const qualitySchema = z.object({
   particles: z.object({
     /** Build emitter particle systems at all. */
     enabled: z.boolean(),
-    /** Scales every emitter's capacity *and* emit rate (0..1). */
-    budgetMultiplier: z.number().min(0).max(1),
+    /** Scales every emitter's capacity *and* emit rate (0..1.25). */
+    budgetMultiplier: z.number().min(0).max(1.25),
     /** Hard ceiling on one emitter's Babylon capacity, before the multiplier. */
     maxEmitterCapacity: z.number().int().nonnegative(),
   }),

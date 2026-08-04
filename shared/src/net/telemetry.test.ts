@@ -65,7 +65,7 @@ describe("clientMetricBodySchema", () => {
   it("rejects unknown enum values", () => {
     expect(clientMetricBodySchema.safeParse({ ...valid, fpsBucket: "90+" }).success).toBe(false);
     expect(clientMetricBodySchema.safeParse({ ...valid, deviceClass: "tablet" }).success).toBe(false);
-    expect(clientMetricBodySchema.safeParse({ ...valid, qualityTier: "ultra" }).success).toBe(false);
+    expect(clientMetricBodySchema.safeParse({ ...valid, qualityTier: "cinematic" }).success).toBe(false);
   });
 
   it("rejects missing fields", () => {

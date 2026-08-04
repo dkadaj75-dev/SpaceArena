@@ -28,7 +28,7 @@ function tier(name: QualityTier): QualityConfig {
 
 describe("QualityEditor", () => {
   it("edits every tier's LOD and scene knobs through ConfigService.replace", () => {
-    const configs = [tier("low"), tier("med"), tier("high")];
+    const configs = [tier("low"), tier("med"), tier("high"), tier("ultra")];
     const replace = vi.fn(() => ({ ok: true as const, errors: [] }));
     const configService = {
       getAll: vi.fn((type: string) => (type === "quality" ? configs : [])),
@@ -36,11 +36,11 @@ describe("QualityEditor", () => {
     } as unknown as ConfigService;
     const panel = new QualityEditor({ configService } as unknown as EditorHost, vi.fn());
 
-    expect(panel.element.querySelectorAll('input[name="asteroids.lodMediumDistance"]')).toHaveLength(3);
-    expect(panel.element.querySelectorAll('input[name="asteroids.lodLowDistance"]')).toHaveLength(3);
-    expect(panel.element.querySelectorAll('input[name="asteroids.lodCullDistance"]')).toHaveLength(3);
-    expect(panel.element.querySelectorAll('input[name="scene.skyboxEnabled"]')).toHaveLength(3);
-    expect(panel.element.querySelectorAll('input[name="scene.boundaryShieldShader"]')).toHaveLength(3);
+    expect(panel.element.querySelectorAll('input[name="asteroids.lodMediumDistance"]')).toHaveLength(4);
+    expect(panel.element.querySelectorAll('input[name="asteroids.lodLowDistance"]')).toHaveLength(4);
+    expect(panel.element.querySelectorAll('input[name="asteroids.lodCullDistance"]')).toHaveLength(4);
+    expect(panel.element.querySelectorAll('input[name="scene.skyboxEnabled"]')).toHaveLength(4);
+    expect(panel.element.querySelectorAll('input[name="scene.boundaryShieldShader"]')).toHaveLength(4);
 
     const lowMedium = panel.element.querySelector<HTMLInputElement>(
       'input[name="asteroids.lodMediumDistance"]',

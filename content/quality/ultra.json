@@ -1,0 +1,55 @@
+{
+  "id": "quality.ultra",
+  "type": "quality",
+  "version": 1,
+  "name": "Ultra (Safari / flagship)",
+  "tier": "ultra",
+  "probe": {
+    "minCores": 8,
+    "minMemoryGb": 8,
+    "allowMobile": true
+  },
+  "autoTier": {
+    "sampleAfterMs": 5000,
+    "sampleWindowMs": 3000,
+    "demoteBelowFps": 50,
+    "promoteAboveFps": 0
+  },
+  "render": {
+    "hardwareScalingMultiplier": 1,
+    "maxDevicePixelRatio": 3,
+    "freezeStatics": true
+  },
+  "glow": {
+    "enabled": true,
+    "intensity": 0.7,
+    "blurKernelSize": 48
+  },
+  "particles": {
+    "enabled": true,
+    "budgetMultiplier": 1.2,
+    "maxEmitterCapacity": 120
+  },
+  "asteroids": {
+    "lodMediumDistance": 0,
+    "lodLowDistance": 0,
+    "lodCullDistance": 6000,
+    "thinInstances": true
+  },
+  "projectiles": {
+    "useInstances": true
+  },
+  "scene": {
+    "skyboxEnabled": true,
+    "boundaryShieldShader": true,
+    "starfieldPoints": 850,
+    "spawnMarkers": false,
+    "dust": {
+      "count": 560,
+      "size": 0.45,
+      "alpha": 0.38,
+      "driftSpeed": 1.2,
+      "boxSize": 140
+    }
+  }
+}

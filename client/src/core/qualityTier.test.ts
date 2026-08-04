@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { qualitySchema, type QualityConfig, type QualityTier } from "@space-arena/shared";
 import {
   newAutoTierState,
+  isSafari,
   parseStoredTier,
   probeDevice,
   probePasses,
@@ -50,7 +51,8 @@ function tier(
 const LOW = tier("low", { probe: { minCores: 0, minMemoryGb: 0, allowMobile: true } });
 const MED = tier("med", { probe: { minCores: 4, minMemoryGb: 3, allowMobile: true } });
 const HIGH = tier("high", { probe: { minCores: 8, minMemoryGb: 8, allowMobile: false } });
-const TIERS = [HIGH, LOW, MED]; // deliberately unsorted
+const ULTRA = tier("ultra", { probe: { minCores: 8, minMemoryGb: 8, allowMobile: true } });
+const TIERS = [ULTRA, HIGH, LOW, MED]; // deliberately unsorted
 
 describe("probeDevice", () => {
   it("reads cores, memory and the Chromium mobile hint", () => {
@@ -83,9 +85,17 @@ describe("probeDevice", () => {
   });
 });
 
+describe("isSafari", () => {
+  it("recognises macOS and iPadOS Safari but excludes other browsers", () => {
+    expect(isSafari({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Version/17.0 Safari/605.1.15" })).toBe(true);
+    expect(isSafari({ userAgent: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) Version/17.0 Mobile/15E148 Safari/604.1" })).toBe(true);
+    expect(isSafari({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) CriOS/120.0 Mobile/15E148 Safari/604.1" })).toBe(false);
+  });
+});
+
 describe("sortTiers / tierConfig / stepTier", () => {
   it("orders cheapest → best regardless of pack order", () => {
-    expect(sortTiers(TIERS).map((t) => t.tier)).toEqual(["low", "med", "high"]);
+    expect(sortTiers(TIERS).map((t) => t.tier)).toEqual(["low", "med", "high", "ultra"]);
   });
 
   it("looks a tier up by name", () => {
@@ -96,7 +106,8 @@ describe("sortTiers / tierConfig / stepTier", () => {
   it("steps one rung and clamps at both ends", () => {
     expect(stepTier(TIERS, "med", 1)).toBe("high");
     expect(stepTier(TIERS, "med", -1)).toBe("low");
-    expect(stepTier(TIERS, "high", 1)).toBe("high");
+    expect(stepTier(TIERS, "high", 1)).toBe("ultra");
+    expect(stepTier(TIERS, "ultra", 1)).toBe("ultra");
     expect(stepTier(TIERS, "low", -1)).toBe("low");
   });
 
@@ -127,12 +138,12 @@ describe("probePasses", () => {
 });
 
 describe("selectInitialTier", () => {
-  it("picks high on a capable desktop", () => {
-    expect(selectInitialTier(TIERS, { cores: 12, memoryGb: 16, mobile: false })).toBe("high");
+  it("picks ultra on a capable desktop", () => {
+    expect(selectInitialTier(TIERS, { cores: 12, memoryGb: 16, mobile: false })).toBe("ultra");
   });
 
-  it("caps a flagship phone at med because high forbids mobile", () => {
-    expect(selectInitialTier(TIERS, { cores: 8, memoryGb: 8, mobile: true })).toBe("med");
+  it("allows a flagship phone to reach ultra", () => {
+    expect(selectInitialTier(TIERS, { cores: 8, memoryGb: 8, mobile: true })).toBe("ultra");
   });
 
   it("picks med on a mid-range phone", () => {
@@ -157,7 +168,7 @@ describe("parseStoredTier / resolveStartTier", () => {
   it("accepts known tier names case-insensitively and rejects anything else", () => {
     expect(parseStoredTier("HIGH")).toBe("high");
     expect(parseStoredTier(" med ")).toBe("med");
-    expect(parseStoredTier("ultra")).toBeNull();
+    expect(parseStoredTier("ultra")).toBe("ultra");
     expect(parseStoredTier(null)).toBeNull();
     expect(parseStoredTier("")).toBeNull();
   });
@@ -178,8 +189,19 @@ describe("parseStoredTier / resolveStartTier", () => {
 
   it("uses the probe when nothing is stored", () => {
     expect(resolveStartTier(TIERS, { cores: 12, memoryGb: 16, mobile: false }, null)).toEqual({
-      tier: "high",
+      tier: "ultra",
       fromOverride: false,
+    });
+  });
+
+  it("uses Safari's ultra default only with no stored choice", () => {
+    expect(resolveStartTier(TIERS, { cores: 0, memoryGb: 0, mobile: true }, null, true)).toEqual({
+      tier: "ultra",
+      fromOverride: false,
+    });
+    expect(resolveStartTier(TIERS, { cores: 0, memoryGb: 0, mobile: true }, "low", true)).toEqual({
+      tier: "low",
+      fromOverride: true,
     });
   });
 });

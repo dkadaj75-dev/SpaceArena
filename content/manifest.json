@@ -10,6 +10,7 @@
     "quality/low.json",
     "quality/med.json",
     "quality/high.json",
+    "quality/ultra.json",
     "progression/default.json",
     "asteroids/small-rock.json",
     "asteroids/small-rock-b.json",

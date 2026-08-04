@@ -10,6 +10,7 @@ import {
   type AnyConfig,
   type ConfigType,
 } from "./index.js";
+import { QUALITY_TIERS } from "./quality.js";
 
 /**
  * ROADMAP §11 6.1 — "all schemas (valid/invalid/edge fixtures)".
@@ -1188,10 +1189,10 @@ describe("botprofile schema", () => {
 
 describe("quality schema (5.6)", () => {
   it("rejects an unknown tier and accepts each known one", () => {
-    for (const tier of ["low", "med", "high"]) {
+    for (const tier of QUALITY_TIERS) {
       expect(mutated("quality", (d) => (d["tier"] = tier))).toBe(true);
     }
-    expect(mutated("quality", (d) => (d["tier"] = "ultra"))).toBe(false);
+    expect(mutated("quality", (d) => (d["tier"] = "cinematic"))).toBe(false);
   });
 
   it("bounds the render scaling knobs to 0.5..4", () => {
@@ -1217,7 +1218,8 @@ describe("quality schema (5.6)", () => {
     expect(mutated("quality", set("autoTier", { sampleWindowMs: 0 }))).toBe(false);
     expect(mutated("quality", set("autoTier", { demoteBelowFps: 0, promoteAboveFps: 0 }))).toBe(true); // never adjust
     expect(mutated("quality", set("particles", { budgetMultiplier: 0 }))).toBe(true);
-    expect(mutated("quality", set("particles", { budgetMultiplier: 1.01 }))).toBe(false);
+    expect(mutated("quality", set("particles", { budgetMultiplier: 1.25 }))).toBe(true);
+    expect(mutated("quality", set("particles", { budgetMultiplier: 1.26 }))).toBe(false);
     expect(mutated("quality", set("particles", { maxEmitterCapacity: -1 }))).toBe(false);
   });
 
