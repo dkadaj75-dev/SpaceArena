@@ -100,6 +100,27 @@ describe("shipped arenas — the painted star is the key light", () => {
   }
 });
 
+describe("shipped arenas — proximity-only boundary wireframes", () => {
+  const FILES = ["deep-field.json", "ring-nebula.json", "lunar-crater.json", "broken-halo.json", "twin-titans.json"];
+
+  for (const file of FILES) {
+    it(`${file} hides the shield until close range and uses fine hex wires`, () => {
+      const parsed = arenaSchema.safeParse(load(`arenas/${file}`));
+      expect(parsed.success, `${file} must validate`).toBe(true);
+      if (!parsed.success) throw parsed.error;
+      const shield = parsed.data.render?.boundaryShield;
+      expect(shield, `${file} should author a boundary shield`).toBeDefined();
+      if (!shield) return;
+      expect(shield.baseOpacity).toBe(1);
+      expect(shield.glowStartDistance).toBeLessThanOrEqual(16);
+      expect(shield.redTransitionDistance).toBeLessThan(shield.warnDistance);
+      expect(shield.warnDistance).toBeLessThan(shield.glowStartDistance);
+      expect(shield.hexDensity).toBe(42);
+      expect(shield.hexLineWidth).toBeCloseTo(0.012, 6);
+    });
+  }
+});
+
 describe("shipped tuning + theme — match start countdown", () => {
   it("authors a 3 second countdown", () => {
     const parsed = tuningSchema.safeParse(load("tuning/default.json"));

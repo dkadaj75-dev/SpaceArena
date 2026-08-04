@@ -192,6 +192,19 @@ while vertical, rolled, or inverted.
   only after the player leaves, using the existing notification duration/style
   pipeline.
 
+## Boundary shield presentation amendment (2026-08-04)
+
+- The shield is **fully transparent** at and beyond `glowStartDistance`; its
+  `baseOpacity` is now the contact opacity, not a far-field visibility floor.
+  Shipped thresholds are deliberately short (10–16 world units) so the arena
+  boundary only announces itself when a pilot is genuinely near it. The warning
+  and red-transition distances remain nested within that range.
+- `render.boundaryShield.hexLineWidth` is the fractional width of each
+  anti-aliased procedural hex edge (shipped: `0.012`, bounded `0.002..0.08`).
+  The shader renders only these fine glowing wires; it no longer fills the
+  hex-cell interiors. Contact opacity remains 1 so the blue/red boundary hit
+  read is preserved despite the much lighter wireframe.
+
 ## Sun, dust, spawn markers, match countdown (2026-07-26)
 
 Four user-requested changes to how a match opens and how the bubble reads.

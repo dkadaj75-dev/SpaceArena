@@ -304,13 +304,14 @@
       }
     },
     "boundaryShield": {
-      "baseOpacity": 0.05,
-      "glowStartDistance": 40,
-      "redTransitionDistance": 16,
-      "warnDistance": 22,
+      "baseOpacity": 1,
+      "glowStartDistance": 13,
+      "redTransitionDistance": 5,
+      "warnDistance": 7.5,
       "blueColor": "#45c8ff",
       "redColor": "#ff405c",
       "hexDensity": 42,
+      "hexLineWidth": 0.012,
       "warningNotification": "notification.boundary-warning"
     }
   },

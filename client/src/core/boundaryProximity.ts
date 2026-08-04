@@ -38,14 +38,17 @@ export function boundaryProximityFactor(distanceToBoundary: number, glowStartDis
   return clamp01((glowStartDistance - distanceToBoundary) / glowStartDistance);
 }
 
-/** Far-field base opacity ramping to fully visible on contact. */
+/**
+ * The shell must disappear completely outside its authored proximity range.
+ * `baseOpacity` controls its contact intensity, never a far-field floor.
+ */
 export function boundaryShieldOpacity(
   distanceToBoundary: number,
   glowStartDistance: number,
   baseOpacity: number,
 ): number {
   const proximity = boundaryProximityFactor(distanceToBoundary, glowStartDistance);
-  return baseOpacity + (1 - baseOpacity) * proximity;
+  return baseOpacity * proximity;
 }
 
 /** Blue-to-red blend, beginning only inside the authored red threshold. */

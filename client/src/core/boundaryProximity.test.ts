@@ -10,12 +10,13 @@ import {
 } from "./boundaryProximity.js";
 
 describe("boundary shield proximity curves", () => {
-  it("stays at base opacity far away and reaches full opacity at contact", () => {
+  it("is fully invisible far away and reaches authored opacity at contact", () => {
     expect(boundaryProximityFactor(40, 40)).toBe(0);
-    expect(boundaryShieldOpacity(100, 40, 0.03)).toBeCloseTo(0.03);
-    expect(boundaryShieldOpacity(20, 40, 0.03)).toBeCloseTo(0.515);
-    expect(boundaryShieldOpacity(0, 40, 0.03)).toBe(1);
-    expect(boundaryShieldOpacity(-5, 40, 0.03)).toBe(1);
+    expect(boundaryShieldOpacity(100, 40, 1)).toBe(0);
+    expect(boundaryShieldOpacity(40, 40, 1)).toBe(0);
+    expect(boundaryShieldOpacity(20, 40, 1)).toBeCloseTo(0.5);
+    expect(boundaryShieldOpacity(0, 40, 1)).toBe(1);
+    expect(boundaryShieldOpacity(-5, 40, 1)).toBe(1);
   });
 
   it("keeps the shield blue until the red threshold, then blends to red", () => {

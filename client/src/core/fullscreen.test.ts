@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   fullscreenSupported,
   isFullscreen,
-  lockPortraitOrientation,
+  lockLandscapeOrientation,
   onFullscreenChange,
   toggleFullscreen,
   type FullscreenDocument,
@@ -122,14 +122,14 @@ describe("isFullscreen / toggleFullscreen", () => {
   });
 });
 
-describe("lockPortraitOrientation", () => {
-  it("asks a supporting screen to lock portrait and silently ignores rejection", async () => {
+describe("lockLandscapeOrientation", () => {
+  it("asks a supporting screen to lock landscape and silently ignores rejection", async () => {
     const lock = vi.fn().mockResolvedValue(undefined);
-    await lockPortraitOrientation({ orientation: { lock } });
-    expect(lock).toHaveBeenCalledWith("portrait");
+    await lockLandscapeOrientation({ orientation: { lock } });
+    expect(lock).toHaveBeenCalledWith("landscape");
 
     lock.mockRejectedValueOnce(new Error("iOS Safari rejects this"));
-    await expect(lockPortraitOrientation({ orientation: { lock } })).resolves.toBeUndefined();
+    await expect(lockLandscapeOrientation({ orientation: { lock } })).resolves.toBeUndefined();
   });
 });
 

@@ -150,6 +150,7 @@ function pack(): Record<string, Record<string, unknown>> {
           blueColor: "#39bfff",
           redColor: "#ff405c",
           hexDensity: 24,
+          hexLineWidth: 0.012,
           warningNotification: "notification.overheat",
         },
       },

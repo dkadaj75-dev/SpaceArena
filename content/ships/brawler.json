@@ -384,7 +384,7 @@
       "accent": "#ffb257"
     },
     "model": "ships/LShip01.glb",
-    "modelScale": 0.9,
+    "modelScale": 3.6,
     "modelRotationY": 0
   },
   "collider": {
