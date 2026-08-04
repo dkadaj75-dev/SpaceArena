@@ -1,5 +1,6 @@
 import { createLogger, type QualityTier } from "@space-arena/shared";
 import { QUALITY_STORAGE_KEY, parseStoredTier } from "./qualityTier.js";
+import { isSafari, type PlatformSource } from "./platform.js";
 import { DEFAULT_VOLUME, VOLUME_MASTER_KEY, VOLUME_SFX_KEY } from "../audio/AudioManager.js";
 
 const log = createLogger("Settings");
@@ -143,9 +144,14 @@ function readOptIn(storage: SettingsStorage | null, key: string): boolean {
   return storage?.getItem(key)?.trim().toLowerCase() === ON_VALUE;
 }
 
-function parseRenderer(raw: string | null | undefined): RendererPref | null {
+export function parseRenderer(raw: string | null | undefined): RendererPref | null {
   const value = raw?.trim().toLowerCase();
   return value === "webgpu" ? "webgpu" : value === "webgl" ? "webgl" : null;
+}
+
+/** Platform default used only when neither URL nor local storage picks a backend. */
+export function defaultRendererPreference(platform: PlatformSource | undefined): RendererPref {
+  return isSafari(platform) ? "webgpu" : DEFAULT_USER_SETTINGS.renderer;
 }
 
 /**
@@ -155,6 +161,7 @@ function parseRenderer(raw: string | null | undefined): RendererPref | null {
 export function readUserSettings(
   storage: SettingsStorage | null,
   defaults: UserSettingsDefaults = {},
+  platform: PlatformSource | undefined = browserPlatform(),
 ): UserSettings {
   const masterDefault = clamp01(defaults.masterVolume ?? DEFAULT_USER_SETTINGS.masterVolume);
   const sfxDefault = clamp01(defaults.sfxVolume ?? DEFAULT_USER_SETTINGS.sfxVolume);
@@ -171,7 +178,7 @@ export function readUserSettings(
     invertPitch: readOptIn(storage, INVERT_PITCH_KEY),
     mouseSteerSens: clampSteerSens(readNumber(storage, MOUSE_STEER_SENS_KEY, 1)),
     touchSteerSens: clampSteerSens(readNumber(storage, TOUCH_STEER_SENS_KEY, 1)),
-    renderer: parseRenderer(storage?.getItem(RENDERER_KEY)) ?? DEFAULT_USER_SETTINGS.renderer,
+    renderer: parseRenderer(storage?.getItem(RENDERER_KEY)) ?? defaultRendererPreference(platform),
   };
 }
 
@@ -240,8 +247,9 @@ export class UserSettingsStore {
   constructor(
     private readonly storage: SettingsStorage | null = safeStorage(),
     private readonly defaults: UserSettingsDefaults = {},
+    private readonly platform: PlatformSource | undefined = browserPlatform(),
   ) {
-    this.values = readUserSettings(this.storage, this.defaults);
+    this.values = readUserSettings(this.storage, this.defaults, this.platform);
   }
 
   get current(): UserSettings {
@@ -251,7 +259,7 @@ export class UserSettingsStore {
   /** Merge a patch, persist it, and notify listeners (only when something changed). */
   set(patch: Partial<UserSettings>): void {
     writeUserSettings(this.storage, patch);
-    const next = readUserSettings(this.storage, this.defaults);
+    const next = readUserSettings(this.storage, this.defaults, this.platform);
     if (shallowEqual(next, this.values)) return;
     this.values = next;
     log.info("settings changed", patch);
@@ -260,7 +268,7 @@ export class UserSettingsStore {
 
   /** Re-read from storage (another tab / the dev Quality panel wrote a key). */
   refresh(): void {
-    const next = readUserSettings(this.storage, this.defaults);
+    const next = readUserSettings(this.storage, this.defaults, this.platform);
     if (shallowEqual(next, this.values)) return;
     this.values = next;
     for (const listener of this.listeners) listener(next);
@@ -298,4 +306,8 @@ function safeStorage(): SettingsStorage | null {
   } catch {
     return null; // storage disabled (some privacy modes throw on access)
   }
+}
+
+function browserPlatform(): PlatformSource | undefined {
+  return typeof navigator === "undefined" ? undefined : navigator;
 }

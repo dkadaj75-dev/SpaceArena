@@ -426,6 +426,9 @@ export class Hangar {
     this.slots = ship ? this.slotsForShip(ship) : [];
 
     this.root.style.display = "flex";
+    // The bay installs its own IBL for this visit. Let authored GLB PBR values
+    // participate while staged, then restore the match-safe fallback in hide().
+    this.assets.setHangarMaterialMode(true);
     this.camera.setHangarMode(true);
     // ENTRY resets the view (owner report 2026-08-01: a hull framed from an odd
     // angle after a match). The rig is shared with the in-match chase camera,
@@ -499,6 +502,7 @@ export class Hangar {
     this.bay?.dispose();
     this.bay = null;
     this.bayRadius = 0;
+    this.assets.setHangarMaterialMode(false);
   }
 
   private async refreshFromServer(): Promise<boolean> {
@@ -639,6 +643,8 @@ export class Hangar {
     this.bay?.dispose();
     this.bayRadius = padRadius;
     this.bay = new HangarBay(this.scene, this.stageRoot, { padRadius });
+    const hull = this.previewInstance ?? this.lockedPreview;
+    if (hull) this.bay.addShadowCaster(hull);
   }
 
   /** The shared black translucent material every locked hull is painted with. */

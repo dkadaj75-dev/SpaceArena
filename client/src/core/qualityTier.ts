@@ -4,6 +4,7 @@ import {
   type QualityConfig,
   type QualityTier,
 } from "@space-arena/shared";
+import { isSafari, type PlatformSource } from "./platform.js";
 
 /**
  * ROADMAP §10 5.6 — pure tier-selection logic for the render quality system.
@@ -43,6 +44,8 @@ export interface ProbeSource {
   userAgentData?: { mobile?: boolean };
   maxTouchPoints?: number;
 }
+
+export { isSafari, type PlatformSource };
 
 /**
  * Read device capabilities. Missing cores become 0 ("no requirement
@@ -135,9 +138,14 @@ export function resolveStartTier(
   tiers: readonly QualityConfig[],
   probe: DeviceProbe,
   stored: string | null | undefined,
+  preferUltra = false,
 ): { tier: QualityTier; fromOverride: boolean } {
   const override = parseStoredTier(stored);
   if (override && tierConfig(tiers, override)) return { tier: override, fromOverride: true };
+  // Safari is deliberately presentation-first when the player has no saved
+  // choice. Its WebGPU-capable Macs and modern iPads are the target platform
+  // for Ultra; the normal FPS sampler can still step it down in-match.
+  if (preferUltra && tierConfig(tiers, "ultra")) return { tier: "ultra", fromOverride: false };
   return { tier: selectInitialTier(tiers, probe), fromOverride: false };
 }
 

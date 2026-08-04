@@ -16,6 +16,7 @@ import {
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { createUpdateGate } from "./core/swUpdate.js";
+import { installTouchGuards } from "./core/touchGuards.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
 import { preloadArenaModels, preloadShipModelsBeforeTimeout } from "./core/assetPreload.js";
 import { QualityManager } from "./core/QualityManager.js";
@@ -38,7 +39,12 @@ import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
 import { MatchmakingScreen } from "./game/screens/MatchmakingScreen.js";
 import { FullscreenPrompt } from "./game/screens/FullscreenPrompt.js";
-import { UserSettingsStore, type UserSettings } from "./core/userSettings.js";
+import {
+  defaultRendererPreference,
+  parseRenderer,
+  UserSettingsStore,
+  type UserSettings,
+} from "./core/userSettings.js";
 import { NetGameSession } from "./net/NetGameSession.js";
 import { MatchmakingClient } from "./net/MatchmakingClient.js";
 import {
@@ -186,18 +192,34 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     if (ok) log.info("dev-login: authenticated as admin (use ?login=1 to test the auth screen)");
   }
 
-  // Default renderer is WebGL2: WebGPU can black-screen with no error on some
-  // GPUs (seen 2026-07: Intel UHD 630 + Chrome — device alive, frames render,
-  // nothing ever presents to the canvas). Re-test WebGPU with ?renderer=webgpu.
+  // An explicit URL or saved backend always wins. Safari's no-preference
+  // default is WebGPU, while other browsers retain the conservative WebGL2
+  // default. A missing adapter or an engine-init failure must never prevent
+  // Safari from reaching the game.
   const rendererPref =
-    new URLSearchParams(window.location.search).get("renderer") ??
-    localStorage.getItem("spacearena.renderer") ??
-    "webgl";
-  const engine =
-    rendererPref === "webgpu"
-      ? ((await EngineFactory.CreateAsync(canvas, {})) as Engine)
-      : new Engine(canvas, true);
-  log.info("engine created", { renderer: rendererPref, cls: engine.getClassName() });
+    parseRenderer(new URLSearchParams(window.location.search).get("renderer")) ??
+    parseRenderer(localStorage.getItem("spacearena.renderer")) ??
+    defaultRendererPreference(window.navigator);
+  let actualRenderer = rendererPref;
+  let engine: Engine;
+  if (rendererPref === "webgpu") {
+    if (!("gpu" in navigator)) {
+      log.warn("WebGPU requested but unavailable; falling back to WebGL");
+      actualRenderer = "webgl";
+      engine = new Engine(canvas, true);
+    } else {
+      try {
+        engine = (await EngineFactory.CreateAsync(canvas, {})) as Engine;
+      } catch (error) {
+        log.warn("WebGPU engine creation failed; falling back to WebGL", { error });
+        actualRenderer = "webgl";
+        engine = new Engine(canvas, true);
+      }
+    }
+  } else {
+    engine = new Engine(canvas, true);
+  }
+  log.info("engine created", { requestedRenderer: rendererPref, renderer: actualRenderer, cls: engine.getClassName() });
 
   // Render quality (§10 5.6). The tier owns the DPR cap and the hardware
   // scaling level that used to be hardcoded here: device probe picks the
@@ -1120,6 +1142,9 @@ function playerShip(ships: readonly ShipSnapshot[], id: EntityId): ShipSnapshot 
 // the time this module runs — adopting it here only hands it a driver. A boot
 // that throws leaves the panel up with the reason on it: a blank page is the one
 // outcome that tells the player nothing at all.
+// iOS ignores the viewport zoom flags in browser tabs, so install the gesture
+// guards before the boot screen can receive a touch.
+installTouchGuards();
 const bootScreen = BootScreen.attach();
 bootstrap(bootScreen).catch((err) => {
   log.error("bootstrap failed", err);

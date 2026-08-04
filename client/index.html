@@ -28,6 +28,29 @@
         height: 100%;
         background: #05070d;
         overflow: hidden;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      /* Game surfaces are controls, not document text. The editor and actual
+         form fields explicitly opt back in below. */
+      #renderCanvas,
+      #hud,
+      #sa-boot {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      :where(input, textarea, [contenteditable]),
+      .sa-editor,
+      .sa-editor * {
+        -webkit-user-select: text;
+        user-select: text;
+        -webkit-touch-callout: default;
       }
 
       #renderCanvas {

@@ -30,7 +30,7 @@ const log = createLogger("Settings");
 
 const THEME_ID = "theme.default";
 
-const TIER_LABEL: Record<QualityTier, string> = { low: "Low", med: "Med", high: "High" };
+const TIER_LABEL: Record<QualityTier, string> = { low: "Low", med: "Med", high: "High", ultra: "Ultra" };
 
 export interface SettingsHost {
   configs: ConfigService;

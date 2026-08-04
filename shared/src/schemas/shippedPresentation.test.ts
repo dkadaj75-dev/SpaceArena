@@ -74,7 +74,7 @@ describe("shipped arenas — the painted star is the key light", () => {
   const EXPECTED = {
     "deep-field.json": { dir: [0.777, 0.309, 0.55], color: "#ffecc8", intensity: 1.1 },
     "ring-nebula.json": { dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1.0 },
-    "lunar-crater.json": { dir: [-0.707, 0.5, -0.5], color: "#ffffff", intensity: 1.1 },
+    "lunar-crater.json": { dir: [-0.707, 0.5, -0.5], color: "#ffffff", intensity: 1.45 },
     "broken-halo.json": { dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1.0 },
     "twin-titans.json": { dir: [0.777, 0.309, 0.55], color: "#ffecc8", intensity: 1.1 },
   } as const;

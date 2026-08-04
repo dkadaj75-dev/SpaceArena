@@ -231,6 +231,7 @@ export const arenaSchema = z
       .object({
         ambientColor: z.string().optional(),
         ambientIntensity: z.number().nonnegative().optional(),
+        groundBounceColor: z.string().optional(),
         directionalIntensity: z.number().nonnegative().optional(),
       })
       .optional(),

@@ -48,6 +48,10 @@ const CSS = `
   overflow: hidden;
   font-family: var(--hud-font-body, system-ui, sans-serif);
   color: var(--hud-text, #dbe9ff);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   --hud-scale: 1;
   --hud-safe-inset: 12px;
   /* Device safe area (notch/home indicator, viewport-fit=cover) + theme inset,
@@ -89,6 +93,12 @@ const CSS = `
   --hud-rim-color: color-mix(in srgb, var(--hud-primary, #39bfff) 52%, transparent);
   --hud-rim-dim: color-mix(in srgb, var(--hud-primary, #39bfff) 26%, transparent);
   --hud-tick-color: color-mix(in srgb, var(--hud-primary, #39bfff) 55%, transparent);
+}
+
+/* Buttons opt into the browser's low-latency tap handling. Continuous HUD
+   controls override this with touch-action:none where they own the gesture. */
+.hud-root [data-hud-control] {
+  touch-action: manipulation;
 }
 
 /*

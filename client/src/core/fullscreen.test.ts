@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   fullscreenSupported,
   isFullscreen,
+  lockPortraitOrientation,
   onFullscreenChange,
   toggleFullscreen,
   type FullscreenDocument,
@@ -118,6 +119,17 @@ describe("isFullscreen / toggleFullscreen", () => {
 
   it("is a silent no-op on a browser with no fullscreen at all", async () => {
     await expect(toggleFullscreen(fakeDoc("none").doc)).resolves.toBe(false);
+  });
+});
+
+describe("lockPortraitOrientation", () => {
+  it("asks a supporting screen to lock portrait and silently ignores rejection", async () => {
+    const lock = vi.fn().mockResolvedValue(undefined);
+    await lockPortraitOrientation({ orientation: { lock } });
+    expect(lock).toHaveBeenCalledWith("portrait");
+
+    lock.mockRejectedValueOnce(new Error("iOS Safari rejects this"));
+    await expect(lockPortraitOrientation({ orientation: { lock } })).resolves.toBeUndefined();
   });
 });
 

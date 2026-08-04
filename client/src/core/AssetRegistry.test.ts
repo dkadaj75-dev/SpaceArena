@@ -109,6 +109,24 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     assets.dispose();
   });
 
+  it("restores authored PBR metalness only while the hangar IBL is active", async () => {
+    stubModelImport();
+    const assets = new AssetRegistry(scene);
+    await assets.ensureModel(MODEL_RENDER);
+    const material = assets.getAsteroidMaster(MODEL_RENDER).mesh.material as PBRMaterial;
+    expect(material.metallic).toBe(0.25);
+    expect(material.roughness).toBe(0.5);
+
+    assets.setHangarMaterialMode(true);
+    expect(material.metallic).toBe(1);
+    expect(material.roughness).toBe(0);
+
+    assets.setHangarMaterialMode(false);
+    expect(material.metallic).toBe(0.25);
+    expect(material.roughness).toBe(0.5);
+    assets.dispose();
+  });
+
   it("gives a procedural master medium/low stand-ins plus a cull level", () => {
     const assets = new AssetRegistry(scene);
     assets.setAsteroidLod(LOD);

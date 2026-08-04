@@ -331,6 +331,7 @@ export class SceneBuilder {
     const hemi = new HemisphericLight("arenaHemiLight", sunDir ?? new Vector3(0, 1, 0), this.scene);
     hemi.intensity = arena.lighting?.ambientIntensity ?? 0.4;
     hemi.diffuse = colorFromHex(arena.lighting?.ambientColor, new Color3(0.6, 0.65, 0.8));
+    hemi.groundColor = colorFromHex(arena.lighting?.groundBounceColor, Color3.Black());
     hemi.parent = root;
 
     const dir = new DirectionalLight(
@@ -624,14 +625,14 @@ export class SceneBuilder {
     material.emissiveColor = Color3.Black();
     material.specularColor = new Color3(0.015, 0.015, 0.015);
     material.specularPower = 4;
-    const textureSize = lowTier ? 256 : 512;
+    const textureSize = lowTier ? 256 : 1024;
     const textures = createRegolithTextures(this.scene, textureSize, !lowTier && this.quality.scene.skyboxEnabled);
     if (textures) {
       material.diffuseTexture = textures.albedo;
       material.diffuseTexture.hasAlpha = true;
       material.useAlphaFromDiffuseTexture = true;
-      if (textures.bump) {
-        material.bumpTexture = textures.bump;
+      if (textures.normal) {
+        material.bumpTexture = textures.normal;
         material.bumpTexture.level = 0.75;
       }
     }
@@ -783,33 +784,41 @@ function terrainHeight(x: number, z: number, radius: number): number {
 
 interface RegolithTextures {
   albedo: DynamicTexture;
-  bump: DynamicTexture | null;
+  normal: DynamicTexture | null;
 }
 
 /** Canvas textures: layered grain/mottling plus crater floors and raised rims. */
-function createRegolithTextures(scene: Scene, size: number, includeBump: boolean): RegolithTextures | null {
+function createRegolithTextures(scene: Scene, size: number, includeNormal: boolean): RegolithTextures | null {
   try {
     const albedo = new DynamicTexture("terrain.regolith.albedo", { width: size, height: size }, scene, false);
     const albedoContext = albedo.getContext();
     const albedoImage = albedoContext.getImageData(0, 0, size, size);
-    const bump = includeBump
-      ? new DynamicTexture("terrain.regolith.height", { width: size, height: size }, scene, false)
+    const normal = includeNormal
+      ? new DynamicTexture("terrain.regolith.normal", { width: size, height: size }, scene, false)
       : null;
-    const bumpContext = bump?.getContext() ?? null;
-    const bumpImage = bumpContext?.getImageData(0, 0, size, size) ?? null;
-    const craters = makeCraters(0xc0ffee, 34);
+    const normalContext = normal?.getContext() ?? null;
+    const normalImage = normalContext?.getImageData(0, 0, size, size) ?? null;
+    const heights = normalImage ? new Float32Array(size * size) : null;
+    const craters = makeCraters(0xc0ffee, size >= 512 ? 52 : 34);
 
     for (let py = 0; py < size; py++) {
       for (let px = 0; px < size; px++) {
         const u = px / (size - 1);
         const v = py / (size - 1);
-        const grain = valueNoise(u * 92, v * 92, 0x8d12) * 0.055;
-        const medium = valueNoise(u * 24, v * 24, 0x4ab3) * 0.075;
-        const mottle = valueNoise(u * 5.5, v * 5.5, 0x912f) * 0.1;
-        let height = grain * 0.35 + medium * 0.5 + mottle * 0.4;
-        let shade = grain + medium + mottle;
+        const grain = valueNoise(u * 170, v * 170, 0x8d12) * 0.022;
+        const fine = valueNoise(u * 68, v * 68, 0x61ea) * 0.032;
+        const medium = valueNoise(u * 25, v * 25, 0x4ab3) * 0.045;
+        const broad = valueNoise(u * 7, v * 7, 0x912f) * 0.052;
+        let height = grain * 0.5 + fine * 0.7 + medium * 0.65 + broad * 0.35;
+        let shade = grain + fine + medium + broad;
         for (const crater of craters) {
           const d = Math.hypot(u - crater.x, v - crater.y) / crater.radius;
+          if (crater.radius > 0.07 && d >= 1 && d < 3.8) {
+            const angle = Math.atan2(v - crater.y, u - crater.x);
+            const rays = Math.max(0, Math.cos(angle * 11 + crater.x * 37));
+            const ray = rays ** 10 * (1 - (d - 1) / 2.8) * crater.depth;
+            shade += ray * 0.22;
+          }
           if (d < 1) {
             const floor = (1 - Math.min(1, d / 0.72)) * crater.depth;
             const rim = Math.exp(-((d - 0.86) ** 2) / 0.006) * crater.depth * 1.15;
@@ -819,28 +828,35 @@ function createRegolithTextures(scene: Scene, size: number, includeBump: boolean
         }
         const radial = Math.hypot(u - 0.5, v - 0.5) * 2;
         const edgeAlpha = Math.max(0, Math.min(1, (1 - radial) * 16));
-        const base = Math.max(0.19, Math.min(0.68, 0.43 + shade));
+        const base = Math.max(0.27, Math.min(0.61, 0.445 + shade));
         const i = (py * size + px) * 4;
         albedoImage.data[i] = Math.round(base * 255);
         albedoImage.data[i + 1] = Math.round(base * 0.985 * 255);
         albedoImage.data[i + 2] = Math.round(base * 0.955 * 255);
         albedoImage.data[i + 3] = Math.round(edgeAlpha * 255);
-        if (bumpImage) {
-          const h = Math.round(Math.max(0, Math.min(1, 0.5 + height * 1.8)) * 255);
-          bumpImage.data[i] = h;
-          bumpImage.data[i + 1] = h;
-          bumpImage.data[i + 2] = h;
-          bumpImage.data[i + 3] = 255;
-        }
+        if (heights) heights[py * size + px] = height;
       }
     }
     albedoContext.putImageData(albedoImage, 0, 0);
     albedo.update(false);
-    if (bump && bumpContext && bumpImage) {
-      bumpContext.putImageData(bumpImage, 0, 0);
-      bump.update(false);
+    if (normal && normalContext && normalImage && heights) {
+      const sample = (x: number, y: number): number => heights[Math.max(0, Math.min(size - 1, y)) * size + Math.max(0, Math.min(size - 1, x))]!;
+      for (let py = 0; py < size; py++) {
+        for (let px = 0; px < size; px++) {
+          const sx = (sample(px + 1, py) - sample(px - 1, py)) * 5.5;
+          const sy = (sample(px, py + 1) - sample(px, py - 1)) * 5.5;
+          const invLength = 1 / Math.hypot(sx, sy, 1);
+          const i = (py * size + px) * 4;
+          normalImage.data[i] = Math.round((-sx * invLength * 0.5 + 0.5) * 255);
+          normalImage.data[i + 1] = Math.round((sy * invLength * 0.5 + 0.5) * 255);
+          normalImage.data[i + 2] = Math.round(invLength * 255);
+          normalImage.data[i + 3] = 255;
+        }
+      }
+      normalContext.putImageData(normalImage, 0, 0);
+      normal.update(false);
     }
-    return { albedo, bump };
+    return { albedo, normal };
   } catch {
     // NullEngine and other canvas-less hosts still get lit geometry/material.
     return null;

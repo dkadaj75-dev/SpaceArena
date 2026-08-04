@@ -1,11 +1,18 @@
 import {
   Color3,
+  Constants,
+  DynamicTexture,
   MeshBuilder,
   PointLight,
+  RawCubeTexture,
+  ShadowGenerator,
   SpotLight,
   StandardMaterial,
+  Texture,
   TransformNode,
   Vector3,
+  type AbstractMesh,
+  type BaseTexture,
   type Mesh,
   type Scene,
 } from "@babylonjs/core";
@@ -20,10 +27,9 @@ import {
  * around something, and its lights put a warm key on one side and a cool rim on
  * the other so the silhouette reads at every angle.
  *
- * Deliberately cheap: a pad, a rear wall, four gantry pillars, a couple of
- * strip lights and two point lights. Every surface is unlit-emissive or matte —
- * no reflections, no shadows, nothing that would cost a frame on a phone.
- * The whole thing is one parent node, built once and disposed with the screen.
+ * It remains deliberately bounded: a tiny procedural IBL cube and one small,
+ * blurred shadow map make the hull read as metal without turning a menu into a
+ * second arena renderer. The whole thing is owned by the screen visit.
  */
 export interface HangarBayOptions {
   /** Radius of the landing pad. Sized from the hull the bay is built around. */
@@ -37,6 +43,9 @@ const DEFAULT_ACCENT = new Color3(0.94, 0.48, 0.02);
 export class HangarBay {
   readonly root: TransformNode;
   private readonly disposables: { dispose(): void }[] = [];
+  private readonly previousEnvironment: BaseTexture | null;
+  private readonly environment: RawCubeTexture | null;
+  private readonly shadows: ShadowGenerator;
 
   constructor(scene: Scene, parent: TransformNode, opts: HangarBayOptions = {}) {
     const padRadius = opts.padRadius ?? 9;
@@ -44,8 +53,15 @@ export class HangarBay {
     this.root = new TransformNode("hangarBay", scene);
     this.root.parent = parent;
 
-    const deck = this.matte(scene, "hangarBay.deck", new Color3(0.075, 0.08, 0.09));
-    const trim = this.matte(scene, "hangarBay.trim", new Color3(0.14, 0.15, 0.165));
+    // A compact, authored-in-code cube gives the GLB PBR hulls broad cool bay
+    // reflections and a warm ceiling practical. RawCubeTexture supports mip
+    // generation, so rough surfaces naturally blur it without an HDR download.
+    this.previousEnvironment = scene.environmentTexture;
+    this.environment = this.createEnvironment(scene);
+    if (this.environment) scene.environmentTexture = this.environment;
+
+    const deck = this.plated(scene, "hangarBay.deck", new Color3(0.075, 0.08, 0.09));
+    const trim = this.plated(scene, "hangarBay.trim", new Color3(0.14, 0.15, 0.165), 0.45);
     const seamMat = this.matte(scene, "hangarBay.seam", new Color3(0.03, 0.033, 0.038));
     const glow = this.emissive(scene, "hangarBay.glow", accent);
     const hazard = this.emissive(scene, "hangarBay.hazard", accent.scale(0.5));
@@ -65,6 +81,7 @@ export class HangarBay {
       scene,
     );
     pad.material = deck;
+    pad.receiveShadows = true;
     pad.position.y = deckY;
     this.add(pad);
 
@@ -142,6 +159,7 @@ export class HangarBay {
       scene,
     );
     floor.material = deck;
+    floor.receiveShadows = true;
     floor.position.y = deckY - 0.4;
     this.add(floor);
 
@@ -254,15 +272,15 @@ export class HangarBay {
     // Key and rim: warm from the front-left, cool from behind-right. Range is
     // clamped to the bay so nothing here can reach the arena.
     const key = new PointLight("hangarBay.key", new Vector3(-padRadius, padRadius * 1.4, padRadius * 1.6), scene);
-    key.diffuse = new Color3(1, 0.82, 0.62);
-    key.intensity = 0.85;
+    key.diffuse = new Color3(1, 0.72, 0.47);
+    key.intensity = 0.7;
     key.range = padRadius * 9;
     key.parent = this.root;
     this.disposables.push(key);
 
     const rim = new PointLight("hangarBay.rim", new Vector3(padRadius * 1.3, padRadius * 0.6, -padRadius * 1.8), scene);
     rim.diffuse = new Color3(0.45, 0.66, 1);
-    rim.intensity = 0.55;
+    rim.intensity = 0.42;
     rim.range = padRadius * 9;
     rim.parent = this.root;
     this.disposables.push(rim);
@@ -278,16 +296,25 @@ export class HangarBay {
       6,
       scene,
     );
-    overhead.diffuse = new Color3(1, 0.95, 0.86);
-    overhead.intensity = 1.5;
+    overhead.diffuse = new Color3(1, 0.78, 0.52);
+    overhead.intensity = 2.1;
     overhead.range = padRadius * 8;
     overhead.parent = this.root;
     this.disposables.push(overhead);
 
+    // One 512px blurred map is enough to ground the displayed ship. It is
+    // deliberately attached only to the work light: extra maps are costly and
+    // make the stage unstable on integrated/mobile GPUs.
+    this.shadows = new ShadowGenerator(512, overhead);
+    this.shadows.useBlurExponentialShadowMap = true;
+    this.shadows.blurKernel = 8;
+    // Release the render target before its casters/receivers go away.
+    this.disposables.unshift(this.shadows);
+
     // Low bounce off the deck, so the hull's underside is not a silhouette.
     const bounce = new PointLight("hangarBay.bounce", new Vector3(0, deckY + 0.8, padRadius * 0.4), scene);
-    bounce.diffuse = accent.scale(0.55);
-    bounce.intensity = 0.35;
+    bounce.diffuse = new Color3(0.28, 0.42, 0.62);
+    bounce.intensity = 0.22;
     bounce.range = padRadius * 4;
     bounce.parent = this.root;
     this.disposables.push(bounce);
@@ -308,6 +335,117 @@ export class HangarBay {
     return mat;
   }
 
+  /** Structural plating with a modest procedural albedo, bump and specular variation. */
+  private plated(scene: Scene, name: string, colour: Color3, bumpStrength = 0.7): StandardMaterial {
+    const mat = this.matte(scene, name, colour);
+    mat.specularColor = new Color3(0.22, 0.24, 0.27);
+    mat.specularPower = 48;
+    // Headless NullEngine has neither a canvas context nor a GPU texture
+    // target. Keep material/lifecycle tests deterministic there.
+    if (!scene.getEngine().getRenderingCanvas()) return mat;
+    const { albedo, normal, specular } = this.createPlateMaps(scene, name, colour);
+    mat.diffuseTexture = albedo;
+    mat.bumpTexture = normal;
+    mat.bumpTexture.level = bumpStrength;
+    // StandardMaterial has no roughness map; a low-contrast specular map is
+    // the equivalent control and keeps seams/wear from reflecting uniformly.
+    mat.specularTexture = specular;
+    this.disposables.push(albedo, normal, specular);
+    return mat;
+  }
+
+  private createPlateMaps(scene: Scene, name: string, colour: Color3): { albedo: DynamicTexture; normal: DynamicTexture; specular: DynamicTexture } {
+    const size = 256;
+    const albedo = new DynamicTexture(`${name}.albedo`, { width: size, height: size }, scene, true);
+    const normal = new DynamicTexture(`${name}.normal`, { width: size, height: size }, scene, true);
+    const specular = new DynamicTexture(`${name}.specular`, { width: size, height: size }, scene, true);
+    for (const texture of [albedo, normal, specular]) {
+      texture.wrapU = Texture.WRAP_ADDRESSMODE;
+      texture.wrapV = Texture.WRAP_ADDRESSMODE;
+      texture.uScale = 5;
+      texture.vScale = 5;
+    }
+    normal.gammaSpace = false;
+    specular.gammaSpace = false;
+
+    const albedoContext = albedo.getContext();
+    albedoContext.fillStyle = `rgb(${Math.round(colour.r * 255)}, ${Math.round(colour.g * 255)}, ${Math.round(colour.b * 255)})`;
+    albedoContext.fillRect(0, 0, size, size);
+    // Plate edges, fine brushing and sparse worn streaks. These are laid into
+    // the same deterministic height field used below for the tangent-space map.
+    albedoContext.fillStyle = "rgba(0, 0, 0, 0.34)";
+    for (let p = 0; p <= size; p += 64) {
+      albedoContext.fillRect(p, 0, 2, size);
+      albedoContext.fillRect(0, p, size, 2);
+    }
+    albedoContext.fillStyle = "rgba(190, 205, 220, 0.045)";
+    for (let y = 7; y < size; y += 9) albedoContext.fillRect(0, y, size, 1);
+    albedoContext.fillStyle = "rgba(215, 190, 145, 0.08)";
+    for (let i = 0; i < 18; i++) albedoContext.fillRect((i * 47) % size, (i * 83) % size, 13 + (i % 4) * 9, 1);
+    albedo.update();
+
+    const normalPixels = new Uint8ClampedArray(size * size * 4);
+    const specularPixels = new Uint8ClampedArray(size * size * 4);
+    const height = (x: number, y: number): number => {
+      const seam = x % 64 < 2 || y % 64 < 2 ? -1.2 : 0;
+      const brush = Math.sin(y * 0.72 + x * 0.04) * 0.055;
+      const wear = Math.sin(x * 0.13 + y * 0.19) * 0.035;
+      return seam + brush + wear;
+    };
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const index = (y * size + x) * 4;
+      const dx = (height((x + 1) % size, y) - height((x + size - 1) % size, y)) * 3.2;
+      const dy = (height(x, (y + 1) % size) - height(x, (y + size - 1) % size)) * 3.2;
+      const inv = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+      normalPixels[index] = Math.round((0.5 - dx * inv * 0.5) * 255);
+      normalPixels[index + 1] = Math.round((0.5 - dy * inv * 0.5) * 255);
+      normalPixels[index + 2] = Math.round(inv * 255);
+      normalPixels[index + 3] = 255;
+      const variation = 104 + Math.round((height(x, y) + 1.2) * 20);
+      specularPixels[index] = variation;
+      specularPixels[index + 1] = variation;
+      specularPixels[index + 2] = variation;
+      specularPixels[index + 3] = 255;
+    }
+    normal.getContext().putImageData(new ImageData(normalPixels, size, size), 0, 0);
+    specular.getContext().putImageData(new ImageData(specularPixels, size, size), 0, 0);
+    normal.update();
+    specular.update();
+    return { albedo, normal, specular };
+  }
+
+  private createEnvironment(scene: Scene): RawCubeTexture | null {
+    // NullEngine has no WebGL texture backend. Keeping this guard lets the
+    // lifecycle tests exercise every other owned resource without faking IBL.
+    if (!scene.getEngine().getRenderingCanvas()) return null;
+    const size = 16;
+    const faceColours: readonly [number, number, number][] = [
+      [48, 68, 96], [48, 68, 96], [232, 158, 91], [18, 25, 39], [32, 47, 68], [32, 47, 68],
+    ];
+    const faces = faceColours.map(([r, g, b]) => {
+      const data = new Uint8Array(size * size * 4);
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        const i = (y * size + x) * 4;
+        const glow = y < 3 && (x > 4 && x < 12) ? 42 : 0;
+        data[i] = Math.min(255, r + glow);
+        data[i + 1] = Math.min(255, g + glow);
+        data[i + 2] = Math.min(255, b + glow);
+        data[i + 3] = 255;
+      }
+      return data;
+    });
+    const environment = new RawCubeTexture(scene, faces, size, Constants.TEXTUREFORMAT_RGBA, Constants.TEXTURETYPE_UNSIGNED_BYTE, true);
+    environment.coordinatesMode = Texture.CUBIC_MODE;
+    environment.gammaSpace = false;
+    environment.level = 0.72;
+    return environment;
+  }
+
+  /** Register the current hull after it exists; keeps the shadow map scoped to the bay. */
+  addShadowCaster(mesh: AbstractMesh): void {
+    this.shadows.addShadowCaster(mesh, true);
+  }
+
   /** Unlit strip light: emissive only, so it reads the same at every angle. */
   private emissive(scene: Scene, name: string, colour: Color3): StandardMaterial {
     const mat = new StandardMaterial(name, scene);
@@ -321,6 +459,8 @@ export class HangarBay {
   dispose(): void {
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
+    if (this.environment && this.root.getScene().environmentTexture === this.environment) this.root.getScene().environmentTexture = this.previousEnvironment;
+    this.environment?.dispose();
     this.root.dispose();
   }
 }

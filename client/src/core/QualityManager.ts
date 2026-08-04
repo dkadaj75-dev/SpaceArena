@@ -9,6 +9,7 @@ import {
 } from "@space-arena/shared";
 import {
   newAutoTierState,
+  isSafari,
   probeDevice,
   QUALITY_STORAGE_KEY,
   resolveStartTier,
@@ -66,7 +67,12 @@ export class QualityManager {
     this.devicePixelRatio = options.devicePixelRatio ?? 1;
     this.probe = probeDevice(options.navigator as never);
 
-    const start = resolveStartTier(this.tiers, this.probe, this.storage?.getItem(QUALITY_STORAGE_KEY));
+    const start = resolveStartTier(
+      this.tiers,
+      this.probe,
+      this.storage?.getItem(QUALITY_STORAGE_KEY),
+      isSafari(options.navigator),
+    );
     this.tier = start.tier;
     this.fromOverride = start.fromOverride;
     log.info("quality tier selected", {
