@@ -1,17 +1,17 @@
 {
-  "id": "module.utility-armor-plating",
+  "id": "module.engine-mk2",
   "type": "module",
   "version": 1,
-  "family": "utility",
+  "family": "engine",
   "level": 2,
-  "name": "Reinforced Armor Plating",
+  "name": "Civilian Drive Mk II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
   },
   "energy": {
     "drawIdle": 0,
-    "drawActive": 0
+    "drawActive": 6
   },
   "heat": {
     "perSecondActive": 0,
@@ -21,26 +21,26 @@
   },
   "passives": [
     {
-      "target": "hull.base",
-      "op": "add",
-      "value": 32
-    },
-    {
       "target": "engine.nominalSpeed",
       "op": "mul",
-      "value": 0.92
+      "value": 1.25
+    },
+    {
+      "target": "engine.turnRate",
+      "op": "mul",
+      "value": 1.12
     },
     {
       "target": "engine.accel",
       "op": "mul",
-      "value": 0.9
+      "value": 1.2
     }
   ],
   "ui": {
-    "icon": "[ICON: utility]",
-    "shortName": "Armor Plate",
-    "label": "Armor"
+    "icon": "[ICON: engine]",
+    "shortName": "Civ Drive",
+    "label": "Engine"
   },
-  "price": 700,
-  "requiresLevel": 3
+  "price": 650,
+  "requiresLevel": 2
 }

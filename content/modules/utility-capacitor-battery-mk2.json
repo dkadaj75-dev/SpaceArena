@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-heat-sink",
+  "id": "module.utility-capacitor-battery-mk2",
   "type": "module",
   "version": 1,
   "family": "utility",
-  "level": 2,
-  "name": "Heat Sink",
+  "level": 3,
+  "name": "Capacitor Battery Mk II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -21,21 +21,21 @@
   },
   "passives": [
     {
-      "target": "heat.dissipation",
+      "target": "energy.capacitor",
       "op": "add",
-      "value": 5
+      "value": 50
     },
     {
-      "target": "heat.capacity",
-      "op": "mul",
-      "value": 1.1
+      "target": "energy.regen",
+      "op": "add",
+      "value": 5
     }
   ],
   "ui": {
-    "icon": "[ICON: heat-sink]",
-    "shortName": "Heat Sink",
-    "label": "Heat Sink"
+    "icon": "[ICON: capacitor]",
+    "shortName": "Capacitor",
+    "label": "Battery"
   },
-  "price": 400,
-  "requiresLevel": 2
+  "price": 900,
+  "requiresLevel": 4
 }

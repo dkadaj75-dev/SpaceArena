@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-heat-sink",
+  "id": "module.generator-compact-mk2",
   "type": "module",
   "version": 1,
-  "family": "utility",
+  "family": "generator",
   "level": 2,
-  "name": "Heat Sink",
+  "name": "Compact Cell Mk II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -21,21 +21,16 @@
   },
   "passives": [
     {
-      "target": "heat.dissipation",
+      "target": "energy.regen",
       "op": "add",
-      "value": 5
-    },
-    {
-      "target": "heat.capacity",
-      "op": "mul",
-      "value": 1.1
+      "value": 4
     }
   ],
   "ui": {
-    "icon": "[ICON: heat-sink]",
-    "shortName": "Heat Sink",
-    "label": "Heat Sink"
+    "icon": "[ICON: generator]",
+    "shortName": "Compact Gen",
+    "label": "Generator"
   },
-  "price": 400,
+  "price": 650,
   "requiresLevel": 2
 }

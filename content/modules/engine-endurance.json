@@ -5,16 +5,46 @@
   "family": "engine",
   "level": 2,
   "name": "Endurance Drive",
-  "activation": { "deployTime": 0, "retractTime": 0 },
-  "energy": { "drawIdle": 0, "drawActive": 9 },
-  "heat": { "perSecondActive": 0, "overheatThreshold": 52, "overheatCooldown": 3, "overheatSelfDamage": 0 },
-  "boost": { "speedMult": 1.48, "heatPerSec": 0.65 },
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 9
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 52,
+    "overheatCooldown": 3,
+    "overheatSelfDamage": 0
+  },
+  "boost": {
+    "speedMult": 1.48,
+    "heatPerSec": 1.9500000000000002
+  },
   "passives": [
-    { "target": "engine.nominalSpeed", "op": "mul", "value": 1.05 },
-    { "target": "engine.accel", "op": "mul", "value": 0.94 },
-    { "target": "engine.turnRate", "op": "mul", "value": 0.96 }
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 1.05
+    },
+    {
+      "target": "engine.accel",
+      "op": "mul",
+      "value": 0.94
+    },
+    {
+      "target": "engine.turnRate",
+      "op": "mul",
+      "value": 0.96
+    }
   ],
-  "ui": { "icon": "[ICON: engine]", "shortName": "Endurance", "label": "Engine" },
+  "ui": {
+    "icon": "[ICON: engine]",
+    "shortName": "Endurance",
+    "label": "Engine"
+  },
   "price": 850,
   "requiresLevel": 2
 }

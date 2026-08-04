@@ -1,30 +1,30 @@
 {
-  "id": "module.boost-mk1",
+  "id": "module.boost-mk3",
   "type": "module",
   "version": 1,
   "family": "boost",
-  "level": 1,
-  "name": "Afterburner Mk I",
+  "level": 3,
+  "name": "Afterburner Mk III",
   "activation": {
     "deployTime": 0.25,
     "retractTime": 0.25
   },
   "energy": {
     "drawIdle": 2,
-    "drawActive": 36
+    "drawActive": 30
   },
   "power": {
-    "draw": 1.5
+    "draw": 3.5
   },
   "heat": {
-    "perSecondActive": 3.9000000000000004,
-    "overheatThreshold": 45,
-    "overheatCooldown": 3,
+    "perSecondActive": 5.699999999999999,
+    "overheatThreshold": 56,
+    "overheatCooldown": 4,
     "overheatSelfDamage": 0
   },
   "boost": {
-    "speedMult": 1.8,
-    "heatPerSec": 1.5
+    "speedMult": 2.5,
+    "heatPerSec": 5.699999999999999
   },
   "onActivate": [
     "action.play-sound-boost-up"
@@ -38,9 +38,9 @@
   ],
   "ui": {
     "icon": "[ICON: boost]",
-    "shortName": "Boost Mk1",
-    "label": "Boost"
+    "shortName": "Boost Mk2",
+    "label": "Boost II"
   },
-  "price": 0,
-  "requiresLevel": 1
+  "price": 900,
+  "requiresLevel": 4
 }

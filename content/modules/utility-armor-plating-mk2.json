@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-armor-plating",
+  "id": "module.utility-armor-plating-mk2",
   "type": "module",
   "version": 1,
   "family": "utility",
-  "level": 2,
-  "name": "Reinforced Armor Plating",
+  "level": 3,
+  "name": "Reinforced Armor Plating Mk II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -23,7 +23,7 @@
     {
       "target": "hull.base",
       "op": "add",
-      "value": 32
+      "value": 40
     },
     {
       "target": "engine.nominalSpeed",
@@ -41,6 +41,6 @@
     "shortName": "Armor Plate",
     "label": "Armor"
   },
-  "price": 700,
-  "requiresLevel": 3
+  "price": 1450,
+  "requiresLevel": 5
 }

@@ -1,10 +1,10 @@
 {
-  "id": "module.engine-civ",
+  "id": "module.sensors-mk3",
   "type": "module",
   "version": 1,
-  "family": "engine",
-  "level": 1,
-  "name": "Civilian Drive",
+  "family": "sensors",
+  "level": 3,
+  "name": "Standard Array Mk III",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -21,21 +21,21 @@
   },
   "passives": [
     {
-      "target": "engine.nominalSpeed",
+      "target": "sensors.lockRange",
       "op": "mul",
-      "value": 1
+      "value": 1.55
     },
     {
-      "target": "engine.turnRate",
+      "target": "sensors.lockTimeSec",
       "op": "mul",
-      "value": 1
+      "value": 0.78
     }
   ],
   "ui": {
-    "icon": "[ICON: engine]",
-    "shortName": "Civ Drive",
-    "label": "Engine"
+    "icon": "[ICON: sensors]",
+    "shortName": "Std Array",
+    "label": "Sensors"
   },
-  "price": 0,
-  "requiresLevel": 1
+  "price": 1400,
+  "requiresLevel": 4
 }

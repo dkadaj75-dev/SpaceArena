@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-heat-sink",
+  "id": "module.transformer-mk2",
   "type": "module",
   "version": 1,
-  "family": "utility",
+  "family": "transformer",
   "level": 2,
-  "name": "Heat Sink",
+  "name": "Stock Bus Mk II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -21,21 +21,16 @@
   },
   "passives": [
     {
-      "target": "heat.dissipation",
+      "target": "power.capacity",
       "op": "add",
-      "value": 5
-    },
-    {
-      "target": "heat.capacity",
-      "op": "mul",
-      "value": 1.1
+      "value": 6.5
     }
   ],
   "ui": {
-    "icon": "[ICON: heat-sink]",
-    "shortName": "Heat Sink",
-    "label": "Heat Sink"
+    "icon": "[ICON: transformer]",
+    "shortName": "Stock Bus",
+    "label": "Transformer"
   },
-  "price": 400,
+  "price": 750,
   "requiresLevel": 2
 }

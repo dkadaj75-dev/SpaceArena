@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-armor-plating",
+  "id": "module.sensors-mk2",
   "type": "module",
   "version": 1,
-  "family": "utility",
+  "family": "sensors",
   "level": 2,
-  "name": "Reinforced Armor Plating",
+  "name": "Standard Array Mk II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -21,26 +21,21 @@
   },
   "passives": [
     {
-      "target": "hull.base",
-      "op": "add",
-      "value": 32
-    },
-    {
-      "target": "engine.nominalSpeed",
+      "target": "sensors.lockRange",
       "op": "mul",
-      "value": 0.92
+      "value": 1.25
     },
     {
-      "target": "engine.accel",
+      "target": "sensors.lockTimeSec",
       "op": "mul",
       "value": 0.9
     }
   ],
   "ui": {
-    "icon": "[ICON: utility]",
-    "shortName": "Armor Plate",
-    "label": "Armor"
+    "icon": "[ICON: sensors]",
+    "shortName": "Std Array",
+    "label": "Sensors"
   },
-  "price": 700,
-  "requiresLevel": 3
+  "price": 600,
+  "requiresLevel": 2
 }

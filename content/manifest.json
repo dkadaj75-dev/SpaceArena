@@ -100,6 +100,26 @@
     "actions/play-sound-shield-down.json",
     "actions/play-sound-boost-up.json",
     "actions/play-sound-boost-down.json",
-    "actions/play-sound-overheat.json"
+    "actions/play-sound-overheat.json",
+    "modules/beamlaser-mk3.json",
+    "modules/boost-mk3.json",
+    "modules/engine-mk2.json",
+    "modules/engine-mk3.json",
+    "modules/generator-compact-mk2.json",
+    "modules/generator-heavy-mk2.json",
+    "modules/generator-siege-mk2.json",
+    "modules/heatsink-mk2.json",
+    "modules/heatsink-mk3.json",
+    "modules/kinetic-mk3.json",
+    "modules/laser-mk3.json",
+    "modules/missile-mk3.json",
+    "modules/sensors-mk2.json",
+    "modules/sensors-mk3.json",
+    "modules/transformer-mk2.json",
+    "modules/transformer-mk3.json",
+    "modules/utility-armor-plating-mk2.json",
+    "modules/utility-capacitor-battery-mk2.json",
+    "modules/utility-flux-capacitor-mk2.json",
+    "modules/utility-heat-sink-mk2.json"
   ]
 }

@@ -1,24 +1,24 @@
 {
-  "id": "module.missile-mk2",
+  "id": "module.missile-mk3",
   "type": "module",
   "version": 1,
   "family": "missile",
-  "level": 2,
-  "name": "Seeker Missile Mk II",
+  "level": 3,
+  "name": "Seeker Missile Mk III",
   "activation": {
     "deployTime": 0.7,
     "retractTime": 0.4
   },
   "energy": {
-    "drawIdle": 3,
-    "drawActive": 8
+    "drawIdle": 4,
+    "drawActive": 10
   },
   "power": {
-    "draw": 3.5
+    "draw": 5
   },
   "heat": {
-    "perSecondActive": 3.9000000000000004,
-    "overheatThreshold": 55,
+    "perSecondActive": 5.1,
+    "overheatThreshold": 60,
     "overheatCooldown": 6,
     "overheatSelfDamage": 0
   },
@@ -26,7 +26,7 @@
     "mode": "semi",
     "range": 155,
     "cycleTime": 2,
-    "damage": 48,
+    "damage": 61,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
     "projectile": {
@@ -47,6 +47,6 @@
     "shortName": "Missile Mk2",
     "label": "Missile II"
   },
-  "price": 450,
-  "requiresLevel": 3
+  "price": 1200,
+  "requiresLevel": 5
 }

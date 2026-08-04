@@ -16,12 +16,12 @@
   "heat": {
     "perSecondActive": 0,
     "overheatThreshold": 45,
-    "overheatCooldown": 3.0,
+    "overheatCooldown": 3,
     "overheatSelfDamage": 0
   },
   "boost": {
     "speedMult": 1.7,
-    "heatPerSec": 1.3
+    "heatPerSec": 3.9000000000000004
   },
   "passives": [
     {

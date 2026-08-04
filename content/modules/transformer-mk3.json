@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-heat-sink",
+  "id": "module.transformer-mk3",
   "type": "module",
   "version": 1,
-  "family": "utility",
-  "level": 2,
-  "name": "Heat Sink",
+  "family": "transformer",
+  "level": 3,
+  "name": "Stock Bus Mk III",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -21,21 +21,16 @@
   },
   "passives": [
     {
-      "target": "heat.dissipation",
+      "target": "power.capacity",
       "op": "add",
-      "value": 5
-    },
-    {
-      "target": "heat.capacity",
-      "op": "mul",
-      "value": 1.1
+      "value": 8
     }
   ],
   "ui": {
-    "icon": "[ICON: heat-sink]",
-    "shortName": "Heat Sink",
-    "label": "Heat Sink"
+    "icon": "[ICON: transformer]",
+    "shortName": "Stock Bus",
+    "label": "Transformer"
   },
-  "price": 400,
-  "requiresLevel": 2
+  "price": 1650,
+  "requiresLevel": 4
 }

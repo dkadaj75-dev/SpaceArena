@@ -5,17 +5,45 @@
   "family": "laser",
   "level": 3,
   "name": "Burst Pulse Laser",
-  "activation": { "deployTime": 0.45, "retractTime": 0.3 },
-  "energy": { "drawIdle": 5, "drawActive": 18 },
-  "power": { "draw": 5.5 },
-  "heat": { "perSecondActive": 2.4, "overheatThreshold": 58, "overheatCooldown": 5.5, "overheatSelfDamage": 1 },
-  "fire": {
-    "mode": "held", "range": 88, "cycleTime": 0.22, "heatPerShot": 5,
-    "damage": 7, "damageType": "energy", "requiresLineOfSight": true, "projectile": null
+  "activation": {
+    "deployTime": 0.45,
+    "retractTime": 0.3
   },
-  "onFire": ["action.play-sound-laser"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: laser]", "shortName": "Burst Laser", "label": "Burst Laser" },
+  "energy": {
+    "drawIdle": 5,
+    "drawActive": 18
+  },
+  "power": {
+    "draw": 5.5
+  },
+  "heat": {
+    "perSecondActive": 7.199999999999999,
+    "overheatThreshold": 58,
+    "overheatCooldown": 5.5,
+    "overheatSelfDamage": 1
+  },
+  "fire": {
+    "mode": "held",
+    "range": 88,
+    "cycleTime": 0.22,
+    "heatPerShot": 15,
+    "damage": 11,
+    "damageType": "energy",
+    "requiresLineOfSight": true,
+    "projectile": null
+  },
+  "onFire": [
+    "action.play-sound-laser"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: laser]",
+    "shortName": "Burst Laser",
+    "label": "Burst Laser"
+  },
   "price": 1150,
   "requiresLevel": 4
 }

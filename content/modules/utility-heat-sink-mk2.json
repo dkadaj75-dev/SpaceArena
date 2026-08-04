@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-armor-plating",
+  "id": "module.utility-heat-sink-mk2",
   "type": "module",
   "version": 1,
   "family": "utility",
-  "level": 2,
-  "name": "Reinforced Armor Plating",
+  "level": 3,
+  "name": "Heat Sink Mk II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -21,26 +21,21 @@
   },
   "passives": [
     {
-      "target": "hull.base",
+      "target": "heat.dissipation",
       "op": "add",
-      "value": 32
+      "value": 6
     },
     {
-      "target": "engine.nominalSpeed",
+      "target": "heat.capacity",
       "op": "mul",
-      "value": 0.92
-    },
-    {
-      "target": "engine.accel",
-      "op": "mul",
-      "value": 0.9
+      "value": 1.1
     }
   ],
   "ui": {
-    "icon": "[ICON: utility]",
-    "shortName": "Armor Plate",
-    "label": "Armor"
+    "icon": "[ICON: heat-sink]",
+    "shortName": "Heat Sink",
+    "label": "Heat Sink"
   },
-  "price": 700,
-  "requiresLevel": 3
+  "price": 900,
+  "requiresLevel": 4
 }

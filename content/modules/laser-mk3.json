@@ -1,32 +1,32 @@
 {
-  "id": "module.beamlaser-mk1",
+  "id": "module.laser-mk3",
   "type": "module",
   "version": 1,
   "family": "laser",
-  "level": 1,
-  "name": "Sustained Beam Mk I",
+  "level": 3,
+  "name": "Pulse Laser Mk III",
   "activation": {
     "deployTime": 0.5,
     "retractTime": 0.35
   },
   "energy": {
-    "drawIdle": 0,
-    "drawActive": 20
+    "drawIdle": 5,
+    "drawActive": 19
   },
   "power": {
-    "draw": 3
+    "draw": 6.5
   },
   "heat": {
-    "perSecondActive": 12,
-    "overheatThreshold": 55,
-    "overheatCooldown": 3,
-    "overheatSelfDamage": 0
+    "perSecondActive": 7.800000000000001,
+    "overheatThreshold": 65,
+    "overheatCooldown": 5,
+    "overheatSelfDamage": 1
   },
   "fire": {
-    "mode": "continuous",
-    "range": 85,
-    "cycleTime": 0.1,
-    "damage": 25.5,
+    "mode": "held",
+    "range": 105,
+    "cycleTime": 0.35,
+    "damage": 20,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null
@@ -40,9 +40,9 @@
   ],
   "ui": {
     "icon": "[ICON: laser]",
-    "shortName": "Beam Mk1",
-    "label": "Beam"
+    "shortName": "Laser Mk2",
+    "label": "Laser II"
   },
-  "price": 0,
-  "requiresLevel": 1
+  "price": 1000,
+  "requiresLevel": 4
 }

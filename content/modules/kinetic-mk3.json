@@ -1,37 +1,36 @@
 {
-  "id": "module.kinetic-mk1",
+  "id": "module.kinetic-mk3",
   "type": "module",
   "version": 1,
   "family": "kinetic",
-  "level": 1,
-  "name": "Autocannon Mk I",
+  "level": 3,
+  "name": "Autocannon Mk III",
   "activation": {
     "deployTime": 0.4,
     "retractTime": 0.3
   },
   "energy": {
-    "drawIdle": 0,
-    "drawActive": 7
+    "drawIdle": 4,
+    "drawActive": 13
   },
   "power": {
-    "draw": 2
+    "draw": 5
   },
   "heat": {
-    "perSecondActive": 3.9000000000000004,
-    "overheatThreshold": 55,
-    "overheatCooldown": 3,
-    "overheatSelfDamage": 0
+    "perSecondActive": 6.8999999999999995,
+    "overheatThreshold": 65,
+    "overheatCooldown": 5,
+    "overheatSelfDamage": 1
   },
   "fire": {
     "mode": "held",
-    "range": 75,
-    "cycleTime": 0.6,
-    "heatPerShot": 27,
-    "damage": 14.5,
+    "range": 85,
+    "cycleTime": 0.5,
+    "damage": 25.5,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
     "projectile": {
-      "speed": 60,
+      "speed": 70,
       "lifetime": 1.5
     }
   },
@@ -44,9 +43,9 @@
   ],
   "ui": {
     "icon": "[ICON: kinetic]",
-    "shortName": "Cannon Mk1",
-    "label": "Autocannon"
+    "shortName": "Cannon Mk2",
+    "label": "Autocannon II"
   },
-  "price": 0,
-  "requiresLevel": 1
+  "price": 1050,
+  "requiresLevel": 4
 }

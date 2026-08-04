@@ -5,17 +5,44 @@
   "family": "laser",
   "level": 2,
   "name": "Sustained Beam Mk II",
-  "activation": { "deployTime": 0.55, "retractTime": 0.4 },
-  "energy": { "drawIdle": 5, "drawActive": 25 },
-  "power": { "draw": 5 },
-  "heat": { "perSecondActive": 5.2, "overheatThreshold": 62, "overheatCooldown": 4.5, "overheatSelfDamage": 1 },
-  "fire": {
-    "mode": "continuous", "range": 100, "cycleTime": 0.1,
-    "damage": 23, "damageType": "energy", "requiresLineOfSight": true, "projectile": null
+  "activation": {
+    "deployTime": 0.55,
+    "retractTime": 0.4
   },
-  "onFire": ["action.play-sound-laser"],
-  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
-  "ui": { "icon": "[ICON: laser]", "shortName": "Beam Mk2", "label": "Beam II" },
+  "energy": {
+    "drawIdle": 5,
+    "drawActive": 25
+  },
+  "power": {
+    "draw": 5
+  },
+  "heat": {
+    "perSecondActive": 15.600000000000001,
+    "overheatThreshold": 62,
+    "overheatCooldown": 4.5,
+    "overheatSelfDamage": 1
+  },
+  "fire": {
+    "mode": "continuous",
+    "range": 100,
+    "cycleTime": 0.1,
+    "damage": 37,
+    "damageType": "energy",
+    "requiresLineOfSight": true,
+    "projectile": null
+  },
+  "onFire": [
+    "action.play-sound-laser"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: laser]",
+    "shortName": "Beam Mk2",
+    "label": "Beam II"
+  },
   "price": 850,
   "requiresLevel": 3
 }

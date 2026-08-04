@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-heat-sink",
+  "id": "module.heatsink-mk3",
   "type": "module",
   "version": 1,
-  "family": "utility",
-  "level": 2,
-  "name": "Heat Sink",
+  "family": "heatsink",
+  "level": 3,
+  "name": "Passive Radiator Mk III",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -23,19 +23,14 @@
     {
       "target": "heat.dissipation",
       "op": "add",
-      "value": 5
-    },
-    {
-      "target": "heat.capacity",
-      "op": "mul",
-      "value": 1.1
+      "value": 4
     }
   ],
   "ui": {
-    "icon": "[ICON: heat-sink]",
-    "shortName": "Heat Sink",
-    "label": "Heat Sink"
+    "icon": "[ICON: heatsink]",
+    "shortName": "Radiator",
+    "label": "Heatsink"
   },
-  "price": 400,
-  "requiresLevel": 2
+  "price": 1350,
+  "requiresLevel": 4
 }

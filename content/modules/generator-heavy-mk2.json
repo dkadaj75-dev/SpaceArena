@@ -1,10 +1,10 @@
 {
-  "id": "module.utility-armor-plating",
+  "id": "module.generator-heavy-mk2",
   "type": "module",
   "version": 1,
-  "family": "utility",
-  "level": 2,
-  "name": "Reinforced Armor Plating",
+  "family": "generator",
+  "level": 3,
+  "name": "Heavy Reactor Mk II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -21,14 +21,19 @@
   },
   "passives": [
     {
-      "target": "hull.base",
+      "target": "energy.capacitor",
       "op": "add",
-      "value": 32
+      "value": 88
+    },
+    {
+      "target": "energy.regen",
+      "op": "add",
+      "value": 11
     },
     {
       "target": "engine.nominalSpeed",
       "op": "mul",
-      "value": 0.92
+      "value": 0.88
     },
     {
       "target": "engine.accel",
@@ -37,10 +42,10 @@
     }
   ],
   "ui": {
-    "icon": "[ICON: utility]",
-    "shortName": "Armor Plate",
-    "label": "Armor"
+    "icon": "[ICON: generator]",
+    "shortName": "Heavy Rctr",
+    "label": "Generator"
   },
-  "price": 700,
-  "requiresLevel": 3
+  "price": 1850,
+  "requiresLevel": 4
 }
