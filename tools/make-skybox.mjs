@@ -51,12 +51,15 @@ const PALETTES = {
   "lunar-crater": {
     base: [2, 3, 5],
     dustA: { col: [20, 18, 16], hot: [34, 30, 25], lo: 0.98, hi: 1.1 },
-    dustB: { col: [15, 13, 11], hot: [28, 24, 19], lo: 0.99, hi: 1.1 },
+    // dustB doubles as the galactic-band medium: its ramp thresholds keep it
+    // out of the open sky, so its colour can run bright enough for a visible
+    // Milky Way river without lifting the black background.
+    dustB: { col: [48, 44, 38], hot: [28, 24, 19], lo: 0.99, hi: 1.1 },
     dustC: { col: [11, 10, 9], hot: [21, 18, 15], lo: 0.99, hi: 1.1 },
     core: [40, 40, 42],
     warp: 0.2, starGain: 0.9, seed: 61, gain: 0.55,
     // The Orion Arm: a warm-toned diagonal river across the black sky.
-    bandN: [0.58, 0.55, -0.60], bandWidth: 0.3, bandGain: 1.6,
+    bandN: [0.58, 0.55, -0.60], bandWidth: 0.3, bandGain: 2.2,
     planet: {
       // Readable Apollo-8-style Earthrise. ~75 deg of azimuth from the sun:
       // far enough to clear its glow, close enough that the disc renders
