@@ -16,6 +16,7 @@ import {
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { createUpdateGate } from "./core/swUpdate.js";
+import { installTouchGuards } from "./core/touchGuards.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
 import { preloadArenaModels, preloadShipModelsBeforeTimeout } from "./core/assetPreload.js";
 import { QualityManager } from "./core/QualityManager.js";
@@ -1120,6 +1121,9 @@ function playerShip(ships: readonly ShipSnapshot[], id: EntityId): ShipSnapshot 
 // the time this module runs — adopting it here only hands it a driver. A boot
 // that throws leaves the panel up with the reason on it: a blank page is the one
 // outcome that tells the player nothing at all.
+// iOS ignores the viewport zoom flags in browser tabs, so install the gesture
+// guards before the boot screen can receive a touch.
+installTouchGuards();
 const bootScreen = BootScreen.attach();
 bootstrap(bootScreen).catch((err) => {
   log.error("bootstrap failed", err);

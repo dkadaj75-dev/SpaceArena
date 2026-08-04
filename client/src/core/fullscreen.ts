@@ -43,6 +43,13 @@ export interface FullscreenDocument {
   removeEventListener: (type: string, listener: () => void) => void;
 }
 
+/** Minimal Screen API surface used for the optional portrait lock. */
+export interface OrientationScreen {
+  orientation?: {
+    lock?: (orientation: "portrait") => Promise<void>;
+  };
+}
+
 function doc(override?: FullscreenDocument): FullscreenDocument {
   return override ?? (document as unknown as FullscreenDocument);
 }
@@ -65,6 +72,21 @@ export function isFullscreen(d?: FullscreenDocument): boolean {
 }
 
 /**
+ * Ask supporting fullscreen browsers to keep the installed game in portrait.
+ * iOS Safari exposes neither a reliable lock nor a successful implementation,
+ * so rejection is deliberately silent.
+ */
+export async function lockPortraitOrientation(
+  orientationScreen: OrientationScreen = globalThis.screen as unknown as OrientationScreen,
+): Promise<void> {
+  try {
+    await orientationScreen.orientation?.lock?.("portrait");
+  } catch {
+    // Orientation locking is optional and commonly rejected by iOS Safari.
+  }
+}
+
+/**
  * Toggle fullscreen. MUST be called from a user-gesture handler (a click) or
  * the browser rejects the request. Resolves to the resulting state as best it
  * can be known synchronously after the transition; a denied request resolves
@@ -81,6 +103,7 @@ export async function toggleFullscreen(d?: FullscreenDocument): Promise<boolean>
       const root = target.documentElement;
       if (root.requestFullscreen) await root.requestFullscreen();
       else root.webkitRequestFullscreen?.();
+      await lockPortraitOrientation();
     }
   } catch (err) {
     // Denied (no gesture, iframe policy) or interrupted — state simply stands.

@@ -233,7 +233,9 @@ export default defineConfig(({ command }) => ({
         start_url: siteBase(),
         scope: siteBase(),
         display: "standalone",
-        orientation: "any",
+        // Installed builds open in the one-thumb portrait layout. The runtime
+        // remains orientation-adaptive for browsers that cannot honour this.
+        orientation: "portrait",
         // Matches index.html's <meta name="theme-color"> and the icon artwork.
         theme_color: "#0a0f1a",
         background_color: "#05070d",
