@@ -50,12 +50,26 @@ const PALETTES = {
   },
   "lunar-crater": {
     base: [2, 3, 5],
-    dustA: { col: [18, 18, 19], hot: [30, 30, 32], lo: 0.98, hi: 1.1 },
-    dustB: { col: [12, 12, 13], hot: [24, 24, 25], lo: 0.99, hi: 1.1 },
-    dustC: { col: [10, 10, 11], hot: [20, 20, 21], lo: 0.99, hi: 1.1 },
+    dustA: { col: [20, 18, 16], hot: [34, 30, 25], lo: 0.98, hi: 1.1 },
+    dustB: { col: [15, 13, 11], hot: [28, 24, 19], lo: 0.99, hi: 1.1 },
+    dustC: { col: [11, 10, 9], hot: [21, 18, 15], lo: 0.99, hi: 1.1 },
     core: [40, 40, 42],
     warp: 0.2, starGain: 0.9, seed: 61, gain: 0.55,
-    bandN: [0, 1, 0], bandWidth: 0.2, bandGain: 0,
+    // The Orion Arm: a warm-toned diagonal river across the black sky.
+    bandN: [0.58, 0.55, -0.60], bandWidth: 0.3, bandGain: 1.6,
+    planet: {
+      // Readable Apollo-8-style Earthrise. ~75 deg of azimuth from the sun:
+      // far enough to clear its glow, close enough that the disc renders
+      // gibbous — at the old anti-solar spot the lit-phase shading left only
+      // a crescent and the atmosphere halo (verifier caught it).
+      dir: [-0.749, 0.208, 0.629],
+      angularRadiusDeg: 8,
+      surface: {
+        base: [38, 84, 148], band: [70, 110, 160], detail: [230, 238, 245],
+        detailGain: 0.72,
+      },
+      atmosphere: [130, 190, 255],
+    },
     ground: {
       horizon: -0.065,
       surface: [104, 106, 108],
@@ -220,7 +234,9 @@ function makeNebula(W, H, P) {
         );
         const detailNoise = fbm(snx * 7.5 + 307, sny * 7.5, snz * 7.5, 5, 0.55);
         const bandMix = smoothRange(0.32, 0.72, latitudeBands);
-        const detailMix = smoothRange(0.5, 0.78, detailNoise) * 0.46;
+        // Earth palettes can opt into stronger, patchier cloud cover without
+        // changing the established band/detail balance of other planets.
+        const detailMix = smoothRange(0.5, 0.78, detailNoise) * (planet.surface.detailGain ?? 0.46);
         for (let ch = 0; ch < 3; ch++) {
           const broad = planet.surface.base[ch] * (1 - bandMix) + planet.surface.band[ch] * bandMix;
           const surface = (broad * (1 - detailMix) + planet.surface.detail[ch] * detailMix)

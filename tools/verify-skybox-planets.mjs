@@ -15,6 +15,11 @@ const SPECS = {
     sunDir: [-0.677, -0.208, -0.706],
     angularRadiusDeg: 14,
   },
+  "lunar-crater": {
+    planetDir: [-0.749, 0.208, 0.629],
+    sunDir: [-0.707, 0.5, -0.5],
+    angularRadiusDeg: 8,
+  },
 };
 
 function normalized(vector) {
