@@ -30,16 +30,16 @@ function withInternal(moduleId: string) {
 }
 
 describe("hull slot layout (owner 2026-07-31)", () => {
-  it("gives each class its authored hardpoint count and the same five-bay internal block", () => {
-    const expected: Array<[string, number]> = [
-      ["ship.interceptor", 2], // light
-      ["ship.support", 3], // medium
-      ["ship.brawler", 4], // heavy
+  it("gives each class its expanded hardpoint count and authored internal bay", () => {
+    const expected: Array<[string, number, number]> = [
+      ["ship.interceptor", 3, 5], // light: one small external option
+      ["ship.support", 4, 6], // medium: support hardpoint + auxiliary bay
+      ["ship.brawler", 6, 6], // heavy: weapon + utility hardpoints + auxiliary bay
     ];
-    for (const [shipId, hardpoints] of expected) {
+    for (const [shipId, hardpoints, internals] of expected) {
       const ship = shipOf(shipId);
       expect(weaponHardpointsOf(ship), `${shipId} hardpoints`).toHaveLength(hardpoints);
-      expect(internalsOf(ship).map((s) => s.accepts[0]), `${shipId} internals`).toEqual([
+      expect(internalsOf(ship).slice(0, 5).map((s) => s.accepts[0]), `${shipId} core internals`).toEqual([
         "engine",
         "generator",
         "transformer",
@@ -47,8 +47,8 @@ describe("hull slot layout (owner 2026-07-31)", () => {
         "sensors",
       ]);
       // Both kinds share ONE index space, and the default fitting covers it.
-      expect(hardpointsOf(ship)).toHaveLength(hardpoints + 5);
-      expect(ship.defaultFitting).toHaveLength(hardpoints + 5);
+      expect(hardpointsOf(ship)).toHaveLength(hardpoints + internals);
+      expect(ship.defaultFitting).toHaveLength(hardpoints + internals);
     }
   });
 
@@ -56,7 +56,7 @@ describe("hull slot layout (owner 2026-07-31)", () => {
     for (const shipId of ["ship.interceptor", "ship.support", "ship.brawler"]) {
       const ship = shipOf(shipId);
       for (const socket of weaponHardpointsOf(ship)) {
-        expect(socket.accepts.every((f) => ["laser", "kinetic", "missile", "shield"].includes(f))).toBe(true);
+        expect(socket.accepts.every((f) => ["laser", "kinetic", "missile", "shield", "utility"].includes(f))).toBe(true);
       }
       for (const socket of internalsOf(ship)) {
         expect(socket.accepts.every((f) => ["engine", "generator", "transformer", "heatsink", "sensors"].includes(f))).toBe(true);

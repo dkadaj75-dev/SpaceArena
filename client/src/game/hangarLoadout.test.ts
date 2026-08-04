@@ -52,8 +52,8 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
   it("flies the hull and the working fitting the player left the Hangar with", () => {
     const session = practice({
       playerShipId: "ship.brawler",
-      // Heavy hull (2026-07-31): four hardpoints then the five-bay internal
-      // block. Hardpoint 2 is deliberately left empty.
+      // The original nine heavy slots retain their indices; expansion slots
+      // append after them. Hardpoint 2 is deliberately left empty.
       playerFitting: [
         "module.laser-mk1",
         "module.kinetic-mk1",
@@ -68,9 +68,9 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
     });
     const ship = session.curSnapshot.ships.find((s) => s.id === session.playerId)!;
     const fitted = ship.modules.map((m) => `${m.hardpointIndex}:${m.moduleId}`);
-    // Slot 8 exists at all only on the nine-slot heavy, so this is also the
+    // Slot 8 remains the heavy sensor bay, so this is also the
     // proof that the requested HULL was the one spawned.
-    expect(hardpointsOf(brawler)).toHaveLength(9);
+    expect(hardpointsOf(brawler)).toHaveLength(12);
     expect(fitted).toEqual([
       "0:module.laser-mk1",
       "1:module.kinetic-mk1",
@@ -112,6 +112,7 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
       "module.transformer-stock",
       "module.heatsink-basic",
       "module.sensors-basic",
+      null,
     ]);
   });
 

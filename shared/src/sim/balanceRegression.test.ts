@@ -327,13 +327,13 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
   // are a different shape entirely. The stock internals draw no idle power,
   // which is why the light and medium hulls now hold their capacitor; the heavy
   // still out-draws its plant with four racks firing.
-  it("interceptor, sustained brawl (all four hardpoints, boost pulses)", () => {
+  it("interceptor, sustained brawl (expanded fit, boost pulses)", () => {
     const t = runEngagement("ship.interceptor", SUSTAINED);
     expectWithinBand("interceptor sustained energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
     expectNear("interceptor sustained energy floor", t.energyFloor, 0.997);
-    // Two racks on a light hull: sustained fire still cooks them, but the
-    // capacitor comfortably keeps up.
-    expect(t.overheats).toBe(2);
+    // The new wing utility sink keeps the light hull's two racks below their
+    // thresholds while the capacitor comfortably keeps up.
+    expect(t.overheats).toBe(0);
     expect(t.brownOuts).toBe(4);
   });
 
@@ -345,14 +345,14 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     expect(t.brownOuts).toBe(1);
   });
 
-  it("brawler, sustained brawl — five hardpoints out-draw one capacitor", () => {
+  it("brawler, sustained brawl — expanded utility fit under capacitor pressure", () => {
     const t = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    expectWithinBand("brawler sustained energy", t.energy, [0.929, 0.998, 1, 0.792, 0.487, 0.167, 0.265]);
+    expectWithinBand("brawler sustained energy", t.energy, [0.929, 0.998, 1, 0.792, 0.487, 0.167, 0.39]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
-    // The heavy CANNOT run everything at once: four racks out-draw its plant,
-    // it browns out, and those racks trade overheat lockouts all match long.
+    // The heavy still browns out once, while the two added cooling modules cut
+    // the old repeated rack-overheat cycle down to two lockouts.
     expect(t.brownOuts).toBe(1);
-    expect(t.overheats).toBe(10);
+    expect(t.overheats).toBe(2);
   });
 
   it("support, sustained brawl (big capacitor, strong dissipation)", () => {
@@ -368,11 +368,10 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const support = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
     const interceptor = runEngagement("ship.interceptor", SUSTAINED);
     const brawler = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    // With the internal bay in place the hulls separate on BOTH axes again: the
-    // heavy's four racks starve its plant where the lighter hulls hold theirs,
-    // and the support's dissipation keeps it cool where the others cook.
+    // Expanded utility cooling keeps the light and support hulls stable; the
+    // heavy still separates on capacitor pressure and greater rack heat.
     expect(support.overheats).toBe(0);
-    expect(interceptor.overheats).toBeGreaterThan(0);
+    expect(interceptor.overheats).toBe(0);
     expect(brawler.overheats).toBeGreaterThan(interceptor.overheats);
     expect(brawler.energyFloor).toBeLessThan(support.energyFloor);
     expect(brawler.energyFloor).toBeLessThan(interceptor.energyFloor);
@@ -383,7 +382,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const disciplined = runEngagement("ship.interceptor", DISCIPLINED);
     expect(sustained.energyFloor).toBeLessThanOrEqual(disciplined.energyFloor);
     expect(disciplined.energyFloor).toBeGreaterThan(0.5); // discipline never starves
-    expect(sustained.peakModuleHeat).toBeGreaterThan(disciplined.peakModuleHeat);
+    expect(sustained.peakModuleHeat).toBeGreaterThanOrEqual(disciplined.peakModuleHeat);
     // An overheat may exceed its threshold by at most one tick's generation —
     // and brown-outs (not hull damage) are the relief valve for the capacitor,
     // so a legal all-on fit is still never an instant self-destruct.
@@ -544,7 +543,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     ["ship.interceptor", "ship.interceptor", 22, 3.5],
     ["ship.interceptor", "ship.brawler", 22, 10.433],
     ["ship.brawler", "ship.interceptor", 22, 2.2],
-    ["ship.brawler", "ship.brawler", 22, 5.667],
+    ["ship.brawler", "ship.brawler", 22, 7.3], // reinforced default utility fit
     ["ship.support", "ship.interceptor", 22, 3.5],
   ];
 

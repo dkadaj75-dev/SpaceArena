@@ -1,0 +1,19 @@
+{
+  "id": "module.shield-mk3",
+  "type": "module",
+  "version": 1,
+  "family": "shield",
+  "level": 3,
+  "name": "Fortress Shield Mk III",
+  "activation": { "deployTime": 0.65, "retractTime": 0.45 },
+  "energy": { "drawIdle": 15, "drawActive": 28 },
+  "power": { "draw": 9 },
+  "heat": { "perSecondActive": 1.4, "overheatThreshold": 70, "overheatCooldown": 6, "overheatSelfDamage": 1 },
+  "mitigation": { "damageReduction": 0.68, "absorbPerSecond": 28, "coversFamilies": ["kinetic", "energy"] },
+  "onActivate": ["action.play-sound-shield-up"],
+  "onDeactivate": ["action.play-sound-shield-down"],
+  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
+  "ui": { "icon": "[ICON: shield]", "shortName": "Shield Mk3", "label": "Shield III" },
+  "price": 1500,
+  "requiresLevel": 5
+}

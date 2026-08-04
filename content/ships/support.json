@@ -161,6 +161,37 @@
       ]
     },
     {
+      "id": "in-auxiliary",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          0,
+          0.05,
+          -0.75
+        ]
+      },
+      "accepts": [
+        "generator",
+        "heatsink",
+        "sensors"
+      ]
+    },
+    {
+      "id": "hp-support",
+      "kind": "hardpoint",
+      "transform": {
+        "pos": [
+          1.045,
+          0,
+          -0.19
+        ]
+      },
+      "accepts": [
+        "utility",
+        "shield"
+      ]
+    },
+    {
       "id": "eng-l",
       "transform": {
         "pos": [
@@ -327,7 +358,9 @@
     "module.generator-compact",
     "module.transformer-stock",
     "module.heatsink-basic",
-    "module.sensors-basic"
+    "module.sensors-basic",
+    "module.generator-compact",
+    "module.utility-capacitor-battery"
   ],
   "render": {
     "recipe": "procedural.support",

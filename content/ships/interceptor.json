@@ -148,6 +148,20 @@
       ]
     },
     {
+      "id": "hp-wing-r",
+      "kind": "hardpoint",
+      "transform": {
+        "pos": [
+          1,
+          -0.0526,
+          -0.9474
+        ]
+      },
+      "accepts": [
+        "utility"
+      ]
+    },
+    {
       "id": "eng-l",
       "transform": {
         "pos": [
@@ -325,7 +339,8 @@
     "module.generator-compact",
     "module.transformer-stock",
     "module.heatsink-basic",
-    "module.sensors-basic"
+    "module.sensors-basic",
+    "module.utility-heat-sink"
   ],
   "render": {
     "recipe": "procedural.arrowhead",

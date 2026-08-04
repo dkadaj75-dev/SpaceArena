@@ -176,6 +176,53 @@
       ]
     },
     {
+      "id": "in-auxiliary",
+      "kind": "internal",
+      "transform": {
+        "pos": [
+          0,
+          -0.2,
+          -0.75
+        ]
+      },
+      "accepts": [
+        "generator",
+        "heatsink"
+      ]
+    },
+    {
+      "id": "hp-chin",
+      "kind": "hardpoint",
+      "transform": {
+        "pos": [
+          0,
+          -0.35,
+          1.15
+        ]
+      },
+      "accepts": [
+        "laser",
+        "kinetic",
+        "missile",
+        "utility"
+      ]
+    },
+    {
+      "id": "hp-utility",
+      "kind": "hardpoint",
+      "transform": {
+        "pos": [
+          1.35,
+          0.15,
+          -0.45
+        ]
+      },
+      "accepts": [
+        "utility",
+        "shield"
+      ]
+    },
+    {
       "id": "eng-l",
       "kind": "emitter",
       "transform": {
@@ -375,7 +422,10 @@
     "module.generator-compact",
     "module.transformer-stock",
     "module.heatsink-basic",
-    "module.sensors-basic"
+    "module.sensors-basic",
+    "module.heatsink-ablative",
+    "module.utility-heat-sink",
+    "module.utility-armor-plating"
   ],
   "render": {
     "recipe": "procedural.brawler",

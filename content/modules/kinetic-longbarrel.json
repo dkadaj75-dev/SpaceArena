@@ -1,0 +1,22 @@
+{
+  "id": "module.kinetic-longbarrel",
+  "type": "module",
+  "version": 1,
+  "family": "kinetic",
+  "level": 3,
+  "name": "Long-Barrel Cannon",
+  "activation": { "deployTime": 0.65, "retractTime": 0.45 },
+  "energy": { "drawIdle": 4, "drawActive": 13 },
+  "power": { "draw": 5 },
+  "heat": { "perSecondActive": 2, "overheatThreshold": 64, "overheatCooldown": 5.5, "overheatSelfDamage": 1 },
+  "fire": {
+    "mode": "held", "range": 125, "cycleTime": 0.9, "heatPerShot": 14,
+    "damage": 24, "damageType": "kinetic", "requiresLineOfSight": true,
+    "projectile": { "speed": 105, "lifetime": 1.5 }
+  },
+  "onFire": ["action.play-sound-kinetic"],
+  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
+  "ui": { "icon": "[ICON: kinetic]", "shortName": "Long Cannon", "label": "Long Cannon" },
+  "price": 1250,
+  "requiresLevel": 4
+}

@@ -1,0 +1,22 @@
+{
+  "id": "module.missile-heavy",
+  "type": "module",
+  "version": 1,
+  "family": "missile",
+  "level": 3,
+  "name": "Heavy Seeker Rack",
+  "activation": { "deployTime": 0.9, "retractTime": 0.55 },
+  "energy": { "drawIdle": 5, "drawActive": 12 },
+  "power": { "draw": 5 },
+  "heat": { "perSecondActive": 1.6, "overheatThreshold": 58, "overheatCooldown": 6.5, "overheatSelfDamage": 1 },
+  "fire": {
+    "mode": "semi", "range": 175, "cycleTime": 3.2, "heatPerShot": 18,
+    "damage": 48, "damageType": "kinetic", "requiresLineOfSight": true,
+    "projectile": { "speed": 42, "turnRate": 1.8, "lifetime": 5.2 }
+  },
+  "onFire": ["action.play-sound-missile"],
+  "onOverheat": ["action.notify-overheat", "action.play-sound-overheat"],
+  "ui": { "icon": "[ICON: missile]", "shortName": "Heavy Rack", "label": "Heavy Missile" },
+  "price": 1450,
+  "requiresLevel": 5
+}
