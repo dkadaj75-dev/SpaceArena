@@ -49,7 +49,7 @@ const PALETTES = {
     sun: { dir: [-0.677, -0.208, -0.706], color: [220, 228, 255], discDeg: 3.0, glowDeg: 24 },
   },
   "lunar-crater": {
-    base: [2, 3, 5],
+    base: [0, 0, 1], spaceBlack: true,
     dustA: { col: [20, 18, 16], hot: [34, 30, 25], lo: 0.98, hi: 1.1 },
     // dustB doubles as the galactic-band medium: its ramp thresholds keep it
     // out of the open sky, so its colour can run bright enough for a visible
@@ -57,9 +57,9 @@ const PALETTES = {
     dustB: { col: [48, 44, 38], hot: [28, 24, 19], lo: 0.99, hi: 1.1 },
     dustC: { col: [11, 10, 9], hot: [21, 18, 15], lo: 0.99, hi: 1.1 },
     core: [40, 40, 42],
-    warp: 0.2, starGain: 0.9, seed: 61, gain: 0.55,
+    warp: 0.12, starGain: 1.15, seed: 61, gain: 0.38,
     // The Orion Arm: a warm-toned diagonal river across the black sky.
-    bandN: [0.58, 0.55, -0.60], bandWidth: 0.3, bandGain: 2.2,
+    bandN: [0.58, 0.55, -0.60], bandWidth: 0.22, bandGain: 1.15,
     planet: {
       // Readable Apollo-8-style Earthrise. ~75 deg of azimuth from the sun:
       // far enough to clear its glow, close enough that the disc renders
@@ -75,8 +75,8 @@ const PALETTES = {
     },
     ground: {
       horizon: -0.065,
-      surface: [104, 106, 108],
-      rim: [151, 152, 153],
+      surface: [72, 73, 74],
+      rim: [137, 138, 139],
       craters: [
         { phi: 0.45, y: -0.43, radius: 0.13 },
         { phi: 2.25, y: -0.31, radius: 0.09 },
@@ -84,7 +84,7 @@ const PALETTES = {
         { phi: 5.55, y: -0.25, radius: 0.07 },
       ],
     },
-    sun: { dir: [-0.707, 0.5, -0.5], color: [255, 255, 255], discDeg: 3.2, glowDeg: 24 },
+    sun: { dir: [-0.707, 0.5, -0.5], color: [255, 255, 255], discDeg: 1.15, glowDeg: 4.5, minimalGlow: true },
   },
 };
 
@@ -150,7 +150,7 @@ function makeNebula(W, H, P) {
       const c = [P.base[0], P.base[1], P.base[2]];
       // Faint broad haze so "empty" sky reads as deep space, not a void.
       const haze = fbm(dx * 0.9 + 71, dy * 0.9, dz * 0.9, 4, 0.6);
-      for (let ch = 0; ch < 3; ch++) c[ch] += P.dustA.col[ch] * haze * haze * 0.10;
+      for (let ch = 0; ch < 3; ch++) c[ch] += P.dustA.col[ch] * haze * haze * (P.spaceBlack ? 0.008 : 0.10);
       // Galactic band: dust + stars concentrate along a tilted great circle.
       const bandDist = Math.abs(dx * P.bandN[0] + dy * P.bandN[1] + dz * P.bandN[2]);
       const band = Math.exp(-(bandDist * bandDist) / (P.bandWidth * P.bandWidth));
@@ -158,13 +158,13 @@ function makeNebula(W, H, P) {
       const bg = P.bandGain ?? 0.55;
       for (let ch = 0; ch < 3; ch++) c[ch] += P.dustB.col[ch] * band * bandDust * bg + P.dustA.col[ch] * band * 0.16;
       const nA = fbm(ax * 1.9, ay * 1.9, az * 1.9, 6, 0.55);
-      rampMix(nA, P.dustA.lo, P.dustA.hi, P.dustA.col, P.dustA.hot, c);
+      if (!P.spaceBlack) rampMix(nA, P.dustA.lo, P.dustA.hi, P.dustA.col, P.dustA.hot, c);
       const nB = fbm(ax * 3.4 + 31, ay * 3.4, az * 3.4, 6, 0.5);
-      rampMix(nB, P.dustB.lo, P.dustB.hi, P.dustB.col, P.dustB.hot, c);
+      if (!P.spaceBlack) rampMix(nB, P.dustB.lo, P.dustB.hi, P.dustB.col, P.dustB.hot, c);
       // Third mid-scale layer at a decorrelated offset: fills the gaps the two
       // primary layers leave without pushing overall brightness up much.
       const nD = fbm(ax * 2.6 + 157, ay * 2.6, az * 2.6, 5, 0.55);
-      rampMix(nD, P.dustC.lo, P.dustC.hi, P.dustC.col, P.dustC.hot, c);
+      if (!P.spaceBlack) rampMix(nD, P.dustC.lo, P.dustC.hi, P.dustC.col, P.dustC.hot, c);
       // Bright cores inside dense dust (stretched like the ramps)
       const nC = 1 / (1 + Math.exp(-(fbm(dx * 5.2 + 53, dy * 5.2, dz * 5.2, 4, 0.5) - 0.5) * 14));
       // Only inside genuinely dense dust (stretched nA above the dustA floor).
@@ -178,7 +178,7 @@ function makeNebula(W, H, P) {
       const jx = cx + hash(cx, cy, cz), jy = cy + hash(cy, cz, cx), jz = cz + hash(cz, cx, cy);
       const ddx = dx * S - jx, ddy = dy * S - jy, ddz = dz * S - jz;
       const d2 = ddx * ddx + ddy * ddy + ddz * ddz;
-      if (d2 < 0.004) {
+      if (d2 < (P.spaceBlack ? 0.0055 : 0.004)) {
         const b = hash(cx * 3 + 1, cy * 3 + 2, cz * 3 + 3);
         star = Math.max(0, 1 - d2 / 0.004) ** 3 * (0.35 + 1.4 * b * b) * 255 * P.starGain;
       }
@@ -272,7 +272,7 @@ function makeNebula(W, H, P) {
         if (dy < rimTop) {
           const coarse = fbm(dx * 4.2 + 503, dy * 4.2, dz * 4.2, 5, 0.58);
           const fine = fbm(dx * 18 + 607, dy * 18, dz * 18, 4, 0.52);
-          const rock = (coarse - 0.5) * 34 + (fine - 0.5) * 16;
+          const rock = (coarse - 0.5) * 24 + (fine - 0.5) * 10;
           let shade = rock;
           for (const crater of ground.craters ?? []) {
             let dphi = Math.abs(phi - crater.phi);
@@ -281,10 +281,13 @@ function makeNebula(W, H, P) {
             const bowl = 1 - smoothRange(crater.radius * 0.35, crater.radius, dist);
             const lip = smoothRange(crater.radius * 0.72, crater.radius * 0.9, dist)
               * (1 - smoothRange(crater.radius * 0.9, crater.radius * 1.12, dist));
-            shade += lip * 25 - bowl * 35;
+            const lightSide = 0.35 + 0.65 * Math.max(0, Math.cos(phi - Math.atan2(-P.sun.dir[2], -P.sun.dir[0])));
+            shade += lip * 38 * lightSide - bowl * 42;
           }
           const rimMix = 1 - smoothRange(rimTop - 0.105, rimTop - 0.025, dy);
-          const grazingLight = smoothRange(-0.75, ground.horizon, dy) * 10;
+          const sunAzimuth = Math.atan2(P.sun.dir[2], P.sun.dir[0]);
+          const directLight = Math.max(0, Math.cos(phi - sunAzimuth)) ** 1.7;
+          const grazingLight = smoothRange(-0.75, ground.horizon, dy) * (2 + directLight * 24);
           for (let ch = 0; ch < 3; ch++) {
             const base = ground.surface[ch] * (1 - rimMix) + ground.rim[ch] * rimMix;
             out[ch] = base + shade + grazingLight;
@@ -300,11 +303,11 @@ function makeNebula(W, H, P) {
         const cosAng = dx * P.sun.dir[0] + dy * P.sun.dir[1] + dz * P.sun.dir[2];
         const ang = Math.acos(Math.min(1, Math.max(-1, cosAng))) * (180 / Math.PI);
         if (ang < P.sun.discDeg) sun = 1;
-        else if (ang < P.sun.glowDeg) sun = Math.pow(1 - (ang - P.sun.discDeg) / (P.sun.glowDeg - P.sun.discDeg), 2.4) * 0.8;
+        else if (ang < P.sun.glowDeg) sun = Math.pow(1 - (ang - P.sun.discDeg) / (P.sun.glowDeg - P.sun.discDeg), 3.2) * (P.sun.minimalGlow ? 0.18 : 0.8);
         // Halo is ADDITIVE across the whole range (not an else-branch): an
         // exclusive chain left a dark ring where the glow hit zero just before
         // the halo stepped back in.
-        if (ang < 70) sun += Math.pow(1 - ang / 70, 3) * 0.16;
+        if (!P.sun.minimalGlow && ang < 70) sun += Math.pow(1 - ang / 70, 3) * 0.16;
       }
       const i = (py * W + px) * 4;
       const sc = P.sun ? P.sun.color : [255, 255, 255];
