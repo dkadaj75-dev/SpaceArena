@@ -101,7 +101,10 @@ for (const [name, spec] of Object.entries(SPECS)) {
     directions,
   });
   const litPass = samples.litDisc.luminance > samples.litSky.luminance;
-  const nightPass = samples.nightDisc.luminance < samples.nightSky.luminance;
+  // Strict "night side darker than sky" only works over a glowing nebula; on a
+  // black lunar sky both samples bottom out at the same floor, so allow equal
+  // within a small tolerance while still catching a night side that GLOWS.
+  const nightPass = samples.nightDisc.luminance < samples.nightSky.luminance + 1.5;
   console.log(`${name}: ${JSON.stringify(samples)} pass=${litPass && nightPass}`);
   failed ||= !litPass || !nightPass;
 }
