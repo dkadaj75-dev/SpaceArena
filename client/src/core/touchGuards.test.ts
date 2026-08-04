@@ -8,6 +8,12 @@ function touchEnd(target: EventTarget, timestamp: number): TouchEvent {
   return event;
 }
 
+function touchMove(target: EventTarget): TouchEvent {
+  const event = new Event("touchmove", { bubbles: true, cancelable: true }) as TouchEvent;
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe("installTouchGuards", () => {
   let dispose: (() => void) | undefined;
 
@@ -44,5 +50,20 @@ describe("installTouchGuards", () => {
     expect(touchEnd(page, 250).defaultPrevented).toBe(true);
     expect(touchEnd(hudButton, 300).defaultPrevented).toBe(false);
     expect(touchEnd(canvas, 350).defaultPrevented).toBe(false);
+  });
+
+  it("blocks page touch moves but preserves canvas and scrollable-panel moves", () => {
+    dispose = installTouchGuards();
+    const page = document.createElement("div");
+    const canvas = document.createElement("canvas");
+    const scrollPane = document.createElement("div");
+    const scrollChild = document.createElement("div");
+    scrollPane.style.overflowY = "auto";
+    scrollPane.append(scrollChild);
+    document.body.append(page, canvas, scrollPane);
+
+    expect(touchMove(page).defaultPrevented).toBe(true);
+    expect(touchMove(canvas).defaultPrevented).toBe(false);
+    expect(touchMove(scrollChild).defaultPrevented).toBe(false);
   });
 });
