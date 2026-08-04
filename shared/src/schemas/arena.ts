@@ -201,7 +201,10 @@ export const arenaRender = z.object({
       .optional(),
   }),
   boundaryShield: z.object({
-    /** Opacity while the player is farther away than `glowStartDistance`. */
+    /**
+     * Opacity reached at the boundary. The shell is always fully transparent
+     * at and beyond `glowStartDistance`.
+     */
     baseOpacity: z.number().min(0).max(1),
     /** Distance inside the boundary where the shield begins brightening. */
     glowStartDistance: z.number().positive(),
@@ -213,6 +216,8 @@ export const arenaRender = z.object({
     redColor: z.string().min(1),
     /** Number of procedural hex cells around the shield. */
     hexDensity: z.number().positive(),
+    /** Fractional cell width of the glowing hex strokes. */
+    hexLineWidth: z.number().min(0.002).max(0.08),
     /** Existing notification-pipeline config shown on first warning-zone entry. */
     warningNotification: z.string().min(1),
   }),

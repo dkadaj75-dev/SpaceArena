@@ -148,6 +148,7 @@ const arena = {
       blueColor: "#39bfff",
       redColor: "#ff405c",
       hexDensity: 30,
+      hexLineWidth: 0.012,
       warningNotification: "notification.fixture",
     },
   },

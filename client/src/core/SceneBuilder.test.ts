@@ -30,13 +30,14 @@ const ARENA = {
   render: {
     skybox: { texture: "skyboxes/test.webp", intensity: 0.8, tint: "#ffffff" },
     boundaryShield: {
-      baseOpacity: 0.02,
+      baseOpacity: 1,
       glowStartDistance: 30,
       redTransitionDistance: 10,
       warnDistance: 20,
       blueColor: "#39bfff",
       redColor: "#ff405c",
       hexDensity: 30,
+      hexLineWidth: 0.012,
       warningNotification: "notification.boundary-warning",
     },
   },
@@ -380,7 +381,7 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     const material = scene.getMeshByName("boundsShell")!.material as StandardMaterial;
     expect(material).toBeInstanceOf(StandardMaterial);
     expect(lowBuilder.updatePlayerPosition(0, 0, 0)).toBe(90);
-    expect(material.alpha).toBeCloseTo(0.02);
+    expect(material.alpha).toBe(0);
     expect(lowBuilder.updatePlayerPosition(89, 0, 0)).toBe(1);
     expect(material.alpha).toBeGreaterThan(0.9);
     expect(material.emissiveColor.r).toBeGreaterThan(material.emissiveColor.b);
@@ -546,7 +547,8 @@ describe("boundary shader float32 safety contract", () => {
     expect(BOUNDARY_FRAGMENT).toContain("vec2 unitDomain = fract(vUV)");
     expect(BOUNDARY_FRAGMENT).toContain("clamp(hexDensity, 1.0, 128.0)");
     expect(BOUNDARY_FRAGMENT).not.toMatch(/world(Pos|Position)|vWorld/i);
-    expect(BOUNDARY_FRAGMENT).toContain("float safePattern = clamp(");
+    expect(BOUNDARY_FRAGMENT).toContain("float safeLineWidth = clamp(hexLineWidth, 0.002, 0.08)");
+    expect(BOUNDARY_FRAGMENT).toContain("float safePattern = clamp(line, 0.0, 1.0)");
     expect(BOUNDARY_FRAGMENT).toContain("float safeOpacity = clamp(opacity, 0.0, 1.0)");
     expect(BOUNDARY_FRAGMENT).toContain("safePattern * safeOpacity");
   });

@@ -504,11 +504,14 @@ export class SceneBuilder {
         clampColorInPlace(this.boundaryBlue);
         clampColorInPlace(this.boundaryRed);
         this.boundaryColor.copyFrom(this.boundaryBlue);
-        const renderParams = boundaryShieldRenderParams(shield.hexDensity, shield.baseOpacity);
+        // No player position has been supplied during construction: begin
+        // transparent rather than briefly exposing the full shell for one frame.
+        const renderParams = boundaryShieldRenderParams(shield.hexDensity, 0);
 
         if (this.quality.scene.boundaryShieldShader) {
           const shellMat = createBoundaryShader(this.scene);
           shellMat.setFloat("hexDensity", renderParams.hexDensity);
+          shellMat.setFloat("hexLineWidth", shield.hexLineWidth);
           shellMat.setFloat("opacity", renderParams.opacity);
           shellMat.setColor3("shieldColor", this.boundaryBlue);
           shell.material = shellMat;
@@ -598,6 +601,7 @@ export class SceneBuilder {
     if (material instanceof ShaderMaterial) {
       material.setFloat("opacity", renderParams.opacity);
       material.setFloat("hexDensity", renderParams.hexDensity);
+      material.setFloat("hexLineWidth", shield.hexLineWidth);
       material.setColor3("shieldColor", this.boundaryColor);
     } else {
       material.alpha = renderParams.opacity;
@@ -923,6 +927,7 @@ varying vec2 vUV;
 uniform vec3 shieldColor;
 uniform float opacity;
 uniform float hexDensity;
+uniform float hexLineWidth;
 void main(void) {
   // Mesh UV is interpolated in a unit domain. Wrap before scaling so arena
   // radius/world translation never enters fract/floor; density is bounded so
@@ -933,8 +938,11 @@ void main(void) {
   p.x += mod(floor(p.y), 2.0) * 0.5;
   vec2 cell = abs(fract(p) - 0.5);
   float hexEdge = max(cell.y, cell.x * 0.8660254 + cell.y * 0.5);
-  float line = smoothstep(0.40, 0.49, hexEdge);
-  float safePattern = clamp(0.18 + line * 0.82, 0.0, 1.0);
+  // A narrow, anti-aliased edge reads as a wireframe rather than a filled
+  // honeycomb. Clamp the authored width before it reaches smoothstep.
+  float safeLineWidth = clamp(hexLineWidth, 0.002, 0.08);
+  float line = smoothstep(0.5 - safeLineWidth - 0.008, 0.5 - safeLineWidth, hexEdge);
+  float safePattern = clamp(line, 0.0, 1.0);
   float safeOpacity = clamp(opacity, 0.0, 1.0);
   // Apply proximity opacity last. A broken pattern result cannot exceed it.
   gl_FragColor = vec4(clamp(shieldColor, 0.0, 1.0), safePattern * safeOpacity);
@@ -947,7 +955,7 @@ function createBoundaryShader(scene: Scene): ShaderMaterial {
     { vertexSource: BOUNDARY_VERTEX, fragmentSource: BOUNDARY_FRAGMENT },
     {
       attributes: ["position", "uv"],
-      uniforms: ["worldViewProjection", "shieldColor", "opacity", "hexDensity"],
+      uniforms: ["worldViewProjection", "shieldColor", "opacity", "hexDensity", "hexLineWidth"],
       needAlphaBlending: true,
     },
   );
