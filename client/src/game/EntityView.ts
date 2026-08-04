@@ -7,6 +7,8 @@ import {
   StandardMaterial,
   TransformNode,
   Vector3,
+  VertexBuffer,
+  VertexData,
   type InstancedMesh,
   type LinesMesh,
   type Scene,
@@ -58,6 +60,13 @@ import {
 const log = createLogger("ViewManager");
 
 const ASTEROID_DEATH_MS = 260;
+const FLAG_BANNER_COLUMNS = 9;
+const FLAG_BANNER_ROWS = 4;
+const FLAG_BANNER_WIDTH = 5.8;
+const FLAG_BANNER_HEIGHT = 3.2;
+const FLAG_BANNER_BASE_Y = 0.2;
+const FLAG_BANNER_WAVE_MS = 34;
+const FLAG_TRANSITION_MS = 130;
 
 /** Resolves a sim ship entity to its ship-config id (owned by GameSession). */
 export type ShipConfigResolver = (id: EntityId) => string | undefined;
@@ -102,9 +111,10 @@ interface AsteroidView {
 }
 
 /**
- * One capture-the-flag flag in the scene (owner 2026-07-31): a glowing marker
- * plus the fading ribbon behind it. The ribbon is a fixed-length updatable line
- * mesh — see `flagTrail.ts` for why the point count is constant.
+ * One capture-the-flag flag in the scene: a physical pole and cloth pennant,
+ * plus the fading breadcrumb wake. The pennant's small fixed vertex grid is
+ * updated at 30 Hz, which gives it a stately ripple without shader/material
+ * lifetime complexity or per-frame allocations.
  *
  * It also owns the BASE BEACON (owner 2026-08-01) — the shell standing on the
  * flag's home, which is what tells a carrier where to deliver. The beacon is
@@ -112,8 +122,21 @@ interface AsteroidView {
  * stays lit whether the flag is home, dropped or carried.
  */
 interface FlagView {
-  marker: Mesh;
-  material: StandardMaterial;
+  root: TransformNode;
+  pole: Mesh;
+  stand: Mesh;
+  banner: Mesh;
+  /** Bright free-edge hem shares the cloth material, making the silhouette read at range. */
+  bannerEdge: Mesh;
+  bannerPositions: Float32Array;
+  poleMaterial: StandardMaterial;
+  bannerMaterial: StandardMaterial;
+  /** State is smoothed into these values so a pickup/drop never snaps. */
+  scale: number;
+  tilt: number;
+  standScale: number;
+  bannerClockMs: number;
+  bannerUpdateMs: number;
   trail: LinesMesh;
   /** Base beacon shell, parked on `flag.home` for the life of the view. */
   beacon: Mesh;
@@ -175,7 +198,7 @@ export class ViewManager {
   private readonly asteroids = new Map<EntityId, AsteroidView>();
   /** Capture-the-flag flags and their wakes (owner 2026-07-31). */
   private readonly flags = new Map<EntityId, FlagView>();
-  /** The viewer's team, so a flag can be coloured by allegiance. */
+  /** Kept for the public view API; physical flag colours are team-stable. */
   private playerTeam: number | null = null;
   /** Shared beacon breath clock, wrapped to one period (see `flagBeacon.ts`). */
   private beaconClockMs = 0;
@@ -657,7 +680,7 @@ export class ViewManager {
     }
   }
 
-  /** Which team the viewer flies for — flags are coloured by allegiance. */
+  /** Which team the viewer flies for; retained for callers that set it on match join. */
   setPlayerTeam(team: number | null): void {
     this.playerTeam = team;
   }
@@ -665,10 +688,9 @@ export class ViewManager {
   /**
    * Capture-the-flag flags and their wakes (owner 2026-07-31).
    *
-   * The marker spins and bobs so a flag reads as an OBJECTIVE rather than as
-   * scenery, and the ribbon behind it fades from nothing at its oldest end to
-   * bright at the runner — the gradient is what tells a defender which way the
-   * flag is heading, which a solid line could not.
+   * The physical flag changes pose by state: upright on its stand at home,
+   * compact when carried, and tilted loose when dropped. Its wake still fades
+   * from nothing at its oldest end to bright at the runner.
    *
    * The base beacon (owner 2026-08-01) breathes off a single shared clock. It
    * is recomputed from that clock every frame rather than nudged, so a frame
@@ -689,11 +711,28 @@ export class ViewManager {
       view.beacon.scaling.setAll(pulse.scale);
       view.beaconMaterial.alpha = pulse.alpha;
 
-      view.marker.position.set(flag.pos.x, flag.pos.y, flag.pos.z);
-      view.marker.rotation.y += (frameDtMs / 1000) * 1.6;
-      // A loose flag sits still; a carried one is doing something, so it spins
-      // faster and rides slightly proud of the hull carrying it.
-      view.marker.position.y += flag.state === "carried" ? 3.6 : 0;
+      view.root.position.set(flag.pos.x, flag.pos.y, flag.pos.z);
+      // The replicated flag position follows the carrier. Put the mast above
+      // its hull while keeping home/drop exactly at the sim position.
+      if (flag.state === "carried") view.root.position.y += 3.6;
+      const blend = 1 - Math.exp(-Math.max(0, frameDtMs) / FLAG_TRANSITION_MS);
+      const targetScale = flag.state === "carried" ? 0.68 : 1;
+      const targetTilt = flag.state === "dropped" ? 1.08 : 0;
+      view.scale += (targetScale - view.scale) * blend;
+      view.tilt += (targetTilt - view.tilt) * blend;
+      view.standScale += ((flag.state === "home" ? 1 : 0) - view.standScale) * blend;
+      view.root.scaling.setAll(view.scale);
+      view.root.rotation.z = view.tilt;
+      // Flip the second team's silhouette; colour is team-stable too.
+      view.root.rotation.y = view.team === 1 ? Math.PI : 0;
+      view.stand.scaling.set(1, view.standScale, 1);
+      view.stand.setEnabled(view.standScale > 0.01);
+      view.bannerClockMs += Math.max(0, frameDtMs);
+      view.bannerUpdateMs += Math.max(0, frameDtMs);
+      if (view.bannerUpdateMs >= FLAG_BANNER_WAVE_MS) {
+        updateFlagBanner(view);
+        view.bannerUpdateMs %= FLAG_BANNER_WAVE_MS;
+      }
 
       if (resampleTrail(flag.trail, this.sTrail, TRAIL_POINTS)) {
         for (let i = 0; i < TRAIL_POINTS; i++) {
@@ -716,25 +755,44 @@ export class ViewManager {
 
   private createFlagView(flag: FlagSnapshot): FlagView {
     const id: EntityId = flag.id;
-    // Allegiance, not identity: your flag stays "yours" while an enemy runs off
-    // with it, because it is still the thing you have to get back.
-    const friendly = this.playerTeam === null || flag.team === this.playerTeam;
-    const colour = friendly ? new Color3(0.22, 0.75, 1.0) : new Color3(1.0, 0.25, 0.36);
+    // Team identity (not viewer allegiance) keeps both physical banners
+    // consistently blue/red in replays, spectators and split-screen.
+    const colour = flag.team === 1 ? new Color3(1.0, 0.18, 0.28) : new Color3(0.12, 0.62, 1.0);
+    const root = new TransformNode(`flag.${id}`, this.scene);
+    root.parent = this.root;
 
-    const mat = new StandardMaterial(`mat.flag.${id}`, this.scene);
-    mat.diffuseColor = Color3.Black();
-    mat.specularColor = Color3.Black();
-    mat.emissiveColor = colour;
-    const marker = MeshBuilder.CreateCylinder(
-      `flag.${id}`,
-      // Objectives need to read at combat distance; this is intentionally 3×
-      // the original marker, with the carried offset above scaled to match.
-      { diameterTop: 0, diameterBottom: 6.6, height: 10.2, tessellation: 4 },
+    const poleMaterial = new StandardMaterial(`mat.flagPole.${id}`, this.scene);
+    poleMaterial.diffuseColor = new Color3(0.16, 0.2, 0.27);
+    poleMaterial.specularColor = new Color3(0.72, 0.8, 0.92);
+    poleMaterial.specularPower = 96;
+    const pole = MeshBuilder.CreateCylinder(`flagPole.${id}`, { diameter: 0.22, height: 7.2, tessellation: 8 }, this.scene);
+    pole.material = poleMaterial;
+    pole.position.y = 0.1;
+    pole.isPickable = false;
+    pole.parent = root;
+
+    const stand = MeshBuilder.CreateCylinder(`flagStand.${id}`, { diameter: 2.5, height: 0.32, tessellation: 12 }, this.scene);
+    stand.material = poleMaterial;
+    stand.position.y = -3.65;
+    stand.isPickable = false;
+    stand.parent = root;
+
+    const bannerMaterial = new StandardMaterial(`mat.flagBanner.${id}`, this.scene);
+    bannerMaterial.diffuseColor = colour.scale(0.34);
+    bannerMaterial.emissiveColor = colour.scale(0.72);
+    bannerMaterial.specularColor = colour.scale(0.4);
+    bannerMaterial.specularPower = 72;
+    bannerMaterial.backFaceCulling = false;
+    const { banner, positions } = createFlagBanner(id, bannerMaterial, this.scene, root);
+    const bannerEdge = MeshBuilder.CreateBox(
+      `flagBannerEdge.${id}`,
+      { width: 0.13, height: FLAG_BANNER_HEIGHT, depth: 0.1 },
       this.scene,
     );
-    marker.material = mat;
-    marker.isPickable = false;
-    marker.parent = this.root;
+    bannerEdge.material = bannerMaterial;
+    bannerEdge.position.set(FLAG_BANNER_WIDTH, FLAG_BANNER_BASE_Y + FLAG_BANNER_HEIGHT / 2, 0);
+    bannerEdge.isPickable = false;
+    bannerEdge.parent = root;
 
     for (let i = this.sTrailVectors.length; i < TRAIL_POINTS; i++) this.sTrailVectors.push(new Vector3());
     const seed = this.sTrailVectors.slice(0, TRAIL_POINTS);
@@ -795,8 +853,19 @@ export class ViewManager {
     beacon.position.set(flag.home.x, flag.home.y, flag.home.z);
 
     return {
-      marker,
-      material: mat,
+      root,
+      pole,
+      stand,
+      banner,
+      bannerEdge,
+      bannerPositions: positions,
+      poleMaterial,
+      bannerMaterial,
+      scale: flag.state === "carried" ? 0.68 : 1,
+      tilt: flag.state === "dropped" ? 1.08 : 0,
+      standScale: flag.state === "home" ? 1 : 0,
+      bannerClockMs: 0,
+      bannerUpdateMs: FLAG_BANNER_WAVE_MS,
       trail,
       beacon,
       beaconMaterial: beaconMat,
@@ -1009,11 +1078,81 @@ export class ViewManager {
  * leaked by one of them drifting out of step with the other.
  */
 function disposeFlagView(view: FlagView): void {
-  view.material.dispose();
-  view.marker.dispose();
+  view.bannerMaterial.dispose();
+  view.poleMaterial.dispose();
+  view.banner.dispose();
+  view.bannerEdge.dispose();
+  view.pole.dispose();
+  view.stand.dispose();
   view.trail.dispose();
   view.beaconMaterial.dispose();
   view.beacon.dispose();
+  view.root.dispose();
+}
+
+/** Build one small, updatable cloth grid. It is deliberately not shared: each
+ * flag needs its own wave phase and colour, while there are only two flags. */
+function createFlagBanner(
+  id: EntityId,
+  material: StandardMaterial,
+  scene: Scene,
+  parent: TransformNode,
+): { banner: Mesh; positions: Float32Array } {
+  const vertexCount = FLAG_BANNER_COLUMNS * FLAG_BANNER_ROWS;
+  const positions = new Float32Array(vertexCount * 3);
+  const indices: number[] = [];
+  for (let row = 0; row < FLAG_BANNER_ROWS - 1; row++) {
+    for (let column = 0; column < FLAG_BANNER_COLUMNS - 1; column++) {
+      const a = row * FLAG_BANNER_COLUMNS + column;
+      const b = a + 1;
+      const c = a + FLAG_BANNER_COLUMNS;
+      indices.push(a, c, b, b, c, c + 1);
+    }
+  }
+  const normals = new Float32Array(positions.length);
+  writeFlagBanner(positions, 0, id);
+  VertexData.ComputeNormals(positions, indices, normals);
+  const data = new VertexData();
+  data.positions = positions;
+  data.indices = indices;
+  data.normals = normals;
+  const banner = new Mesh(`flagBanner.${id}`, scene);
+  data.applyToMesh(banner, true);
+  banner.material = material;
+  banner.isPickable = false;
+  banner.parent = parent;
+  // Seed vertices before the first render, so a just-created flag never shows
+  // as a single point for one frame.
+  banner.updateVerticesData(VertexBuffer.PositionKind, positions, false, false);
+  return { banner, positions };
+}
+
+function updateFlagBanner(view: FlagView): void {
+  writeFlagBanner(view.bannerPositions, view.bannerClockMs, view.team);
+  view.banner.updateVerticesData(VertexBuffer.PositionKind, view.bannerPositions, false, false);
+  // The hem follows the outer edge's average displacement. It shares the
+  // banner's emissive material, giving the waving silhouette a small readable
+  // glow without a second material or texture.
+  const top = ((FLAG_BANNER_ROWS - 1) * FLAG_BANNER_COLUMNS + FLAG_BANNER_COLUMNS - 1) * 3 + 2;
+  const bottom = (FLAG_BANNER_COLUMNS - 1) * 3 + 2;
+  view.bannerEdge.position.z = (view.bannerPositions[top]! + view.bannerPositions[bottom]!) * 0.5;
+}
+
+/** Writes a gently travelling ripple into the preallocated position buffer. */
+function writeFlagBanner(positions: Float32Array, clockMs: number, phaseSeed: number): void {
+  const time = clockMs * 0.001;
+  let offset = 0;
+  for (let row = 0; row < FLAG_BANNER_ROWS; row++) {
+    const y = FLAG_BANNER_BASE_Y + (row / (FLAG_BANNER_ROWS - 1)) * FLAG_BANNER_HEIGHT;
+    for (let column = 0; column < FLAG_BANNER_COLUMNS; column++) {
+      const along = column / (FLAG_BANNER_COLUMNS - 1);
+      positions[offset++] = along * FLAG_BANNER_WIDTH;
+      positions[offset++] = y;
+      // Fixed at the pole; the free edge has the most motion. The phase seed
+      // prevents blue and red fabric folding in exact unison.
+      positions[offset++] = Math.sin(time * 2.1 + along * 4.8 + row * 0.42 + phaseSeed) * 0.42 * along;
+    }
+  }
 }
 
 /** A `FresnelParameters` with `left` at grazing angles and `right` head-on. */
