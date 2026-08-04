@@ -498,6 +498,8 @@ export class AssetRegistry {
    */
   private readonly modelLodTargets = new Map<string, ModelLodTarget>();
   private asteroidLod: AsteroidLod | null = null;
+  /** True only while this registry is staging a hull in an IBL-lit hangar. */
+  private hangarMaterialMode = false;
 
   /**
    * GLB master meshes, shared across every AssetRegistry on the same scene
@@ -507,6 +509,8 @@ export class AssetRegistry {
    */
   private static readonly modelMasters = new WeakMap<Scene, Map<string, Mesh | null>>();
   private static readonly modelLoads = new WeakMap<Scene, Map<string, Promise<Mesh | null>>>();
+  /** The authored PBR values survive the match-safe fallback applied below. */
+  private static readonly pbrAuthoring = new WeakMap<Scene, Map<PBRMaterial, { metallic: number; roughness: number }>>();
 
   constructor(private readonly scene: Scene) {}
 
@@ -517,6 +521,49 @@ export class AssetRegistry {
       store.set(scene, m);
     }
     return m;
+  }
+
+  private static authoredPbr(scene: Scene): Map<PBRMaterial, { metallic: number; roughness: number }> {
+    let materials = AssetRegistry.pbrAuthoring.get(scene);
+    if (!materials) {
+      materials = new Map();
+      AssetRegistry.pbrAuthoring.set(scene, materials);
+    }
+    return materials;
+  }
+
+  private applyPbrMode(material: PBRMaterial): void {
+    const authored = AssetRegistry.authoredPbr(this.scene);
+    let source = authored.get(material);
+    if (!source) {
+      source = { metallic: material.metallic ?? 1, roughness: material.roughness ?? 0.4 };
+      authored.set(material, source);
+    }
+    if (this.hangarMaterialMode) {
+      material.metallic = source.metallic;
+      material.roughness = source.roughness;
+    } else {
+      material.metallic = Math.min(source.metallic, 0.25);
+      material.roughness = Math.max(source.roughness, 0.5);
+    }
+  }
+
+  private applyPbrModeToMaster(master: Mesh): void {
+    const flat = master.material;
+    const materials = flat instanceof MultiMaterial ? flat.subMaterials : [flat];
+    for (const material of materials) if (material instanceof PBRMaterial) this.applyPbrMode(material);
+  }
+
+  /**
+   * Enables authored metallic/roughness only for the IBL-lit hangar visit.
+   * Match scenes retain their old punctual-light fallback exactly as before.
+   */
+  setHangarMaterialMode(enabled: boolean): void {
+    if (this.hangarMaterialMode === enabled) return;
+    this.hangarMaterialMode = enabled;
+    for (const master of AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene).values()) {
+      if (master) this.applyPbrModeToMaster(master);
+    }
   }
 
   /**
@@ -609,17 +656,10 @@ export class AssetRegistry {
     // does NOT refresh bounding info — instances would inherit the raw import
     // bounds and get frustum-culled while partly on screen.
     merged.refreshBoundingInfo();
-    // The scene has no IBL/environment texture, so fully-metallic PBR
-    // surfaces (common in generated GLBs) would render black under our
-    // punctual lights. Clamp metalness so albedo responds to them.
-    const flat = merged.material;
-    const mats = flat instanceof MultiMaterial ? flat.subMaterials : [flat];
-    for (const m of mats) {
-      if (m instanceof PBRMaterial) {
-        m.metallic = Math.min(m.metallic ?? 1, 0.25);
-        m.roughness = Math.max(m.roughness ?? 0.4, 0.5);
-      }
-    }
+    // Match scenes intentionally have no IBL, so retain their old safe PBR
+    // fallback. Hangar switches this registry to authored values while its
+    // scoped procedural environment is active.
+    this.applyPbrModeToMaster(merged);
     merged.name = `master.model.${path}`;
     merged.setEnabled(false);
     masters.set(key, merged);
