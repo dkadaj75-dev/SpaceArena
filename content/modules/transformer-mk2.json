@@ -1,0 +1,36 @@
+{
+  "id": "module.transformer-mk2",
+  "type": "module",
+  "version": 1,
+  "family": "transformer",
+  "level": 2,
+  "name": "Stock Bus Mk II",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "power.capacity",
+      "op": "add",
+      "value": 6.5
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: transformer]",
+    "shortName": "Stock Bus",
+    "label": "Transformer"
+  },
+  "price": 750,
+  "requiresLevel": 2
+}

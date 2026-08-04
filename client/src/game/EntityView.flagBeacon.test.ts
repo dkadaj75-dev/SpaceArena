@@ -1,4 +1,4 @@
-import { NullEngine, Scene, StandardMaterial } from "@babylonjs/core";
+import { NullEngine, Scene, StandardMaterial, VertexBuffer } from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 import type { ConfigService, FlagSnapshot, Snapshot } from "@space-arena/shared";
 import { ViewManager } from "./EntityView.js";
@@ -54,8 +54,60 @@ function makeView(): { scene: Scene; engine: NullEngine; view: ViewManager } {
 const beaconsIn = (scene: Scene) => scene.meshes.filter((m) => m.name.startsWith("flagBeacon."));
 const beaconMatsIn = (scene: Scene) =>
   scene.materials.filter((m) => m.name.startsWith("mat.flagBeacon."));
+const flagBannersIn = (scene: Scene) => scene.meshes.filter((m) => m.name.startsWith("flagBanner."));
+const flagMatsIn = (scene: Scene) => scene.materials.filter((m) => m.name.startsWith("mat.flag"));
 
 describe("flag base beacons (owner 2026-08-01)", () => {
+  it("draws each team as a real pole-mounted blue/red waving banner", () => {
+    const { scene, engine, view } = makeView();
+    const snap = snapshot([flag(11), flag(12, { team: 1 })]);
+    view.render(snap, snap, 1, 16);
+
+    const banners = flagBannersIn(scene);
+    expect(banners).toHaveLength(2);
+    expect(scene.meshes.filter((m) => m.name.startsWith("flagPole."))).toHaveLength(2);
+    expect(scene.meshes.filter((m) => m.name.startsWith("flagStand."))).toHaveLength(2);
+    const blue = banners[0]!.material as StandardMaterial;
+    const red = banners[1]!.material as StandardMaterial;
+    expect(blue.emissiveColor.b).toBeGreaterThan(blue.emissiveColor.r);
+    expect(red.emissiveColor.r).toBeGreaterThan(red.emissiveColor.b);
+    expect(blue.backFaceCulling).toBe(false);
+
+    const before = Array.from(banners[0]!.getVerticesData(VertexBuffer.PositionKind)!);
+    view.render(snap, snap, 2, 40);
+    const after = Array.from(banners[0]!.getVerticesData(VertexBuffer.PositionKind)!);
+    expect(after).not.toEqual(before);
+
+    view.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("poses the flag upright at home, compact when carried, and tilted when dropped", () => {
+    const { scene, engine, view } = makeView();
+    const home = snapshot([flag(13)]);
+    view.render(home, home, 1, 16);
+    const root = scene.transformNodes.find((n) => n.name === "flag.13")!;
+    const stand = scene.meshes.find((m) => m.name === "flagStand.13")!;
+    expect(root.rotation.z).toBe(0);
+    expect(stand.isEnabled()).toBe(true);
+
+    const carried = snapshot([flag(13, { state: "carried", carrierId: 4 })]);
+    view.render(carried, carried, 2, 1000);
+    expect(root.scaling.x).toBeCloseTo(0.68, 2);
+    expect(root.position.y).toBeCloseTo(3.6, 4);
+    expect(stand.isEnabled()).toBe(false);
+
+    const dropped = snapshot([flag(13, { state: "dropped", pos: { x: 7, y: 2, z: 3 } })]);
+    view.render(dropped, dropped, 3, 1000);
+    expect(root.rotation.z).toBeCloseTo(1.08, 2);
+    expect(root.position.asArray()).toEqual([7, 2, 3]);
+
+    view.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
   it("stands one translucent shell on each base, sized by the capture radius", () => {
     const { scene, engine, view } = makeView();
     view.render(snapshot([flag(1)]), snapshot([flag(1)]), 1, 16);
@@ -150,6 +202,22 @@ describe("flag base beacons (owner 2026-08-01)", () => {
     expect(beacon.isDisposed()).toBe(true);
     expect(beaconMatsIn(scene)).toHaveLength(0);
 
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("disposes every physical-flag material when a flag leaves the match", () => {
+    const { scene, engine, view } = makeView();
+    const withFlag = snapshot([flag(14)]);
+    view.render(withFlag, withFlag, 1, 16);
+    expect(flagMatsIn(scene)).toHaveLength(3); // pole, banner, base beacon
+
+    const empty = snapshot([]);
+    view.render(empty, empty, 2, 16);
+    expect(flagBannersIn(scene)).toHaveLength(0);
+    expect(flagMatsIn(scene)).toHaveLength(0);
+
+    view.dispose();
     scene.dispose();
     engine.dispose();
   });

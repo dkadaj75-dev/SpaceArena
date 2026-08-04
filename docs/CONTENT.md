@@ -27,6 +27,28 @@ A new arena needs BOTH its `content/arenas/*.json` file and an entry in
 `content/manifest.json` — a file the manifest does not list is silently not
 loaded, and the first symptom is a gamemode falling back to a different arena.
 
+> **Module and hardpoint expansion (2026-08-04):** the shipped catalogue now
+> contains 40 modules. New weapon choices are the Burst Pulse Laser,
+> Long-Barrel Cannon, Heavy Seeker Rack, and Sustained Beam Mk II; shields add
+> Fortress Mk III and the quick, light Skirmish Deflector. The systems catalogue
+> adds Armor Plating, a Flux Capacitor Bank, High-Output Dynamo, Precision Array,
+> Endurance Drive, and Racing Overdrive. The heavy Brawler now carries six
+> external hardpoints plus six internal slots, Support carries four external
+> plus six internal slots, and the light Interceptor carries three external plus
+> five internal slots. Socket transforms remain in ship-local coordinates and
+> every `defaultFitting` stays positional over `hardpointsOf(ship)`.
+
+> **Catalogue ladder and combat balance amendment (2026-08-04):** every
+> functional module line now has an explicit Mk progression. Baseline systems
+> use canonical Mk I–III ladders; named variants remain sidegrades and are not
+> silently rebranded, while generator and utility sidegrades receive explicit
+> Mk II successors. Relative to the preceding shipped catalogue, every weapon's
+> per-shot damage (or continuous-beam DPS) is **1.6×**, every authored source of
+> generated heat (`heat.perSecondActive`, `fire.heatPerShot`, and
+> `boost.heatPerSec`) is **3×**, and shield/boost `energy.drawIdle` plus
+> `energy.drawActive` are **2×**. Fire cadence and heatsink dissipation are
+> unchanged. These are catalogue-wide owner balance constants, not hull tuning.
+
 A **bundle** is that pack serialized as one JSON document. It is the unit that
 travels between machines:
 

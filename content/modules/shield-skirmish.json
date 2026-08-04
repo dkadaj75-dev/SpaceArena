@@ -1,0 +1,50 @@
+{
+  "id": "module.shield-skirmish",
+  "type": "module",
+  "version": 1,
+  "family": "shield",
+  "level": 2,
+  "name": "Skirmish Deflector",
+  "activation": {
+    "deployTime": 0.18,
+    "retractTime": 0.15
+  },
+  "energy": {
+    "drawIdle": 10,
+    "drawActive": 26
+  },
+  "power": {
+    "draw": 3.5
+  },
+  "heat": {
+    "perSecondActive": 2.0999999999999996,
+    "overheatThreshold": 52,
+    "overheatCooldown": 3.5,
+    "overheatSelfDamage": 0
+  },
+  "mitigation": {
+    "damageReduction": 0.42,
+    "absorbPerSecond": 9,
+    "coversFamilies": [
+      "kinetic",
+      "energy"
+    ]
+  },
+  "onActivate": [
+    "action.play-sound-shield-up"
+  ],
+  "onDeactivate": [
+    "action.play-sound-shield-down"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: shield]",
+    "shortName": "Skirmish",
+    "label": "Skirmish Shield"
+  },
+  "price": 650,
+  "requiresLevel": 2
+}

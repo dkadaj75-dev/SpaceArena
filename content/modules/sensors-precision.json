@@ -1,0 +1,46 @@
+{
+  "id": "module.sensors-precision",
+  "type": "module",
+  "version": 1,
+  "family": "sensors",
+  "level": 3,
+  "name": "Precision Tracking Array",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "sensors.lockRange",
+      "op": "mul",
+      "value": 1.15
+    },
+    {
+      "target": "sensors.lockTimeSec",
+      "op": "mul",
+      "value": 0.78
+    },
+    {
+      "target": "sensors.coneDeg",
+      "op": "mul",
+      "value": 0.72
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: sensors]",
+    "shortName": "Precision",
+    "label": "Sensors"
+  },
+  "price": 1550,
+  "requiresLevel": 4
+}

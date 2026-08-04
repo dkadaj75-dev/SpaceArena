@@ -5,8 +5,14 @@
   "family": "utility",
   "level": 2,
   "name": "Capacitor Battery",
-  "activation": { "deployTime": 0, "retractTime": 0 },
-  "energy": { "drawIdle": 0, "drawActive": 0 },
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
   "heat": {
     "perSecondActive": 0,
     "overheatThreshold": 100,
@@ -14,10 +20,22 @@
     "overheatSelfDamage": 0
   },
   "passives": [
-    { "target": "energy.capacitor", "op": "add", "value": 40 },
-    { "target": "energy.regen", "op": "add", "value": 4 }
+    {
+      "target": "energy.capacitor",
+      "op": "add",
+      "value": 40
+    },
+    {
+      "target": "energy.regen",
+      "op": "add",
+      "value": 4
+    }
   ],
-  "ui": { "icon": "[ICON: capacitor]", "shortName": "Capacitor", "label": "Battery" },
+  "ui": {
+    "icon": "[ICON: capacitor]",
+    "shortName": "Capacitor",
+    "label": "Battery"
+  },
   "price": 400,
   "requiresLevel": 2
 }

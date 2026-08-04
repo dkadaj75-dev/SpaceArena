@@ -3,11 +3,93 @@
   "type": "progression",
   "version": 1,
   "name": "Default Progression",
-  "xpCurve": [0, 100, 250, 500, 900, 1500],
+  "xpCurve": [
+    0,
+    100,
+    250,
+    500,
+    900,
+    1500
+  ],
   "starterCredits": 250,
-  "rewards": { "perKill": 10, "win": 100, "loss": 25 },
+  "rewards": {
+    "perKill": 10,
+    "win": 100,
+    "loss": 25
+  },
   "unlocks": {
-    "1": ["ship.interceptor", "module.laser-mk1"],
-    "2": ["module.missile-mk1", "module.shield-mk1"]
+    "1": [
+      "module.beamlaser-mk1",
+      "module.boost-mk1",
+      "module.engine-civ",
+      "module.generator-compact",
+      "module.heatsink-basic",
+      "module.kinetic-mk1",
+      "module.laser-mk1",
+      "module.missile-mk1",
+      "module.sensors-basic",
+      "module.shield-mk1",
+      "module.transformer-stock",
+      "ship.interceptor"
+    ],
+    "2": [
+      "module.boost-mk2",
+      "module.engine-agile",
+      "module.engine-endurance",
+      "module.engine-mk2",
+      "module.engine-sport",
+      "module.generator-compact-mk2",
+      "module.generator-heavy",
+      "module.heatsink-mk2",
+      "module.kinetic-mk2",
+      "module.laser-mk2",
+      "module.sensors-longrange",
+      "module.sensors-mk2",
+      "module.sensors-snap",
+      "module.shield-skirmish",
+      "module.transformer-mk2",
+      "module.utility-capacitor-battery",
+      "module.utility-heat-sink"
+    ],
+    "3": [
+      "module.beamlaser-mk2",
+      "module.generator-dynamo",
+      "module.heatsink-ablative",
+      "module.missile-mk2",
+      "module.shield-mk2",
+      "module.transformer-cryo",
+      "module.transformer-efficient",
+      "module.utility-armor-plating"
+    ],
+    "4": [
+      "module.boost-mk3",
+      "module.engine-mk3",
+      "module.generator-heavy-mk2",
+      "module.generator-siege",
+      "module.heatsink-mk3",
+      "module.kinetic-longbarrel",
+      "module.kinetic-mk3",
+      "module.laser-burst",
+      "module.laser-mk3",
+      "module.sensors-mk3",
+      "module.sensors-precision",
+      "module.transformer-mk3",
+      "module.utility-capacitor-battery-mk2",
+      "module.utility-flux-capacitor",
+      "module.utility-heat-sink-mk2"
+    ],
+    "5": [
+      "module.beamlaser-mk3",
+      "module.engine-racing",
+      "module.heatsink-cryo",
+      "module.missile-heavy",
+      "module.missile-mk3",
+      "module.shield-mk3",
+      "module.utility-armor-plating-mk2"
+    ],
+    "6": [
+      "module.generator-siege-mk2",
+      "module.utility-flux-capacitor-mk2"
+    ]
   }
 }

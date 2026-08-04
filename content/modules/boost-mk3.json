@@ -1,0 +1,46 @@
+{
+  "id": "module.boost-mk3",
+  "type": "module",
+  "version": 1,
+  "family": "boost",
+  "level": 3,
+  "name": "Afterburner Mk III",
+  "activation": {
+    "deployTime": 0.25,
+    "retractTime": 0.25
+  },
+  "energy": {
+    "drawIdle": 2,
+    "drawActive": 30
+  },
+  "power": {
+    "draw": 3.5
+  },
+  "heat": {
+    "perSecondActive": 5.699999999999999,
+    "overheatThreshold": 56,
+    "overheatCooldown": 4,
+    "overheatSelfDamage": 0
+  },
+  "boost": {
+    "speedMult": 2.5,
+    "heatPerSec": 5.699999999999999
+  },
+  "onActivate": [
+    "action.play-sound-boost-up"
+  ],
+  "onDeactivate": [
+    "action.play-sound-boost-down"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: boost]",
+    "shortName": "Boost Mk2",
+    "label": "Boost II"
+  },
+  "price": 900,
+  "requiresLevel": 4
+}

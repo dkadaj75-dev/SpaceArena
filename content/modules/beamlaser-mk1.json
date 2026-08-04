@@ -17,16 +17,16 @@
     "draw": 3
   },
   "heat": {
-    "perSecondActive": 4,
+    "perSecondActive": 12,
     "overheatThreshold": 55,
-    "overheatCooldown": 3.0,
+    "overheatCooldown": 3,
     "overheatSelfDamage": 0
   },
   "fire": {
     "mode": "continuous",
-    "range": 85.0,
+    "range": 85,
     "cycleTime": 0.1,
-    "damage": 16,
+    "damage": 25.5,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null

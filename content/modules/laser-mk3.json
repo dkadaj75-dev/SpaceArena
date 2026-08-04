@@ -1,0 +1,48 @@
+{
+  "id": "module.laser-mk3",
+  "type": "module",
+  "version": 1,
+  "family": "laser",
+  "level": 3,
+  "name": "Pulse Laser Mk III",
+  "activation": {
+    "deployTime": 0.5,
+    "retractTime": 0.35
+  },
+  "energy": {
+    "drawIdle": 5,
+    "drawActive": 19
+  },
+  "power": {
+    "draw": 6.5
+  },
+  "heat": {
+    "perSecondActive": 7.800000000000001,
+    "overheatThreshold": 65,
+    "overheatCooldown": 5,
+    "overheatSelfDamage": 1
+  },
+  "fire": {
+    "mode": "held",
+    "range": 105,
+    "cycleTime": 0.35,
+    "damage": 20,
+    "damageType": "energy",
+    "requiresLineOfSight": true,
+    "projectile": null
+  },
+  "onFire": [
+    "action.play-sound-laser"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: laser]",
+    "shortName": "Laser Mk2",
+    "label": "Laser II"
+  },
+  "price": 1000,
+  "requiresLevel": 4
+}

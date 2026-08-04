@@ -1,0 +1,41 @@
+{
+  "id": "module.sensors-mk3",
+  "type": "module",
+  "version": 1,
+  "family": "sensors",
+  "level": 3,
+  "name": "Standard Array Mk III",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "sensors.lockRange",
+      "op": "mul",
+      "value": 1.55
+    },
+    {
+      "target": "sensors.lockTimeSec",
+      "op": "mul",
+      "value": 0.78
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: sensors]",
+    "shortName": "Std Array",
+    "label": "Sensors"
+  },
+  "price": 1400,
+  "requiresLevel": 4
+}

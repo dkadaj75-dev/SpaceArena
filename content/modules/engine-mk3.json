@@ -1,0 +1,46 @@
+{
+  "id": "module.engine-mk3",
+  "type": "module",
+  "version": 1,
+  "family": "engine",
+  "level": 3,
+  "name": "Civilian Drive Mk III",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 8
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 1.55
+    },
+    {
+      "target": "engine.turnRate",
+      "op": "mul",
+      "value": 1.25
+    },
+    {
+      "target": "engine.accel",
+      "op": "mul",
+      "value": 1.45
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: engine]",
+    "shortName": "Civ Drive",
+    "label": "Engine"
+  },
+  "price": 1450,
+  "requiresLevel": 4
+}

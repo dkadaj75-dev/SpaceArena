@@ -1,0 +1,51 @@
+{
+  "id": "module.generator-heavy-mk2",
+  "type": "module",
+  "version": 1,
+  "family": "generator",
+  "level": 3,
+  "name": "Heavy Reactor Mk II",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "energy.capacitor",
+      "op": "add",
+      "value": 88
+    },
+    {
+      "target": "energy.regen",
+      "op": "add",
+      "value": 11
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 0.88
+    },
+    {
+      "target": "engine.accel",
+      "op": "mul",
+      "value": 0.9
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: generator]",
+    "shortName": "Heavy Rctr",
+    "label": "Generator"
+  },
+  "price": 1850,
+  "requiresLevel": 4
+}

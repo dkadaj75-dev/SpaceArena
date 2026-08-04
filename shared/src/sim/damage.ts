@@ -68,7 +68,14 @@ export function applyDamageToShip(
       if (tally) {
         tally.absorbed.set(m.hardpointIndex, (tally.absorbed.get(m.hardpointIndex) ?? 0) + reduced);
       } else {
-        world.emit({ type: "shieldAbsorb", targetId, hardpointIndex: m.hardpointIndex, amount: reduced });
+        world.emit({
+          type: "shieldAbsorb",
+          targetId,
+          sourceId,
+          hardpointIndex: m.hardpointIndex,
+          amount: reduced,
+          damageType: type,
+        });
       }
     }
   }

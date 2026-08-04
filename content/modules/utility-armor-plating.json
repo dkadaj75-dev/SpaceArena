@@ -1,0 +1,46 @@
+{
+  "id": "module.utility-armor-plating",
+  "type": "module",
+  "version": 1,
+  "family": "utility",
+  "level": 2,
+  "name": "Reinforced Armor Plating",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "hull.base",
+      "op": "add",
+      "value": 32
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 0.92
+    },
+    {
+      "target": "engine.accel",
+      "op": "mul",
+      "value": 0.9
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: utility]",
+    "shortName": "Armor Plate",
+    "label": "Armor"
+  },
+  "price": 700,
+  "requiresLevel": 3
+}

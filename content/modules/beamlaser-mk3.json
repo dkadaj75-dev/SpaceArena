@@ -1,0 +1,48 @@
+{
+  "id": "module.beamlaser-mk3",
+  "type": "module",
+  "version": 1,
+  "family": "laser",
+  "level": 3,
+  "name": "Sustained Beam Mk III",
+  "activation": {
+    "deployTime": 0.55,
+    "retractTime": 0.4
+  },
+  "energy": {
+    "drawIdle": 6,
+    "drawActive": 31
+  },
+  "power": {
+    "draw": 6.5
+  },
+  "heat": {
+    "perSecondActive": 19.5,
+    "overheatThreshold": 68,
+    "overheatCooldown": 4.5,
+    "overheatSelfDamage": 1
+  },
+  "fire": {
+    "mode": "continuous",
+    "range": 100,
+    "cycleTime": 0.1,
+    "damage": 46.5,
+    "damageType": "energy",
+    "requiresLineOfSight": true,
+    "projectile": null
+  },
+  "onFire": [
+    "action.play-sound-laser"
+  ],
+  "onOverheat": [
+    "action.notify-overheat",
+    "action.play-sound-overheat"
+  ],
+  "ui": {
+    "icon": "[ICON: laser]",
+    "shortName": "Beam Mk2",
+    "label": "Beam II"
+  },
+  "price": 1750,
+  "requiresLevel": 5
+}

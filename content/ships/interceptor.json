@@ -148,6 +148,20 @@
       ]
     },
     {
+      "id": "hp-wing-r",
+      "kind": "hardpoint",
+      "transform": {
+        "pos": [
+          1,
+          -0.0526,
+          -0.9474
+        ]
+      },
+      "accepts": [
+        "utility"
+      ]
+    },
+    {
       "id": "eng-l",
       "transform": {
         "pos": [

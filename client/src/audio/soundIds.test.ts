@@ -165,7 +165,7 @@ describe("cueSoundFor", () => {
   it("fires player-feedback cues only for the local player", () => {
     expect(cueSoundFor({ type: "damage", targetId: PLAYER, sourceId: ENEMY, amount: 4, damageType: "energy", isAsteroid: false }, PLAYER, cues)).toBe("hit_thud");
     expect(cueSoundFor({ type: "damage", targetId: ENEMY, sourceId: PLAYER, amount: 4, damageType: "energy", isAsteroid: false }, PLAYER, cues)).toBeNull();
-    expect(cueSoundFor({ type: "shieldAbsorb", targetId: PLAYER, hardpointIndex: 0, amount: 3 }, PLAYER, cues)).toBe("shield_hit");
+    expect(cueSoundFor({ type: "shieldAbsorb", targetId: PLAYER, sourceId: ENEMY, hardpointIndex: 0, amount: 3, damageType: "energy" }, PLAYER, cues)).toBe("shield_hit");
     expect(cueSoundFor({ type: "overheated", entityId: ENEMY, hardpointIndex: 0, moduleId: "m" }, PLAYER, cues)).toBeNull();
   });
 

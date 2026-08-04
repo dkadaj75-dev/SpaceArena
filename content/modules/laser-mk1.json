@@ -17,17 +17,17 @@
     "draw": 2.5
   },
   "heat": {
-    "perSecondActive": 1.5,
+    "perSecondActive": 4.5,
     "overheatThreshold": 55,
-    "overheatCooldown": 3.0,
+    "overheatCooldown": 3,
     "overheatSelfDamage": 0
   },
   "fire": {
     "mode": "held",
-    "range": 95.0,
+    "range": 95,
     "cycleTime": 0.4,
-    "heatPerShot": 6,
-    "damage": 7,
+    "heatPerShot": 18,
+    "damage": 11,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null

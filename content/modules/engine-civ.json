@@ -23,12 +23,12 @@
     {
       "target": "engine.nominalSpeed",
       "op": "mul",
-      "value": 1.0
+      "value": 1
     },
     {
       "target": "engine.turnRate",
       "op": "mul",
-      "value": 1.0
+      "value": 1
     }
   ],
   "ui": {

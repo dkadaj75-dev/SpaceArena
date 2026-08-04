@@ -5,8 +5,14 @@
   "family": "utility",
   "level": 2,
   "name": "Heat Sink",
-  "activation": { "deployTime": 0, "retractTime": 0 },
-  "energy": { "drawIdle": 0, "drawActive": 0 },
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
   "heat": {
     "perSecondActive": 0,
     "overheatThreshold": 100,
@@ -14,10 +20,22 @@
     "overheatSelfDamage": 0
   },
   "passives": [
-    { "target": "heat.dissipation", "op": "add", "value": 5 },
-    { "target": "heat.capacity", "op": "mul", "value": 1.1 }
+    {
+      "target": "heat.dissipation",
+      "op": "add",
+      "value": 5
+    },
+    {
+      "target": "heat.capacity",
+      "op": "mul",
+      "value": 1.1
+    }
   ],
-  "ui": { "icon": "[ICON: heat-sink]", "shortName": "Heat Sink", "label": "Heat Sink" },
+  "ui": {
+    "icon": "[ICON: heat-sink]",
+    "shortName": "Heat Sink",
+    "label": "Heat Sink"
+  },
   "price": 400,
   "requiresLevel": 2
 }

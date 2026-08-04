@@ -1,0 +1,46 @@
+{
+  "id": "module.generator-dynamo",
+  "type": "module",
+  "version": 1,
+  "family": "generator",
+  "level": 2,
+  "name": "High-Output Dynamo",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "drawIdle": 0,
+    "drawActive": 0
+  },
+  "heat": {
+    "perSecondActive": 0,
+    "overheatThreshold": 100,
+    "overheatCooldown": 0,
+    "overheatSelfDamage": 0
+  },
+  "passives": [
+    {
+      "target": "energy.regen",
+      "op": "add",
+      "value": 13
+    },
+    {
+      "target": "energy.capacitor",
+      "op": "add",
+      "value": -25
+    },
+    {
+      "target": "heat.dissipation",
+      "op": "add",
+      "value": -2
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: generator]",
+    "shortName": "Dynamo",
+    "label": "Generator"
+  },
+  "price": 1150,
+  "requiresLevel": 3
+}

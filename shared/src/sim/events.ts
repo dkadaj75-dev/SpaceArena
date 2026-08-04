@@ -48,7 +48,14 @@ export type SimEvent =
       damageType: DamageType;
       isAsteroid: boolean;
     }
-  | { type: "shieldAbsorb"; targetId: EntityId; hardpointIndex: number; amount: number }
+  | {
+      type: "shieldAbsorb";
+      targetId: EntityId;
+      sourceId: EntityId | null;
+      hardpointIndex: number;
+      amount: number;
+      damageType: DamageType;
+    }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
   /**

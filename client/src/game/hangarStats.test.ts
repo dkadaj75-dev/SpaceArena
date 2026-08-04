@@ -57,8 +57,8 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     // simply carry — you pay when you pull the trigger.
     expect(panel.idleDrawTotal).toBe(0);
     expect(panel.energyBudget).toBe(panel.capacitorRegen);
-    // laser 7/0.4 + missile 22/2.5 = 17.5 + 8.8 = 26.3 (internals do not fire).
-    expect(panel.dps).toBeCloseTo(7 / 0.4 + 22 / 2.5, 6);
+    // laser 11/0.4 + missile 35/2.5 = 27.5 + 14 = 41.5 (internals do not fire).
+    expect(panel.dps).toBeCloseTo(11 / 0.4 + 35 / 2.5, 6);
   });
 
   it("flags a negative energy budget when idle draw exceeds regen", () => {
@@ -67,7 +67,7 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     // Hangar's job, not the stat panel's.)
     const heavy = interceptor.defaultFitting.map(() => "module.shield-mk1");
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: heavy });
-    expect(panel.idleDrawTotal).toBe(12 * heavy.length);
+    expect(panel.idleDrawTotal).toBe(24 * heavy.length);
     expect(panel.energyBudget).toBeLessThan(0);
   });
 

@@ -1113,7 +1113,14 @@ function toSimEventMessage(ev: SimEvent): SimEventMessage | null {
         isAsteroid: ev.isAsteroid,
       };
     case "shieldAbsorb":
-      return { type: "shieldAbsorb", targetId: ev.targetId, hardpointIndex: ev.hardpointIndex, amount: ev.amount };
+      return {
+        type: "shieldAbsorb",
+        targetId: ev.targetId,
+        sourceId: ev.sourceId,
+        hardpointIndex: ev.hardpointIndex,
+        amount: ev.amount,
+        damageType: ev.damageType,
+      };
     // Lock flips: one message per acquire/break, which is the rate a lock can
     // physically change at. Without them the online client never plays the
     // lock cue that practice mode plays (FLIGHT.md §2/§4).
