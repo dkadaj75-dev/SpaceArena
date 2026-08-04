@@ -85,7 +85,7 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
 
   it("falls back to the ship's default fitting when the Hangar has no opinion", () => {
     const session = practice({});
-    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting]);
+    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting, null]);
   });
 
   it("empties a slot whose module the hardpoint refuses rather than failing the match", () => {
@@ -122,12 +122,12 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
       playerFitting: ["module.ghost", null, null, null],
     });
     // Unknown hull ⇒ stock interceptor; an all-empty fit ⇒ its default fitting.
-    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting]);
+    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting, null]);
   });
 
   it("treats an all-empty fitting as 'no opinion' — a module-less ship is not playable", () => {
     const session = practice({ playerShipId: "ship.interceptor", playerFitting: [null, null, null, null] });
-    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting]);
+    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting, null]);
   });
 });
 

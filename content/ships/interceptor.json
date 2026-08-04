@@ -339,8 +339,7 @@
     "module.generator-compact",
     "module.transformer-stock",
     "module.heatsink-basic",
-    "module.sensors-basic",
-    "module.utility-heat-sink"
+    "module.sensors-basic"
   ],
   "render": {
     "recipe": "procedural.arrowhead",

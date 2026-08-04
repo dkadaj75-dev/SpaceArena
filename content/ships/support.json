@@ -359,8 +359,7 @@
     "module.transformer-stock",
     "module.heatsink-basic",
     "module.sensors-basic",
-    "module.generator-compact",
-    "module.utility-capacitor-battery"
+    "module.generator-compact"
   ],
   "render": {
     "recipe": "procedural.support",

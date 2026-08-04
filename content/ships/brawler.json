@@ -423,9 +423,7 @@
     "module.transformer-stock",
     "module.heatsink-basic",
     "module.sensors-basic",
-    "module.heatsink-ablative",
-    "module.utility-heat-sink",
-    "module.utility-armor-plating"
+    "module.heatsink-basic"
   ],
   "render": {
     "recipe": "procedural.brawler",
