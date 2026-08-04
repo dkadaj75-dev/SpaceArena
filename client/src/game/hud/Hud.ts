@@ -15,6 +15,7 @@ import { VitalArcs } from "./VitalArcs.js";
 import { Minimap } from "./Minimap.js";
 import { NotificationCenter } from "./Notifications.js";
 import { DamageFeedback } from "./DamageFeedback.js";
+import { FloatingDamageText } from "./FloatingDamageText.js";
 import { MatchStatus } from "./MatchStatus.js";
 import { CountdownOverlay } from "./CountdownOverlay.js";
 import { KillAnnouncements } from "./KillAnnouncements.js";
@@ -96,6 +97,7 @@ export class Hud {
   private readonly minimap: Minimap;
   private readonly notifications: NotificationCenter;
   private readonly damageFx: DamageFeedback;
+  private readonly floatingDamage: FloatingDamageText;
   private readonly matchStatus: MatchStatus;
   /** Match-start 3-2-1-GO numerals, driven by the sim-authoritative countdown. */
   private readonly countdown: CountdownOverlay;
@@ -146,6 +148,7 @@ export class Hud {
     this.moduleButtons = new ModuleButtons(this.root, configs, bus, session, playerId);
     this.notifications = new NotificationCenter(this.root, configs);
     this.damageFx = new DamageFeedback(this.root, playerId);
+    this.floatingDamage = new FloatingDamageText(this.root, playerId, options.flight ?? null);
     this.matchStatus = new MatchStatus(this.root, session);
     this.countdown = new CountdownOverlay(this.root);
     this.killAnnouncements = new KillAnnouncements(this.root, playerId);
@@ -273,6 +276,7 @@ export class Hud {
     this.countdown.update(cur, dtMs);
     this.notifications.update(dtMs);
     this.damageFx.update(dtMs);
+    this.floatingDamage.update(cur, prev, alpha, dtMs);
     this.resultsOverlay.update(cur, dtMs);
   }
 
@@ -335,6 +339,7 @@ export class Hud {
     }
     this.notifications.consumeEvents(events, this.configs);
     this.damageFx.consumeEvents(events);
+    this.floatingDamage.consumeEvents(events);
     this.haptics.consumeEvents(events);
     this.killAnnouncements.consumeEvents(events);
   }
@@ -353,6 +358,7 @@ export class Hud {
     this.minimap.dispose();
     this.notifications.dispose();
     this.damageFx.dispose();
+    this.floatingDamage.dispose();
     this.matchStatus.dispose();
     this.countdown.dispose();
     this.resultsOverlay.dispose();

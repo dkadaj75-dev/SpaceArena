@@ -182,6 +182,12 @@ edge palm-rejection ignores them):
   locked/locking enemy (main.ts passes a `project(worldPos) → cssPx` callback into
   Hud) with a lock-progress ring; locked state = color change + haptic pattern
   (new themeSchema haptic field + Haptics.ts branch) + audio event.
+- **Combat text**: each ship damage or shield-absorb event creates a pooled RPG
+  number at that ship's projected screen position. Numbers float upward and fade
+  over one second; quick like-for-like hits on one target merge to keep sustained
+  fire legible. Hull uses the theme hull colour, shield uses the shield colour,
+  and damage taken by the player uses the danger colour near the player-edge
+  convention in chase view. The same sim-event path feeds practice and online.
 - **Desktop bindings**: W/S = throttle nudge (hold to ramp), Shift = toggle the
   first fitted boost module,
   hold RMB + mouse movement = turn/pitch. A/D, arrows, and R/F are unbound.

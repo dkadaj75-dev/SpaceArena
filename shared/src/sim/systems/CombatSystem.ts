@@ -398,7 +398,17 @@ function emitChannelEvents(
   channel: { hull: number; absorbed: Map<number, number> },
 ): void {
   for (const [hardpointIndex, amount] of channel.absorbed) {
-    if (amount > 0) world.emit({ type: "shieldAbsorb", targetId, hardpointIndex, amount });
+    if (amount > 0) {
+      const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
+      world.emit({
+        type: "shieldAbsorb",
+        targetId,
+        sourceId: ownerId,
+        hardpointIndex,
+        amount,
+        damageType: cfg?.fire?.damageType ?? "energy",
+      });
+    }
   }
   channel.absorbed.clear();
   if (channel.hull > 0) {

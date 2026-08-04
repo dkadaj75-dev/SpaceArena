@@ -119,7 +119,14 @@ export type SimEventMessage =
    */
   | { type: "lockAcquired"; entityId: EntityId; targetId: EntityId }
   | { type: "lockLost"; entityId: EntityId }
-  | { type: "shieldAbsorb"; targetId: EntityId; hardpointIndex: number; amount: number }
+  | {
+      type: "shieldAbsorb";
+      targetId: EntityId;
+      sourceId: EntityId | null;
+      hardpointIndex: number;
+      amount: number;
+      damageType: string;
+    }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
   /**

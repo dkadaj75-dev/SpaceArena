@@ -1245,6 +1245,28 @@ const CSS = `
   100% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
 }
 
+/* RPG-style damage values: the node pool lives above the 3D canvas and each
+   number uses both a dark outline and shadow so it survives lunar terrain. */
+.hud-floating-damage { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.hud-damage-number {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--hud-hull, #ffb35c);
+  font-family: var(--hud-font-display, system-ui, sans-serif);
+  font-size: calc(18px * var(--hud-damage-scale, 1));
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+  text-shadow: -1px -1px 0 rgba(2, 5, 12, .95), 1px -1px 0 rgba(2, 5, 12, .95), -1px 1px 0 rgba(2, 5, 12, .95), 1px 1px 0 rgba(2, 5, 12, .95), 0 0 8px currentColor;
+  will-change: transform, opacity;
+}
+.hud-damage-number.shield { color: var(--hud-shield, #39bfff); }
+.hud-damage-number.taken { color: var(--hud-danger, #ff405c); }
+.hud-damage-number.other { filter: saturate(.75); }
+
 /* --- Results overlay --- */
 .hud-results {
   position: absolute;
