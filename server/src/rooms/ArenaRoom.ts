@@ -21,6 +21,8 @@ import {
   MSG_ORDER_ACK,
   MSG_FIRE_EVENT,
   MSG_SIM_EVENT,
+  MSG_MATCH_STATS,
+  MatchStatsAccumulator,
   type ArenaConfig,
   type GamemodeConfig,
   type ShipConfig,
@@ -161,6 +163,7 @@ export class ArenaRoom extends Room<ArenaState> {
   private readonly sessionUserId = new Map<string, string | null>();
   /** Ship entity id → frags scored this match (for perKill rewards). */
   private readonly fragsByEntity = new Map<EntityId, number>();
+  private matchStats!: MatchStatsAccumulator;
 
   // --- telemetry (6.6/6.8) --------------------------------------------------
   /**
@@ -218,6 +221,7 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.seed = options.seed ?? 1;
     this.sim = new ArenaSimulation(configs, arenaId, options.gamemode, this.seed);
+    this.matchStats = new MatchStatsAccumulator((id) => this.sim.teamOf(id));
 
     const state = new ArenaState();
     state.matchPhase = "waiting";
@@ -308,6 +312,7 @@ export class ArenaRoom extends Room<ArenaState> {
     getMetrics().setClientCount(this.roomId, this.clients.length);
 
     this.syncShipState(entityId, ps);
+    client.send(MSG_MATCH_STATS, { lines: this.matchStats.all() });
 
     log.info("client joined", { sessionId: client.sessionId, team, entityId, shipId, userId });
     this.maybeStart();
@@ -709,6 +714,8 @@ export class ArenaRoom extends Room<ArenaState> {
     if (this.botDrivers.size > 0) this.driveBots();
     this.sim.tick(FIXED_DT);
     const events = this.sim.getEvents();
+    const statDeltas = this.matchStats.consume(events, this.state.matchTimer + FIXED_DT);
+    if (statDeltas.length > 0) this.broadcast(MSG_MATCH_STATS, { deltas: statDeltas });
     this.trackFrags(events);
     this.relayEvents(events);
 
@@ -1130,6 +1137,14 @@ function toSimEventMessage(ev: SimEvent): SimEventMessage | null {
       return { type: "lockLost", entityId: ev.entityId };
     case "entityDestroyed":
       return { type: "entityDestroyed", entityId: ev.entityId, killerId: ev.killerId, isAsteroid: ev.isAsteroid, team: ev.team };
+    case "flagTaken":
+      return ev;
+    case "flagDropped":
+      return ev;
+    case "flagReturned":
+      return ev;
+    case "flagCaptured":
+      return ev;
     case "boundaryHit":
       return { type: "boundaryHit", entityId: ev.entityId, rule: ev.rule };
     // Start-countdown beats: three low-rate messages that give both clients the

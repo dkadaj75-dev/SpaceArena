@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FlagState, ModuleState } from "../sim/components.js";
 import type { EntityId } from "../sim/components.js";
 import type { Order } from "../sim/orders.js";
+import type { MatchStatDelta, MatchStatLine } from "../sim/MatchStats.js";
 
 /**
  * Wire protocol contracts shared by client and server. The transport is
@@ -75,6 +76,10 @@ export interface ClientOrderMessage {
 export const MSG_ORDER_ACK = "orderAck";
 export const MSG_FIRE_EVENT = "fireEvent";
 export const MSG_SIM_EVENT = "simEvent";
+export const MSG_MATCH_STATS = "matchStats";
+
+/** Reliable, on-change scoreboard update. `lines` is used once for join sync. */
+export interface MatchStatsMessage { deltas?: MatchStatDelta[]; lines?: MatchStatLine[] }
 
 /** Why an order was rejected (client can surface/roll back its optimistic UI). */
 export type OrderRejectReason =
@@ -128,6 +133,10 @@ export type SimEventMessage =
       damageType: string;
     }
   | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
+  | { type: "flagTaken"; flagId: EntityId; flagTeam: number; carrierId: EntityId; carrierTeam: number }
+  | { type: "flagDropped"; flagId: EntityId; flagTeam: number; carrierId: EntityId | null; returnSec: number }
+  | { type: "flagReturned"; flagId: EntityId; flagTeam: number; byId: EntityId | null; timedOut: boolean }
+  | { type: "flagCaptured"; flagId: EntityId; flagTeam: number; carrierId: EntityId; scoringTeam: number; captures: number }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
   /**
    * Start-countdown beats. `ArenaState.countdownRemaining` replicates the

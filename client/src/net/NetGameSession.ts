@@ -500,6 +500,14 @@ export class NetGameSession extends GameSession {
         }
         session.events.push(event as SimEvent);
       });
+    session.net.onMatchStats = (message) => session.deferred(() => {
+      if (message.lines) for (const line of message.lines) {
+        for (const stat of ["kills", "deaths", "assists", "flagsTaken", "flagsDropped", "flagsReturned", "flagsCaptured"] as const) {
+          session.matchStats.applyDelta({ entityId: line.entityId, stat, value: line[stat] });
+        }
+      }
+      if (message.deltas) for (const delta of message.deltas) session.matchStats.applyDelta(delta);
+    });
     const room = await session.net.connect(options, undefined, reservation);
 
     // Resolve only once the first state patch has been decoded so playerId and

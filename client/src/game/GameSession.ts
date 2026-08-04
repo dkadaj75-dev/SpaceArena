@@ -1,5 +1,6 @@
 import {
   ArenaSimulation,
+  MatchStatsAccumulator,
   BotDriver,
   createLogger,
   deriveRng,
@@ -114,6 +115,7 @@ export interface GameSessionOptions {
 
 export class GameSession {
   readonly sim: ArenaSimulation;
+  readonly matchStats: MatchStatsAccumulator;
   readonly playerId: EntityId;
   /**
    * First spawned dummy id, kept for back-compat with any single-target callers.
@@ -150,6 +152,7 @@ export class GameSession {
     options: GameSessionOptions = {},
   ) {
     this.sim = new ArenaSimulation(configs, arenaId, gamemodeId, seed);
+    this.matchStats = new MatchStatsAccumulator((id) => this.sim.teamOf(id));
 
     // The Hangar's ship/fitting when the caller passes one, else the stock
     // interceptor on its default fitting.
@@ -246,6 +249,7 @@ export class GameSession {
     this.prev = this.cur;
     this.cur = this.sim.snapshot();
     const evs = this.sim.getEvents();
+    this.matchStats.consume(evs, this.cur.elapsed);
     for (let i = 0; i < evs.length; i++) {
       const ev = evs[i]!;
       if (ev.type === "entityDestroyed" && !ev.isAsteroid && this.dummyIdSet.has(ev.entityId)) {
@@ -307,8 +311,8 @@ export class GameSession {
   }
 
   /** Online sessions override this with names replicated by ArenaState. */
-  displayNameFor(_id: EntityId): string | undefined {
-    return undefined;
+  displayNameFor(id: EntityId): string | undefined {
+    return this.botNames.get(id);
   }
 
   /** Team of a sim ship in the latest snapshot (for enemy checks). */

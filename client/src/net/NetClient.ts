@@ -3,10 +3,12 @@ import {
   MSG_FIRE_EVENT,
   MSG_ORDER_ACK,
   MSG_SIM_EVENT,
+  MSG_MATCH_STATS,
   createLogger,
   type FireEventMessage,
   type OrderAckMessage,
   type SimEventMessage,
+  type MatchStatsMessage,
 } from "@space-arena/shared";
 import { wsServerUrl } from "../core/serverConfig.js";
 
@@ -37,6 +39,7 @@ export class NetClient {
   onOrderAck: ((message: OrderAckMessage) => void) | null = null;
   onFireEvent: ((message: FireEventMessage) => void) | null = null;
   onSimEvent: ((message: SimEventMessage) => void) | null = null;
+  onMatchStats: ((message: MatchStatsMessage) => void) | null = null;
   onStateChange: ((connected: boolean, error?: unknown) => void) | null = null;
 
   async connect(options: ArenaJoinOptions, url = wsServerUrl(), reservation?: SeatReservation): Promise<Room> {
@@ -49,6 +52,7 @@ export class NetClient {
     room.onMessage(MSG_ORDER_ACK, (m: OrderAckMessage) => this.onOrderAck?.(m));
     room.onMessage(MSG_FIRE_EVENT, (m: FireEventMessage) => this.onFireEvent?.(m));
     room.onMessage(MSG_SIM_EVENT, (m: SimEventMessage) => this.onSimEvent?.(m));
+    room.onMessage(MSG_MATCH_STATS, (m: MatchStatsMessage) => this.onMatchStats?.(m));
     room.onLeave((code) => {
       this.connected = false;
       this.onStateChange?.(false, code);

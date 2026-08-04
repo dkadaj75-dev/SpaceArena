@@ -77,4 +77,10 @@ describe("GameSession bot determinism (Finding 2)", () => {
     // the test above and still make every practice match identical.
     expect(run(4242).events).not.toBe(run(99).events);
   });
+
+  it("exposes its generated bot handles to target labels and results through displayNameFor", () => {
+    const session = new GameSession(configs, "arena.ring-nebula", "gamemode.practice-bots", 4242);
+    expect(session.botNames.size).toBeGreaterThan(0);
+    for (const [id, name] of session.botNames) expect(session.displayNameFor(id)).toBe(name);
+  });
 });
