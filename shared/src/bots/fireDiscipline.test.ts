@@ -121,6 +121,15 @@ describe("fireDiscipline", () => {
     });
   });
 
+  it("holds through cooling and re-arms at the configured hysteresis floor", () => {
+    const threshold = configs.get<ModuleConfig>("module", "module.laser-mk1")!.heat.overheatThreshold;
+    const state = { heatHeld: false };
+    const hysteretic = { ...discipline, rearmHeatBelow: 0.4 };
+    expect(decideFire(context(true, threshold * 0.81), configs, hysteretic, true, state).fire).toBe(false);
+    expect(decideFire(context(true, threshold * 0.6), configs, hysteretic, true, state).fire).toBe(false);
+    expect(decideFire(context(true, threshold * 0.4), configs, hysteretic, true, state).fire).toBe(true);
+  });
+
   it("holds fire outside the authored armed-weapon envelope", () => {
     expect(
       decideFire({ ...context(true), distance: 100 }, configs, discipline, true),

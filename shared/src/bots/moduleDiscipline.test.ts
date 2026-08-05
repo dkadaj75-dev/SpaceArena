@@ -8,11 +8,11 @@ import type { ModuleState } from "../sim/components.js";
 import { INTERCEPTOR_FITTING_SHIELD as INTERCEPTOR_FITTING, loadTestConfigs } from "../sim/testutil.js";
 
 /**
- * Slots the discipline may actually touch: the two hardpoints. The internal bay
+ * Slots the discipline may actually touch: non-weapon support hardpoints. The internal bay
  * (slots 2..6 — engine, generator, transformer, heatsink, sensors) is the ship
  * itself and is deliberately never cycled (2026-07-31).
  */
-const TOGGLEABLE_SLOTS = 2;
+const TOGGLEABLE_SLOTS = 1;
 import { buildBotContext } from "./context.js";
 import { planModuleOrders } from "./moduleDiscipline.js";
 
@@ -122,29 +122,31 @@ describe("moduleDiscipline", () => {
     expect(decisions.every((d) => d.activate)).toBe(true);
   });
 
-  it("shuts a module down at heatShutdownAt and reactivates it below reactivateBelow", () => {
+  it("leaves weapon cooling to fire discipline and cycles hot support modules", () => {
     const laser = 0;
-    const heats = [threshold(laser) * 0.9, 0, 0, 0];
+    const support = shieldIndex();
+    const heats = [threshold(laser) * 0.9, threshold(support) * 0.9, 0, 0];
     const hot = shipWith(["active", "active", "active", "active"], { moduleHeat: heats });
     const shutdown = planModuleOrders(contextFor(hot), configs, discipline, true);
+    expect(shutdown.decisions.some((decision) => decision.hardpointIndex === laser)).toBe(false);
     expect(shutdown.decisions).toContainEqual(
-      expect.objectContaining({ hardpointIndex: laser, activate: false, reason: "heat-shutdown" }),
+      expect.objectContaining({ hardpointIndex: support, activate: false, reason: "heat-shutdown" }),
     );
     // Other modules stay up.
     expect(shutdown.orders.length).toBe(1);
 
     // Still hot after retracting (0.6 > reactivateBelow 0.5) ⇒ no reactivation.
-    const warm = shipWith(["retracted", "active", "active", "active"], {
-      moduleHeat: [threshold(laser) * 0.6, 0, 0, 0],
+    const warm = shipWith(["active", "retracted", "active", "active"], {
+      moduleHeat: [0, threshold(support) * 0.6, 0, 0],
     });
     expect(planModuleOrders(contextFor(warm), configs, discipline, true).orders).toEqual([]);
 
     // Cooled below the threshold ⇒ redeploy.
-    const cool = shipWith(["retracted", "active", "active", "active"], {
-      moduleHeat: [threshold(laser) * 0.2, 0, 0, 0],
+    const cool = shipWith(["active", "retracted", "active", "active"], {
+      moduleHeat: [0, threshold(support) * 0.2, 0, 0],
     });
     expect(planModuleOrders(contextFor(cool), configs, discipline, true).decisions).toContainEqual(
-      expect.objectContaining({ hardpointIndex: laser, activate: true }),
+      expect.objectContaining({ hardpointIndex: support, activate: true }),
     );
   });
 

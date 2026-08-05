@@ -22,6 +22,11 @@ export interface FireDecision {
   reason: FireDecisionReason;
 }
 
+/** Driver-owned hysteresis latch; mutable only by decideFire and reset on respawn. */
+export interface FireDisciplineState {
+  heatHeld: boolean;
+}
+
 /**
  * Decide the level-triggered fire flag. With no authored discipline, bots keep
  * the compatibility rule: fire whenever engaged with a lock.
@@ -31,6 +36,7 @@ export function decideFire(
   configs: ConfigService,
   fireDiscipline: FireDiscipline,
   engaged: boolean,
+  state?: FireDisciplineState,
 ): FireDecision {
   if (!engaged) return { fire: false, reason: "not-engaged" };
   if (!ctx.self.locked) return { fire: false, reason: "no-lock" };
@@ -48,12 +54,21 @@ export function decideFire(
   if (ctx.distance > shortestRange * rangeMult) return { fire: false, reason: "out-of-range" };
 
   const heatHeadroom = fireDiscipline.heatHeadroom ?? 1;
-  if (
-    armed.some(({ runtime, config }) => {
-      const threshold = config.heat.overheatThreshold;
-      return threshold > 0 && runtime.heat / threshold >= heatHeadroom;
-    })
-  ) {
+  const heatFractions = armed.map(({ runtime, config }) => {
+    const threshold = config.heat.overheatThreshold;
+    return threshold > 0 ? runtime.heat / threshold : 0;
+  });
+  // One shared trigger drives every rack. A hot missile rack must not silence a
+  // cool laser (the combat system already skips locked-out racks), so pause only
+  // when every currently armed weapon has exhausted its headroom.
+  if (state?.heatHeld) {
+    const rearm = fireDiscipline.rearmHeatBelow ?? heatHeadroom;
+    if (heatFractions.some((fraction) => fraction <= rearm)) state.heatHeld = false;
+  }
+  if (!state?.heatHeld && heatFractions.every((fraction) => fraction >= heatHeadroom)) {
+    if (state) state.heatHeld = true;
+  }
+  if (state?.heatHeld ?? heatFractions.every((fraction) => fraction >= heatHeadroom)) {
     return { fire: false, reason: "heat-headroom" };
   }
 

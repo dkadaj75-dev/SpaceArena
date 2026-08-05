@@ -72,6 +72,10 @@ export function planModuleOrders(
     if (m.state === "deploying" || m.state === "retracting" || m.state === "overheated") continue;
     const cfg = configs.get<ModuleConfig>("module", m.moduleId);
     if (!cfg) continue;
+    // Weapon racks own a finite overheat/cooling cycle and automatically re-arm
+    // after lockout. Toggling them pre-emptively adds retract/deploy downtime and
+    // lets one hot rack suppress the whole trigger; fireDiscipline manages them.
+    if (cfg.fire) continue;
     // Never touch the internal bay (2026-07-31). Engine, generator,
     // transformer, heatsink and sensors are the ship itself, not a power budget
     // to cycle — a bot shutting its own engine down to save heat would simply

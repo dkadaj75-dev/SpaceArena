@@ -69,7 +69,8 @@
   },
   "fireDiscipline": {
     "engageRangeMult": 0.95,
-    "heatHeadroom": 0.7,
+    "heatHeadroom": 0.9,
+    "rearmHeatBelow": 0.35,
     "minEnergyFraction": 0.35
   }
 }

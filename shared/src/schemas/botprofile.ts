@@ -65,6 +65,8 @@ export const botprofileSchema = z.object({
       engageRangeMult: z.number().nonnegative().optional(),
       /** Maximum armed-module heat fraction. Absent => 1. */
       heatHeadroom: z.number().min(0).max(1).optional(),
+      /** Once heat pauses the trigger, fraction at which it may re-arm. Absent => heatHeadroom. */
+      rearmHeatBelow: z.number().min(0).max(1).optional(),
       /** Capacitor floor required to fire. Absent => 0. */
       minEnergyFraction: z.number().min(0).max(1).optional(),
       /** Trigger-on duration. Absent => continuous fire. */
