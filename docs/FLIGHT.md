@@ -8,6 +8,18 @@ wire-quantization cap — no protocol format change), **all weapons require lock
 Design rule unchanged: NOTHING per-ship hardcoded — every knob flows through content
 configs, schemas, resolveShipStats, tuning, or theme.
 
+## Match presentation amendment (2026-08-05)
+
+Match presentation is a strict `live → MVP → scoreboard → exit` flow. On end,
+combat HUD/entities are hidden while the arena skybox and lighting remain; one
+disposable instance of the MVP hull is staged for the hero shot. NEXT reveals
+the same full-viewport scoreboard used by hold-Tab, with new-game and menu exits
+kept below the tables. MVP uses the scoreboard score (capture 1000, return 100,
+kill 100, assist 25, death −10). Equal scores break by kills, fewer deaths,
+assists, captures, returns, then lowest entity id, making replicated ordering
+irrelevant. Before countdown, arena preload is covered by a themed loading
+screen using the arena skybox and the session's team roster.
+
 ## Flight-frame amendment (2026-07-30)
 
 Ship orientation is now an authoritative forward/up FRAME (see the amendment at

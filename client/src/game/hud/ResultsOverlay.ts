@@ -1,6 +1,7 @@
 import type { EntityId, Snapshot } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { COUNT_UP_DURATION_MS, countUpDone, countUpValue } from "./countUp.js";
+import { selectMvp } from "./matchPresentation.js";
 
 /** Per-player progression summary (matches the net `matchRewards` message). */
 export interface MatchRewards {
@@ -14,8 +15,11 @@ export interface MatchRewards {
 export interface ResultsCallbacks {
   /** Restart the same kind of match (rebuilds the runtime from scratch). */
   onPlayAgain: () => void;
-  onHangar: () => void;
+  /** Legacy callback accepted for HUD test hosts; the new flow exits through menu. */
+  onHangar?: () => void;
   onMenu: () => void;
+  /** Stage the winning hull when the MVP presentation begins. */
+  onMvp?: (entityId: EntityId) => void;
 }
 
 export interface ResultsOptions {
@@ -32,7 +36,7 @@ export type MatchOutcome = "VICTORY" | "DEFEAT" | "DRAW" | "TARGETS CLEARED";
 
 /**
  * Results screen (§6 1.9, restyled by §10 5.8): outcome banner, animated
- * reward count-up, and the three ways out of a finished match.
+ * reward count-up, and MVP-phase navigation.
  *
  * Lifecycle rules kept from the original: this component owns *display* state
  * only. Every button calls back into `main.ts`, which disposes the match
@@ -51,7 +55,6 @@ export class ResultsOverlay {
   private readonly bannerEl: HTMLDivElement;
   private readonly subEl: HTMLDivElement;
   private readonly participantsEl: HTMLDivElement;
-  readonly scoreboardHost: HTMLDivElement;
   private readonly rewardsEl: HTMLDivElement;
   private readonly creditsEl: HTMLSpanElement;
   private readonly xpEl: HTMLSpanElement;
@@ -69,7 +72,7 @@ export class ResultsOverlay {
     parent: HTMLElement,
     private readonly session: GameSession,
     private readonly playerId: EntityId,
-    callbacks: ResultsCallbacks,
+    private readonly callbacks: ResultsCallbacks,
     private readonly options: ResultsOptions = {},
   ) {
     this.root = document.createElement("div");
@@ -91,8 +94,6 @@ export class ResultsOverlay {
     this.subEl.className = "hud-results-sub";
     this.participantsEl = document.createElement("div");
     this.participantsEl.className = "hud-results-participants";
-    this.scoreboardHost = document.createElement("div");
-    this.scoreboardHost.className = "hud-results-scoreboard";
 
     this.rewardsEl = document.createElement("div");
     this.rewardsEl.className = "hud-results-rewards";
@@ -119,14 +120,21 @@ export class ResultsOverlay {
     const actions = document.createElement("div");
     actions.className = "hud-results-actions";
     actions.append(
-      button("Play Again", "primary", callbacks.onPlayAgain, "playAgain"),
-      button("Hangar", "", callbacks.onHangar, "hangar"),
-      button("Menu", "", callbacks.onMenu, "menu"),
+      button("Next", "primary", () => this.showScoreboard(), "next"),
+      button("Play a New Game", "", callbacks.onPlayAgain, "playAgain"),
+      button("Quit to Menu", "", callbacks.onMenu, "menu"),
     );
 
-    panel.append(this.bannerEl, rule, this.participantsEl, this.scoreboardHost, this.subEl, this.rewardsEl, actions);
+    panel.append(this.bannerEl, rule, this.participantsEl, this.subEl, this.rewardsEl, actions);
     this.root.appendChild(panel);
     parent.appendChild(this.root);
+  }
+
+  private onShowScoreboard: (() => void) | null = null;
+  setScoreboardAction(action: () => void): void { this.onShowScoreboard = action; }
+  private showScoreboard(): void {
+    this.root.classList.remove("visible");
+    this.onShowScoreboard?.();
   }
 
   /**
@@ -137,17 +145,14 @@ export class ResultsOverlay {
     if (!this.shown) {
       if (cur.phase !== "ended") return;
       this.shown = true;
-      this.bannerEl.textContent = this.outcome(cur);
-      this.bannerEl.dataset["outcome"] = this.bannerEl.textContent.toLowerCase().replace(/\s+/g, "-");
-      if (this.options.offline) {
-        this.subEl.textContent = "Practice — no rewards";
-      }
-      const playerName = this.session.displayNameFor(this.playerId);
-      const playerTeam = this.session.teamOf(this.playerId);
-      const opponent = cur.ships.find((ship) => ship.id !== this.playerId && ship.team !== playerTeam);
-      const opponentName = opponent ? this.session.displayNameFor(opponent.id) : undefined;
-      this.participantsEl.textContent =
-        playerName && opponentName ? `${playerName}  //  ${opponentName}` : opponentName ? `Opponent: ${opponentName}` : "";
+      const mvp = selectMvp(this.session.matchStats.all(), this.session.sim.world.gamemode.ctf !== undefined);
+      const mvpName = mvp === null ? "MVP" : (this.session.displayNameFor(mvp) ?? (mvp === this.playerId ? "YOU" : `PILOT ${mvp}`));
+      this.bannerEl.textContent = mvpName;
+      this.bannerEl.dataset["outcome"] = "victory";
+      this.participantsEl.textContent = "MOST VALUABLE PILOT";
+      this.subEl.textContent = this.outcome(cur);
+      if (this.options.offline) this.rewardsEl.textContent = "Practice — no rewards";
+      if (mvp !== null) this.callbacks.onMvp?.(mvp);
       this.root.classList.add("visible");
       return;
     }
