@@ -59,6 +59,9 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: [["list"], ["html", { open: "never" }]],
 
+  // The @hudshot rig spec is a design tool, not a test: keep it out of default runs.
+  grepInvert: /@hudshot/,
+
   use: {
     baseURL: "http://localhost:5173",
     trace: "retain-on-failure",
