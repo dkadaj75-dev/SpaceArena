@@ -10,6 +10,7 @@ export interface ResolvedBotSlot {
   profile: BotprofileConfig;
   shipId: string;
   team: number;
+  fitting?: readonly (string | null)[];
 }
 
 /**
@@ -28,7 +29,7 @@ export function resolveBotRoster(gamemode: GamemodeConfig, configs: ConfigServic
     const shipId = slot.ship ?? bots.defaultShip ?? DEFAULT_BOT_SHIP;
     if (!configs.get("ship", shipId)) continue;
     for (let i = 0; i < (slot.count ?? 1); i++) {
-      out.push({ profile, shipId, team: slot.team });
+      out.push({ profile, shipId, team: slot.team, fitting: slot.fitting });
     }
   }
   return out;

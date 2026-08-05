@@ -509,24 +509,6 @@ describe("ProjectileSystem in 3D (BUBBLE.md §A)", () => {
 });
 
 describe("Win conditions", () => {
-  it("ends a destroyTargets match after the required kills", () => {
-    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice"); // destroyTargets 3
-    const player = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 });
-    const enemies = [
-      sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 10, z: 0 }),
-      sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 12, z: 0 }),
-      sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 14, z: 0 }),
-    ];
-    for (const e of enemies) {
-      sim.world.shipCores.get(e)!.hull = 1;
-      applyDamageToShip(sim.world, e, player, 100, "kinetic");
-      sim.tick(DT);
-    }
-    expect(sim.isEnded).toBe(true);
-    const events = sim.getEvents();
-    expect(events.some((ev) => ev.type === "matchEnded")).toBe(true);
-  });
-
   it("ends a timeLimit match when time elapses", () => {
     const r = configs.replace({
       id: "gamemode.timed-test",
@@ -647,7 +629,7 @@ describe("Snapshots", () => {
 describe("Determinism", () => {
   it("two sims fed identical orders produce identical snapshots after 1000 ticks", () => {
     const build = () => {
-      const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice", 42);
+      const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.duel-1v1", 42);
       const a = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: -20, z: 0 }, 0);
       const b = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 20, z: 0 }, Math.PI);
       return { sim, a, b };

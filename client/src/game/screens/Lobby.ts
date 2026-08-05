@@ -21,9 +21,9 @@ const THEME_ID = "theme.default";
 export const OFFLINE_HEALTH_REFRESH_MS = 10_000;
 
 export type LobbyChoice =
-  /** Offline practice. `gamemode` defaults to `gamemode.practice` (static dummies). */
-  | { kind: "practice"; gamemode?: string }
-  | { kind: "online"; gamemode: string; options?: { practiceTarget?: boolean; minPlayers?: number } }
+  /** Offline bot practice. Every choice names its concrete gamemode. */
+  | { kind: "practice"; gamemode: string }
+  | { kind: "online"; gamemode: string; options?: { minPlayers?: number } }
   | { kind: "matchmaking"; mode: "duel-1v1"; gamemode: "gamemode.duel-1v1" };
 
 interface TrackedButton {
@@ -150,7 +150,6 @@ export class Lobby {
     const gamemodes = this.configs.getAll<GamemodeConfig>("gamemode");
 
     const practice = this.section("Practice", "primary");
-    this.addButton(practice, "Practice — Dummies", () => this.choose({ kind: "practice" }), false, "primary");
     // Any gamemode declaring a bot roster (5.1) is an offline practice mode.
     for (const gm of gamemodes) {
       if (!gm.bots?.roster?.length) continue;
@@ -162,24 +161,13 @@ export class Lobby {
     const online = this.section("Online", "primary");
     online.append(this.offlineBadge);
     for (const gm of gamemodes) {
-      if (gm.id === "gamemode.practice" || gm.bots?.roster?.length) continue;
+      if (gm.bots?.roster?.length) continue;
       const choice: LobbyChoice =
         gm.id === "gamemode.duel-1v1"
           ? { kind: "matchmaking", mode: "duel-1v1", gamemode: "gamemode.duel-1v1" }
           : { kind: "online", gamemode: gm.id };
       this.addButton(online, `${gm.name ?? gm.id}`, () => this.choose(choice), true);
     }
-    this.addButton(
-      online,
-      "Solo test (vs dummies)",
-      () =>
-        this.choose({
-          kind: "online",
-          gamemode: "gamemode.duel-1v1",
-          options: { practiceTarget: true, minPlayers: 1 },
-        }),
-      true,
-    );
 
     const fleet = this.section("Fleet", "accent");
     this.addButton(fleet, "Hangar", () => this.callbacks.onHangarRequested(), false, "accent");

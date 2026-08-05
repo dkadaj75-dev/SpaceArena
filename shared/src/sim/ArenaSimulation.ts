@@ -68,6 +68,10 @@ export interface ShipSnapshot {
    * inferring engine output from per-snapshot displacement.
    */
   throttle: number;
+  /** Authoritative velocity, used by predictive bot steering. */
+  velocity?: { x: number; y: number; z: number };
+  /** Resolved sensor range; exposes no information beyond normal lock rules. */
+  sensorRange?: number;
   /**
    * Lock progress on `targetId`, normalized 0..1 of the ship's resolved
    * `sensors.lockTimeSec` (FLIGHT.md §2) — the reticle ring reads this directly
@@ -702,6 +706,7 @@ export class ArenaSimulation {
       const tf = w.transforms.get(id)!;
       const mods = w.modules.get(id)!;
       const ref = w.targets.get(id);
+      const velocity = w.velocities.get(id)!;
       return {
         id,
         team: w.teams.get(id)!.team,
@@ -716,6 +721,8 @@ export class ArenaSimulation {
         heat: { cur: core.heat.cur, capacity: core.heat.capacity },
         targetId: ref?.targetId ?? null,
         throttle: w.flightStates.get(id)?.throttle ?? 0,
+        velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
+        sensorRange: core.sensors.lockRange,
         // Normalized against the ship's own resolved lock time, so a module that
         // shortens lockTimeSec still reads as a full ring at full lock. A resolved
         // lockTimeSec of 0 (a passive strong enough to zero it out) locks

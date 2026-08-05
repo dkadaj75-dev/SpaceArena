@@ -762,7 +762,7 @@ describe("ArenaRoom", () => {
     const before = profilesRepo.byUser("u-win")!;
     const token = signAccessToken("u-win");
 
-    // No minPlayers/practiceTarget override → rewardsEligible room. Two real
+    // No minPlayers override → rewardsEligible room. Two real
     // clients: c1 (authed, team 0) vs c2 (anon, team 1).
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1" });
     const c1 = await colyseus.connectTo(room, { token });

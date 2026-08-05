@@ -68,6 +68,7 @@ const ABSENT: BoostButtonState = {
 export class BoostButton {
   private readonly container: HTMLDivElement;
   private readonly button: HTMLDivElement;
+  private readonly ring: HTMLSpanElement;
   private readonly heat: HTMLSpanElement;
 
   private state: BoostButtonState = ABSENT;
@@ -125,6 +126,10 @@ export class BoostButton {
     this.heat.setAttribute("aria-hidden", "true");
     this.heat.style.setProperty("--heat", "0");
 
+    this.ring = document.createElement("span");
+    this.ring.className = "ring";
+    this.ring.setAttribute("aria-hidden", "true");
+
     const icon = document.createElement("span");
     icon.className = "icon";
     icon.innerHTML = moduleIconSvg("boost");
@@ -132,7 +137,7 @@ export class BoostButton {
     label.className = "label";
     label.textContent = BOOST_LABEL;
 
-    this.button.append(this.heat, icon, label);
+    this.button.append(this.ring, this.heat, icon, label);
     this.container.append(this.button);
     root.appendChild(this.container);
 
@@ -213,6 +218,7 @@ export class BoostButton {
     const heatPct = Math.max(0, Math.min(100, Math.round(state.heatPct)));
     if (heatPct !== this.lastHeatPct) {
       this.heat.style.setProperty("--heat", String(heatPct));
+      this.ring.style.setProperty("--ring", String(heatPct));
       this.lastHeatPct = heatPct;
     }
   }

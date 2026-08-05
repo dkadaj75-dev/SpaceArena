@@ -9,10 +9,11 @@ export class FireButton {
   private readonly button: HTMLDivElement;
   private readonly label: HTMLSpanElement;
   private pointerId: number | null = null;
+  private enabled = true;
   private lastIconRef: string | null = null;
 
   private readonly onPointerDown = (ev: PointerEvent): void => {
-    if (this.pointerId !== null) return;
+    if (!this.enabled || this.pointerId !== null) return;
     this.pointerId = ev.pointerId;
     // WebKit can reject capture during transient DOM/layout changes. Capture is
     // an optimisation, not correctness: document-level release listeners below
@@ -91,6 +92,9 @@ export class FireButton {
   }
 
   setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    this.button.classList.toggle("disabled", !enabled);
+    this.button.toggleAttribute("aria-disabled", !enabled);
     if (enabled || this.pointerId === null) return;
     this.pointerId = null;
     this.button.classList.remove("active");

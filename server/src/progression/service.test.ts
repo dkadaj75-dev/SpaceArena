@@ -46,7 +46,7 @@ describe("finalizeMatch", () => {
       durationS: 42.5,
       participants: [
         { userId: "p-a", team: 0, frags: 2, entityId: 1 },
-        { userId: null, team: 1, frags: 0, entityId: 2 }, // dummy — not rewarded
+        { userId: null, team: 1, frags: 0, entityId: 2 }, // bot — not rewarded
       ],
     });
 

@@ -72,6 +72,7 @@ export interface FireLayout extends CircularControlLayout {
   ringGapPx: number;
   ringStrokePx: number;
   ringArcDeg: number;
+  ringTickGapDeg: number;
   color: string;
   fillOpacity: number;
   borderPx: number;
@@ -99,13 +100,13 @@ export interface FlightActionArcLayout {
   sweepDeg: number;
   buttonDiameterPx: number;
   captionGapPx: number;
-  /** A second concentric rail receives overflow so every visible gap stays generous. */
-  innerRadiusPx: number;
-  /** Keep both rails balanced instead of leaving a single button on the inner arc. */
-  outerSlotCapacity: number;
-  /** Inner rail omits the throttle-side end cap while keeping a generous pitch. */
-  innerStartDeg: number;
-  innerSweepDeg: number;
+  /** A second, outward concentric rail receives only primary-ring overflow. */
+  overflowRadiusPx: number;
+  /** Slots the close FIRE-hugging rail can hold at the authored chord pitch. */
+  primarySlotCapacity: number;
+  /** Overflow follows the same FIRE-side end and authored sweep as the primary rail. */
+  overflowStartDeg: number;
+  overflowSweepDeg: number;
 }
 
 /** One slot expressed in the anchored-offset convention used by the widgets. */
@@ -114,7 +115,7 @@ export interface FlightActionArcSlot {
   radiusPx: number;
   offsetXPx: number;
   offsetYPx: number;
-  /** Caption direction; outer rail captions point outward, inner rail inward. */
+  /** Caption direction; close-ring labels stay on their own button, overflow labels outward. */
   captionX: number;
   captionY: number;
   captionGapPx: number;
@@ -129,6 +130,10 @@ export interface ModuleVisualLayout {
   labelGapPx: number;
   labelHeightPx: number;
   labelMaxWidthPx: number;
+  ringStrokePx: number;
+  ringTickGapDeg: number;
+  labelPlateOpacity: number;
+  labelBorderOpacity: number;
   boostColor: string;
 }
 
@@ -241,6 +246,10 @@ export const FLIGHT_HUD_DEFAULTS = {
     labelGapPx: 4,
     labelHeightPx: 11,
     labelMaxWidthPx: 64,
+    ringStrokePx: 1.5,
+    ringTickGapDeg: 3,
+    labelPlateOpacity: 0.76,
+    labelBorderOpacity: 0.42,
     boostColor: "#e8b44f",
   },
   fire: {
@@ -252,6 +261,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     ringGapPx: 7,
     ringStrokePx: 2,
     ringArcDeg: 260,
+    ringTickGapDeg: 3,
     color: "#ff4655",
     fillOpacity: 0.3,
     borderPx: 2,
@@ -384,28 +394,41 @@ function actionArcLayoutFrom(
   const startDeg = action.startDeg ?? -90;
   const authoredSweepDeg = action.sweepDeg ?? -90;
   const buttonDiameterPx = (action.buttonDiameterPx ?? 48) * scale;
-  // At phone widths, the authored -180° end point puts the far rail button at
-  // the height of the left-side vitals.  Preserve the upward FIRE-centred
-  // gesture, but stop at -150° before it can enter that reserved panel area.
+  // At phone widths, retain the authored upward FIRE-centred gesture but keep
+  // an unusually broad intent from wrapping beneath the close thumb cluster.
+  // The new close ring can safely use more of its arc than the former far rail.
   const sweepDeg =
     viewport.width < 600 && viewport.height >= viewport.width && authoredSweepDeg < 0
-      ? Math.max(authoredSweepDeg, -150 - startDeg)
+      ? Math.max(authoredSweepDeg, -195 - startDeg)
       : authoredSweepDeg;
-  const narrowPortrait = viewport.width < 600 && viewport.height >= viewport.width;
-  const sweepDirection = Math.sign(sweepDeg) || 1;
   return {
     radiusPx,
     startDeg,
     sweepDeg,
     buttonDiameterPx,
     captionGapPx: (action.captionGapPx ?? 4) * scale,
-    // A radial separation of one square diagonal plus the circular 8px gap
-    // makes two same-angle slots clear under both the touch-circle and the
-    // audit's conservative axis-aligned button rectangles.
-    innerRadiusPx: radiusPx - (buttonDiameterPx * Math.SQRT2 + 8 * scale),
-    outerSlotCapacity: 4,
-    innerStartDeg: narrowPortrait ? startDeg + sweepDirection * 8 : startDeg + sweepDeg * 0.08,
-    innerSweepDeg: narrowPortrait ? sweepDeg - sweepDirection * 3 : sweepDeg * 0.84,
+    // Overflow moves OUT from the close thumb ring by one button diameter plus
+    // 18px of radial breathing room (more than the required 8px edge gap), so
+    // same-angle rail starts and their captions remain visually distinct.
+    overflowRadiusPx: radiusPx + buttonDiameterPx + 18.2 * scale,
+    // Capacity comes from the same circular 8px chord calculation as the
+    // first-slot pitch. The outer rail is intentionally not used for a sparse
+    // fitting: the primary ring is the thumb cluster around FIRE.
+    primarySlotCapacity: Math.max(
+      1,
+      Math.floor(
+        Math.abs(sweepDeg) /
+          ((2 * Math.asin(Math.min(1, (buttonDiameterPx + 8.1) / (2 * radiusPx))) * 180) / Math.PI),
+      ) + 1,
+    ),
+    overflowStartDeg: startDeg,
+    // Keep the outer phone rail above the lower-left energy panel. The close
+    // rail retains the full authored sweep; four overflow slots still fit at
+    // the chord pitch inside this shorter span.
+    overflowSweepDeg:
+      viewport.width < 600 && viewport.height >= viewport.width
+        ? Math.sign(sweepDeg || 1) * Math.min(Math.abs(sweepDeg), 50)
+        : sweepDeg,
   };
 }
 
@@ -422,28 +445,32 @@ export function flightActionArcSlots(layout: FlightHudLayout, moduleCount: numbe
   const fire = layout.fire;
   const fireCentre = anchoredOffset(fire.anchor, fire.offsetXPx, fire.offsetYPx, fire.radiusPx);
   const radiusPx = arc.buttonDiameterPx / 2;
-  // A rail of five or more controls uses two evenly populated concentric arcs.
-  // This avoids tight mid-arc pairs and keeps the visual rhythm symmetrical as
-  // fitted modules are added.  Order remains modules, BOOST, then JETTISON.
-  const outerCount = total > arc.outerSlotCapacity ? Math.ceil(total / 2) : total;
-  const innerCount = total - outerCount;
+  // Fill the close, FIRE-hugging rail before using the outer overflow ring.
+  // Order remains modules, BOOST, then JETTISON.
+  const primaryCount = Math.min(total, arc.primarySlotCapacity);
+  const overflowCount = total - primaryCount;
   const slots: FlightActionArcSlot[] = [];
   for (let index = 0; index < total; index++) {
-    const isInner = index >= outerCount;
-    const countOnRail = isInner ? innerCount : outerCount;
-    const indexOnRail = isInner ? index - outerCount : index;
-    // The inner rail is centred on the outer rail on regular viewports and
-    // omits its end caps. Narrow portrait shifts it a few degrees left of the
-    // throttle-side approach, while retaining even, unclustered spacing.
-    const railStartDeg = isInner ? arc.innerStartDeg : arc.startDeg;
-    const railSweepDeg = isInner ? arc.innerSweepDeg : arc.sweepDeg;
-    const deg =
-      railStartDeg +
-      (countOnRail === 1 ? railSweepDeg / 2 : (railSweepDeg * indexOnRail) / (countOnRail - 1));
+    const isOverflow = index >= primaryCount;
+    const countOnRail = isOverflow ? overflowCount : primaryCount;
+    const indexOnRail = isOverflow ? index - primaryCount : index;
+    const railStartDeg = isOverflow ? arc.overflowStartDeg : arc.startDeg;
+    const railSweepDeg = isOverflow ? arc.overflowSweepDeg : arc.sweepDeg;
+    const railRadiusPx = isOverflow ? arc.overflowRadiusPx : arc.radiusPx;
+    const preferredPitchDeg =
+      (2 * Math.asin(Math.min(1, (arc.buttonDiameterPx + 8.1) / (2 * railRadiusPx))) * 180) /
+      Math.PI;
+    const signedPitchDeg = Math.sign(railSweepDeg || 1) * preferredPitchDeg;
+    // Start at the FIRE-side end. Sparse fittings use the preferred pitch;
+    // only a full rail consumes its authored span. This is intentionally not
+    // centred: the first actions remain in immediate thumb reach of FIRE.
+    const deg = railStartDeg +
+      (countOnRail <= 1
+        ? 0
+        : Math.min(Math.abs(railSweepDeg) / (countOnRail - 1), preferredPitchDeg) * Math.sign(signedPitchDeg) * indexOnRail);
     const radians = (deg * Math.PI) / 180;
     const radialX = Math.cos(radians);
     const radialY = Math.sin(radians);
-    const railRadiusPx = isInner ? arc.innerRadiusPx : arc.radiusPx;
     const centreX = fireCentre.dx + railRadiusPx * radialX;
     const centreY = fireCentre.dy + railRadiusPx * radialY;
     // Convert an exact pivot-relative centre back to the existing anchored
@@ -454,10 +481,10 @@ export function flightActionArcSlots(layout: FlightHudLayout, moduleCount: numbe
       radiusPx,
       offsetXPx: signs.x < 0 ? -centreX - radiusPx : centreX - radiusPx,
       offsetYPx: signs.y < 0 ? -centreY - radiusPx : centreY - radiusPx,
-      // Inner captions face the open centre rather than crossing the outer
-      // rail's buttons; their own action surface remains immediately outside.
-      captionX: isInner ? -radialX : radialX,
-      captionY: isInner ? -radialY : radialY,
+      // Close-ring labels remain on their own compact button: there is no
+      // unused radial space between FIRE and the same-angle overflow slot.
+      captionX: isOverflow ? radialX : 0,
+      captionY: isOverflow ? radialY : 0,
       captionGapPx: arc.captionGapPx,
     });
   }
@@ -526,6 +553,7 @@ export function resolveFlightHudLayout(
     ringGapPx: (fire.ringGapPx ?? d.fire.ringGapPx) * scale,
     ringStrokePx: (fire.ringStrokePx ?? d.fire.ringStrokePx) * scale,
     ringArcDeg: fire.ringArcDeg ?? d.fire.ringArcDeg,
+    ringTickGapDeg: fire.ringTickGapDeg ?? d.fire.ringTickGapDeg,
     color: fire.color ?? d.fire.color,
     fillOpacity: fire.fillOpacity ?? d.fire.fillOpacity,
     borderPx: (fire.borderPx ?? d.fire.borderPx) * scale,
@@ -579,6 +607,10 @@ export function resolveFlightHudLayout(
       labelGapPx: (modules.labelGapPx ?? d.modules.labelGapPx) * scale,
       labelHeightPx: (modules.labelHeightPx ?? d.modules.labelHeightPx) * scale,
       labelMaxWidthPx: (modules.labelMaxWidthPx ?? d.modules.labelMaxWidthPx) * scale,
+      ringStrokePx: (modules.ringStrokePx ?? d.modules.ringStrokePx) * scale,
+      ringTickGapDeg: modules.ringTickGapDeg ?? d.modules.ringTickGapDeg,
+      labelPlateOpacity: modules.labelPlateOpacity ?? d.modules.labelPlateOpacity,
+      labelBorderOpacity: modules.labelBorderOpacity ?? d.modules.labelBorderOpacity,
       boostColor,
     },
     fire: fireLayout,
@@ -886,11 +918,16 @@ export function flightCssVars(layout: FlightHudLayout): Record<string, string> {
     "--hud-module-label-gap": `${layout.modules.labelGapPx}px`,
     "--hud-module-label-height": `${layout.modules.labelHeightPx}px`,
     "--hud-module-label-max-width": `${layout.modules.labelMaxWidthPx}px`,
+    "--hud-action-ring-stroke": `${layout.modules.ringStrokePx}px`,
+    "--hud-action-ring-tick-gap": `${layout.modules.ringTickGapDeg}deg`,
+    "--hud-action-label-plate-pct": `${layout.modules.labelPlateOpacity * 100}%`,
+    "--hud-action-label-border-pct": `${layout.modules.labelBorderOpacity * 100}%`,
     "--hud-module-boost-color": layout.modules.boostColor,
     "--hud-fire-radius": `${layout.fire.radiusPx}px`,
     "--hud-fire-ring-gap": `${layout.fire.ringGapPx}px`,
     "--hud-fire-ring-stroke": `${layout.fire.ringStrokePx}px`,
     "--hud-fire-ring-arc": `${layout.fire.ringArcDeg}deg`,
+    "--hud-fire-ring-tick-gap": `${layout.fire.ringTickGapDeg}deg`,
     "--hud-fire-color": layout.fire.color,
     "--hud-fire-fill-pct": `${layout.fire.fillOpacity * 100}%`,
     "--hud-fire-border": `${layout.fire.borderPx}px`,

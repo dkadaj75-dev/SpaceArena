@@ -273,7 +273,7 @@ async function main(): Promise<void> {
     check(before404.status === 404, "GET /content/arenas/proof.json → 404", `status=${before404.status}`);
 
     const beforeRoom = await createRoom(api, {
-      gamemode: "gamemode.practice",
+      gamemode: "gamemode.duel-1v1",
       arena: PROOF_ARENA_ID,
       token: login.body.accessToken,
     });
@@ -371,15 +371,14 @@ async function main(): Promise<void> {
     );
 
     const afterRoom = await createRoom(api, {
-      gamemode: "gamemode.practice",
+      gamemode: "gamemode.duel-1v1",
       arena: PROOF_ARENA_ID,
       token: login.body.accessToken,
-      practiceTarget: true,
     });
     check(afterRoom.ok, `a NEW match can be created on ${PROOF_ARENA_ID}`, afterRoom.detail);
 
     const bogusRoom = await createRoom(api, {
-      gamemode: "gamemode.practice",
+      gamemode: "gamemode.duel-1v1",
       arena: "arena.still-does-not-exist",
       token: login.body.accessToken,
     });
@@ -395,7 +394,7 @@ async function main(): Promise<void> {
     const gone = await api.raw("/content/arenas/proof.json");
     check(gone.status === 404, "GET /content/arenas/proof.json → 404 again", `status=${gone.status}`);
     const rolledRoom = await createRoom(api, {
-      gamemode: "gamemode.practice",
+      gamemode: "gamemode.duel-1v1",
       arena: PROOF_ARENA_ID,
       token: login.body.accessToken,
     });

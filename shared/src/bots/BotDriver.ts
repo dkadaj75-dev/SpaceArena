@@ -96,6 +96,8 @@ export interface BotDriverOptions {
   behaviors?: BehaviorRegistry;
   /** Orbit direction; derived from the RNG when omitted. */
   orbitSign?: 1 | -1;
+  /** Arena floor plane. Omit for fully enclosed/unfloored arenas. */
+  floorY?: number;
 }
 
 /**
@@ -137,6 +139,11 @@ const CALIBRATION_MAX_SPAN_SEC = 0.2;
  * only absorbs float noise — it is not a tolerance band.
  */
 const CLAMP_PINNED_EPSILON = 1e-9;
+/** SceneBuilder's deterministic terrain relief is bounded by 1.35 + 0.55. */
+const TERRAIN_RELIEF_MAX = 1.9;
+const FLOOR_CLEARANCE = 8;
+const FLOOR_LOOKAHEAD_SEC = 2.5;
+const FLOOR_NOMINAL_SPEED = 20;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -173,6 +180,7 @@ export class BotDriver {
   private readonly rng: () => number;
   private readonly behaviors: BehaviorRegistry;
   private readonly orbitSign: 1 | -1;
+  private readonly floorY: number | undefined;
 
   private nextDecisionMs = 0;
   private started = false;
@@ -206,6 +214,7 @@ export class BotDriver {
     this.rng = options.rng ?? deriveRng(options.entityId);
     this.behaviors = options.behaviors ?? botBehaviors();
     this.orbitSign = options.orbitSign ?? (this.rng() < 0.5 ? -1 : 1);
+    this.floorY = options.floorY;
   }
 
   /**
@@ -483,6 +492,7 @@ export class BotDriver {
       if (l.key === bestKey) continue; // the winner already spoke through its plan
       cmd = l.behavior.overlay!(ctx, l.params, cmd);
     }
+    cmd = this.avoidFloor(self, cmd, horizonSec, tolerance);
     // `clamp` passes NaN straight through, and a non-finite axis would poison the
     // ship's attitude for the rest of the match (flight orders are level-triggered).
     // A mistyped content param is the realistic source, so neutralise it here
@@ -514,6 +524,20 @@ export class BotDriver {
     // --- module discipline ---
     const modulePlan = planModuleOrders(ctx, this.configs, this.profile.moduleDiscipline, engaged);
     orders.push(...modulePlan.orders);
+    // Boost-capable engines spawn disabled. When a bot elects to boost, it
+    // explicitly arms that engine through the normal module-toggle pipeline.
+    for (const m of ctx.self.modules) {
+      if (!cmd.boost || m.state !== "retracted") continue;
+      const cfg = this.configs.get<ModuleConfig>("module", m.moduleId);
+      if (!cfg?.boost) continue;
+      orders.push({ kind: "moduleToggle", hardpointIndex: m.hardpointIndex });
+      modulePlan.decisions.push({
+        hardpointIndex: m.hardpointIndex,
+        moduleId: m.moduleId,
+        activate: true,
+        reason: "boost-requested",
+      });
+    }
 
     this.decision = {
       atMs: nowMs,
@@ -673,7 +697,17 @@ export class BotDriver {
     const preference = params ? strParam(params, "targetPreference", "nearest") : "nearest";
     const losPenalty = params ? numParam(params, "losPenalty", 2) : 2;
     const hold = params ? boolParam(params, "holdLockTarget", true) : true;
-    if (hold && ctx.self.lockProgress > 0 && ctx.self.targetId !== null) {
+    const carrierPriority = this.profile.carrierPriority ?? 8;
+    const enemyCarrierIds = new Set(
+      ctx.snapshot.flags
+        .filter((flag) => flag.state === "carried" && flag.carrierId !== null)
+        .map((flag) => flag.carrierId!),
+    );
+    const sensedCarrier = ctx.enemies.some((enemy) =>
+      enemyCarrierIds.has(enemy.id)
+      && dist3(ctx.self.pos, enemy.pos) <= (ctx.self.sensorRange ?? Math.max(ctx.weaponRange, ctx.preferredMax))
+      && hasLineOfSightAmong(ctx.self.pos, enemy.pos, ctx.blockers));
+    if (!sensedCarrier && hold && ctx.self.lockProgress > 0 && ctx.self.targetId !== null) {
       const held = ctx.self.targetId;
       if (ctx.enemies.some((e) => e.id === held)) return held;
     }
@@ -687,13 +721,57 @@ export class BotDriver {
       const base =
         preference === "lowestHull" ? (e.hullMax > 0 ? e.hull / e.hullMax : 0) : dist3(ctx.self.pos, e.pos);
       const visible = hasLineOfSightAmong(ctx.self.pos, e.pos, ctx.blockers);
-      const cost = visible ? base : base * losPenalty + 1;
+      const inSensorRange = dist3(ctx.self.pos, e.pos) <= (ctx.self.sensorRange ?? Math.max(ctx.weaponRange, ctx.preferredMax));
+      // A carrier is the team's main target, but only after ordinary sensors
+      // can see it. Dividing cost preserves the authored nearest/lowest-hull
+      // policy among non-carriers and immediately reverts when the flag drops.
+      const priority = enemyCarrierIds.has(e.id) && visible && inSensorRange ? carrierPriority : 1;
+      const cost = (visible ? base : base * losPenalty + 1) / priority;
       if (cost < bestCost) {
         bestCost = cost;
         best = e.id;
       }
     }
     return best;
+  }
+
+  /**
+   * Blend a world-up correction over utility steering when the near-future
+   * flight path enters the terrain safety band. This is intentionally an
+   * overlay, not a position clamp: utility still owns the command above the
+   * band and increasingly yields as impact approaches.
+   */
+  private avoidFloor(
+    self: ShipSnapshot,
+    cmd: FlightCommand,
+    horizonSec: number,
+    toleranceRad: number,
+  ): FlightCommand {
+    if (this.floorY === undefined) return cmd;
+    const radius = self.colliderRadius ?? 0;
+    const safeY = this.floorY + TERRAIN_RELIEF_MAX + radius + FLOOR_CLEARANCE;
+    const noseY = Math.sin(self.pitch);
+    const observedVy = self.velocity?.y ?? 0;
+    const projectedVy = Math.min(observedVy, noseY * FLOOR_NOMINAL_SPEED * cmd.throttle);
+    const predictedY = self.pos.y + projectedVy * FLOOR_LOOKAHEAD_SEC;
+    if (predictedY >= safeY) return cmd;
+
+    const band = Math.max(FLOOR_CLEARANCE + TERRAIN_RELIEF_MAX, 1);
+    const strength = clamp((safeY - predictedY) / band, 0, 1);
+    const lift = steerForPoint(
+      self.pos,
+      self.heading,
+      self.pitch,
+      { x: self.pos.x, y: safeY + band, z: self.pos.z },
+      { turnRate: this.turnRateEst, pitchRate: this.pitchRateEst, horizonSec, toleranceRad, maxPitchRad: this.maxPitch() },
+      self.up,
+    );
+    return {
+      turn: cmd.turn + (lift.turn - cmd.turn) * strength,
+      pitchStick: cmd.pitchStick + (lift.pitchStick - cmd.pitchStick) * strength,
+      throttle: cmd.throttle * (1 - strength),
+      boost: strength < 0.15 && cmd.boost,
+    };
   }
 
   /** Longest fitted weapon range (cached; the fitting never changes mid-match). */

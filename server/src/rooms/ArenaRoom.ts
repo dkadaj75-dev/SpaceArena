@@ -64,20 +64,11 @@ const DEFAULT_MAX_ORDERS_PER_SEC = 20;
 /** Sustained-abuse threshold: kick a client after this many rate-limited orders. */
 const ABUSE_KICK_THRESHOLD = 40;
 
-/** Practice-dummy spawn spread (mirrors client GameSession). */
-const DUMMY_POSITIONS = [
-  { x: 20, z: 20 },
-  { x: 30, z: 4 },
-  { x: 6, z: 30 },
-];
-
 interface CreateOptions {
   gamemode: string;
   arena?: string;
   /** MVP testing: start once this many humans have joined (default = maxClients). */
   minPlayers?: number;
-  /** Spawn static team-1 dummy ships so a solo player has something to shoot. */
-  practiceTarget?: boolean;
   /** `botprofile` id used for empty-slot backfill (overrides `gamemode.bots.defaultProfile`). */
   botProfile?: string;
   /** Override the gamemode's `bots.backfillWaitMs`. 0 backfills as soon as someone joins. */
@@ -132,16 +123,16 @@ export class ArenaRoom extends Room<ArenaState> {
    */
   private seed = 1;
   /**
-   * Whether this match grants progression. Client-supplied `practiceTarget` or
-   * `minPlayers` overrides (which enable trivially-winnable solo rooms) mark the
+   * Whether this match grants progression. Client-supplied `minPlayers`
+   * overrides (which enable trivially-winnable solo rooms) mark the
    * match ineligible — results are still recorded, but no credits/XP are granted.
    */
   private rewardsEligible = true;
 
-  /** sessionId/dummy-key → sim entity id, for every ship this room owns. */
+  /** session id / bot key → sim entity id, for every ship this room owns. */
   private readonly keyToEntity = new Map<string, EntityId>();
   private readonly entityToKey = new Map<EntityId, string>();
-  /** Human client session ids (excludes dummies), for team balancing. */
+  /** Human client session ids (excludes bots), for team balancing. */
   private readonly humanSessions = new Set<string>();
   private readonly orderRates = new Map<string, OrderRate>();
   /** Placement index → asteroid sim entity id (stable across the match). */
@@ -159,7 +150,7 @@ export class ArenaRoom extends Room<ArenaState> {
   /** Sim-clock milliseconds fed to the bot drivers (their decision cadence). */
   private botClockMs = 0;
 
-  /** sessionId → authenticated userId (null for anon/dummy). */
+  /** sessionId → authenticated userId (null for anonymous clients and bots). */
   private readonly sessionUserId = new Map<string, string | null>();
   /** Ship entity id → frags scored this match (for perKill rewards). */
   private readonly fragsByEntity = new Map<EntityId, number>();
@@ -217,7 +208,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.maxClients = gamemode.teams === "2v2" ? 4 : 2;
     this.minPlayers = Math.max(1, options.minPlayers ?? this.maxClients);
     // Anti-farming: overrides that enable trivial solo wins forfeit rewards.
-    this.rewardsEligible = options.practiceTarget !== true && options.minPlayers === undefined;
+    this.rewardsEligible = options.minPlayers === undefined;
 
     this.seed = options.seed ?? 1;
     this.sim = new ArenaSimulation(configs, arenaId, options.gamemode, this.seed);
@@ -244,8 +235,6 @@ export class ArenaRoom extends Room<ArenaState> {
     this.botBackfillMs = options.botBackfillMs ?? gamemode.bots?.backfillWaitMs ?? DEFAULT_BOT_BACKFILL_MS;
     this.matchmade = options.matchmaking === true;
 
-    if (options.practiceTarget) this.spawnPracticeDummies();
-
     this.setSimulationInterval(() => this.update(), 1000 / SIM_TICK_RATE);
     this.setPatchRate(PATCH_RATE_MS);
 
@@ -258,7 +247,6 @@ export class ArenaRoom extends Room<ArenaState> {
       arena: arenaId,
       maxClients: this.maxClients,
       minPlayers: this.minPlayers,
-      practiceTarget: !!options.practiceTarget,
     });
   }
 
@@ -413,30 +401,6 @@ export class ArenaRoom extends Room<ArenaState> {
     return t1 < t0 ? 1 : 0;
   }
 
-  private spawnPracticeDummies(): void {
-    const configs = this.configs;
-    const shipId = "ship.interceptor";
-    const ship = configs.get<ShipConfig>("ship", shipId);
-    if (!ship) return;
-    const wc = this.gamemode.winCondition;
-    const count = wc.type === "destroyTargets" ? wc.count : 1;
-    for (let i = 0; i < count; i++) {
-      const pos = DUMMY_POSITIONS[i % DUMMY_POSITIONS.length]!;
-      const entityId = this.sim.spawnPlayerAt(shipId, ship.defaultFitting, 1, pos, Math.PI);
-      const key = `dummy-${entityId}`;
-      const ps = new PlayerState();
-      ps.entityId = entityId;
-      ps.team = 1;
-      ps.shipId = shipId;
-      ps.connected = false;
-      for (let m = 0; m < ship.defaultFitting.length; m++) ps.modules.push(new ModuleState());
-      this.state.players.set(key, ps);
-      this.keyToEntity.set(key, entityId);
-      this.entityToKey.set(entityId, key);
-      this.syncShipState(entityId, ps);
-    }
-  }
-
   private maybeStart(): void {
     if (this.state.matchPhase !== "waiting") return;
     if (this.humanSessions.size >= this.minPlayers) {
@@ -482,7 +446,7 @@ export class ArenaRoom extends Room<ArenaState> {
 
   /**
    * Fill every team up to the gamemode's team size with bots, then start the
-   * match. Bots get a schema `PlayerState` exactly like a dummy does, so remote
+   * match. Bots get a schema `PlayerState`, so remote
    * clients render them with no client-side changes.
    */
   private backfillBots(): void {
@@ -513,7 +477,7 @@ export class ArenaRoom extends Room<ArenaState> {
           : backfill.shipId;
         const botShip = configs.get<ShipConfig>("ship", botShipId) ?? ship;
         const botFitting = randomize
-          ? randomBotFitting(configs, botShipId, rosterRng)
+          ? randomBotFitting(configs, botShipId, rosterRng, backfill.profile)
           : botShip.defaultFitting;
         const entityId = this.sim.spawnPlayer(botShipId, botFitting, team);
         const key = `bot-${entityId}`;
@@ -536,7 +500,13 @@ export class ArenaRoom extends Room<ArenaState> {
         // happen. Entity id salts the stream so co-spawned bots differ.
         this.botDrivers.set(
           entityId,
-          new BotDriver({ entityId, profile: backfill.profile, configs, rng: deriveRng(this.seed, entityId) }),
+          new BotDriver({
+            entityId,
+            profile: backfill.profile,
+            configs,
+            rng: deriveRng(this.seed, entityId),
+            floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
+          }),
         );
         this.syncShipState(entityId, ps);
         spawned++;
@@ -796,7 +766,7 @@ export class ArenaRoom extends Room<ArenaState> {
   private writeState(): void {
     const snap = this.sim.snapshot();
 
-    // Ships (players + dummies).
+    // Ships (players + bots).
     for (const ship of snap.ships) {
       const key = this.entityToKey.get(ship.id);
       if (!key) continue;

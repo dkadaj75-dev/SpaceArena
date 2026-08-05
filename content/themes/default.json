@@ -95,7 +95,11 @@
       "innerBorderOpacity": 0.55,
       "labelGapPx": 2,
       "labelHeightPx": 8,
-      "labelMaxWidthPx": 46
+      "labelMaxWidthPx": 46,
+      "ringStrokePx": 1.5,
+      "ringTickGapDeg": 3,
+      "labelPlateOpacity": 0.76,
+      "labelBorderOpacity": 0.42
     },
     "flight": {
       "joystick": {
@@ -138,6 +142,7 @@
         "ringGapPx": 4,
         "ringStrokePx": 1.5,
         "ringArcDeg": 360,
+        "ringTickGapDeg": 3,
         "color": "#ff4655",
         "fillOpacity": 0.3,
         "borderPx": 2,
@@ -146,7 +151,7 @@
         "armedGlowPx": 18
       },
       "actions": {
-        "arc": { "radiusPx": 289, "startDeg": -95, "sweepDeg": -85, "buttonDiameterPx": 48, "captionGapPx": 5 }
+        "arc": { "radiusPx": 127, "startDeg": -102, "sweepDeg": -77, "buttonDiameterPx": 48, "captionGapPx": 5 }
       },
       "reticle": {
         "showZone": false,
@@ -200,7 +205,7 @@
           "blockedNotification": "notification.fire-blocked"
         },
         "actions": {
-          "arc": { "radiusPx": 289, "startDeg": -95, "sweepDeg": -85, "buttonDiameterPx": 48, "captionGapPx": 5 }
+          "arc": { "radiusPx": 127, "startDeg": -102, "sweepDeg": -77, "buttonDiameterPx": 48, "captionGapPx": 5 }
         }
       }
     },
@@ -247,7 +252,7 @@
           "icon": "FIRE"
         },
         "actions": {
-          "arc": { "radiusPx": 331, "startDeg": -95, "sweepDeg": -85, "buttonDiameterPx": 52, "captionGapPx": 5 }
+        "arc": { "radiusPx": 142, "startDeg": -113, "sweepDeg": -80, "buttonDiameterPx": 52, "captionGapPx": 5 }
         },
         "enemyArrows": {
           "ringRadiusPx": 118,

@@ -126,7 +126,7 @@ interface RunOptions {
 }
 
 function flyOnline({ pitchStick, turn, ticks, latency = LATENCY_TICKS }: RunOptions) {
-  const sim = new ArenaSimulation(configs, "arena.deep-field", "gamemode.practice", 3);
+  const sim = new ArenaSimulation(configs, "arena.deep-field", "gamemode.practice-bots-1v1", 3);
   const cfg = configs.get<ShipConfig>("ship", SHIP_ID)!;
   const id = sim.spawnPlayer(SHIP_ID, [...cfg.defaultFitting], 0);
   const tf = sim.world.transforms.get(id)!;

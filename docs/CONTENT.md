@@ -20,7 +20,7 @@ gamemode's `defaultArena`, or pass `arena` as a join option:
 
 | Arena | Radius | Used by | Notes |
 | --- | --- | --- | --- |
-| `arena.deep-field` | 300 | `gamemode.practice`, `gamemode.duel-1v1` | The flight-model arena (FLIGHT.md §6): belts and clusters with open lanes, spawns ~198 units apart. 300 is deliberately inside the ±320 position-quantization guard rail — **do not author an arena, spawn or asteroid past it** without a wire-format change. |
+| `arena.deep-field` | 300 | `gamemode.duel-1v1` | The flight-model arena (FLIGHT.md §6): belts and clusters with open lanes, spawns ~198 units apart. 300 is deliberately inside the ±320 position-quantization guard rail — **do not author an arena, spawn or asteroid past it** without a wire-format change. |
 | `arena.ring-nebula` | 90 | `gamemode.practice-bots` | The original close-quarters arena. Still valid and still exercised. |
 
 A new arena needs BOTH its `content/arenas/*.json` file and an entry in

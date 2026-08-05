@@ -6,6 +6,8 @@
   "decisionIntervalMs": 300,
   "orderJitterMs": 60,
   "preferredRange": [38, 66],
+  "carrierPriority": 10,
+  "fittingArchetype": "cautious",
   "flight": {
     "turnHorizonMult": 1.0,
     "aimToleranceRad": 0.02,

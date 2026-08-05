@@ -23,10 +23,9 @@ function configs(): ConfigService {
   } as unknown as ConfigService;
 }
 
-/** Config service shaped like the shipped pack: dummies + both bot practice modes. */
+/** Config service shaped like the shipped pack's offline bot modes. */
 function practiceConfigs(): ConfigService {
   const modes = [
-    { id: "gamemode.practice", type: "gamemode", version: 1, name: "Practice" },
     {
       id: "gamemode.practice-bots-1v1",
       type: "gamemode",
@@ -78,11 +77,11 @@ describe("Lobby practice section", () => {
     });
   }
 
-  it("offers BOTH bot practice modes — 1v1 and 2v2 — beside the dummies run (owner 2026-07-31)", () => {
+  it("offers bot practice modes", () => {
     const lobby = mount(vi.fn());
     const practice = document.querySelector<HTMLElement>('[data-section="practice"]')!;
     const labels = [...practice.querySelectorAll("button")].map((b) => b.textContent);
-    expect(labels).toEqual(["Practice — Dummies", "Practice — 1v1 vs Bot", "Practice — 2v2 vs Bots"]);
+    expect(labels).toEqual(["Practice — 1v1 vs Bot", "Practice — 2v2 vs Bots"]);
     // Practice is offline-capable: none of them gate on the game server.
     expect([...practice.querySelectorAll("button")].every((b) => !b.disabled)).toBe(true);
     lobby.hide();
@@ -92,8 +91,8 @@ describe("Lobby practice section", () => {
     // One lobby per click: choosing sets the busy guard that disables the whole
     // row, so a second click on the same instance is correctly a no-op.
     for (const [index, gamemode] of [
-      [1, "gamemode.practice-bots-1v1"],
-      [2, "gamemode.practice-bots"],
+      [0, "gamemode.practice-bots-1v1"],
+      [1, "gamemode.practice-bots"],
     ] as const) {
       const onChoose = vi.fn();
       const lobby = mount(onChoose);

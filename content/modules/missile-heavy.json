@@ -17,8 +17,8 @@
     "draw": 5
   },
   "heat": {
-    "perSecondActive": 8,
-    "overheatThreshold": 95,
+    "perSecondActive": 16,
+    "overheatThreshold": 180.5,
     "overheatCooldown": 6.5,
     "overheatSelfDamage": 1
   },
@@ -26,7 +26,7 @@
     "mode": "semi",
     "range": 175,
     "cycleTime": 3.2,
-    "heatPerShot": 90,
+    "heatPerShot": 180,
     "damage": 77,
     "damageType": "kinetic",
     "requiresLineOfSight": true,

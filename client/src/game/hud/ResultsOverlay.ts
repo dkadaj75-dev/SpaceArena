@@ -304,16 +304,12 @@ export class ResultsOverlay {
     if (skipped) this.root.classList.add("hud-results--mvp-skipped");
   }
 
-  /**
-   * The banner text. Practice runs against dummies read as an objective, not a
-   * duel, so a won `destroyTargets` offline match says TARGETS CLEARED.
-   */
+  /** The banner text for the completed match. */
   private outcome(cur: Snapshot): MatchOutcome {
     const playerTeam = this.session.teamOf(this.playerId);
     if (cur.winnerTeam === null) return "DRAW";
     if (cur.winnerTeam !== playerTeam) return "DEFEAT";
-    const winCondition = this.session.sim.world.gamemode.winCondition;
-    return this.options.offline && winCondition.type === "destroyTargets" ? "TARGETS CLEARED" : "VICTORY";
+    return "VICTORY";
   }
 
   /** Renders the reward summary and starts the count-up; called from `main.ts`. */

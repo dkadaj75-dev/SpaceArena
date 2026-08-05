@@ -36,12 +36,30 @@ function tickModules(world: World, n: number): void {
 }
 
 describe("ModuleSystem state machine", () => {
-  it("spawns weapons ONLINE and support modules retracted (2026-07-31)", () => {
+  it("spawns weapons ONLINE and ordinary internals active", () => {
     const { world, id } = shipWorld();
     const states = world.modules.get(id)!.modules.map((m) => m.state);
-    // Light hull: laser + missile (weapons, online) then five internals, which
-    // are always-on systems — nothing on this fitting starts retracted.
+    // Light hull: laser + missile come online and its non-boosting internals
+    // are always-on systems.
     expect(states).toEqual(["active", "active", "active", "active", "active", "active", "active"]);
+  });
+
+  it("spawns a boost-capable engine DISABLED until it is toggled on", () => {
+    const world = makeWorld(configs);
+    const id = spawnShipFromConfig(
+      world,
+      configs,
+      "ship.interceptor",
+      ["module.laser-mk1", "module.missile-mk1", "module.engine-sport", "module.generator-compact", "module.transformer-stock", "module.heatsink-basic", "module.sensors-basic"],
+      0,
+      { x: 0, z: 0 },
+      0,
+    );
+    const boost = world.modules.get(id)!.modules[2]!;
+    expect(boost.state).toBe("retracted");
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: boost.hardpointIndex });
+    moduleSystem(world, DT);
+    expect(boost.state).toBe("active");
   });
 
   it("cycles retracted → deploying → active → retracting → retracted", () => {

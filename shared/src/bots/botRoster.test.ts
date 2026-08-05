@@ -1,10 +1,11 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../core/ConfigService.js";
-import { hardpointsOf, isInternalFamily, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
+import { hardpointsOf, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
 import { deriveRng } from "../sim/rng.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { generateBotName, generateBotNames } from "./botNames.js";
-import { MAX_BOT_MODULE_LEVEL, pickBotShip, randomBotFitting } from "./botLoadout.js";
+import type { BotprofileConfig } from "../schemas/botprofile.js";
+import { isBotFittingViable, pickBotShip, randomBotFitting } from "./botLoadout.js";
 
 let configs: ConfigService;
 beforeAll(async () => {
@@ -105,24 +106,14 @@ describe("randomBotFitting", () => {
     }
   });
 
-  it("leaves the INTERNAL bay on the hull's stock systems — variety, not strength", () => {
-    const ship = configs.get<ShipConfig>("ship", "ship.brawler")!;
-    const sockets = hardpointsOf(ship);
-    for (let seed = 1; seed <= 20; seed++) {
-      fittingFor("ship.brawler", seed).forEach((moduleId, index) => {
-        if (sockets[index]!.kind !== "internal") return;
-        expect(moduleId).toBe(ship.defaultFitting[index]);
-      });
-    }
-  });
-
-  it("never fits above the entry tier", () => {
-    for (let seed = 1; seed <= 25; seed++) {
-      for (const moduleId of fittingFor("ship.brawler", seed)) {
-        if (!moduleId) continue;
-        const cfg = configs.get<ModuleConfig>("module", moduleId)!;
-        if (isInternalFamily(cfg.family)) continue; // stock internals may be any tier
-        expect(cfg.level).toBeLessThanOrEqual(MAX_BOT_MODULE_LEVEL);
+  it("rolls viable fittings for every hull/profile across many seeds", () => {
+    const profiles = configs.getAll<BotprofileConfig>("botprofile");
+    for (const ship of configs.getAll<ShipConfig>("ship")) {
+      for (const p of profiles) {
+        for (let seed = 1; seed <= 40; seed++) {
+          const fit = randomBotFitting(configs, ship.id, deriveRng(seed, 1), p);
+          expect(isBotFittingViable(configs, ship, fit), `${ship.id}/${p.id}/${seed}`).toBe(true);
+        }
       }
     }
   });

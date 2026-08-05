@@ -65,9 +65,6 @@ export class MatchStatus {
     } else {
       const parts: string[] = [];
       if (wc.type === "fragLimit" || wc.type === "captureLimit") parts.push(`FIRST TO ${wc.count}`);
-      else if (wc.type === "destroyTargets") {
-        parts.push(`TARGETS ${Math.min(this.session.destroyedTargets, wc.count)}/${wc.count}`);
-      }
       const capSec = gamemode.timeLimitCapSec ?? (wc.type === "timeLimit" ? wc.seconds : undefined);
       if (capSec !== undefined) parts.push(formatClock(Math.max(0, capSec - cur.elapsed)));
       // The player's own ship missing while live means one thing: waiting out

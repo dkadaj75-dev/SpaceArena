@@ -74,10 +74,10 @@ describe("Bug 1 — collision grind death", () => {
 });
 
 describe("Bug 2 — defeat state", () => {
-  it("player death ends a practice destroyTargets match as a defeat", () => {
-    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice");
+  it("player death ends a no-respawn practice match as a defeat", () => {
+    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.duel-1v1");
     const player = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 });
-    sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 40, z: 0 }); // dummy survives
+    sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 40, z: 0 });
 
     sim.world.shipCores.get(player)!.hull = 1;
     applyDamageToShip(sim.world, player, null, 100, "kinetic");
@@ -91,20 +91,4 @@ describe("Bug 2 — defeat state", () => {
     expect(sim.snapshot().winnerTeam).toBe(1); // opposing team wins
   });
 
-  it("destroyTargets still wins normally when the player clears the dummies", () => {
-    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice");
-    const player = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 });
-    const enemies = [
-      sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 10, z: 0 }),
-      sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 12, z: 0 }),
-      sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 14, z: 0 }),
-    ];
-    for (const e of enemies) {
-      sim.world.shipCores.get(e)!.hull = 1;
-      applyDamageToShip(sim.world, e, player, 100, "kinetic");
-      sim.tick(DT);
-    }
-    expect(sim.isEnded).toBe(true);
-    expect(sim.snapshot().winnerTeam).toBe(0); // player's team
-  });
 });

@@ -108,11 +108,11 @@ export function spawnShipFromConfig(
     modules.push({
       moduleId,
       hardpointIndex,
-      // Weapons come up ONLINE at spawn and respawn alike (owner 2026-07-31) —
-      // their limiter is heat, not the deploy toggle. Internals are always on
-      // by nature (they ARE the ship's systems). Shields start retracted: those
-      // are the deliberate, energy-priced activations.
-      state: modCfg.fire || isInternalFamily(modCfg.family) ? "active" : "retracted",
+      // Weapons come up ONLINE at spawn and respawn alike — their limiter is
+      // heat, not the deploy toggle. Internals are normally always on by
+      // nature, except a boost-capable engine: boost is a deliberate,
+      // energy-priced activation and starts DISABLED on every fresh hull.
+      state: modCfg.fire || (isInternalFamily(modCfg.family) && !modCfg.boost) ? "active" : "retracted",
       stateTimer: 0,
       heat: 0,
       cycleTimer: 0,

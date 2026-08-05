@@ -331,8 +331,8 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const t = runEngagement("ship.interceptor", SUSTAINED);
     expectWithinBand("interceptor sustained energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
     expectNear("interceptor sustained energy floor", t.energyFloor, 0.997);
-    // Re-recorded 2026-08-04 for owner heat x5: rack lockouts are regular.
-    expect(t.overheats).toBe(14);
+    // Re-recorded 2026-08-05 for owner heat x10: rack lockouts are regular.
+    expect(t.overheats).toBe(18);
     expect(t.brownOuts).toBe(4);
   });
 
@@ -340,7 +340,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const t = runEngagement("ship.interceptor", DISCIPLINED);
     expectWithinBand("interceptor disciplined energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
     expectNear("interceptor disciplined energy floor", t.energyFloor, 0.997);
-    expect(t.overheats).toBe(9);
+    expect(t.overheats).toBe(15);
     expect(t.brownOuts).toBe(1);
   });
 
@@ -351,14 +351,14 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     // The heavy still browns out once; x5 generated heat now creates repeated
     // rack lockouts even with its expanded cooling block.
     expect(t.brownOuts).toBe(1);
-    expect(t.overheats).toBe(28);
+    expect(t.overheats).toBe(33);
   });
 
   it("support, sustained brawl (big capacitor, strong dissipation)", () => {
     const t = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
-    expectWithinBand("support sustained energy", t.energy, [0.995, 0.745, 0.243, 0.469, 0.073, 0.27, 1]);
+    expectWithinBand("support sustained energy", t.energy, [0.995, 0.745, 0.243, 0.469, 0.138, 0.135, 1]);
     expectNear("support sustained energy floor", t.energyFloor, 0);
-    expect(t.overheats).toBe(14);
+    expect(t.overheats).toBe(18);
     expect(t.brownOuts).toBe(5);
   });
 
@@ -368,8 +368,8 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const brawler = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
     // All hulls now lock racks under x5 heat; the heavy separates on its extra
     // weapon's heat and on capacitor pressure.
-    expect(support.overheats).toBe(14);
-    expect(interceptor.overheats).toBe(14);
+    expect(support.overheats).toBe(18);
+    expect(interceptor.overheats).toBe(18);
     expect(brawler.overheats).toBeGreaterThan(interceptor.overheats);
     expect(brawler.energyFloor).toBeLessThanOrEqual(support.energyFloor);
     expect(brawler.energyFloor).toBeLessThanOrEqual(interceptor.energyFloor);
@@ -385,7 +385,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     // and brown-outs (not hull damage) are the relief valve for the capacitor,
     // so a legal all-on fit is still never an instant self-destruct.
     expect(sustained.peakModuleHeat).toBeLessThan(1.25);
-    expect(disciplined.overheats).toBe(9);
+    expect(disciplined.overheats).toBe(15);
   });
 
   it("a 60 s all-on engagement stays survivable: pool heat never goes critical", () => {
@@ -538,14 +538,14 @@ function timeToKill(
 }
 
 describe("TTK sanity bounds (default fittings, weapons hot)", () => {
-  // Re-recorded 2026-08-04 for owner heat x5: sustained fire now spends more
+  // Re-recorded 2026-08-05 for owner heat x10: sustained fire now spends more
   // time in the rack lockout cycle, especially in light-vs-heavy duels.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    ["ship.interceptor", "ship.interceptor", 22, 7.767],
-    ["ship.interceptor", "ship.brawler", 22, 27.1],
-    ["ship.brawler", "ship.interceptor", 22, 3.9],
-    ["ship.brawler", "ship.brawler", 22, 9.5], // starter-only default fit
-    ["ship.support", "ship.interceptor", 22, 4.767],
+    ["ship.interceptor", "ship.interceptor", 22, 13.767],
+    ["ship.interceptor", "ship.brawler", 22, 48.1],
+    ["ship.brawler", "ship.interceptor", 22, 6.9],
+    ["ship.brawler", "ship.brawler", 22, 22.133], // starter-only default fit
+    ["ship.support", "ship.interceptor", 22, 13.767],
   ];
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {

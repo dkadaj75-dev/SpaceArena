@@ -65,6 +65,14 @@ export const hudModulesSchema = z.object({
   labelHeightPx: z.number().positive().optional(),
   /** Maximum caption width; prevents edge clipping without hiding short labels. */
   labelMaxWidthPx: z.number().positive().optional(),
+  /** Hairline width shared by the secondary-action rings. */
+  ringStrokePx: z.number().positive().optional(),
+  /** Angular break between the subtle technical ring segments. */
+  ringTickGapDeg: z.number().min(0).max(30).optional(),
+  /** Dark framed caption-plate opacity. */
+  labelPlateOpacity: z.number().min(0).max(1).optional(),
+  /** Family tint opacity on the caption-plate rule. */
+  labelBorderOpacity: z.number().min(0).max(1).optional(),
 });
 export type HudModulesConfig = z.infer<typeof hudModulesSchema>;
 
@@ -294,6 +302,8 @@ export const fireButtonSchema = z.object({
   ringStrokePx: z.number().nonnegative().optional(),
   /** Visible ring arc in degrees. */
   ringArcDeg: z.number().min(0).max(360).optional(),
+  /** Angular break between the subtle technical ring segments. */
+  ringTickGapDeg: z.number().min(0).max(30).optional(),
   /** Bright rim/ring color. */
   color: z.string().optional(),
   /** Dark-red plate opacity at rest. */
@@ -330,7 +340,7 @@ export type FlightActionButtonConfig = z.infer<typeof flightActionButtonSchema>;
  * One shared radial rail for every secondary flight control.  The rail is
  * centred on FIRE; its slots are re-spaced as the fitting changes.  These are
  * authored intent: the flight-HUD resolver may shorten a narrow-portrait sweep
- * or add an inner concentric rail to retain touch gaps and panel clearance.
+ * or add an outward overflow ring to retain touch gaps and panel clearance.
  * Angles use screen coordinates (0 = right, -90 = up).
  */
 export const flightActionArcSchema = z.object({

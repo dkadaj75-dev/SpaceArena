@@ -26,7 +26,6 @@ export interface ArenaJoinOptions {
    * (see `ArenaRoom.test.ts`), the client just didn't send it yet (Hangar 4.5).
    */
   fittingId?: string;
-  practiceTarget?: boolean;
   minPlayers?: number;
   /** Access token for authenticated join; omitted for DEV_ALLOW_ANON solo testing. */
   token?: string;
