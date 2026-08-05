@@ -86,6 +86,8 @@ const DUMMY_OFFSETS = [
 
 /** Additive practice options (Phase 5 5.1 integration B). */
 export interface GameSessionOptions {
+  /** Local pilot handle for loading/MVP presentation (online names replicate). */
+  playerDisplayName?: string;
   /**
    * Bot wiring. `undefined` (default) ⇒ spawn the gamemode config's
    * `bots.roster`, if it declares one. `null` ⇒ never spawn bots (used by
@@ -129,6 +131,7 @@ export class GameSession {
    * `driver.lastDecision` — behaviour, utility scores, chosen move point.
    */
   readonly bots = new Map<EntityId, BotDriver>();
+  private readonly playerDisplayName: string;
   /**
    * Player-like display name per bot entity (owner 2026-07-31). Deterministic
    * from the session seed, so a replay fields the same roster.
@@ -151,6 +154,7 @@ export class GameSession {
     seed = 1,
     options: GameSessionOptions = {},
   ) {
+    this.playerDisplayName = options.playerDisplayName?.trim() || "Pilot";
     this.sim = new ArenaSimulation(configs, arenaId, gamemodeId, seed);
     this.matchStats = new MatchStatsAccumulator((id) => this.sim.teamOf(id));
 
@@ -312,7 +316,7 @@ export class GameSession {
 
   /** Online sessions override this with names replicated by ArenaState. */
   displayNameFor(id: EntityId): string | undefined {
-    return this.botNames.get(id);
+    return id === this.playerId ? this.playerDisplayName : this.botNames.get(id);
   }
 
   /** Team of a sim ship in the latest snapshot (for enemy checks). */

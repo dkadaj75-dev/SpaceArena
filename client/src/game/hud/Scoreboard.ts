@@ -1,6 +1,7 @@
 import type { EntityId, MatchStatLine, Snapshot } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
+import { compareMatchStats } from "./matchPresentation.js";
 
 interface Row { tr: HTMLTableRowElement; cells: HTMLTableCellElement[]; signature: string }
 
@@ -10,18 +11,18 @@ export class Scoreboard {
   private readonly rows = new Map<EntityId, Row>();
   private readonly button: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
-  private resultsHost: HTMLElement | null = null;
-  private mountedInResults = false;
+  private readonly finalActions: HTMLDivElement;
   private visible = false;
+  private mode: "play" | "locked" | "final" = "play";
   private readonly ctf: boolean;
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key !== "Tab") return;
+    if (event.key !== "Tab" || this.mode !== "play") return;
     event.preventDefault();
     this.setVisible(true);
   };
-  private readonly onKeyUp = (event: KeyboardEvent): void => { if (event.key === "Tab") this.setVisible(false); };
+  private readonly onKeyUp = (event: KeyboardEvent): void => { if (event.key === "Tab" && this.mode === "play") this.setVisible(false); };
 
-  constructor(parent: HTMLElement, private readonly session: GameSession) {
+  constructor(parent: HTMLElement, private readonly session: GameSession, callbacks: { onPlayAgain: () => void; onMenu: () => void }) {
     this.ctf = session.sim.world.gamemode.ctf !== undefined;
     this.root = document.createElement("div");
     this.root.className = "hud-scoreboard";
@@ -30,13 +31,20 @@ export class Scoreboard {
     panel.className = "hud-scoreboard-panel hud-frame";
     const title = document.createElement("h2"); title.textContent = "SCOREBOARD";
     panel.appendChild(title);
+    this.finalActions = document.createElement("div");
+    this.finalActions.className = "hud-scoreboard-actions";
+    this.finalActions.append(
+      actionButton("Play a New Game", "playAgain", callbacks.onPlayAgain),
+      actionButton("Quit to Menu", "menu", callbacks.onMenu),
+    );
+    panel.appendChild(this.finalActions);
     this.root.appendChild(panel);
     parent.appendChild(this.root);
     this.button = document.createElement("button");
     this.button.className = "hud-scoreboard-btn";
     this.button.textContent = "SCORE";
     this.button.setAttribute(HUD_CONTROL_ATTR, "");
-    this.button.addEventListener("click", () => this.setVisible(!this.visible));
+    this.button.addEventListener("click", () => { if (this.mode === "play") this.setVisible(!this.visible); });
     parent.appendChild(this.button);
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
@@ -45,15 +53,20 @@ export class Scoreboard {
   update(snapshot: Snapshot): void {
     for (const ship of snapshot.ships) this.ensureRow(ship.id, ship.team);
     this.session.matchStats.forEach((line) => this.paint(line));
-    if (snapshot.phase === "ended" && this.resultsHost && !this.mountedInResults) {
-      this.mountedInResults = true;
-      this.setVisible(false);
-      this.button.style.display = "none";
-      this.resultsHost.appendChild(this.panel);
-    }
   }
 
-  setResultsHost(host: HTMLElement): void { this.resultsHost = host; }
+  showFinal(): void {
+    this.mode = "final";
+    this.root.classList.add("final");
+    this.button.style.display = "none";
+    this.setVisible(true);
+  }
+
+  lockForEnd(): void {
+    this.mode = "locked";
+    this.button.style.display = "none";
+    this.setVisible(false);
+  }
 
   private ensureRow(id: EntityId, team: number): void {
     if (this.rows.has(id)) return;
@@ -66,9 +79,10 @@ export class Scoreboard {
       const hr = document.createElement("tr");
       for (const label of ["PILOT", "K", "D", "A", ...(this.ctf ? ["TAKEN", "RETURN", "CAP"] : [])]) { const th = document.createElement("th"); th.textContent = label; hr.appendChild(th); }
       head.appendChild(hr); body = document.createElement("tbody"); table.append(caption, head, body);
-      this.root.firstElementChild!.appendChild(table); this.bodies.set(team, body);
+      this.panel.insertBefore(table, this.finalActions); this.bodies.set(team, body);
     }
     const tr = document.createElement("tr");
+    tr.dataset["entityId"] = String(id);
     const cells: HTMLTableCellElement[] = [];
     const count = this.ctf ? 7 : 4;
     for (let i = 0; i < count; i++) { const td = document.createElement("td"); tr.appendChild(td); cells.push(td); }
@@ -87,15 +101,23 @@ export class Scoreboard {
     for (let i = 0; i < values.length; i++) row.cells[i]!.textContent = String(values[i]);
     const body = row.tr.parentElement!;
     const sorted = [...body.children] as HTMLTableRowElement[];
-    sorted.sort((a, b) => this.score(b) - this.score(a));
+    sorted.sort((a, b) => {
+      const aId = Number(a.dataset["entityId"]);
+      const bId = Number(b.dataset["entityId"]);
+      return compareMatchStats(this.session.matchStats.line(aId), this.session.matchStats.line(bId), this.ctf);
+    });
     for (const tr of sorted) body.appendChild(tr);
-  }
-
-  private score(tr: HTMLTableRowElement): number {
-    const c = tr.children;
-    return Number(c[1]?.textContent) * 100 - Number(c[2]?.textContent) * 10 + Number(c[3]?.textContent) * 25 + (this.ctf ? Number(c[6]?.textContent) * 1000 + Number(c[5]?.textContent) * 100 : 0);
   }
 
   private setVisible(visible: boolean): void { this.visible = visible; this.root.classList.toggle("visible", visible); this.button.setAttribute("aria-pressed", String(visible)); }
   dispose(): void { window.removeEventListener("keydown", this.onKeyDown); window.removeEventListener("keyup", this.onKeyUp); this.root.remove(); this.button.remove(); }
+}
+
+function actionButton(label: string, key: string, callback: () => void): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = "hud-results-btn";
+  button.textContent = label;
+  button.dataset["resultsAction"] = key;
+  button.addEventListener("click", callback);
+  return button;
 }

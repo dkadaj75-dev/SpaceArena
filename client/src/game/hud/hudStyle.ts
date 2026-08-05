@@ -104,6 +104,10 @@ const CSS = `
 .hud-scoreboard { position:absolute; inset:0; display:none; place-items:center; background:color-mix(in srgb,var(--hud-bg,#0a0f1e) 62%,transparent); pointer-events:auto; z-index:30; }
 .hud-scoreboard.visible { display:grid; }
 .hud-scoreboard-panel { position:relative; width:min(900px,calc(100vw - 24px)); max-height:calc(100vh - 28px); overflow:auto; padding:18px; box-sizing:border-box; }
+.hud-scoreboard-actions { display:none; position:sticky; bottom:0; padding-top:12px; gap:10px; justify-content:center; background:linear-gradient(transparent,var(--hud-bg,#0a0f1e) 28%); }
+.hud-scoreboard.final .hud-scoreboard-actions { display:flex; }
+.hud-root[data-presentation] > :not(.hud-results):not(.hud-scoreboard) { display:none !important; }
+.hud-root[data-presentation="scoreboard"] > .hud-results { display:none !important; }
 .hud-scoreboard h2 { margin:0 0 12px; font-family:var(--hud-font-display,inherit); letter-spacing:.15em; color:var(--hud-primary,#39bfff); }
 .hud-scoreboard table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:clamp(.68rem,2vw,.9rem); }
 .hud-scoreboard caption { text-align:left; color:var(--hud-accent,#ffd166); font-weight:700; padding:5px; }
@@ -115,6 +119,7 @@ const CSS = `
 .hud-results-scoreboard .hud-scoreboard-panel h2 { display:none; }
 .hud-results-panel:has(.hud-results-scoreboard:not(:empty)) { max-width:min(900px,calc(100% - var(--hud-inset-left) - var(--hud-inset-right))); }
 @media (orientation:portrait) { .hud-kill-feed { top:calc(var(--hud-inset-top) + 78px); width:66vw; } .hud-scoreboard-panel { padding:10px; } .hud-scoreboard th,.hud-scoreboard td { padding:5px 3px; } }
+@media (orientation:portrait) { .hud-scoreboard-actions { flex-direction:column; align-items:stretch; } .hud-scoreboard-actions .hud-results-btn { width:100%; } }
 
 /* Buttons opt into the browser's low-latency tap handling. Continuous HUD
    controls override this with touch-action:none where they own the gesture. */

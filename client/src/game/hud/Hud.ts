@@ -30,6 +30,7 @@ import { BoundaryWarningLatch } from "../../core/boundaryProximity.js";
 import { BlockedPullFeedback } from "./BlockedPullFeedback.js";
 import { KillFeed } from "./KillFeed.js";
 import { Scoreboard } from "./Scoreboard.js";
+import { MatchPresentationFlow } from "./matchPresentation.js";
 
 const log = createLogger("Hud");
 
@@ -107,6 +108,7 @@ export class Hud {
   private readonly killFeed: KillFeed;
   private readonly scoreboard: Scoreboard;
   private readonly resultsOverlay: ResultsOverlay;
+  private readonly presentation = new MatchPresentationFlow();
   private readonly haptics: Haptics;
   /** Flight controls (FLIGHT.md §4), or null when the caller passed no 3D binding. */
   private readonly flight: FlightControls | null;
@@ -157,11 +159,15 @@ export class Hud {
     this.countdown = new CountdownOverlay(this.root);
     this.killAnnouncements = new KillAnnouncements(this.root, playerId);
     this.killFeed = new KillFeed(this.root, session, playerId);
-    this.scoreboard = new Scoreboard(this.root, session);
+    this.scoreboard = new Scoreboard(this.root, session, callbacks);
     this.resultsOverlay = new ResultsOverlay(this.root, session, playerId, callbacks, {
       offline: options.offline ?? false,
     });
-    this.scoreboard.setResultsHost(this.resultsOverlay.scoreboardHost);
+    this.resultsOverlay.setScoreboardAction(() => {
+      if (!this.presentation.next()) return;
+      this.root.dataset["presentation"] = "scoreboard";
+      this.scoreboard.showFinal();
+    });
     this.haptics = new Haptics(configs, playerId);
     this.blockedPullFeedback = new BlockedPullFeedback(
       configs,
@@ -271,7 +277,12 @@ export class Hud {
     ) {
       this.applyTheme();
     }
-    this.flight?.update(cur, prev, alpha, dtMs, nowMs());
+    if (cur.phase === "ended" && this.presentation.end()) {
+      this.root.dataset["presentation"] = "mvp";
+      this.scoreboard.lockForEnd();
+    }
+    const presenting = this.presentation.state !== "playing";
+    if (!presenting) this.flight?.update(cur, prev, alpha, dtMs, nowMs());
     this.gauges.update(cur);
     this.vitalArcs.update(cur);
     this.moduleButtons.update(cur);

@@ -193,6 +193,9 @@ type ProjectileNode = Mesh | InstancedMesh;
 export class ViewManager {
   private readonly assets: AssetRegistry;
   private readonly root: TransformNode;
+  private readonly heroRoot: TransformNode;
+  private heroShip: InstancedMesh | null = null;
+  private heroElapsedMs = 0;
 
   private readonly ships = new Map<EntityId, ShipView>();
   private readonly asteroids = new Map<EntityId, AsteroidView>();
@@ -252,6 +255,8 @@ export class ViewManager {
   ) {
     this.assets = new AssetRegistry(scene);
     this.root = new TransformNode("viewRoot", scene);
+    this.heroRoot = new TransformNode("mvpHeroRoot", scene);
+    this.heroRoot.setEnabled(false);
     this.quality = quality;
 
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
@@ -311,6 +316,37 @@ export class ViewManager {
    */
   setVisible(visible: boolean): void {
     this.root.setEnabled(visible);
+  }
+
+  /** Replace all combat views with one cheap, disposable MVP hull at centre stage. */
+  showMvp(entityId: EntityId): boolean {
+    const config = this.shipConfigFor(entityId);
+    if (!config) return false;
+    this.root.setEnabled(false);
+    this.heroShip?.dispose();
+    this.heroShip = this.assets.getShipMaster(config.render).createInstance("mvp.hero");
+    this.heroShip.parent = this.heroRoot;
+    this.heroShip.position.set(0, -0.65, 2.8);
+    this.heroShip.rotation.set(0.08, Math.PI, 0);
+    this.heroShip.scaling.setAll(0.58);
+    this.heroShip.isPickable = false;
+    this.heroElapsedMs = 0;
+    this.heroRoot.setEnabled(true);
+    return true;
+  }
+
+  /** Cinematic update; mutates existing vectors only and allocates nothing per frame. */
+  updateMvp(dtMs: number): void {
+    const ship = this.heroShip;
+    if (!ship) return;
+    this.heroElapsedMs += Number.isFinite(dtMs) ? dtMs : 0;
+    const progress = Math.min(1, this.heroElapsedMs / 1100);
+    const eased = progress * progress * (3 - 2 * progress);
+    ship.position.z = 2.8 * (1 - eased);
+    ship.position.y = -0.65 * (1 - eased);
+    const scale = 0.58 + 0.42 * eased;
+    ship.scaling.setAll(scale);
+    ship.rotation.y += Math.min(32, Math.max(0, dtMs)) * 0.00018;
   }
 
   /**
@@ -1056,6 +1092,8 @@ export class ViewManager {
     this.poolMasters.length = 0;
     this.hitFlash.dispose();
     this.explosions.dispose();
+    this.heroShip?.dispose();
+    this.heroRoot.dispose();
     this.assets.dispose();
     this.root.dispose();
   }

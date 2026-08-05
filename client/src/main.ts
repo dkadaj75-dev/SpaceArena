@@ -39,6 +39,7 @@ import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
 import { MatchmakingScreen } from "./game/screens/MatchmakingScreen.js";
 import { FullscreenPrompt } from "./game/screens/FullscreenPrompt.js";
+import { MatchLoadingScreen } from "./game/screens/MatchLoadingScreen.js";
 import {
   defaultRendererPreference,
   parseRenderer,
@@ -412,14 +413,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           endMatch();
           void launchChoice(again);
         },
-        onHangar: () => {
-          endMatch();
-          hangar.show();
-        },
         onMenu: () => {
           log.info("match over — returning to lobby");
           endMatch();
           lobby.show();
+        },
+        onMvp: (entityId) => {
+          tacticalCamera.setChaseMode(false);
+          tacticalCamera.setHangarMode(true);
+          tacticalCamera.resetStageOrbit(Vector3.Zero());
+          viewManager.showMvp(entityId);
         },
         onSettings: () => openSettings("match"),
       },
@@ -546,6 +549,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // Back to the menu/hangar rigs: the chase view only exists while a ship is
     // flying (FLIGHT.md §3), and leaving it restores the tactical orbit limits.
     tacticalCamera.setChaseMode(false);
+    tacticalCamera.setHangarMode(false);
     void authService.refreshProfile();
     if (updateGate.onSafeMoment()) location.reload();
   }
@@ -643,6 +647,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     },
     bus,
   );
+  const matchLoading = new MatchLoadingScreen(document.body, configService, bus);
 
   const settingsScreen = new SettingsScreen(document.body, {
     configs: configService,
@@ -778,6 +783,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       await waitMs(matchmakingTiming().foundBeatMs);
       if (run !== matchmakingRun) return;
       matchmakingScreen.joining();
+      matchLoading.showPending("Joining arena");
 
       const session = await NetGameSession.join(
         configService,
@@ -794,11 +800,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         session.dispose();
         return;
       }
-      matchmakingScreen.hide();
       activateSession(session, choice);
     } catch (err) {
       if (run !== matchmakingRun) return;
       log.error("matchmaking failed", err);
+      matchLoading.hide();
       if (err instanceof MatchmakingInterruptedError) {
         matchmakingScreen.interrupted();
         return;
@@ -826,12 +832,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   }
 
   async function startMatch(choice: Exclude<LobbyChoice, { kind: "matchmaking" }>): Promise<void> {
+    lobby.hide();
+    hangar.hide();
+    matchLoading.showPending(choice.kind === "practice" ? "Building practice arena" : "Joining arena");
     try {
       // Resolve the gamemode FIRST so the arena lookup sees the same id the
       // session runs — a choice without an explicit gamemode must still land
       // on gamemode.practice's defaultArena, not the fallback arena.
       const practiceMode = choice.gamemode ?? "gamemode.practice";
       const hangar = loadHangarSelection();
+      const authState = authService.getState();
       const session =
         choice.kind === "practice"
           ? new GameSession(configService, practiceArena(practiceMode) ?? FALLBACK_ARENA_ID, practiceMode, 1, {
@@ -840,6 +850,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
               // fitting, which an online room cannot accept on trust.
               playerShipId: hangar.shipId,
               playerFitting: hangar.moduleIds,
+              playerDisplayName: authState.status === "authed"
+                ? authState.profile.displayName
+                : "Pilot",
             })
           : await NetGameSession.join(
               configService,
@@ -857,6 +870,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       await prepareSessionArena(session);
       activateSession(session, choice);
     } catch (err) {
+      matchLoading.hide();
       log.error("failed to start match", err);
       // "Nothing answered" is a different fact from "the server said no", and
       // only the second one has a message worth showing. The first used to reach
@@ -878,6 +892,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    */
   async function prepareSessionArena(session: GameSession): Promise<void> {
     setArena(session.arenaId);
+    matchLoading.showSession(session, import.meta.env.BASE_URL);
     await preloadArenaModels(preloadAssets, configService, session.arenaId);
   }
 
@@ -890,6 +905,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     telemetry.beginMatch();
     lobby.hide();
     hangar.hide();
+    matchmakingScreen.hide();
+    matchLoading.hide();
   }
 
   // --- Fixed-timestep sim loop (30 Hz), driven by render delta ---
@@ -972,6 +989,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       // the camera is on before it builds one.
       runtime.viewManager.setPlayerTeam(runtime.session.playerTeam);
       runtime.viewManager.render(prev, cur, alpha, dtMs);
+      runtime.viewManager.updateMvp(dtMs);
       runtime.hud.update(cur, prev, dtMs, alpha);
       runtime.netOverlay?.update();
       runtime.botOverlay?.update();
@@ -1122,6 +1140,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     userSettings.dispose();
     hangar.dispose();
     matchmakingScreen.dispose();
+    matchLoading.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();
     quality.dispose();
