@@ -28,6 +28,7 @@ describe("LockReticle distance label", () => {
       {
         arenaId: "arena.test",
         order: vi.fn(),
+        sim: { world: { gamemode: {} } },
       } as unknown as GameSession,
       1,
       { onPlayAgain: vi.fn(), onHangar: vi.fn(), onMenu: vi.fn() },
