@@ -72,6 +72,9 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: {
+          // Sandboxed CI/agent containers ship a system Chromium instead of
+          // the version-pinned headless shell; point PW_CHROMIUM_PATH at it.
+          executablePath: process.env.PW_CHROMIUM_PATH || undefined,
           // The client boots Babylon with `new Engine(canvas, true)` (WebGL2).
           // Headless Chromium has no GPU, so force the ANGLE/SwiftShader
           // software rasterizer — without this the engine never initializes and

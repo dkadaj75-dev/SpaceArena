@@ -183,7 +183,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await rail("internals").click();
   const hangarInternalSlots = await hangar.locator('.hangar-slot[data-kind="internal"]').count();
   expect(hangarWeaponSlots).toBeGreaterThan(0);
-  expect(hangarInternalSlots).toBe(5); // engine, generator, transformer, heatsink, sensors
+  expect(hangarInternalSlots).toBe(6); // five core internals + the auxiliary bay (2026-08-04 expansion)
 
   // Opening a bay slot shows its contextual module list: the rolling scroller,
   // with every row carrying its stat chips.
@@ -203,10 +203,13 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await lobby.getByRole("button", { name: "Practice — Dummies", exact: true }).click();
   await expect(lobby).toBeHidden();
 
-  // The loadout left in the Hangar is the one flown (owner 2026-07-31) — this
-  // is the end-to-end proof of it, not a count pinned to one hull.
+  // The loadout left in the Hangar is the one flown (owner 2026-07-31). Since
+  // the starter-only defaults (2026-08-04), priced auxiliary sockets ship
+  // empty, so the HUD shows a button per FITTED hardpoint module — fewer than
+  // the hangar's socket count but never zero and never more than the sockets.
   const moduleButtons = page.locator(".hud-modules .hud-module-btn");
-  await expect(moduleButtons).toHaveCount(hangarWeaponSlots);
+  await expect(moduleButtons).not.toHaveCount(0);
+  expect(await moduleButtons.count()).toBeLessThanOrEqual(hangarWeaponSlots);
   await expect(page.locator(".hud-fps")).toHaveCount(0);
 
   // The dummies choice carries no explicit gamemode, so the match must still
@@ -442,12 +445,22 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
       `simSeconds=${pump.simSeconds.toFixed(1)}, enemiesLeft=${pump.enemiesLeft})`,
   ).toBe(true);
 
+  // Match presentation flow (owner 2026-08-05): MVP hero screen first — the
+  // title carries the MVP's pilot name with the outcome on a data attribute —
+  // then NEXT reveals the full-viewport scoreboard with the exits below it.
   const results = page.locator(".hud-results");
   await expect(results).toHaveClass(/\bvisible\b/);
-  await expect(results.locator(".hud-results-title")).toHaveText(OUTCOMES);
+  await expect(results.locator(".hud-results-title")).not.toBeEmpty();
+  await expect(results.locator(".hud-results-title")).toHaveAttribute(
+    "data-outcome",
+    /^(victory|defeat|draw|cleared)$/,
+  );
+  await results.locator("[data-results-action='next']").click();
+  await expect(page.locator(".hud-scoreboard")).toBeVisible();
 
   // ------------------------------------------------------ 8. back to the lobby
-  await results.locator("[data-results-action='menu']").click();
+  // The scoreboard carries its own exits below the tables.
+  await page.locator(".hud-scoreboard [data-results-action='menu']").click();
   await expect(lobby).toBeVisible();
   await expect(results).toHaveCount(0);
 
