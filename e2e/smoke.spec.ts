@@ -457,9 +457,9 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
     }
   });
   await expect(results.locator("[data-results-action='next']")).toBeVisible({ timeout: 5000 });
-  await expect(results.locator(".hud-results-title")).toHaveAttribute(
+  await expect(results.locator(".hud-results-outcome-tag")).toHaveAttribute(
     "data-outcome",
-    /^(victory|defeat|draw|cleared)$/,
+    /^(victory|defeat|draw|targets-cleared)$/,
   );
   await results.locator("[data-results-action='next']").click();
   await expect(page.locator(".hud-scoreboard")).toBeVisible();

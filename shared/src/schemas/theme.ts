@@ -211,6 +211,38 @@ export const hudStyleSchema = z.object({
 });
 export type HudStyleConfig = z.infer<typeof hudStyleSchema>;
 
+/** Match-end MVP hero presentation. All fields are optional for older packs. */
+export const mvpPresentationSchema = z.object({
+  /** Total DOM entrance sequence; also the tap-to-skip boundary. */
+  sequenceMs: z.number().int().positive().optional(),
+  /** Hull push-in/settle duration. */
+  hullSettleMs: z.number().int().positive().optional(),
+  /** MVP medallion punch duration. */
+  badgePunchMs: z.number().int().positive().optional(),
+  /** Delay before the pilot name enters. */
+  nameDelayMs: z.number().int().nonnegative().optional(),
+  /** Delay before stat chips enter and begin counting. */
+  statsDelayMs: z.number().int().nonnegative().optional(),
+  /** Duration of the stat-chip number count-up. */
+  statsCountUpMs: z.number().int().positive().optional(),
+  /** Delay before the three actions slide into place. */
+  actionsDelayMs: z.number().int().nonnegative().optional(),
+  /** Width of the medallion in CSS px before HUD scale. */
+  badgeSizePx: z.number().positive().optional(),
+  /** Automatic beauty-shot orbit speed. */
+  orbitDegreesPerSecond: z.number().min(-10).max(10).optional(),
+  /** Warm camera-side key light. */
+  keyColor: z.string().optional(),
+  keyIntensity: z.number().nonnegative().optional(),
+  /** Cool back/rim light. */
+  rimColor: z.string().optional(),
+  rimIntensity: z.number().nonnegative().optional(),
+  /** Cheap emissive display disc under the staged hull. */
+  pedestalColor: z.string().optional(),
+  pedestalDiameter: z.number().positive().optional(),
+});
+export type MvpPresentationConfig = z.infer<typeof mvpPresentationSchema>;
+
 /**
  * Throttle strip (FLIGHT.md §4, right edge, vertical). 0 % at the bottom, 100 %
  * at the top; the thumb stays where it is released, so throttle is a held
@@ -740,6 +772,8 @@ export const themeSchema = z.object({
       vitalArcs: vitalArcsSchema.optional(),
       /** Chamfer / glow / panel-fill knobs shared by every HUD widget frame. */
       style: hudStyleSchema.optional(),
+      /** Match-end MVP hero-shot choreography and lighting. */
+      mvp: mvpPresentationSchema.optional(),
       /** Max simultaneously visible toast notifications. */
       notificationMaxVisible: z.number().int().positive().optional(),
       /**

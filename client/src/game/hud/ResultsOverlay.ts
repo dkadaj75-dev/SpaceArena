@@ -1,7 +1,12 @@
 import type { EntityId, Snapshot } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { COUNT_UP_DURATION_MS, countUpDone, countUpValue } from "./countUp.js";
-import { selectMvp } from "./matchPresentation.js";
+import {
+  MVP_PRESENTATION_DEFAULTS,
+  mvpCountUpValue,
+  selectMvp,
+  type MvpPresentationSettings,
+} from "./matchPresentation.js";
 
 /** Per-player progression summary (matches the net `matchRewards` message). */
 export interface MatchRewards {
@@ -29,6 +34,14 @@ export interface ResultsOptions {
    * never starts.
    */
   offline?: boolean;
+  /** Resolved, backward-compatible match-end presentation theme. */
+  mvp?: Readonly<MvpPresentationSettings>;
+}
+
+interface StatChip {
+  readonly valueEl: HTMLSpanElement;
+  target: number;
+  shown: number;
 }
 
 /** The banner shown for a finished match. */
@@ -53,6 +66,12 @@ export type MatchOutcome = "VICTORY" | "DEFEAT" | "DRAW" | "TARGETS CLEARED";
 export class ResultsOverlay {
   private readonly root: HTMLDivElement;
   private readonly bannerEl: HTMLDivElement;
+  private readonly outcomeTagEl: HTMLDivElement;
+  private readonly badgeEl: HTMLDivElement;
+  private readonly accentEl: HTMLDivElement;
+  private readonly statsEl: HTMLDivElement;
+  private readonly statChips: readonly StatChip[];
+  private readonly actionsEl: HTMLDivElement;
   private readonly subEl: HTMLDivElement;
   private readonly participantsEl: HTMLDivElement;
   private readonly rewardsEl: HTMLDivElement;
@@ -61,6 +80,10 @@ export class ResultsOverlay {
   private readonly rewardLine: HTMLDivElement;
   private shown = false;
   private mvpShown = false;
+  private mvpSkipped = false;
+  private mvpElapsedMs = 0;
+  private readonly mvpSettings: Readonly<MvpPresentationSettings>;
+  private outcomeText: MatchOutcome = "DRAW";
 
   /** Count-up animation state; null until rewards arrive. */
   private rewards: MatchRewards | null = null;
@@ -78,12 +101,39 @@ export class ResultsOverlay {
   ) {
     this.root = document.createElement("div");
     this.root.className = "hud-results";
+    this.mvpSettings = options.mvp ?? MVP_PRESENTATION_DEFAULTS;
+    this.root.addEventListener("pointerdown", () => this.skipMvpPresentation());
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "hud-results-backdrop";
+    backdrop.setAttribute("aria-hidden", "true");
+    const motes = document.createElement("div");
+    motes.className = "hud-results-motes";
+    for (let i = 0; i < 10; i++) {
+      const mote = document.createElement("i");
+      mote.style.setProperty("--mote", String(i));
+      mote.style.setProperty("--mote-x", `${(i * 37 + 11) % 100}%`);
+      mote.style.setProperty("--mote-y", `${(i * 23 + 7) % 100}%`);
+      motes.appendChild(mote);
+    }
+    backdrop.appendChild(motes);
 
     const panel = document.createElement("div");
     panel.className = "hud-results-panel";
 
     this.bannerEl = document.createElement("div");
     this.bannerEl.className = "hud-results-title";
+
+    this.outcomeTagEl = document.createElement("div");
+    this.outcomeTagEl.className = "hud-results-outcome-tag";
+
+    this.badgeEl = document.createElement("div");
+    this.badgeEl.className = "hud-results-mvp-badge";
+    this.badgeEl.textContent = "MVP";
+
+    this.accentEl = document.createElement("div");
+    this.accentEl.className = "hud-results-team-accent";
+    this.accentEl.setAttribute("aria-hidden", "true");
 
     // Cyan→amber rule under the banner: the same section mark the menu screens
     // use, so a match ending lands in the panel language the player left.
@@ -95,6 +145,14 @@ export class ResultsOverlay {
     this.subEl.className = "hud-results-sub";
     this.participantsEl = document.createElement("div");
     this.participantsEl.className = "hud-results-participants";
+
+    this.statsEl = document.createElement("div");
+    this.statsEl.className = "hud-results-stats";
+    this.statChips = [
+      this.makeStatChip("KILLS"),
+      this.makeStatChip("ASSISTS"),
+      this.makeStatChip("CAPTURES"),
+    ];
 
     this.rewardsEl = document.createElement("div");
     this.rewardsEl.className = "hud-results-rewards";
@@ -118,17 +176,42 @@ export class ResultsOverlay {
     dot.textContent = " · ";
     this.rewardLine.append(this.creditsEl, creditsLabel, dot, this.xpEl, xpLabel);
 
-    const actions = document.createElement("div");
-    actions.className = "hud-results-actions";
-    actions.append(
+    this.actionsEl = document.createElement("div");
+    this.actionsEl.className = "hud-results-actions";
+    this.actionsEl.append(
       button("Next", "primary", () => this.showScoreboard(), "next"),
       button("Play a New Game", "", callbacks.onPlayAgain, "playAgain"),
       button("Quit to Menu", "", callbacks.onMenu, "menu"),
     );
 
-    panel.append(this.bannerEl, rule, this.participantsEl, this.subEl, this.rewardsEl, actions);
-    this.root.appendChild(panel);
+    panel.append(
+      this.outcomeTagEl,
+      this.badgeEl,
+      this.participantsEl,
+      this.bannerEl,
+      this.accentEl,
+      rule,
+      this.statsEl,
+      this.subEl,
+      this.rewardsEl,
+      this.actionsEl,
+    );
+    this.root.append(backdrop, panel);
     parent.appendChild(this.root);
+  }
+
+  private makeStatChip(label: string): StatChip {
+    const chip = document.createElement("div");
+    chip.className = "hud-results-stat";
+    const valueEl = document.createElement("span");
+    valueEl.className = "hud-results-stat-value";
+    valueEl.textContent = "0";
+    const labelEl = document.createElement("span");
+    labelEl.className = "hud-results-stat-label";
+    labelEl.textContent = label;
+    chip.append(valueEl, labelEl);
+    this.statsEl.appendChild(chip);
+    return { valueEl, target: 0, shown: 0 };
   }
 
   private onShowScoreboard: (() => void) | null = null;
@@ -147,12 +230,14 @@ export class ResultsOverlay {
       if (cur.phase !== "ended") return;
       this.shown = true;
       const outcome = this.outcome(cur);
+      this.outcomeText = outcome;
       this.bannerEl.textContent = outcome;
       this.bannerEl.dataset["outcome"] = outcome.toLowerCase().replaceAll(" ", "-");
       this.root.classList.add("hud-results--outcome");
       this.root.classList.add("visible");
       return;
     }
+    this.advanceMvp(dtMs);
     this.advanceRewards(dtMs);
   }
 
@@ -162,12 +247,61 @@ export class ResultsOverlay {
     this.mvpShown = true;
     const mvp = selectMvp(this.session.matchStats.all(), this.session.sim.world.gamemode.ctf !== undefined);
     const mvpName = mvp === null ? "MVP" : (this.session.displayNameFor(mvp) ?? (mvp === this.playerId ? "YOU" : `PILOT ${mvp}`));
+    const mvpLine = mvp === null ? undefined : this.session.matchStats.all().find((line) => line.entityId === mvp);
     this.root.classList.remove("hud-results--outcome");
+    this.root.classList.add("hud-results--mvp");
     this.bannerEl.textContent = mvpName;
-    this.bannerEl.dataset["outcome"] = "victory";
+    this.bannerEl.removeAttribute("data-outcome");
+    this.outcomeTagEl.textContent = this.outcomeText;
+    this.outcomeTagEl.dataset["outcome"] = this.outcomeText.toLowerCase().replaceAll(" ", "-");
     this.participantsEl.textContent = "MOST VALUABLE PILOT";
+    this.root.dataset["mvpTeam"] = String(mvp === null ? 0 : (this.session.teamOf(mvp) ?? 0));
+    this.setStatTargets(mvpLine?.kills ?? 0, mvpLine?.assists ?? 0, mvpLine?.flagsCaptured ?? 0);
+    this.mvpElapsedMs = 0;
+    this.mvpSkipped = false;
     if (this.options.offline) this.rewardsEl.textContent = "Practice — no rewards";
     if (mvp !== null) this.callbacks.onMvp?.(mvp);
+  }
+
+  private setStatTargets(kills: number, assists: number, captures: number): void {
+    const targets = [kills, assists, captures];
+    for (let i = 0; i < this.statChips.length; i++) {
+      const chip = this.statChips[i]!;
+      chip.target = targets[i] ?? 0;
+      chip.shown = 0;
+      chip.valueEl.textContent = "0";
+    }
+  }
+
+  private advanceMvp(dtMs: number): void {
+    if (!this.mvpShown || this.mvpSkipped) return;
+    this.mvpElapsedMs += Number.isFinite(dtMs) ? Math.max(0, dtMs) : 0;
+    const countElapsed = this.mvpElapsedMs - this.mvpSettings.statsDelayMs;
+    for (const chip of this.statChips) {
+      const value = mvpCountUpValue(chip.target, countElapsed, this.mvpSettings.statsCountUpMs);
+      if (value === chip.shown) continue;
+      chip.shown = value;
+      chip.valueEl.textContent = String(value);
+    }
+    if (this.mvpElapsedMs >= this.mvpSettings.sequenceMs) this.finishMvpPresentation(false);
+  }
+
+  /** Tap anywhere during the reveal to land every animation and stat immediately. */
+  private skipMvpPresentation(): void {
+    if (!this.mvpShown || this.mvpSkipped) return;
+    this.finishMvpPresentation(true);
+  }
+
+  private finishMvpPresentation(skipped: boolean): void {
+    this.mvpSkipped = true;
+    this.mvpElapsedMs = this.mvpSettings.sequenceMs;
+    for (const chip of this.statChips) {
+      if (chip.shown === chip.target) continue;
+      chip.shown = chip.target;
+      chip.valueEl.textContent = String(chip.target);
+    }
+    this.root.classList.add("hud-results--mvp-complete");
+    if (skipped) this.root.classList.add("hud-results--mvp-skipped");
   }
 
   /**

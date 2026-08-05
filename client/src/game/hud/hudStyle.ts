@@ -1345,8 +1345,38 @@ const CSS = `
   justify-content: center;
   background: radial-gradient(ellipse at center, color-mix(in srgb, var(--hud-bg, #0a0f1e) 62%, transparent) 0%, rgba(2, 4, 10, 0.86) 100%);
   pointer-events: auto;
+  isolation: isolate;
 }
 .hud-results.visible { display: flex; }
+.hud-results-backdrop {
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  overflow:hidden;
+  pointer-events:none;
+  opacity:0;
+  background:
+    radial-gradient(circle at 38% 47%, color-mix(in srgb, var(--hud-primary, #39bfff) 23%, transparent) 0%, transparent 24%),
+    radial-gradient(ellipse at center, transparent 22%, color-mix(in srgb, var(--hud-bg, #0a0f1e) 86%, transparent) 78%);
+  transition:opacity .35s ease-out;
+}
+.hud-results--mvp .hud-results-backdrop { opacity:1; }
+.hud-results-motes { position:absolute; inset:0; }
+.hud-results-motes i {
+  position:absolute;
+  left:var(--mote-x);
+  top:var(--mote-y);
+  width:2px;
+  height:2px;
+  border-radius:50%;
+  background:var(--hud-primary, #39bfff);
+  box-shadow:0 0 8px currentColor;
+  animation:hud-mvp-mote calc(5s + var(--mote) * .31s) ease-in-out calc(var(--mote) * -.47s) infinite;
+}
+@keyframes hud-mvp-mote {
+  0%, 100% { opacity:.08; transform:translate3d(0, 12px, 0); }
+  50% { opacity:.55; transform:translate3d(8px, -16px, 0); }
+}
 .hud-results--outcome { background: rgba(2, 4, 10, 0.18); }
 .hud-results--outcome .hud-results-panel::before,
 .hud-results--outcome .hud-results-panel::after,
@@ -1355,6 +1385,10 @@ const CSS = `
 .hud-results--outcome .hud-results-sub,
 .hud-results--outcome .hud-results-rewards,
 .hud-results--outcome .hud-results-actions { display: none; }
+.hud-results--outcome .hud-results-outcome-tag,
+.hud-results--outcome .hud-results-mvp-badge,
+.hud-results--outcome .hud-results-team-accent,
+.hud-results--outcome .hud-results-stats { display:none; }
 .hud-results--outcome .hud-results-title {
   font-size: clamp(3rem, 12vw, 8rem);
   letter-spacing: .18em;
@@ -1365,6 +1399,7 @@ const CSS = `
 @media (orientation: portrait) {
   .hud-results { align-items: flex-end; }
 }
+.hud-results--mvp { justify-content:flex-end; background:transparent; }
 .hud-results-panel {
   position: relative;
   display: flex;
@@ -1381,6 +1416,22 @@ const CSS = `
   max-height: calc(100% - var(--hud-inset-top) - var(--hud-inset-bottom));
   overflow-y: auto;
   background: transparent;
+}
+.hud-results--mvp .hud-results-panel {
+  width:min(440px, 44vw);
+  max-width:calc(100% - var(--hud-inset-left) - var(--hud-inset-right));
+  margin-right:max(var(--hud-inset-right), 4vw);
+  gap:10px;
+  padding:min(25px, 3.2vh) min(34px, 4vw);
+}
+@media (orientation:portrait) {
+  .hud-results--mvp .hud-results-panel {
+    width:calc(100% - var(--hud-inset-left) - var(--hud-inset-right));
+    margin:0 var(--hud-inset-right) var(--hud-inset-bottom) var(--hud-inset-left);
+    max-height:52vh;
+    padding:15px 20px;
+    gap:7px;
+  }
 }
 /* Same two-plate frame as the in-match widgets, at panel scale. */
 .hud-results-panel::before,
@@ -1404,6 +1455,48 @@ const CSS = `
   background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 94%, transparent);
 }
 .hud-results-panel > * { position: relative; z-index: 1; }
+.hud-results-outcome-tag {
+  align-self:flex-end;
+  padding:3px 9px;
+  border-right:2px solid currentColor;
+  color:var(--hud-neutral, #7f9dc4);
+  background:color-mix(in srgb, currentColor 9%, transparent);
+  font:700 .62em/1.4 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing:.16em;
+}
+.hud-results-outcome-tag[data-outcome="victory"],
+.hud-results-outcome-tag[data-outcome="targets-cleared"] { color:var(--hud-primary, #39bfff); }
+.hud-results-outcome-tag[data-outcome="defeat"] { color:var(--hud-danger, #ff405c); }
+.hud-results-mvp-badge {
+  width:var(--hud-mvp-badge-size, 112px);
+  height:var(--hud-mvp-badge-size, 112px);
+  display:grid;
+  place-items:center;
+  margin-top:calc(var(--hud-mvp-badge-size, 112px) * -.36);
+  clip-path:polygon(50% 0, 88% 12%, 100% 50%, 88% 88%, 50% 100%, 12% 88%, 0 50%, 12% 12%);
+  color:var(--hud-bg, #0a0f1e);
+  background:var(--mvp-team, var(--hud-primary, #39bfff));
+  font:900 clamp(1.5rem, 4vw, 2.5rem)/1 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing:.08em;
+  filter:drop-shadow(0 0 calc(24px * var(--hud-glow)) var(--mvp-team, var(--hud-primary, #39bfff)));
+  animation:hud-mvp-badge var(--hud-mvp-badge-ms, 520ms) cubic-bezier(.16, 1.35, .32, 1) both;
+}
+.hud-results[data-mvp-team="1"] { --mvp-team:var(--hud-accent, #ffb35c); }
+.hud-results[data-mvp-team="0"] { --mvp-team:var(--hud-primary, #39bfff); }
+@keyframes hud-mvp-badge {
+  0% { opacity:0; transform:scale(.25) rotate(-12deg); filter:brightness(3) drop-shadow(0 0 45px currentColor); }
+  62% { opacity:1; transform:scale(1.12) rotate(2deg); }
+  100% { opacity:1; transform:none; }
+}
+.hud-results-team-accent {
+  width:72%;
+  height:3px;
+  background:linear-gradient(90deg, transparent, var(--mvp-team), transparent);
+  box-shadow:0 0 12px var(--mvp-team);
+  transform-origin:center;
+  animation:hud-mvp-accent .42s ease-out var(--hud-mvp-name-delay-ms, 430ms) both;
+}
+@keyframes hud-mvp-accent { from { opacity:0; transform:scaleX(.08); } to { opacity:1; transform:none; } }
 .hud-results-title {
   font-family: var(--hud-font-display, var(--hud-font-body, system-ui, sans-serif));
   font-size: 1.75em;
@@ -1413,6 +1506,18 @@ const CSS = `
   text-align: center;
   animation: hud-results-banner 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
+.hud-results--mvp .hud-results-title {
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--hud-text, #dbe9ff);
+  font-size:clamp(1.75rem, 4.5vw, 3.25rem);
+  line-height:1.05;
+  text-shadow:0 0 22px color-mix(in srgb, var(--mvp-team) 55%, transparent);
+  animation:hud-mvp-name .48s cubic-bezier(.16, 1, .3, 1) var(--hud-mvp-name-delay-ms, 430ms) both;
+}
+@keyframes hud-mvp-name { from { opacity:0; transform:translateY(14px); letter-spacing:.02em; } to { opacity:1; transform:none; letter-spacing:.14em; } }
 /* Outcome colouring — all four banners share one element, only the tint moves. */
 .hud-results-title[data-outcome="victory"],
 .hud-results-title[data-outcome="targets-cleared"] {
@@ -1449,6 +1554,29 @@ const CSS = `
   text-transform: uppercase;
 }
 .hud-results-participants:empty { display: none; }
+.hud-results--mvp .hud-results-participants {
+  color:var(--mvp-team);
+  font-size:.68em;
+  animation:hud-mvp-name .4s ease-out calc(var(--hud-mvp-name-delay-ms, 430ms) - 100ms) both;
+}
+.hud-results-stats { display:flex; justify-content:center; gap:8px; width:100%; }
+.hud-results-stat {
+  flex:1 1 0;
+  min-width:0;
+  padding:8px 5px 7px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  border-top:1px solid color-mix(in srgb, var(--mvp-team) 65%, transparent);
+  background:linear-gradient(180deg, color-mix(in srgb, var(--mvp-team) 13%, transparent), transparent);
+  clip-path:polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  animation:hud-mvp-chip .42s cubic-bezier(.16, 1, .3, 1) calc(var(--hud-mvp-stats-delay-ms, 720ms) + var(--chip-delay, 0ms)) both;
+}
+.hud-results-stat:nth-child(2) { --chip-delay:80ms; }
+.hud-results-stat:nth-child(3) { --chip-delay:160ms; }
+.hud-results-stat-value { color:var(--hud-text, #dbe9ff); font:800 1.45em/1 var(--hud-font-display, system-ui, sans-serif); font-variant-numeric:tabular-nums; }
+.hud-results-stat-label { margin-top:4px; color:var(--hud-neutral, #7f9dc4); font-size:.56em; letter-spacing:.12em; }
+@keyframes hud-mvp-chip { from { opacity:0; transform:translateY(10px) scale(.94); } to { opacity:1; transform:none; } }
 .hud-results-rewards {
   display: flex;
   flex-direction: column;
@@ -1481,6 +1609,16 @@ const CSS = `
   gap: 8px;
   width: 100%;
 }
+.hud-results--mvp .hud-results-actions {
+  animation:hud-mvp-actions .48s cubic-bezier(.16, 1, .3, 1) var(--hud-mvp-actions-delay-ms, 1120ms) both;
+}
+@keyframes hud-mvp-actions { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:none; } }
+.hud-results--mvp-skipped .hud-results-mvp-badge,
+.hud-results--mvp-skipped .hud-results-participants,
+.hud-results--mvp-skipped .hud-results-title,
+.hud-results--mvp-skipped .hud-results-team-accent,
+.hud-results--mvp-skipped .hud-results-stat,
+.hud-results--mvp-skipped .hud-results-actions { animation:none !important; opacity:1; transform:none; }
 .hud-results-levelup {
   font-size: 0.8125em;
   font-weight: 700;

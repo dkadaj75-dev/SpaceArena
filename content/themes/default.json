@@ -63,6 +63,23 @@
       "tickOpacity": 0.34,
       "blurPx": 6
     },
+    "mvp": {
+      "sequenceMs": 1800,
+      "hullSettleMs": 1050,
+      "badgePunchMs": 520,
+      "nameDelayMs": 430,
+      "statsDelayMs": 720,
+      "statsCountUpMs": 800,
+      "actionsDelayMs": 1120,
+      "badgeSizePx": 112,
+      "orbitDegreesPerSecond": 7,
+      "keyColor": "#ffd2a1",
+      "keyIntensity": 18,
+      "rimColor": "#63cfff",
+      "rimIntensity": 13,
+      "pedestalColor": "#39bfff",
+      "pedestalDiameter": 9
+    },
     "notificationMaxVisible": 3,
     "thumbZoneFraction": 0.46,
     "moduleCluster": {

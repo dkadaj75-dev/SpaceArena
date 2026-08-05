@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { MatchStatLine } from "@space-arena/shared";
-import { MatchPresentationFlow, OUTCOME_DURATION_MS, selectMvp } from "./matchPresentation.js";
+import {
+  MatchPresentationFlow,
+  MVP_PRESENTATION_DEFAULTS,
+  OUTCOME_DURATION_MS,
+  mvpCountUpValue,
+  mvpPresentationSettings,
+  selectMvp,
+} from "./matchPresentation.js";
 
 const line = (entityId: number, values: Partial<MatchStatLine> = {}): MatchStatLine => ({
   entityId, kills: 0, deaths: 0, assists: 0, flagsTaken: 0, flagsDropped: 0,
@@ -33,5 +40,12 @@ describe("match presentation flow", () => {
     expect(flow.state).toBe("scoreboard");
     expect(flow.leave()).toBe(true);
     expect(flow.state).toBe("left");
+  });
+
+  it("resolves backward-compatible MVP defaults and eases stat totals", () => {
+    expect(mvpPresentationSettings(undefined)).toEqual(MVP_PRESENTATION_DEFAULTS);
+    expect(mvpPresentationSettings({ hud: { mvp: { sequenceMs: 1500 } } } as never).sequenceMs).toBe(1500);
+    expect(mvpCountUpValue(12, 0, 800)).toBe(0);
+    expect(mvpCountUpValue(12, 800, 800)).toBe(12);
   });
 });

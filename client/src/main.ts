@@ -60,6 +60,7 @@ import { audioSettingsOf } from "./audio/soundIds.js";
 import { ScreenShake } from "./game/juice/ScreenShake.js";
 import type { FlightHudBinding } from "./game/hud/FlightControls.js";
 import type { CameraView, ProjectedPoint } from "./game/hud/flightHudLayout.js";
+import { mvpPresentationSettings } from "./game/hud/matchPresentation.js";
 
 const log = createLogger("Client");
 
@@ -426,6 +427,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           tacticalCamera.setChaseMode(false);
           tacticalCamera.setHangarMode(true);
           tacticalCamera.resetStageOrbit(heroCenter);
+          tacticalCamera.beginMvpOrbit(mvpPresentationSettings(
+            configService.get<ThemeConfig>("theme", "theme.default"),
+          ).orbitDegreesPerSecond);
           viewManager.setMvpCenter(heroCenter);
           viewManager.showMvp(entityId);
         },
