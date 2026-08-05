@@ -57,6 +57,7 @@ import {
   asteroidSpinFor,
   type AsteroidSpin,
 } from "./asteroidSpin.js";
+import { mvpPresentationSettings } from "./hud/matchPresentation.js";
 
 const log = createLogger("ViewManager");
 
@@ -197,7 +198,11 @@ export class ViewManager {
   private readonly heroRoot: TransformNode;
   private heroShip: InstancedMesh | null = null;
   private heroKeyLight: PointLight | null = null;
+  private heroRimLight: PointLight | null = null;
+  private heroPedestal: Mesh | null = null;
+  private heroPedestalMaterial: StandardMaterial | null = null;
   private heroElapsedMs = 0;
+  private heroSettleMs = 1050;
 
   private readonly ships = new Map<EntityId, ShipView>();
   private readonly asteroids = new Map<EntityId, AsteroidView>();
@@ -336,15 +341,41 @@ export class ViewManager {
     this.heroShip.rotation.set(0.08, Math.PI, 0);
     this.heroShip.scaling.setAll(0.58);
     this.heroShip.isPickable = false;
+    const presentation = mvpPresentationSettings(this.configs.get<ThemeConfig>("theme", THEME_ID));
     // The arena sun is authored for combat, not a camera-facing beauty shot.
-    // A local key makes dark hull materials readable against every skybox.
+    // A warm key and cool rear rim separate dark hulls from every arena skybox.
     this.heroKeyLight?.dispose();
     this.heroKeyLight = new PointLight("mvp.key", new Vector3(-4, 5, -6), this.scene);
     this.heroKeyLight.parent = this.heroRoot;
-    this.heroKeyLight.diffuse = new Color3(0.88, 0.94, 1);
-    this.heroKeyLight.specular = new Color3(0.7, 0.82, 1);
-    this.heroKeyLight.intensity = 18;
+    this.heroKeyLight.diffuse = Color3.FromHexString(presentation.keyColor);
+    this.heroKeyLight.specular.copyFrom(this.heroKeyLight.diffuse);
+    this.heroKeyLight.intensity = presentation.keyIntensity;
     this.heroKeyLight.range = 28;
+    this.heroRimLight?.dispose();
+    this.heroRimLight = new PointLight("mvp.rim", new Vector3(4, 2.5, 5), this.scene);
+    this.heroRimLight.parent = this.heroRoot;
+    this.heroRimLight.diffuse = Color3.FromHexString(presentation.rimColor);
+    this.heroRimLight.specular.copyFrom(this.heroRimLight.diffuse);
+    this.heroRimLight.intensity = presentation.rimIntensity;
+    this.heroRimLight.range = 24;
+
+    this.heroPedestal?.dispose();
+    this.heroPedestalMaterial?.dispose();
+    this.heroPedestal = MeshBuilder.CreateDisc("mvp.pedestal", {
+      radius: presentation.pedestalDiameter / 2,
+      tessellation: 48,
+    }, this.scene);
+    this.heroPedestal.parent = this.heroRoot;
+    this.heroPedestal.position.y = -1.15;
+    this.heroPedestal.rotation.x = Math.PI / 2;
+    this.heroPedestal.isPickable = false;
+    this.heroPedestalMaterial = new StandardMaterial("mvp.pedestal.material", this.scene);
+    this.heroPedestalMaterial.disableLighting = true;
+    this.heroPedestalMaterial.emissiveColor = Color3.FromHexString(presentation.pedestalColor);
+    this.heroPedestalMaterial.alpha = 0.16;
+    this.heroPedestalMaterial.backFaceCulling = false;
+    this.heroPedestal.material = this.heroPedestalMaterial;
+    this.heroSettleMs = presentation.hullSettleMs;
     this.heroElapsedMs = 0;
     this.heroRoot.setEnabled(true);
     return true;
@@ -355,13 +386,16 @@ export class ViewManager {
     const ship = this.heroShip;
     if (!ship) return;
     this.heroElapsedMs += Number.isFinite(dtMs) ? dtMs : 0;
-    const progress = Math.min(1, this.heroElapsedMs / 1100);
+    const progress = Math.min(1, this.heroElapsedMs / this.heroSettleMs);
     const eased = progress * progress * (3 - 2 * progress);
     ship.position.z = 2.8 * (1 - eased);
     ship.position.y = -0.65 * (1 - eased);
     const scale = 0.58 + 0.42 * eased;
     ship.scaling.setAll(scale);
-    ship.rotation.y += Math.min(32, Math.max(0, dtMs)) * 0.00018;
+    ship.rotation.y += Math.min(32, Math.max(0, dtMs)) * 0.00005;
+    if (this.heroPedestalMaterial) {
+      this.heroPedestalMaterial.alpha = 0.1 + 0.06 * (0.5 + 0.5 * Math.sin(this.heroElapsedMs * 0.0024));
+    }
   }
 
   /**
@@ -1109,6 +1143,9 @@ export class ViewManager {
     this.explosions.dispose();
     this.heroShip?.dispose();
     this.heroKeyLight?.dispose();
+    this.heroRimLight?.dispose();
+    this.heroPedestal?.dispose();
+    this.heroPedestalMaterial?.dispose();
     this.heroRoot.dispose();
     this.assets.dispose();
     this.root.dispose();

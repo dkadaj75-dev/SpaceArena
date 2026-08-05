@@ -84,6 +84,8 @@ export class TacticalCamera {
   private seeded = false;
   private editorMode = false;
   private hangarMode = false;
+  /** Automatic match-end beauty-shot drift, radians/sec; zero outside MVP. */
+  private mvpOrbitRadPerSec = 0;
   /**
    * Chase mode (FLIGHT.md §3) — the in-match rig for the flight model. Its yaw
    * is driven by the ship instead of the player, so every look-around gesture is
@@ -300,6 +302,7 @@ export class TacticalCamera {
    */
   setHangarMode(enabled: boolean): void {
     this.hangarMode = enabled;
+    if (!enabled) this.mvpOrbitRadPerSec = 0;
     if (enabled) {
       this.followTarget = null;
       // The staged hull is framed with `framingRadius(..., camera.fov, ...)`, so
@@ -315,6 +318,13 @@ export class TacticalCamera {
     }
     if (this.pointersInput) this.pointersInput.buttons = [];
     this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
+  }
+
+  /** Begin a subtle allocation-free orbit around the staged MVP hull. */
+  beginMvpOrbit(degreesPerSecond: number): void {
+    this.mvpOrbitRadPerSec = Number.isFinite(degreesPerSecond)
+      ? degreesPerSecond * Math.PI / 180
+      : 0;
   }
 
   /**
@@ -627,6 +637,9 @@ export class TacticalCamera {
 
   /** Call once per render frame. `dt` in seconds. No allocations. */
   update(dt: number): void {
+    if (this.hangarMode && this.mvpOrbitRadPerSec !== 0) {
+      this.camera.alpha += this.mvpOrbitRadPerSec * Math.max(0, dt);
+    }
     if (!this.followTarget) return;
 
     this.scratchTargetPos.copyFrom(this.followTarget.position);

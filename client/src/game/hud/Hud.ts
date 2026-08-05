@@ -30,7 +30,7 @@ import { BoundaryWarningLatch } from "../../core/boundaryProximity.js";
 import { BlockedPullFeedback } from "./BlockedPullFeedback.js";
 import { KillFeed } from "./KillFeed.js";
 import { Scoreboard } from "./Scoreboard.js";
-import { MatchPresentationFlow } from "./matchPresentation.js";
+import { MatchPresentationFlow, mvpPresentationSettings } from "./matchPresentation.js";
 
 const log = createLogger("Hud");
 
@@ -160,8 +160,10 @@ export class Hud {
     this.killAnnouncements = new KillAnnouncements(this.root, playerId);
     this.killFeed = new KillFeed(this.root, session, playerId);
     this.scoreboard = new Scoreboard(this.root, session, callbacks);
+    const initialTheme = this.configs.get<ThemeConfig>("theme", THEME_ID);
     this.resultsOverlay = new ResultsOverlay(this.root, session, playerId, callbacks, {
       offline: options.offline ?? false,
+      mvp: mvpPresentationSettings(initialTheme),
     });
     this.resultsOverlay.setScoreboardAction(() => {
       if (!this.presentation.next()) return;
@@ -228,6 +230,13 @@ export class Hud {
     // labels want the same faces the lobby wordmark uses.
     if (theme?.fonts?.body) this.root.style.setProperty("--hud-font-body", theme.fonts.body);
     if (theme?.fonts?.display) this.root.style.setProperty("--hud-font-display", theme.fonts.display);
+    const mvp = mvpPresentationSettings(theme);
+    this.root.style.setProperty("--hud-mvp-sequence-ms", `${mvp.sequenceMs}ms`);
+    this.root.style.setProperty("--hud-mvp-badge-ms", `${mvp.badgePunchMs}ms`);
+    this.root.style.setProperty("--hud-mvp-name-delay-ms", `${mvp.nameDelayMs}ms`);
+    this.root.style.setProperty("--hud-mvp-stats-delay-ms", `${mvp.statsDelayMs}ms`);
+    this.root.style.setProperty("--hud-mvp-actions-delay-ms", `${mvp.actionsDelayMs}ms`);
+    this.root.style.setProperty("--hud-mvp-badge-size", `${mvp.badgeSizePx * (theme?.hud?.scale ?? 1)}px`);
     this.layout = resolveHudLayout(theme, viewportSize());
     for (const [prop, value] of Object.entries(hudCssVars(this.layout))) {
       this.root.style.setProperty(prop, value);

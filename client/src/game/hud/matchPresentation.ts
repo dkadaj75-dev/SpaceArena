@@ -1,7 +1,56 @@
-import type { EntityId, MatchStatLine } from "@space-arena/shared";
+import type { EntityId, MatchStatLine, MvpPresentationConfig, ThemeConfig } from "@space-arena/shared";
 
 export type MatchPresentationState = "playing" | "outcome" | "mvp" | "scoreboard" | "left";
 export const OUTCOME_DURATION_MS = 3000;
+
+export interface MvpPresentationSettings {
+  sequenceMs: number;
+  hullSettleMs: number;
+  badgePunchMs: number;
+  nameDelayMs: number;
+  statsDelayMs: number;
+  statsCountUpMs: number;
+  actionsDelayMs: number;
+  badgeSizePx: number;
+  orbitDegreesPerSecond: number;
+  keyColor: string;
+  keyIntensity: number;
+  rimColor: string;
+  rimIntensity: number;
+  pedestalColor: string;
+  pedestalDiameter: number;
+}
+
+export const MVP_PRESENTATION_DEFAULTS: Readonly<MvpPresentationSettings> = {
+  sequenceMs: 1800,
+  hullSettleMs: 1050,
+  badgePunchMs: 520,
+  nameDelayMs: 430,
+  statsDelayMs: 720,
+  statsCountUpMs: 800,
+  actionsDelayMs: 1120,
+  badgeSizePx: 112,
+  orbitDegreesPerSecond: 7,
+  keyColor: "#ffd2a1",
+  keyIntensity: 18,
+  rimColor: "#63cfff",
+  rimIntensity: 13,
+  pedestalColor: "#39bfff",
+  pedestalDiameter: 9,
+};
+
+/** Backward-compatible theme resolver shared by DOM, camera and 3D staging. */
+export function mvpPresentationSettings(theme: ThemeConfig | undefined): MvpPresentationSettings {
+  const value: MvpPresentationConfig | undefined = theme?.hud?.mvp;
+  return { ...MVP_PRESENTATION_DEFAULTS, ...value };
+}
+
+/** Integer ease-out count used by the fixed stat-chip nodes. */
+export function mvpCountUpValue(target: number, elapsedMs: number, durationMs: number): number {
+  if (target <= 0 || elapsedMs <= 0) return 0;
+  const progress = Math.min(1, elapsedMs / Math.max(1, durationMs));
+  return Math.round(target * (1 - (1 - progress) ** 3));
+}
 
 /** Score used by the scoreboard: captures, returns, kills, assists, then deaths. */
 export function scoreboardScore(line: Readonly<MatchStatLine>, ctf: boolean): number {
