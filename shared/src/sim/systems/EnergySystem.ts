@@ -21,8 +21,8 @@ function workingHeatRate(cfg: ModuleConfig): number {
  * HEAT: each worked module adds heat (boost: `boost.heatPerSec`, else
  * `heat.perSecondActive`). A module crossing its own `overheatThreshold` goes
  * `overheated` for `overheatCooldown` (dealing `overheatSelfDamage` to hull once).
- * Ship `heat.dissipation` is then split across the still-hot (non-overheated)
- * modules proportional to their heat. The shared ship heat pool = Σ module heats;
+ * Ship `heat.dissipation` is then split across every hot module proportional to
+ * its heat, including racks serving an overheat lockout. The shared ship heat pool = Σ module heats;
  * when it reaches `heat.capacity` the hull takes `criticalDamagePerSec`.
  */
 export function energySystem(world: World, dt: number): void {
@@ -79,15 +79,15 @@ export function energySystem(world: World, dt: number): void {
       }
     }
 
-    // --- HEAT: dissipation (proportional across non-overheated hot modules) ---
+    // --- HEAT: dissipation (proportional across all hot modules) ---
     let hotTotal = 0;
     for (const m of mods.modules) {
-      if (m.state !== "overheated" && m.heat > 0) hotTotal += m.heat;
+      if (m.heat > 0) hotTotal += m.heat;
     }
     if (hotTotal > 0) {
       const budget = core.heat.dissipation * dt;
       for (const m of mods.modules) {
-        if (m.state === "overheated" || m.heat <= 0) continue;
+        if (m.heat <= 0) continue;
         m.heat = Math.max(0, m.heat - budget * (m.heat / hotTotal));
       }
     }

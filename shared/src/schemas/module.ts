@@ -70,8 +70,8 @@ const boostBlock = z.object({
  * Jettison block (heatsink family, owner 2026-07-31). A sink that carries it can
  * be blown clear of the hull, which:
  *
- *  1. **dumps the ship's heat** — every module's heat and the shared pool reset
- *     to zero, which is the emergency out for a cooked loadout; and
+ *  1. **purges ship heat** — removes up to the authored `purgeAmount` from the
+ *     shared pool, distributed proportionally across hot racks; and
  *  2. **leaves a decoy** — the glowing sink is the hottest thing in the sky, so
  *     enemy auto-lock prefers it and homing missiles already in flight re-seek
  *     it (see ProjectileSystem). That is what makes it a lure and not just a
@@ -81,6 +81,8 @@ const boostBlock = z.object({
  * Cheap sinks omit the block entirely and can never do this.
  */
 const jettisonBlock = z.object({
+  /** Heat removed instantly from the ship-wide rack pool when ejected. */
+  purgeAmount: z.number().positive(),
   /** Seconds before this sink can be jettisoned again. */
   cooldownSec: z.number().positive(),
   /** How long the dropped sink survives as a lure. */

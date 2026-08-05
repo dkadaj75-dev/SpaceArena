@@ -435,3 +435,22 @@ against pulse-laser-mk1's 17.5 sustained, range 34 vs 38, `drawActive` 20 and
 (~11 s of channel to overheat on an interceptor). Deliberately in NO
 `defaultFitting`, so every balance anchor in `balanceRegression.test.ts` is
 unmoved.
+# 2026-08-05 amendment — finite rack cooling and heatsink purge
+
+Heat remains stored on each fitted module rack; the replicated ship pool and HUD
+gauge remain the sum of those rack values. Once per simulation tick the ship's
+resolved `heat.dissipation` (heat units/second) is shared across every hot rack,
+including overheated/locked racks, in proportion to each rack's share of pool
+heat. This makes cooling deterministic, fair across simultaneously hot racks,
+and finite: ordinary state transitions never clear heat. The hull's authored
+base dissipation is passive cooling when no heatsink is fitted, while heatsink
+and utility-sink passive modifiers provide the quality ladder.
+
+Overheat lockout timers retain their existing state-transition rules. Heat now
+continues draining during lockout and is not reset when the timer expires.
+
+The sole instant heat-removal path is a successful `jettisonHeatsink` order.
+Jettisonable sinks author `jettison.purgeAmount`; that bounded budget is removed
+proportionally from hot racks (never below zero), then the existing decoy is
+spawned and overheated racks receive the existing emergency re-arm behavior.
+Unsuccessful/no-order jettison ticks do not purge heat.

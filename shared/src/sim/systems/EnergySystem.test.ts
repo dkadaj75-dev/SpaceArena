@@ -80,6 +80,44 @@ describe("EnergySystem", () => {
     laser.workedThisTick = false; // not working → net cooling
     energySystem(world, DT);
     expect(laser.heat).toBeLessThan(10);
+    expect(laser.heat).toBeGreaterThan(0);
+  });
+
+  it("cools overheated racks at the finite authored rate without snapping", () => {
+    const { world, id } = shipWorld();
+    const core = world.shipCores.get(id)!;
+    const laser = world.modules.get(id)!.modules[0]!;
+    laser.state = "overheated";
+    laser.heat = 55;
+    energySystem(world, 1);
+    expect(core.heat.dissipation).toBe(30); // interceptor baseline 9 + basic sink 21
+    expect(laser.heat).toBe(25);
+  });
+
+  it("uses the hull-authored passive rate when no heatsink is fitted", () => {
+    const fitting: (string | null)[] = [...INTERCEPTOR_FITTING];
+    fitting[5] = null;
+    const world = makeWorld(configs);
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", fitting, 0, { x: 0, z: 0 }, 0);
+    const core = world.shipCores.get(id)!;
+    const laser = world.modules.get(id)!.modules[0]!;
+    laser.heat = 20;
+    energySystem(world, 1);
+    expect(core.heat.dissipation).toBe(9);
+    expect(laser.heat).toBe(11);
+  });
+
+  it("scales cooling with fitted heatsink quality", () => {
+    const rateFor = (sink: string): number => {
+      const fitting = [...INTERCEPTOR_FITTING];
+      fitting[5] = sink;
+      const world = makeWorld(configs);
+      const id = spawnShipFromConfig(world, configs, "ship.interceptor", fitting, 0, { x: 0, z: 0 }, 0);
+      return world.shipCores.get(id)!.heat.dissipation;
+    };
+    expect(rateFor("module.heatsink-mk2")).toBeGreaterThan(rateFor("module.heatsink-basic"));
+    expect(rateFor("module.heatsink-mk3")).toBeGreaterThan(rateFor("module.heatsink-mk2"));
+    expect(rateFor("module.heatsink-cryo")).toBeGreaterThan(rateFor("module.heatsink-mk3"));
   });
 
   it("sets the shared ship heat pool to the sum of module heats", () => {

@@ -101,6 +101,8 @@ interface ShipView {
   rollTarget: number;
   /** The node's rotation quaternion (assigning once; updated in place per frame). */
   quat: Quaternion;
+  /** Retained after despawn so destruction debris inherits the ship's last motion. */
+  velocity: Vector3;
 }
 
 interface AsteroidView {
@@ -285,7 +287,7 @@ export class ViewManager {
     this.juice = options.juice ?? juiceSettingsOf(configs.get<ThemeConfig>("theme", THEME_ID));
     this.playSound = options.playSound ?? null;
     this.hitFlash = new HitFlashPool(scene, this.root, this.juice.hitFlash);
-    this.explosions = new ExplosionFx(scene, this.juice.explosions, quality.particles);
+    this.explosions = new ExplosionFx(scene, this.juice.explosions, quality.particles, this.root);
 
     this.assets.setAsteroidLod(quality.asteroids);
     this.buildPools();
@@ -539,7 +541,8 @@ export class ViewManager {
     }
     const pos = this.deathPosition(entityId, isAsteroid, cur);
     if (!pos) return;
-    this.explosions.burst(effect, pos.x, pos.z, pos.y);
+    const shipVelocity = !isAsteroid ? this.ships.get(entityId)?.velocity : undefined;
+    this.explosions.burst(effect, pos.x, pos.z, pos.y, shipVelocity);
     // Audio is not a quality-tier concern: a low tier drops particles, never the bang.
     const soundId = resolveSoundId(effect.sound);
     if (soundId) this.playSound?.(soundId);
@@ -628,6 +631,7 @@ export class ViewManager {
     this.syncChannelBeams(cur);
     this.updateBeams(frameDtMs);
     this.hitFlash.update(frameDtMs);
+    this.explosions.update(frameDtMs);
   }
 
   private syncShips(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
@@ -665,6 +669,7 @@ export class ViewManager {
       const y = p.pos.y + (s.pos.y - p.pos.y) * alpha;
       const z = p.pos.z + (s.pos.z - p.pos.z) * alpha;
       view.node.position.set(x, y, z);
+      view.velocity.set(s.velocity?.x ?? 0, s.velocity?.y ?? 0, s.velocity?.z ?? 0);
       // The hull is posed from the interpolated forward/up FRAME, not from
       // heading/pitch angles: near the poles the heading coordinate's scale is
       // unbounded, so lerping the two Euler angles independently swept the hull
@@ -742,7 +747,7 @@ export class ViewManager {
       this.juice,
     );
 
-    return { node, rig, roll: 0, rollTarget: 0, quat };
+    return { node, rig, roll: 0, rollTarget: 0, quat, velocity: new Vector3() };
   }
 
   private syncAsteroids(cur: Snapshot, frameDtMs: number): void {

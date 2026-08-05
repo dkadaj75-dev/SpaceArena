@@ -105,7 +105,7 @@ describe("moduleStats — the numbers each family is judged on", () => {
   it("advertises a heatsink's jettison cooldown, and says nothing about it when there is none", () => {
     expect(valueOf("module.heatsink-ablative", "Jettison")).toBe("25s");
     expect(labels("module.heatsink-basic")).not.toContain("Jettison");
-    expect(valueOf("module.heatsink-cryo", "Cooling")).toBe("+9");
+    expect(valueOf("module.heatsink-cryo", "Cooling")).toBe("+66");
   });
 
   it("shows sensor reach and lock time", () => {

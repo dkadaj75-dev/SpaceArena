@@ -48,8 +48,8 @@ describe("resolveShipStats (4.1)", () => {
     // battery: capacitor +40, regen +4.
     expect(core.capacitor.max).toBe(160);
     expect(core.capacitor.regen).toBe(11);
-    // heat sink: dissipation +5, capacity *1.1.
-    expect(core.heat.dissipation).toBe(14);
+    // utility heat sink: dissipation +12, capacity *1.1.
+    expect(core.heat.dissipation).toBe(21);
     expect(core.heat.capacity).toBeCloseTo(110, 6);
   });
 
@@ -61,8 +61,8 @@ describe("resolveShipStats (4.1)", () => {
       fittedModuleIds: ["module.utility-heat-sink"],
     });
     expect(core.heat.capacity).toBeCloseTo(148.5, 6);
-    // dissipation: base 9 + upgrade 3.5 + heat-sink 5 = 17.5.
-    expect(core.heat.dissipation).toBeCloseTo(17.5, 6);
+    // dissipation: base 9 + upgrade 3.5 + utility heat-sink 12 = 24.5.
+    expect(core.heat.dissipation).toBeCloseTo(24.5, 6);
   });
 
   it("is deterministic: identical inputs ⇒ identical output", () => {

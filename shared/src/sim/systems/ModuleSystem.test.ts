@@ -109,7 +109,7 @@ describe("ModuleSystem state machine", () => {
     // Cooldown (5s ≈ 150 ticks; a margin covers float drift) → retracted.
     tickModules(world, 160);
     expect(shield.state).toBe("retracted");
-    expect(shield.heat).toBe(0);
+    expect(shield.heat).toBeGreaterThan(0);
   });
 
   it("re-arms a WEAPON straight to active after its overheat lockout", () => {
@@ -125,7 +125,7 @@ describe("ModuleSystem state machine", () => {
     // 3 s lockout (90 ticks; margin for float drift) → straight back online.
     tickModules(world, 100);
     expect(laser.state).toBe("active");
-    expect(laser.heat).toBe(0);
+    expect(laser.heat).toBeGreaterThan(0);
   });
 
   it("routes a weapon's 100% lockout through the authored warning notification", () => {
@@ -390,14 +390,15 @@ describe("ModuleSystem overheat exit (self-damage applied once per overheat)", (
     }
     expect(startHull - core.hull).toBeCloseTo(5, 6);
 
-    // Cooldown (1s) elapses → back to retracted, heat cleared, damage flag re-armed.
+    // Cooldown (1s) elapses → back to retracted without an instant heat clear;
+    // ordinary finite dissipation continues and the damage flag is re-armed.
     for (let i = 0; i < 32; i++) {
       mod.workedThisTick = false;
       moduleSystem(world, DT);
       energySystem(world, DT);
     }
     expect(mod.state).toBe("retracted");
-    expect(mod.heat).toBe(0);
+    expect(mod.heat).toBeCloseTo(11.9, 6); // dissipation is disabled: lockout did not clear it
     expect(mod.overheatDamaged).toBe(false);
 
     // A second overheat charges again.

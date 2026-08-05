@@ -74,6 +74,15 @@ describe("centre vital arcs", () => {
     gauges.dispose();
   });
 
+  it("follows replicated rack heat downward continuously", () => {
+    const cooling = structuredClone(snapshot);
+    const ship = cooling.ships[0]!;
+    ship.modules[0]!.heat = 40;
+    expect(heatGaugeModel(ship).fraction).toBe(0.4);
+    ship.modules[0]!.heat = 25;
+    expect(heatGaugeModel(ship)).toMatchObject({ value: 25, fraction: 0.25 });
+  });
+
   it("moves hull/shield out of the lower-left panel and follows live pools", () => {
     const root = document.createElement("div");
     const layout = resolveHudLayout(

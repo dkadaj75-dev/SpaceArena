@@ -23,7 +23,7 @@
     {
       "target": "heat.dissipation",
       "op": "add",
-      "value": 6
+      "value": 20
     },
     {
       "target": "heat.capacity",

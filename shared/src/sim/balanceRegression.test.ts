@@ -82,7 +82,7 @@ beforeAll(async () => {
   );
 
   // Heat-model stress fixture: unlike every shipped weapon, this one out-paces
-  // the interceptor's 9/s dissipation, so it exercises accumulation → overheat →
+  // the no-sink interceptor's authored 9/s dissipation, so it exercises accumulation → overheat →
   // cooldown → resume. Guards the MODEL independently of shipped balance.
   expectReplaced(
     configs.replace({
@@ -321,7 +321,7 @@ const DISCIPLINED: ScriptStep[] = [
 ];
 
 describe("scripted 60 s engagements — energy/heat regression bands", () => {
-  // Anchors re-recorded 2026-07-31 for the INTERNAL BAY: hulls now carry a
+  // Anchors rechecked 2026-08-05 for finite proportional cooling. Hulls carry a
   // fixed systems block (engine/generator/transformer/heatsink/sensors) and far
   // fewer weapon hardpoints — light 2, medium 3, heavy 4 — so the upkeep curves
   // are a different shape entirely. The stock internals draw no idle power,
@@ -348,7 +348,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const t = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
     expectWithinBand("brawler sustained energy", t.energy, [0.776, 0.854, 1, 0.31, 0.443, 1, 1]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
-    // The heavy still browns out once; x5 generated heat now creates repeated
+    // The heavy still browns out once; x10 weapon heat creates repeated
     // rack lockouts even with its expanded cooling block.
     expect(t.brownOuts).toBe(1);
     expect(t.overheats).toBe(33);
@@ -366,7 +366,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const support = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
     const interceptor = runEngagement("ship.interceptor", SUSTAINED);
     const brawler = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    // All hulls now lock racks under x5 heat; the heavy separates on its extra
+    // All hulls lock racks under x10 weapon heat; the heavy separates on its extra
     // weapon's heat and on capacitor pressure.
     expect(support.overheats).toBe(18);
     expect(interceptor.overheats).toBe(18);
@@ -390,9 +390,9 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
 
   it("a 60 s all-on engagement stays survivable: pool heat never goes critical", () => {
     // Heat now BINDS on the shipped fittings (that is the point of the rework):
-    // individual racks trip and re-arm. At the exact owner-requested x5 rate,
-    // the brawler records 0.924 pool heat; keep the non-critical survivability
-    // ceiling below 1.0 rather than weakening the authored multiplier.
+    // individual racks trip, cool during lockout, and re-arm. Keep the
+    // non-critical survivability ceiling below 1.0 as the durable contract;
+    // the exact peak is intentionally free to move with sink quality.
     for (const ship of ["ship.interceptor", "ship.brawler", "ship.support"]) {
       const t = runEngagement(ship, SUSTAINED, ship === "ship.brawler" ? "ship.interceptor" : "ship.brawler");
       expect(t.peakPoolHeat, `${ship} pool heat`).toBeLessThan(1);
@@ -565,7 +565,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     // Mk I missiles cycle every 2.5 s = 75 sim ticks. Release on tick 75 and
     // re-press on 76 so each cooled rack receives a new semi-auto rising edge.
     const repullTicks = 75;
-    const recorded = 15.5; // re-recorded 2026-08-04 (owner heat x5)
+    const recorded = 20.5; // re-recorded 2026-08-05 (finite proportional cooling)
     const ttk = timeToKill("ship.interceptor", "ship.brawler", 22, repullTicks);
     expect(ttk).toBeLessThan(timeToKill("ship.interceptor", "ship.brawler", 22));
     expect(

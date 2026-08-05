@@ -23,7 +23,7 @@
     {
       "target": "heat.dissipation",
       "op": "add",
-      "value": 3
+      "value": 31
     }
   ],
   "ui": {
