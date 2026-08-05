@@ -29,6 +29,34 @@ const HEAT_WARN_FRACTION = 0.75;
 const HULL_WARN_FRACTION = 0.3;
 
 /**
+ * The ship heat pool is defined by the sim as the sum of fitted-module heat.
+ * Rebuild it from the replicated rack values at the HUD seam instead of trusting
+ * a second, denormalized wire field: rack heat is also what drives module
+ * lockouts and overheat notifications, so those cues can never disagree with a
+ * zero gauge if an aggregate snapshot is stale or absent.
+ */
+export function heatGaugeModel(ship: ShipSnapshot): {
+  value: number;
+  capacity: number;
+  fraction: number;
+  overheated: boolean;
+} {
+  let value = 0;
+  let overheated = false;
+  for (const module of ship.modules) {
+    value += module.heat;
+    if (module.state === "overheated") overheated = true;
+  }
+  const capacity = ship.heat.capacity;
+  return {
+    value,
+    capacity,
+    fraction: capacity > 0 ? value / capacity : 0,
+    overheated,
+  };
+}
+
+/**
  * Hull, shield-pool, energy and heat gauge bars (bottom-left, theme-positioned).
  * Shield-pool is the sum of active shield modules' `shieldPool` reservoirs
  * (there is no innate ship shield stat in MVP — shielding comes entirely from
@@ -138,8 +166,14 @@ export class Gauges {
       ship.energy.max,
     );
 
-    const heatFrac = ship.heat.capacity > 0 ? ship.heat.cur / ship.heat.capacity : 0;
-    this.set(this.heat, heatFrac, Math.ceil(ship.heat.cur), ship.heat.capacity, heatFrac >= HEAT_WARN_FRACTION);
+    const heat = heatGaugeModel(ship);
+    this.set(
+      this.heat,
+      heat.fraction,
+      Math.ceil(heat.value),
+      heat.capacity,
+      heat.overheated || heat.fraction >= HEAT_WARN_FRACTION,
+    );
   }
 
   /**

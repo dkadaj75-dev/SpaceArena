@@ -6,6 +6,10 @@ import { expect, test } from "@playwright/test";
  * (run explicitly with --grep @hudshot). Output path via HUD_SHOT_DIR.
  */
 
+const shotW = Number(process.env["HUD_SHOT_W"] ?? 0);
+const shotH = Number(process.env["HUD_SHOT_H"] ?? 0);
+if (shotW > 0 && shotH > 0) test.use({ viewport: { width: shotW, height: shotH } });
+
 test("hud screenshot rig @hudshot", async ({ page }) => {
   const outDir = process.env["HUD_SHOT_DIR"] ?? "test-results";
   await page.goto("/?login=1");
@@ -17,6 +21,16 @@ test("hud screenshot rig @hudshot", async ({ page }) => {
   await authOverlay.getByRole("button", { name: "Play as Guest", exact: true }).click();
   const lobby = page.locator(".lobby-overlay");
   await expect(lobby).toBeVisible();
+  if (process.env["HUD_SHOT_SHIP"]) {
+    await lobby.getByRole("button", { name: "Hangar", exact: true }).click();
+    const hangar = page.locator(".hangar-panel");
+    await expect(hangar).toBeVisible();
+    await hangar.locator('.hangar-rail-btn[data-category="ship"]').click();
+    await hangar.locator(".hangar-ship-btn").filter({ hasText: process.env["HUD_SHOT_SHIP"]! }).click();
+    await hangar.getByRole("button", { name: "★ Set as main" }).click();
+    await page.locator(".hangar-close").click();
+    await expect(lobby).toBeVisible();
+  }
   await lobby.getByRole("button", { name: /Practice/ }).first().click();
   await expect(lobby).toBeHidden();
   // Let the loading screen resolve and the countdown finish into live HUD.

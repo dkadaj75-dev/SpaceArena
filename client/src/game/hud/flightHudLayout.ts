@@ -121,6 +121,29 @@ export interface FlightActionArcSlot {
   captionGapPx: number;
 }
 
+/**
+ * The complete secondary-control placement a flight HUD renders for one fit.
+ * This is deliberately the widget-facing resolver output: when an arc is
+ * authored, no consumer may fall back to a per-button legacy coordinate.
+ */
+interface FlightSecondaryControlsArcLayout {
+  modules: FlightActionArcSlot[];
+  boost: FlightActionArcSlot;
+  jettison: FlightActionArcSlot;
+  usesActionArc: true;
+}
+
+interface FlightSecondaryControlsLegacyLayout {
+  modules: [];
+  boost: BoostLayout;
+  jettison: FlightActionLayout;
+  usesActionArc: false;
+}
+
+export type FlightSecondaryControlsLayout =
+  | FlightSecondaryControlsArcLayout
+  | FlightSecondaryControlsLegacyLayout;
+
 /** BOOST uses the same compact action geometry, tinted with the boost family colour. */
 export type BoostLayout = FlightActionLayout;
 
@@ -438,7 +461,7 @@ function actionArcLayoutFrom(
  * fitting), then BOOST, then JETTISON.  Legacy themes without `actions.arc`
  * deliberately receive no slots and continue through their old offsets.
  */
-export function flightActionArcSlots(layout: FlightHudLayout, moduleCount: number): FlightActionArcSlot[] {
+function actionArcSlots(layout: FlightHudLayout, moduleCount: number): FlightActionArcSlot[] {
   const arc = layout.actionArc;
   if (!arc) return [];
   const total = Math.max(1, moduleCount + 2);
@@ -489,6 +512,26 @@ export function flightActionArcSlots(layout: FlightHudLayout, moduleCount: numbe
     });
   }
   return slots;
+}
+
+/**
+ * Resolve every secondary control from the same fitting-aware source. The
+ * legacy button offsets are valid only when the theme has not authored an arc.
+ */
+export function resolveFlightSecondaryControls(
+  layout: FlightHudLayout,
+  moduleCount: number,
+): FlightSecondaryControlsLayout {
+  const modules = actionArcSlots(layout, moduleCount);
+  if (modules.length) {
+    return {
+      modules: modules.slice(0, moduleCount),
+      boost: modules[moduleCount]!,
+      jettison: modules[moduleCount + 1]!,
+      usesActionArc: true,
+    };
+  }
+  return { modules: [], boost: layout.boost, jettison: layout.jettison, usesActionArc: false };
 }
 
 /**

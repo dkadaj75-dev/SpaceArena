@@ -3,7 +3,7 @@ import { createLogger, isInternalFamily } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
-import { anchoredOffset, flightActionArcSlots, type FlightHudLayout } from "./flightHudLayout.js";
+import { anchoredOffset, resolveFlightSecondaryControls, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconId, moduleIconSvg } from "./moduleIcons.js";
 
 const log = createLogger("HudModuleButtons");
@@ -126,10 +126,12 @@ export class ModuleButtons {
   /** Writes each button's pivot-relative centre into its inline left/top. */
   private position(): void {
     const buttons = [...this.entries.values()];
-    const arcSlots = this.flightLayout ? flightActionArcSlots(this.flightLayout, buttons.length) : [];
-    if (arcSlots.length) {
+    const secondary = this.flightLayout
+      ? resolveFlightSecondaryControls(this.flightLayout, buttons.length)
+      : null;
+    if (secondary?.usesActionArc) {
       for (let i = 0; i < buttons.length; i++) {
-        const slot = arcSlots[i];
+        const slot = secondary.modules[i];
         if (!slot) continue;
         const button = buttons[i]!.root;
         button.style.left = `${anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx).dx - slot.radiusPx}px`;

@@ -1,5 +1,5 @@
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
-import { anchoredOffset, flightActionArcSlots, type FlightHudLayout } from "./flightHudLayout.js";
+import { anchoredOffset, resolveFlightSecondaryControls, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconSvg } from "./moduleIcons.js";
 
 /** Caption under the glyph. Fixed, not the module's `ui.shortName`: this control
@@ -155,15 +155,22 @@ export class BoostButton {
 
   /** Reposition on the shared rail after the fitted module count is known. */
   applyArcLayout(layout: FlightHudLayout, moduleCount: number): void {
-    const slot = flightActionArcSlots(layout, moduleCount)[moduleCount];
-    const boost = slot ?? layout.boost;
+    const secondary = resolveFlightSecondaryControls(layout, moduleCount);
+    const boost = secondary.boost;
     this.container.dataset["anchor"] = boost.anchor;
     const { dx, dy } = anchoredOffset(boost.anchor, boost.offsetXPx, boost.offsetYPx, boost.radiusPx);
     this.button.style.left = `${dx - boost.radiusPx}px`;
     this.button.style.top = `${dy - boost.radiusPx}px`;
     this.button.style.width = `${boost.radiusPx * 2}px`;
     this.button.style.height = `${boost.radiusPx * 2}px`;
-    if (slot) this.positionCaption(slot.captionX, slot.captionY, slot.radiusPx, slot.captionGapPx);
+    if (secondary.usesActionArc) {
+      this.positionCaption(
+        secondary.boost.captionX,
+        secondary.boost.captionY,
+        secondary.boost.radiusPx,
+        secondary.boost.captionGapPx,
+      );
+    }
     else this.resetCaption();
   }
 
