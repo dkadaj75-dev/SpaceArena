@@ -57,8 +57,8 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     // simply carry — you pay when you pull the trigger.
     expect(panel.idleDrawTotal).toBe(0);
     expect(panel.energyBudget).toBe(panel.capacitorRegen);
-    // laser 11/0.4 + missile 35/2.5 = 27.5 + 14 = 41.5 (internals do not fire).
-    expect(panel.dps).toBeCloseTo(11 / 0.4 + 35 / 2.5, 6);
+    // laser 5.5/0.4 + missile 17.5/2.5 = 13.75 + 7 = 20.75 (internals do not fire).
+    expect(panel.dps).toBeCloseTo(5.5 / 0.4 + 17.5 / 2.5, 6);
   });
 
   it("flags a negative energy budget when idle draw exceeds regen", () => {

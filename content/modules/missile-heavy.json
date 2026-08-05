@@ -27,7 +27,7 @@
     "range": 175,
     "cycleTime": 3.2,
     "heatPerShot": 180,
-    "damage": 77,
+    "damage": 38.5,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
     "projectile": {
