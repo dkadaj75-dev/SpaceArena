@@ -83,6 +83,8 @@ export class Scoreboard {
     }
     const tr = document.createElement("tr");
     tr.dataset["entityId"] = String(id);
+    // Shared by the hold-Tab and final scoreboards, so one marker styles both.
+    tr.classList.toggle("hud-scoreboard-local-player", id === this.session.playerId);
     const cells: HTMLTableCellElement[] = [];
     const count = this.ctf ? 7 : 4;
     for (let i = 0; i < count; i++) { const td = document.createElement("td"); tr.appendChild(td); cells.push(td); }

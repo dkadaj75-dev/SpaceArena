@@ -9,16 +9,6 @@
   },
   "asteroidPlacements": [
     {
-      "asteroidId": "asteroid.colossal-a",
-      "position": {
-        "x": 0,
-        "y": 0,
-        "z": 0
-      },
-      "rotation": 0.7,
-      "scale": 1.8
-    },
-    {
       "asteroidId": "asteroid.large-hazard-b",
       "position": {
         "x": 1.6,

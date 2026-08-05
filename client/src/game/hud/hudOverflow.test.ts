@@ -96,4 +96,12 @@ describe("other full-bleed text overlays", () => {
     expect(body).toMatch(/max-width:\s*min\(420px, calc\(100% - var\(--hud-inset-left\)/);
     expect(body).toMatch(/max-height:\s*calc\(100% - var\(--hud-inset-top\)/);
   });
+
+  it("budgets outcome tracking inside a responsive title so its glyphs cannot clip", () => {
+    const body = ruleBody(hudCss(), ".hud-results-title");
+    expect(body).toMatch(/max-width:\s*100%/);
+    expect(body).toMatch(/font-size:\s*clamp\([^)]*vw[^)]*\)/);
+    expect(body).toMatch(/padding-inline-end:\s*var\(--hud-results-title-tracking\)/);
+    expect(body).toMatch(/letter-spacing:\s*var\(--hud-results-title-tracking\)/);
+  });
 });

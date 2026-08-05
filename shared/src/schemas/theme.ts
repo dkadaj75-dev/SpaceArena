@@ -747,6 +747,8 @@ export const menuSchema = z.object({
       pollIntervalMs: z.number().int().positive().optional(),
     })
     .optional(),
+  /** Minimum time the resolved arena card stays visible, even with cached assets. */
+  matchLoadingMinVisibleMs: z.number().int().nonnegative().optional(),
 });
 export type MenuConfig = z.infer<typeof menuSchema>;
 

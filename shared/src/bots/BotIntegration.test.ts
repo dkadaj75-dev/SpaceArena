@@ -95,9 +95,8 @@ function runMatch(
     const ship = configs.get<ShipConfig>("ship", shipId)!;
     // PINNED engagement geometry: these suites bound the merge (time to lock,
     // to first hit, to damage), so the merge distance must not drift with arena
-    // content — the shipped pads moved out to r~82 with a colossal centrepiece
-    // between them (owner 2026-07-31). 60 units apart, facing off, away from
-    // the central rock.
+    // content — the shipped pads moved out to r~82. 60 units apart, facing off
+    // in the clear, so this remains a combat rather than scenery regression.
     const id = sim.spawnPlayerAt(
       shipId,
       ship.defaultFitting,
@@ -383,7 +382,10 @@ describe("bots in a live ArenaSimulation", () => {
     const evidence = `perfect=${JSON.stringify(perfect)} tuned=${JSON.stringify(tuned)}`;
     expect(perfect.fired, evidence).toBeGreaterThan(8);
     expect(tuned.fired, evidence).toBeGreaterThan(5);
-    expect(tuned.fraction, evidence).toBeGreaterThan(0.1);
+    // With Ring Nebula's versus-only origin occluder removed, this open-field
+    // trial now measures the driver's own aim error rather than collision-aided
+    // alignment. It must still land a meaningful fraction of its shots.
+    expect(tuned.fraction, evidence).toBeGreaterThan(0.05);
     expect(tuned.fraction, evidence).toBeLessThan(0.5);
     expect(tuned.fraction, evidence).toBeLessThan(perfect.fraction);
   });

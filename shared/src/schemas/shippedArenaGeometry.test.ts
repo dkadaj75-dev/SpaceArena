@@ -9,17 +9,17 @@ type Vec3 = { x: number; y?: number; z: number };
 type ShippedArena = {
   name: string;
   file: string;
-  minimumCount: number;
+  expectedCount: number;
   maxExtent: number;
 };
 
 const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url));
 const SHIPPED_ARENAS: readonly ShippedArena[] = [
-  { name: "deep-field", file: "deep-field.json", minimumCount: 90, maxExtent: 210 },
-  { name: "ring-nebula", file: "ring-nebula.json", minimumCount: 14, maxExtent: 126 },
-  { name: "lunar-crater", file: "lunar-crater.json", minimumCount: 27, maxExtent: 180 },
-  { name: "broken-halo", file: "broken-halo.json", minimumCount: 14, maxExtent: 150 },
-  { name: "twin-titans", file: "twin-titans.json", minimumCount: 14, maxExtent: 100 },
+  { name: "deep-field", file: "deep-field.json", expectedCount: 90, maxExtent: 210 },
+  { name: "ring-nebula", file: "ring-nebula.json", expectedCount: 14, maxExtent: 126 },
+  { name: "lunar-crater", file: "lunar-crater.json", expectedCount: 27, maxExtent: 180 },
+  { name: "broken-halo", file: "broken-halo.json", expectedCount: 14, maxExtent: 150 },
+  { name: "twin-titans", file: "twin-titans.json", expectedCount: 14, maxExtent: 100 },
 ];
 const asteroidFiles = [
   "small-rock.json",
@@ -80,7 +80,7 @@ describe("shipped arena asteroid geometry", () => {
       const arena = arenaSchema.parse(loadJson(`${CONTENT_ROOT}arenas/${shipped.file}`));
       const corridor = [teamCentroid(arena, 0), teamCentroid(arena, 1)] as const;
       const placements = arena.asteroidPlacements;
-      expect(placements.length).toBeGreaterThanOrEqual(shipped.minimumCount);
+      expect(placements.length).toBe(shipped.expectedCount);
 
       for (let index = 0; index < placements.length; index++) {
         const placement = placements[index]!;
@@ -90,10 +90,8 @@ describe("shipped arena asteroid geometry", () => {
 
         // The authored bubble is the hard cap, including scaled colliders.
         expect(extent, `${arena.id} placement ${index} extent`).toBeLessThanOrEqual(shipped.maxExtent);
-        // The origin CENTREPIECE (owner 2026-07-31: a colossal rock to orbit
-        // while fighting) deliberately blocks the straight spawn-to-spawn line,
-        // so it is exempt from the corridor rule — but it must never crowd a
-        // spawn pad.
+        // A centrepiece (the CTF crater retains one) may deliberately block the
+        // straight spawn-to-spawn line, but it must never crowd a spawn pad.
         const isCentrepiece = Math.hypot(position.x, position.y, position.z) < colliderRadius;
         if (isCentrepiece) {
           for (const spawn of arena.spawnPoints) {

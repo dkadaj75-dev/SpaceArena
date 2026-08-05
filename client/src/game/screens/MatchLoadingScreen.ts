@@ -3,6 +3,15 @@ import type { GameSession } from "../GameSession.js";
 import { applyMenuTheme, injectScreenStyle } from "./screenStyle.js";
 
 const STYLE_ID = "sa-match-loading-style";
+export const DEFAULT_MATCH_LOADING_MIN_VISIBLE_MS = 1500;
+
+/** Theme-authored loading-card hold, with a safe default for older content packs. */
+export function matchLoadingMinVisibleMs(theme: ThemeConfig | undefined): number {
+  const authored = theme?.menu?.matchLoadingMinVisibleMs;
+  return typeof authored === "number" && Number.isFinite(authored) && authored >= 0
+    ? authored
+    : DEFAULT_MATCH_LOADING_MIN_VISIBLE_MS;
+}
 
 export interface LoadingRosterEntry { team: number; name: string }
 
@@ -21,6 +30,7 @@ export class MatchLoadingScreen {
   private readonly teams: HTMLDivElement;
   private readonly status: HTMLDivElement;
   private readonly unsubscribe: (() => void) | null;
+  private shownAtMs: number | null = null;
 
   constructor(parent: HTMLElement, private readonly configs: ConfigService, bus?: EventBus<ConfigEvents>) {
     injectScreenStyle();
@@ -56,9 +66,21 @@ export class MatchLoadingScreen {
     }
     renderRoster(this.teams, loadingRoster(session));
     this.root.style.display = "flex";
+    // Pending connection copy is intentionally not counted: this is the map,
+    // art, and roster beat that must remain visible after preload resolves.
+    this.shownAtMs = performance.now();
   }
 
-  hide(): void { this.root.style.display = "none"; }
+  /** Hold the resolved loading card for its theme duration, then dismiss it. */
+  async dismiss(): Promise<void> {
+    const elapsed = this.shownAtMs === null ? 0 : performance.now() - this.shownAtMs;
+    const theme = this.configs.get<ThemeConfig>("theme", "theme.default");
+    const remaining = Math.max(0, matchLoadingMinVisibleMs(theme) - elapsed);
+    if (remaining > 0) await new Promise<void>((resolve) => window.setTimeout(resolve, remaining));
+    this.hide();
+  }
+
+  hide(): void { this.shownAtMs = null; this.root.style.display = "none"; }
   dispose(): void { this.unsubscribe?.(); this.root.remove(); }
   private applyTheme(): void { applyMenuTheme(this.root, this.configs.get<ThemeConfig>("theme", "theme.default")); }
 }
