@@ -326,8 +326,25 @@ export const flightActionButtonSchema = z.object({
 });
 export type FlightActionButtonConfig = z.infer<typeof flightActionButtonSchema>;
 
-/** Authored slots for the dedicated non-module controls in the flight cluster. */
+/**
+ * One shared radial rail for every secondary flight control.  The rail is
+ * centred on FIRE; its slots are re-spaced as the fitting changes.  These are
+ * authored intent: the flight-HUD resolver may shorten a narrow-portrait sweep
+ * or add an inner concentric rail to retain touch gaps and panel clearance.
+ * Angles use screen coordinates (0 = right, -90 = up).
+ */
+export const flightActionArcSchema = z.object({
+  radiusPx: z.number().positive().optional(),
+  startDeg: z.number().optional(),
+  sweepDeg: z.number().optional(),
+  buttonDiameterPx: z.number().positive().optional(),
+  captionGapPx: z.number().nonnegative().optional(),
+});
+export type FlightActionArcConfig = z.infer<typeof flightActionArcSchema>;
+
+/** Authored flight-action rail, plus legacy independent action slots. */
 export const flightActionsSchema = z.object({
+  arc: flightActionArcSchema.optional(),
   boost: flightActionButtonSchema.optional(),
   jettison: flightActionButtonSchema.optional(),
 });

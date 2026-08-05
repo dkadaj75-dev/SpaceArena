@@ -3,6 +3,7 @@ import { createLogger, isInternalFamily } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
+import { anchoredOffset, flightActionArcSlots, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconId, moduleIconSvg } from "./moduleIcons.js";
 
 const log = createLogger("HudModuleButtons");
@@ -80,6 +81,7 @@ export class ModuleButtons {
   private entries = new Map<number, ButtonEntry>();
   private builtForModuleCount = -1;
   private layout: HudLayout;
+  private flightLayout: FlightHudLayout | null = null;
   private readonly unsubscribeTheme: () => void;
 
   constructor(
@@ -114,9 +116,30 @@ export class ModuleButtons {
     this.position();
   }
 
+  /** Adopt the shared FIRE-centred rail when the theme authors one. */
+  applyFlightLayout(layout: FlightHudLayout): void {
+    this.flightLayout = layout;
+    this.container.dataset["anchor"] = layout.actionArc ? layout.fire.anchor : this.layout.cluster.anchor;
+    this.position();
+  }
+
   /** Writes each button's pivot-relative centre into its inline left/top. */
   private position(): void {
     const buttons = [...this.entries.values()];
+    const arcSlots = this.flightLayout ? flightActionArcSlots(this.flightLayout, buttons.length) : [];
+    if (arcSlots.length) {
+      for (let i = 0; i < buttons.length; i++) {
+        const slot = arcSlots[i];
+        if (!slot) continue;
+        const button = buttons[i]!.root;
+        button.style.left = `${anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx).dx - slot.radiusPx}px`;
+        button.style.top = `${anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx).dy - slot.radiusPx}px`;
+        button.style.width = `${slot.radiusPx * 2}px`;
+        button.style.height = `${slot.radiusPx * 2}px`;
+        this.positionCaption(button, slot.captionX, slot.captionY, slot.radiusPx, slot.captionGapPx);
+      }
+      return;
+    }
     const offsets = clusterOffsets(buttons.length, this.layout);
     const r = this.layout.cluster.buttonRadiusPx;
     for (let i = 0; i < buttons.length; i++) {
@@ -124,7 +147,26 @@ export class ModuleButtons {
       if (!offset) continue;
       buttons[i]!.root.style.left = `${offset.dx - r}px`;
       buttons[i]!.root.style.top = `${offset.dy - r}px`;
+      buttons[i]!.root.style.removeProperty("width");
+      buttons[i]!.root.style.removeProperty("height");
+      this.resetCaption(buttons[i]!.root);
     }
+  }
+
+  private positionCaption(button: HTMLDivElement, x: number, y: number, radius: number, gap: number): void {
+    const label = button.querySelector<HTMLElement>(".label");
+    if (!label) return;
+    label.style.left = `${50 + ((radius + gap) * x * 100) / (radius * 2)}%`;
+    label.style.top = `${50 + ((radius + gap) * y * 100) / (radius * 2)}%`;
+    label.style.transform = "translate(-50%, -50%)";
+  }
+
+  private resetCaption(button: HTMLDivElement): void {
+    const label = button.querySelector<HTMLElement>(".label");
+    if (!label) return;
+    label.style.removeProperty("left");
+    label.style.removeProperty("top");
+    label.style.removeProperty("transform");
   }
 
   /**
@@ -235,7 +277,16 @@ export class ModuleButtons {
   private rebuild(modules: readonly ModuleSnapshot[]): void {
     this.container.innerHTML = "";
     this.entries = new Map(
-      modules.filter((m) => this.isButtonable(m.moduleId)).map((m) => {
+      [...modules]
+        .filter((m) => this.isButtonable(m.moduleId))
+        // The rail's stable thumb order is weapon first, then utility. Keep
+        // equal kinds in hardpoint order so a fitting never shuffles mid-match.
+        .sort((a, b) => {
+          const aWeapon = this.configs.get<ModuleConfig>("module", a.moduleId)?.fire ? 0 : 1;
+          const bWeapon = this.configs.get<ModuleConfig>("module", b.moduleId)?.fire ? 0 : 1;
+          return aWeapon - bWeapon || a.hardpointIndex - b.hardpointIndex;
+        })
+        .map((m) => {
         const hardpointIndex = m.hardpointIndex;
         const moduleId = m.moduleId;
         const cfg = this.configs.get<ModuleConfig>("module", moduleId);

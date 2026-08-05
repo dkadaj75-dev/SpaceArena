@@ -1,6 +1,7 @@
 import type {
   EnemyArrowsConfig,
   FlightActionButtonConfig,
+  FlightActionArcConfig,
   FlightActionsConfig,
   FireButtonConfig,
   FlightHudConfig,
@@ -89,6 +90,36 @@ export interface FlightActionLayout {
   color: string;
 }
 
+/** Resolved authored rail for fitted modules plus the two dedicated actions. */
+export interface FlightActionArcLayout {
+  /** Effective (viewport-adapted) outer radius, derived from the authored intent. */
+  radiusPx: number;
+  startDeg: number;
+  /** Effective sweep; narrow portrait rails stop before the lower-left panels. */
+  sweepDeg: number;
+  buttonDiameterPx: number;
+  captionGapPx: number;
+  /** A second concentric rail receives overflow so every visible gap stays generous. */
+  innerRadiusPx: number;
+  /** Keep both rails balanced instead of leaving a single button on the inner arc. */
+  outerSlotCapacity: number;
+  /** Inner rail omits the throttle-side end cap while keeping a generous pitch. */
+  innerStartDeg: number;
+  innerSweepDeg: number;
+}
+
+/** One slot expressed in the anchored-offset convention used by the widgets. */
+export interface FlightActionArcSlot {
+  anchor: HudAnchorName;
+  radiusPx: number;
+  offsetXPx: number;
+  offsetYPx: number;
+  /** Caption direction; outer rail captions point outward, inner rail inward. */
+  captionX: number;
+  captionY: number;
+  captionGapPx: number;
+}
+
 /** BOOST uses the same compact action geometry, tinted with the boost family colour. */
 export type BoostLayout = FlightActionLayout;
 
@@ -160,6 +191,8 @@ export interface FlightHudLayout {
   throttle: ThrottleLayout;
   modules: ModuleVisualLayout;
   fire: FireLayout;
+  /** Null retains independent legacy module/action placement. */
+  actionArc: FlightActionArcLayout | null;
   boost: BoostLayout;
   jettison: FlightActionLayout;
   reticle: ReticleLayout;
@@ -273,6 +306,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     boost: { anchor: "bottom-right", radiusPx: 26, offsetXPx: 132, offsetYPx: 96, color: "#e8b44f" },
     jettison: { anchor: "bottom-right", radiusPx: 26, offsetXPx: 72, offsetYPx: 142, color: "#5ec9e8" },
   },
+  actionArc: null,
 } as const satisfies Omit<
   FlightHudLayout,
   "orientation" | "viewport" | "scale" | "metersPerUnit" | "boost" | "jettison"
@@ -340,6 +374,96 @@ function actionLayoutFrom(
   };
 }
 
+function actionArcLayoutFrom(
+  action: FlightActionArcConfig | undefined,
+  scale: number,
+  viewport: Viewport,
+): FlightActionArcLayout | null {
+  if (!action) return null;
+  const radiusPx = (action.radiusPx ?? 0) * scale;
+  const startDeg = action.startDeg ?? -90;
+  const authoredSweepDeg = action.sweepDeg ?? -90;
+  const buttonDiameterPx = (action.buttonDiameterPx ?? 48) * scale;
+  // At phone widths, the authored -180° end point puts the far rail button at
+  // the height of the left-side vitals.  Preserve the upward FIRE-centred
+  // gesture, but stop at -150° before it can enter that reserved panel area.
+  const sweepDeg =
+    viewport.width < 600 && viewport.height >= viewport.width && authoredSweepDeg < 0
+      ? Math.max(authoredSweepDeg, -150 - startDeg)
+      : authoredSweepDeg;
+  const narrowPortrait = viewport.width < 600 && viewport.height >= viewport.width;
+  const sweepDirection = Math.sign(sweepDeg) || 1;
+  return {
+    radiusPx,
+    startDeg,
+    sweepDeg,
+    buttonDiameterPx,
+    captionGapPx: (action.captionGapPx ?? 4) * scale,
+    // A radial separation of one square diagonal plus the circular 8px gap
+    // makes two same-angle slots clear under both the touch-circle and the
+    // audit's conservative axis-aligned button rectangles.
+    innerRadiusPx: radiusPx - (buttonDiameterPx * Math.SQRT2 + 8 * scale),
+    outerSlotCapacity: 4,
+    innerStartDeg: narrowPortrait ? startDeg + sweepDirection * 8 : startDeg + sweepDeg * 0.08,
+    innerSweepDeg: narrowPortrait ? sweepDeg - sweepDirection * 3 : sweepDeg * 0.84,
+  };
+}
+
+/**
+ * The only positioning rule for the shipped bottom-right flight controls.
+ * Modules occupy the first slots (weapons are supplied before utilities by the
+ * fitting), then BOOST, then JETTISON.  Legacy themes without `actions.arc`
+ * deliberately receive no slots and continue through their old offsets.
+ */
+export function flightActionArcSlots(layout: FlightHudLayout, moduleCount: number): FlightActionArcSlot[] {
+  const arc = layout.actionArc;
+  if (!arc) return [];
+  const total = Math.max(1, moduleCount + 2);
+  const fire = layout.fire;
+  const fireCentre = anchoredOffset(fire.anchor, fire.offsetXPx, fire.offsetYPx, fire.radiusPx);
+  const radiusPx = arc.buttonDiameterPx / 2;
+  // A rail of five or more controls uses two evenly populated concentric arcs.
+  // This avoids tight mid-arc pairs and keeps the visual rhythm symmetrical as
+  // fitted modules are added.  Order remains modules, BOOST, then JETTISON.
+  const outerCount = total > arc.outerSlotCapacity ? Math.ceil(total / 2) : total;
+  const innerCount = total - outerCount;
+  const slots: FlightActionArcSlot[] = [];
+  for (let index = 0; index < total; index++) {
+    const isInner = index >= outerCount;
+    const countOnRail = isInner ? innerCount : outerCount;
+    const indexOnRail = isInner ? index - outerCount : index;
+    // The inner rail is centred on the outer rail on regular viewports and
+    // omits its end caps. Narrow portrait shifts it a few degrees left of the
+    // throttle-side approach, while retaining even, unclustered spacing.
+    const railStartDeg = isInner ? arc.innerStartDeg : arc.startDeg;
+    const railSweepDeg = isInner ? arc.innerSweepDeg : arc.sweepDeg;
+    const deg =
+      railStartDeg +
+      (countOnRail === 1 ? railSweepDeg / 2 : (railSweepDeg * indexOnRail) / (countOnRail - 1));
+    const radians = (deg * Math.PI) / 180;
+    const radialX = Math.cos(radians);
+    const radialY = Math.sin(radians);
+    const railRadiusPx = isInner ? arc.innerRadiusPx : arc.radiusPx;
+    const centreX = fireCentre.dx + railRadiusPx * radialX;
+    const centreY = fireCentre.dy + railRadiusPx * radialY;
+    // Convert an exact pivot-relative centre back to the existing anchored
+    // offset representation, so no widget needs bespoke corner math.
+    const signs = anchorSigns(fire.anchor);
+    slots.push({
+      anchor: fire.anchor,
+      radiusPx,
+      offsetXPx: signs.x < 0 ? -centreX - radiusPx : centreX - radiusPx,
+      offsetYPx: signs.y < 0 ? -centreY - radiusPx : centreY - radiusPx,
+      // Inner captions face the open centre rather than crossing the outer
+      // rail's buttons; their own action surface remains immediately outside.
+      captionX: isInner ? -radialX : radialX,
+      captionY: isInner ? -radialY : radialY,
+      captionGapPx: arc.captionGapPx,
+    });
+  }
+  return slots;
+}
+
 /**
  * Share of `tuning.maxOrdersPerSec` the flight sender may spend. The rest is
  * headroom for the orders a player issues WHILE flying (module toggles, and the
@@ -379,6 +503,10 @@ export function resolveFlightHudLayout(
   const modules: HudModulesConfig = hud?.modules ?? {};
   const fire: FireButtonConfig = merge(base.fire, over.fire);
   const actions: FlightActionsConfig = {
+    arc:
+      base.actions?.arc || over.actions?.arc
+        ? merge(base.actions?.arc, over.actions?.arc)
+        : undefined,
     boost: merge(base.actions?.boost, over.actions?.boost),
     jettison: merge(base.actions?.jettison, over.actions?.jettison),
   };
@@ -454,6 +582,7 @@ export function resolveFlightHudLayout(
       boostColor,
     },
     fire: fireLayout,
+    actionArc: actionArcLayoutFrom(actions.arc, scale, viewport),
     boost: { ...actionLayoutFrom(actions.boost, d.actions.boost, scale), color: actions.boost?.color ?? boostColor },
     jettison: actionLayoutFrom(actions.jettison, d.actions.jettison, scale),
     reticle: {

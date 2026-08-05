@@ -1,5 +1,6 @@
 import {
   createLogger,
+  isInternalFamily,
   resolveShipStats,
   type ConfigService,
   type EntityId,
@@ -127,6 +128,7 @@ export class FlightControls {
 
   private layout: FlightHudLayout;
   private enabled = true;
+  private actionArcModuleCount = -1;
   /** Keys currently held, normalized by {@link flightKeyOf}. */
   private readonly heldKeys = new Set<string>();
   /**
@@ -232,6 +234,7 @@ export class FlightControls {
   /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
   applyLayout(layout: FlightHudLayout): void {
     this.layout = layout;
+    this.actionArcModuleCount = -1;
     this.joystick.applyLayout(layout);
     this.relativeSteer.applyLayout(layout);
     this.throttleStrip.applyLayout(layout);
@@ -338,6 +341,7 @@ export class FlightControls {
 
     this.refreshBoostState(cur, ship);
     this.refreshJettisonState(ship);
+    this.refreshActionArc(ship);
     const fire = this.fireButton.held || this.canvasFire.held || keys.fire;
     this.fireButton.setKeyActive(this.canvasFire.held || keys.fire);
     // "NO LOCK" feedback only when the pull genuinely does nothing — i.e. every
@@ -574,6 +578,20 @@ export class FlightControls {
       return;
     }
     this.jettisonButton.update(NO_JETTISON_FITTED);
+  }
+
+  /** The rail redistributes whenever this fixed fitting changes. */
+  private refreshActionArc(ship: ShipSnapshot): void {
+    if (!this.layout.actionArc) return;
+    let moduleCount = 0;
+    for (const module of ship.modules) {
+      const family = this.configs.get<ModuleConfig>("module", module.moduleId)?.family;
+      if (family !== "boost" && !isInternalFamily(family ?? "utility")) moduleCount++;
+    }
+    if (moduleCount === this.actionArcModuleCount) return;
+    this.actionArcModuleCount = moduleCount;
+    this.boostButton.applyArcLayout(this.layout, moduleCount);
+    this.jettisonButton.applyArcLayout(this.layout, moduleCount);
   }
 
   /** Whether any fitted weapon can fire without a lock (non-homing `fire`). */

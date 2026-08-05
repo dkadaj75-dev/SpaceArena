@@ -1,5 +1,5 @@
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
-import { anchoredOffset, type FlightHudLayout } from "./flightHudLayout.js";
+import { anchoredOffset, flightActionArcSlots, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconSvg } from "./moduleIcons.js";
 
 /** Caption under the glyph. Fixed, not the module's `ui.shortName`: this control
@@ -145,13 +145,33 @@ export class BoostButton {
 
   /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
   applyLayout(layout: FlightHudLayout): void {
-    const boost = layout.boost;
+    this.applyArcLayout(layout, 0);
+  }
+
+  /** Reposition on the shared rail after the fitted module count is known. */
+  applyArcLayout(layout: FlightHudLayout, moduleCount: number): void {
+    const slot = flightActionArcSlots(layout, moduleCount)[moduleCount];
+    const boost = slot ?? layout.boost;
     this.container.dataset["anchor"] = boost.anchor;
     const { dx, dy } = anchoredOffset(boost.anchor, boost.offsetXPx, boost.offsetYPx, boost.radiusPx);
     this.button.style.left = `${dx - boost.radiusPx}px`;
     this.button.style.top = `${dy - boost.radiusPx}px`;
     this.button.style.width = `${boost.radiusPx * 2}px`;
     this.button.style.height = `${boost.radiusPx * 2}px`;
+    if (slot) this.positionCaption(slot.captionX, slot.captionY, slot.radiusPx, slot.captionGapPx);
+    else this.resetCaption();
+  }
+
+  private positionCaption(x: number, y: number, radius: number, gap: number): void {
+    const label = this.button.querySelector<HTMLElement>(".label")!;
+    label.style.left = `${50 + ((radius + gap) * x * 100) / (radius * 2)}%`;
+    label.style.top = `${50 + ((radius + gap) * y * 100) / (radius * 2)}%`;
+    label.style.transform = "translate(-50%, -50%)";
+  }
+
+  private resetCaption(): void {
+    const label = this.button.querySelector<HTMLElement>(".label")!;
+    label.style.removeProperty("left"); label.style.removeProperty("top"); label.style.removeProperty("transform");
   }
 
   /** One frame of replicated state. Cheap when nothing moved. */

@@ -242,7 +242,6 @@ export class Hud {
       this.root.style.setProperty(prop, value);
     }
     this.root.dataset["orientation"] = this.layout.orientation;
-    this.moduleButtons.applyLayout(this.layout);
     this.gauges.applyLayout(this.layout);
     this.vitalArcs.applyLayout(this.layout);
     this.minimap.applyLayout(this.layout);
@@ -251,6 +250,8 @@ export class Hud {
     // portrait/landscape block (FLIGHT.md §4). Its CSS vars land on the same
     // root. Gauges now resolve their own orientation-aware bottom-left geometry.
     this.flightLayout = resolveFlightHudLayout(theme, viewportSize());
+    this.moduleButtons.applyLayout(this.layout);
+    this.moduleButtons.applyFlightLayout(this.flightLayout);
     if (this.flight) {
       for (const [prop, value] of Object.entries(flightCssVars(this.flightLayout))) {
         this.root.style.setProperty(prop, value);
