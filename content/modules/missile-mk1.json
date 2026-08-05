@@ -18,7 +18,7 @@
   },
   "heat": {
     "perSecondActive": 5,
-    "overheatThreshold": 50,
+    "overheatThreshold": 65,
     "overheatCooldown": 3,
     "overheatSelfDamage": 0
   },

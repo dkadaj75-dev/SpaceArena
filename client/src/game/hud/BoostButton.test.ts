@@ -133,13 +133,13 @@ describe("BoostButton", () => {
     const container = root.querySelector<HTMLElement>(".hud-boost")!;
     const button = root.querySelector<HTMLElement>(".hud-boost-btn")!;
 
-    // Mirrored onto the corner opposite FIRE: one primary control per thumb.
+    // The authored slot keeps BOOST with FIRE and the other right-thumb actions.
     expect(layout.fire.anchor).toBe("bottom-right");
-    expect(container.dataset["anchor"]).toBe("bottom-left");
+    expect(container.dataset["anchor"]).toBe("bottom-right");
     expect(Number.parseFloat(button.style.width)).toBeCloseTo(layout.boost.radiusPx * 2, 6);
     expect(Number.parseFloat(button.style.height)).toBeCloseTo(layout.boost.radiusPx * 2, 6);
-    // Grows right/up from the bottom-left pivot.
-    expect(Number.parseFloat(button.style.left)).toBeCloseTo(layout.boost.offsetXPx, 6);
+    // Grows left/up from the bottom-right pivot.
+    expect(Number.parseFloat(button.style.left)).toBeCloseTo(-(layout.boost.offsetXPx + layout.boost.radiusPx * 2), 6);
     expect(Number.parseFloat(button.style.top)).toBeCloseTo(
       -(layout.boost.offsetYPx + layout.boost.radiusPx * 2),
       6,

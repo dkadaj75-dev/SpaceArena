@@ -1,5 +1,7 @@
 import type {
   EnemyArrowsConfig,
+  FlightActionButtonConfig,
+  FlightActionsConfig,
   FireButtonConfig,
   FlightHudConfig,
   FlightOrdersConfig,
@@ -78,20 +80,15 @@ export interface FireLayout extends CircularControlLayout {
   blockedNotification?: string;
 }
 
-/**
- * The dedicated BOOST toggle (FLIGHT.md §4). It has no theme block of its own —
- * `theme.hud.flight` is owned by the shared schema and knows nothing about a
- * boost control — so its geometry is DERIVED from the FIRE control by
- * {@link boostLayoutFrom}: same inset from the screen edge, mirrored onto the
- * opposite bottom corner, and lifted clear of the gauges stacked there. A theme
- * that moves or resizes FIRE therefore moves BOOST with it, and the pilot always
- * gets one primary control under each thumb.
- */
-export interface BoostLayout {
+/** A themed slot for a secondary action in the bottom-right flight cluster. */
+export interface FlightActionLayout {
   anchor: HudAnchorName;
   radiusPx: number;
   offsetXPx: number;
   offsetYPx: number;
+}
+
+export interface BoostLayout extends FlightActionLayout {
   /** The boost family's colour — the same one the hangar tints a boost slot with. */
   color: string;
 }
@@ -165,6 +162,7 @@ export interface FlightHudLayout {
   modules: ModuleVisualLayout;
   fire: FireLayout;
   boost: BoostLayout;
+  jettison: FlightActionLayout;
   reticle: ReticleLayout;
   enemyArrows: EnemyArrowsLayout;
   orders: FlightOrderLayout;
@@ -269,12 +267,17 @@ export const FLIGHT_HUD_DEFAULTS = {
     heartbeatMs: 250,
     minIntervalMs: 120,
   },
-  // `boost` is deliberately absent: it has no authored block and no defaults of
-  // its own — {@link boostLayoutFrom} derives every number from `fire`.
+  actions: {
+    // The old boost implementation mirrored FIRE onto the left thumb. These
+    // fallbacks keep unextended themes functional while placing both auxiliary
+    // controls in the same bottom-right cluster as FIRE.
+    boost: { anchor: "bottom-right", radiusPx: 30, offsetXPx: 116, offsetYPx: 18 },
+    jettison: { anchor: "bottom-right", radiusPx: 30, offsetXPx: 50, offsetYPx: 112 },
+  },
 } as const satisfies Omit<
   FlightHudLayout,
-  "orientation" | "viewport" | "scale" | "metersPerUnit" | "boost"
->;
+  "orientation" | "viewport" | "scale" | "metersPerUnit" | "boost" | "jettison"
+> & { actions: { boost: FlightActionLayout; jettison: FlightActionLayout } };
 
 /**
  * BOOST's radius as a fraction of FIRE's. It is the secondary control of the
@@ -324,6 +327,19 @@ export function boostLayoutFrom(fire: FireLayout, color: string): BoostLayout {
   };
 }
 
+function actionLayoutFrom(
+  action: FlightActionButtonConfig | undefined,
+  fallback: (typeof FLIGHT_HUD_DEFAULTS.actions)[keyof typeof FLIGHT_HUD_DEFAULTS.actions],
+  scale: number,
+): FlightActionLayout {
+  return {
+    anchor: action?.anchor ?? fallback.anchor,
+    radiusPx: (action?.radiusPx ?? fallback.radiusPx) * scale,
+    offsetXPx: (action?.offsetXPx ?? fallback.offsetXPx) * scale,
+    offsetYPx: (action?.offsetYPx ?? fallback.offsetYPx) * scale,
+  };
+}
+
 /**
  * Share of `tuning.maxOrdersPerSec` the flight sender may spend. The rest is
  * headroom for the orders a player issues WHILE flying (module toggles, and the
@@ -362,6 +378,10 @@ export function resolveFlightHudLayout(
   const throttle: ThrottleStripConfig = merge(base.throttle, over.throttle);
   const modules: HudModulesConfig = hud?.modules ?? {};
   const fire: FireButtonConfig = merge(base.fire, over.fire);
+  const actions: FlightActionsConfig = {
+    boost: merge(base.actions?.boost, over.actions?.boost),
+    jettison: merge(base.actions?.jettison, over.actions?.jettison),
+  };
   const reticle: LockReticleConfig = merge(base.reticle, over.reticle);
   const arrows: EnemyArrowsConfig = merge(base.enemyArrows, over.enemyArrows);
   const orders: FlightOrdersConfig = merge(base.orders, over.orders);
@@ -434,7 +454,8 @@ export function resolveFlightHudLayout(
       boostColor,
     },
     fire: fireLayout,
-    boost: boostLayoutFrom(fireLayout, boostColor),
+    boost: { ...actionLayoutFrom(actions.boost, d.actions.boost, scale), color: boostColor },
+    jettison: actionLayoutFrom(actions.jettison, d.actions.jettison, scale),
     reticle: {
       showZone: reticle.showZone ?? d.reticle.showZone,
       maxRadiusFraction: reticle.maxRadiusFraction ?? d.reticle.maxRadiusFraction,

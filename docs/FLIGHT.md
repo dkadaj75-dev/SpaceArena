@@ -175,8 +175,12 @@ edge palm-rejection ignores them):
   `theme.hud.flight.joystick.enabled`; the shipped theme disables it.
 - **Throttle strip** (right edge, vertical): drag thumb 0% (bottom) → 100% (top);
   the thumb STAYS where released (held state). Shows % readout. Emits flight orders.
-- **Boost module button** (module cluster): toggles the fitted boost module; its
-  replicated `active` state drives `boost: true`.
+- **Bottom-right action cluster**: FIRE, fitted module buttons, and dedicated
+  BOOST / JETTISON controls share the right-thumb cluster. Their corner-relative
+  slots are authored in `theme.hud.flight.actions` (with portrait/landscape
+  overrides); BOOST toggles the fitted boost module and its replicated `active`
+  state drives `boost: true`. JETTISON appears only for a heatsink with a
+  `jettison` block, emits `jettisonHeatsink`, and draws its replicated cooldown.
 - **Lock reticle**: fixed center-screen circle showing the lock zone (size derived
   from coneDeg + camera FOV, theme-styled); target bracket projected onto the
   locked/locking enemy (main.ts passes a `project(worldPos) → cssPx` callback into
