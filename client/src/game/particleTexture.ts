@@ -16,7 +16,15 @@ export function getParticleTexture(scene: Scene): Texture {
 
   const size = 32;
   const tex = new DynamicTexture("tex.particle.soft", size, scene, false);
-  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  const ctx = tex.getContext() as CanvasRenderingContext2D | null;
+  // NullEngine (and a few headless browser harnesses) has no 2D canvas. The
+  // texture still provides a valid particle handle there; skip its cosmetic
+  // radial paint so pooled effect lifecycle tests can exercise real systems.
+  if (!ctx) {
+    tex.hasAlpha = true;
+    cache.set(scene, tex);
+    return tex;
+  }
   const grd = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   grd.addColorStop(0, "rgba(255,255,255,1)");
   grd.addColorStop(0.5, "rgba(255,255,255,0.5)");

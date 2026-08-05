@@ -44,7 +44,6 @@ export function moduleSystem(world: World, dt: number): void {
       } else if (m.state === "overheated") {
         m.stateTimer -= dt;
         if (m.stateTimer <= 0) {
-          m.heat = 0;
           m.overheatDamaged = false;
           // Weapons come straight back ONLINE after the lockout — they are
           // always-on (spawned active, see spawn.ts) and the overheat cooldown

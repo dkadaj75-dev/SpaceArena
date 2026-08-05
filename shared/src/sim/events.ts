@@ -26,7 +26,7 @@ export type SimEvent =
     }
   | { type: "overheated"; entityId: EntityId; hardpointIndex: number; moduleId: string; actions?: string[] }
   /**
-   * A ship blew its heatsink clear (owner 2026-07-31): its heat is now zero and
+   * A ship blew its heatsink clear (owner 2026-07-31): authored heat was purged and
    * `decoyId` is drifting behind it as a lure. Renderers flash the dump, HUDs
    * start the cooldown readout.
    */

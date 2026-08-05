@@ -20,6 +20,7 @@
     "overheatSelfDamage": 0
   },
   "jettison": {
+    "purgeAmount": 180,
     "cooldownSec": 25,
     "decoyLifetimeSec": 8,
     "decoyRadius": 1.4
@@ -28,7 +29,7 @@
     {
       "target": "heat.dissipation",
       "op": "add",
-      "value": 5
+      "value": 41
     },
     {
       "target": "heat.capacity",

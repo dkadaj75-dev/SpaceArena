@@ -9,10 +9,9 @@ import type { World } from "../World.js";
  * A `jettisonHeatsink` order blows the fitted sink clear of the hull. Two things
  * happen, and both are the point:
  *
- *  1. **The ship's heat is dumped.** Every module's heat and the shared pool go
- *     to zero, and an overheated rack comes straight back online. This is the
- *     out for a loadout that has cooked itself — at the cost of the sink's own
- *     dissipation being unavailable while it cools down.
+ *  1. **The ship's heat is purged.** Up to the sink's authored `purgeAmount` is
+ *     removed proportionally from hot racks, and overheated racks come straight back online. This is the
+ *     out for a loadout that has cooked itself, bounded by sink quality.
  *  2. **A decoy is left behind.** The glowing sink is the brightest thing in the
  *     sky for `decoyLifetimeSec`, so enemy auto-lock prefers it over a hull
  *     (TargetingSystem) and homing missiles ALREADY IN FLIGHT re-seek it
@@ -72,11 +71,13 @@ function tryJettison(world: World, shipId: EntityId): void {
 
   sink.runtime.cycleTimer = sink.cfg.jettison!.cooldownSec;
 
-  // 1. Dump the heat. An overheated module re-arms exactly as it would at the
-  // end of its lockout, so this rescues a cooked loadout instead of only
-  // zeroing a number.
+  // 1. Purge authored heat proportionally. An overheated module re-arms exactly as it would at the
+  // end of its lockout, so this rescues a cooked loadout as well as lowering
+  // the pool.
+  const hotTotal = mods.modules.reduce((sum, m) => sum + Math.max(0, m.heat), 0);
+  const purge = Math.min(hotTotal, sink.cfg.jettison!.purgeAmount);
   for (const m of mods.modules) {
-    m.heat = 0;
+    if (hotTotal > 0) m.heat = Math.max(0, m.heat - purge * (m.heat / hotTotal));
     m.overheatDamaged = false;
     if (m.state === "overheated") {
       const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
@@ -92,7 +93,7 @@ function tryJettison(world: World, shipId: EntityId): void {
       });
     }
   }
-  core.heat.cur = 0;
+  core.heat.cur = Math.max(0, hotTotal - purge);
 
   // 2. Leave the lure, at rest where the ship was. It does not inherit the
   // ship's velocity: a sink that flew along with you would shadow the hull it is

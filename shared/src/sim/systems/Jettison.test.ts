@@ -30,19 +30,19 @@ const jettisonCfg = (): NonNullable<ModuleConfig["jettison"]> =>
   configs.get<ModuleConfig>("module", "module.heatsink-ablative")!.jettison!;
 
 describe("heatsink jettison (owner 2026-07-31)", () => {
-  it("dumps every scrap of the ship's heat and leaves a decoy behind", () => {
+  it("purges only the authored amount proportionally and leaves a decoy behind", () => {
     const world = makeWorld(configs);
     const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
     const mods = world.modules.get(id)!.modules;
     const core = world.shipCores.get(id)!;
-    for (const m of mods) m.heat = 20;
-    core.heat.cur = 20 * mods.length;
+    for (const m of mods) m.heat = 40;
+    core.heat.cur = 40 * mods.length;
 
     world.queueOrder(id, { kind: "jettisonHeatsink" });
     jettisonSystem(world, DT);
 
-    expect(mods.every((m) => m.heat === 0)).toBe(true);
-    expect(core.heat.cur).toBe(0);
+    for (const m of mods) expect(m.heat).toBeCloseTo(40 - jettisonCfg().purgeAmount / mods.length, 9);
+    expect(core.heat.cur).toBeCloseTo(40 * mods.length - jettisonCfg().purgeAmount, 9);
     expect(world.decoyIds()).toHaveLength(1);
     const decoy = world.decoys.get(world.decoyIds()[0]!)!;
     expect(decoy.team).toBe(0);
@@ -62,7 +62,18 @@ describe("heatsink jettison (owner 2026-07-31)", () => {
     jettisonSystem(world, DT);
 
     expect(laser.state).toBe("active");
-    expect(laser.heat).toBe(0);
+    expect(laser.heat).toBe(0); // purge exceeds this single rack's heat
+  });
+
+  it("does not purge heat without a successful jettison order", () => {
+    const world = makeWorld(configs);
+    const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
+    const laser = world.modules.get(id)!.modules[INTERCEPTOR_SLOTS.laser]!;
+    laser.heat = 60;
+    world.shipCores.get(id)!.heat.cur = 60;
+    jettisonSystem(world, DT);
+    expect(laser.heat).toBe(60);
+    expect(world.shipCores.get(id)!.heat.cur).toBe(60);
   });
 
   it("drops the sink WHERE THE SHIP IS, at rest — a lure that flew along would shadow the hull", () => {
