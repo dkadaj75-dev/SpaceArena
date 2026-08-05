@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import type { ThemeConfig } from "@space-arena/shared";
 import {
-  anchoredBoxOffset,
   anchoredOffset,
+  anchoredBoxOffset,
   arrowOpacity,
   flightCssVars,
+  flightActionArcSlots,
   FLIGHT_HUD_DEFAULTS,
   FLIGHT_ORDER_BUDGET_SHARE,
   offScreenArrowPlacement,
@@ -18,7 +19,7 @@ import {
   type FlightHudLayout,
   type ProjectedPoint,
 } from "./flightHudLayout.js";
-import { anchorSigns, clusterOffsets, resolveHudLayout } from "./hudLayout.js";
+import { anchorSigns, resolveHudLayout } from "./hudLayout.js";
 import { MODULE_FAMILY_COLOR_FALLBACKS } from "./ModuleButtons.js";
 
 /** The shipped theme's flight block, inlined so the test pins behaviour, not content. */
@@ -244,7 +245,7 @@ describe("flightCssVars", () => {
   });
 });
 
-describe("shipped phone control geometry", () => {
+describe("shipped FIRE-centred control rail", () => {
   interface Rect {
     name: string;
     left: number;
@@ -279,36 +280,18 @@ describe("shipped phone control geometry", () => {
     };
   }
 
-  function boxes(viewport: { width: number; height: number }): {
+  function boxes(viewport: { width: number; height: number }, moduleCount: number): {
     controls: Rect[];
+    captions: Rect[];
     obstacles: Rect[];
-    moduleCenters: { x: number; y: number }[];
-    moduleRadius: number;
-    touchDiameters: number[];
+    centres: { x: number; y: number; radius: number }[];
     inset: number;
   } {
     const hud = resolveHudLayout(shipped, viewport);
     const flight = resolveFlightHudLayout(shipped, viewport);
-    const modulePivot = pivot(hud.cluster.anchor, viewport, hud.safeAreaInsetPx);
     const controls: Rect[] = [];
-    const moduleCenters: { x: number; y: number }[] = [];
-    for (const [index, offset] of clusterOffsets(5, hud).entries()) {
-      const x = modulePivot.x + offset.dx;
-      const y = modulePivot.y + offset.dy;
-      moduleCenters.push({ x, y });
-      controls.push(around(`module-${index}`, x, y, hud.cluster.buttonRadiusPx));
-      controls.push({
-        name: `module-${index}-label`,
-        left: x - flight.modules.labelMaxWidthPx / 2,
-        right: x + flight.modules.labelMaxWidthPx / 2,
-        top: y + hud.cluster.buttonRadiusPx + flight.modules.labelGapPx,
-        bottom:
-          y +
-          hud.cluster.buttonRadiusPx +
-          flight.modules.labelGapPx +
-          flight.modules.labelHeightPx,
-      });
-    }
+    const captions: Rect[] = [];
+    const centres: { x: number; y: number; radius: number }[] = [];
 
     const flightPivot = (anchor: typeof flight.fire.anchor) =>
       pivot(anchor, viewport, hud.safeAreaInsetPx);
@@ -328,37 +311,21 @@ describe("shipped phone control geometry", () => {
         flight.fire.radiusPx + (fireRingVisible ? flight.fire.ringGapPx : 0),
       ),
     );
-
-    const boostCorner = flightPivot(flight.boost.anchor);
-    const boostOffset = anchoredOffset(
-      flight.boost.anchor,
-      flight.boost.offsetXPx,
-      flight.boost.offsetYPx,
-      flight.boost.radiusPx,
-    );
-    controls.push(
-      around(
-        "boost",
-        boostCorner.x + boostOffset.dx,
-        boostCorner.y + boostOffset.dy,
-        flight.boost.radiusPx,
-      ),
-    );
-    const jettisonCorner = flightPivot(flight.jettison.anchor);
-    const jettisonOffset = anchoredOffset(
-      flight.jettison.anchor,
-      flight.jettison.offsetXPx,
-      flight.jettison.offsetYPx,
-      flight.jettison.radiusPx,
-    );
-    controls.push(
-      around(
-        "jettison",
-        jettisonCorner.x + jettisonOffset.dx,
-        jettisonCorner.y + jettisonOffset.dy,
-        flight.jettison.radiusPx,
-      ),
-    );
+    const slots = flightActionArcSlots(flight, moduleCount);
+    expect(slots).toHaveLength(moduleCount + 2);
+    for (const [index, slot] of slots.entries()) {
+      const corner = flightPivot(slot.anchor);
+      const offset = anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx);
+      const x = corner.x + offset.dx;
+      const y = corner.y + offset.dy;
+      const name = index < moduleCount ? `module-${index}` : index === moduleCount ? "boost" : "jettison";
+      controls.push(around(name, x, y, slot.radiusPx));
+      centres.push({ x, y, radius: slot.radiusPx });
+      const captionDistance = slot.radiusPx + slot.captionGapPx + flight.modules.labelHeightPx / 2;
+      const captionX = x + slot.captionX * captionDistance;
+      const captionY = y + slot.captionY * captionDistance;
+      captions.push(around(`${name}-caption`, captionX, captionY, flight.modules.labelMaxWidthPx / 2, flight.modules.labelHeightPx / 2));
+    }
 
     const throttleCorner = flightPivot(flight.throttle.anchor);
     const throttleOffset = anchoredBoxOffset(
@@ -410,19 +377,7 @@ describe("shipped phone control geometry", () => {
       ),
       around("speed", throttleX, speedY, 34 * flight.scale, 9 * flight.scale),
     ];
-    return {
-      controls,
-      obstacles,
-      moduleCenters,
-      moduleRadius: hud.cluster.buttonRadiusPx,
-      touchDiameters: [
-        hud.cluster.buttonRadiusPx * 2,
-        flight.fire.radiusPx * 2,
-        flight.boost.radiusPx * 2,
-        flight.jettison.radiusPx * 2,
-      ],
-      inset: hud.safeAreaInsetPx,
-    };
+    return { controls, captions, obstacles, centres, inset: hud.safeAreaInsetPx };
   }
 
   function overlaps(a: Rect, b: Rect): boolean {
@@ -431,18 +386,19 @@ describe("shipped phone control geometry", () => {
 
   it.each([
     { width: 390, height: 740 },
+    { width: 820, height: 1180 },
     { width: 1280, height: 800 },
-  ])("keeps the complete bottom-right control cluster clear at $width x $height", (viewport) => {
-    const { controls, obstacles, moduleCenters, moduleRadius, touchDiameters, inset } = boxes(viewport);
-    for (let i = 0; i < moduleCenters.length; i++) {
-      for (let j = i + 1; j < moduleCenters.length; j++) {
-        const a = moduleCenters[i]!;
-        const b = moduleCenters[j]!;
-        const edgeGap = Math.hypot(a.x - b.x, a.y - b.y) - moduleRadius * 2;
-        expect(edgeGap, `module-${i} / module-${j} edge gap`).toBeGreaterThanOrEqual(8);
-        if (j === i + 1) expect(edgeGap, `adjacent module-${i} / module-${j} edge gap`).toBeLessThanOrEqual(14);
+  ])("keeps every fitted rail arrangement clear at $width x $height", (viewport) => {
+    for (const moduleCount of [2, 4, 6]) {
+      const { controls, captions, obstacles, centres, inset } = boxes(viewport, moduleCount);
+      for (let i = 0; i < centres.length; i++) {
+        for (let j = i + 1; j < centres.length; j++) {
+          const a = centres[i]!;
+          const b = centres[j]!;
+          const edgeGap = Math.hypot(a.x - b.x, a.y - b.y) - a.radius - b.radius;
+          expect(edgeGap, `modules=${moduleCount}: ${i} / ${j} edge gap`).toBeGreaterThanOrEqual(8);
+        }
       }
-    }
     for (let i = 0; i < controls.length; i++) {
       const box = controls[i]!;
       expect(box.left, `${box.name} left`).toBeGreaterThanOrEqual(inset);
@@ -451,24 +407,19 @@ describe("shipped phone control geometry", () => {
       expect(box.bottom, `${box.name} bottom`).toBeLessThanOrEqual(viewport.height - inset);
       for (let j = i + 1; j < controls.length; j++) {
         const other = controls[j]!;
-        const moduleHex = (name: string): boolean => /^module-\d+$/.test(name);
-        const sameModuleSurface =
-          (moduleHex(box.name) && moduleHex(other.name)) ||
-          (box.name.startsWith("module-") && other.name.startsWith("module-") &&
-            box.name.endsWith("-label") !== other.name.endsWith("-label"));
-        // Hex separation is checked by the centre/radius audit above. A label's
-        // conservative max-width rectangle may cross a neighbouring hex's
-        // transparent corner even though the caption and plate do not touch.
-        // Caption/caption and every non-module surface remain strict rectangles.
-        if (!sameModuleSurface) {
-          expect(overlaps(box, other), `${box.name} overlaps ${other.name}`).toBe(false);
-        }
+        expect(overlaps(box, other), `${box.name} overlaps ${other.name}`).toBe(false);
       }
       for (const obstacle of obstacles) {
         expect(overlaps(box, obstacle), `${box.name} overlaps ${obstacle.name}`).toBe(false);
       }
+      for (const caption of captions) {
+        for (const control of controls) {
+          if (caption.name.startsWith(control.name)) continue;
+          expect(overlaps(caption, control), `${caption.name} overlaps ${control.name}`).toBe(false);
+        }
+      }
     }
-    for (const diameter of touchDiameters) expect(diameter).toBeGreaterThanOrEqual(44);
+    }
   });
 });
 

@@ -82,18 +82,6 @@
     },
     "notificationMaxVisible": 3,
     "thumbZoneFraction": 0.46,
-    "moduleCluster": {
-      "anchor": "bottom-right",
-      "layout": "arc",
-      "buttonRadiusPx": 24,
-      "gapPx": 10,
-      "arcRadiusPx": 90,
-      "arcStartDeg": 200,
-      "arcSweepDeg": -150,
-      "maxPerRow": 2,
-      "offsetXPx": 82,
-      "offsetYPx": 85
-    },
     "modules": {
       "familyColors": {
         "shield": "#3b5bdb",
@@ -144,7 +132,7 @@
       "fire": {
         "anchor": "bottom-right",
         "radiusPx": 49,
-        "offsetXPx": 24,
+        "offsetXPx": 4,
         "offsetYPx": 16,
         "icon": "FIRE",
         "ringGapPx": 4,
@@ -158,8 +146,7 @@
         "armedGlowPx": 18
       },
       "actions": {
-        "boost": { "anchor": "bottom-right", "radiusPx": 24, "offsetXPx": 158, "offsetYPx": 144, "color": "#e8b44f" },
-        "jettison": { "anchor": "bottom-right", "radiusPx": 24, "offsetXPx": 106, "offsetYPx": 184, "color": "#5ec9e8" }
+        "arc": { "radiusPx": 289, "startDeg": -95, "sweepDeg": -85, "buttonDiameterPx": 48, "captionGapPx": 5 }
       },
       "reticle": {
         "showZone": false,
@@ -195,15 +182,6 @@
       }
     },
     "portrait": {
-      "moduleCluster": {
-        "buttonRadiusPx": 24,
-        "gapPx": 10,
-        "arcRadiusPx": 90,
-        "arcStartDeg": 200,
-        "arcSweepDeg": -150,
-        "offsetXPx": 82,
-        "offsetYPx": 85
-      },
       "gauges": {
         "anchor": "bottom-left",
         "offsetXPx": 10,
@@ -216,14 +194,13 @@
         "fire": {
           "anchor": "bottom-right",
           "radiusPx": 49,
-          "offsetXPx": 24,
+          "offsetXPx": 4,
           "offsetYPx": 16,
           "icon": "FIRE",
           "blockedNotification": "notification.fire-blocked"
         },
         "actions": {
-          "boost": { "anchor": "bottom-right", "radiusPx": 24, "offsetXPx": 158, "offsetYPx": 144, "color": "#e8b44f" },
-          "jettison": { "anchor": "bottom-right", "radiusPx": 24, "offsetXPx": 106, "offsetYPx": 184, "color": "#5ec9e8" }
+          "arc": { "radiusPx": 289, "startDeg": -95, "sweepDeg": -85, "buttonDiameterPx": 48, "captionGapPx": 5 }
         }
       }
     },
@@ -250,15 +227,6 @@
         "trackHeightPx": 9,
         "segments": 10
       },
-      "moduleCluster": {
-        "buttonRadiusPx": 26,
-        "gapPx": 10,
-        "arcRadiusPx": 96,
-        "arcStartDeg": 200,
-        "arcSweepDeg": -150,
-        "offsetXPx": 93,
-        "offsetYPx": 69
-      },
       "flight": {
         "joystick": {
           "baseRadiusPx": 56,
@@ -274,13 +242,12 @@
         "fire": {
           "anchor": "bottom-right",
           "radiusPx": 42,
-          "offsetXPx": 22,
+          "offsetXPx": 4,
           "offsetYPx": 5,
           "icon": "FIRE"
         },
         "actions": {
-          "boost": { "anchor": "bottom-right", "radiusPx": 26, "offsetXPx": 182, "offsetYPx": 178, "color": "#e8b44f" },
-          "jettison": { "anchor": "bottom-right", "radiusPx": 26, "offsetXPx": 218, "offsetYPx": 60, "color": "#5ec9e8" }
+          "arc": { "radiusPx": 331, "startDeg": -95, "sweepDeg": -85, "buttonDiameterPx": 52, "captionGapPx": 5 }
         },
         "enemyArrows": {
           "ringRadiusPx": 118,
