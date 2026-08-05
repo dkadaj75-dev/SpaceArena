@@ -67,9 +67,6 @@ interface PumpResult {
   enemiesLeft: number;
 }
 
-/** Outcome banners `ResultsOverlay` can show for a finished match. */
-const OUTCOMES = /^(TARGETS CLEARED|VICTORY|DEFEAT|DRAW)$/;
-
 test("guest can log in, fit a ship, play a practice match and return to the lobby", async ({
   page,
 }) => {
