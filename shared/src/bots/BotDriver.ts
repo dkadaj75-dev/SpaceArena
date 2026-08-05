@@ -144,6 +144,11 @@ const FLOOR_NOMINAL_SPEED = 20;
 const CARRIER_STUCK_MS = 5_000;
 const CARRIER_COMMIT_MS = 3_000;
 const CARRIER_PROGRESS_EPSILON = 0.75;
+const WEDGE_CONTACT_EPSILON = 0.35;
+const WEDGE_SPEED = 0.75;
+const WEDGE_DETECT_MS = 900;
+const UNSTUCK_COMMIT_MS = 2_000;
+const UNSTUCK_AIM_DISTANCE = 28;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -208,6 +213,8 @@ export class BotDriver {
   private targetMotion: { id: EntityId; pos: Required<Vec3>; atMs: number } | null = null;
   private fireState: FireDisciplineState = { heatHeld: false };
   private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number } | null = null;
+  private wedgeContactSinceMs: number | null = null;
+  private unstuck: { untilMs: number; obstacleId: EntityId; side: 1 | -1 } | null = null;
 
   constructor(options: BotDriverOptions) {
     this.entityId = options.entityId;
@@ -271,6 +278,8 @@ export class BotDriver {
     this.targetMotion = null;
     this.fireState = { heatHeld: false };
     this.carrierProgress = null;
+    this.wedgeContactSinceMs = null;
+    this.unstuck = null;
   }
 
   /**
@@ -457,6 +466,7 @@ export class BotDriver {
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
     bestPlan = this.commitStuckCarrier(snapshot, self, bestPlan, nowMs);
+    bestPlan = this.unstuckPlan(snapshot, self, bestPlan, nowMs);
     const engaged = bestPlan?.engaged ?? false;
     // Objective travel owns steering, but it must not make nearby enemies
     // invulnerable. Fire opportunistically without replacing the route home.
@@ -823,6 +833,61 @@ export class BotDriver {
     };
   }
 
+  /**
+   * Break sustained powered contact with a collider. Collision resolution removes
+   * inward velocity, but a level-triggered throttle command reconstructs it on
+   * the next navigation tick; without memory the pilot can therefore press into
+   * the same surface forever. After a short, measured wedge, commit to one
+   * tangent for a bounded interval. The tangent side that still advances toward
+   * the winning utility plan is preferred, with the seeded orbit sign as a
+   * deterministic tie-break.
+   */
+  private unstuckPlan(snapshot: Snapshot, self: ShipSnapshot, plan: BotPlan | null, nowMs: number): BotPlan | null {
+    if (!plan || plan.throttle < 0.2) {
+      this.wedgeContactSinceMs = null;
+      this.unstuck = null;
+      return plan;
+    }
+
+    const obstacle = nearestContact(snapshot, self);
+    const speed = self.velocity
+      ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z)
+      : Infinity;
+    if (!obstacle || speed >= WEDGE_SPEED) {
+      this.wedgeContactSinceMs = null;
+      if (this.unstuck && nowMs >= this.unstuck.untilMs) this.unstuck = null;
+      return plan;
+    }
+
+    this.wedgeContactSinceMs ??= nowMs;
+    if (!this.unstuck && nowMs - this.wedgeContactSinceMs >= WEDGE_DETECT_MS) {
+      this.unstuck = {
+        untilMs: nowMs + UNSTUCK_COMMIT_MS,
+        obstacleId: obstacle.id,
+        side: tangentSide(self, obstacle.pos, plan.aim, this.orbitSign),
+      };
+    }
+    if (!this.unstuck || nowMs >= this.unstuck.untilMs) return plan;
+
+    const active = colliderById(snapshot, self, this.unstuck.obstacleId) ?? obstacle;
+    const dx = self.pos.x - active.pos.x;
+    const dz = self.pos.z - active.pos.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const nx = dx / length;
+    const nz = dz / length;
+    const side = this.unstuck.side;
+    return {
+      ...plan,
+      aim: {
+        x: self.pos.x + (-nz * side + nx * 0.35) * UNSTUCK_AIM_DISTANCE,
+        y: plan.aim?.y ?? self.pos.y,
+        z: self.pos.z + (nx * side + nz * 0.35) * UNSTUCK_AIM_DISTANCE,
+      },
+      throttle: Math.max(plan.throttle, 0.65),
+      boost: false,
+    };
+  }
+
   /** Longest fitted weapon range (cached; the fitting never changes mid-match). */
   private weaponRange(self: ShipSnapshot): number {
     if (this.weaponRangeCache >= 0) return this.weaponRangeCache;
@@ -834,6 +899,45 @@ export class BotDriver {
     this.weaponRangeCache = max;
     return max;
   }
+}
+
+interface ContactCollider { id: EntityId; pos: Required<Vec3>; radius: number }
+
+function colliderById(snapshot: Snapshot, self: ShipSnapshot, id: EntityId): ContactCollider | null {
+  const asteroid = snapshot.asteroids.find((candidate) => candidate.id === id && candidate.state !== "destroyed");
+  if (asteroid) return { id, pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius };
+  const ship = snapshot.ships.find((candidate) => candidate.id === id && candidate.id !== self.id);
+  return ship ? { id, pos: ship.pos, radius: ship.colliderRadius ?? 0 } : null;
+}
+
+function nearestContact(snapshot: Snapshot, self: ShipSnapshot): ContactCollider | null {
+  const ownRadius = self.colliderRadius ?? 0;
+  let nearest: ContactCollider | null = null;
+  let bestSurface = Infinity;
+  const consider = (candidate: ContactCollider): void => {
+    const surface = dist3(self.pos, candidate.pos) - ownRadius - candidate.radius;
+    if (surface <= WEDGE_CONTACT_EPSILON && surface < bestSurface) {
+      bestSurface = surface;
+      nearest = candidate;
+    }
+  };
+  for (const asteroid of snapshot.asteroids) {
+    if (asteroid.state !== "destroyed") consider({ id: asteroid.id, pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius });
+  }
+  for (const ship of snapshot.ships) {
+    if (ship.id !== self.id) consider({ id: ship.id, pos: ship.pos, radius: ship.colliderRadius ?? 0 });
+  }
+  return nearest;
+}
+
+function tangentSide(self: ShipSnapshot, center: Vec3, objective: Vec3 | null, fallback: 1 | -1): 1 | -1 {
+  if (!objective) return fallback;
+  const dx = self.pos.x - center.x;
+  const dz = self.pos.z - center.z;
+  const ox = objective.x - self.pos.x;
+  const oz = objective.z - self.pos.z;
+  const cross = -dz * ox + dx * oz;
+  return Math.abs(cross) < 1e-6 ? fallback : cross > 0 ? 1 : -1;
 }
 
 /**

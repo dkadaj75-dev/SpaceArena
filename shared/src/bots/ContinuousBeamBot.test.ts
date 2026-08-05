@@ -9,7 +9,8 @@ import { loadTestConfigs } from "../sim/testutil.js";
 import { BotDriver } from "./BotDriver.js";
 
 const DT = 1 / 30;
-const SECONDS = 40;
+// 80s: half-damage beams (owner 2026-08-05) need the longer channel to kill.
+const SECONDS = 80;
 
 let configs: ConfigService;
 beforeAll(async () => {
