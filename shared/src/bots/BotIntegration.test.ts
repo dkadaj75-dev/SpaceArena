@@ -423,14 +423,12 @@ describe("bots in a live ArenaSimulation", () => {
     expect(JSON.stringify(other.events)).not.toBe(JSON.stringify(a.events));
   });
 
-  it("never lets a disciplined profile force-overheat a module", () => {
-    // bot.cautious shuts down at 0.7 of threshold — it must never reach the
-    // sim's forced `overheated` state, which is the whole point of 5.1's
-    // moduleDiscipline (same skill axis as a human managing heat).
+  it("records the deliberate x5 missile rack lockout for a disciplined profile", () => {
+    // Mk I's x5 heat-per-shot is 60 against its 50 threshold: a launch itself
+    // locks the rack, so a cautious bot cannot avoid this authored tradeoff.
     const result = runMatch(["bot.cautious", "bot.cautious"], 11);
-    expect(result.seenStates.has("overheated")).toBe(false);
-    // Discipline holds while the bots are genuinely fighting, not because they
-    // never switched anything on.
+    expect(result.seenStates.has("overheated")).toBe(true);
+    // The lockout happens while the bots are genuinely fighting.
     expect(result.seenStates.has("active")).toBe(true);
     expect(result.weaponDamage).toBeGreaterThan(0);
   });

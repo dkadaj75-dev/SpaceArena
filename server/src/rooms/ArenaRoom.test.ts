@@ -140,9 +140,10 @@ describe("ArenaRoom", () => {
     const ack3 = await c1.waitForMessage("orderAck");
     expect(ack3).toMatchObject({ accepted: false, reason: "malformed" });
 
-    // Weapons spawn ONLINE (2 = active), and so does the internal bay — it is
-    // the ship's own systems (2026-07-31).
-    expect(p1.modules[0]!.state).toBe(2);
+    // Under the x5 weapon-heat scale (owner 2026-08-04) twenty ticks of held
+    // fire trip the laser rack into its overheat lockout (4); the internal bay
+    // is the ship's own systems and stays online (2026-07-31).
+    expect(p1.modules[0]!.state).toBe(4);
     expect(p1.modules[2]!.state).toBe(2); // engine bay
     // The continuous-channel flag rides the same per-module state; a `held`
     // laser must never set it.

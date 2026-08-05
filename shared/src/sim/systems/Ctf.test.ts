@@ -75,6 +75,20 @@ describe("flags exist because the MODE says so (owner 2026-07-31)", () => {
 });
 
 describe("taking a flag", () => {
+  it("uses the authored 7.5-unit flag pickup radius, without enlarging the capture base", () => {
+    const sim = ctfSim();
+    const runner = sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0);
+    const enemy = flagOf(sim, 1);
+    // The interceptor collision radius is 1.4, so 8 units is outside the old
+    // 5 + 1.4 reach but inside the new 7.5 + 1.4 loose/home-flag reach.
+    place(sim, runner, { x: enemy.home.x + 8, y: enemy.home.y, z: enemy.home.z });
+
+    expect(tickEvents(sim)).toContainEqual(
+      expect.objectContaining({ type: "flagTaken", flagTeam: 1, carrierId: runner }),
+    );
+    expect(sim.world.flags.get(enemy.id)!.baseRadius).toBe(16);
+  });
+
   it("is done by flying through the enemy's, and makes you the carrier", () => {
     const sim = ctfSim();
     const runner = sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0);

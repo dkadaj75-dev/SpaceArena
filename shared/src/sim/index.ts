@@ -5,6 +5,7 @@ export * from "./rng.js";
 export * from "./spatialHash.js";
 export * from "./components.js";
 export * from "./events.js";
+export * from "./MatchStats.js";
 export * from "./orders.js";
 export * from "./World.js";
 export * from "./spawn.js";

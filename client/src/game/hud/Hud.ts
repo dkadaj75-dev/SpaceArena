@@ -28,6 +28,8 @@ import { flightCssVars, resolveFlightHudLayout, type FlightHudLayout } from "./f
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { BoundaryWarningLatch } from "../../core/boundaryProximity.js";
 import { BlockedPullFeedback } from "./BlockedPullFeedback.js";
+import { KillFeed } from "./KillFeed.js";
+import { Scoreboard } from "./Scoreboard.js";
 
 const log = createLogger("Hud");
 
@@ -102,6 +104,8 @@ export class Hud {
   /** Match-start 3-2-1-GO numerals, driven by the sim-authoritative countdown. */
   private readonly countdown: CountdownOverlay;
   private readonly killAnnouncements: KillAnnouncements;
+  private readonly killFeed: KillFeed;
+  private readonly scoreboard: Scoreboard;
   private readonly resultsOverlay: ResultsOverlay;
   private readonly haptics: Haptics;
   /** Flight controls (FLIGHT.md §4), or null when the caller passed no 3D binding. */
@@ -152,9 +156,12 @@ export class Hud {
     this.matchStatus = new MatchStatus(this.root, session);
     this.countdown = new CountdownOverlay(this.root);
     this.killAnnouncements = new KillAnnouncements(this.root, playerId);
+    this.killFeed = new KillFeed(this.root, session, playerId);
+    this.scoreboard = new Scoreboard(this.root, session);
     this.resultsOverlay = new ResultsOverlay(this.root, session, playerId, callbacks, {
       offline: options.offline ?? false,
     });
+    this.scoreboard.setResultsHost(this.resultsOverlay.scoreboardHost);
     this.haptics = new Haptics(configs, playerId);
     this.blockedPullFeedback = new BlockedPullFeedback(
       configs,
@@ -278,6 +285,8 @@ export class Hud {
     this.damageFx.update(dtMs);
     this.floatingDamage.update(cur, prev, alpha, dtMs);
     this.resultsOverlay.update(cur, dtMs);
+    this.killFeed.update(dtMs);
+    this.scoreboard.update(cur);
   }
 
   /** Direct toast for client-side feedback (e.g. rejected online orders). */
@@ -342,6 +351,7 @@ export class Hud {
     this.floatingDamage.consumeEvents(events);
     this.haptics.consumeEvents(events);
     this.killAnnouncements.consumeEvents(events);
+    this.killFeed.consumeEvents(events);
   }
 
   dispose(): void {
@@ -353,6 +363,8 @@ export class Hud {
     window.visualViewport?.removeEventListener("resize", this.onViewportChange);
     this.moduleButtons.dispose();
     this.killAnnouncements.dispose();
+    this.killFeed.dispose();
+    this.scoreboard.dispose();
     this.gauges.dispose();
     this.vitalArcs.dispose();
     this.minimap.dispose();

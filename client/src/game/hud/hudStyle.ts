@@ -95,6 +95,27 @@ const CSS = `
   --hud-tick-color: color-mix(in srgb, var(--hud-primary, #39bfff) 55%, transparent);
 }
 
+.hud-kill-feed { position:absolute; top:var(--hud-inset-top); right:var(--hud-inset-right); width:min(360px,58vw); display:flex; flex-direction:column; gap:4px; align-items:flex-end; }
+.hud-kill-feed-line { display:none; padding:5px 9px; background:color-mix(in srgb,var(--hud-bg,#0a0f1e) 72%,transparent); border-right:2px solid var(--hud-muted,#8290a8); font-size:.78rem; white-space:nowrap; }
+.hud-kill-feed-line.visible { display:block; }
+.hud-kill-feed-line.self { color:var(--hud-accent,#ffd166); border-color:var(--hud-accent,#ffd166); }
+.hud-kill-feed-line.friendly { color:var(--hud-primary,#39bfff); border-color:var(--hud-primary,#39bfff); }
+.hud-kill-feed-line.enemy { color:var(--hud-danger,#ff526d); border-color:var(--hud-danger,#ff526d); }
+.hud-scoreboard { position:absolute; inset:0; display:none; place-items:center; background:color-mix(in srgb,var(--hud-bg,#0a0f1e) 62%,transparent); pointer-events:auto; z-index:30; }
+.hud-scoreboard.visible { display:grid; }
+.hud-scoreboard-panel { position:relative; width:min(900px,calc(100vw - 24px)); max-height:calc(100vh - 28px); overflow:auto; padding:18px; box-sizing:border-box; }
+.hud-scoreboard h2 { margin:0 0 12px; font-family:var(--hud-font-display,inherit); letter-spacing:.15em; color:var(--hud-primary,#39bfff); }
+.hud-scoreboard table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:clamp(.68rem,2vw,.9rem); }
+.hud-scoreboard caption { text-align:left; color:var(--hud-accent,#ffd166); font-weight:700; padding:5px; }
+.hud-scoreboard th,.hud-scoreboard td { padding:6px; text-align:right; border-bottom:1px solid color-mix(in srgb,var(--hud-primary,#39bfff) 22%,transparent); }
+.hud-scoreboard th:first-child,.hud-scoreboard td:first-child { text-align:left; min-width:8em; }
+.hud-scoreboard-btn { position:absolute; top:calc(var(--hud-inset-top) + 42px); right:var(--hud-inset-right); z-index:31; pointer-events:auto; border:1px solid var(--hud-primary,#39bfff); background:color-mix(in srgb,var(--hud-bg,#0a0f1e) 75%,transparent); color:var(--hud-text,#dbe9ff); padding:7px 10px; font:inherit; font-size:.68rem; }
+.hud-results-scoreboard { width:100%; }
+.hud-results-scoreboard .hud-scoreboard-panel { width:100%; max-height:38vh; padding:10px; }
+.hud-results-scoreboard .hud-scoreboard-panel h2 { display:none; }
+.hud-results-panel:has(.hud-results-scoreboard:not(:empty)) { max-width:min(900px,calc(100% - var(--hud-inset-left) - var(--hud-inset-right))); }
+@media (orientation:portrait) { .hud-kill-feed { top:calc(var(--hud-inset-top) + 78px); width:66vw; } .hud-scoreboard-panel { padding:10px; } .hud-scoreboard th,.hud-scoreboard td { padding:5px 3px; } }
+
 /* Buttons opt into the browser's low-latency tap handling. Continuous HUD
    controls override this with touch-action:none where they own the gesture. */
 .hud-root [data-hud-control] {

@@ -51,6 +51,7 @@ export class ResultsOverlay {
   private readonly bannerEl: HTMLDivElement;
   private readonly subEl: HTMLDivElement;
   private readonly participantsEl: HTMLDivElement;
+  readonly scoreboardHost: HTMLDivElement;
   private readonly rewardsEl: HTMLDivElement;
   private readonly creditsEl: HTMLSpanElement;
   private readonly xpEl: HTMLSpanElement;
@@ -90,6 +91,8 @@ export class ResultsOverlay {
     this.subEl.className = "hud-results-sub";
     this.participantsEl = document.createElement("div");
     this.participantsEl.className = "hud-results-participants";
+    this.scoreboardHost = document.createElement("div");
+    this.scoreboardHost.className = "hud-results-scoreboard";
 
     this.rewardsEl = document.createElement("div");
     this.rewardsEl.className = "hud-results-rewards";
@@ -121,7 +124,7 @@ export class ResultsOverlay {
       button("Menu", "", callbacks.onMenu, "menu"),
     );
 
-    panel.append(this.bannerEl, rule, this.participantsEl, this.subEl, this.rewardsEl, actions);
+    panel.append(this.bannerEl, rule, this.participantsEl, this.scoreboardHost, this.subEl, this.rewardsEl, actions);
     this.root.appendChild(panel);
     parent.appendChild(this.root);
   }

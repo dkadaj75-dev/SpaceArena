@@ -37,6 +37,13 @@ const LEET: ReadonlyArray<readonly [string, string]> = [
   ["s", "5"],
 ];
 
+/**
+ * Server backfill asks for one name at a time, while local practice asks for a
+ * roster. Remembering names per RNG stream gives both call sites the same
+ * match-level uniqueness guarantee without putting room state in sim code.
+ */
+const namesByStream = new WeakMap<() => number, Set<string>>();
+
 /** Pick one entry from `list` using `rng` (a 0..1 generator). */
 function pick<T>(rng: () => number, list: readonly T[]): T {
   const index = Math.min(list.length - 1, Math.max(0, Math.floor(rng() * list.length)));
@@ -47,7 +54,7 @@ function pick<T>(rng: () => number, list: readonly T[]): T {
  * One player-like handle. Shapes it can take, roughly in order of frequency:
  * `Vector`, `Novarunner`, `xXTalonXx`, `R1ftHunter_`, `Quasar_77`.
  */
-export function generateBotName(rng: () => number): string {
+function rawBotName(rng: () => number): string {
   const prefix = pick(rng, PREFIXES);
   let stem = pick(rng, STEMS);
   const tail = pick(rng, TAILS);
@@ -67,7 +74,29 @@ export function generateBotName(rng: () => number): string {
   // A bare number tail reads oddly glued to a word, so separate it.
   const numeric = /^\d/.test(suffix);
   const glue = numeric && prefix === "" ? "_" : "";
-  return `${prefix}${stem}${joinedTail}${glue}${suffix}`;
+  let name = `${prefix}${stem}${joinedTail}${glue}${suffix}`;
+  // A few lowercase tags keep the roster from following one casing template.
+  if (rng() < 0.16) name = name.toLowerCase();
+  return name.slice(0, 16);
+}
+
+/** One player-like, unique-within-stream handle. */
+export function generateBotName(rng: () => number): string {
+  let seen = namesByStream.get(rng);
+  if (!seen) {
+    seen = new Set();
+    namesByStream.set(rng, seen);
+  }
+
+  let name = rawBotName(rng);
+  for (let attempt = 0; attempt < 8 && seen.has(name); attempt++) name = rawBotName(rng);
+  if (seen.has(name)) {
+    let n = 2;
+    while (seen.has(`${name.slice(0, 16 - String(n).length)}${n}`)) n++;
+    name = `${name.slice(0, 16 - String(n).length)}${n}`;
+  }
+  seen.add(name);
+  return name;
 }
 
 /**
@@ -80,15 +109,7 @@ export function generateBotNames(rng: () => number, count: number): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (let i = 0; i < count; i++) {
-    let name = generateBotName(rng);
-    for (let attempt = 0; attempt < 8 && seen.has(name); attempt++) {
-      name = generateBotName(rng);
-    }
-    if (seen.has(name)) {
-      let n = 2;
-      while (seen.has(`${name}${n}`)) n++;
-      name = `${name}${n}`;
-    }
+    const name = generateBotName(rng);
     seen.add(name);
     out.push(name);
   }

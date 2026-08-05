@@ -110,6 +110,23 @@ describe("ModuleSystem state machine", () => {
     expect(laser.heat).toBe(0);
   });
 
+  it("routes a weapon's 100% lockout through the authored warning notification", () => {
+    const { world, id } = shipWorld();
+    const laser = world.modules.get(id)!.modules[LASER]!;
+    laser.heat = configs.get<ModuleConfig>("module", laser.moduleId)!.heat.overheatThreshold;
+    laser.workedThisTick = true;
+
+    energySystem(world, DT);
+    expect(world.events).toContainEqual(
+      expect.objectContaining({
+        type: "overheated",
+        entityId: id,
+        moduleId: laser.moduleId,
+        actions: expect.arrayContaining(["action.notify-overheat"]),
+      }),
+    );
+  });
+
   it("ignores toggles while overheated", () => {
     const { world, id } = shipWorld();
     const mod = world.modules.get(id)!.modules[LASER]!;
