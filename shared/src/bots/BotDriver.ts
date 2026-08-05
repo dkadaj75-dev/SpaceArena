@@ -23,7 +23,7 @@ import { boolParam, buildBotContext, numParam, strParam, type BehaviorParams, ty
 // `objective` behaviour the registry has never heard of and silently ignore it.
 import "./ctfBehavior.js";
 import { steerForPoint } from "./flight.js";
-import { decideFire, type FireDecisionReason } from "./fireDiscipline.js";
+import { decideFire, type FireDecisionReason, type FireDisciplineState } from "./fireDiscipline.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";
 
 /**
@@ -139,11 +139,11 @@ const CALIBRATION_MAX_SPAN_SEC = 0.2;
  * only absorbs float noise — it is not a tolerance band.
  */
 const CLAMP_PINNED_EPSILON = 1e-9;
-/** SceneBuilder's deterministic terrain relief is bounded by 1.35 + 0.55. */
-const TERRAIN_RELIEF_MAX = 1.9;
-const FLOOR_CLEARANCE = 8;
 const FLOOR_LOOKAHEAD_SEC = 2.5;
 const FLOOR_NOMINAL_SPEED = 20;
+const CARRIER_STUCK_MS = 5_000;
+const CARRIER_COMMIT_MS = 3_000;
+const CARRIER_PROGRESS_EPSILON = 0.75;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -206,6 +206,8 @@ export class BotDriver {
   /** Seeded combat-aim bias, held across decisions so misses look human, not noisy. */
   private marksmanship = { yaw: 0, pitch: 0, velocitySec: 0, untilMs: 0 };
   private targetMotion: { id: EntityId; pos: Required<Vec3>; atMs: number } | null = null;
+  private fireState: FireDisciplineState = { heatHeld: false };
+  private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number } | null = null;
 
   constructor(options: BotDriverOptions) {
     this.entityId = options.entityId;
@@ -267,6 +269,8 @@ export class BotDriver {
     this.lastElapsed = 0;
     this.marksmanship = { yaw: 0, pitch: 0, velocitySec: 0, untilMs: 0 };
     this.targetMotion = null;
+    this.fireState = { heatHeld: false };
+    this.carrierProgress = null;
   }
 
   /**
@@ -452,10 +456,16 @@ export class BotDriver {
       const params = profile.behaviors[bestKey]!;
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
+    bestPlan = this.commitStuckCarrier(snapshot, self, bestPlan, nowMs);
     const engaged = bestPlan?.engaged ?? false;
-    this.lastEngaged = engaged;
+    // Objective travel owns steering, but it must not make nearby enemies
+    // invulnerable. Fire opportunistically without replacing the route home.
+    const triggerEngaged = engaged || (
+      bestKey === "objective" && ctx.target !== null && ctx.hasLoS && ctx.distance <= weaponRange
+    );
+    this.lastEngaged = triggerEngaged;
     this.lastTargetId = targetId;
-    const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, engaged);
+    const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, triggerEngaged, this.fireState);
 
     // --- flight order: aim point -> both sticks, then overlays, then epsilon gate ---
     const plannedAim = bestPlan?.aim ?? null;
@@ -522,7 +532,7 @@ export class BotDriver {
     }
 
     // --- module discipline ---
-    const modulePlan = planModuleOrders(ctx, this.configs, this.profile.moduleDiscipline, engaged);
+    const modulePlan = planModuleOrders(ctx, this.configs, this.profile.moduleDiscipline, triggerEngaged);
     orders.push(...modulePlan.orders);
     // Boost-capable engines spawn disabled. When a bot elects to boost, it
     // explicitly arms that engine through the normal module-toggle pipeline.
@@ -548,7 +558,7 @@ export class BotDriver {
       flight: cmd,
       boost: cmd.boost,
       targetId,
-      engaged,
+      engaged: triggerEngaged,
       fire: fireDecision.fire,
       fireReason: fireDecision.reason,
       moduleDecisions: modulePlan.decisions,
@@ -749,15 +759,19 @@ export class BotDriver {
   ): FlightCommand {
     if (this.floorY === undefined) return cmd;
     const radius = self.colliderRadius ?? 0;
-    const safeY = this.floorY + TERRAIN_RELIEF_MAX + radius + FLOOR_CLEARANCE;
+    // The terrain mesh has visual relief, but collision is the authored floor
+    // plane. Keep a small hull clearance without treating normal lunar spawn/
+    // base altitude (y=8..10) as an emergency band.
+    const safeY = this.floorY + radius + 3;
     const noseY = Math.sin(self.pitch);
     const observedVy = self.velocity?.y ?? 0;
     const projectedVy = Math.min(observedVy, noseY * FLOOR_NOMINAL_SPEED * cmd.throttle);
     const predictedY = self.pos.y + projectedVy * FLOOR_LOOKAHEAD_SEC;
     if (predictedY >= safeY) return cmd;
 
-    const band = Math.max(FLOOR_CLEARANCE + TERRAIN_RELIEF_MAX, 1);
+    const band = 4;
     const strength = clamp((safeY - predictedY) / band, 0, 1);
+    const emergencyCut = self.pos.y <= this.floorY + radius + 3.5;
     const lift = steerForPoint(
       self.pos,
       self.heading,
@@ -769,8 +783,43 @@ export class BotDriver {
     return {
       turn: cmd.turn + (lift.turn - cmd.turn) * strength,
       pitchStick: cmd.pitchStick + (lift.pitchStick - cmd.pitchStick) * strength,
-      throttle: cmd.throttle * (1 - strength),
+      // Rotation is speed-independent; retain enough thrust to turn the new
+      // upward attitude into actual separation instead of hovering in a cut.
+      throttle: emergencyCut
+        ? 0
+        : cmd.throttle * (1 - strength) + Math.min(cmd.throttle, 0.35) * strength,
       boost: strength < 0.15 && cmd.boost,
+    };
+  }
+
+  /** Time-box a carrier's wait and force a deterministic home commit after no progress. */
+  private commitStuckCarrier(snapshot: Snapshot, self: ShipSnapshot, plan: BotPlan | null, nowMs: number): BotPlan | null {
+    const carried = snapshot.flags.find((flag) => flag.state === "carried" && flag.carrierId === self.id && flag.team !== self.team);
+    if (!carried || !plan) {
+      this.carrierProgress = null;
+      return plan;
+    }
+    const own = snapshot.flags.find((flag) => flag.team === self.team);
+    const home = own?.home ?? carried.home;
+    const distance = dist3(self.pos, home);
+    const progress = this.carrierProgress ?? { homeDistance: distance, progressedAtMs: nowMs, commitUntilMs: 0 };
+    if (distance <= progress.homeDistance - CARRIER_PROGRESS_EPSILON) {
+      progress.homeDistance = distance;
+      progress.progressedAtMs = nowMs;
+    }
+    if (nowMs - progress.progressedAtMs >= CARRIER_STUCK_MS) {
+      progress.commitUntilMs = nowMs + CARRIER_COMMIT_MS;
+      progress.progressedAtMs = nowMs;
+      progress.homeDistance = distance;
+    }
+    this.carrierProgress = progress;
+    if (nowMs >= progress.commitUntilMs) return plan;
+    const clear = hasLineOfSightAmong(self.pos, home, snapshot.asteroids.map((a) => ({ pos: a.pos, radius: a.colliderRadius ?? a.radius })));
+    return {
+      ...plan,
+      aim: clear ? home : { x: home.x, y: Math.max(home.y, self.pos.y + 24), z: home.z + this.orbitSign * 8 },
+      throttle: 1,
+      boost: false,
     };
   }
 

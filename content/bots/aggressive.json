@@ -67,6 +67,7 @@
   "fireDiscipline": {
     "engageRangeMult": 1.1,
     "heatHeadroom": 0.9,
+    "rearmHeatBelow": 0.4,
     "minEnergyFraction": 0.08,
     "burstSec": 0.8,
     "pauseSec": 0.2

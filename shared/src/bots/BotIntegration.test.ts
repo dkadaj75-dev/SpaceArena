@@ -252,6 +252,12 @@ describe("bots in a live ArenaSimulation", () => {
     const fired = result.events.filter((e) => e.type === "projectileFired");
     // Owner heat x10 deliberately puts more time into rack cooldowns.
     expect(fired.length).toBeGreaterThan(3);
+    // Current finite cooling must still produce an exchange, not one opening
+    // shot followed by a match-long heat hold. Thirty seconds => ×2 for /min.
+    for (const id of result.botIds) {
+      const perMinute = fired.filter((event) => event.ownerId === id).length * (60 / result.duration);
+      expect(perMinute).toBeGreaterThanOrEqual(4);
+    }
     expect(result.firstWeaponHitAt).toBeLessThan(15);
     expect(result.weaponDamage).toBeGreaterThan(40);
     // Weapons, not scenery, decide the fight. Flight retired asteroid avoidance

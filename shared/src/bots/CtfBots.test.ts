@@ -79,8 +79,8 @@ function playCtf(seed: number, seconds: number) {
   return { sim, events, stuck };
 }
 
-function carryFlagHome(seed: number, seconds: number) {
-  const sim = new ArenaSimulation(configs, "arena.ring-nebula", CTF, seed);
+function carryFlagHome(seed: number, seconds: number, arenaId = "arena.ring-nebula") {
+  const sim = new ArenaSimulation(configs, arenaId, CTF, seed);
   const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
   const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
   const own = sim.snapshot().flags.find((flag) => flag.team === 0)!;
@@ -100,7 +100,13 @@ function carryFlagHome(seed: number, seconds: number) {
   const flagTf = sim.world.transforms.get(enemyFlagId)!;
   Object.assign(flagTf.pos, sim.world.transforms.get(id)!.pos);
 
-  const driver = new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id) });
+  const driver = new BotDriver({
+    entityId: id,
+    profile,
+    configs,
+    rng: deriveRng(seed, id),
+    floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined,
+  });
   const events: SimEvent[] = [];
   const distances: number[] = [];
   let nowMs = 0;
@@ -182,6 +188,7 @@ function blockedCarrierLoiter(seed: number, seconds: number, holding = true) {
   let angularProgress = 0;
   let lastAngle: number | null = null;
   let maxThrottle = 0;
+  let initialMaxThrottle = 0;
   let nowMs = 0;
   for (let i = 0; i < Math.round(seconds / DT); i++) {
     nowMs += DT * 1000;
@@ -195,10 +202,11 @@ function blockedCarrierLoiter(seed: number, seconds: number, holding = true) {
     lastAngle = angle;
     for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
     maxThrottle = Math.max(maxThrottle, driver.lastDecision?.flight?.throttle ?? 0);
+    if (nowMs < 4_500) initialMaxThrottle = Math.max(initialMaxThrottle, driver.lastDecision?.flight?.throttle ?? 0);
     sim.tick(DT);
     sim.getEvents();
   }
-  return { angularProgress, radialSpan: Math.max(...radii) - Math.min(...radii), maxThrottle };
+  return { angularProgress, radialSpan: Math.max(...radii) - Math.min(...radii), maxThrottle, initialMaxThrottle };
 }
 
 describe("bots play capture the flag (owner 2026-07-31)", () => {
@@ -231,22 +239,26 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
     ).toBe(true);
   });
 
+  it("delivers an unopposed lunar carrier within a fixed bound", () => {
+    const { events, distances } = carryFlagHome(73, 45, "arena.lunar-crater");
+    expect(
+      events.some((event) => event.type === "flagCaptured"),
+      `lunar carrier distance to home each second: ${distances.map((distance) => distance.toFixed(2)).join(", ")}`,
+    ).toBe(true);
+  });
+
   it("routes a carrier around the colossal centrepiece without getting pinned", () => {
     const result = carryFlagAcrossCentre(42, 90);
     expect(result.events.some((event) => event.type === "flagCaptured"), JSON.stringify(result.samples)).toBe(true);
     expect(result.maxContactSec, JSON.stringify(result.samples)).toBeLessThan(3);
   });
 
-  it("loiters instead of circling when a capture is blocked by its stolen flag", () => {
+  it("time-boxes a blocked carrier's loiter and then commits again", () => {
     const before = blockedCarrierLoiter(42, 12, false);
     const trace = blockedCarrierLoiter(42, 12);
     const evidence = `before=${JSON.stringify(before)} after=${JSON.stringify(trace)}`;
-    expect(before.maxThrottle, evidence).toBe(0.4);
-    expect(trace.maxThrottle, evidence).toBe(0);
-    // Circling detector: sustained angular travel around a fixed point without
-    // useful radial progress is the tester-visible failure mode.
-    expect(trace.angularProgress, evidence).toBeLessThan(0.35);
-    expect(trace.radialSpan, evidence).toBeLessThan(1);
+    expect(trace.initialMaxThrottle, evidence).toBe(0);
+    expect(trace.maxThrottle, evidence).toBe(1);
     expect(trace.angularProgress, evidence).toBeLessThan(before.angularProgress);
   });
 
