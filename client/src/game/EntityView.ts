@@ -23,6 +23,7 @@ import {
   type AsteroidConfig,
   type AsteroidSnapshot,
   type ConfigService,
+  type DecoySnapshot,
   type EffectConfig,
   type EntityId,
   type FlagSnapshot,
@@ -110,6 +111,16 @@ interface AsteroidView {
   spin: AsteroidSpin;
   dying: boolean;
   dyingMs: number;
+}
+
+/** A jettisoned heatsink: deliberately not pickable or target-bracketable. */
+interface DecoyView {
+  root: TransformNode;
+  canister: Mesh;
+  collar: Mesh;
+  canisterMaterial: StandardMaterial;
+  collarMaterial: StandardMaterial;
+  tumblePhase: number;
 }
 
 /**
@@ -206,6 +217,8 @@ export class ViewManager {
 
   private readonly ships = new Map<EntityId, ShipView>();
   private readonly asteroids = new Map<EntityId, AsteroidView>();
+  /** Visible hot heatsinks. The sim already replicates their full lifetime. */
+  private readonly decoys = new Map<EntityId, DecoyView>();
   /** Capture-the-flag flags and their wakes (owner 2026-07-31). */
   private readonly flags = new Map<EntityId, FlagView>();
   /** Kept for the public view API; physical flag colours are team-stable. */
@@ -607,6 +620,7 @@ export class ViewManager {
   render(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
     this.syncShips(prev, cur, alpha, frameDtMs);
     this.syncAsteroids(cur, frameDtMs);
+    this.syncDecoys(prev, cur, alpha);
     this.syncFlags(cur, frameDtMs);
     this.syncProjectiles(prev, cur, alpha);
     // Before updateBeams: a still-channelling slot gets its life refreshed here
@@ -763,6 +777,82 @@ export class ViewManager {
         this.asteroids.delete(id);
       }
     }
+  }
+
+  /**
+   * Render every replicated heatsink for exactly its authoritative lifetime.
+   * Its orange emissive materials are intentionally included by SceneBuilder's
+   * arena GlowLayer, giving the canister a cheap hot-air halo without a second
+   * particle system. It has no metadata and is not pickable, so HUD reticles
+   * never present it as a normal combat contact.
+   */
+  private syncDecoys(prev: Snapshot, cur: Snapshot, alpha: number): void {
+    for (const [id, view] of this.decoys) {
+      if (findDecoy(cur, id) === undefined) {
+        disposeDecoyView(view);
+        this.decoys.delete(id);
+      }
+    }
+    for (let i = 0; i < cur.decoys.length; i++) {
+      const decoy = cur.decoys[i]!;
+      let view = this.decoys.get(decoy.id);
+      if (!view) {
+        view = this.createDecoyView(decoy);
+        this.decoys.set(decoy.id, view);
+      }
+      const p = findDecoy(prev, decoy.id) ?? decoy;
+      view.root.position.set(
+        p.pos.x + (decoy.pos.x - p.pos.x) * alpha,
+        p.pos.y + (decoy.pos.y - p.pos.y) * alpha,
+        p.pos.z + (decoy.pos.z - p.pos.z) * alpha,
+      );
+      const life = Math.max(0, Math.min(1, decoy.lifeFraction));
+      const tumble = cur.elapsed * 2.4 + view.tumblePhase;
+      view.root.rotation.set(Math.sin(tumble * 0.7) * 0.3, tumble, Math.cos(tumble) * 0.22);
+      // The thermal bloom breathes while the authoritative burn-out fade keeps
+      // it from popping away on the final snapshot.
+      const heat = 0.82 + 0.18 * Math.sin(tumble * 3.1);
+      view.canisterMaterial.alpha = 0.35 + life * 0.6;
+      view.canisterMaterial.emissiveColor.set(1, 0.18 + heat * 0.25, 0.015);
+      view.collarMaterial.alpha = 0.25 + life * 0.7;
+      view.collarMaterial.emissiveColor.set(1, 0.5 + heat * 0.3, 0.08);
+    }
+  }
+
+  private createDecoyView(decoy: DecoySnapshot): DecoyView {
+    const root = new TransformNode(`decoy.${decoy.id}`, this.scene);
+    root.parent = this.root;
+    const size = Math.max(0.65, decoy.radius * 0.62);
+    const canisterMaterial = new StandardMaterial(`mat.decoy.hot.${decoy.id}`, this.scene);
+    canisterMaterial.diffuseColor = Color3.Black();
+    canisterMaterial.emissiveColor = new Color3(1, 0.4, 0.03);
+    canisterMaterial.specularColor = Color3.Black();
+    canisterMaterial.backFaceCulling = false;
+    const canister = MeshBuilder.CreateCapsule(
+      `decoy.canister.${decoy.id}`,
+      { height: size * 1.8, radius: size * 0.36, tessellation: 8, subdivisions: 2 },
+      this.scene,
+    );
+    canister.rotation.z = Math.PI / 2;
+    canister.material = canisterMaterial;
+    canister.isPickable = false;
+    canister.parent = root;
+
+    const collarMaterial = new StandardMaterial(`mat.decoy.collar.${decoy.id}`, this.scene);
+    collarMaterial.diffuseColor = Color3.Black();
+    collarMaterial.emissiveColor = new Color3(1, 0.76, 0.18);
+    collarMaterial.specularColor = Color3.Black();
+    collarMaterial.backFaceCulling = false;
+    const collar = MeshBuilder.CreateCylinder(
+      `decoy.collar.${decoy.id}`,
+      { height: size * 0.16, diameter: size * 0.82, tessellation: 8 },
+      this.scene,
+    );
+    collar.rotation.z = Math.PI / 2;
+    collar.material = collarMaterial;
+    collar.isPickable = false;
+    collar.parent = root;
+    return { root, canister, collar, canisterMaterial, collarMaterial, tumblePhase: decoy.id * 0.73 };
   }
 
   /** Which team the viewer flies for; retained for callers that set it on match join. */
@@ -1121,6 +1211,8 @@ export class ViewManager {
     this.ships.clear();
     for (const v of this.asteroids.values()) v.instance.dispose();
     this.asteroids.clear();
+    for (const v of this.decoys.values()) disposeDecoyView(v);
+    this.decoys.clear();
     for (const v of this.flags.values()) disposeFlagView(v);
     this.flags.clear();
     for (const m of this.kineticPool) m.dispose();
@@ -1178,6 +1270,14 @@ function disposeFlagView(view: FlagView): void {
   view.trail.dispose();
   view.beaconMaterial.dispose();
   view.beacon.dispose();
+  view.root.dispose();
+}
+
+function disposeDecoyView(view: DecoyView): void {
+  view.canister.dispose();
+  view.collar.dispose();
+  view.canisterMaterial.dispose();
+  view.collarMaterial.dispose();
   view.root.dispose();
 }
 
@@ -1259,6 +1359,11 @@ function fresnel(left: Color3, right: Color3, bias: number, power: number): Fres
 
 function findAsteroid(snap: Snapshot, id: EntityId): AsteroidSnapshot | undefined {
   for (let i = 0; i < snap.asteroids.length; i++) if (snap.asteroids[i]!.id === id) return snap.asteroids[i];
+  return undefined;
+}
+
+function findDecoy(snap: Snapshot, id: EntityId): DecoySnapshot | undefined {
+  for (let i = 0; i < snap.decoys.length; i++) if (snap.decoys[i]!.id === id) return snap.decoys[i];
   return undefined;
 }
 

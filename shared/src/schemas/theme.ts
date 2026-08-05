@@ -321,6 +321,8 @@ export const flightActionButtonSchema = z.object({
   radiusPx: z.number().positive().optional(),
   offsetXPx: z.number().nonnegative().optional(),
   offsetYPx: z.number().nonnegative().optional(),
+  /** Family-tinted rim colour for this compact action control. */
+  color: z.string().optional(),
 });
 export type FlightActionButtonConfig = z.infer<typeof flightActionButtonSchema>;
 

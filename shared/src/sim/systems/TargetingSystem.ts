@@ -66,8 +66,17 @@ export function targetingSystem(world: World, dt: number): void {
     // A dead/invalid target drops immediately — no drain grace for a wreck.
     // A decoy counts as a valid target while it lasts (owner 2026-07-31), and
     // drops the instant it burns out.
-    if (ref.targetId !== null && !world.shipCores.has(ref.targetId) && !world.decoys.has(ref.targetId)) {
-      dropTarget(world, id, ref);
+    if (ref.targetId !== null) {
+      const targetDecoy = world.decoys.get(ref.targetId);
+      if (
+        (!world.shipCores.has(ref.targetId) && !targetDecoy) ||
+        // A friendly sink is never eligible for lock-break grace. Clear a
+        // stale/forged incumbent immediately instead of displaying it for the
+        // normal lock-decay window.
+        targetDecoy?.team === myTeam
+      ) {
+        dropTarget(world, id, ref);
+      }
     }
 
     // Half-cone in radians: coneDeg is the FULL width, so deg/2 → rad is /360*PI.
@@ -82,7 +91,7 @@ export function targetingSystem(world: World, dt: number): void {
     const lure = pickDecoy(world, myTeam, tf, core, halfCone);
     const candidate =
       lure ??
-      (ref.targetId !== null && inLockZone(world, tf, core, halfCone, ref.targetId)
+      (ref.targetId !== null && isEnemyLockTarget(world, myTeam, ref.targetId) && inLockZone(world, tf, core, halfCone, ref.targetId)
         ? ref.targetId
         : pickCandidate(world, id, myTeam, ships, policy, tf, core, halfCone));
 
@@ -133,8 +142,9 @@ function dropTarget(world: World, entityId: EntityId, ref: TargetRef): void {
 
 /**
  * True if `targetId` is inside the ship's sensor range AND its 3D cone. Team is
- * NOT re-checked: only {@link pickCandidate} ever sets a target, it only ever
- * picks an enemy, and teams are fixed for the life of a ship.
+ * Team eligibility is checked separately for the incumbent as well as fresh
+ * candidates. That matters for decoys: a friendly sink must not survive as a
+ * sticky target even if an old snapshot or another caller left its id in a ref.
  *
  * Both tests are fully 3D (BUBBLE.md §A): range on the true distance, and the
  * cone as the angle between the ship's facing vector and the bearing vector. The
@@ -186,6 +196,14 @@ function inLockZone(
   bearingScratch.y = dy;
   bearingScratch.z = dz;
   return angleBetween3(facingVec(tf.heading, tf.pitch, facingScratch), bearingScratch) <= halfCone;
+}
+
+/** True exactly when a target belongs to the other side. */
+function isEnemyLockTarget(world: World, myTeam: number, targetId: EntityId): boolean {
+  const decoy = world.decoys.get(targetId);
+  if (decoy) return decoy.team !== myTeam;
+  const team = world.teams.get(targetId);
+  return team !== undefined && team.team !== myTeam;
 }
 
 /**

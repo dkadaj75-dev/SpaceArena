@@ -86,12 +86,11 @@ export interface FlightActionLayout {
   radiusPx: number;
   offsetXPx: number;
   offsetYPx: number;
-}
-
-export interface BoostLayout extends FlightActionLayout {
-  /** The boost family's colour — the same one the hangar tints a boost slot with. */
   color: string;
 }
+
+/** BOOST uses the same compact action geometry, tinted with the boost family colour. */
+export type BoostLayout = FlightActionLayout;
 
 export interface ModuleVisualLayout {
   fillOpacity: number;
@@ -271,8 +270,8 @@ export const FLIGHT_HUD_DEFAULTS = {
     // The old boost implementation mirrored FIRE onto the left thumb. These
     // fallbacks keep unextended themes functional while placing both auxiliary
     // controls in the same bottom-right cluster as FIRE.
-    boost: { anchor: "bottom-right", radiusPx: 30, offsetXPx: 116, offsetYPx: 18 },
-    jettison: { anchor: "bottom-right", radiusPx: 30, offsetXPx: 50, offsetYPx: 112 },
+    boost: { anchor: "bottom-right", radiusPx: 26, offsetXPx: 132, offsetYPx: 96, color: "#e8b44f" },
+    jettison: { anchor: "bottom-right", radiusPx: 26, offsetXPx: 72, offsetYPx: 142, color: "#5ec9e8" },
   },
 } as const satisfies Omit<
   FlightHudLayout,
@@ -337,6 +336,7 @@ function actionLayoutFrom(
     radiusPx: (action?.radiusPx ?? fallback.radiusPx) * scale,
     offsetXPx: (action?.offsetXPx ?? fallback.offsetXPx) * scale,
     offsetYPx: (action?.offsetYPx ?? fallback.offsetYPx) * scale,
+    color: action?.color ?? fallback.color,
   };
 }
 
@@ -454,7 +454,7 @@ export function resolveFlightHudLayout(
       boostColor,
     },
     fire: fireLayout,
-    boost: { ...actionLayoutFrom(actions.boost, d.actions.boost, scale), color: boostColor },
+    boost: { ...actionLayoutFrom(actions.boost, d.actions.boost, scale), color: actions.boost?.color ?? boostColor },
     jettison: actionLayoutFrom(actions.jettison, d.actions.jettison, scale),
     reticle: {
       showZone: reticle.showZone ?? d.reticle.showZone,
@@ -768,8 +768,9 @@ export function flightCssVars(layout: FlightHudLayout): Record<string, string> {
     "--hud-fire-glow": `${layout.fire.glowPx}px`,
     "--hud-fire-armed-fill-pct": `${layout.fire.armedFillOpacity * 100}%`,
     "--hud-fire-armed-glow": `${layout.fire.armedGlowPx}px`,
-    "--hud-boost-radius": `${layout.boost.radiusPx}px`,
     "--hud-boost-color": layout.boost.color,
+    "--hud-jettison-color": layout.jettison.color,
+    "--hud-boost-radius": `${layout.boost.radiusPx}px`,
     "--hud-reticle-stroke": `${layout.reticle.strokePx}px`,
     "--hud-reticle-ring-stroke": `${layout.reticle.ringStrokePx}px`,
     "--hud-enemy-arrow-size": `${layout.enemyArrows.sizePx}px`,

@@ -152,8 +152,10 @@ describe("shipped theme - compact flight HUD", () => {
     expect(hud?.gauges?.showHull).toBe(false);
     expect(hud?.gauges?.showShield).toBe(false);
     expect(hud?.flight?.reticle?.showZone).toBe(false);
-    expect(hud?.flight?.fire?.ringArcDeg).toBe(0);
-    expect(hud?.flight?.fire?.ringStrokePx).toBe(0);
+    // FIRE is the one intentionally prominent control: a complete but hairline
+    // danger ring keeps the enlarged circular disc from reading as a plain dot.
+    expect(hud?.flight?.fire?.ringArcDeg).toBe(360);
+    expect(hud?.flight?.fire?.ringStrokePx).toBeCloseTo(1.5, 6);
     expect(hud?.flight?.throttle?.opacity).toBeCloseTo(0.6, 6);
   });
 

@@ -34,7 +34,7 @@ export class FireButton {
     this.container.className = "hud-fire";
 
     this.button = document.createElement("div");
-    this.button.className = "hud-fire-btn hex-action";
+    this.button.className = "hud-fire-btn";
     this.button.setAttribute(HUD_CONTROL_ATTR, "fire");
     this.button.setAttribute("role", "button");
     this.button.setAttribute("aria-label", "Fire");

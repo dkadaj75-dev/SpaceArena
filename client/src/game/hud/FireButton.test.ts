@@ -19,7 +19,7 @@ describe("FireButton", () => {
     );
     const button = root.querySelector<HTMLElement>(".hud-fire-btn")!;
     expect(button.getAttribute(HUD_CONTROL_ATTR)).toBe("fire");
-    expect(button.classList).toContain("hex-action");
+    expect(button.classList).not.toContain("hex-action"); // round disc since 2026-08-05
     expect(root.querySelector(".hud-fire-ring")).not.toBeNull();
     expect(button.querySelector(".label")?.textContent).toBe("FIRE");
     expect(fire.held).toBe(false);
