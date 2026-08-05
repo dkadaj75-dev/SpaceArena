@@ -60,6 +60,7 @@ export class ResultsOverlay {
   private readonly xpEl: HTMLSpanElement;
   private readonly rewardLine: HTMLDivElement;
   private shown = false;
+  private mvpShown = false;
 
   /** Count-up animation state; null until rewards arrive. */
   private rewards: MatchRewards | null = null;
@@ -145,18 +146,28 @@ export class ResultsOverlay {
     if (!this.shown) {
       if (cur.phase !== "ended") return;
       this.shown = true;
-      const mvp = selectMvp(this.session.matchStats.all(), this.session.sim.world.gamemode.ctf !== undefined);
-      const mvpName = mvp === null ? "MVP" : (this.session.displayNameFor(mvp) ?? (mvp === this.playerId ? "YOU" : `PILOT ${mvp}`));
-      this.bannerEl.textContent = mvpName;
-      this.bannerEl.dataset["outcome"] = "victory";
-      this.participantsEl.textContent = "MOST VALUABLE PILOT";
-      this.subEl.textContent = this.outcome(cur);
-      if (this.options.offline) this.rewardsEl.textContent = "Practice — no rewards";
-      if (mvp !== null) this.callbacks.onMvp?.(mvp);
+      const outcome = this.outcome(cur);
+      this.bannerEl.textContent = outcome;
+      this.bannerEl.dataset["outcome"] = outcome.toLowerCase().replaceAll(" ", "-");
+      this.root.classList.add("hud-results--outcome");
       this.root.classList.add("visible");
       return;
     }
     this.advanceRewards(dtMs);
+  }
+
+  /** Replace the timed outcome banner with the interactive MVP hero card. */
+  showMvp(): void {
+    if (!this.shown || this.mvpShown) return;
+    this.mvpShown = true;
+    const mvp = selectMvp(this.session.matchStats.all(), this.session.sim.world.gamemode.ctf !== undefined);
+    const mvpName = mvp === null ? "MVP" : (this.session.displayNameFor(mvp) ?? (mvp === this.playerId ? "YOU" : `PILOT ${mvp}`));
+    this.root.classList.remove("hud-results--outcome");
+    this.bannerEl.textContent = mvpName;
+    this.bannerEl.dataset["outcome"] = "victory";
+    this.participantsEl.textContent = "MOST VALUABLE PILOT";
+    if (this.options.offline) this.rewardsEl.textContent = "Practice — no rewards";
+    if (mvp !== null) this.callbacks.onMvp?.(mvp);
   }
 
   /**

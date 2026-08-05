@@ -442,12 +442,21 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
       `simSeconds=${pump.simSeconds.toFixed(1)}, enemiesLeft=${pump.enemiesLeft})`,
   ).toBe(true);
 
-  // Match presentation flow (owner 2026-08-05): MVP hero screen first — the
-  // title carries the MVP's pilot name with the outcome on a data attribute —
+  // Match presentation flow: a timed outcome banner yields to the MVP hero,
   // then NEXT reveals the full-viewport scoreboard with the exits below it.
   const results = page.locator(".hud-results");
   await expect(results).toHaveClass(/\bvisible\b/);
-  await expect(results.locator(".hud-results-title")).not.toBeEmpty();
+  await expect(results).toHaveClass(/hud-results--outcome/);
+  // The 3 s banner advances on HUD frame dt; headless rAF is too throttled to
+  // accumulate it in real time, so pump frames the same way the match did.
+  await page.evaluate(async () => {
+    const debug = (window as unknown as { __debug: { forceFrame(dtMs?: number): void } }).__debug;
+    for (let i = 0; i < 80; i++) {
+      debug.forceFrame(50);
+      if (i % 10 === 9) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  });
+  await expect(results.locator("[data-results-action='next']")).toBeVisible({ timeout: 5000 });
   await expect(results.locator(".hud-results-title")).toHaveAttribute(
     "data-outcome",
     /^(victory|defeat|draw|cleared)$/,

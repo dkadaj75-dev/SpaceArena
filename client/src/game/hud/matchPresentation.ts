@@ -1,6 +1,7 @@
 import type { EntityId, MatchStatLine } from "@space-arena/shared";
 
-export type MatchPresentationState = "playing" | "mvp" | "scoreboard" | "left";
+export type MatchPresentationState = "playing" | "outcome" | "mvp" | "scoreboard" | "left";
+export const OUTCOME_DURATION_MS = 3000;
 
 /** Score used by the scoreboard: captures, returns, kills, assists, then deaths. */
 export function scoreboardScore(line: Readonly<MatchStatLine>, ctf: boolean): number {
@@ -41,9 +42,17 @@ export function selectMvp(
 /** Small explicit controller so end-screen navigation cannot overlap states. */
 export class MatchPresentationFlow {
   private value: MatchPresentationState = "playing";
+  private outcomeElapsedMs = 0;
   get state(): MatchPresentationState { return this.value; }
   end(): boolean {
     if (this.value !== "playing") return false;
+    this.value = "outcome";
+    return true;
+  }
+  update(dtMs: number): boolean {
+    if (this.value !== "outcome") return false;
+    this.outcomeElapsedMs += Number.isFinite(dtMs) ? Math.max(0, dtMs) : 0;
+    if (this.outcomeElapsedMs < OUTCOME_DURATION_MS) return false;
     this.value = "mvp";
     return true;
   }

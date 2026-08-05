@@ -168,6 +168,20 @@ describe("lock zone geometry (heading-relative cone × lockRange)", () => {
 // ---------------------------------------------------------------------------
 
 describe("lock timing across ticks", () => {
+  it("acquiring a lock never fires a weapon while the flight trigger is false", () => {
+    const { world, me, foe } = scene({ x: 20, z: 0 });
+    world.flightStates.get(me)!.fire = false;
+    const before = world.shipCores.get(foe)!.hull;
+    for (let i = 0; i < ticksToLock(sensorsOf(world, me).lockTimeSec) + 2; i++) {
+      targetingSystem(world, DT);
+      combatSystem(world, DT);
+      latchFireState(world);
+    }
+    expect(world.targets.get(me)!.locked).toBe(true);
+    expect(world.shipCores.get(foe)!.hull).toBe(before);
+    expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
+  });
+
   it("accrues dt per tick, caps at lockTimeSec and flips `locked` on the filling tick", () => {
     const { world, me, foe } = scene({ x: 20, z: 0 });
     const lockTime = sensorsOf(world, me).lockTimeSec;

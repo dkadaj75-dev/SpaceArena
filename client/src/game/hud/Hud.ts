@@ -277,9 +277,14 @@ export class Hud {
     ) {
       this.applyTheme();
     }
-    if (cur.phase === "ended" && this.presentation.end()) {
-      this.root.dataset["presentation"] = "mvp";
+    const outcomeStarted = cur.phase === "ended" && this.presentation.end();
+    if (outcomeStarted) {
+      this.root.dataset["presentation"] = "outcome";
       this.scoreboard.lockForEnd();
+    }
+    if (!outcomeStarted && this.presentation.update(dtMs)) {
+      this.root.dataset["presentation"] = "mvp";
+      this.resultsOverlay.showMvp();
     }
     const presenting = this.presentation.state !== "playing";
     if (!presenting) this.flight?.update(cur, prev, alpha, dtMs, nowMs());

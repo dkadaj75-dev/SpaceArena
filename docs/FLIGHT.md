@@ -10,7 +10,9 @@ configs, schemas, resolveShipStats, tuning, or theme.
 
 ## Match presentation amendment (2026-08-05)
 
-Match presentation is a strict `live → MVP → scoreboard → exit` flow. On end,
+Match presentation is a strict `live → outcome (3 s) → MVP → scoreboard → exit` flow. On end,
+the themed victory/defeat/draw (or practice-clear) outcome fills the centre while
+the arena remains visible; after three seconds it yields to the MVP shot. Then
 combat HUD/entities are hidden while the arena skybox and lighting remain; one
 disposable instance of the MVP hull is staged for the hero shot. NEXT reveals
 the same full-viewport scoreboard used by hold-Tab, with new-game and menu exits

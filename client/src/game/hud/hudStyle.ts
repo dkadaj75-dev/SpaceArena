@@ -1347,6 +1347,19 @@ const CSS = `
   pointer-events: auto;
 }
 .hud-results.visible { display: flex; }
+.hud-results--outcome { background: rgba(2, 4, 10, 0.18); }
+.hud-results--outcome .hud-results-panel::before,
+.hud-results--outcome .hud-results-panel::after,
+.hud-results--outcome .hud-results-rule,
+.hud-results--outcome .hud-results-participants,
+.hud-results--outcome .hud-results-sub,
+.hud-results--outcome .hud-results-rewards,
+.hud-results--outcome .hud-results-actions { display: none; }
+.hud-results--outcome .hud-results-title {
+  font-size: clamp(3rem, 12vw, 8rem);
+  letter-spacing: .18em;
+  text-shadow: 0 0 18px currentColor, 0 0 52px currentColor, 0 3px 2px #02040a;
+}
 /* Portrait phones: drop the panel to the thumb end of the screen so "Play
    again" stays a one-thumb reach (ROADMAP S3). */
 @media (orientation: portrait) {
