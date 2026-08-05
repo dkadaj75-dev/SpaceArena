@@ -65,7 +65,7 @@ describe("moduleHeatPerSec", () => {
 describe("moduleStats — the numbers each family is judged on", () => {
   it("shows a weapon's dps, range, power, energy and heat", () => {
     expect(labels("module.laser-mk1")).toEqual(["DPS", "Range", "Power", "Energy", "Heat"]);
-    expect(valueOf("module.laser-mk1", "DPS")).toBe("27.5");
+    expect(valueOf("module.laser-mk1", "DPS")).toBe("13.8");
     // The two energy axes read differently on purpose: "Power" is the flat rail
     // current the module holds while online, "Energy" the per-second capacitor
     // drain it costs to run.
@@ -124,7 +124,7 @@ describe("moduleStats — the numbers each family is judged on", () => {
 describe("moduleSummaryLine", () => {
   it("joins the chips into one readable line", () => {
     expect(moduleSummaryLine(mod("module.laser-mk1"))).toBe(
-      "DPS 27.5 · Range 95 · Power 2.5 · Energy 11/s · Heat 165/s",
+      "DPS 13.8 · Range 95 · Power 2.5 · Energy 11/s · Heat 165/s",
     );
   });
 

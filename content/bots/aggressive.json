@@ -15,6 +15,17 @@
     "throttleEpsilon": 0.03
   },
   "behaviors": {
+    "objective": {
+      "baseWeight": 0.7,
+      "carryUrgency": 3.2,
+      "recoverUrgency": 2.5,
+      "recoverRange": 105,
+      "chaseUrgency": 1.8,
+      "attackUrgency": 1.15,
+      "throttle": 1.0,
+      "arriveRange": 26,
+      "arriveThrottle": 0.35
+    },
     "engage": {
       "baseWeight": 1.0,
       "throttleApproach": 1.0,
@@ -56,6 +67,13 @@
       "dodgeDistance": 12,
       "jinkAmp": 0.25,
       "jinkPeriodSec": 0.9
+    },
+    "avoidRocks": {
+      "baseWeight": 0,
+      "lookahead": 42,
+      "clearance": 2.5,
+      "turnBias": 0.9,
+      "throttleFactor": 0.55
     }
   },
   "moduleDiscipline": {

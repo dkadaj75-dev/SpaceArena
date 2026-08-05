@@ -346,7 +346,8 @@
         "Plotting an intercept course...",
         "Warming the jump coils...",
         "Checking the arena frequencies..."
-      ]
+      ],
+      "matchLoadingMinVisibleMs": 1500
     }
   },
   "juice": {

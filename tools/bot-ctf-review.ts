@@ -25,6 +25,9 @@ interface RunMetrics {
   carrierRuns: Array<{ carrierId: EntityId; startHomeDistance: number; endHomeDistance: number; durationSec: number; outcome: string }>;
   stuckWindows: number;
   captures: number;
+  objectiveIntentFraction: number[];
+  pickupsByTeam: number[];
+  returnsByTeam: number[];
   floorCutFraction: number;
 }
 
@@ -50,6 +53,9 @@ console.log(JSON.stringify({
     carrierTimeToHomeSec: { mean: mean(completed.map((r) => r.durationSec)), count: completed.length },
     stuckWindows: results.reduce((n, r) => n + r.stuckWindows, 0),
     captures: results.reduce((n, r) => n + r.captures, 0),
+    objectiveIntentFraction: mean(all("objectiveIntentFraction")),
+    pickupsByTeam: [0, 1].map((team) => results.reduce((n, r) => n + (r.pickupsByTeam[team] ?? 0), 0)),
+    returnsByTeam: [0, 1].map((team) => results.reduce((n, r) => n + (r.returnsByTeam[team] ?? 0), 0)),
     floorCutFraction: mean(results.map((r) => r.floorCutFraction)),
   },
 }, null, 2));
@@ -76,6 +82,9 @@ function run(seed: number): RunMetrics {
   const rackTicks = new Map(ids.map((id) => [id, 0]));
   const previous = new Map<EntityId, { x: number; y: number; z: number }>();
   const stuck = new Map<EntityId, { start: { x: number; y: number; z: number }; ticks: number; reported: boolean }>();
+  const objectiveTicks = new Map(ids.map((id) => [id, 0]));
+  const pickupsByTeam = [0, 0];
+  const returnsByTeam = [0, 0];
   const activeRuns = new Map<EntityId, { startAt: number; startHomeDistance: number; lastHomeDistance: number }>();
   const carrierRuns: RunMetrics["carrierRuns"] = [];
   let captures = 0;
@@ -126,11 +135,6 @@ function run(seed: number): RunMetrics {
       const homeDistance = dist3(self.pos, ownHome);
       if (!activeRuns.has(self.id)) activeRuns.set(self.id, { startAt: elapsed, startHomeDistance: homeDistance, lastHomeDistance: homeDistance });
       activeRuns.get(self.id)!.lastHomeDistance = homeDistance;
-      const state = stuck.get(self.id) ?? { start: { ...self.pos }, ticks: 0, reported: false };
-      if (dist3(state.start, self.pos) <= STUCK_RADIUS && directPathClear(sim, self.id, ownHome)) state.ticks++;
-      else Object.assign(state, { start: { ...self.pos }, ticks: 0, reported: false });
-      if (!state.reported && state.ticks >= STUCK_SEC / DT) { stuckWindows++; state.reported = true; }
-      stuck.set(self.id, state);
     }
     for (const [id, run] of activeRuns) {
       if (carriers.has(id)) continue;
@@ -143,6 +147,18 @@ function run(seed: number): RunMetrics {
       if (!sim.hasShip(id)) continue;
       for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
       const decision = driver.lastDecision;
+      if (decision?.behavior === "objective") objectiveTicks.set(id, objectiveTicks.get(id)! + 1);
+      const self = snapshot.ships.find((shipSnapshot) => shipSnapshot.id === id);
+      if (self && decision?.flight && decision.flight.throttle >= 0.2) {
+        const velocity = sim.world.velocities.get(id)!;
+        const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+        const contact = colliderSurface(sim, id) <= 0.05;
+        const state = stuck.get(id) ?? { start: { ...self.pos }, ticks: 0, reported: false };
+        if (contact && speed < NEAR_ZERO_SPEED && dist3(state.start, self.pos) <= STUCK_RADIUS) state.ticks++;
+        else Object.assign(state, { start: { ...self.pos }, ticks: 0, reported: false });
+        if (!state.reported && state.ticks >= STUCK_SEC / DT) { stuckWindows++; state.reported = true; }
+        stuck.set(id, state);
+      } else stuck.delete(id);
       if (decision?.atMs === nowMs && decision.flight) {
         decisions++;
         if (decision.flight.throttle < 0.05 && decision.plannedMove && (decision.flight.pitchStick - (decision.flight?.pitchStick ?? 0)) >= 0) floorCuts++;
@@ -159,6 +175,11 @@ function run(seed: number): RunMetrics {
           activeRuns.delete(event.carrierId);
         }
       }
+      if (event.type === "flagTaken") pickupsByTeam[event.carrierTeam] = (pickupsByTeam[event.carrierTeam] ?? 0) + 1;
+      if (event.type === "flagReturned" && event.byId !== null) {
+        const team = sim.teamOf(event.byId);
+        if (team !== undefined) returnsByTeam[team] = (returnsByTeam[team] ?? 0) + 1;
+      }
     }
   }
   for (const [id, run] of activeRuns) carrierRuns.push({ carrierId: id, startHomeDistance: run.startHomeDistance, endHomeDistance: run.lastHomeDistance, durationSec: elapsed - run.startAt, outcome: "still-carrying" });
@@ -167,20 +188,21 @@ function run(seed: number): RunMetrics {
     nearZeroFraction: ids.map((id) => nearZero.get(id)! / Math.max(1, liveTicks.get(id)!)),
     shotsPerMinute: ids.map((id) => shots.get(id)! / Math.max(elapsed / 60, 1e-9)),
     rackLockoutFraction: ids.map((id) => lockoutTicks.get(id)! / Math.max(1, rackTicks.get(id)!)),
-    carrierRuns, stuckWindows, captures, floorCutFraction: floorCuts / Math.max(1, decisions),
+    carrierRuns, stuckWindows, captures,
+    objectiveIntentFraction: ids.map((id) => objectiveTicks.get(id)! / Math.max(1, liveTicks.get(id)!)),
+    pickupsByTeam, returnsByTeam,
+    floorCutFraction: floorCuts / Math.max(1, decisions),
   };
 }
 
-function directPathClear(sim: ArenaSimulation, shipId: EntityId, target: { x: number; y?: number; z: number }): boolean {
+function colliderSurface(sim: ArenaSimulation, shipId: EntityId): number {
   const from = sim.world.transforms.get(shipId)!.pos;
-  const shipRadius = sim.world.colliders.get(shipId)!.radius;
-  const vx = target.x - from.x, vy = (target.y ?? 0) - from.y, vz = target.z - from.z;
-  const length2 = vx * vx + vy * vy + vz * vz;
-  for (const id of sim.world.asteroidIds()) {
-    const p = sim.world.transforms.get(id)!.pos;
-    const t = Math.max(0, Math.min(1, ((p.x - from.x) * vx + (p.y - from.y) * vy + (p.z - from.z) * vz) / Math.max(length2, 1e-9)));
-    const d = Math.hypot(p.x - (from.x + vx * t), p.y - (from.y + vy * t), p.z - (from.z + vz * t));
-    if (d <= sim.world.colliders.get(id)!.radius + shipRadius + 1) return false;
+  const radius = sim.world.colliders.get(shipId)!.radius;
+  let surface = Infinity;
+  for (const id of [...sim.world.asteroidIds(), ...sim.world.shipIds()]) {
+    if (id === shipId || !sim.world.transforms.has(id) || !sim.world.colliders.has(id)) continue;
+    const at = sim.world.transforms.get(id)!.pos;
+    surface = Math.min(surface, dist3(from, at) - radius - sim.world.colliders.get(id)!.radius);
   }
-  return true;
+  return surface;
 }

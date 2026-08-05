@@ -19,6 +19,17 @@
     "throttleEpsilon": 0.1
   },
   "behaviors": {
+    "objective": {
+      "baseWeight": 0.45,
+      "carryUrgency": 3.0,
+      "recoverUrgency": 2.4,
+      "recoverRange": 90,
+      "chaseUrgency": 1.7,
+      "attackUrgency": 1.0,
+      "throttle": 1.0,
+      "arriveRange": 30,
+      "arriveThrottle": 0.4
+    },
     "engage": {
       "baseWeight": 1.0,
       "throttleApproach": 1.0,
@@ -40,6 +51,13 @@
       "standoffFrac": 0.5,
       "slipRad": 0.4,
       "throttleRun": 1.0
+    },
+    "avoidRocks": {
+      "baseWeight": 0,
+      "lookahead": 40,
+      "clearance": 2,
+      "turnBias": 0.8,
+      "throttleFactor": 0.55
     }
   },
   "moduleDiscipline": {

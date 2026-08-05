@@ -809,6 +809,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         session.dispose();
         return;
       }
+      await matchLoading.dismiss();
+      if (run !== matchmakingRun) {
+        session.dispose();
+        return;
+      }
       activateSession(session, choice);
     } catch (err) {
       if (run !== matchmakingRun) return;
@@ -876,6 +881,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
               { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
             );
       await prepareSessionArena(session);
+      await matchLoading.dismiss();
       activateSession(session, choice);
     } catch (err) {
       matchLoading.hide();
@@ -914,7 +920,6 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     lobby.hide();
     hangar.hide();
     matchmakingScreen.hide();
-    matchLoading.hide();
   }
 
   // --- Fixed-timestep sim loop (30 Hz), driven by render delta ---

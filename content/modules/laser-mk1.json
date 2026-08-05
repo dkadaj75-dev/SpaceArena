@@ -27,7 +27,7 @@
     "range": 95,
     "cycleTime": 0.4,
     "heatPerShot": 60,
-    "damage": 11,
+    "damage": 5.5,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null

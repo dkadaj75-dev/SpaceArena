@@ -113,6 +113,8 @@ const CSS = `
 .hud-scoreboard caption { text-align:left; color:var(--hud-accent,#ffd166); font-weight:700; padding:5px; }
 .hud-scoreboard th,.hud-scoreboard td { padding:6px; text-align:right; border-bottom:1px solid color-mix(in srgb,var(--hud-primary,#39bfff) 22%,transparent); }
 .hud-scoreboard th:first-child,.hud-scoreboard td:first-child { text-align:left; min-width:8em; }
+.hud-scoreboard tr.hud-scoreboard-local-player { background:color-mix(in srgb,var(--hud-accent,#ffd166) 12%,transparent); }
+.hud-scoreboard tr.hud-scoreboard-local-player td { color:var(--hud-accent,#ffd166); font-weight:700; }
 .hud-scoreboard-btn { position:absolute; top:calc(var(--hud-inset-top) + 42px); right:var(--hud-inset-right); z-index:31; pointer-events:auto; border:1px solid var(--hud-primary,#39bfff); background:color-mix(in srgb,var(--hud-bg,#0a0f1e) 75%,transparent); color:var(--hud-text,#dbe9ff); padding:7px 10px; font:inherit; font-size:.68rem; }
 .hud-results-scoreboard { width:100%; }
 .hud-results-scoreboard .hud-scoreboard-panel { width:100%; max-height:38vh; padding:10px; }
@@ -1531,10 +1533,16 @@ const CSS = `
 }
 @keyframes hud-mvp-accent { from { opacity:0; transform:scaleX(.08); } to { opacity:1; transform:none; } }
 .hud-results-title {
+  /* Tracking has an advance after the final glyph. Reserve it inside the box:
+     the scrolling panel otherwise clips it when horizontal overflow is auto. */
+  --hud-results-title-tracking: 0.14em;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding-inline-end: var(--hud-results-title-tracking);
   font-family: var(--hud-font-display, var(--hud-font-body, system-ui, sans-serif));
-  font-size: 1.75em;
+  font-size: clamp(1.5rem, 7vw, 2.25rem);
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--hud-results-title-tracking);
   text-transform: uppercase;
   text-align: center;
   animation: hud-results-banner 0.45s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1564,7 +1572,7 @@ const CSS = `
 .hud-results-title[data-outcome="draw"] { color: var(--hud-accent, #ffb35c); }
 @keyframes hud-results-banner {
   from { opacity: 0; transform: translateY(-10px) scale(0.94); letter-spacing: 0.02em; }
-  to { opacity: 1; transform: none; letter-spacing: 0.14em; }
+  to { opacity: 1; transform: none; letter-spacing: var(--hud-results-title-tracking); }
 }
 /* Bracketed rule under the banner, the panel language's section mark. */
 .hud-results-rule {

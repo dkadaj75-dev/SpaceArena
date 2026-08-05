@@ -504,15 +504,9 @@ const dodge: BotBehavior = {
  * pure overlay: it never takes a decision away from a fighting behaviour, it just
  * nudges the stick.
  *
- * **No shipped profile enables it, on measured evidence.** Across five seeds of
- * `bot.aggressive` vs `bot.cautious` on `arena.ring-nebula`, turning it on left
- * asteroid damage flat-to-worse (~40-60 per match either way — a swerve away from
- * one rock in a belt is a swerve toward the next) while cutting the share of the
- * match the bots held a lock from ~0.47 to ~0.17 and roughly halving weapon
- * damage. Impacts at ~40 hull per match across two 80-hull ships are a cost the
- * fight can carry; a permanently biased stick is not. Kept because it is the
- * right tool for a dense arena (FLIGHT.md §6 deep-field) and because a content
- * author can now reach for it without a code change.
+ * Shipped profiles use a finite corridor and retain utility steering underneath;
+ * the driver's separate contact-memory escape handles the rare case where a
+ * lookahead turn starts too late.
  */
 const avoidRocks: BotBehavior = {
   score(ctx, params) {

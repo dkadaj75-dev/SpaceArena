@@ -7,9 +7,8 @@ import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_BOOST, loadTestConfigs } from 
 
 const DT = 1 / 30;
 /**
- * Open space in `arena.ring-nebula`: clear of the colossal centrepiece and every
- * belt rock, well inside the bubble. Ships parked anywhere near the middle get
- * shoved out by the collision system, which would move the flag with them.
+ * Open space in `arena.ring-nebula`, clear of every belt rock and well inside
+ * the bubble. It keeps the flag test independent of collision pushout.
  */
 const OPEN = { x: 0, y: 0, z: 90 };
 const OPEN_2 = { x: 0, y: -90, z: 0 };

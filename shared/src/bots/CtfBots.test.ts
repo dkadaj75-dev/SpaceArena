@@ -209,6 +209,86 @@ function blockedCarrierLoiter(seed: number, seconds: number, holding = true) {
   return { angularProgress, radialSpan: Math.max(...radii) - Math.min(...radii), maxThrottle, initialMaxThrottle };
 }
 
+function forcedColliderEscape(arenaId: string, seed: number) {
+  const sim = new ArenaSimulation(configs, arenaId, CTF, seed);
+  const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
+  const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+  const largest = sim.world.asteroidIds().reduce((best, id) =>
+    sim.world.colliders.get(id)!.radius > sim.world.colliders.get(best)!.radius ? id : best,
+  );
+  const rock = sim.world.transforms.get(largest)!;
+  const rockRadius = sim.world.colliders.get(largest)!.radius;
+  const id = sim.spawnPlayerAt("ship.interceptor", ship.defaultFitting, 0,
+    { x: rock.pos.x + rockRadius + 2, y: rock.pos.y, z: rock.pos.z }, Math.PI);
+  const shipRadius = sim.world.colliders.get(id)!.radius;
+  sim.world.transforms.get(id)!.pos.x = rock.pos.x + rockRadius + shipRadius;
+  const ownId = sim.world.flagIds().find((flagId) => sim.world.flags.get(flagId)!.team === 0)!;
+  const enemyId = sim.world.flagIds().find((flagId) => sim.world.flags.get(flagId)!.team === 1)!;
+  const own = sim.world.flags.get(ownId)!;
+  own.home = { x: rock.pos.x - rockRadius - 80, y: rock.pos.y, z: rock.pos.z };
+  const enemy = sim.world.flags.get(enemyId)!;
+  enemy.state = "carried";
+  enemy.carrierId = id;
+  const driver = new BotDriver({
+    entityId: id, profile, configs, rng: deriveRng(seed, id),
+    floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined,
+  });
+  let nowMs = 0;
+  let contactTicks = 0;
+  let maxPoweredContactTicks = 0;
+  for (let tick = 0; tick < 12 / DT; tick++) {
+    nowMs += DT * 1000;
+    const snapshot = sim.snapshot();
+    for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
+    const velocity = sim.world.velocities.get(id)!;
+    const distance = Math.hypot(
+      sim.world.transforms.get(id)!.pos.x - rock.pos.x,
+      sim.world.transforms.get(id)!.pos.y - rock.pos.y,
+      sim.world.transforms.get(id)!.pos.z - rock.pos.z,
+    );
+    const poweredWedge = distance - rockRadius - shipRadius <= 0.05
+      && Math.hypot(velocity.x, velocity.y, velocity.z) < 0.75
+      && (driver.lastDecision?.flight?.throttle ?? 0) >= 0.2;
+    contactTicks = poweredWedge ? contactTicks + 1 : 0;
+    maxPoweredContactTicks = Math.max(maxPoweredContactTicks, contactTicks);
+    sim.tick(DT);
+    sim.getEvents();
+  }
+  return maxPoweredContactTicks * DT;
+}
+
+function playLooseFlags(seed: number) {
+  const sim = new ArenaSimulation(configs, "arena.lunar-crater", CTF, seed);
+  const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
+  const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+  const drivers: Array<{ id: EntityId; driver: BotDriver }> = [];
+  for (let team = 0; team < 2; team++) {
+    const own = sim.snapshot().flags.find((flag) => flag.team === team)!;
+    for (let slot = 0; slot < 5; slot++) {
+      const id = sim.spawnPlayerAt("ship.interceptor", ship.defaultFitting, team,
+        { x: own.home.x + 18 + slot * 2, y: own.home.y, z: own.home.z + slot * 2 }, Math.PI);
+      drivers.push({ id, driver: new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id), floorY: 0 }) });
+    }
+    const flag = sim.world.flags.get(own.id)!;
+    flag.state = "dropped";
+    flag.dropTimer = 90;
+    sim.world.transforms.get(own.id)!.pos.x += 25;
+  }
+  const events: SimEvent[] = [];
+  let nowMs = 0;
+  for (let tick = 0; tick < 45 / DT; tick++) {
+    nowMs += DT * 1000;
+    const snapshot = sim.snapshot();
+    for (const entry of drivers) {
+      if (!sim.hasShip(entry.id)) continue;
+      for (const order of entry.driver.update(snapshot, nowMs)) sim.applyOrder(entry.id, order);
+    }
+    sim.tick(DT);
+    events.push(...sim.getEvents());
+  }
+  return events;
+}
+
 describe("bots play capture the flag (owner 2026-07-31)", () => {
   it("get the flag off its stand and run with it", () => {
     const { events } = playCtf(42, 120);
@@ -251,6 +331,18 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
     const result = carryFlagAcrossCentre(42, 90);
     expect(result.events.some((event) => event.type === "flagCaptured"), JSON.stringify(result.samples)).toBe(true);
     expect(result.maxContactSec, JSON.stringify(result.samples)).toBeLessThan(3);
+  });
+
+  it.each(["arena.lunar-crater", "arena.ring-nebula"])("escapes a seeded powered collider wedge on %s", (arenaId) => {
+    expect(forcedColliderEscape(arenaId, 73)).toBeLessThan(5);
+  });
+
+  it("has both teams return loose flags and then resume attacking", () => {
+    const events = playLooseFlags(73);
+    const returns = events.filter((event) => event.type === "flagReturned" && event.byId !== null);
+    const pickups = events.filter((event) => event.type === "flagTaken");
+    expect(new Set(returns.flatMap((event) => event.type === "flagReturned" ? [event.flagTeam] : []))).toEqual(new Set([0, 1]));
+    expect(new Set(pickups.flatMap((event) => event.type === "flagTaken" ? [event.carrierTeam] : []))).toEqual(new Set([0, 1]));
   });
 
   it("time-boxes a blocked carrier's loiter and then commits again", () => {

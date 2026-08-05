@@ -49,6 +49,11 @@ loaded, and the first symptom is a gamemode falling back to a different arena.
 > `energy.drawActive` are **2×**. Fire cadence and heatsink dissipation are
 > unchanged. These are catalogue-wide owner balance constants, not hull tuning.
 
+> **Weapon damage rebase (2026-08-05):** every weapon's authored `fire.damage`
+> is **50%** of its prior value, rounded to 0.5-point steps. This includes
+> continuous beams, for which `fire.damage` is DPS. Fire cadence, heat, and
+> energy costs are unchanged.
+
 A **bundle** is that pack serialized as one JSON document. It is the unit that
 travels between machines:
 
