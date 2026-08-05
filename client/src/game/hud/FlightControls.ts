@@ -15,6 +15,7 @@ import { VirtualJoystick } from "./VirtualJoystick.js";
 import { ThrottleStrip } from "./ThrottleStrip.js";
 import { FireButton } from "./FireButton.js";
 import { BoostButton, type BoostButtonState } from "./BoostButton.js";
+import { JettisonButton, type JettisonButtonState } from "./JettisonButton.js";
 import { CanvasFireInput } from "./CanvasFireInput.js";
 import { LockReticle } from "./LockReticle.js";
 import { EnemyArrows } from "./EnemyArrows.js";
@@ -47,6 +48,7 @@ const NO_BOOST_FITTED: BoostButtonState = {
   heatPct: 0,
   blocked: false,
 };
+const NO_JETTISON_FITTED: JettisonButtonState = { fitted: false, cooldownSec: 0, cooldownTotalSec: 0 };
 
 /** Array index of the first fitted boost module, or -1 when this fitting has none. */
 export function firstBoostModuleIndex(
@@ -116,6 +118,7 @@ export class FlightControls {
   private readonly throttleStrip: ThrottleStrip;
   private readonly fireButton: FireButton;
   private readonly boostButton: BoostButton;
+  private readonly jettisonButton: JettisonButton;
   private readonly canvasFire: CanvasFireInput;
   private readonly reticle: LockReticle;
   private readonly enemyArrows: EnemyArrows;
@@ -210,6 +213,7 @@ export class FlightControls {
     this.boostButton = new BoostButton(this.container, layout, (hardpointIndex) =>
       this.toggleBoost(hardpointIndex),
     );
+    this.jettisonButton = new JettisonButton(this.container, layout, () => this.jettisonHeatsink());
     this.canvasFire = new CanvasFireInput(binding.inputSurface);
     this.reticle = new LockReticle(this.container, layout);
     this.enemyArrows = new EnemyArrows(this.container, layout);
@@ -233,6 +237,7 @@ export class FlightControls {
     this.throttleStrip.applyLayout(layout);
     this.fireButton.applyLayout(layout);
     this.boostButton.applyLayout(layout);
+    this.jettisonButton.applyLayout(layout);
     this.reticle.applyLayout(layout);
     this.enemyArrows.applyLayout(layout);
     this.speedReadout.applyLayout(layout);
@@ -265,6 +270,7 @@ export class FlightControls {
       this.boostHardpointIndex = null;
       this.boostActive = false;
       this.boostButton.clear();
+      this.jettisonButton.clear();
       // The container is hidden anyway, but a disarmed HUD must not come back
       // with last frame's arrows parked around a screen that has moved on.
       this.enemyArrows.clear();
@@ -331,6 +337,7 @@ export class FlightControls {
     const pitchStick = this.joystick.active ? this.joystick.pitch : this.relativeSteer.pitchStick;
 
     this.refreshBoostState(cur, ship);
+    this.refreshJettisonState(ship);
     const fire = this.fireButton.held || this.canvasFire.held || keys.fire;
     this.fireButton.setKeyActive(this.canvasFire.held || keys.fire);
     // "NO LOCK" feedback only when the pull genuinely does nothing — i.e. every
@@ -550,6 +557,25 @@ export class FlightControls {
     this.session.order({ kind: "moduleToggle", hardpointIndex });
   }
 
+  /** The wire order is shared by offline GameSession and NetGameSession. */
+  private jettisonHeatsink(): void {
+    this.session.order({ kind: "jettisonHeatsink" });
+  }
+
+  private refreshJettisonState(ship: ShipSnapshot): void {
+    for (const module of ship.modules) {
+      const jettison = this.configs.get<ModuleConfig>("module", module.moduleId)?.jettison;
+      if (!jettison) continue;
+      this.jettisonButton.update({
+        fitted: true,
+        cooldownSec: module.cycleTimer,
+        cooldownTotalSec: jettison.cooldownSec,
+      });
+      return;
+    }
+    this.jettisonButton.update(NO_JETTISON_FITTED);
+  }
+
   /** Whether any fitted weapon can fire without a lock (non-homing `fire`). */
   private hasStraightFireWeapon(ship: ShipSnapshot): boolean {
     for (const m of ship.modules) {
@@ -588,6 +614,7 @@ export class FlightControls {
     this.throttleStrip.dispose();
     this.fireButton.dispose();
     this.boostButton.dispose();
+    this.jettisonButton.dispose();
     this.canvasFire.dispose();
     this.reticle.dispose();
     this.enemyArrows.dispose();

@@ -280,6 +280,26 @@ export const fireButtonSchema = z.object({
 export type FireButtonConfig = z.infer<typeof fireButtonSchema>;
 
 /**
+ * A secondary flight action (BOOST / JETTISON). Unlike FIRE, its look is
+ * shared by the widget; this block only reserves an authored, corner-relative
+ * slot in the thumb cluster. Omission preserves the legacy derived placement.
+ */
+export const flightActionButtonSchema = z.object({
+  anchor: hudAnchor.optional(),
+  radiusPx: z.number().positive().optional(),
+  offsetXPx: z.number().nonnegative().optional(),
+  offsetYPx: z.number().nonnegative().optional(),
+});
+export type FlightActionButtonConfig = z.infer<typeof flightActionButtonSchema>;
+
+/** Authored slots for the dedicated non-module controls in the flight cluster. */
+export const flightActionsSchema = z.object({
+  boost: flightActionButtonSchema.optional(),
+  jettison: flightActionButtonSchema.optional(),
+});
+export type FlightActionsConfig = z.infer<typeof flightActionsSchema>;
+
+/**
  * Lock reticle (FLIGHT.md §4). The centre circle's radius is COMPUTED from the
  * ship's resolved `sensors.coneDeg` and the live chase camera (fov + tilt) —
  * see `client/src/game/hud/flightHudLayout.ts` — so it always describes the real
@@ -400,6 +420,7 @@ export const flightHudSchema = z.object({
   relativeSteer: relativeSteerSchema.optional(),
   throttle: throttleStripSchema.optional(),
   fire: fireButtonSchema.optional(),
+  actions: flightActionsSchema.optional(),
   reticle: lockReticleSchema.optional(),
   /** Off-screen enemy direction arrows (BUBBLE.md §C). */
   enemyArrows: enemyArrowsSchema.optional(),

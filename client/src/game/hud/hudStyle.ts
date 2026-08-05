@@ -485,13 +485,15 @@ const CSS = `
 .hud-joystick,
 .hud-throttle,
 .hud-fire,
-.hud-boost {
+.hud-boost,
+.hud-jettison {
   position: absolute;
   width: 0;
   height: 0;
 }
 /* A fitting with no boost module renders no control at all. */
 .hud-boost[hidden] { display: none; }
+.hud-jettison[hidden] { display: none; }
 .hud-throttle { opacity: var(--hud-throttle-opacity, 1); }
 .hud-joystick.disabled { display: none; }
 
@@ -535,19 +537,23 @@ const CSS = `
 .hud-joystick[data-anchor="bottom-right"],
 .hud-throttle[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
 .hud-fire[data-anchor="bottom-right"],
-.hud-boost[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
+.hud-boost[data-anchor="bottom-right"],
+.hud-jettison[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
 .hud-joystick[data-anchor="bottom-left"],
 .hud-throttle[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
 .hud-fire[data-anchor="bottom-left"],
-.hud-boost[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
+.hud-boost[data-anchor="bottom-left"],
+.hud-jettison[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
 .hud-joystick[data-anchor="top-right"],
 .hud-throttle[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
 .hud-fire[data-anchor="top-right"],
-.hud-boost[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
+.hud-boost[data-anchor="top-right"],
+.hud-jettison[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
 .hud-joystick[data-anchor="top-left"],
 .hud-throttle[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
 .hud-fire[data-anchor="top-left"],
-.hud-boost[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
+.hud-boost[data-anchor="top-left"],
+.hud-jettison[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
 
 /* Steering stick: fixed base ring, spring-return thumb. */
 .hud-joystick-base {
@@ -867,6 +873,43 @@ const CSS = `
   0%, 100% { transform: translateX(-7%); }
   50% { transform: translateX(7%); }
 }
+
+/* JETTISON uses the same compact hex language as BOOST, but is a one-shot
+   defensive action. Its conic sweep is the authoritative sink cooldown. */
+.hud-jettison-btn {
+  pointer-events: auto;
+  position: absolute;
+  box-sizing: border-box;
+  touch-action: manipulation;
+  background: transparent;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  --hud-btn-rim: color-mix(in srgb, var(--hud-energy, #4ee6b8) 62%, transparent);
+  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 72%, transparent);
+}
+.hud-jettison-btn::before, .hud-jettison-btn::after, .hud-jettison-btn > .ring {
+  content: "";
+  position: absolute;
+  clip-path: var(--hud-clip-hex);
+  pointer-events: none;
+}
+.hud-jettison-btn::before { inset: 0; background: var(--hud-btn-rim); filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-energy, #4ee6b8)); }
+.hud-jettison-btn::after { inset: 2px; background: var(--hud-btn-plate); backdrop-filter: blur(var(--hud-blur)); -webkit-backdrop-filter: blur(var(--hud-blur)); }
+.hud-jettison-btn > .ring { inset: 1px; background: conic-gradient(var(--hud-energy, #4ee6b8) calc(var(--ring, 0) * 1%), transparent 0); opacity: 0.78; }
+.hud-jettison-btn > .icon, .hud-jettison-btn > .label { position: relative; z-index: 1; color: #fff; }
+.hud-jettison-btn > .icon { width: 44%; display: flex; }
+.hud-jettison-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
+.hud-jettison-btn > .label { font: 700 0.42em/1 var(--hud-font-display, system-ui, sans-serif); letter-spacing: 0.08em; }
+.hud-jettison-btn.pressed { filter: brightness(1.22); }
+.hud-jettison-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.25) brightness(0.72); }
+.hud-jettison-btn.disabled::before { filter: none; }
 
 /* Hull and shield now flank the ship as restrained side arcs. */
 .hud-vital-arcs {

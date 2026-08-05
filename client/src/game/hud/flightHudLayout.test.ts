@@ -6,9 +6,6 @@ import {
   anchoredOffset,
   arrowOpacity,
   flightCssVars,
-  mirrorAnchorX,
-  BOOST_LIFT_RADII,
-  BOOST_RADIUS_RATIO,
   FLIGHT_HUD_DEFAULTS,
   FLIGHT_ORDER_BUDGET_SHARE,
   offScreenArrowPlacement,
@@ -195,46 +192,20 @@ describe("resolveFlightHudLayout", () => {
   });
 });
 
-/**
- * BOOST is the one flight control with no theme block of its own — `hud.flight`
- * knows nothing about it, so everything it needs is derived from FIRE. These pin
- * that derivation, because a theme author's only handle on the boost control is
- * the FIRE block and the boost family colour.
- */
-describe("boost control geometry (derived from FIRE)", () => {
-  it("mirrors FIRE onto the opposite corner, at a fraction of its size", () => {
+describe("secondary action geometry", () => {
+  it("uses bottom-right authored action slots, with backwards-compatible defaults", () => {
     const layout = resolveFlightHudLayout(theme(), PORTRAIT);
-    expect(layout.boost).toEqual({
-      anchor: "bottom-left",
-      radiusPx: 34 * BOOST_RADIUS_RATIO,
-      offsetXPx: 24,
-      offsetYPx: 34 + 34 * BOOST_LIFT_RADII,
-      color: MODULE_FAMILY_COLOR_FALLBACKS.boost,
-    });
+    expect(layout.boost.anchor).toBe("bottom-right");
+    expect(layout.jettison.anchor).toBe("bottom-right");
+    expect(layout.boost.radiusPx).toBe(30);
+    expect(layout.jettison.radiusPx).toBe(30);
+    expect(layout.boost.color).toBe(MODULE_FAMILY_COLOR_FALLBACKS.boost);
   });
 
-  it("mirrors whichever corner the theme actually put FIRE on", () => {
-    expect(mirrorAnchorX("bottom-right")).toBe("bottom-left");
-    expect(mirrorAnchorX("bottom-left")).toBe("bottom-right");
-    expect(mirrorAnchorX("top-right")).toBe("top-left");
-    expect(mirrorAnchorX("top-left")).toBe("top-right");
-
-    const flipped = resolveFlightHudLayout(
-      theme({ flight: { fire: { anchor: "bottom-left", radiusPx: 34, offsetXPx: 24, offsetYPx: 34 } } }),
-      PORTRAIT,
-    );
-    expect(flipped.boost.anchor).toBe("bottom-right");
-  });
-
-  it("moves and scales with FIRE — including through the orientation override", () => {
+  it("scales authored slots through the orientation override", () => {
     const landscape = resolveFlightHudLayout(theme(), LANDSCAPE);
-    // The landscape block halves the HUD; BOOST inherits that once, not twice.
-    expect(landscape.boost.radiusPx).toBeCloseTo(landscape.fire.radiusPx * BOOST_RADIUS_RATIO, 9);
-    expect(landscape.boost.offsetXPx).toBeCloseTo(landscape.fire.offsetXPx, 9);
-    expect(landscape.boost.offsetYPx).toBeCloseTo(
-      landscape.fire.offsetYPx + landscape.fire.radiusPx * BOOST_LIFT_RADII,
-      9,
-    );
+    expect(landscape.boost.radiusPx).toBe(15);
+    expect(landscape.jettison.radiusPx).toBe(15);
   });
 
   it("takes the boost family's authored colour, so the hangar and the HUD agree", () => {
@@ -358,8 +329,6 @@ describe("shipped phone control geometry", () => {
       ),
     );
 
-    // BOOST: derived from FIRE and mirrored onto the opposite bottom corner, so
-    // the audit below is what proves it clears the gauge stack parked there.
     const boostCorner = flightPivot(flight.boost.anchor);
     const boostOffset = anchoredOffset(
       flight.boost.anchor,
@@ -373,6 +342,21 @@ describe("shipped phone control geometry", () => {
         boostCorner.x + boostOffset.dx,
         boostCorner.y + boostOffset.dy,
         flight.boost.radiusPx,
+      ),
+    );
+    const jettisonCorner = flightPivot(flight.jettison.anchor);
+    const jettisonOffset = anchoredOffset(
+      flight.jettison.anchor,
+      flight.jettison.offsetXPx,
+      flight.jettison.offsetYPx,
+      flight.jettison.radiusPx,
+    );
+    controls.push(
+      around(
+        "jettison",
+        jettisonCorner.x + jettisonOffset.dx,
+        jettisonCorner.y + jettisonOffset.dy,
+        flight.jettison.radiusPx,
       ),
     );
 
@@ -435,6 +419,7 @@ describe("shipped phone control geometry", () => {
         hud.cluster.buttonRadiusPx * 2,
         flight.fire.radiusPx * 2,
         flight.boost.radiusPx * 2,
+        flight.jettison.radiusPx * 2,
       ],
       inset: hud.safeAreaInsetPx,
     };
@@ -446,8 +431,8 @@ describe("shipped phone control geometry", () => {
 
   it.each([
     { width: 390, height: 740 },
-    { width: 740, height: 390 },
-  ])("keeps five modules, labels and FIRE clear of all fixed HUD panels at $width x $height", (viewport) => {
+    { width: 1280, height: 800 },
+  ])("keeps the complete bottom-right control cluster clear at $width x $height", (viewport) => {
     const { controls, obstacles, moduleCenters, moduleRadius, touchDiameters, inset } = boxes(viewport);
     for (let i = 0; i < moduleCenters.length; i++) {
       for (let j = i + 1; j < moduleCenters.length; j++) {

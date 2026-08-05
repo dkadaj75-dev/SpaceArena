@@ -423,12 +423,12 @@ describe("bots in a live ArenaSimulation", () => {
     expect(JSON.stringify(other.events)).not.toBe(JSON.stringify(a.events));
   });
 
-  it("records the deliberate x5 missile rack lockout for a disciplined profile", () => {
-    // Mk I's x5 heat-per-shot is 60 against its 50 threshold: a launch itself
-    // locks the rack, so a cautious bot cannot avoid this authored tradeoff.
+  it("keeps the x5 missile rack heat meaningful without locking on every launch", () => {
+    // A Mk I launch is now below its 65 threshold. This deliberately cautious
+    // profile waits out its cadence, so it no longer records the old one-shot
+    // lockout; sustained firing remains covered by the balance bench.
     const result = runMatch(["bot.cautious", "bot.cautious"], 11);
-    expect(result.seenStates.has("overheated")).toBe(true);
-    // The lockout happens while the bots are genuinely fighting.
+    expect(result.seenStates.has("overheated")).toBe(false);
     expect(result.seenStates.has("active")).toBe(true);
     expect(result.weaponDamage).toBeGreaterThan(0);
   });

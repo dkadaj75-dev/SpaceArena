@@ -140,6 +140,10 @@
         "armedFillOpacity": 0.52,
         "armedGlowPx": 18
       },
+      "actions": {
+        "boost": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 220, "offsetYPx": 165 },
+        "jettison": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 72, "offsetYPx": 215 }
+      },
       "reticle": {
         "showZone": false,
         "maxRadiusFraction": 0.82,
@@ -199,6 +203,10 @@
           "offsetYPx": 34,
           "icon": "FIRE",
           "blockedNotification": "notification.fire-blocked"
+        },
+        "actions": {
+          "boost": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 220, "offsetYPx": 165 },
+          "jettison": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 72, "offsetYPx": 215 }
         }
       }
     },
@@ -252,6 +260,10 @@
           "offsetXPx": 22,
           "offsetYPx": 30,
           "icon": "FIRE"
+        },
+        "actions": {
+          "boost": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 220, "offsetYPx": 165 },
+          "jettison": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 72, "offsetYPx": 215 }
         },
         "enemyArrows": {
           "ringRadiusPx": 118,
