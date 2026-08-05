@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MatchStatLine } from "@space-arena/shared";
-import { MatchPresentationFlow, selectMvp } from "./matchPresentation.js";
+import { MatchPresentationFlow, OUTCOME_DURATION_MS, selectMvp } from "./matchPresentation.js";
 
 const line = (entityId: number, values: Partial<MatchStatLine> = {}): MatchStatLine => ({
   entityId, kills: 0, deaths: 0, assists: 0, flagsTaken: 0, flagsDropped: 0,
@@ -19,12 +19,16 @@ describe("match-end MVP", () => {
 });
 
 describe("match presentation flow", () => {
-  it("allows only end → MVP → scoreboard → action", () => {
+  it("allows only end → timed outcome → MVP → scoreboard → action", () => {
     const flow = new MatchPresentationFlow();
     expect(flow.next()).toBe(false);
     expect(flow.end()).toBe(true);
-    expect(flow.state).toBe("mvp");
+    expect(flow.state).toBe("outcome");
     expect(flow.end()).toBe(false);
+    expect(flow.update(OUTCOME_DURATION_MS - 1)).toBe(false);
+    expect(flow.state).toBe("outcome");
+    expect(flow.update(1)).toBe(true);
+    expect(flow.state).toBe("mvp");
     expect(flow.next()).toBe(true);
     expect(flow.state).toBe("scoreboard");
     expect(flow.leave()).toBe(true);

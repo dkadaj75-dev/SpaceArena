@@ -3,6 +3,7 @@ import {
   FresnelParameters,
   Mesh,
   MeshBuilder,
+  PointLight,
   Quaternion,
   StandardMaterial,
   TransformNode,
@@ -195,6 +196,7 @@ export class ViewManager {
   private readonly root: TransformNode;
   private readonly heroRoot: TransformNode;
   private heroShip: InstancedMesh | null = null;
+  private heroKeyLight: PointLight | null = null;
   private heroElapsedMs = 0;
 
   private readonly ships = new Map<EntityId, ShipView>();
@@ -319,6 +321,10 @@ export class ViewManager {
   }
 
   /** Replace all combat views with one cheap, disposable MVP hull at centre stage. */
+  setMvpCenter(center: Vector3): void {
+    this.heroRoot.position.copyFrom(center);
+  }
+
   showMvp(entityId: EntityId): boolean {
     const config = this.shipConfigFor(entityId);
     if (!config) return false;
@@ -330,6 +336,15 @@ export class ViewManager {
     this.heroShip.rotation.set(0.08, Math.PI, 0);
     this.heroShip.scaling.setAll(0.58);
     this.heroShip.isPickable = false;
+    // The arena sun is authored for combat, not a camera-facing beauty shot.
+    // A local key makes dark hull materials readable against every skybox.
+    this.heroKeyLight?.dispose();
+    this.heroKeyLight = new PointLight("mvp.key", new Vector3(-4, 5, -6), this.scene);
+    this.heroKeyLight.parent = this.heroRoot;
+    this.heroKeyLight.diffuse = new Color3(0.88, 0.94, 1);
+    this.heroKeyLight.specular = new Color3(0.7, 0.82, 1);
+    this.heroKeyLight.intensity = 18;
+    this.heroKeyLight.range = 28;
     this.heroElapsedMs = 0;
     this.heroRoot.setEnabled(true);
     return true;
@@ -1093,6 +1108,7 @@ export class ViewManager {
     this.hitFlash.dispose();
     this.explosions.dispose();
     this.heroShip?.dispose();
+    this.heroKeyLight?.dispose();
     this.heroRoot.dispose();
     this.assets.dispose();
     this.root.dispose();

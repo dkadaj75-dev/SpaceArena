@@ -31,6 +31,16 @@ describe("FireButton", () => {
     fire.dispose();
   });
 
+  it("clears a held trigger when the release lands outside the button", () => {
+    const root = document.createElement("div");
+    const fire = new FireButton(root, resolveFlightHudLayout(undefined, { width: 400, height: 800 }));
+    root.querySelector<HTMLElement>(".hud-fire-btn")!.dispatchEvent(pointer("pointerdown", 9));
+    expect(fire.held).toBe(true);
+    document.dispatchEvent(pointer("pointerup", 9));
+    expect(fire.held).toBe(false);
+    fire.dispose();
+  });
+
   it.each([
     { width: 390, height: 740 },
     { width: 740, height: 390 },

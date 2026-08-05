@@ -14,7 +14,10 @@ export class FireButton {
   private readonly onPointerDown = (ev: PointerEvent): void => {
     if (this.pointerId !== null) return;
     this.pointerId = ev.pointerId;
-    this.button.setPointerCapture?.(ev.pointerId);
+    // WebKit can reject capture during transient DOM/layout changes. Capture is
+    // an optimisation, not correctness: document-level release listeners below
+    // are the backstop that prevents a level-triggered FIRE order sticking true.
+    try { this.button.setPointerCapture?.(ev.pointerId); } catch { /* release fallback remains armed */ }
     this.button.classList.add("active");
     ev.preventDefault();
   };
@@ -22,7 +25,7 @@ export class FireButton {
   private readonly onPointerUp = (ev: PointerEvent): void => {
     if (ev.pointerId !== this.pointerId) return;
     this.pointerId = null;
-    this.button.releasePointerCapture?.(ev.pointerId);
+    try { this.button.releasePointerCapture?.(ev.pointerId); } catch { /* already released by the UA */ }
     this.button.classList.remove("active");
   };
 
@@ -48,6 +51,8 @@ export class FireButton {
     this.button.addEventListener("pointerup", this.onPointerUp);
     this.button.addEventListener("pointercancel", this.onPointerUp);
     this.button.addEventListener("lostpointercapture", this.onPointerUp);
+    document.addEventListener("pointerup", this.onPointerUp);
+    document.addEventListener("pointercancel", this.onPointerUp);
     this.applyLayout(layout);
   }
 
@@ -96,6 +101,8 @@ export class FireButton {
     this.button.removeEventListener("pointerup", this.onPointerUp);
     this.button.removeEventListener("pointercancel", this.onPointerUp);
     this.button.removeEventListener("lostpointercapture", this.onPointerUp);
+    document.removeEventListener("pointerup", this.onPointerUp);
+    document.removeEventListener("pointercancel", this.onPointerUp);
     this.container.remove();
   }
 }

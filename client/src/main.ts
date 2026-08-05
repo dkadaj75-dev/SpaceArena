@@ -419,9 +419,14 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           lobby.show();
         },
         onMvp: (entityId) => {
+          // Keep the beauty shot in open space. Lunar terrain reaches several
+          // units above floorY and large hulls render at authored multi-x scale;
+          // eighteen units clears both while retaining the arena backdrop.
+          const heroCenter = new Vector3(0, 18, 0);
           tacticalCamera.setChaseMode(false);
           tacticalCamera.setHangarMode(true);
-          tacticalCamera.resetStageOrbit(Vector3.Zero());
+          tacticalCamera.resetStageOrbit(heroCenter);
+          viewManager.setMvpCenter(heroCenter);
           viewManager.showMvp(entityId);
         },
         onSettings: () => openSettings("match"),
