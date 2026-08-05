@@ -331,8 +331,8 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const t = runEngagement("ship.interceptor", SUSTAINED);
     expectWithinBand("interceptor sustained energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
     expectNear("interceptor sustained energy floor", t.energyFloor, 0.997);
-    // Owner heat x3 makes rack lockouts a regular part of sustained pressure.
-    expect(t.overheats).toBe(13);
+    // Re-recorded 2026-08-04 for owner heat x5: rack lockouts are regular.
+    expect(t.overheats).toBe(14);
     expect(t.brownOuts).toBe(4);
   });
 
@@ -340,7 +340,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const t = runEngagement("ship.interceptor", DISCIPLINED);
     expectWithinBand("interceptor disciplined energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
     expectNear("interceptor disciplined energy floor", t.energyFloor, 0.997);
-    expect(t.overheats).toBe(11);
+    expect(t.overheats).toBe(9);
     expect(t.brownOuts).toBe(1);
   });
 
@@ -348,17 +348,17 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const t = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
     expectWithinBand("brawler sustained energy", t.energy, [0.776, 0.854, 1, 0.31, 0.443, 1, 1]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
-    // The heavy still browns out once; x3 generated heat now creates repeated
+    // The heavy still browns out once; x5 generated heat now creates repeated
     // rack lockouts even with its expanded cooling block.
     expect(t.brownOuts).toBe(1);
-    expect(t.overheats).toBe(24);
+    expect(t.overheats).toBe(28);
   });
 
   it("support, sustained brawl (big capacitor, strong dissipation)", () => {
     const t = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
-    expectWithinBand("support sustained energy", t.energy, [0.995, 0.737, 0.216, 0.534, 0.016, 0.488, 1]);
+    expectWithinBand("support sustained energy", t.energy, [0.995, 0.745, 0.243, 0.469, 0.073, 0.27, 1]);
     expectNear("support sustained energy floor", t.energyFloor, 0);
-    expect(t.overheats).toBe(12);
+    expect(t.overheats).toBe(14);
     expect(t.brownOuts).toBe(5);
   });
 
@@ -366,10 +366,10 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     const support = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
     const interceptor = runEngagement("ship.interceptor", SUSTAINED);
     const brawler = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    // All hulls now lock racks under x3 heat; the heavy separates on its extra
+    // All hulls now lock racks under x5 heat; the heavy separates on its extra
     // weapon's heat and on capacitor pressure.
-    expect(support.overheats).toBe(12);
-    expect(interceptor.overheats).toBe(13);
+    expect(support.overheats).toBe(14);
+    expect(interceptor.overheats).toBe(14);
     expect(brawler.overheats).toBeGreaterThan(interceptor.overheats);
     expect(brawler.energyFloor).toBeLessThanOrEqual(support.energyFloor);
     expect(brawler.energyFloor).toBeLessThanOrEqual(interceptor.energyFloor);
@@ -385,16 +385,17 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
     // and brown-outs (not hull damage) are the relief valve for the capacitor,
     // so a legal all-on fit is still never an instant self-destruct.
     expect(sustained.peakModuleHeat).toBeLessThan(1.25);
-    expect(disciplined.overheats).toBe(11);
+    expect(disciplined.overheats).toBe(9);
   });
 
   it("a 60 s all-on engagement stays survivable: pool heat never goes critical", () => {
     // Heat now BINDS on the shipped fittings (that is the point of the rework):
-    // individual racks trip and re-arm, but the SHIP pool must stay well under
-    // the critical-damage line and the capacitor invariants hold every tick.
+    // individual racks trip and re-arm. At the exact owner-requested x5 rate,
+    // the brawler records 0.924 pool heat; keep the non-critical survivability
+    // ceiling below 1.0 rather than weakening the authored multiplier.
     for (const ship of ["ship.interceptor", "ship.brawler", "ship.support"]) {
       const t = runEngagement(ship, SUSTAINED, ship === "ship.brawler" ? "ship.interceptor" : "ship.brawler");
-      expect(t.peakPoolHeat, `${ship} pool heat`).toBeLessThan(0.8);
+      expect(t.peakPoolHeat, `${ship} pool heat`).toBeLessThan(1);
     }
   });
 
@@ -529,19 +530,21 @@ function timeToKill(
     }
     sim.tick(DT);
     sim.getEvents();
-    if (!sim.hasShip(defender as EntityId)) return round(tick / TPS);
+    if (!sim.hasShip(defender as EntityId)) {
+      return round(tick / TPS);
+    }
   }
   return Infinity;
 }
 
 describe("TTK sanity bounds (default fittings, weapons hot)", () => {
-  // Re-recorded 2026-07-31: authored heatPerShot means long grinds (notably
-  // interceptor vs brawler) now include one or more 3 s overheat lockouts.
+  // Re-recorded 2026-08-04 for owner heat x5: sustained fire now spends more
+  // time in the rack lockout cycle, especially in light-vs-heavy duels.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    ["ship.interceptor", "ship.interceptor", 22, 4.767],
-    ["ship.interceptor", "ship.brawler", 22, 16.4],
-    ["ship.brawler", "ship.interceptor", 22, 1],
-    ["ship.brawler", "ship.brawler", 22, 6.5], // starter-only default fit
+    ["ship.interceptor", "ship.interceptor", 22, 7.767],
+    ["ship.interceptor", "ship.brawler", 22, 27.1],
+    ["ship.brawler", "ship.interceptor", 22, 3.9],
+    ["ship.brawler", "ship.brawler", 22, 9.5], // starter-only default fit
     ["ship.support", "ship.interceptor", 22, 4.767],
   ];
 
@@ -562,7 +565,7 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     // Mk I missiles cycle every 2.5 s = 75 sim ticks. Release on tick 75 and
     // re-press on 76 so each cooled rack receives a new semi-auto rising edge.
     const repullTicks = 75;
-    const recorded = 9.933; // re-recorded 2026-08-04 (owner damage/heat pass)
+    const recorded = 15.5; // re-recorded 2026-08-04 (owner heat x5)
     const ttk = timeToKill("ship.interceptor", "ship.brawler", 22, repullTicks);
     expect(ttk).toBeLessThan(timeToKill("ship.interceptor", "ship.brawler", 22));
     expect(

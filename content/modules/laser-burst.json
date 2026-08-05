@@ -17,7 +17,7 @@
     "draw": 5.5
   },
   "heat": {
-    "perSecondActive": 7.199999999999999,
+    "perSecondActive": 12,
     "overheatThreshold": 58,
     "overheatCooldown": 5.5,
     "overheatSelfDamage": 1
@@ -26,7 +26,7 @@
     "mode": "held",
     "range": 88,
     "cycleTime": 0.22,
-    "heatPerShot": 15,
+    "heatPerShot": 25,
     "damage": 11,
     "damageType": "energy",
     "requiresLineOfSight": true,

@@ -10,7 +10,7 @@
     "count": 3
   },
   "ctf": {
-    "pickupRadius": 5,
+    "pickupRadius": 7.5,
     "dropReturnSec": 10,
     "trailLength": 100
   },

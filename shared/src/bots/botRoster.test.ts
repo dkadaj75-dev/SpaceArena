@@ -21,7 +21,7 @@ describe("generateBotName (owner 2026-07-31)", () => {
     for (let i = 0; i < 200; i++) {
       const name = generateBotName(rng);
       expect(name.length).toBeGreaterThan(2);
-      expect(name.length).toBeLessThanOrEqual(24);
+      expect(name.length).toBeLessThanOrEqual(16);
       expect(name).not.toMatch(/\s/);
     }
   });
@@ -29,7 +29,7 @@ describe("generateBotName (owner 2026-07-31)", () => {
   it("varies — a roster is not twenty copies of one name", () => {
     const rng = deriveRng(11, 1);
     const names = new Set(Array.from({ length: 40 }, () => generateBotName(rng)));
-    expect(names.size).toBeGreaterThan(20);
+    expect(names.size).toBe(40);
   });
 });
 
