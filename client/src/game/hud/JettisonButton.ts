@@ -1,5 +1,5 @@
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
-import { anchoredOffset, flightActionArcSlots, type FlightHudLayout } from "./flightHudLayout.js";
+import { anchoredOffset, resolveFlightSecondaryControls, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconSvg } from "./moduleIcons.js";
 
 export const JETTISON_LABEL = "JETTISON";
@@ -75,15 +75,22 @@ export class JettisonButton {
 
   /** Reposition on the shared rail after the fitted module count is known. */
   applyArcLayout(layout: FlightHudLayout, moduleCount: number): void {
-    const slot = flightActionArcSlots(layout, moduleCount)[moduleCount + 1];
-    const action = slot ?? layout.jettison;
+    const secondary = resolveFlightSecondaryControls(layout, moduleCount);
+    const action = secondary.jettison;
     this.container.dataset["anchor"] = action.anchor;
     const { dx, dy } = anchoredOffset(action.anchor, action.offsetXPx, action.offsetYPx, action.radiusPx);
     this.button.style.left = `${dx - action.radiusPx}px`;
     this.button.style.top = `${dy - action.radiusPx}px`;
     this.button.style.width = `${action.radiusPx * 2}px`;
     this.button.style.height = `${action.radiusPx * 2}px`;
-    if (slot) this.positionCaption(slot.captionX, slot.captionY, slot.radiusPx, slot.captionGapPx);
+    if (secondary.usesActionArc) {
+      this.positionCaption(
+        secondary.jettison.captionX,
+        secondary.jettison.captionY,
+        secondary.jettison.radiusPx,
+        secondary.jettison.captionGapPx,
+      );
+    }
     else this.resetCaption();
   }
 

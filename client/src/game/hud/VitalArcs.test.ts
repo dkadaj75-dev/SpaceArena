@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import type { ConfigService, Snapshot } from "@space-arena/shared";
-import { Gauges } from "./Gauges.js";
+import { Gauges, heatGaugeModel } from "./Gauges.js";
 import { resolveHudLayout } from "./hudLayout.js";
 import { VitalArcs } from "./VitalArcs.js";
 
@@ -52,6 +52,28 @@ const configs = {
 } as unknown as ConfigService;
 
 describe("centre vital arcs", () => {
+  it("reflects an overheated rack even when the denormalized ship pool is zero", () => {
+    const lockedOut = structuredClone(snapshot);
+    const ship = lockedOut.ships[0]!;
+    ship.heat.cur = 0;
+    ship.modules[0]!.state = "overheated";
+    ship.modules[0]!.heat = 40;
+
+    const model = heatGaugeModel(ship);
+    expect(model).toMatchObject({ value: 40, capacity: 100, overheated: true });
+    expect(model.fraction).toBe(0.4);
+
+    const root = document.createElement("div");
+    const gauges = new Gauges(root, configs, {} as never, 1);
+    gauges.update(lockedOut);
+
+    const heat = root.querySelector<HTMLElement>('[data-gauge="heat"]')!;
+    expect(heat.querySelector<HTMLElement>(".hud-gauge-value")!.textContent).toBe("40/100");
+    expect(heat.querySelector<HTMLElement>(".hud-gauge-fill")!.style.transform).toBe("scaleX(0.4)");
+    expect(heat.classList.contains("critical")).toBe(true);
+    gauges.dispose();
+  });
+
   it("moves hull/shield out of the lower-left panel and follows live pools", () => {
     const root = document.createElement("div");
     const layout = resolveHudLayout(

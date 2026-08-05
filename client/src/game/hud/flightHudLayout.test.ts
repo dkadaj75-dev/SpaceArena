@@ -6,7 +6,7 @@ import {
   anchoredBoxOffset,
   arrowOpacity,
   flightCssVars,
-  flightActionArcSlots,
+  resolveFlightSecondaryControls,
   FLIGHT_HUD_DEFAULTS,
   FLIGHT_ORDER_BUDGET_SHARE,
   offScreenArrowPlacement,
@@ -59,7 +59,9 @@ describe("resolveFlightHudLayout", () => {
       theme({ flight: { actions: { arc: { radiusPx: 240, startDeg: -100, sweepDeg: -80, buttonDiameterPx: 48 } } } }),
       PORTRAIT,
     );
-    const slots = flightActionArcSlots(flight, 2);
+    const secondary = resolveFlightSecondaryControls(flight, 2);
+    if (!secondary.usesActionArc) throw new Error("expected authored action arc");
+    const slots = secondary.modules.concat(secondary.boost, secondary.jettison);
     const fire = anchoredOffset(flight.fire.anchor, flight.fire.offsetXPx, flight.fire.offsetYPx, flight.fire.radiusPx);
     const angles = slots.map((slot) => {
       const point = anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx);
@@ -213,6 +215,26 @@ describe("resolveFlightHudLayout", () => {
 });
 
 describe("secondary action geometry", () => {
+  it("ignores legacy action offsets whenever an authored rail exists", () => {
+    const layout = resolveFlightHudLayout(
+      theme({
+        flight: {
+          actions: {
+            arc: { radiusPx: 180, startDeg: -100, sweepDeg: -80, buttonDiameterPx: 48 },
+            boost: { offsetXPx: 999, offsetYPx: 999 },
+            jettison: { offsetXPx: 888, offsetYPx: 888 },
+          },
+        },
+      }),
+      PORTRAIT,
+    );
+    const secondary = resolveFlightSecondaryControls(layout, 2);
+    expect(secondary.usesActionArc).toBe(true);
+    if (!secondary.usesActionArc) throw new Error("expected authored action arc");
+    expect(secondary.boost.offsetXPx).not.toBe(999);
+    expect(secondary.jettison.offsetXPx).not.toBe(888);
+  });
+
   it("uses bottom-right authored action slots, with backwards-compatible defaults", () => {
     const layout = resolveFlightHudLayout(theme(), PORTRAIT);
     expect(layout.boost.anchor).toBe("bottom-right");
@@ -330,7 +352,12 @@ describe("shipped FIRE-centred control rail", () => {
         flight.fire.radiusPx + (fireRingVisible ? flight.fire.ringGapPx : 0),
       ),
     );
-    const slots = flightActionArcSlots(flight, moduleCount);
+    // This is the exact resolver output consumed by ModuleButtons, BOOST and
+    // JETTISON at runtime; the audit owns no parallel rail math.
+    const secondary = resolveFlightSecondaryControls(flight, moduleCount);
+    expect(secondary.usesActionArc).toBe(true);
+    if (!secondary.usesActionArc) throw new Error("expected shipped action arc");
+    const slots = secondary.modules.concat(secondary.boost, secondary.jettison);
     expect(slots).toHaveLength(moduleCount + 2);
     for (const [index, slot] of slots.entries()) {
       const corner = flightPivot(slot.anchor);
@@ -402,6 +429,35 @@ describe("shipped FIRE-centred control rail", () => {
   function overlaps(a: Rect, b: Rect): boolean {
     return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
   }
+
+  it("resolves the 820 x 1180 brawler fit in authored thumb order", () => {
+    const viewport = { width: 820, height: 1180 };
+    const hud = resolveHudLayout(shipped, viewport);
+    const flight = resolveFlightHudLayout(shipped, viewport);
+    // ModuleButtons orders weapons first, then utilities; these four slots are
+    // therefore BEAM, MISSILE, weapon three, ARMOR PLATE. The dedicated
+    // actions must follow them on the same resolver output, never legacy offsets.
+    const secondary = resolveFlightSecondaryControls(flight, 4);
+    expect(secondary.usesActionArc).toBe(true);
+    if (!secondary.usesActionArc) throw new Error("expected shipped action arc");
+    const ordered = secondary.modules.concat(secondary.boost, secondary.jettison);
+    expect(ordered).toHaveLength(6);
+
+    const corner = pivot(flight.fire.anchor, viewport, hud.safeAreaInsetPx);
+    const centres = ordered.map((slot) => {
+      const offset = anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx);
+      return { x: corner.x + offset.dx, y: corner.y + offset.dy };
+    });
+    // These values pin the real resolver output for the owner's portrait case.
+    expect(centres).toEqual([
+      { x: expect.closeTo(728.6, 2), y: expect.closeTo(978.78, 2) },
+      { x: expect.closeTo(677.65, 2), y: expect.closeTo(1002.27, 2) },
+      { x: expect.closeTo(641.8, 2), y: expect.closeTo(1045.42, 2) },
+      { x: expect.closeTo(628.04, 2), y: expect.closeTo(1099.81, 2) },
+      { x: expect.closeTo(714.83, 2), y: expect.closeTo(914.02, 2) },
+      { x: expect.closeTo(662.23, 2), y: expect.closeTo(933.53, 2) },
+    ]);
+  });
 
   it.each([
     { width: 390, height: 740 },
