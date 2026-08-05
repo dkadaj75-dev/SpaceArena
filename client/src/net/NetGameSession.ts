@@ -533,7 +533,6 @@ export class NetGameSession extends GameSession {
   override get prevSnapshot(): Snapshot { return this.previous; }
   override get curSnapshot(): Snapshot { return this.current; }
   override get isEnded(): boolean { return this.current.phase === "ended"; }
-  override get destroyedTargets(): number { return 0; }
   override teamOf(id: EntityId): number | undefined { return this.current.ships.find((ship) => ship.id === id)?.team; }
   override get playerTeam(): number { return this.teamOf(this.playerId) ?? 0; }
   override shipConfigIdFor(id: EntityId): string | undefined { return this.shipIds.get(id); }

@@ -36,6 +36,8 @@ export const gamemodeBotSlot = z.object({
   ship: z.string().optional(),
   team: z.number().int().nonnegative(),
   count: z.number().int().positive().optional(),
+  /** Explicit positional fitting. When present it always beats randomization. */
+  fitting: z.array(z.string().nullable()).optional(),
 });
 export type GamemodeBotSlot = z.infer<typeof gamemodeBotSlot>;
 

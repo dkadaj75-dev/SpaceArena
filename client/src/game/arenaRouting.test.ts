@@ -71,7 +71,7 @@ beforeAll(async () => {
 
 describe("GameSession.arenaId", () => {
   it("reports the arena the sim actually resolved", () => {
-    const session = new GameSession(configs, SECOND_ARENA_ID, "gamemode.practice");
+    const session = new GameSession(configs, SECOND_ARENA_ID, "gamemode.practice-bots-1v1");
     expect(session.arenaId).toBe(SECOND_ARENA_ID);
     expect(session.sim.world.arena.bounds).toEqual({ shape: "sphere", radius: SECOND_ARENA_RADIUS });
   });

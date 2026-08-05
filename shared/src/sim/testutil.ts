@@ -75,7 +75,7 @@ export function makeWorld(
     ? ({ ...shippedTuning, ...opts.tuningOverride, id: `${shippedTuning.id}.override` } as TuningConfig)
     : shippedTuning;
   const arena = configs.get<ArenaConfig>("arena", opts.arenaId ?? "arena.ring-nebula")!;
-  const base = configs.get<GamemodeConfig>("gamemode", opts.gamemodeId ?? "gamemode.practice")!;
+  const base = configs.get<GamemodeConfig>("gamemode", opts.gamemodeId ?? "gamemode.practice-bots-1v1")!;
   const gamemode = { ...base, ...opts.gamemodeOverride } as GamemodeConfig;
   return new World(configs, tuning, arena, gamemode);
 }

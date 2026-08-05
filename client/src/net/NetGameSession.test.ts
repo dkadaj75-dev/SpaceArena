@@ -319,7 +319,7 @@ function driftOverRun(
     boost: false,
   },
 ): { drift: number; hits: number; climb: number; pitch: number; pitchDrift: number } {
-  const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice", 1);
+  const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice-bots-1v1", 1);
   const cfg = configs.get<ShipConfig>("ship", SHIP_ID)!;
   const fitting = [...cfg.defaultFitting];
   const id = sim.spawnPlayer(SHIP_ID, fitting, 0, upgradeLevels);

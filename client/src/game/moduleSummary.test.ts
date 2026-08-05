@@ -124,7 +124,7 @@ describe("moduleStats — the numbers each family is judged on", () => {
 describe("moduleSummaryLine", () => {
   it("joins the chips into one readable line", () => {
     expect(moduleSummaryLine(mod("module.laser-mk1"))).toBe(
-      "DPS 27.5 · Range 95 · Power 2.5 · Energy 11/s · Heat 82.5/s",
+      "DPS 27.5 · Range 95 · Power 2.5 · Energy 11/s · Heat 165/s",
     );
   });
 

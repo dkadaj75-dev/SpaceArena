@@ -41,7 +41,7 @@ function fakeHost(modes: GamemodeConfig[]): { host: EditorHost; replace: ReturnT
 
 describe("GamemodeEditor", () => {
   it("picks the first free custom gamemode id", () => {
-    expect(nextGamemodeId(["gamemode.practice"])).toBe("gamemode.custom-1");
+    expect(nextGamemodeId(["gamemode.practice-bots-1v1"])).toBe("gamemode.custom-1");
     expect(nextGamemodeId(["gamemode.custom-1"])).toBe("gamemode.custom-2");
   });
 

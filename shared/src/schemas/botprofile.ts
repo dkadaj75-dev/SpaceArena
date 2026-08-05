@@ -13,6 +13,10 @@ export const botprofileSchema = z.object({
   orderJitterMs: z.number().nonnegative(),
   /** [min, max] preferred engagement range. */
   preferredRange: z.tuple([z.number().nonnegative(), z.number().nonnegative()]),
+  /** Cost advantage applied to a sensed enemy flag carrier in CTF. */
+  carrierPriority: z.number().min(1).optional(),
+  /** Flavor weights used by the seeded full-catalogue fitting roller. */
+  fittingArchetype: z.enum(["aggressive", "balanced", "cautious"]).optional(),
   /**
    * Stick feel for the flight model (FLIGHT.md §1/§7, BUBBLE.md §D) — how the
    * driver converts a behaviour's aim point into the `turn` and `pitchStick` axes

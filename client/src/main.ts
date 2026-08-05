@@ -410,7 +410,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         // "Play again" rebuilds the same kind of match from scratch (§6 1.9):
         // no cross-match state survives, so a rematch is a fresh runtime.
         onPlayAgain: () => {
-          const again = lastChoice ?? { kind: "practice" as const };
+          const again = lastChoice ?? { kind: "practice" as const, gamemode: "gamemode.practice-bots-1v1" };
           endMatch();
           void launchChoice(again);
         },
@@ -846,9 +846,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     matchLoading.showPending(choice.kind === "practice" ? "Building practice arena" : "Joining arena");
     try {
       // Resolve the gamemode FIRST so the arena lookup sees the same id the
-      // session runs — a choice without an explicit gamemode must still land
-      // on gamemode.practice's defaultArena, not the fallback arena.
-      const practiceMode = choice.gamemode ?? "gamemode.practice";
+      // session runs.
+      const practiceMode = choice.gamemode;
       const hangar = loadHangarSelection();
       const authState = authService.getState();
       const session =

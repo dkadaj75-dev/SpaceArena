@@ -112,6 +112,22 @@ const clampedConfigs = {
 } as unknown as ConfigService;
 
 describe("BotDriver utility scoring", () => {
+  it("makes a sensed enemy flag carrier the main target, then reverts when dropped", () => {
+    const p = profile({ carrierPriority: 10, behaviors: { engage: { baseWeight: 1, holdLockTarget: false } } });
+    const driver = makeDriver(p, emptyConfigs);
+    const s = snap([
+      ship(1, 0, 0, 0, { sensorRange: 100 }),
+      ship(2, 1, 10, 0),
+      ship(3, 1, 30, 0),
+    ]);
+    s.flags = [{ id: 90, team: 0, state: "carried", carrierId: 3, pos: { x: 30, y: 0, z: 0 }, home: { x: 0, y: 0, z: 0 }, baseRadius: 4, dropRemaining: 0, trail: [] }];
+    decide(driver, s);
+    expect(driver.lastDecision?.targetId).toBe(3);
+
+    s.flags = [{ ...s.flags[0]!, state: "dropped", carrierId: null }];
+    driver.update(s, 20_000);
+    expect(driver.lastDecision?.targetId).toBe(2);
+  });
   it("engages when the enemy sits at the preferred range", () => {
     const p = profile({ behaviors: { engage: { baseWeight: 1 }, kite: { baseWeight: 1 }, retreat: { baseWeight: 1, triggerHullBelow: 0.3 } } });
     const driver = makeDriver(p, emptyConfigs);
@@ -219,6 +235,25 @@ describe("BotDriver utility scoring", () => {
 });
 
 describe("BotDriver flight orders", () => {
+  it("blends toward world-up before a floored-arena path enters terrain", () => {
+    const p = profile({ behaviors: { engage: { baseWeight: 1 } } });
+    const self = ship(1, 0, 0, 0, {
+      pos: { x: 0, y: 6, z: 0 },
+      pitch: -0.7,
+      throttle: 1,
+      velocity: { x: 0, y: -8, z: 4 },
+      colliderRadius: 1,
+    });
+    const s = snap([self, ship(2, 1, 20, 0, { pos: { x: 20, y: -20, z: 0 } })]);
+    const floored = new BotDriver({ entityId: 1, profile: p, configs: emptyConfigs, rng: zeroRng, floorY: 0 });
+    decide(floored, s);
+    expect(floored.lastDecision!.flight!.pitchStick).toBeGreaterThan(0);
+    expect(floored.lastDecision!.flight!.boost).toBe(false);
+
+    const unfloored = makeDriver(p, emptyConfigs);
+    decide(unfloored, s);
+    expect(unfloored.lastDecision!.flight!.pitchStick).toBeLessThan(0);
+  });
   it("emits only schema-valid orders, and never a targeting one", () => {
     const p = profile({ behaviors: { engage: { baseWeight: 1 } } });
     const driver = new BotDriver({ entityId: 1, profile: p, configs: emptyConfigs, rng: zeroRng });

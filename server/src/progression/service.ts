@@ -4,9 +4,9 @@ import { withTransaction } from "../db/index.js";
 import { matchResultsRepo, profilesRepo } from "../db/repos.js";
 import { getProgression } from "../db/seed.js";
 
-/** One ship that took part in a match (human or dummy/bot). */
+/** One ship that took part in a match (human or bot). */
 export interface Participant {
-  /** Authenticated user id, or null for anonymous/dummy ships. */
+  /** Authenticated user id, or null for anonymous or bot ships. */
   userId: string | null;
   team: number;
   frags: number;

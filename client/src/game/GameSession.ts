@@ -69,21 +69,6 @@ function resolvePlayerFitting(
  * `alpha` advances, so the renderer always has a stable [prev, cur] pair to lerp
  * between. Events accumulate across all ticks in a frame and are drained once.
  */
-/**
- * Practice-dummy placement, expressed in the PLAYER'S SPAWN FRAME: `ahead` is
- * along the spawn's 3D facing (heading AND pitch, BUBBLE.md §C), `abeam` is to
- * its left. Resolved against whatever spawn point the arena actually handed the
- * player, so the dummies land in the sensor cone at lock range on any arena — an
- * absolute position only worked while every arena was ring-nebula-sized
- * (FLIGHT.md §6 makes the practice default a radius-300 field), and a planar
- * frame would only work while every spawn sat on y = 0.
- */
-const DUMMY_OFFSETS = [
-  { ahead: 30, abeam: 0 },
-  { ahead: 34, abeam: 12, up: 12 },
-  { ahead: 34, abeam: -12 },
-];
-
 /** Additive practice options (Phase 5 5.1 integration B). */
 export interface GameSessionOptions {
   /** Local pilot handle for loading/MVP presentation (online names replicate). */
@@ -120,13 +105,6 @@ export class GameSession {
   readonly matchStats: MatchStatsAccumulator;
   readonly playerId: EntityId;
   /**
-   * First spawned dummy id, kept for back-compat with any single-target callers.
-   * `undefined` in a bots-roster mode, which spawns no static dummies.
-   */
-  readonly dummyId: EntityId | undefined;
-  /** All practice-dummy entity ids (one per `winCondition.count` for `destroyTargets`). */
-  readonly dummyIds: EntityId[] = [];
-  /**
    * Bot drivers by ship entity id (5.1). Public so a debug overlay (5.3) can read
    * `driver.lastDecision` — behaviour, utility scores, chosen move point.
    */
@@ -142,15 +120,12 @@ export class GameSession {
   private cur: Snapshot;
   private readonly frameEvents: SimEvent[] = [];
   private readonly shipConfigIds = new Map<EntityId, string>();
-  /** Ships that count toward the "Targets: x/y" objective (dummies and/or bots). */
-  private readonly dummyIdSet: Set<EntityId>;
-  private destroyedTargetsCount = 0;
   private elapsedMs = 0;
 
   constructor(
     private readonly configs: ConfigService,
     arenaId = "arena.ring-nebula",
-    gamemodeId = "gamemode.practice",
+    gamemodeId = "gamemode.practice-bots-1v1",
     seed = 1,
     options: GameSessionOptions = {},
   ) {
@@ -169,70 +144,40 @@ export class GameSession {
     this.playerId = this.sim.spawnPlayer(shipId, fitting, 0);
     this.shipConfigIds.set(this.playerId, shipId);
 
-    // Static dummy targets on team 1, placed within weapon range of the
-    // player so combat is immediately testable. Receive no orders. Count
-    // follows the gamemode's `destroyTargets` win condition (falls back to a
-    // single dummy for other win-condition types).
-    // Bots (5.1): spawned from the gamemode config's `bots.roster` unless the
-    // caller opts out. A mode with a roster replaces the static dummies — the
-    // existing dummy flow is untouched for modes without one.
+    // Bots are spawned from the gamemode config's `bots.roster` unless the
+    // caller opts out.
     const gamemode = this.sim.world.gamemode;
     const roster = options.bots === null ? [] : resolveBotRoster(gamemode, configs);
-    const enemyBotIds: EntityId[] = [];
     // One stream for every roster decision, derived from the session seed: same
     // seed ⇒ same hulls, same fittings, same names.
     const rosterRng = deriveRng(seed, 0xb0715);
     const names = generateBotNames(rosterRng, roster.length);
     const randomize = gamemode.bots?.randomizeLoadouts === true;
     for (const [rosterIndex, slot] of roster.entries()) {
-      const shipId = randomize
+      const shipId = randomize && !slot.fitting
         ? pickBotShip(configs, rosterRng, slot.shipId, gamemode.bots?.shipPool)
         : slot.shipId;
       const botShip = configs.get<ShipConfig>("ship", shipId);
       if (!botShip) continue;
-      const fitting = randomize ? randomBotFitting(configs, shipId, rosterRng) : botShip.defaultFitting;
+      const fitting = slot.fitting ?? (randomize ? randomBotFitting(configs, shipId, rosterRng, slot.profile) : botShip.defaultFitting);
       const id = this.sim.spawnPlayer(shipId, fitting, slot.team);
       this.shipConfigIds.set(id, shipId);
       this.botNames.set(id, names[rosterIndex] ?? `Bot ${rosterIndex + 1}`);
-      // 2v2 rosters can put a bot on the PLAYER's team — an ally is never one of
-      // the "targets" the destroyTargets objective counts.
-      if (slot.team !== 0) enemyBotIds.push(id);
       // Seeded from the SESSION seed + the bot's entity id, so a practice match
       // replayed on the same seed produces the same opponents rather than a
       // fresh `Math.random` roll of orbit signs and decision jitter.
       // `options.botRng` still wins, for tests that want a specific stream.
       this.bots.set(
         id,
-        new BotDriver({ entityId: id, profile: slot.profile, configs, rng: options.botRng ?? deriveRng(seed, id) }),
+        new BotDriver({
+          entityId: id,
+          profile: slot.profile,
+          configs,
+          rng: options.botRng ?? deriveRng(seed, id),
+          floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
+        }),
       );
     }
-
-    const wc = this.sim.world.gamemode.winCondition;
-    const dummyCount = roster.length > 0 ? 0 : wc.type === "destroyTargets" ? wc.count : 1;
-    // Read the spawn the sim actually gave the player and lay the dummies out
-    // relative to it (see DUMMY_OFFSETS). They face the same way the player
-    // does, so the player starts behind them and outside THEIR sensor cone —
-    // targeting is automatic now, and a dummy that opens fire is not a dummy.
-    const spawn = this.sim.world.transforms.get(this.playerId)!;
-    const cos = Math.cos(spawn.heading);
-    const sin = Math.sin(spawn.heading);
-    // `ahead` follows the nose in 3D; `abeam` stays horizontal, while `up` gives
-    // one dummy a deliberate vertical offset from the spawn frame.
-    const cosPitch = Math.cos(spawn.pitch);
-    const sinPitch = Math.sin(spawn.pitch);
-    for (let i = 0; i < dummyCount; i++) {
-      const off = DUMMY_OFFSETS[i % DUMMY_OFFSETS.length]!;
-      const pos = {
-        x: spawn.pos.x + cos * cosPitch * off.ahead - sin * off.abeam,
-        y: spawn.pos.y + sinPitch * off.ahead + (off.up ?? 0),
-        z: spawn.pos.z + sin * cosPitch * off.ahead + cos * off.abeam,
-      };
-      const id = this.sim.spawnPlayerAt(shipId, fitting, 1, pos, spawn.heading);
-      this.shipConfigIds.set(id, shipId);
-      this.dummyIds.push(id);
-    }
-    this.dummyId = this.dummyIds[0];
-    this.dummyIdSet = new Set([...this.dummyIds, ...enemyBotIds]);
 
     this.prev = this.sim.snapshot();
     this.cur = this.prev;
@@ -241,7 +186,6 @@ export class GameSession {
       arena: arenaId,
       gamemode: gamemodeId,
       playerId: this.playerId,
-      dummyIds: this.dummyIds,
       botIds: [...this.bots.keys()],
     });
   }
@@ -256,9 +200,6 @@ export class GameSession {
     this.matchStats.consume(evs, this.cur.elapsed);
     for (let i = 0; i < evs.length; i++) {
       const ev = evs[i]!;
-      if (ev.type === "entityDestroyed" && !ev.isAsteroid && this.dummyIdSet.has(ev.entityId)) {
-        this.destroyedTargetsCount += 1;
-      }
       this.frameEvents.push(ev);
     }
   }
@@ -293,11 +234,6 @@ export class GameSession {
    */
   get arenaId(): string {
     return this.sim.world.arena.id;
-  }
-
-  /** Practice-mode dummies destroyed so far (drives the "Targets: x/y" HUD line). */
-  get destroyedTargets(): number {
-    return this.destroyedTargetsCount;
   }
 
   applyOrder(entityId: EntityId, order: Order): void {

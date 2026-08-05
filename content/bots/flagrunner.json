@@ -9,6 +9,8 @@
     24,
     50
   ],
+  "carrierPriority": 12,
+  "fittingArchetype": "balanced",
   "flight": {
     "turnHorizonMult": 1.0,
     "aimToleranceRad": 0.14,

@@ -250,7 +250,8 @@ describe("bots in a live ArenaSimulation", () => {
 
     // ...and a completed lock is converted into shots and hull damage.
     const fired = result.events.filter((e) => e.type === "projectileFired");
-    expect(fired.length).toBeGreaterThan(4);
+    // Owner heat x10 deliberately puts more time into rack cooldowns.
+    expect(fired.length).toBeGreaterThan(3);
     expect(result.firstWeaponHitAt).toBeLessThan(15);
     expect(result.weaponDamage).toBeGreaterThan(40);
     // Weapons, not scenery, decide the fight. Flight retired asteroid avoidance
@@ -423,12 +424,12 @@ describe("bots in a live ArenaSimulation", () => {
     expect(JSON.stringify(other.events)).not.toBe(JSON.stringify(a.events));
   });
 
-  it("keeps the x5 missile rack heat meaningful without locking on every launch", () => {
-    // A Mk I launch is now below its 65 threshold. This deliberately cautious
-    // profile waits out its cadence, so it no longer records the old one-shot
-    // lockout; sustained firing remains covered by the balance bench.
+  it("keeps weapon heat meaningful at x10 without stalling bot combat", () => {
+    // Missiles retain room for one launch, while the doubled laser shot heat
+    // can legitimately trigger its own rack lockout. The bot must still re-arm
+    // and land damage rather than stalling permanently.
     const result = runMatch(["bot.cautious", "bot.cautious"], 11);
-    expect(result.seenStates.has("overheated")).toBe(false);
+    expect(result.seenStates.has("overheated")).toBe(true);
     expect(result.seenStates.has("active")).toBe(true);
     expect(result.weaponDamage).toBeGreaterThan(0);
   });

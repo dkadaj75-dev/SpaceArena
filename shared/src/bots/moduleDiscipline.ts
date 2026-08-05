@@ -14,7 +14,8 @@ export type ModuleDecisionReason =
   | "heat-cooled"
   | "shield-engaged"
   | "shield-disengaged"
-  | "energy-reserve";
+  | "energy-reserve"
+  | "boost-requested";
 
 export interface ModuleDecision {
   hardpointIndex: number;

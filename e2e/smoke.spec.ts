@@ -67,6 +67,10 @@ interface PumpResult {
   enemiesLeft: number;
 }
 
+// A real-bot 1v1 under software rendering pumps thousands of frames; give the
+// journey headroom beyond the config's default 120s.
+test.setTimeout(480_000);
+
 test("guest can log in, fit a ship, play a practice match and return to the lobby", async ({
   page,
 }) => {
@@ -197,7 +201,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(lobby).toBeVisible();
 
   // ------------------------------------------------- 5. start a practice match
-  await lobby.getByRole("button", { name: "Practice — Dummies", exact: true }).click();
+  await lobby.getByRole("button", { name: "Practice — 1v1 vs Bot", exact: true }).click();
   await expect(lobby).toBeHidden();
 
   // The loadout left in the Hangar is the one flown (owner 2026-07-31). Since
@@ -209,12 +213,12 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   expect(await moduleButtons.count()).toBeLessThanOrEqual(hangarWeaponSlots);
   await expect(page.locator(".hud-fps")).toHaveCount(0);
 
-  // The dummies choice carries no explicit gamemode, so the match must still
-  // resolve gamemode.practice's defaultArena — not the ring-nebula fallback
-  // (regression: startMatch once defaulted the gamemode AFTER the arena lookup).
+  // The selected bot-practice mode resolves its authored default arena, rather
+  // than the generic fallback (regression: startMatch once resolved the arena
+  // before its gamemode).
   expect(
     await page.evaluate(() => (window as unknown as { __debug: { session: { arenaId: string } } }).__debug.session.arenaId),
-  ).toBe("arena.deep-field");
+  ).toBe("arena.ring-nebula");
 
   // ----------------------------------------------------- 6. drive the match
   // Weapons spawn ONLINE (2026-07-31) and the support modules spawn retracted,
@@ -283,7 +287,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
     }
     return null;
   });
-  expect(firingSolution?.ok, "failed to arm a weapon and acquire the practice dummy").toBe(true);
+  expect(firingSolution?.ok, "failed to arm a weapon and acquire the practice bot").toBe(true);
 
   const canvas = page.locator("#renderCanvas");
   await canvas.dispatchEvent("pointerdown", {
@@ -314,11 +318,11 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   expect(hullAfterTrigger).toBeLessThan(firingSolution!.hull);
 
   // ------------------------------------------- 7. run the match to completion
-  // Practice is `destroyTargets: 3` against 3 static dummies laid out just ahead
-  // of the player's spawn. We issue only the orders a human's HUD produces —
+  // Practice 1v1 is a real opponent with respawns and a frag limit. We issue
+  // only the orders a human's HUD produces —
   // `flight` from the stick/throttle and `moduleToggle` from the module buttons
   // (targeting is automatic in the sim, FLIGHT.md §2) — and use forceFrame to
-  // compress ~20 s of match time into a couple of seconds.
+  // compress the full engagement into a couple of seconds.
   const pump = await page.evaluate<PumpResult, { maxFrames: number; standoff: number }>(
     async ({ maxFrames, standoff }) => {
       const debug = (window as unknown as { __debug?: DebugApi }).__debug;
@@ -385,7 +389,12 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
             // Close to the standoff band, then cut the engine and shoot from there.
             throttle: nearestDist > standoff ? 0.6 : 0,
             boost: false,
-            fire: true,
+            // Trigger discipline: at the x10 weapon-heat scale a held trigger
+            // lives in lockout. Fire only while a weapon rack is genuinely
+            // active so bursts land and the match can actually end.
+            fire: me.modules.some(
+              (m) => m.state === "active" && /laser|kinetic|missile|beam/.test(m.moduleId),
+            ),
           });
         }
 
@@ -433,7 +442,10 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
         enemiesLeft,
       };
     },
-    { maxFrames: 1500, standoff: 24 },
+    // Past the 10-minute match timer (600 sim-s at ~165 sim-ms per forced
+    // frame), so a stalemated fight still ends the match — a timed result is a
+    // result. The generous budget is wall-clock bounded by the test timeout.
+    { maxFrames: 4500, standoff: 24 },
   );
 
   expect(

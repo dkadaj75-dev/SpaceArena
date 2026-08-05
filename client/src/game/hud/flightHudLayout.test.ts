@@ -54,6 +54,24 @@ const PORTRAIT = { width: 400, height: 800 };
 const LANDSCAPE = { width: 800, height: 400 };
 
 describe("resolveFlightHudLayout", () => {
+  it("packs sparse action rails from the FIRE-side end at the safe chord pitch", () => {
+    const flight = resolveFlightHudLayout(
+      theme({ flight: { actions: { arc: { radiusPx: 240, startDeg: -100, sweepDeg: -80, buttonDiameterPx: 48 } } } }),
+      PORTRAIT,
+    );
+    const slots = flightActionArcSlots(flight, 2);
+    const fire = anchoredOffset(flight.fire.anchor, flight.fire.offsetXPx, flight.fire.offsetYPx, flight.fire.radiusPx);
+    const angles = slots.map((slot) => {
+      const point = anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx);
+      return Math.atan2(point.dy - fire.dy, point.dx - fire.dx) * 180 / Math.PI;
+    });
+    // Four actions fit on one rail, so their pitch is the minimum safe chord,
+    // not the authored span divided into three distant slots.
+    expect(angles[0]).toBeCloseTo(-100, 6);
+    expect(Math.abs(angles[1]! - angles[0]!)).toBeLessThan(25);
+    expect(Math.abs(angles[3]! - angles[0]!)).toBeLessThan(80);
+  });
+
   it("reads every knob from the theme's flight block", () => {
     const layout = resolveFlightHudLayout(theme(), PORTRAIT);
     expect(layout.orientation).toBe("portrait");
@@ -79,6 +97,7 @@ describe("resolveFlightHudLayout", () => {
       ringGapPx: 7,
       ringStrokePx: 2,
       ringArcDeg: 260,
+      ringTickGapDeg: 3,
       color: "#ff4655",
       fillOpacity: 0.3,
       borderPx: 2,
@@ -391,12 +410,26 @@ describe("shipped FIRE-centred control rail", () => {
   ])("keeps every fitted rail arrangement clear at $width x $height", (viewport) => {
     for (const moduleCount of [2, 4, 6]) {
       const { controls, captions, obstacles, centres, inset } = boxes(viewport, moduleCount);
+      const fire = controls.find((control) => control.name === "fire-ring")!;
+      const fireX = (fire.left + fire.right) / 2;
+      const fireY = (fire.top + fire.bottom) / 2;
+      const fireRadius = (fire.right - fire.left) / 2;
       for (let i = 0; i < centres.length; i++) {
+        const fireGap = Math.hypot(centres[i]!.x - fireX, centres[i]!.y - fireY) - centres[i]!.radius - fireRadius;
+        expect(fireGap, `modules=${moduleCount}: ${i} / FIRE edge gap`).toBeGreaterThanOrEqual(8);
         for (let j = i + 1; j < centres.length; j++) {
           const a = centres[i]!;
           const b = centres[j]!;
           const edgeGap = Math.hypot(a.x - b.x, a.y - b.y) - a.radius - b.radius;
           expect(edgeGap, `modules=${moduleCount}: ${i} / ${j} edge gap`).toBeGreaterThanOrEqual(8);
+        }
+      }
+      if (moduleCount === 2) {
+        for (const centre of centres) {
+          expect(
+            Math.hypot(centre.x - fireX, centre.y - fireY),
+            "two fitted modules stay in FIRE's 180px thumb cluster",
+          ).toBeLessThanOrEqual(180);
         }
       }
     for (let i = 0; i < controls.length; i++) {
@@ -405,10 +438,6 @@ describe("shipped FIRE-centred control rail", () => {
       expect(box.top, `${box.name} top`).toBeGreaterThanOrEqual(inset);
       expect(box.right, `${box.name} right`).toBeLessThanOrEqual(viewport.width - inset);
       expect(box.bottom, `${box.name} bottom`).toBeLessThanOrEqual(viewport.height - inset);
-      for (let j = i + 1; j < controls.length; j++) {
-        const other = controls[j]!;
-        expect(overlaps(box, other), `${box.name} overlaps ${other.name}`).toBe(false);
-      }
       for (const obstacle of obstacles) {
         expect(overlaps(box, obstacle), `${box.name} overlaps ${obstacle.name}`).toBe(false);
       }

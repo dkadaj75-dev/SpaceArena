@@ -158,6 +158,10 @@ describe("taking a flag", () => {
 
 describe("a carrier cannot boost", () => {
   const boostedSpeed = (sim: ArenaSimulation, id: EntityId): number => {
+    // Boost starts disabled; arm the fitted engine exactly as a pilot would
+    // before holding the boost flight input.
+    sim.applyOrder(id, { kind: "moduleToggle", hardpointIndex: 2 });
+    tick(sim);
     sim.applyOrder(id, { kind: "flight", throttle: 1, turn: 0, pitchStick: 0, boost: true, fire: false });
     tick(sim, 60);
     const v = sim.world.velocities.get(id)!;

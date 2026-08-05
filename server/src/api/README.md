@@ -139,8 +139,8 @@ receives an individual `simEvent` of type `matchRewards`:
 
 Kill attribution uses the sim's `entityDestroyed.killerId`; asteroid kills and
 team-kills do not count toward `frags`. Rewards are **anti-farmed**: a room
-created with a client-supplied `practiceTarget` or `minPlayers` override (which
-enable trivially-winnable solo rooms) is marked ineligible — the `match_results`
+created with a client-supplied `minPlayers` override (which can enable
+trivially-winnable solo rooms) is marked ineligible — the `match_results`
 row is still written (flagged `rewards_eligible=0`) but no credits/XP are granted,
 and one authenticated user may occupy only one slot per room. `finalizeMatch`
 persists the result and all profile writes in a single transaction and dedupes

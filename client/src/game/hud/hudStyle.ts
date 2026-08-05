@@ -137,6 +137,7 @@ const CSS = `
 .hud-throttle-track,
 .hud-fire-btn,
 .hud-boost-btn,
+.hud-jettison-btn,
 .hud-results-panel {
   isolation: isolate;
 }
@@ -150,6 +151,8 @@ const CSS = `
 .hud-fire-btn::after,
 .hud-boost-btn::before,
 .hud-boost-btn::after,
+.hud-jettison-btn::before,
+.hud-jettison-btn::after,
 .hud-results-panel::before,
 .hud-results-panel::after {
   z-index: -1;
@@ -379,6 +382,7 @@ const CSS = `
   );
   --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 66%, transparent);
   --hud-btn-fill: var(--hud-btn-plate);
+  --hud-action-color: var(--hud-module-family-color, var(--hud-primary));
 }
 /* Rim + fill plates (same two-layer trick as .hud-frame, circular silhouette). */
 .hud-module-btn::before,
@@ -388,7 +392,16 @@ const CSS = `
   border-radius: 50%;
   pointer-events: none;
 }
-.hud-module-btn::before { inset: 0; background: var(--hud-btn-rim); }
+.hud-module-btn::before {
+  inset: 0;
+  background: repeating-conic-gradient(
+    from -45deg,
+    var(--hud-btn-rim) 0 calc(90deg - var(--hud-action-ring-tick-gap, 3deg)),
+    transparent calc(90deg - var(--hud-action-ring-tick-gap, 3deg)) 90deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
+}
 .hud-module-btn::after {
   inset: 1.5px;
   background: var(--hud-btn-fill);
@@ -404,15 +417,16 @@ const CSS = `
   z-index: 1;
   pointer-events: none;
   border-radius: 50%;
-  background: conic-gradient(var(--hud-primary, #39bfff) calc(var(--ring, 0) * 1%), transparent 0);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+  background: conic-gradient(var(--hud-action-color) calc(var(--ring, 0) * 1%), transparent 0);
+  opacity: 0.4;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
 }
 .hud-module-btn > .icon {
   z-index: 2;
   width: 55%;
   max-width: 26px;
-  color: #fff;
+  color: var(--hud-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -436,6 +450,11 @@ const CSS = `
   font-size: 0.52em;
   font-weight: 700;
   opacity: 0.92;
+  box-sizing: border-box;
+  padding: 1px 4px;
+  background: color-mix(in srgb, var(--hud-bg) var(--hud-action-label-plate-pct, 76%), transparent);
+  border: 1px solid color-mix(in srgb, var(--hud-action-color) var(--hud-action-label-border-pct, 42%), transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hud-bg) 42%, transparent);
 }
 .hud-module-btn.state-retracted { filter: saturate(0.6) brightness(0.72); }
 .hud-module-btn.state-deploying { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 82%, transparent); }
@@ -457,6 +476,7 @@ const CSS = `
 .hud-module-btn.state-retracting { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 45%, transparent); }
 .hud-module-btn.state-overheated {
   --hud-btn-rim: var(--hud-danger, #ff405c);
+  --hud-action-color: var(--hud-danger, #ff405c);
 }
 .hud-module-btn.state-overheated > .icon { color: var(--hud-danger, #ff405c); }
 .hud-module-btn.state-overheated > .ring { background: conic-gradient(var(--hud-danger, #ff405c) calc(var(--ring, 0) * 1%), transparent 0); }
@@ -468,9 +488,7 @@ const CSS = `
 .hud-module-btn.armed::before {
   filter: drop-shadow(0 0 calc(11px * var(--hud-glow)) var(--hud-module-family-color));
 }
-.hud-module-btn.cooling > .ring {
-  background: conic-gradient(#fff calc(var(--ring, 0) * 1%), transparent 0);
-}
+.hud-module-btn.cooling > .ring { opacity: 0.4; }
 .hud-module-btn.unarmable {
   --hud-btn-rim: color-mix(in srgb, var(--hud-neutral, #7f9dc4) 60%, transparent);
   filter: saturate(0.62) brightness(0.76);
@@ -699,6 +717,7 @@ const CSS = `
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   --hud-btn-rim: var(--hud-fire-color, #ff4655);
+  transition: transform 0.1s ease, filter 0.15s linear, opacity 0.15s linear;
 }
 .hud-fire-btn {
   z-index: 1;
@@ -717,15 +736,16 @@ const CSS = `
   border-radius: 50%;
   pointer-events: none;
 }
-.hud-fire-btn::before { inset: 0; background: var(--hud-btn-rim); }
+.hud-fire-btn::before {
+  inset: 0;
+  background: var(--hud-btn-rim);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-border, 2px)), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-border, 2px)), #000 0);
+}
 .hud-fire-btn::after {
   inset: var(--hud-fire-border, 2px);
-  background: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--hud-fire-color, #ff4655) 58%, #240008)
-      var(--hud-fire-fill-pct, 30%),
-    transparent
-  );
+  background: radial-gradient(circle at 42% 36%, color-mix(in srgb, var(--hud-fire-color) 58%, var(--hud-text)), color-mix(in srgb, var(--hud-fire-color) var(--hud-fire-fill-pct, 30%), var(--hud-bg)) 62%, var(--hud-bg) 100%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hud-bg) 58%, transparent), inset 0 -4px 8px color-mix(in srgb, var(--hud-bg) 55%, transparent);
 }
 .hud-fire-btn > * { position: relative; z-index: 1; }
 .hud-fire-btn .label {
@@ -738,7 +758,7 @@ const CSS = `
   z-index: 0;
   box-sizing: border-box;
   border-radius: 50%;
-  background: conic-gradient(from -38deg, var(--hud-fire-color, #ff4655) 0 var(--hud-fire-ring-arc, 260deg), transparent var(--hud-fire-ring-arc, 260deg) 360deg);
+  background: repeating-conic-gradient(from -45deg, var(--hud-fire-color) 0 calc(90deg - var(--hud-fire-ring-tick-gap, 3deg)), transparent calc(90deg - var(--hud-fire-ring-tick-gap, 3deg)) 90deg);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-ring-stroke, 2px)), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-ring-stroke, 2px)), #000 0);
   filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) var(--hud-fire-color, #ff4655));
@@ -755,6 +775,9 @@ const CSS = `
 .hud-fire-btn.active::before {
   filter: drop-shadow(0 0 var(--hud-fire-armed-glow, 18px) var(--hud-fire-color, #ff4655));
 }
+.hud-fire-btn.active { transform: scale(0.96); }
+.hud-fire-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.18) brightness(0.72); }
+.hud-fire-btn.disabled::before { --hud-btn-rim: var(--hud-danger); filter: none; }
 .hud-fire-btn.active .label {
   filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) #fff);
 }
@@ -782,6 +805,7 @@ const CSS = `
   --hud-btn-rim: color-mix(in srgb, var(--hud-boost-color, #e8b44f) 58%, transparent);
   --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 72%, transparent);
   --hud-btn-fill: var(--hud-btn-plate);
+  --hud-action-color: var(--hud-boost-color);
 }
 /* Same restrained circular rim/plate contract as the module buttons. */
 .hud-boost-btn::before,
@@ -793,7 +817,9 @@ const CSS = `
 }
 .hud-boost-btn::before {
   inset: 0;
-  background: var(--hud-btn-rim);
+  background: repeating-conic-gradient(from -45deg, var(--hud-btn-rim) 0 calc(90deg - var(--hud-action-ring-tick-gap, 3deg)), transparent calc(90deg - var(--hud-action-ring-tick-gap, 3deg)) 90deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
   filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-boost-color, #e8b44f));
 }
 .hud-boost-btn::after {
@@ -822,7 +848,11 @@ const CSS = `
   font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing: 0.06em;
   opacity: 0.92;
+  box-sizing: border-box; padding: 1px 4px;
+  background: color-mix(in srgb, var(--hud-bg) var(--hud-action-label-plate-pct, 76%), transparent);
+  border: 1px solid color-mix(in srgb, var(--hud-action-color) var(--hud-action-label-border-pct, 42%), transparent);
 }
+.hud-boost-btn > .ring { position:absolute; inset:calc(var(--hud-rim) * 1.5); z-index:1; border-radius:50%; pointer-events:none; background:conic-gradient(var(--hud-action-color) calc(var(--ring, 0) * 1%), transparent 0); opacity:0.4; -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); }
 /* Heat: a hairline bar across the base of the plate, filled from the module's
    heat against ITS OWN overheat threshold — the number that actually cuts the
    afterburner off, which the ship-wide heat gauge does not show. */
@@ -858,9 +888,10 @@ const CSS = `
   filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-boost-color, #e8b44f));
 }
 .hud-boost-btn.active > .icon { animation: hud-boost-surge 0.7s ease-in-out infinite; }
-.hud-boost-btn.pressed { filter: brightness(1.22); }
+.hud-boost-btn.pressed { transform: scale(0.96); filter: brightness(1.22); }
 .hud-boost-btn.state-overheated {
   --hud-btn-rim: var(--hud-danger, #ff405c);
+  --hud-action-color: var(--hud-danger, #ff405c);
 }
 .hud-boost-btn.state-overheated > .icon { color: var(--hud-danger, #ff405c); }
 .hud-boost-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
@@ -899,6 +930,7 @@ const CSS = `
   -webkit-tap-highlight-color: transparent;
   --hud-btn-rim: color-mix(in srgb, var(--hud-jettison-color, #5ec9e8) 55%, transparent);
   --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 72%, transparent);
+  --hud-action-color: var(--hud-jettison-color);
 }
 .hud-jettison-btn::before, .hud-jettison-btn::after, .hud-jettison-btn > .ring {
   content: "";
@@ -906,15 +938,15 @@ const CSS = `
   border-radius: 50%;
   pointer-events: none;
 }
-.hud-jettison-btn::before { inset: 0; background: var(--hud-btn-rim); filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-jettison-color, #5ec9e8)); }
+.hud-jettison-btn::before { inset: 0; background:repeating-conic-gradient(from -45deg,var(--hud-btn-rim) 0 calc(90deg - var(--hud-action-ring-tick-gap, 3deg)),transparent calc(90deg - var(--hud-action-ring-tick-gap, 3deg)) 90deg); -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-jettison-color, #5ec9e8)); }
 .hud-jettison-btn::after { inset: 1.5px; background: var(--hud-btn-plate); backdrop-filter: blur(var(--hud-blur)); -webkit-backdrop-filter: blur(var(--hud-blur)); }
-.hud-jettison-btn > .ring { inset: 2px; background: conic-gradient(var(--hud-jettison-color, #5ec9e8) calc(var(--ring, 0) * 1%), transparent 0); opacity: 0.78; }
-.hud-jettison-btn > .icon, .hud-jettison-btn > .label { position: relative; z-index: 1; color: #fff; }
+.hud-jettison-btn > .ring { inset: 2px; background: conic-gradient(var(--hud-action-color) calc(var(--ring, 0) * 1%), transparent 0); opacity: 0.4; -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); }
+.hud-jettison-btn > .icon, .hud-jettison-btn > .label { position: relative; z-index: 1; color: var(--hud-text); }
 .hud-jettison-btn > .icon { width: 55%; display: flex; }
 .hud-jettison-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
-.hud-jettison-btn > .label { position: absolute; top: calc(100% + var(--hud-module-label-gap, 4px)); left: 50%; transform: translateX(-50%); white-space: nowrap; font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif); letter-spacing: 0.06em; }
-.hud-jettison-btn.pressed { filter: brightness(1.22); }
-.hud-jettison-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.25) brightness(0.72); }
+.hud-jettison-btn > .label { position: absolute; top: calc(100% + var(--hud-module-label-gap, 4px)); left: 50%; transform: translateX(-50%); white-space: nowrap; font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif); letter-spacing: 0.06em; box-sizing:border-box; padding:1px 4px; background:color-mix(in srgb,var(--hud-bg) var(--hud-action-label-plate-pct,76%),transparent); border:1px solid color-mix(in srgb,var(--hud-action-color) var(--hud-action-label-border-pct,42%),transparent); }
+.hud-jettison-btn.pressed { transform:scale(0.96); filter: brightness(1.22); }
+.hud-jettison-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.25) brightness(0.72); --hud-action-color: var(--hud-danger, #ff405c); --hud-btn-rim: var(--hud-danger, #ff405c); }
 .hud-jettison-btn.disabled::before { filter: none; }
 
 /* Hull and shield now flank the ship as restrained side arcs. */

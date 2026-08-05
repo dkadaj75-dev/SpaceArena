@@ -59,8 +59,9 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: [["list"], ["html", { open: "never" }]],
 
-  // The @hudshot rig spec is a design tool, not a test: keep it out of default runs.
-  grepInvert: /@hudshot/,
+  // The @hudshot rig spec is a design tool, not a test: keep it out of default
+  // runs. Set HUD_SHOT_DIR (the rig's output dir) to run it explicitly.
+  grepInvert: process.env["HUD_SHOT_DIR"] ? undefined : /@hudshot/,
 
   use: {
     baseURL: "http://localhost:5173",
