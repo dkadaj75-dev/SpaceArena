@@ -158,6 +158,24 @@ describe("a jettisoned sink is a LURE", () => {
     expect(world.targets.get(ally)!.targetId).toBe(foe);
   });
 
+  it("never lets a friendly sensor retain its own team's heatsink as a lock", () => {
+    const world = makeWorld(configs);
+    const ally = ship(world, INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const dropper = ship(world, INTERCEPTOR_FITTING_ABLATIVE, 0, { x: 20, z: 0 }, Math.PI);
+    rebuildSpatial(world);
+    world.queueOrder(dropper, { kind: "jettisonHeatsink" });
+    jettisonSystem(world, DT);
+    const decoyId = world.decoyIds()[0]!;
+    // Guard the sticky-target path too: no friendly lock may keep the lure.
+    world.targets.get(ally)!.targetId = decoyId;
+    world.targets.get(ally)!.lockProgress = 1;
+    rebuildSpatial(world);
+
+    targetingSystem(world, DT);
+
+    expect(world.targets.get(ally)!.targetId).toBeNull();
+  });
+
   it("drops the lock again the moment the sink burns out", () => {
     const world = makeWorld(configs);
     const hunter = ship(world, INTERCEPTOR_FITTING, 1, { x: 0, z: 0 }, 0);

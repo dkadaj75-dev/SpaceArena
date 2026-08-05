@@ -143,13 +143,13 @@
       },
       "fire": {
         "anchor": "bottom-right",
-        "radiusPx": 42,
+        "radiusPx": 49,
         "offsetXPx": 24,
-        "offsetYPx": 34,
+        "offsetYPx": 16,
         "icon": "FIRE",
-        "ringGapPx": 7,
-        "ringStrokePx": 0,
-        "ringArcDeg": 0,
+        "ringGapPx": 4,
+        "ringStrokePx": 1.5,
+        "ringArcDeg": 360,
         "color": "#ff4655",
         "fillOpacity": 0.3,
         "borderPx": 2,
@@ -158,8 +158,8 @@
         "armedGlowPx": 18
       },
       "actions": {
-        "boost": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 220, "offsetYPx": 165 },
-        "jettison": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 72, "offsetYPx": 215 }
+        "boost": { "anchor": "bottom-right", "radiusPx": 24, "offsetXPx": 158, "offsetYPx": 144, "color": "#e8b44f" },
+        "jettison": { "anchor": "bottom-right", "radiusPx": 24, "offsetXPx": 106, "offsetYPx": 184, "color": "#5ec9e8" }
       },
       "reticle": {
         "showZone": false,
@@ -215,15 +215,15 @@
       "flight": {
         "fire": {
           "anchor": "bottom-right",
-          "radiusPx": 42,
+          "radiusPx": 49,
           "offsetXPx": 24,
-          "offsetYPx": 34,
+          "offsetYPx": 16,
           "icon": "FIRE",
           "blockedNotification": "notification.fire-blocked"
         },
         "actions": {
-          "boost": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 220, "offsetYPx": 165 },
-          "jettison": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 72, "offsetYPx": 215 }
+          "boost": { "anchor": "bottom-right", "radiusPx": 24, "offsetXPx": 158, "offsetYPx": 144, "color": "#e8b44f" },
+          "jettison": { "anchor": "bottom-right", "radiusPx": 24, "offsetXPx": 106, "offsetYPx": 184, "color": "#5ec9e8" }
         }
       }
     },
@@ -273,14 +273,14 @@
         },
         "fire": {
           "anchor": "bottom-right",
-          "radiusPx": 36,
+          "radiusPx": 42,
           "offsetXPx": 22,
-          "offsetYPx": 30,
+          "offsetYPx": 5,
           "icon": "FIRE"
         },
         "actions": {
-          "boost": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 220, "offsetYPx": 165 },
-          "jettison": { "anchor": "bottom-right", "radiusPx": 28, "offsetXPx": 72, "offsetYPx": 215 }
+          "boost": { "anchor": "bottom-right", "radiusPx": 26, "offsetXPx": 182, "offsetYPx": 178, "color": "#e8b44f" },
+          "jettison": { "anchor": "bottom-right", "radiusPx": 26, "offsetXPx": 218, "offsetYPx": 60, "color": "#5ec9e8" }
         },
         "enemyArrows": {
           "ringRadiusPx": 118,

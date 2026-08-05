@@ -197,15 +197,15 @@ describe("secondary action geometry", () => {
     const layout = resolveFlightHudLayout(theme(), PORTRAIT);
     expect(layout.boost.anchor).toBe("bottom-right");
     expect(layout.jettison.anchor).toBe("bottom-right");
-    expect(layout.boost.radiusPx).toBe(30);
-    expect(layout.jettison.radiusPx).toBe(30);
+    expect(layout.boost.radiusPx).toBe(26);
+    expect(layout.jettison.radiusPx).toBe(26);
     expect(layout.boost.color).toBe(MODULE_FAMILY_COLOR_FALLBACKS.boost);
   });
 
   it("scales authored slots through the orientation override", () => {
     const landscape = resolveFlightHudLayout(theme(), LANDSCAPE);
-    expect(landscape.boost.radiusPx).toBe(15);
-    expect(landscape.jettison.radiusPx).toBe(15);
+    expect(landscape.boost.radiusPx).toBe(13);
+    expect(landscape.jettison.radiusPx).toBe(13);
   });
 
   it("takes the boost family's authored colour, so the hangar and the HUD agree", () => {

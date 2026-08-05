@@ -714,7 +714,7 @@ const CSS = `
 .hud-fire-btn::after {
   content: "";
   position: absolute;
-  clip-path: var(--hud-clip-hex);
+  border-radius: 50%;
   pointer-events: none;
 }
 .hud-fire-btn::before { inset: 0; background: var(--hud-btn-rim); }
@@ -759,12 +759,8 @@ const CSS = `
   filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) #fff);
 }
 
-/* BOOST: the fitted boost module's own control, opposite FIRE.
-   Deliberately NOT skinned like a module hex — it wears the boost family colour
-   as its own rim, captions itself BOOST rather than whatever the fitted module
-   is called, and carries a heat bar, so a pilot can find the afterburner
-   without reading four labels. Geometry (position, size) is written inline by
-   BoostButton from layout.boost; only the look lives here. */
+/* BOOST: a compact circular module-language action: dark plate, thin family
+   rim, glyph, and a caption below the circle. */
 .hud-boost-btn {
   pointer-events: auto;
   position: absolute;
@@ -778,7 +774,7 @@ const CSS = `
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 0;
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -787,12 +783,12 @@ const CSS = `
   --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 72%, transparent);
   --hud-btn-fill: var(--hud-btn-plate);
 }
-/* Same two-plate chamfer contract as FIRE, on the flat-top hex silhouette. */
+/* Same restrained circular rim/plate contract as the module buttons. */
 .hud-boost-btn::before,
 .hud-boost-btn::after {
   content: "";
   position: absolute;
-  clip-path: var(--hud-clip-hex);
+  border-radius: 50%;
   pointer-events: none;
 }
 .hud-boost-btn::before {
@@ -801,14 +797,14 @@ const CSS = `
   filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-boost-color, #e8b44f));
 }
 .hud-boost-btn::after {
-  inset: 2px;
+  inset: 1.5px;
   background: var(--hud-btn-fill);
   backdrop-filter: blur(var(--hud-blur));
   -webkit-backdrop-filter: blur(var(--hud-blur));
 }
 .hud-boost-btn > * { position: relative; z-index: 1; }
 .hud-boost-btn > .icon {
-  width: 50%;
+  width: 55%;
   max-width: 26px;
   color: #fff;
   display: flex;
@@ -817,9 +813,14 @@ const CSS = `
 }
 .hud-boost-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
 .hud-boost-btn > .label {
+  position: absolute;
+  top: calc(100% + var(--hud-module-label-gap, 4px));
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
   color: #fff;
-  font: 700 0.5em/1 var(--hud-font-display, system-ui, sans-serif);
-  letter-spacing: 0.14em;
+  font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing: 0.06em;
   opacity: 0.92;
 }
 /* Heat: a hairline bar across the base of the plate, filled from the module's
@@ -829,7 +830,7 @@ const CSS = `
   position: absolute;
   left: 26%;
   right: 26%;
-  bottom: 16%;
+  bottom: 12%;
   height: 2px;
   overflow: hidden;
   background: color-mix(in srgb, var(--hud-text, #dbe9ff) 20%, transparent);
@@ -879,7 +880,7 @@ const CSS = `
   50% { transform: translateX(7%); }
 }
 
-/* JETTISON uses the same compact hex language as BOOST, but is a one-shot
+/* JETTISON uses the same compact circular language as BOOST, but is a one-shot
    defensive action. Its conic sweep is the authoritative sink cooldown. */
 .hud-jettison-btn {
   pointer-events: auto;
@@ -892,26 +893,26 @@ const CSS = `
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 0;
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  --hud-btn-rim: color-mix(in srgb, var(--hud-energy, #4ee6b8) 62%, transparent);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-jettison-color, #5ec9e8) 55%, transparent);
   --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 72%, transparent);
 }
 .hud-jettison-btn::before, .hud-jettison-btn::after, .hud-jettison-btn > .ring {
   content: "";
   position: absolute;
-  clip-path: var(--hud-clip-hex);
+  border-radius: 50%;
   pointer-events: none;
 }
-.hud-jettison-btn::before { inset: 0; background: var(--hud-btn-rim); filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-energy, #4ee6b8)); }
-.hud-jettison-btn::after { inset: 2px; background: var(--hud-btn-plate); backdrop-filter: blur(var(--hud-blur)); -webkit-backdrop-filter: blur(var(--hud-blur)); }
-.hud-jettison-btn > .ring { inset: 1px; background: conic-gradient(var(--hud-energy, #4ee6b8) calc(var(--ring, 0) * 1%), transparent 0); opacity: 0.78; }
+.hud-jettison-btn::before { inset: 0; background: var(--hud-btn-rim); filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-jettison-color, #5ec9e8)); }
+.hud-jettison-btn::after { inset: 1.5px; background: var(--hud-btn-plate); backdrop-filter: blur(var(--hud-blur)); -webkit-backdrop-filter: blur(var(--hud-blur)); }
+.hud-jettison-btn > .ring { inset: 2px; background: conic-gradient(var(--hud-jettison-color, #5ec9e8) calc(var(--ring, 0) * 1%), transparent 0); opacity: 0.78; }
 .hud-jettison-btn > .icon, .hud-jettison-btn > .label { position: relative; z-index: 1; color: #fff; }
-.hud-jettison-btn > .icon { width: 44%; display: flex; }
+.hud-jettison-btn > .icon { width: 55%; display: flex; }
 .hud-jettison-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
-.hud-jettison-btn > .label { font: 700 0.42em/1 var(--hud-font-display, system-ui, sans-serif); letter-spacing: 0.08em; }
+.hud-jettison-btn > .label { position: absolute; top: calc(100% + var(--hud-module-label-gap, 4px)); left: 50%; transform: translateX(-50%); white-space: nowrap; font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif); letter-spacing: 0.06em; }
 .hud-jettison-btn.pressed { filter: brightness(1.22); }
 .hud-jettison-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.25) brightness(0.72); }
 .hud-jettison-btn.disabled::before { filter: none; }

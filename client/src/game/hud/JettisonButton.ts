@@ -46,7 +46,7 @@ export class JettisonButton {
     this.container.className = "hud-jettison";
     this.container.hidden = true;
     this.button = document.createElement("div");
-    this.button.className = "hud-jettison-btn hex-action";
+    this.button.className = "hud-jettison-btn";
     this.button.setAttribute(HUD_CONTROL_ATTR, "jettison");
     this.button.setAttribute("role", "button");
     this.button.setAttribute("aria-label", JETTISON_LABEL);
