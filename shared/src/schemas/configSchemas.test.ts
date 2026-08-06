@@ -707,9 +707,9 @@ describe("arena schema", () => {
     expect(mutated("arena", withSun({ dir: [1, 0, 0], color: "", intensity: 1 }))).toBe(false);
   });
 
-  it("keeps bounds, projectile overshoot, and spawns inside the centi-wire envelope", () => {
-    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 400 }))).toBe(false);
-    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 307.67 }))).toBe(true);
+  it("keeps bounds, projectile overshoot, and spawns inside the deci-wire envelope", () => {
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 4000 }))).toBe(false);
+    expect(mutated("arena", (d) => (d["bounds"] = { shape: "sphere", radius: 3076.7 }))).toBe(true);
     expect(
       mutated("arena", (d) => {
         d["spawnPoints"] = [{ id: "s0", team: 0, position: { x: 91, y: 0, z: 0 }, heading: 0 }];

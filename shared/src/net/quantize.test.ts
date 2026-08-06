@@ -57,28 +57,28 @@ describe("encodeUnit / decodeUnit", () => {
  * what needs proving is that the SPAN still fits: the arena is a sphere, and a
  * ship at the top of the biggest shipped one (deep-field, r300) plus whatever
  * overshoot a projectile manages before the bounds cull must stay inside the
- * ±327.67 the int16 gives, or the encode clamps and the client renders a ship
+ * ±3276.7 the int16 gives, or the encode clamps and the client renders a ship
  * frozen against an invisible ceiling.
  */
 describe("encodeCenti / decodeCenti on the y axis", () => {
-  const SPHERE_RADIUS = 300;
+  const SPHERE_RADIUS = 360;
 
-  it("round-trips the full vertical extent of the largest shipped arena inside half a centi", () => {
+  it("round-trips the full vertical extent of the largest shipped arena inside half a deci", () => {
     for (const y of [-SPHERE_RADIUS, -137.42, -0.005, 0, 0.005, 12.345, SPHERE_RADIUS]) {
-      expect(Math.abs(decodeCenti(encodeCenti(y)) - y)).toBeLessThanOrEqual(0.005);
+      expect(Math.abs(decodeCenti(encodeCenti(y)) - y)).toBeLessThanOrEqual(0.05);
     }
   });
 
   it("leaves headroom above the sphere for projectile overshoot before the codec clamps", () => {
-    // 27 units of margin either side of r300 — several ticks of missile flight
+    // 27 units of margin either side of r360 — several ticks of missile flight
     // past the shell at any shipped speed, which is all the bounds cull needs.
-    expect(decodeCenti(encodeCenti(SPHERE_RADIUS + 27))).toBeCloseTo(327, 5);
-    expect(decodeCenti(encodeCenti(-SPHERE_RADIUS - 27))).toBeCloseTo(-327, 5);
+    expect(decodeCenti(encodeCenti(SPHERE_RADIUS + 27))).toBeCloseTo(387, 5);
+    expect(decodeCenti(encodeCenti(-SPHERE_RADIUS - 27))).toBeCloseTo(-387, 5);
   });
 
   it("clamps beyond the int16 span instead of wrapping to the opposite pole", () => {
-    expect(encodeCenti(1000)).toBe(32767);
-    expect(encodeCenti(-1000)).toBe(-32768);
+    expect(encodeCenti(10000)).toBe(32767);
+    expect(encodeCenti(-10000)).toBe(-32768);
   });
 });
 

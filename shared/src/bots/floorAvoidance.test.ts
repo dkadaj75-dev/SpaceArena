@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../core/ConfigService.js";
-import { botprofileSchema, type ShipConfig } from "../schemas/index.js";
+import { botprofileSchema, type BotprofileConfig, type ShipConfig } from "../schemas/index.js";
 import { ArenaSimulation } from "../sim/ArenaSimulation.js";
 import { deriveRng } from "../sim/rng.js";
 import { loadTestConfigs } from "../sim/testutil.js";
@@ -61,5 +61,26 @@ describe("floored-arena bot avoidance", () => {
 
     expect(floorHits).toBe(0);
     expect(minY).toBeGreaterThan(0 + sim.world.colliders.get(id)!.radius);
+  });
+
+  it("actively climbs away after spawning on the floor collision plane", () => {
+    const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-bots-1v1", 21);
+    const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+    const radius = 1.4;
+    const id = sim.spawnPlayerAt(ship.id, ship.defaultFitting, 0, { x: 0, y: radius, z: 0 }, 0, undefined, 0);
+    const profile = configs.get<BotprofileConfig>("botprofile", "bot.rookie")!;
+    const driver = new BotDriver({ entityId: id, profile, configs, rng: deriveRng(21, id), floorY: 0 });
+    let nowMs = 0;
+    let recoverySeen = false;
+    for (let tick = 0; tick < 8 / DT; tick++) {
+      nowMs += DT * 1000;
+      const snapshot = sim.snapshot();
+      for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
+      recoverySeen ||= driver.lastDecision?.floorRecovery === true;
+      sim.tick(DT);
+      sim.getEvents();
+    }
+    expect(recoverySeen).toBe(true);
+    expect(sim.world.transforms.get(id)!.pos.y).toBeGreaterThan(radius + 3);
   });
 });

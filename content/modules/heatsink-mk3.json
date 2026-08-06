@@ -10,8 +10,8 @@
     "retractTime": 0
   },
   "energy": {
-    "drawIdle": 0,
-    "drawActive": 0
+    "drawIdle": 8,
+    "drawActive": 8
   },
   "heat": {
     "perSecondActive": 0,

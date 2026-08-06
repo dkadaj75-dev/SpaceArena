@@ -5,7 +5,7 @@ import { deriveRng } from "../sim/rng.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { generateBotName, generateBotNames } from "./botNames.js";
 import type { BotprofileConfig } from "../schemas/botprofile.js";
-import { isBotFittingViable, pickBotShip, randomBotFitting } from "./botLoadout.js";
+import { fittingPowerScore, isBotFittingViable, pickBotShip, randomBotFitting } from "./botLoadout.js";
 
 let configs: ConfigService;
 beforeAll(async () => {
@@ -127,5 +127,25 @@ describe("randomBotFitting", () => {
   it("is deterministic for a given stream, and empty for an unknown hull", () => {
     expect(fittingFor("ship.interceptor", 4)).toEqual(fittingFor("ship.interceptor", 4));
     expect(randomBotFitting(configs, "ship.nope", deriveRng(1, 1))).toEqual([]);
+  });
+
+  it("tracks low- and high-power player fittings while staying deterministic and viable", () => {
+    const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+    const modules = configs.getAll<ModuleConfig>("module");
+    const fittingAt = (high: boolean) => hardpointsOf(ship).map((socket) => {
+      const candidates = modules.filter((m) => socket.accepts.includes(m.family));
+      return candidates.sort((a, b) => fittingPowerScore(configs, [a.id]) - fittingPowerScore(configs, [b.id]))[high ? candidates.length - 1 : 0]?.id ?? null;
+    });
+    const low = fittingAt(false);
+    const high = fittingAt(true);
+    const roll = (seed: number, reference: readonly (string | null)[]) =>
+      randomBotFitting(configs, ship.id, deriveRng(seed, 9), undefined, reference);
+    const lowRolls = Array.from({ length: 12 }, (_, i) => roll(i + 1, low));
+    const highRolls = Array.from({ length: 12 }, (_, i) => roll(i + 1, high));
+    expect(lowRolls.every((fit) => isBotFittingViable(configs, ship, fit))).toBe(true);
+    expect(highRolls.every((fit) => isBotFittingViable(configs, ship, fit))).toBe(true);
+    const average = (fits: readonly (readonly (string | null)[])[]) => fits.reduce((n, fit) => n + fittingPowerScore(configs, fit), 0) / fits.length;
+    expect(average(highRolls)).toBeGreaterThan(average(lowRolls));
+    expect(roll(7, high)).toEqual(roll(7, high));
   });
 });

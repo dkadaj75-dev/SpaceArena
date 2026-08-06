@@ -11,6 +11,17 @@
   ],
   "carrierPriority": 8,
   "fittingArchetype": "balanced",
+  "fittingPowerSpread": 0.35,
+  "ctfWeights": {
+    "takeEnemyFlag": 1.05,
+    "killEnemyCarrier": 1.0,
+    "escortOwnCarrier": 0.9,
+    "returnOwnFlag": 1.0,
+    "defendOwnBase": 0.9,
+    "opportunisticCombat": 0.9,
+    "threatResponse": 0.75,
+    "roleHoldMs": 2200
+  },
   "flight": {
     "turnHorizonMult": 1.0,
     "aimToleranceRad": 0.14,
@@ -20,7 +31,7 @@
   },
   "behaviors": {
     "objective": {
-      "baseWeight": 0.45,
+      "baseWeight": 0.75,
       "carryUrgency": 3.0,
       "recoverUrgency": 2.4,
       "recoverRange": 90,

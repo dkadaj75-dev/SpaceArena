@@ -52,11 +52,11 @@ describe("computeStatPanel (Hangar stat panel)", () => {
   it("sums idle draw and dps across the default fitting", () => {
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
     // The light hull's stock fit: laser + missile on its two hardpoints, plus
-    // the five stock internals. Weapons idle free (heat is their budget) and the
-    // stock internals draw nothing at idle either, so the whole fit is free to
-    // simply carry — you pay when you pull the trigger.
-    expect(panel.idleDrawTotal).toBe(0);
-    expect(panel.energyBudget).toBe(panel.capacitorRegen);
+    // the five stock internals. Weapons still idle free (heat is their budget),
+    // but since the 2026-08-05 energy pass the stock sensors and heatsink hold
+    // a standing rail current, so simply carrying the fit costs power.
+    expect(panel.idleDrawTotal).toBe(4);
+    expect(panel.energyBudget).toBe(panel.capacitorRegen - 4);
     // laser 5.5/0.4 + missile 17.5/2.5 = 13.75 + 7 = 20.75 (internals do not fire).
     expect(panel.dps).toBeCloseTo(5.5 / 0.4 + 17.5 / 2.5, 6);
   });

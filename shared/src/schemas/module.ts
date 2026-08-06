@@ -15,8 +15,8 @@ const projectile = z.union([
 /** Weapon block (laser / kinetic / missile families). */
 const fireBlock = z.object({
   /**
-   * `held` fires each cycle while the trigger is down; `semi` latches one shot
-   * per press; `continuous` CHANNELS — no discrete shots at all, damage is
+   * `held` and legacy `semi` both fire each cycle while the trigger is down;
+   * `continuous` CHANNELS — no discrete shots at all, damage is
    * applied every tick for as long as the trigger is held and the lock / range /
    * LoS / energy gates pass (COMBAT-REWORK.md §3.3-§3.4 apply unchanged).
    */

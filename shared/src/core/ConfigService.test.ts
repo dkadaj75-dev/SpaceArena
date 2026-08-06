@@ -121,7 +121,7 @@ describe("ConfigService.load", () => {
 
   it("validates arena wire headroom against the pack's authored projectile margin", async () => {
     const files = validFiles();
-    files["arena.json"] = { ...arena, bounds: { shape: "sphere", radius: 300 } };
+    files["arena.json"] = { ...arena, bounds: { shape: "sphere", radius: 3270 } };
     (files["manifest.json"] as { files: string[] }).files.push("tuning.json");
     files["tuning.json"] = {
       id: "tuning.default",

@@ -11,7 +11,7 @@
   },
   "energy": {
     "drawIdle": 0,
-    "drawActive": 9
+    "drawActive": 14
   },
   "heat": {
     "perSecondActive": 0,

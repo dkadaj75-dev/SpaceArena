@@ -58,7 +58,7 @@ export interface FlightState {
   boost: boolean;
   /** True while the pilot holds the weapon trigger. */
   fire: boolean;
-  /** Previous tick's trigger level, used only by the sim for semi-auto edges. */
+  /** Previous tick's trigger level, retained for wire/input compatibility. */
   firePrev: boolean;
 }
 
@@ -131,7 +131,7 @@ export interface ModuleRuntime {
    * True on every tick a `continuous` weapon is CHANNELLING (trigger held and
    * every gate passing). Replicated — it is the only thing that tells a client to
    * draw a persistent beam, since a channel emits no per-tick fire events. Always
-   * false for `held`/`semi` modules.
+   * false for discrete modules.
    */
   channeling: boolean;
   /**

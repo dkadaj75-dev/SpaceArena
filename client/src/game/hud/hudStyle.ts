@@ -1424,9 +1424,23 @@ const CSS = `
 .hud-results--outcome .hud-results-mvp-badge,
 .hud-results--outcome .hud-results-team-accent,
 .hud-results--outcome .hud-results-stats { display:none; }
+/* The outcome banner is a FULL-SCREEN beat, not panel content. Every other
+   panel child is display:none above, so the panel drops its 420px cap and its
+   scroll box here: overflow-y:auto computes overflow-x to auto as well, which
+   clipped VICTORY mid-glyph once the tracked word outgrew 420px. */
+.hud-results--outcome .hud-results-panel {
+  max-width: calc(100% - var(--hud-inset-left) - var(--hud-inset-right));
+  overflow: visible;
+  padding-inline: 0;
+}
 .hud-results--outcome .hud-results-title {
-  font-size: clamp(3rem, 12vw, 8rem);
-  letter-spacing: .18em;
+  /* Sized against the width the banner actually has (the viewport minus its
+     insets), so the longest outcome word cannot outgrow its own box: a 700-weight
+     display glyph advances about 0.62em, plus the 0.18em tracking. */
+  --hud-results-title-tracking: .18em;
+  font-size: min(clamp(3rem, 12vw, 8rem), calc((100vw - var(--hud-inset-left) - var(--hud-inset-right)) / 7 / 0.8));
+  letter-spacing: var(--hud-results-title-tracking);
+  white-space: nowrap;
   text-shadow: 0 0 18px currentColor, 0 0 52px currentColor, 0 3px 2px #02040a;
 }
 /* Portrait phones: drop the panel to the thumb end of the screen so "Play

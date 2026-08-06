@@ -215,21 +215,21 @@ describe("CombatSystem trigger discipline", () => {
     expect(world.events.filter((event) => event.type === "projectileFired").length).toBeGreaterThan(1);
   });
 
-  it("semi weapons fire once per rising edge, not once per held tick", () => {
+  it("legacy semi weapons repeat on their cycle while the trigger stays held", () => {
     const { world, shooter } = duel({ x: 20, z: 0 }, MISSILE);
     const weapon = world.modules.get(shooter)!.modules[MISSILE]!;
 
     tick(world);
     weapon.cycleTimer = 0;
     tick(world);
-    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(1);
+    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(2);
 
     world.flightStates.get(shooter)!.fire = false;
     tick(world);
     weapon.cycleTimer = 0;
     world.flightStates.get(shooter)!.fire = true;
     tick(world);
-    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(2);
+    expect(world.events.filter((event) => event.type === "projectileFired")).toHaveLength(3);
   });
 
   it("fires a semi weapon once when press and release arrive inside one sim tick", () => {
@@ -286,7 +286,7 @@ describe("CombatSystem trigger discipline", () => {
     expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
   });
 
-  it("presents one semi-auto edge uniformly to every weapon in a fitting", () => {
+  it("presents one held trigger uniformly to every weapon in a fitting", () => {
     const { world, shooter } = duel({ x: 20, z: 0 });
     const weapons = world.modules.get(shooter)!.modules.slice(0, 2);
     for (const weapon of weapons) {
@@ -750,6 +750,11 @@ describe("CombatSystem continuous channel", () => {
     // heatsink's dissipation. Disable that unrelated cooling here so this test
     // continues to prove the channel applies its per-tick heat cost.
     core.heat.dissipation = 0;
+    // The shipped x2 heat figure intentionally trips this beam before one
+    // second; this unit bench isolates the per-tick accounting contract.
+    beam.heat = 0;
+    expect(configs.replace({ ...cfg, heat: { ...cfg.heat, overheatThreshold: 1000 } }).ok).toBe(true);
+    const benchCfg = configs.get<ModuleConfig>("module", "module.beamlaser-mk1")!;
     const energyBefore = core.capacitor.cur;
 
     for (let i = 0; i < 30; i++) {
@@ -764,9 +769,10 @@ describe("CombatSystem continuous channel", () => {
     // `perSecondActive - dissipation` into the module's own heat.
     const spent = energyBefore - core.capacitor.cur;
     expect(spent).toBeGreaterThan(0);
-    expect(spent).toBeCloseTo(cfg.energy.drawActive - core.capacitor.regen, 0);
+    expect(spent).toBeCloseTo(benchCfg.energy.drawActive - core.capacitor.regen, 0);
     expect(beam.heat).toBeGreaterThan(0);
-    expect(beam.heat).toBeCloseTo(cfg.heat.perSecondActive - core.heat.dissipation, 0);
+    expect(beam.heat).toBeCloseTo(benchCfg.heat.perSecondActive - core.heat.dissipation, 0);
+    expect(configs.replace(cfg).ok).toBe(true);
   });
 
   it("emits ~4 damage events per second, not one per tick, and one fire event per channel", () => {

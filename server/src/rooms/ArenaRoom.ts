@@ -134,6 +134,7 @@ export class ArenaRoom extends Room<ArenaState> {
   private readonly entityToKey = new Map<EntityId, string>();
   /** Human client session ids (excludes bots), for team balancing. */
   private readonly humanSessions = new Set<string>();
+  private readonly humanFittings = new Map<string, readonly (string | null)[]>();
   private readonly orderRates = new Map<string, OrderRate>();
   /** Placement index → asteroid sim entity id (stable across the match). */
   private asteroidEntityIds: EntityId[] = [];
@@ -289,6 +290,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.keyToEntity.set(client.sessionId, entityId);
     this.entityToKey.set(entityId, client.sessionId);
     this.humanSessions.add(client.sessionId);
+    this.humanFittings.set(client.sessionId, fitting);
     this.sessionUserId.set(client.sessionId, userId);
     this.fragsByEntity.set(entityId, 0);
     this.orderRates.set(client.sessionId, { windowStart: Date.now(), count: 0, abuse: 0 });
@@ -470,6 +472,9 @@ export class ArenaRoom extends Room<ArenaState> {
     // rooms built from the same seed field the same opposition.
     const rosterRng = deriveRng(this.seed, 0xb0715);
     const randomize = this.sim.world.gamemode.bots?.randomizeLoadouts === true;
+    const referenceFitting = [...this.humanSessions]
+      .map((sessionId) => this.humanFittings.get(sessionId))
+      .find((candidate): candidate is readonly (string | null)[] => candidate !== undefined);
     for (let team = 0; team < 2; team++) {
       for (let i = perTeam.get(team) ?? 0; i < teamSize; i++) {
         const botShipId = randomize
@@ -477,7 +482,7 @@ export class ArenaRoom extends Room<ArenaState> {
           : backfill.shipId;
         const botShip = configs.get<ShipConfig>("ship", botShipId) ?? ship;
         const botFitting = randomize
-          ? randomBotFitting(configs, botShipId, rosterRng, backfill.profile)
+          ? randomBotFitting(configs, botShipId, rosterRng, backfill.profile, referenceFitting)
           : botShip.defaultFitting;
         const entityId = this.sim.spawnPlayer(botShipId, botFitting, team);
         const key = `bot-${entityId}`;
@@ -1029,6 +1034,7 @@ export class ArenaRoom extends Room<ArenaState> {
     }
     this.keyToEntity.delete(sessionId);
     this.humanSessions.delete(sessionId);
+    this.humanFittings.delete(sessionId);
     this.orderRates.delete(sessionId);
     this.sessionUserId.delete(sessionId);
     if (entityId !== undefined) this.fragsByEntity.delete(entityId);
@@ -1055,6 +1061,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.keyToEntity.clear();
     this.entityToKey.clear();
     this.humanSessions.clear();
+    this.humanFittings.clear();
     this.sessionUserId.clear();
     this.fragsByEntity.clear();
     this.orderRates.clear();

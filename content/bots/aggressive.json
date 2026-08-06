@@ -8,6 +8,17 @@
   "preferredRange": [30, 60],
   "carrierPriority": 10,
   "fittingArchetype": "aggressive",
+  "fittingPowerSpread": 0.3,
+  "ctfWeights": {
+    "takeEnemyFlag": 0.85,
+    "killEnemyCarrier": 2.0,
+    "escortOwnCarrier": 0.8,
+    "returnOwnFlag": 1.15,
+    "defendOwnBase": 0.65,
+    "opportunisticCombat": 1.35,
+    "threatResponse": 1.5,
+    "roleHoldMs": 1800
+  },
   "flight": {
     "turnHorizonMult": 1.0,
     "aimToleranceRad": 0.02,

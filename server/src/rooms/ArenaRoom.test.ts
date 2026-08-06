@@ -420,7 +420,8 @@ describe("ArenaRoom", () => {
     const tf = serverRoom.sim.world.transforms.get(p1.entityId)!;
     expect(tf.pos.y).toBeGreaterThan(startY + 1);
     expect(tf.pitch).toBeGreaterThan(0);
-    expect(decodeCenti(p1.y)).toBeCloseTo(tf.pos.y, 2);
+    // Deci-unit wire precision since the CTF arena doubled (2026-08-05).
+    expect(decodeCenti(p1.y)).toBeCloseTo(tf.pos.y, 1);
     expect(decodePitch(p1.pitch)).toBeCloseTo(tf.pitch, 3);
 
     // Nose back down: pitch is HELD state, so the ship keeps climbing until an
