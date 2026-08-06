@@ -63,7 +63,7 @@ export function navigationSystem(world: World, dt: number): void {
   // Flight orders are level-triggered: stored, then integrated until replaced.
   // Axes come from the last valid order drained for a ship, but fire is ORed
   // across this tick's batch so a press+release between sim ticks still presents
-  // one rising edge to semi-auto weapons.
+  // one firing tick to discrete weapons.
   const fireThisTick = new Map<EntityId, boolean>();
   for (const { entityId, order } of world.takeOrders("flight")) {
     if (!world.shipCores.has(entityId)) continue;

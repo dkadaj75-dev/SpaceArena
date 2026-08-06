@@ -2,8 +2,8 @@ import { z } from "zod";
 import { baseShape } from "./base.js";
 import { vec2, vec3 } from "./common.js";
 
-/** Largest positive coordinate representable by the signed int16 centi wire. */
-export const WIRE_POSITION_LIMIT = 327.67;
+/** Largest positive coordinate representable by the signed int16 deci wire. */
+export const WIRE_POSITION_LIMIT = 3276.7;
 /** Projectile cull overshoot used when tuning omits `projectileBoundsMargin`. */
 export const DEFAULT_PROJECTILE_BOUNDS_MARGIN = 20;
 

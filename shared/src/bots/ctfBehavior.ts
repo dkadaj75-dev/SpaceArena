@@ -67,12 +67,13 @@ function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null
 
   const own = flags.find((f) => f.team === ctx.self.team);
   const enemyFlag = flags.find((f) => f.team !== ctx.self.team);
+  const weights = ctx.profile.ctfWeights;
 
   // 1. I have the enemy flag: nothing else matters, go home.
   if (enemyFlag && enemyFlag.carrierId === ctx.self.id) {
     return {
       aim: own?.home ?? enemyFlag.home,
-      urgency: numParam(params, "carryUrgency", 3),
+      urgency: numParam(params, "carryUrgency", 3) * (weights?.takeEnemyFlag ?? 1),
       carrying: true,
       blockedAtHome: own?.state !== "home",
     };
@@ -81,21 +82,49 @@ function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null
   // 2. My flag is loose in space: touching it sends it home instantly, and
   //    until it IS home my team cannot score at all.
   if (own?.state === "dropped") {
-    return { aim: own.pos, urgency: recoverUrgency(ctx, own, params), carrying: false };
+    return { aim: own.pos, urgency: recoverUrgency(ctx, own, params) * (weights?.returnOwnFlag ?? 1), carrying: false };
   }
 
   // 3. My flag is being carried: chase whoever has it.
   if (own?.state === "carried" && own.carrierId !== null) {
     const carrier = ctx.snapshot.ships.find((s) => s.id === own.carrierId);
     if (carrier) {
-      return { aim: carrier.pos, urgency: numParam(params, "chaseUrgency", 1.6), carrying: false };
+      return {
+        aim: carrier.pos,
+        urgency: numParam(params, "chaseUrgency", 1.6) * (weights?.killEnemyCarrier ?? 1),
+        carrying: false,
+      };
+    }
+  }
+
+  // Our carrier needs a moving screen. Aim slightly toward home from them so
+  // escorts do not ram the carrier or lag behind the fight.
+  if (enemyFlag?.state === "carried" && enemyFlag.carrierId !== null) {
+    const carrier = ctx.snapshot.ships.find((s) => s.id === enemyFlag.carrierId && s.team === ctx.self.team);
+    if (carrier) {
+      const home = own?.home ?? enemyFlag.home;
+      return {
+        aim: {
+          x: carrier.pos.x + (home.x - carrier.pos.x) * 0.2,
+          y: carrier.pos.y + (home.y - carrier.pos.y) * 0.2,
+          z: carrier.pos.z + (home.z - carrier.pos.z) * 0.2,
+        },
+        urgency: numParam(params, "escortUrgency", 1.15) * (weights?.escortOwnCarrier ?? 1),
+        carrying: false,
+      };
     }
   }
 
   // 4. Nothing to defend: go get theirs. A flag already in someone else's hands
   //    is not takeable — leave it to the fighters.
   if (enemyFlag && enemyFlag.state !== "carried") {
-    return { aim: enemyFlag.pos, urgency: numParam(params, "attackUrgency", 1), carrying: false };
+    const take = numParam(params, "attackUrgency", 1) * (weights?.takeEnemyFlag ?? 1);
+    const defend = own?.state === "home"
+      ? numParam(params, "defendUrgency", 0.45) * (weights?.defendOwnBase ?? 1)
+      : 0;
+    return defend > take
+      ? { aim: own!.home, urgency: defend, carrying: false }
+      : { aim: enemyFlag.pos, urgency: take, carrying: false };
   }
   return null;
 }

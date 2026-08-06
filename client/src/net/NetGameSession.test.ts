@@ -353,7 +353,9 @@ function driftOverRun(
   const engine = predictorStats === "resolved" ? core.engine : cfg.core.engine;
   const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
 
-  sim.applyOrder(id, { kind: "flight", ...input, fire: true });
+  // This is a flight-only parity bench. Keeping the trigger released avoids
+  // discrete auto-repeat damage events contaminating its collision counter.
+  sim.applyOrder(id, { kind: "flight", ...input, fire: false });
 
   let hits = 0;
   for (let i = 0; i < RUN_TICKS; i++) {

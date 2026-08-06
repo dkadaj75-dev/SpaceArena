@@ -17,7 +17,8 @@ import type { World } from "../World.js";
 export const CHANNEL_EVENT_INTERVAL_SEC = 0.25;
 
 /**
- * CombatSystem (1.6) — active weapon modules fire while the trigger is held.
+ * CombatSystem (1.7) — active discrete weapon modules repeat on their authored
+ * cycle while the trigger is held.
  * WITH a lock (FLIGHT.md §2) shots are aimed at the locked target: range, LoS
  * (if required), cycle and energy gates all apply, exactly as before.
  * WITHOUT a lock, non-homing weapons fire STRAIGHT along the ship's nose
@@ -66,12 +67,10 @@ export function combatSystem(world: World, dt: number): void {
         m.cycleTimer = 0;
       }
 
-      const triggered =
-        cfg.fire.mode === "held"
-          ? fs?.fire === true
-          : cfg.fire.mode === "semi"
-            ? fs?.fire === true && !fs.firePrev
-            : false;
+      // Discrete weapons are level-triggered. `semi` remains accepted in old
+      // content for compatibility, but no longer turns a held trigger into a
+      // one-shot edge: a ready rack fires again as long as fire is still held.
+      const triggered = fs?.fire === true;
       if (!triggered) continue;
 
       // Lock gate (checked after the cycle timer: a weapon keeps cooling down

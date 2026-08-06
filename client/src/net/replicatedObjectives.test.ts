@@ -9,9 +9,9 @@ const arena = {
 describe("online objective decoding", () => {
   it("decodes decoys and flags into the local Snapshot shapes", () => {
     expect(decodeDecoys({ 9: {
-      entityId: 9, team: 1, x: encodeCenti(1.25), y: encodeCenti(-2), z: encodeCenti(3.5),
+      entityId: 9, team: 1, x: encodeCenti(1.2), y: encodeCenti(-2), z: encodeCenti(3.5),
       radius: 4, lifeFraction: 0.75,
-    } })).toEqual([{ id: 9, team: 1, pos: { x: 1.25, y: -2, z: 3.5 }, radius: 4, lifeFraction: 0.75 }]);
+    } })).toEqual([{ id: 9, team: 1, pos: { x: 1.2, y: -2, z: 3.5 }, radius: 4, lifeFraction: 0.75 }]);
 
     const flags = decodeFlags({ 17: {
       entityId: 17, team: 0, state: encodeFlagState("carried"), carrierEntityId: 42,

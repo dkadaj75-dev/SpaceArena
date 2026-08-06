@@ -159,8 +159,14 @@ export class GameSession {
         : slot.shipId;
       const botShip = configs.get<ShipConfig>("ship", shipId);
       if (!botShip) continue;
-      const fitting = slot.fitting ?? (randomize ? randomBotFitting(configs, shipId, rosterRng, slot.profile) : botShip.defaultFitting);
-      const id = this.sim.spawnPlayer(shipId, fitting, slot.team);
+      // Match the authoritative ArenaRoom seam: adaptive random rolls compare
+      // against the player's resolved, socket-legal fitting. Keeping this as an
+      // optional final argument preserves the authored-archetype fallback when
+      // no player fitting exists (and fixed roster fittings remain untouched).
+      const botFitting = slot.fitting ?? (randomize
+        ? randomBotFitting(configs, shipId, rosterRng, slot.profile, fitting)
+        : botShip.defaultFitting);
+      const id = this.sim.spawnPlayer(shipId, botFitting, slot.team);
       this.shipConfigIds.set(id, shipId);
       this.botNames.set(id, names[rosterIndex] ?? `Bot ${rosterIndex + 1}`);
       // Seeded from the SESSION seed + the bot's entity id, so a practice match

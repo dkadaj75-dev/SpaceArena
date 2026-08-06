@@ -5,7 +5,7 @@ import { resolveShipStats } from "../sim/resolveStats.js";
 
 /** Seeded bot fittings use every tier and specialist in the installed pack. */
 export const MAX_BOT_MODULE_LEVEL = Infinity;
-const MAX_ATTEMPTS = 400;
+const MAX_ATTEMPTS = 2_000;
 const SUSTAIN_WINDOW_SEC = 3;
 
 function pick<T>(rng: () => number, list: readonly T[]): T | undefined {
@@ -58,24 +58,43 @@ export function isBotFittingViable(configs: ConfigService, ship: ShipConfig, fit
   return energyDraw <= energyBudget && heatGen <= heatBudget && canOnlineWeapon;
 }
 
+/** Comparable catalogue-independent fitting quality used for player-relative rolls. */
+export function fittingPowerScore(configs: ConfigService, fitting: readonly (string | null)[]): number {
+  return fitting.reduce((sum, id) => {
+    if (!id) return sum;
+    const mod = configs.get<ModuleConfig>("module", id);
+    if (!mod) return sum;
+    return sum + mod.level * 100 + Math.log2(mod.price + 2) * 12;
+  }, 0);
+}
+
 /** Full-catalogue, socket-legal, archetype-weighted deterministic fitting roll. */
 export function randomBotFitting(
   configs: ConfigService,
   shipId: string,
   rng: () => number,
   profile?: BotprofileConfig,
+  playerFitting?: readonly (string | null)[],
 ): (string | null)[] {
   const ship = configs.get<ShipConfig>("ship", shipId);
   if (!ship) return [];
   const sockets = hardpointsOf(ship);
   const catalogue = configs.getAll<ModuleConfig>("module");
+  const playerScore = playerFitting?.length ? fittingPowerScore(configs, playerFitting) : null;
+  const spread = profile?.fittingPowerSpread ?? 0.25;
+  const target = playerScore === null ? null : playerScore * (1 + (rng() * 2 - 1) * spread);
+  let nearest: { fitting: (string | null)[]; gap: number } | null = null;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const fitting = sockets.map((socket) => {
       const candidates = catalogue.filter((mod) => socket.accepts.includes(mod.family));
       return weightedPick(rng, candidates, (mod) => flavorWeight(profile, mod))?.id ?? null;
     });
-    if (isBotFittingViable(configs, ship, fitting)) return fitting;
+    if (!isBotFittingViable(configs, ship, fitting)) continue;
+    if (target === null) return fitting;
+    const gap = Math.abs(fittingPowerScore(configs, fitting) - target);
+    if (!nearest || gap < nearest.gap) nearest = { fitting, gap };
   }
+  if (nearest) return nearest.fitting;
   // Authored stock is the deterministic safe fallback for exceptionally
   // restrictive custom packs; shipped content normally succeeds in a few rolls.
   return hardpointsOf(ship).map((_, index) => ship.defaultFitting[index] ?? null);

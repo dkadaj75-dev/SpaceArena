@@ -17,7 +17,7 @@ const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url)
 const SHIPPED_ARENAS: readonly ShippedArena[] = [
   { name: "deep-field", file: "deep-field.json", expectedCount: 90, maxExtent: 210 },
   { name: "ring-nebula", file: "ring-nebula.json", expectedCount: 14, maxExtent: 126 },
-  { name: "lunar-crater", file: "lunar-crater.json", expectedCount: 27, maxExtent: 180 },
+  { name: "lunar-crater", file: "lunar-crater.json", expectedCount: 39, maxExtent: 360 },
   { name: "broken-halo", file: "broken-halo.json", expectedCount: 14, maxExtent: 150 },
   { name: "twin-titans", file: "twin-titans.json", expectedCount: 14, maxExtent: 100 },
 ];

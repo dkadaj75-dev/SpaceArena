@@ -17,7 +17,7 @@
     "draw": 5
   },
   "heat": {
-    "perSecondActive": 17,
+    "perSecondActive": 34,
     "overheatThreshold": 60,
     "overheatCooldown": 6,
     "overheatSelfDamage": 0

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ConfigService, setGlobalLogLevel, type SimEvent } from "@space-arena/shared";
+import { ConfigService, fittingPowerScore, hardpointsOf, setGlobalLogLevel, type ModuleConfig, type ShipConfig, type SimEvent } from "@space-arena/shared";
 import { GameSession } from "./GameSession.js";
 
 setGlobalLogLevel("error");
@@ -76,6 +76,34 @@ describe("GameSession bot determinism (Finding 2)", () => {
     // The other half: a deterministic-but-seed-independent default would pass
     // the test above and still make every practice match identical.
     expect(run(4242).events).not.toBe(run(99).events);
+  });
+
+  it("passes the offline player's fitting power into deterministic bot rolls", () => {
+    const playerShip = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+    const catalogue = configs.getAll<ModuleConfig>("module");
+    const extremeFitting = (high: boolean) => hardpointsOf(playerShip).map((socket) => {
+      const legal = catalogue
+        .filter((module) => socket.accepts.includes(module.family))
+        .sort((a, b) => fittingPowerScore(configs, [a.id]) - fittingPowerScore(configs, [b.id]));
+      return legal[high ? legal.length - 1 : 0]?.id ?? null;
+    });
+    const botScore = (seed: number, playerFitting: readonly (string | null)[]) => {
+      // The shipped 5v5 practice mode exercises the randomized-loadout branch;
+      // fixed-roster modes intentionally retain their authored/default fits.
+      const session = new GameSession(configs, "arena.ring-nebula", "gamemode.practice-bots-5v5", seed, {
+        playerShipId: playerShip.id,
+        playerFitting,
+      });
+      const botIds = new Set(session.bots.keys());
+      return session.curSnapshot.ships
+        .filter((ship) => botIds.has(ship.id))
+        .reduce((sum, ship) => sum + fittingPowerScore(configs, ship.modules.map((module) => module.moduleId)), 0);
+    };
+    const average = (playerFitting: readonly (string | null)[]) =>
+      Array.from({ length: 8 }, (_, seed) => botScore(seed + 1, playerFitting)).reduce((sum, score) => sum + score, 0) / 8;
+
+    expect(average(extremeFitting(true))).toBeGreaterThan(average(extremeFitting(false)));
+    expect(botScore(7, extremeFitting(true))).toBe(botScore(7, extremeFitting(true)));
   });
 
   it("exposes its generated bot handles to target labels and results through displayNameFor", () => {

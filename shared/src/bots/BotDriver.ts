@@ -69,6 +69,8 @@ export interface BotDecisionSnapshot {
    */
   targetId: EntityId | null;
   engaged: boolean;
+  /** True while the floor recovery override is commanding a climb. */
+  floorRecovery?: boolean;
   /** Level-triggered fire decision and its debug-overlay explanation. */
   fire?: boolean;
   fireReason?: FireDecisionReason;
@@ -149,6 +151,7 @@ const WEDGE_SPEED = 0.75;
 const WEDGE_DETECT_MS = 900;
 const UNSTUCK_COMMIT_MS = 2_000;
 const UNSTUCK_AIM_DISTANCE = 28;
+const FLOOR_RECOVERY_CLEARANCE_MULT = 4;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -215,6 +218,8 @@ export class BotDriver {
   private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number } | null = null;
   private wedgeContactSinceMs: number | null = null;
   private unstuck: { untilMs: number; obstacleId: EntityId; side: 1 | -1 } | null = null;
+  private floorRecovering = false;
+  private heldBehavior: { key: string; untilMs: number } | null = null;
 
   constructor(options: BotDriverOptions) {
     this.entityId = options.entityId;
@@ -280,6 +285,8 @@ export class BotDriver {
     this.carrierProgress = null;
     this.wedgeContactSinceMs = null;
     this.unstuck = null;
+    this.floorRecovering = false;
+    this.heldBehavior = null;
   }
 
   /**
@@ -453,13 +460,22 @@ export class BotDriver {
       const behavior = this.behaviors.get(key);
       if (!behavior) continue; // unknown key in config: ignored, never crashes a match
       const factor = behavior.score(ctx, params);
-      const score = params.baseWeight * factor;
+      const ctfCombatMultiplier = snapshot.flags.length > 0 && key === "engage"
+        ? (profile.ctfWeights?.threatResponse ?? 1)
+        : 1;
+      const score = params.baseWeight * factor * ctfCombatMultiplier;
       scores[key] = score;
       if (factor > 0 && behavior.overlay) live.push({ key, params, behavior });
       if (score > bestScore) {
         bestScore = score;
         bestKey = key;
       }
+    }
+    const roleHoldMs = profile.ctfWeights?.roleHoldMs ?? 2500;
+    if (this.heldBehavior && nowMs < this.heldBehavior.untilMs && (scores[this.heldBehavior.key] ?? 0) > 0) {
+      bestKey = this.heldBehavior.key;
+    } else if (bestKey !== null && (bestKey === "objective" || this.heldBehavior?.key === "objective")) {
+      this.heldBehavior = { key: bestKey, untilMs: nowMs + roleHoldMs };
     }
     if (bestKey !== null) {
       const params = profile.behaviors[bestKey]!;
@@ -470,8 +486,9 @@ export class BotDriver {
     const engaged = bestPlan?.engaged ?? false;
     // Objective travel owns steering, but it must not make nearby enemies
     // invulnerable. Fire opportunistically without replacing the route home.
+    const opportunisticRange = weaponRange * (profile.ctfWeights?.opportunisticCombat ?? 1);
     const triggerEngaged = engaged || (
-      bestKey === "objective" && ctx.target !== null && ctx.hasLoS && ctx.distance <= weaponRange
+      bestKey === "objective" && ctx.target !== null && ctx.hasLoS && ctx.distance <= opportunisticRange
     );
     this.lastEngaged = triggerEngaged;
     this.lastTargetId = targetId;
@@ -569,6 +586,7 @@ export class BotDriver {
       boost: cmd.boost,
       targetId,
       engaged: triggerEngaged,
+      floorRecovery: this.floorRecovering,
       fire: fireDecision.fire,
       fireReason: fireDecision.reason,
       moduleDecisions: modulePlan.decisions,
@@ -772,16 +790,19 @@ export class BotDriver {
     // The terrain mesh has visual relief, but collision is the authored floor
     // plane. Keep a small hull clearance without treating normal lunar spawn/
     // base altitude (y=8..10) as an emergency band.
-    const safeY = this.floorY + radius + 3;
+    const clearance = Math.max(radius * FLOOR_RECOVERY_CLEARANCE_MULT, radius + 3);
+    const safeY = this.floorY + clearance;
     const noseY = Math.sin(self.pitch);
     const observedVy = self.velocity?.y ?? 0;
     const projectedVy = Math.min(observedVy, noseY * FLOOR_NOMINAL_SPEED * cmd.throttle);
     const predictedY = self.pos.y + projectedVy * FLOOR_LOOKAHEAD_SEC;
-    if (predictedY >= safeY) return cmd;
+    const recoveryExitY = safeY + Math.max(radius, 2);
+    if (self.pos.y <= safeY) this.floorRecovering = true;
+    else if (self.pos.y >= recoveryExitY && predictedY >= safeY) this.floorRecovering = false;
+    if (!this.floorRecovering && predictedY >= safeY) return cmd;
 
     const band = 4;
-    const strength = clamp((safeY - predictedY) / band, 0, 1);
-    const emergencyCut = self.pos.y <= this.floorY + radius + 3.5;
+    const strength = this.floorRecovering ? 1 : clamp((safeY - predictedY) / band, 0, 1);
     const lift = steerForPoint(
       self.pos,
       self.heading,
@@ -795,9 +816,11 @@ export class BotDriver {
       pitchStick: cmd.pitchStick + (lift.pitchStick - cmd.pitchStick) * strength,
       // Rotation is speed-independent; retain enough thrust to turn the new
       // upward attitude into actual separation instead of hovering in a cut.
-      throttle: emergencyCut
-        ? 0
-        : cmd.throttle * (1 - strength) + Math.min(cmd.throttle, 0.35) * strength,
+      // A ship already on the collision plane needs positive thrust along its
+      // newly raised nose. Cutting throttle here was the ground-stick bug.
+      throttle: this.floorRecovering
+        ? (self.pitch > 0.12 ? Math.max(cmd.throttle, 0.7) : 0)
+        : cmd.throttle * (1 - strength) + (self.pitch > 0 ? Math.min(cmd.throttle, 0.35) : 0) * strength,
       boost: strength < 0.15 && cmd.boost,
     };
   }

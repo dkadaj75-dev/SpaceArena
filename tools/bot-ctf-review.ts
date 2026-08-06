@@ -29,6 +29,16 @@ interface RunMetrics {
   pickupsByTeam: number[];
   returnsByTeam: number[];
   floorCutFraction: number;
+  profiles: string[];
+  meanAltitude: number[];
+  nearFloorFraction: number[];
+  floorContactEvents: number;
+  floorRecoveryTriggers: number;
+  combatEngagementFraction: number[];
+  escortFraction: number[];
+  carrierKills: number[];
+  returns: number[];
+  capturesByBot: number[];
 }
 
 const configs = await loadTestConfigs();
@@ -41,6 +51,17 @@ const quantile = (xs: number[], q: number): number => {
   return sorted[Math.floor((sorted.length - 1) * q)]!;
 };
 const completed = results.flatMap((r) => r.carrierRuns).filter((r) => r.outcome === "captured");
+const profileSummary = Object.fromEntries(configs.getAll<BotprofileConfig>("botprofile").map((profile) => {
+  const samples = results.flatMap((result) => result.profiles.flatMap((id, index) => id === profile.id ? [{ result, index }] : []));
+  return [profile.id, {
+    objectiveIntentPct: mean(samples.map(({ result, index }) => result.objectiveIntentFraction[index]!)) * 100,
+    combatEngagementPct: mean(samples.map(({ result, index }) => result.combatEngagementFraction[index]!)) * 100,
+    escortPct: mean(samples.map(({ result, index }) => result.escortFraction[index]!)) * 100,
+    carrierKills: samples.reduce((n, { result, index }) => n + result.carrierKills[index]!, 0),
+    returns: samples.reduce((n, { result, index }) => n + result.returns[index]!, 0),
+    captures: samples.reduce((n, { result, index }) => n + result.capturesByBot[index]!, 0),
+  }];
+}));
 console.log(JSON.stringify({
   seeds: SEEDS,
   durationSec: results.reduce((n, r) => n + r.durationSec, 0),
@@ -57,19 +78,26 @@ console.log(JSON.stringify({
     pickupsByTeam: [0, 1].map((team) => results.reduce((n, r) => n + (r.pickupsByTeam[team] ?? 0), 0)),
     returnsByTeam: [0, 1].map((team) => results.reduce((n, r) => n + (r.returnsByTeam[team] ?? 0), 0)),
     floorCutFraction: mean(results.map((r) => r.floorCutFraction)),
+    meanAltitude: mean(all("meanAltitude")),
+    nearFloorFraction: mean(all("nearFloorFraction")),
+    floorContactEvents: results.reduce((n, r) => n + r.floorContactEvents, 0),
+    floorRecoveryTriggers: results.reduce((n, r) => n + r.floorRecoveryTriggers, 0),
+    perProfile: profileSummary,
   },
 }, null, 2));
 
 function run(seed: number): RunMetrics {
   const sim = new ArenaSimulation(configs, ARENA, MODE, seed);
   const mode = configs.get<GamemodeConfig>("gamemode", MODE)!;
-  const profile = configs.get<BotprofileConfig>("botprofile", mode.bots!.defaultProfile!)!;
+  const profiles = ["bot.flagrunner", "bot.aggressive", "bot.cautious", "bot.rookie"]
+    .map((id) => configs.get<BotprofileConfig>("botprofile", id)!);
   const ship = configs.get<ShipConfig>("ship", mode.bots!.defaultShip!)!;
   const drivers = new Map<EntityId, BotDriver>();
   for (let team = 0; team < 2; team++) {
     for (let i = 0; i < 5; i++) {
       const id = sim.spawnPlayer(ship.id, ship.defaultFitting, team);
-      drivers.set(id, new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id), floorY: 0 }));
+      const profile = profiles[(team * 5 + i) % profiles.length]!;
+      drivers.set(id, new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id), floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined }));
     }
   }
   const ids = [...drivers.keys()];
@@ -83,6 +111,15 @@ function run(seed: number): RunMetrics {
   const previous = new Map<EntityId, { x: number; y: number; z: number }>();
   const stuck = new Map<EntityId, { start: { x: number; y: number; z: number }; ticks: number; reported: boolean }>();
   const objectiveTicks = new Map(ids.map((id) => [id, 0]));
+  const profileIds = new Map([...drivers].map(([id, driver]) => [id, driver.profile.id]));
+  const altitudeSum = new Map(ids.map((id) => [id, 0]));
+  const nearFloorTicks = new Map(ids.map((id) => [id, 0]));
+  const engagementTicks = new Map(ids.map((id) => [id, 0]));
+  const escortTicks = new Map(ids.map((id) => [id, 0]));
+  const carrierKills = new Map(ids.map((id) => [id, 0]));
+  const returns = new Map(ids.map((id) => [id, 0]));
+  const capturesByBot = new Map(ids.map((id) => [id, 0]));
+  const recoveryActive = new Map(ids.map((id) => [id, false]));
   const pickupsByTeam = [0, 0];
   const returnsByTeam = [0, 0];
   const activeRuns = new Map<EntityId, { startAt: number; startHomeDistance: number; lastHomeDistance: number }>();
@@ -91,6 +128,8 @@ function run(seed: number): RunMetrics {
   let stuckWindows = 0;
   let floorCuts = 0;
   let decisions = 0;
+  let floorContactEvents = 0;
+  let floorRecoveryTriggers = 0;
   let nowMs = 0;
   let elapsed = 0;
 
@@ -104,6 +143,15 @@ function run(seed: number): RunMetrics {
       const velocity = sim.world.velocities.get(self.id)!;
       const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
       liveTicks.set(self.id, liveTicks.get(self.id)! + 1);
+      const floorY = sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined;
+      if (floorY !== undefined) {
+        const altitude = self.pos.y - floorY - (self.colliderRadius ?? 0);
+        altitudeSum.set(self.id, altitudeSum.get(self.id)! + altitude);
+        if (altitude < Math.max(4, (self.colliderRadius ?? 0) * 3)) nearFloorTicks.set(self.id, nearFloorTicks.get(self.id)! + 1);
+      }
+      const ownCarrier = snapshot.flags.find((flag) => flag.team !== self.team && flag.state === "carried" && flag.carrierId !== null)?.carrierId;
+      const carrier = snapshot.ships.find((candidate) => candidate.id === ownCarrier);
+      if (carrier && carrier.id !== self.id && dist3(self.pos, carrier.pos) <= 35) escortTicks.set(self.id, escortTicks.get(self.id)! + 1);
       if (speed < NEAR_ZERO_SPEED) nearZero.set(self.id, nearZero.get(self.id)! + 1);
       const prior = previous.get(self.id);
       if (prior) {
@@ -148,6 +196,10 @@ function run(seed: number): RunMetrics {
       for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
       const decision = driver.lastDecision;
       if (decision?.behavior === "objective") objectiveTicks.set(id, objectiveTicks.get(id)! + 1);
+      if (decision?.engaged) engagementTicks.set(id, engagementTicks.get(id)! + 1);
+      const recovering = decision?.floorRecovery === true;
+      if (recovering && !recoveryActive.get(id)) floorRecoveryTriggers++;
+      recoveryActive.set(id, recovering);
       const self = snapshot.ships.find((shipSnapshot) => shipSnapshot.id === id);
       if (self && decision?.flight && decision.flight.throttle >= 0.2) {
         const velocity = sim.world.velocities.get(id)!;
@@ -166,9 +218,16 @@ function run(seed: number): RunMetrics {
     }
     sim.tick(DT);
     for (const event of sim.getEvents()) {
+      if (event.type === "boundaryHit") {
+        const body = sim.world.transforms.get(event.entityId);
+        const collider = sim.world.colliders.get(event.entityId);
+        const floorY = sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined;
+        if (body && collider && floorY !== undefined && body.pos.y <= floorY + collider.radius + 0.02) floorContactEvents++;
+      }
       if (event.type === "projectileFired" && shots.has(event.ownerId)) shots.set(event.ownerId, shots.get(event.ownerId)! + 1);
       if (event.type === "flagCaptured") {
         captures++;
+        if (capturesByBot.has(event.carrierId)) capturesByBot.set(event.carrierId, capturesByBot.get(event.carrierId)! + 1);
         const run = activeRuns.get(event.carrierId);
         if (run) {
           carrierRuns.push({ carrierId: event.carrierId, startHomeDistance: run.startHomeDistance, endHomeDistance: 0, durationSec: elapsed - run.startAt, outcome: "captured" });
@@ -179,6 +238,11 @@ function run(seed: number): RunMetrics {
       if (event.type === "flagReturned" && event.byId !== null) {
         const team = sim.teamOf(event.byId);
         if (team !== undefined) returnsByTeam[team] = (returnsByTeam[team] ?? 0) + 1;
+        if (returns.has(event.byId)) returns.set(event.byId, returns.get(event.byId)! + 1);
+      }
+      if (event.type === "entityDestroyed" && event.killerId !== null) {
+        const wasCarrier = snapshot.flags.some((flag) => flag.state === "carried" && flag.carrierId === event.entityId);
+        if (wasCarrier && carrierKills.has(event.killerId)) carrierKills.set(event.killerId, carrierKills.get(event.killerId)! + 1);
       }
     }
   }
@@ -192,6 +256,16 @@ function run(seed: number): RunMetrics {
     objectiveIntentFraction: ids.map((id) => objectiveTicks.get(id)! / Math.max(1, liveTicks.get(id)!)),
     pickupsByTeam, returnsByTeam,
     floorCutFraction: floorCuts / Math.max(1, decisions),
+    profiles: ids.map((id) => profileIds.get(id)!),
+    meanAltitude: ids.map((id) => altitudeSum.get(id)! / Math.max(1, liveTicks.get(id)!)),
+    nearFloorFraction: ids.map((id) => nearFloorTicks.get(id)! / Math.max(1, liveTicks.get(id)!)),
+    floorContactEvents,
+    floorRecoveryTriggers,
+    combatEngagementFraction: ids.map((id) => engagementTicks.get(id)! / Math.max(1, liveTicks.get(id)!)),
+    escortFraction: ids.map((id) => escortTicks.get(id)! / Math.max(1, liveTicks.get(id)!)),
+    carrierKills: ids.map((id) => carrierKills.get(id)!),
+    returns: ids.map((id) => returns.get(id)!),
+    capturesByBot: ids.map((id) => capturesByBot.get(id)!),
   };
 }
 

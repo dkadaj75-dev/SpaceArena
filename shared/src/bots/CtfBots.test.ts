@@ -276,7 +276,13 @@ function playLooseFlags(seed: number) {
   }
   const events: SimEvent[] = [];
   let nowMs = 0;
-  for (let tick = 0; tick < 45 / DT; tick++) {
+  const homes = sim.snapshot().flags.map((flag) => flag.home);
+  const homeDistance = Math.hypot(homes[1]!.x - homes[0]!.x, homes[1]!.y - homes[0]!.y, homes[1]!.z - homes[0]!.z);
+  // Preserve the original 45 s allowance per 268 units of home-to-home
+  // geometry. The shipped lunar pitch doubled, so a fixed window merely timed
+  // out in transit instead of testing "return, then resume attacking".
+  const observationSeconds = 45 * (homeDistance / 268);
+  for (let tick = 0; tick < observationSeconds / DT; tick++) {
     nowMs += DT * 1000;
     const snapshot = sim.snapshot();
     for (const entry of drivers) {

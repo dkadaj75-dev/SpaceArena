@@ -17,6 +17,21 @@ export const botprofileSchema = z.object({
   carrierPriority: z.number().min(1).optional(),
   /** Flavor weights used by the seeded full-catalogue fitting roller. */
   fittingArchetype: z.enum(["aggressive", "balanced", "cautious"]).optional(),
+  /** Authored CTF role sensitivities. Missing blocks retain legacy balanced behavior. */
+  ctfWeights: z
+    .object({
+      takeEnemyFlag: z.number().nonnegative().default(1),
+      killEnemyCarrier: z.number().nonnegative().default(1),
+      escortOwnCarrier: z.number().nonnegative().default(1),
+      returnOwnFlag: z.number().nonnegative().default(1),
+      defendOwnBase: z.number().nonnegative().default(1),
+      opportunisticCombat: z.number().nonnegative().default(1),
+      threatResponse: z.number().nonnegative().default(1),
+      roleHoldMs: z.number().nonnegative().default(2500),
+    })
+    .optional(),
+  /** Fractional half-width of the player-relative fitting target band. */
+  fittingPowerSpread: z.number().min(0).max(1).optional(),
   /**
    * Stick feel for the flight model (FLIGHT.md §1/§7, BUBBLE.md §D) — how the
    * driver converts a behaviour's aim point into the `turn` and `pitchStick` axes

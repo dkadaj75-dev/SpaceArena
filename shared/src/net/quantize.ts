@@ -1,9 +1,9 @@
 /**
  * Wire quantization helpers shared by the server (encode) and client (decode).
  *
- * Positions/velocities travel as int16 **centi-units**: the float value is
- * multiplied by 100, rounded, and clamped to the signed-16-bit range. This gives
- * 0.01-world-unit precision over a ±327.67-unit span — comfortably larger than
+ * Positions/velocities travel as int16 **deci-units**: the float value is
+ * multiplied by 10, rounded, and clamped to the signed-16-bit range. This gives
+ * 0.1-world-unit precision over a ±3276.7-unit span — comfortably larger than
  * any shipped arena (deep-field is a radius-300 bubble, and BUBBLE.md §B keeps
  * the same codec for the new `y` axis: the vertical extent is the same sphere
  * radius, plus a little projectile overshoot before the bounds cull, which the
@@ -18,9 +18,9 @@
 export const INT16_MIN = -32768;
 export const INT16_MAX = 32767;
 
-/** Quantize a world coordinate/velocity component to int16 centi-units. */
+/** Quantize a world coordinate/velocity component to int16 deci-units. */
 export function encodeCenti(value: number): number {
-  const q = Math.round(value * 100);
+  const q = Math.round(value * 10);
   if (q < INT16_MIN) return INT16_MIN;
   if (q > INT16_MAX) return INT16_MAX;
   return q;
@@ -28,7 +28,7 @@ export function encodeCenti(value: number): number {
 
 /** Restore a world coordinate/velocity component from int16 centi-units. */
 export function decodeCenti(q: number): number {
-  return q / 100;
+  return q / 10;
 }
 
 /**
