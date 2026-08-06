@@ -9,7 +9,13 @@ const SELF_X_FRACTION = 0.58;
 const SELF_Y_FRACTION = 0.68;
 
 type DamageLayer = "shield" | "hull";
-type DamageRelation = "dealt" | "taken" | "other";
+/**
+ * Board semantics (design system v1.0): red is threat/damage to MY side, white
+ * is neutral information. So a value is coloured by WHO took the hit, not by
+ * who threw it — my own hull, a teammate's hull and an enemy's hull read the
+ * same way every time.
+ */
+type DamageRelation = "friendly" | "hostile";
 
 interface LabelSlot {
   readonly el: HTMLDivElement;
@@ -50,6 +56,8 @@ export class FloatingDamageText {
   private readonly projected: ProjectedPoint = { x: 0, y: 0, behind: false };
   private clockMs = 0;
   private randomState = 0x9e3779b9;
+  /** Latest snapshot's ships, borrowed (never copied) for team lookups. */
+  private ships: Snapshot["ships"] | null = null;
 
   constructor(
     root: HTMLElement,
@@ -69,7 +77,7 @@ export class FloatingDamageText {
         active: false,
         targetId: 0,
         layer: "hull",
-        relation: "other",
+        relation: "hostile",
         amount: 0,
         ageMs: 0,
         mergedAtMs: -Infinity,
@@ -85,14 +93,15 @@ export class FloatingDamageText {
     for (let i = 0; i < events.length; i++) {
       const event = events[i]!;
       if (event.type === "damage" && !event.isAsteroid) {
-        this.add(event.targetId, event.sourceId, event.amount, "hull");
+        this.add(event.targetId, event.amount, "hull");
       } else if (event.type === "shieldAbsorb") {
-        this.add(event.targetId, event.sourceId, event.amount, "shield");
+        this.add(event.targetId, event.amount, "shield");
       }
     }
   }
 
   update(cur: Snapshot, prev: Snapshot, alpha: number, dtMs: number): void {
+    this.ships = cur.ships;
     this.clockMs += dtMs;
     const width = this.container.clientWidth || 1;
     const height = this.container.clientHeight || 1;
@@ -146,11 +155,9 @@ export class FloatingDamageText {
     this.container.remove();
   }
 
-  private add(targetId: EntityId, sourceId: EntityId | null, amount: number, layer: DamageLayer): void {
+  private add(targetId: EntityId, amount: number, layer: DamageLayer): void {
     if (!(amount > 0)) return;
-    const relation: DamageRelation = targetId === this.playerId
-      ? "taken"
-      : sourceId === this.playerId ? "dealt" : "other";
+    const relation: DamageRelation = this.isFriendly(targetId) ? "friendly" : "hostile";
     const slot = this.findMerge(targetId, layer, relation) ?? this.claimSlot();
     if (slot.active) {
       slot.amount += amount;
@@ -175,6 +182,25 @@ export class FloatingDamageText {
     slot.el.textContent = formatDamageAmount(amount);
     slot.el.style.setProperty("--hud-damage-scale", String(damageTextScale(amount)));
     slot.el.hidden = false;
+  }
+
+  /**
+   * True when the ship that took the hit is the player or one of their team.
+   * Unknown ids (a corpse already gone from the snapshot) read hostile: a
+   * stray white number is a smaller lie than a stray red alarm.
+   */
+  private isFriendly(targetId: EntityId): boolean {
+    if (targetId === this.playerId) return true;
+    const ships = this.ships;
+    if (!ships) return false;
+    let myTeam: number | undefined;
+    let theirTeam: number | undefined;
+    for (let i = 0; i < ships.length; i++) {
+      const ship = ships[i]!;
+      if (ship.id === this.playerId) myTeam = ship.team;
+      if (ship.id === targetId) theirTeam = ship.team;
+    }
+    return myTeam !== undefined && myTeam === theirTeam;
   }
 
   private findMerge(targetId: EntityId, layer: DamageLayer, relation: DamageRelation): LabelSlot | null {

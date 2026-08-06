@@ -1399,9 +1399,12 @@ const CSS = `
   text-shadow: -1px -1px 0 rgba(2, 5, 12, .95), 1px -1px 0 rgba(2, 5, 12, .95), -1px 1px 0 rgba(2, 5, 12, .95), 1px 1px 0 rgba(2, 5, 12, .95), 0 0 8px currentColor;
   will-change: transform, opacity;
 }
-.hud-damage-number.shield { color: var(--hud-shield, var(--sa-blue-500)); }
-.hud-damage-number.taken { color: var(--hud-danger, var(--sa-red-500)); }
-.hud-damage-number.other { filter: saturate(.75); }
+/* Colour reads WHO was hit (design system v1.0): red is threat to my side,
+   white is neutral information about theirs. The shield/hull distinction is
+   kept as weight and alpha so it never competes with that signal. */
+.hud-damage-number.friendly { color: var(--hud-danger, var(--sa-red-500)); }
+.hud-damage-number.hostile { color: var(--hud-text, var(--sa-white)); }
+.hud-damage-number.shield { opacity: .85; font-weight: 700; }
 
 /* --- Results overlay --- */
 .hud-results {
