@@ -17,6 +17,10 @@ test("hud screenshot rig @hudshot", async ({ page }) => {
   await page.goto("/?login=1");
   const fullscreenPrompt = page.locator(".sa-fullscreen-prompt");
   await expect(fullscreenPrompt).toBeVisible();
+  if (process.env["HUD_SHOT_LAUNCH"]) {
+    await page.screenshot({ path: `${outDir}/launch-prompt.png` });
+    return;
+  }
   await fullscreenPrompt.getByText("Not now", { exact: true }).click();
   const authOverlay = page.locator(".auth-overlay");
   await expect(authOverlay).toBeVisible();
