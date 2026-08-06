@@ -104,4 +104,22 @@ describe("other full-bleed text overlays", () => {
     expect(body).toMatch(/padding-inline-end:\s*var\(--hud-results-title-tracking\)/);
     expect(body).toMatch(/letter-spacing:\s*var\(--hud-results-title-tracking\)/);
   });
+
+  // The regression this pins: the outcome banner outgrew the 420px results
+  // panel, and the panel's `overflow-y:auto` computes overflow-x to `auto`
+  // too — clipping VICTORY mid-glyph. In the outcome state the panel must
+  // neither cap its width nor clip, and the title must be bounded by the
+  // width it actually has rather than raw viewport units.
+  it("lets the outcome banner escape the panel's cap and scroll box", () => {
+    const panel = ruleBody(hudCss(), ".hud-results--outcome .hud-results-panel");
+    expect(panel).toMatch(/overflow:\s*visible/);
+    expect(panel).not.toMatch(/max-width:\s*min\(420px/);
+
+    const title = ruleBody(hudCss(), ".hud-results--outcome .hud-results-title");
+    // Bounded by available width, and never wrapped mid-word.
+    expect(title).toMatch(/font-size:\s*min\(/);
+    expect(title).toMatch(/100vw/);
+    expect(title).toMatch(/white-space:\s*nowrap/);
+    expect(title).toMatch(/letter-spacing:\s*var\(--hud-results-title-tracking\)/);
+  });
 });
