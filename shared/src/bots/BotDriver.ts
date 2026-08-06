@@ -540,7 +540,10 @@ export class BotDriver {
       if (l.key === bestKey) continue; // the winner already spoke through its plan
       cmd = l.behavior.overlay!(ctx, l.params, cmd);
     }
-    cmd = this.avoidFloor(self, cmd, horizonSec, tolerance);
+    // A measured surface escape already includes the floor normal when needed.
+    // Letting predictive floor avoidance rewrite it here can deadlock a hull in
+    // the seam between the plane and a rock, with the two overrides alternating.
+    if (!this.surfaceEscape) cmd = this.avoidFloor(self, cmd, horizonSec, tolerance);
     // `clamp` passes NaN straight through, and a non-finite axis would poison the
     // ship's attitude for the rest of the match (flight orders are level-triggered).
     // A mistyped content param is the realistic source, so neutralise it here

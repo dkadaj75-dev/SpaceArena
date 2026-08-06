@@ -35,7 +35,9 @@ interface BotRow {
 }
 
 const configs = await loadTestConfigs();
-const modes = configs.getAll<GamemodeConfig>("gamemode").filter((mode) => mode.bots?.roster?.length);
+const modeFilter = process.env.BOT_REPRO_MODE;
+const modes = configs.getAll<GamemodeConfig>("gamemode").filter((mode) =>
+  mode.bots?.roster?.length && (!modeFilter || mode.id === modeFilter));
 const rows: BotRow[] = [];
 
 for (const mode of modes) {
