@@ -10,6 +10,8 @@ const shotW = Number(process.env["HUD_SHOT_W"] ?? 0);
 const shotH = Number(process.env["HUD_SHOT_H"] ?? 0);
 if (shotW > 0 && shotH > 0) test.use({ viewport: { width: shotW, height: shotH } });
 
+test.setTimeout(600_000);
+
 test("hud screenshot rig @hudshot", async ({ page }) => {
   const outDir = process.env["HUD_SHOT_DIR"] ?? "test-results";
   await page.goto("/?login=1");
@@ -48,4 +50,32 @@ test("hud screenshot rig @hudshot", async ({ page }) => {
     path: `${outDir}/hud-cluster.png`,
     clip: { x: size.width * 0.5, y: size.height * 0.45, width: size.width * 0.5, height: size.height * 0.55 },
   });
+
+  // HUD_SHOT_MVP: run the match out and capture the MVP hero shot, which is
+  // where the staged hull's screen placement is judged.
+  if (!process.env["HUD_SHOT_MVP"]) return;
+  await page.evaluate(async () => {
+    const debug = (window as unknown as {
+      __debug: { forceFrame(dtMs?: number): void; session?: { playerId: number; curSnapshot: { ships: { id: number; team: number }[] }; order(o: unknown): void } };
+    }).__debug;
+    for (let i = 0; i < 6000; i++) {
+      const session = debug.session;
+      if (session) {
+        const me = session.curSnapshot.ships.find((sh) => sh.id === session.playerId);
+        if (me) session.order({ kind: "flight", throttle: 0.6, turn: 0.2, boost: false, fire: true });
+      }
+      debug.forceFrame(166);
+      if (i % 20 === 19) {
+        if (document.querySelector(".hud-results.visible")) break;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    // Past the 3s outcome banner into the MVP beat.
+    for (let i = 0; i < 100; i++) {
+      debug.forceFrame(50);
+      if (i % 10 === 9) await new Promise((r) => setTimeout(r, 0));
+    }
+  });
+  await expect(page.locator(".hud-results")).toHaveClass(/hud-results--mvp/, { timeout: 20000 });
+  await page.screenshot({ path: `${outDir}/mvp.png` });
 });

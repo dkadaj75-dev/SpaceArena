@@ -154,3 +154,33 @@ describe("TacticalCamera chase distance", () => {
     expect(rigCamera.camera.radius).toBeCloseTo(18, 9);
   });
 });
+
+describe("TacticalCamera staged screen offset", () => {
+  it("slides the staged subject by a share of the frame, and clears back to centre", () => {
+    const rigCamera = rig();
+    rigCamera.setHangarMode(true);
+    rigCamera.camera.radius = 10;
+    rigCamera.camera.fov = 0.8;
+
+    const engine = rigCamera.camera.getScene().getEngine();
+    const aspect = engine.getRenderWidth() / engine.getRenderHeight();
+    const visibleHeight = 2 * 10 * Math.tan(0.4);
+
+    // Portrait lift: up is +y, and the shift is a pure fraction of the frame,
+    // so it stays the same share of the screen at any radius or FOV.
+    rigCamera.setStageScreenOffset(0, 0.15);
+    expect(rigCamera.camera.targetScreenOffset.x).toBeCloseTo(0, 9);
+    expect(rigCamera.camera.targetScreenOffset.y).toBeCloseTo(0.15 * visibleHeight, 9);
+
+    // Landscape shift: left is -x, scaled by aspect so a fraction of WIDTH
+    // means the same on a wide frame as a tall one.
+    rigCamera.setStageScreenOffset(-0.2, 0);
+    expect(rigCamera.camera.targetScreenOffset.x).toBeCloseTo(-0.2 * visibleHeight * aspect, 9);
+    expect(rigCamera.camera.targetScreenOffset.y).toBeCloseTo(0, 9);
+
+    // Matches frame on the ship itself — no leftover stage offset.
+    rigCamera.clearStageScreenOffset();
+    expect(rigCamera.camera.targetScreenOffset.x).toBe(0);
+    expect(rigCamera.camera.targetScreenOffset.y).toBe(0);
+  });
+});

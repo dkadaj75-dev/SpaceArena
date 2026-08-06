@@ -389,6 +389,25 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     },
   };
 
+  /**
+   * The MVP hero shot shares the screen with the results panel, which sits at
+   * the BOTTOM in portrait and on the RIGHT in landscape. Lift or slide the
+   * staged hull by the authored share of the frame so it centres in the space
+   * the panel leaves, rather than hiding behind it (owner 2026-08-06).
+   */
+  const MVP_PORTRAIT_LIFT = 0.15;
+  const MVP_LANDSCAPE_SHIFT = 0.2;
+  let mvpStaged = false;
+  function applyMvpStageOffset(): void {
+    // Render dimensions rather than the canvas element: same source the camera
+    // derives its aspect from, and valid inside this hoisted helper.
+    const landscape = engine.getRenderWidth() > engine.getRenderHeight();
+    tacticalCamera.setStageScreenOffset(
+      landscape ? -MVP_LANDSCAPE_SHIFT : 0,
+      landscape ? 0 : MVP_PORTRAIT_LIFT,
+    );
+  }
+
   function createMatchRuntime(session: GameSession): MatchRuntime {
     const viewManager = new ViewManager(
       scene,
@@ -427,6 +446,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           tacticalCamera.setChaseMode(false);
           tacticalCamera.setHangarMode(true);
           tacticalCamera.resetStageOrbit(heroCenter);
+          mvpStaged = true;
+          applyMvpStageOffset();
           tacticalCamera.beginMvpOrbit(mvpPresentationSettings(
             configService.get<ThemeConfig>("theme", "theme.default"),
           ).orbitDegreesPerSecond);
@@ -557,6 +578,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     runtime = null;
     // Back to the menu/hangar rigs: the chase view only exists while a ship is
     // flying (FLIGHT.md §3), and leaving it restores the tactical orbit limits.
+    mvpStaged = false;
+    tacticalCamera.clearStageScreenOffset();
     tacticalCamera.setChaseMode(false);
     tacticalCamera.setHangarMode(false);
     void authService.refreshProfile();
@@ -1141,6 +1164,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // Orientation drives the chase camera's default distance (the authored
     // landscapeRadiusScale) — same width>height rule the HUD layout uses.
     tacticalCamera.setLandscapeOrientation(canvas.clientWidth > canvas.clientHeight);
+    if (mvpStaged) applyMvpStageOffset();
   });
   resizeObserver.observe(canvas);
   engine.resize();

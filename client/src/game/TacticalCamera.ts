@@ -328,6 +328,32 @@ export class TacticalCamera {
   }
 
   /**
+   * Slide the staged subject across the FRAME, in fractions of the viewport
+   * (+x right, +y up), so the MVP hull can clear the results panel: it sits at
+   * the bottom in portrait and on the right in landscape.
+   *
+   * `targetScreenOffset` is world units in view space, so the fractions are
+   * converted through the visible extent at the orbit radius — that keeps the
+   * shift a constant share of the screen at any radius, FOV or aspect. Both
+   * axes ride the view matrix, so the orbit does not smear them.
+   */
+  setStageScreenOffset(fractionX: number, fractionY: number): void {
+    const engine = this.camera.getScene().getEngine();
+    const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
+    // FOVMODE_VERTICAL_FIXED (Babylon's default): fov is the vertical angle.
+    const visibleHeight = 2 * this.camera.radius * Math.tan(this.camera.fov / 2);
+    this.camera.targetScreenOffset.set(
+      fractionX * visibleHeight * aspect,
+      fractionY * visibleHeight,
+    );
+  }
+
+  /** Drop any staged frame offset — matches always frame on the ship itself. */
+  clearStageScreenOffset(): void {
+    this.camera.targetScreenOffset.set(0, 0);
+  }
+
+  /**
    * Chase mode (FLIGHT.md §3) — the in-match rig for the continuous-flight
    * model. It replaces the player's orbit control rather than extending it:
    *
