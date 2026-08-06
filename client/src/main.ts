@@ -21,6 +21,7 @@ import {
   interpolateFrame,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
+import { designTokenCssVars } from "./game/themeTokens.js";
 import { createUpdateGate } from "./core/swUpdate.js";
 import { installTouchGuards } from "./core/touchGuards.js";
 import { AssetRegistry } from "./core/AssetRegistry.js";
@@ -158,6 +159,20 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     if (redirectToOfflinePageIfNeeded()) return;
   }
   wireContentHotReload(configService);
+
+  // Design tokens belong to the DOCUMENT, not to any one widget. Scoping them
+  // to a component root left every screen that attaches elsewhere — the launch
+  // fullscreen prompt above all — resolving var(--sa-*) to nothing, which
+  // invalidates the whole declaration and drops text to inherited near-black.
+  // Publishing once on :root is what makes the system actually shared.
+  const publishDesignTokens = (): void => {
+    const vars = designTokenCssVars(configService.get<ThemeConfig>("theme", "theme.default"));
+    for (const [prop, value] of Object.entries(vars)) {
+      document.documentElement.style.setProperty(prop, value);
+    }
+  };
+  publishDesignTokens();
+  bus.on("configChanged", publishDesignTokens);
 
   // Reachability probe starts NOW and is awaited at its own boot stage below.
   // Concurrent on purpose: the ship-model preload takes seconds and the probe

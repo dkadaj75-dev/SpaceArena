@@ -44,3 +44,32 @@ describe("token-only primitive contracts", () => {
     expect(css).not.toMatch(/#(?:39bfff|ffb35c|ff405c|57d8ff)/i);
   });
 });
+
+describe("design tokens are document-scoped", () => {
+  // The regression this pins: tokens were published onto component roots, so
+  // any screen attaching elsewhere (the launch fullscreen prompt) resolved
+  // var(--sa-*) to nothing. An unresolved var invalidates the WHOLE
+  // declaration, which dropped its text to inherited near-black — a popup you
+  // could not read. Tokens belong on :root, once.
+  it("publishes every token on the document element", async () => {
+    const { designTokenCssVars } = await import("./themeTokens.js");
+    for (const [prop, value] of Object.entries(designTokenCssVars(undefined))) {
+      document.documentElement.style.setProperty(prop, value);
+    }
+    const root = getComputedStyle(document.documentElement);
+    expect(root.getPropertyValue("--sa-white").trim()).not.toBe("");
+    expect(root.getPropertyValue("--sa-blue-500").trim()).not.toBe("");
+    expect(root.getPropertyValue("--sa-n-800").trim()).not.toBe("");
+  });
+
+  it("never appends a raw alpha suffix to a token reference", async () => {
+    // `var(--sa-n-800)ee` is not a colour; it silently voids the declaration.
+    const { readFile } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const dir = path.dirname(new URL(import.meta.url).pathname);
+    for (const file of ["screens/FullscreenPrompt.ts", "screens/screenStyle.ts", "hud/hudStyle.ts"]) {
+      const css = await readFile(path.join(dir, file), "utf8");
+      expect(css, `${file} appends a raw alpha suffix to var()`).not.toMatch(/var\(--[\w-]+\)[0-9a-f]{2}\b/i);
+    }
+  });
+});

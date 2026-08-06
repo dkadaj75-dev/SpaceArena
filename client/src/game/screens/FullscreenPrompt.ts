@@ -24,7 +24,7 @@ const CSS = `
   width: min(340px, 100%);
   padding: 22px 20px 18px;
   box-sizing: border-box;
-  background: var(--sa-n-800)ee;
+  background: color-mix(in srgb, var(--sa-n-800, #0B1118) 93%, transparent);
   border: 1px solid color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 40%, transparent);
   clip-path: polygon(12px 0%, calc(100% - 12px) 0%, 100% 12px, 100% calc(100% - 12px),
     calc(100% - 12px) 100%, 12px 100%, 0% calc(100% - 12px), 0% 12px);

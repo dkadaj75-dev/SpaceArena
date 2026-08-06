@@ -71,6 +71,8 @@ export interface BotDecisionSnapshot {
   engaged: boolean;
   /** True while the floor recovery override is commanding a climb. */
   floorRecovery?: boolean;
+  /** True while no-progress recovery owns flight until real surface separation. */
+  surfaceRecovery?: boolean;
   /** Level-triggered fire decision and its debug-overlay explanation. */
   fire?: boolean;
   fireReason?: FireDecisionReason;
@@ -152,6 +154,10 @@ const WEDGE_DETECT_MS = 900;
 const UNSTUCK_COMMIT_MS = 2_000;
 const UNSTUCK_AIM_DISTANCE = 28;
 const FLOOR_RECOVERY_CLEARANCE_MULT = 4;
+const SURFACE_STALL_MS = 1_500;
+const SURFACE_STALL_RADIUS = 1;
+const SURFACE_ESCAPE_CLEARANCE = 4;
+const SURFACE_ESCAPE_AIM_DISTANCE = 30;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -218,6 +224,8 @@ export class BotDriver {
   private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number } | null = null;
   private wedgeContactSinceMs: number | null = null;
   private unstuck: { untilMs: number; obstacleId: EntityId; side: 1 | -1 } | null = null;
+  private surfaceStall: { key: string; sinceMs: number; anchor: Required<Vec3> } | null = null;
+  private surfaceEscape: { key: string; normal: Required<Vec3> } | null = null;
   private floorRecovering = false;
   private heldBehavior: { key: string; untilMs: number } | null = null;
 
@@ -285,6 +293,8 @@ export class BotDriver {
     this.carrierProgress = null;
     this.wedgeContactSinceMs = null;
     this.unstuck = null;
+    this.surfaceStall = null;
+    this.surfaceEscape = null;
     this.floorRecovering = false;
     this.heldBehavior = null;
   }
@@ -482,6 +492,7 @@ export class BotDriver {
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
     bestPlan = this.commitStuckCarrier(snapshot, self, bestPlan, nowMs);
+    bestPlan = this.surfaceRecoveryPlan(snapshot, self, bestPlan, nowMs);
     bestPlan = this.unstuckPlan(snapshot, self, bestPlan, nowMs);
     const engaged = bestPlan?.engaged ?? false;
     // Objective travel owns steering, but it must not make nearby enemies
@@ -529,7 +540,10 @@ export class BotDriver {
       if (l.key === bestKey) continue; // the winner already spoke through its plan
       cmd = l.behavior.overlay!(ctx, l.params, cmd);
     }
-    cmd = this.avoidFloor(self, cmd, horizonSec, tolerance);
+    // A measured surface escape already includes the floor normal when needed.
+    // Letting predictive floor avoidance rewrite it here can deadlock a hull in
+    // the seam between the plane and a rock, with the two overrides alternating.
+    if (!this.surfaceEscape) cmd = this.avoidFloor(self, cmd, horizonSec, tolerance);
     // `clamp` passes NaN straight through, and a non-finite axis would poison the
     // ship's attitude for the rest of the match (flight orders are level-triggered).
     // A mistyped content param is the realistic source, so neutralise it here
@@ -587,6 +601,7 @@ export class BotDriver {
       targetId,
       engaged: triggerEngaged,
       floorRecovery: this.floorRecovering,
+      surfaceRecovery: this.surfaceEscape !== null,
       fire: fireDecision.fire,
       fireReason: fireDecision.reason,
       moduleDecisions: modulePlan.decisions,
@@ -866,6 +881,7 @@ export class BotDriver {
    * deterministic tie-break.
    */
   private unstuckPlan(snapshot: Snapshot, self: ShipSnapshot, plan: BotPlan | null, nowMs: number): BotPlan | null {
+    if (this.surfaceEscape) return plan;
     if (!plan || plan.throttle < 0.2) {
       this.wedgeContactSinceMs = null;
       this.unstuck = null;
@@ -911,6 +927,67 @@ export class BotDriver {
     };
   }
 
+  /**
+   * Last-resort progress invariant for every physical surface. Unlike the older
+   * wedge and floor guards, detection is independent of the utility plan's
+   * throttle, current attitude, descent, and predicted path. Once committed it
+   * keeps ownership until the hull has measured clearance from the same surface.
+   */
+  private surfaceRecoveryPlan(
+    snapshot: Snapshot,
+    self: ShipSnapshot,
+    plan: BotPlan | null,
+    nowMs: number,
+  ): BotPlan | null {
+    let surface = this.surfaceEscape
+      ? surfaceByKey(snapshot, self, this.floorY, this.surfaceEscape.key)
+      : nearestRestSurface(snapshot, self, this.floorY);
+
+    if (this.surfaceEscape) {
+      if (!surface || surface.clearance >= SURFACE_ESCAPE_CLEARANCE) {
+        this.surfaceEscape = null;
+        this.surfaceStall = null;
+        return plan;
+      }
+      this.surfaceEscape.normal = surface.normal;
+    } else {
+      const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
+      if (!surface || surface.clearance > WEDGE_CONTACT_EPSILON || speed >= WEDGE_SPEED) {
+        this.surfaceStall = null;
+        return plan;
+      }
+      const stationary = this.surfaceStall
+        && this.surfaceStall.key === surface.key
+        && dist3(this.surfaceStall.anchor, self.pos) <= SURFACE_STALL_RADIUS;
+      if (!stationary) {
+        this.surfaceStall = { key: surface.key, sinceMs: nowMs, anchor: aimPoint(self.pos) };
+        return plan;
+      }
+      if (nowMs - this.surfaceStall!.sinceMs < SURFACE_STALL_MS) return plan;
+      this.surfaceEscape = { key: surface.key, normal: surface.normal };
+      this.wedgeContactSinceMs = null;
+      this.unstuck = null;
+    }
+
+    surface = surface ?? nearestRestSurface(snapshot, self, this.floorY);
+    const normal = surface?.normal ?? this.surfaceEscape.normal;
+    const noseDot = Math.cos(self.pitch) * Math.cos(self.heading) * normal.x
+      + Math.sin(self.pitch) * normal.y
+      + Math.cos(self.pitch) * Math.sin(self.heading) * normal.z;
+    return {
+      aim: {
+        x: self.pos.x + normal.x * SURFACE_ESCAPE_AIM_DISTANCE,
+        y: self.pos.y + normal.y * SURFACE_ESCAPE_AIM_DISTANCE,
+        z: self.pos.z + normal.z * SURFACE_ESCAPE_AIM_DISTANCE,
+      },
+      // Do not rebuild the cancelled inward velocity while turning. As soon as
+      // the nose has an outward component, full thrust creates real separation.
+      throttle: noseDot > 0.12 ? 1 : 0,
+      boost: false,
+      engaged: false,
+    };
+  }
+
   /** Longest fitted weapon range (cached; the fitting never changes mid-match). */
   private weaponRange(self: ShipSnapshot): number {
     if (this.weaponRangeCache >= 0) return this.weaponRangeCache;
@@ -925,6 +1002,60 @@ export class BotDriver {
 }
 
 interface ContactCollider { id: EntityId; pos: Required<Vec3>; radius: number }
+interface RestSurface {
+  key: string;
+  clearance: number;
+  normal: Required<Vec3>;
+}
+
+function nearestRestSurface(
+  snapshot: Snapshot,
+  self: ShipSnapshot,
+  floorY: number | undefined,
+): RestSurface | null {
+  let nearest = floorY === undefined ? null : surfaceByKey(snapshot, self, floorY, "floor");
+  const consider = (candidate: ContactCollider): void => {
+    const surface = colliderRestSurface(self, candidate);
+    if (!nearest || surface.clearance < nearest.clearance) nearest = surface;
+  };
+  for (const asteroid of snapshot.asteroids) {
+    if (asteroid.state !== "destroyed") consider({ id: asteroid.id, pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius });
+  }
+  for (const ship of snapshot.ships) {
+    if (ship.id !== self.id) consider({ id: ship.id, pos: ship.pos, radius: ship.colliderRadius ?? 0 });
+  }
+  return nearest;
+}
+
+function surfaceByKey(
+  snapshot: Snapshot,
+  self: ShipSnapshot,
+  floorY: number | undefined,
+  key: string,
+): RestSurface | null {
+  if (key === "floor") {
+    return floorY === undefined ? null : {
+      key,
+      clearance: self.pos.y - floorY - (self.colliderRadius ?? 0),
+      normal: { x: 0, y: 1, z: 0 },
+    };
+  }
+  const id = Number(key.slice("collider:".length));
+  const collider = colliderById(snapshot, self, id);
+  return collider ? colliderRestSurface(self, collider) : null;
+}
+
+function colliderRestSurface(self: ShipSnapshot, collider: ContactCollider): RestSurface {
+  const dx = self.pos.x - collider.pos.x;
+  const dy = self.pos.y - collider.pos.y;
+  const dz = self.pos.z - collider.pos.z;
+  const length = Math.hypot(dx, dy, dz) || 1;
+  return {
+    key: `collider:${collider.id}`,
+    clearance: length - (self.colliderRadius ?? 0) - collider.radius,
+    normal: { x: dx / length, y: dy / length, z: dz / length },
+  };
+}
 
 function colliderById(snapshot: Snapshot, self: ShipSnapshot, id: EntityId): ContactCollider | null {
   const asteroid = snapshot.asteroids.find((candidate) => candidate.id === id && candidate.state !== "destroyed");
