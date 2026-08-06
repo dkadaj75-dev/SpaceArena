@@ -4,10 +4,16 @@ import { FloatingDamageText, damageTextScale, formatDamageAmount } from "./Float
 
 const PLAYER = 1;
 const ENEMY = 2;
+const TEAMMATE = 3;
 
+/** Teams matter now: colour reads which SIDE took the hit, not who threw it. */
 function snapshot(x = 40): Snapshot {
   return {
-    ships: [{ id: ENEMY, pos: { x, y: 2, z: 8 } }],
+    ships: [
+      { id: PLAYER, team: 0, pos: { x: 0, y: 0, z: 0 } },
+      { id: ENEMY, team: 1, pos: { x, y: 2, z: 8 } },
+      { id: TEAMMATE, team: 0, pos: { x: -10, y: 1, z: 4 } },
+    ],
   } as unknown as Snapshot;
 }
 
@@ -41,20 +47,51 @@ describe("FloatingDamageText", () => {
     expect(labels).toHaveLength(2);
     expect(labels[0]?.textContent).toBe("7");
     expect(labels[0]?.classList.contains("hull")).toBe(true);
-    expect(labels[0]?.classList.contains("dealt")).toBe(true);
+    expect(labels[0]?.classList.contains("hostile")).toBe(true);
     expect(labels[1]?.classList.contains("shield")).toBe(true);
     expect(project).toHaveBeenCalled();
     text.dispose();
   });
 
-  it("uses the player-edge convention and the taken tint for own-ship damage", () => {
+  it("uses the player-edge convention and the threat tint for own-ship damage", () => {
     const root = document.createElement("div");
     const text = new FloatingDamageText(root, PLAYER, null);
     text.consumeEvents([{ type: "damage", targetId: PLAYER, sourceId: ENEMY, amount: 9, damageType: "energy", isAsteroid: false }]);
     text.update(snapshot(), snapshot(), 1, 16);
     const label = root.querySelector<HTMLElement>(".hud-damage-number:not([hidden])")!;
-    expect(label.classList.contains("taken")).toBe(true);
+    expect(label.classList.contains("friendly")).toBe(true);
     expect(label.textContent).toBe("9");
+    text.dispose();
+  });
+
+  // The owner's rule (2026-08-06): my side bleeding is an alarm, so a
+  // TEAMMATE's damage reads the same red as my own — never the neutral white
+  // reserved for damage landing on the enemy.
+  it("colours a teammate's damage as threat and an enemy's as information", () => {
+    const root = document.createElement("div");
+    // Off-ship values need a projection; only own-ship damage uses the edge.
+    const text = new FloatingDamageText(root, PLAYER, {
+      project: (_x, _y, _z, out) => {
+        out.x = 30;
+        out.y = 40;
+        out.behind = false;
+        return true;
+      },
+    });
+    // Seed the team lookup the way a live frame does, then take the hits.
+    text.update(snapshot(), snapshot(), 1, 16);
+    text.consumeEvents([
+      { type: "damage", targetId: TEAMMATE, sourceId: ENEMY, amount: 5, damageType: "energy", isAsteroid: false },
+      { type: "damage", targetId: ENEMY, sourceId: TEAMMATE, amount: 6, damageType: "energy", isAsteroid: false },
+    ]);
+    text.update(snapshot(), snapshot(), 1, 16);
+
+    const labels = root.querySelectorAll<HTMLElement>(".hud-damage-number:not([hidden])");
+    expect(labels).toHaveLength(2);
+    const teammateHit = [...labels].find((el) => el.textContent === "5")!;
+    const enemyHit = [...labels].find((el) => el.textContent === "6")!;
+    expect(teammateHit.classList.contains("friendly")).toBe(true);
+    expect(enemyHit.classList.contains("hostile")).toBe(true);
     text.dispose();
   });
 
