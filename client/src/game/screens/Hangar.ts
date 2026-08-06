@@ -8,6 +8,7 @@ import {
   type Observer,
   type Scene,
 } from "@babylonjs/core";
+import { designTokenCssVars } from "../themeTokens.js";
 import {
   createLogger,
   type ConfigService,
@@ -291,6 +292,9 @@ export class Hangar {
     injectHangarStyle();
     this.root = document.createElement("div");
     this.root.className = "hangar-overlay game-screen";
+    for (const [prop, value] of Object.entries(designTokenCssVars(this.configs.get<ThemeConfig>("theme", "theme.default")))) {
+      this.root.style.setProperty(prop, value);
+    }
     // Half the screen is a hole onto the 3D stage: it must NOT take pointer
     // events, or it would eat the orbit/zoom drags meant for the canvas below.
     this.stage = document.createElement("div");
@@ -1380,7 +1384,7 @@ export class Hangar {
     if (!owned) {
       row.append(el("div", "hangar-hint", "You do not own this hull yet."));
       const buy = document.createElement("button");
-      buy.className = "hangar-btn hangar-btn-primary";
+      buy.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
       // Free for now (testing) — the purchase still has to happen, so the flow
       // is the real one and only the price is provisional.
       buy.textContent = "Unlock (free)";
@@ -1394,7 +1398,7 @@ export class Hangar {
       return row;
     }
     const main = document.createElement("button");
-    main.className = "hangar-btn hangar-btn-primary";
+    main.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
     main.textContent = "★ Set as main";
     main.disabled = this.busy;
     main.addEventListener("click", () => this.setAsMain());
@@ -1515,7 +1519,7 @@ export class Hangar {
 
     if (slot?.moduleId) {
       const removeBtn = document.createElement("button");
-      removeBtn.className = "hangar-btn";
+      removeBtn.className = "hangar-btn sa-button sa-button--secondary";
       removeBtn.textContent = "Remove module";
       removeBtn.disabled = this.busy;
       // Emptying the slot is a fit change like any other, so it previews like
@@ -1572,14 +1576,14 @@ export class Hangar {
         actions.append(el("span", "hangar-picker-meta", "Fitted"));
       } else if (owned) {
         const equipBtn = document.createElement("button");
-        equipBtn.className = "hangar-btn hangar-btn-primary";
+        equipBtn.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
         equipBtn.textContent = "Equip";
         equipBtn.disabled = this.busy;
         equipBtn.addEventListener("click", () => this.equip(hardpointIndex, mod.id));
         actions.append(equipBtn);
       } else if (!locked) {
         const buyBtn = document.createElement("button");
-        buyBtn.className = "hangar-btn";
+        buyBtn.className = "hangar-btn sa-button sa-button--secondary";
         // Offline every module is free — but still bought, so the unlock flow
         // is the shipped one and only the price is provisional.
         buyBtn.textContent = this.offlineFitting || mod.price <= 0 ? "Unlock (free)" : `Buy (${mod.price} cr)`;
@@ -1615,7 +1619,7 @@ export class Hangar {
       row.append(pips);
 
       const btn = document.createElement("button");
-      btn.className = "hangar-btn";
+      btn.className = "hangar-btn sa-button sa-button--secondary";
       if (!nextConfig) {
         btn.textContent = "Max";
         btn.disabled = true;
@@ -1663,7 +1667,7 @@ export class Hangar {
 
     const row = el("div", "hangar-fit-btn-row");
     const saveBtn = document.createElement("button");
-    saveBtn.className = "hangar-btn hangar-btn-primary";
+    saveBtn.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
     saveBtn.textContent = this.selectedFittingId ? "Update fitting" : "Save new fitting";
     saveBtn.disabled = this.busy;
     saveBtn.addEventListener("click", () => void this.saveFitting(nameInput.value));
@@ -1671,7 +1675,7 @@ export class Hangar {
 
     if (this.selectedFittingId) {
       const delBtn = document.createElement("button");
-      delBtn.className = "hangar-btn hangar-btn-danger";
+      delBtn.className = "hangar-btn hangar-btn-danger sa-button sa-button--danger";
       delBtn.textContent = "Delete";
       delBtn.disabled = this.busy;
       delBtn.addEventListener("click", () => void this.deleteFitting());
@@ -1823,7 +1827,7 @@ const HANGAR_CSS = `
 /*
  * OUTFITTING (owner 2026-07-31) — restyled after the space-sim outfitting
  * screens the game is aiming at: flat charcoal panels, square corners, hairline
- * rules, condensed uppercase labels, and ONE accent colour (amber) that means
+ * rules, condensed uppercase labels, and the shared information-blue accent that means
  * "this is the thing you have selected". No rounded chrome, no glass, no second
  * accent competing for attention.
  *
@@ -1837,17 +1841,17 @@ const HANGAR_CSS = `
   inset: 0;
   z-index: 15;
   pointer-events: none;
-  font-family: "Roboto Condensed", "Segoe UI", system-ui, sans-serif;
-  color: #d9dde2;
+  font: var(--sa-type-body);
+  color: var(--sa-white);
   display: flex;
   flex-direction: column; /* portrait: stage above, panel below */
-  --hg-accent: #f07b05;
-  --hg-accent-dim: rgba(240, 123, 5, .18);
-  --hg-panel: rgba(14, 16, 19, .95);
-  --hg-panel-2: rgba(26, 29, 33, .95);
-  --hg-line: #3a3f45;
-  --hg-dim: #8b939b;
-  --hg-danger: #ff5a5a;
+  --hg-accent: var(--sa-blue-500);
+  --hg-accent-dim: color-mix(in srgb, var(--sa-blue-500) 18%, transparent);
+  --hg-panel: color-mix(in srgb, var(--sa-n-900) 95%, transparent);
+  --hg-panel-2: color-mix(in srgb, var(--sa-n-800) 95%, transparent);
+  --hg-line: var(--sa-n-500);
+  --hg-dim: var(--sa-n-400);
+  --hg-danger: var(--sa-red-500);
 }
 /* The stage takes its half of the flex box but never any pointer events —
    orbit and zoom drags belong to the canvas underneath it. */
@@ -1881,8 +1885,8 @@ const HANGAR_CSS = `
 }
 .hangar-stage-arrow.prev { left: 0; background: linear-gradient(270deg, rgba(14, 16, 19, 0) 0%, rgba(14, 16, 19, .72) 100%); }
 .hangar-stage-arrow.next { right: 0; }
-.hangar-stage-arrow svg { width: 26px; height: 26px; display: block; filter: drop-shadow(0 0 5px rgba(240, 123, 5, .45)); }
-.hangar-stage-arrow:hover:not(:disabled) { opacity: 1; color: #ffb35c; }
+.hangar-stage-arrow svg { width: 26px; height: 26px; display: block; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sa-blue-500) 45%, transparent)); }
+.hangar-stage-arrow:hover:not(:disabled) { opacity: 1; color: var(--sa-white); }
 .hangar-stage-arrow:disabled { opacity: .22; cursor: default; }
 /*
  * ---- ship characteristics, over the 3D stage (owner 2026-08-01) ----
@@ -1908,14 +1912,14 @@ const HANGAR_CSS = `
   border-left: 2px solid var(--hg-accent);
   backdrop-filter: blur(2px);
 }
-.hangar-gauges.previewing { border-left-color: #ffb35c; }
+.hangar-gauges.previewing { border-left-color: var(--sa-white); }
 .hangar-gauges-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .hangar-gauges-title { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--hg-accent); }
 .hangar-gauges-preview {
   font-size: 8.5px;
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: #ffd9ac;
+  color: var(--sa-white);
   background: var(--hg-accent-dim);
   padding: 1px 5px;
 }
@@ -1932,28 +1936,28 @@ const HANGAR_CSS = `
 .hangar-gauge-ghost { position: absolute; top: 0; bottom: 0; }
 .hangar-gauge-ghost.up {
   background:
-    repeating-linear-gradient(135deg, rgba(240, 123, 5, .85) 0 3px, rgba(240, 123, 5, .3) 3px 6px);
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--sa-blue-500) 85%, transparent) 0 3px, color-mix(in srgb, var(--sa-blue-500) 30%, transparent) 3px 6px);
 }
 .hangar-gauge-ghost.down {
   background:
-    repeating-linear-gradient(135deg, rgba(217, 221, 226, .5) 0 3px, rgba(10, 12, 15, .65) 3px 6px);
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--sa-white) 50%, transparent) 0 3px, rgba(10, 12, 15, .65) 3px 6px);
 }
 .hangar-gauge-ghost.up.warn {
   background:
-    repeating-linear-gradient(135deg, rgba(255, 90, 90, .9) 0 3px, rgba(255, 90, 90, .35) 3px 6px);
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--sa-red-500) 90%, transparent) 0 3px, color-mix(in srgb, var(--sa-red-500) 35%, transparent) 3px 6px);
 }
 .hangar-gauge-ghost.down.warn {
   background:
-    repeating-linear-gradient(135deg, rgba(255, 90, 90, .6) 0 3px, rgba(10, 12, 15, .65) 3px 6px);
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--sa-red-500) 60%, transparent) 0 3px, rgba(10, 12, 15, .65) 3px 6px);
 }
 /* Where the power rail runs out — the one line a fit must not cross. */
-.hangar-gauge-limit { position: absolute; top: -1px; bottom: -1px; width: 1px; background: #e8ecf1; opacity: .7; }
+.hangar-gauge-limit { position: absolute; top: -1px; bottom: -1px; width: 1px; background: var(--sa-white); opacity: .7; }
 .hangar-gauge-read { display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; min-width: 74px; }
 .hangar-gauge-value { font-size: 10px; font-variant-numeric: tabular-nums; }
 .hangar-gauge-value.warn { color: var(--hg-danger); font-weight: 700; }
 .hangar-gauge-delta { font-size: 9.5px; font-variant-numeric: tabular-nums; font-weight: 700; }
-.hangar-gauge-delta.better { color: #7fd18a; }
-.hangar-gauge-delta.worse { color: #ffb35c; }
+.hangar-gauge-delta.better { color: var(--sa-blue-500); }
+.hangar-gauge-delta.worse { color: var(--sa-white); }
 .hangar-gauge-delta.warn { color: var(--hg-danger); }
 .hangar-gauges-warn { font-size: 9.5px; line-height: 1.2; color: var(--hg-danger); }
 /* Phones: the stage half is small, so the block gives the hull more room. */
@@ -2005,14 +2009,14 @@ const HANGAR_CSS = `
   padding: 7px 9px;
   min-height: 42px;
   background: var(--hg-panel-2);
-  color: #d9dde2;
+  color: var(--sa-white);
   border: 0;
   border-left: 3px solid transparent;
   cursor: pointer;
   touch-action: manipulation;
 }
-.hangar-rail-btn:hover:not(:disabled) { background: #23272c; }
-.hangar-rail-btn.active { background: var(--hg-accent); color: #140b02; border-left-color: #ffb35c; }
+.hangar-rail-btn:hover:not(:disabled) { background: var(--sa-n-700); }
+.hangar-rail-btn.active { background: var(--hg-accent); color: var(--sa-n-900); border-left-color: var(--sa-white); }
 .hangar-rail-btn.active .hangar-rail-hint { color: rgba(20, 11, 2, .72); }
 .hangar-rail-btn:disabled { opacity: .35; cursor: default; }
 .hangar-rail-btn.back { margin-top: 8px; background: transparent; border: 1px solid var(--hg-line); }
@@ -2030,7 +2034,7 @@ const HANGAR_CSS = `
 }
 .hangar-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--hg-line); padding-bottom: 6px; }
 .hangar-title { letter-spacing: .3em; font-weight: 700; color: var(--hg-accent); font-size: 14px; text-transform: uppercase; }
-.hangar-close { background: transparent; color: #d9dde2; border: 1px solid var(--hg-line); padding: 6px 12px; min-height: 34px; cursor: pointer; touch-action: manipulation; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+.hangar-close { background: transparent; color: var(--sa-white); border: 1px solid var(--hg-line); padding: 6px 12px; min-height: 34px; cursor: pointer; touch-action: manipulation; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
 .hangar-hint { font-size: 11px; color: var(--hg-dim); border-left: 2px solid var(--hg-line); padding: 4px 8px; }
 .hangar-error { font-size: 11px; color: var(--hg-danger); border-left: 2px solid var(--hg-danger); padding: 4px 8px; }
 .hangar-section-title { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--hg-dim); margin-bottom: 4px; }
@@ -2040,13 +2044,13 @@ const HANGAR_CSS = `
 .hangar-ship-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .hangar-ship-title .hangar-ship-name { font-size: 15px; letter-spacing: .1em; text-transform: uppercase; }
 .hangar-badge { font-size: 9.5px; font-weight: 700; letter-spacing: .1em; padding: 2px 6px; }
-.hangar-badge.main { background: var(--hg-accent); color: #140b02; }
+.hangar-badge.main { background: var(--hg-accent); color: var(--sa-n-900); }
 .hangar-badge.locked { background: transparent; color: var(--hg-danger); border: 1px solid var(--hg-danger); }
 .hangar-ship-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hangar-ship-actions .hangar-hint { flex: 1 1 140px; margin: 0; }
 .hangar-ship-list { display: flex; flex-wrap: wrap; gap: 4px; }
-.hangar-ship-btn { flex: 1 1 96px; min-height: 42px; touch-action: manipulation; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--hg-panel-2); color: #d9dde2; border: 1px solid var(--hg-line); border-left: 3px solid transparent; cursor: pointer; }
-.hangar-ship-btn.active { border-left-color: var(--hg-accent); background: #23272c; }
+.hangar-ship-btn { flex: 1 1 96px; min-height: 42px; touch-action: manipulation; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--hg-panel-2); color: var(--sa-white); border: 1px solid var(--hg-line); border-left: 3px solid transparent; cursor: pointer; }
+.hangar-ship-btn.active { border-left-color: var(--hg-accent); background: var(--sa-n-700); }
 .hangar-ship-btn.locked { opacity: 0.55; border-style: dashed; }
 .hangar-ship-name { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; }
 .hangar-ship-class { font-size: 9.5px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .1em; }
@@ -2080,20 +2084,20 @@ const HANGAR_CSS = `
 .hangar-power-warn { font-size: 10.5px; color: var(--hg-danger); }
 
 .hangar-slot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 4px; }
-.hangar-slot { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 8px; min-height: 56px; touch-action: manipulation; background: var(--hg-panel-2); color: #d9dde2; border: 1px solid var(--hg-line); border-left: 3px solid var(--hg-line); cursor: pointer; text-align: left; }
+.hangar-slot { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 8px; min-height: 56px; touch-action: manipulation; background: var(--hg-panel-2); color: var(--sa-white); border: 1px solid var(--hg-line); border-left: 3px solid var(--hg-line); cursor: pointer; text-align: left; }
 .hangar-slot.filled { border-left-color: var(--hg-accent); }
-.hangar-slot.open { background: var(--hg-accent); color: #140b02; }
+.hangar-slot.open { background: var(--hg-accent); color: var(--sa-n-900); }
 .hangar-slot.open .hangar-slot-socket { color: rgba(20, 11, 2, .72); }
 .hangar-slot:disabled { opacity: .45; cursor: default; }
 /* The slot's glyph is an inline SVG from the shared module icon set; an empty
    slot falls back to a "+" character, so size both paths the same. */
 .hangar-slot-icon { font-size: 14px; line-height: 1; color: var(--hg-accent); }
 .hangar-slot-icon .hud-icon-svg { width: 16px; height: 16px; display: block; }
-.hangar-slot.open .hangar-slot-icon { color: #140b02; }
+.hangar-slot.open .hangar-slot-icon { color: var(--sa-n-900); }
 .hangar-slot-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .hangar-slot-socket { font-size: 9px; color: var(--hg-dim); letter-spacing: .04em; }
 /* Systems-bay slots read cool, so a bay never looks like a hardpoint. */
-.hangar-slot[data-kind="internal"].filled { border-left-color: #6fb2d2; }
+.hangar-slot[data-kind="internal"].filled { border-left-color: var(--sa-blue-500); }
 .hangar-picker { display: flex; flex-direction: column; gap: 6px; background: var(--hg-panel-2); border: 1px solid var(--hg-line); padding: 8px; }
 .hangar-picker-kind { margin-left: 8px; color: var(--hg-dim); letter-spacing: .06em; }
 /*
@@ -2125,8 +2129,8 @@ const HANGAR_CSS = `
 .hangar-picker-item[draggable="true"]:active { cursor: grabbing; }
 .hangar-picker-item.fitted { border-left-color: var(--hg-accent); }
 /* The candidate whose ghost is on the stage gauges right now. */
-.hangar-picker-item.considering { border-left-color: #ffb35c; background: rgba(240, 123, 5, .12); }
-.hangar-btn.considering { border-color: #ffb35c; }
+.hangar-picker-item.considering { border-left-color: var(--sa-white); background: color-mix(in srgb, var(--sa-blue-500) 12%, transparent); }
+.hangar-btn.considering { border-color: var(--sa-white); }
 .hangar-picker-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .hangar-picker-name { font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .hangar-picker-meta { color: var(--hg-dim); font-size: 10.5px; white-space: nowrap; text-transform: uppercase; letter-spacing: .06em; }
@@ -2136,11 +2140,11 @@ const HANGAR_CSS = `
   gap: 4px;
   padding: 1px 5px;
   font-size: 10px;
-  background: rgba(240, 123, 5, .1);
+  background: color-mix(in srgb, var(--sa-blue-500) 10%, transparent);
   border-left: 2px solid var(--hg-accent-dim);
 }
 .hangar-stat-chip .k { color: var(--hg-dim); text-transform: uppercase; letter-spacing: .05em; }
-.hangar-stat-chip .v { color: #d9dde2; font-variant-numeric: tabular-nums; }
+.hangar-stat-chip .v { color: var(--sa-white); font-variant-numeric: tabular-nums; }
 .hangar-picker-actions { display: flex; justify-content: flex-end; }
 .hangar-picker-actions:empty { display: none; }
 /* Landscape phones have little height: show fewer rows before scrolling. */
@@ -2156,9 +2160,9 @@ const HANGAR_CSS = `
 .pip.filled { background: var(--hg-accent); }
 .hangar-fit-controls { display: flex; flex-direction: column; gap: 6px; }
 .hangar-fit-btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.hangar-select, .hangar-input { width: 100%; box-sizing: border-box; padding: 8px; min-height: 38px; font-size: 16px; background: rgba(0,0,0,.35); color: #d9dde2; border: 1px solid var(--hg-line); }
-.hangar-btn { padding: 7px 12px; min-height: 34px; touch-action: manipulation; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; background: var(--hg-panel-2); color: #d9dde2; border: 1px solid var(--hg-line); cursor: pointer; }
+.hangar-select, .hangar-input { width: 100%; box-sizing: border-box; padding: 8px; min-height: 38px; font-size: 16px; background: rgba(0,0,0,.35); color: var(--sa-white); border: 1px solid var(--hg-line); }
+.hangar-btn { padding: 7px 12px; min-height: 34px; touch-action: manipulation; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; background: var(--hg-panel-2); color: var(--sa-white); border: 1px solid var(--hg-line); cursor: pointer; }
 .hangar-btn:disabled { opacity: .45; cursor: default; }
-.hangar-btn-primary { background: var(--hg-accent); color: #140b02; font-weight: 700; border-color: var(--hg-accent); }
+.hangar-btn-primary { background: var(--hg-accent); color: var(--sa-n-900); font-weight: 700; border-color: var(--hg-accent); }
 .hangar-btn-danger { background: transparent; color: var(--hg-danger); border-color: var(--hg-danger); }
 `;

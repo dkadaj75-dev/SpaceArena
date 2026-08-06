@@ -9,6 +9,7 @@ import type {
   ThemeConfig,
 } from "@space-arena/shared";
 import { createLogger } from "@space-arena/shared";
+import { DEFAULT_DESIGN_TOKENS } from "../themeTokens.js";
 import type { GameSession } from "../GameSession.js";
 import type { HudLayout } from "./hudLayout.js";
 import {
@@ -40,7 +41,11 @@ export class Minimap {
   private readonly canvas: HTMLCanvasElement;
   private readonly scaleEl: HTMLDivElement;
   private readonly ctx: CanvasRenderingContext2D;
-  private palette = { friendly: "#39bfff", hostile: "#ff405c", neutral: "#7f9dc4" };
+  private palette: { friendly: string; hostile: string; neutral: string } = {
+    friendly: DEFAULT_DESIGN_TOKENS.blue500,
+    hostile: DEFAULT_DESIGN_TOKENS.red500,
+    neutral: DEFAULT_DESIGN_TOKENS.n400,
+  };
   private readonly arenaId: string;
   private arena: ArenaConfig | undefined;
   private authoredRangeUnits: number | undefined;
@@ -139,9 +144,9 @@ export class Minimap {
       return resolved || fallback;
     };
     this.palette = {
-      friendly: pick("--hud-primary", "#39bfff"),
-      hostile: pick("--hud-danger", "#ff405c"),
-      neutral: pick("--hud-neutral", "#7f9dc4"),
+      friendly: pick("--hud-primary", DEFAULT_DESIGN_TOKENS.blue500),
+      hostile: pick("--hud-danger", DEFAULT_DESIGN_TOKENS.red500),
+      neutral: pick("--hud-neutral", DEFAULT_DESIGN_TOKENS.n400),
     };
   }
 

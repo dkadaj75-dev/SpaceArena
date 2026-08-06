@@ -15,6 +15,7 @@ import type {
   ThrottleStripConfig,
 } from "@space-arena/shared";
 import { anchorSigns, orientationOf, type Orientation, type Viewport } from "./hudLayout.js";
+import { DEFAULT_DESIGN_TOKENS } from "../themeTokens.js";
 
 /**
  * Pure layout/geometry math for the flight HUD (FLIGHT.md §4), the same shape as
@@ -273,7 +274,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     ringTickGapDeg: 3,
     labelPlateOpacity: 0.76,
     labelBorderOpacity: 0.42,
-    boostColor: "#e8b44f",
+    boostColor: DEFAULT_DESIGN_TOKENS.blue500,
   },
   fire: {
     anchor: "bottom-right",
@@ -285,7 +286,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     ringStrokePx: 2,
     ringArcDeg: 260,
     ringTickGapDeg: 3,
-    color: "#ff4655",
+    color: DEFAULT_DESIGN_TOKENS.red500,
     fillOpacity: 0.3,
     borderPx: 2,
     glowPx: 10,
@@ -336,8 +337,8 @@ export const FLIGHT_HUD_DEFAULTS = {
     // The old boost implementation mirrored FIRE onto the left thumb. These
     // fallbacks keep unextended themes functional while placing both auxiliary
     // controls in the same bottom-right cluster as FIRE.
-    boost: { anchor: "bottom-right", radiusPx: 26, offsetXPx: 132, offsetYPx: 96, color: "#e8b44f" },
-    jettison: { anchor: "bottom-right", radiusPx: 26, offsetXPx: 72, offsetYPx: 142, color: "#5ec9e8" },
+    boost: { anchor: "bottom-right", radiusPx: 26, offsetXPx: 132, offsetYPx: 96, color: DEFAULT_DESIGN_TOKENS.blue500 },
+    jettison: { anchor: "bottom-right", radiusPx: 26, offsetXPx: 72, offsetYPx: 142, color: DEFAULT_DESIGN_TOKENS.blue500 },
   },
   actionArc: null,
 } as const satisfies Omit<

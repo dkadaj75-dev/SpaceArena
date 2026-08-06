@@ -100,7 +100,7 @@ describe("resolveFlightHudLayout", () => {
       ringStrokePx: 2,
       ringArcDeg: 260,
       ringTickGapDeg: 3,
-      color: "#ff4655",
+      color: "#EF4444",
       fillOpacity: 0.3,
       borderPx: 2,
       glowPx: 10,
@@ -281,7 +281,7 @@ describe("flightCssVars", () => {
     expect(vars["--hud-throttle-height"]).toBe("200px");
     expect(vars["--hud-fire-radius"]).toBe("34px");
     expect(vars["--hud-module-fill-pct"]).toBe("32%"); // restrained active-fill default (2026-07-31)
-    expect(vars["--hud-fire-color"]).toBe("#ff4655");
+    expect(vars["--hud-fire-color"]).toBe("#EF4444"); // board RED 500 (design system v1.0)
     expect(vars["--hud-steer-origin-radius"]).toBe("7px");
   });
 });

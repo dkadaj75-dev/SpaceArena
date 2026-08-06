@@ -140,6 +140,18 @@ describe("shipped tuning + theme — match start countdown", () => {
 });
 
 describe("shipped theme - compact flight HUD", () => {
+  it("authors the complete arena design-token board", () => {
+    const parsed = themeSchema.safeParse(load("themes/default.json"));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw parsed.error;
+    expect(parsed.data.tokens).toEqual({
+      palette: { blue500: "#3B82F6", red500: "#EF4444", white: "#E6F0FF", n900: "#05080D", n800: "#0B1118", n700: "#151E2A", n600: "#1E2937", n500: "#334155", n400: "#475569" },
+      typography: { h1: "700 32px/40px 'Orbitron', system-ui, sans-serif", h2: "600 20px/28px 'Orbitron', system-ui, sans-serif", h3: "600 16px/24px 'Rajdhani', system-ui, sans-serif", body: "400 14px/20px 'Rajdhani', system-ui, sans-serif", caption: "500 12px/16px 'Rajdhani', system-ui, sans-serif", data: "400 14px/20px 'Orbitron', system-ui, sans-serif" },
+      lineWeights: { hairline: "1px", thin: "2px", medium: "3px", strong: "4px" },
+      radii: { small: "4px", medium: "8px", large: "16px" },
+    });
+  });
+
   it("authors the 3D radar, centre vital arcs, and restrained controls", () => {
     const parsed = themeSchema.safeParse(load("themes/default.json"));
     expect(parsed.success).toBe(true);

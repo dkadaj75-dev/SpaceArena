@@ -1,4 +1,5 @@
 import type { EntityId, MatchStatLine, MvpPresentationConfig, ThemeConfig } from "@space-arena/shared";
+import { DEFAULT_DESIGN_TOKENS } from "../themeTokens.js";
 
 export type MatchPresentationState = "playing" | "outcome" | "mvp" | "scoreboard" | "left";
 export const OUTCOME_DURATION_MS = 3000;
@@ -31,11 +32,11 @@ export const MVP_PRESENTATION_DEFAULTS: Readonly<MvpPresentationSettings> = {
   actionsDelayMs: 1120,
   badgeSizePx: 112,
   orbitDegreesPerSecond: 7,
-  keyColor: "#ffd2a1",
+  keyColor: DEFAULT_DESIGN_TOKENS.white,
   keyIntensity: 18,
-  rimColor: "#63cfff",
+  rimColor: DEFAULT_DESIGN_TOKENS.blue500,
   rimIntensity: 13,
-  pedestalColor: "#39bfff",
+  pedestalColor: DEFAULT_DESIGN_TOKENS.blue500,
   pedestalDiameter: 9,
 };
 

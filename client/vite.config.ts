@@ -250,7 +250,7 @@ export default defineConfig(({ command }) => ({
       workbox: {
         // Precache the app shell: the HTML plus every chunk index.html loads
         // eagerly. Babylon is ~6 MB raw, well past workbox's 2 MB default.
-        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest,woff2}"],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // Nothing under these prefixes is a navigation: /api and the Colyseus
         // matchmaking POST must always hit the network, and /content is handled

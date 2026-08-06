@@ -41,7 +41,7 @@ export class Scoreboard {
     this.root.appendChild(panel);
     parent.appendChild(this.root);
     this.button = document.createElement("button");
-    this.button.className = "hud-scoreboard-btn";
+    this.button.className = "hud-scoreboard-btn hud-button hud-button--secondary";
     this.button.textContent = "SCORE";
     this.button.setAttribute(HUD_CONTROL_ATTR, "");
     this.button.addEventListener("click", () => { if (this.mode === "play") this.setVisible(!this.visible); });

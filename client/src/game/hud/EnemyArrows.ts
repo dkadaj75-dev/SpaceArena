@@ -83,8 +83,8 @@ export class EnemyArrows {
         position: absolute;
         inset: 0;
         clip-path: polygon(0% 0%, 100% 50%, 0% 100%, 0% 72%, 55% 50%, 0% 28%);
-        background: var(--hud-danger, #ff405c);
-        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c));
+        background: var(--hud-danger, var(--sa-red-500));
+        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
       }
       .hud-enemy-marker-glyph {
         position: absolute;
@@ -92,10 +92,10 @@ export class EnemyArrows {
         top: 50%;
         display: none;
         box-sizing: border-box;
-        border: 1.25px solid var(--hud-primary, #39bfff);
+        border: 1.25px solid var(--hud-primary, var(--sa-blue-500));
         background: transparent;
         transform: translate(-50%, -50%) rotate(45deg);
-        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-primary, #39bfff));
+        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
       }
       .hud-enemy-arrow.on-screen-marker .hud-enemy-arrow-glyph {
         display: none;
@@ -104,8 +104,8 @@ export class EnemyArrows {
         display: block;
       }
       .hud-enemy-arrow.candidate .hud-enemy-arrow-glyph {
-        background: var(--hud-primary, #39bfff);
-        filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, #39bfff));
+        background: var(--hud-primary, var(--sa-blue-500));
+        filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
       }
       .hud-enemy-arrow.flag .hud-enemy-arrow-glyph {
         clip-path: none;
@@ -126,8 +126,8 @@ export class EnemyArrows {
         top: 8%;
         width: 12%;
         height: 84%;
-        background: var(--hud-danger, #ff405c);
-        box-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c);
+        background: var(--hud-danger, var(--sa-red-500));
+        box-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500));
       }
       .hud-enemy-arrow.flag .hud-enemy-arrow-glyph::after {
         content: "";
@@ -137,60 +137,60 @@ export class EnemyArrows {
         width: 54%;
         height: 48%;
         clip-path: polygon(0 0, 100% 22%, 70% 56%, 100% 100%, 0 78%);
-        background: var(--hud-danger, #ff405c);
-        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c));
+        background: var(--hud-danger, var(--sa-red-500));
+        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
       }
       .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-glyph::before,
       .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-glyph::after {
-        background: var(--hud-primary, #39bfff);
+        background: var(--hud-primary, var(--sa-blue-500));
       }
       .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-glyph::before {
-        box-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-primary, #39bfff);
+        box-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500));
       }
       .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-glyph::after {
-        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-primary, #39bfff));
+        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
       }
       .hud-enemy-arrow.flag .hud-enemy-arrow-distance {
-        color: var(--hud-danger, #ff405c);
+        color: var(--hud-danger, var(--sa-red-500));
       }
       .hud-enemy-arrow.flag.friendly .hud-enemy-arrow-distance {
-        color: var(--hud-primary, #39bfff);
+        color: var(--hud-primary, var(--sa-blue-500));
       }
       /* Bases are locations, not entities: in view they use a hollow beacon
          instead of either an enemy diamond or a moving flag pennant. Off-screen
          they retain the directional chevron that makes an edge cue useful. */
       .hud-enemy-arrow.base .hud-enemy-marker-glyph {
-        border-color: var(--hud-danger, #ff405c);
+        border-color: var(--hud-danger, var(--sa-red-500));
         border-radius: 50%;
         transform: translate(-50%, -50%);
-        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-danger, #ff405c));
+        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
       }
       .hud-enemy-arrow.base.friendly .hud-enemy-marker-glyph {
-        border-color: var(--hud-primary, #39bfff);
-        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-primary, #39bfff));
+        border-color: var(--hud-primary, var(--sa-blue-500));
+        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
       }
       .hud-enemy-arrow.base.friendly .hud-enemy-arrow-glyph {
-        background: var(--hud-primary, #39bfff);
-        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-primary, #39bfff));
+        background: var(--hud-primary, var(--sa-blue-500));
+        filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
       }
-      .hud-enemy-arrow.base .hud-enemy-arrow-distance { color: var(--hud-danger, #ff405c); }
-      .hud-enemy-arrow.base.friendly .hud-enemy-arrow-distance { color: var(--hud-primary, #39bfff); }
+      .hud-enemy-arrow.base .hud-enemy-arrow-distance { color: var(--hud-danger, var(--sa-red-500)); }
+      .hud-enemy-arrow.base.friendly .hud-enemy-arrow-distance { color: var(--hud-primary, var(--sa-blue-500)); }
       .hud-enemy-arrow-distance {
         position: absolute;
         left: 50%;
         top: calc(100% + 2px);
         transform: translateX(-50%);
-        color: var(--hud-danger, #ff405c);
+        color: var(--hud-danger, var(--sa-red-500));
         font-size: 0.5625em;
         font-weight: 600;
         font-variant-numeric: tabular-nums;
         letter-spacing: 0.06em;
         line-height: 1;
         white-space: nowrap;
-        text-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-bg, #0a0f1e);
+        text-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-bg, var(--sa-n-900));
       }
       .hud-enemy-arrow.candidate .hud-enemy-arrow-distance {
-        color: var(--hud-primary, #39bfff);
+        color: var(--hud-primary, var(--sa-blue-500));
       }
       .hud-enemy-arrow.on-screen-marker .hud-enemy-arrow-distance {
         font-size: 0.5em;

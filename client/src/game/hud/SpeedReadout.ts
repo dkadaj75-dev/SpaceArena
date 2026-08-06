@@ -58,8 +58,8 @@ export class SpeedReadout {
         position: absolute;
         transform: translate(-50%, -50%);
         padding: 2px 7px;
-        color: var(--hud-primary, #39bfff);
-        background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 66%, transparent);
+        color: var(--hud-primary, var(--sa-blue-500));
+        background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 66%, transparent);
         clip-path: polygon(5px 0%, 100% 0%, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0% 100%, 0% 5px);
         font-size: 0.625em;
         font-weight: 600;

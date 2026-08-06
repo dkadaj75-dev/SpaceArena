@@ -47,7 +47,7 @@ const CSS = `
   pointer-events: none;
   overflow: hidden;
   font-family: var(--hud-font-body, system-ui, sans-serif);
-  color: var(--hud-text, #dbe9ff);
+  color: var(--hud-text, var(--sa-white));
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -89,33 +89,33 @@ const CSS = `
      percentages so one polygon serves every themed button radius. */
   --hud-clip-hex: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
 
-  --hud-panel-fill: color-mix(in srgb, var(--hud-bg, #0a0f1e) var(--hud-panel-pct), transparent);
-  --hud-rim-color: color-mix(in srgb, var(--hud-primary, #39bfff) 52%, transparent);
-  --hud-rim-dim: color-mix(in srgb, var(--hud-primary, #39bfff) 26%, transparent);
-  --hud-tick-color: color-mix(in srgb, var(--hud-primary, #39bfff) 55%, transparent);
+  --hud-panel-fill: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) var(--hud-panel-pct), transparent);
+  --hud-rim-color: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 52%, transparent);
+  --hud-rim-dim: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 26%, transparent);
+  --hud-tick-color: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 55%, transparent);
 }
 
 .hud-kill-feed { position:absolute; top:var(--hud-inset-top); right:var(--hud-inset-right); width:min(360px,58vw); display:flex; flex-direction:column; gap:4px; align-items:flex-end; }
-.hud-kill-feed-line { display:none; padding:5px 9px; background:color-mix(in srgb,var(--hud-bg,#0a0f1e) 72%,transparent); border-right:2px solid var(--hud-muted,#8290a8); font-size:.78rem; white-space:nowrap; }
+.hud-kill-feed-line { display:none; padding:5px 9px; background:color-mix(in srgb,var(--hud-bg,var(--sa-n-900)) 72%,transparent); border-right:2px solid var(--hud-muted,var(--sa-n-400)); font-size:.78rem; white-space:nowrap; }
 .hud-kill-feed-line.visible { display:block; }
-.hud-kill-feed-line.self { color:var(--hud-accent,#ffd166); border-color:var(--hud-accent,#ffd166); }
-.hud-kill-feed-line.friendly { color:var(--hud-primary,#39bfff); border-color:var(--hud-primary,#39bfff); }
-.hud-kill-feed-line.enemy { color:var(--hud-danger,#ff526d); border-color:var(--hud-danger,#ff526d); }
-.hud-scoreboard { position:absolute; inset:0; display:none; place-items:center; background:color-mix(in srgb,var(--hud-bg,#0a0f1e) 62%,transparent); pointer-events:auto; z-index:30; }
+.hud-kill-feed-line.self { color:var(--hud-accent,var(--sa-white)); border-color:var(--hud-accent,var(--sa-white)); }
+.hud-kill-feed-line.friendly { color:var(--hud-primary,var(--sa-blue-500)); border-color:var(--hud-primary,var(--sa-blue-500)); }
+.hud-kill-feed-line.enemy { color:var(--hud-danger,var(--sa-red-500)); border-color:var(--hud-danger,var(--sa-red-500)); }
+.hud-scoreboard { position:absolute; inset:0; display:none; place-items:center; background:color-mix(in srgb,var(--hud-bg,var(--sa-n-900)) 62%,transparent); pointer-events:auto; z-index:30; }
 .hud-scoreboard.visible { display:grid; }
 .hud-scoreboard-panel { position:relative; width:min(900px,calc(100vw - 24px)); max-height:calc(100vh - 28px); overflow:auto; padding:18px; box-sizing:border-box; }
-.hud-scoreboard-actions { display:none; position:sticky; bottom:0; padding-top:12px; gap:10px; justify-content:center; background:linear-gradient(transparent,var(--hud-bg,#0a0f1e) 28%); }
+.hud-scoreboard-actions { display:none; position:sticky; bottom:0; padding-top:12px; gap:10px; justify-content:center; background:linear-gradient(transparent,var(--hud-bg,var(--sa-n-900)) 28%); }
 .hud-scoreboard.final .hud-scoreboard-actions { display:flex; }
 .hud-root[data-presentation] > :not(.hud-results):not(.hud-scoreboard) { display:none !important; }
 .hud-root[data-presentation="scoreboard"] > .hud-results { display:none !important; }
-.hud-scoreboard h2 { margin:0 0 12px; font-family:var(--hud-font-display,inherit); letter-spacing:.15em; color:var(--hud-primary,#39bfff); }
+.hud-scoreboard h2 { margin:0 0 12px; font-family:var(--hud-font-display,inherit); letter-spacing:.15em; color:var(--hud-primary,var(--sa-blue-500)); }
 .hud-scoreboard table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:clamp(.68rem,2vw,.9rem); }
-.hud-scoreboard caption { text-align:left; color:var(--hud-accent,#ffd166); font-weight:700; padding:5px; }
-.hud-scoreboard th,.hud-scoreboard td { padding:6px; text-align:right; border-bottom:1px solid color-mix(in srgb,var(--hud-primary,#39bfff) 22%,transparent); }
+.hud-scoreboard caption { text-align:left; color:var(--hud-accent,var(--sa-white)); font-weight:700; padding:5px; }
+.hud-scoreboard th,.hud-scoreboard td { padding:6px; text-align:right; border-bottom:1px solid color-mix(in srgb,var(--hud-primary,var(--sa-blue-500)) 22%,transparent); }
 .hud-scoreboard th:first-child,.hud-scoreboard td:first-child { text-align:left; min-width:8em; }
-.hud-scoreboard tr.hud-scoreboard-local-player { background:color-mix(in srgb,var(--hud-accent,#ffd166) 12%,transparent); }
-.hud-scoreboard tr.hud-scoreboard-local-player td { color:var(--hud-accent,#ffd166); font-weight:700; }
-.hud-scoreboard-btn { position:absolute; top:calc(var(--hud-inset-top) + 42px); right:var(--hud-inset-right); z-index:31; pointer-events:auto; border:1px solid var(--hud-primary,#39bfff); background:color-mix(in srgb,var(--hud-bg,#0a0f1e) 75%,transparent); color:var(--hud-text,#dbe9ff); padding:7px 10px; font:inherit; font-size:.68rem; }
+.hud-scoreboard tr.hud-scoreboard-local-player { background:color-mix(in srgb,var(--hud-accent,var(--sa-white)) 12%,transparent); }
+.hud-scoreboard tr.hud-scoreboard-local-player td { color:var(--hud-accent,var(--sa-white)); font-weight:700; }
+.hud-scoreboard-btn { position:absolute; top:calc(var(--hud-inset-top) + 42px); right:var(--hud-inset-right); z-index:31; pointer-events:auto; border:1px solid var(--hud-primary,var(--sa-blue-500)); background:color-mix(in srgb,var(--hud-bg,var(--sa-n-900)) 75%,transparent); color:var(--hud-text,var(--sa-white)); padding:7px 10px; font:inherit; font-size:.68rem; }
 .hud-results-scoreboard { width:100%; }
 .hud-results-scoreboard .hud-scoreboard-panel { width:100%; max-height:38vh; padding:10px; }
 .hud-results-scoreboard .hud-scoreboard-panel h2 { display:none; }
@@ -128,6 +128,38 @@ const CSS = `
 .hud-root [data-hud-control] {
   touch-action: manipulation;
 }
+
+/* Shared HUD primitives. Cut-corner panels opt into .hud-frame below, reusing
+   its two-plate chamfer contract instead of drawing a second kind of bevel. */
+.hud-button, .hud-icon-button, .hud-results-btn, .hud-scoreboard-btn, .hud-settings-btn {
+  box-sizing:border-box; color:var(--sa-white); border:var(--sa-line-hairline) solid var(--sa-n-400);
+  background:var(--sa-n-800); font:var(--sa-type-caption); border-radius:var(--sa-radius-small);
+  transition:background-color 150ms,border-color 150ms,transform 100ms,opacity 150ms;
+}
+.hud-button--primary, .hud-results-btn--primary { color:var(--sa-n-900); background:var(--sa-blue-500); border-color:var(--sa-blue-500); }
+.hud-button--danger { background:var(--sa-red-500); border-color:var(--sa-red-500); }
+.hud-button:hover:not(:disabled), .hud-results-btn:hover:not(:disabled), .hud-icon-button:hover:not(:disabled) { border-color:var(--sa-blue-500); }
+.hud-button:active:not(:disabled), .hud-results-btn:active:not(:disabled), .hud-icon-button:active:not(:disabled) { transform:translateY(1px); }
+.hud-button:disabled, .hud-results-btn:disabled, .hud-icon-button:disabled { opacity:.38; cursor:not-allowed; }
+.hud-icon-button, .hud-settings-btn { inline-size:44px; block-size:44px; display:grid; place-items:center; padding:0; }
+.hud-toggle-group, .hud-tab-group { display:inline-flex; }
+.hud-toggle, .hud-tab { border:var(--sa-line-hairline) solid var(--sa-n-400); padding:6px 14px; font:var(--sa-type-caption); color:var(--sa-white); background:var(--sa-n-800); }
+.hud-toggle[aria-pressed="true"], .hud-tab[aria-selected="true"] { background:var(--sa-blue-500); border-color:var(--sa-blue-500); }
+.hud-check, .hud-radio, .hud-slider { accent-color:var(--sa-blue-500); }
+.hud-slider--danger { accent-color:var(--sa-red-500); }
+.hud-panel { padding:16px; background:var(--sa-n-800); border-radius:var(--sa-radius-medium); }
+.hud-panel--solid { border:var(--sa-line-hairline) solid var(--sa-n-600); }
+.hud-panel--top-accent { border-top:var(--sa-line-thin) solid var(--sa-blue-500); }
+.hud-panel--corner-brackets { background:linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) left top/14px var(--sa-line-thin) no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) left top/var(--sa-line-thin) 14px no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) right bottom/14px var(--sa-line-thin) no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) right bottom/var(--sa-line-thin) 14px no-repeat,var(--sa-n-800); }
+.hud-panel--holographic { background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--sa-blue-500) 10%,transparent) 0 var(--sa-line-hairline),transparent var(--sa-line-hairline) 24px),var(--sa-n-800); }
+.hud-stat { display:flex; justify-content:space-between; gap:16px; border-bottom:var(--sa-line-hairline) solid var(--sa-n-600); font:var(--sa-type-caption); }
+.hud-stat__value { font:var(--sa-type-data); font-variant-numeric:tabular-nums; }
+.hud-progress { overflow:hidden; block-size:6px; border-radius:var(--sa-radius-small); background:var(--sa-n-700); }
+.hud-progress__bar { inline-size:var(--hud-progress,0%); block-size:100%; background:var(--hud-progress-color,var(--sa-blue-500)); transition:inline-size 150ms; }
+.hud-progress--danger { --hud-progress-color:var(--sa-red-500); }
+.hud-circular-progress { display:grid;place-items:center;inline-size:88px;aspect-ratio:1;border-radius:50%;background:conic-gradient(var(--hud-progress-color,var(--sa-blue-500)) var(--hud-progress,0%),var(--sa-n-700) 0);font:var(--sa-type-data);font-variant-numeric:tabular-nums; }
+.hud-circular-progress::before { content:"";grid-area:1/1;inline-size:calc(100% - 10px);aspect-ratio:1;border-radius:50%;background:var(--sa-n-900); }
+.hud-circular-progress > * { position:relative;grid-area:1/1; }
 
 /*
  * Shared two-layer chamfer contract. The isolated negative layer stays above
@@ -201,7 +233,7 @@ const CSS = `
   width: calc(var(--hud-chamfer) + 5px);
   height: calc(var(--hud-chamfer) + 5px);
   pointer-events: none;
-  border: var(--hud-rim) solid var(--hud-primary, #39bfff);
+  border: var(--hud-rim) solid var(--hud-primary, var(--sa-blue-500));
   opacity: 0.85;
 }
 .hud-bracket[data-corner="tl"] { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
@@ -222,7 +254,7 @@ const CSS = `
   width: 100%;
   height: 100%;
   display: block;
-  filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) color-mix(in srgb, var(--hud-primary, #39bfff) 30%, transparent));
+  filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 30%, transparent));
 }
 /* Small range legend under the translucent disc. */
 .hud-minimap-scale {
@@ -233,7 +265,7 @@ const CSS = `
   text-align: center;
   font: 0.5em/1 ui-monospace, monospace;
   letter-spacing: 0.14em;
-  color: var(--hud-primary, #39bfff);
+  color: var(--hud-primary, var(--sa-blue-500));
   opacity: 0.52;
 }
 
@@ -279,20 +311,20 @@ const CSS = `
   font-size: 0.5625em;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--hud-neutral, #7f9dc4);
+  color: var(--hud-neutral, var(--sa-n-400));
 }
 .hud-gauge-value {
   font-size: 0.5625em;
   letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
-  color: var(--hud-text, #dbe9ff);
+  color: var(--hud-text, var(--sa-white));
   opacity: 0.9;
 }
 .hud-gauge-track {
   position: relative;
   width: 100%;
   height: var(--hud-gauge-track-height, 10px);
-  background: color-mix(in srgb, var(--hud-primary, #39bfff) 9%, transparent);
+  background: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 9%, transparent);
   /* Thin inner rule instead of a border: the segment overlay below has to reach
      the very edge of the track or the end cells read as clipped. */
   box-shadow: inset 0 0 0 var(--hud-rim) var(--hud-rim-dim);
@@ -303,7 +335,7 @@ const CSS = `
   inset: 0;
   width: 100%;
   transform-origin: left center;
-  background: var(--hud-primary, #39bfff);
+  background: var(--hud-primary, var(--sa-blue-500));
   transition: transform 0.08s linear, background-color 0.15s linear;
 }
 /* Segmented cells: one repeating gradient laid over the whole track, so the
@@ -318,20 +350,20 @@ const CSS = `
     90deg,
     transparent 0,
     transparent calc(var(--hud-gauge-segment-pct, 8.33%) - 1px),
-    var(--hud-bg, #0a0f1e) calc(var(--hud-gauge-segment-pct, 8.33%) - 1px),
-    var(--hud-bg, #0a0f1e) var(--hud-gauge-segment-pct, 8.33%)
+    var(--hud-bg, var(--sa-n-900)) calc(var(--hud-gauge-segment-pct, 8.33%) - 1px),
+    var(--hud-bg, var(--sa-n-900)) var(--hud-gauge-segment-pct, 8.33%)
   );
 }
-.hud-gauge-fill.hull { background: var(--hud-hull, var(--hud-accent, #ffb35c)); }
-.hud-gauge-fill.shield { background: var(--hud-shield, var(--hud-primary, #39bfff)); }
-.hud-gauge-fill.energy { background: var(--hud-energy, #4ee6b8); }
-.hud-gauge-fill.heat { background: var(--hud-heat, var(--hud-accent, #ffb35c)); }
+.hud-gauge-fill.hull { background: var(--hud-hull, var(--hud-accent, var(--sa-white))); }
+.hud-gauge-fill.shield { background: var(--hud-shield, var(--hud-primary, var(--sa-blue-500))); }
+.hud-gauge-fill.energy { background: var(--hud-energy, var(--sa-blue-500)); }
+.hud-gauge-fill.heat { background: var(--hud-heat, var(--hud-accent, var(--sa-white))); }
 /* One "warn" class, two meanings: hull runs it when the hull is nearly gone and
    heat when it is nearly overheating, and both want the same critical red. */
-.hud-gauge-fill.warn { background: var(--hud-danger, #ff405c); }
+.hud-gauge-fill.warn { background: var(--hud-danger, var(--sa-red-500)); }
 /* Critical readouts pulse rather than just recolour — colour alone is the one
    cue a player will miss mid-turn. */
-.hud-gauge.critical .hud-gauge-value { color: var(--hud-danger, #ff405c); animation: hud-crit-pulse 1s ease-in-out infinite; }
+.hud-gauge.critical .hud-gauge-value { color: var(--hud-danger, var(--sa-red-500)); animation: hud-crit-pulse 1s ease-in-out infinite; }
 @keyframes hud-crit-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
@@ -360,7 +392,7 @@ const CSS = `
   height: calc(var(--hud-module-btn-radius, 34px) * 2);
   background: transparent;
   border: 0;
-  color: var(--hud-text, #dbe9ff);
+  color: var(--hud-text, var(--sa-white));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -378,11 +410,11 @@ const CSS = `
      the whole hex in solid family colour at 90%, which shouted over the arena. */
   --hud-btn-rim: color-mix(
     in srgb,
-    var(--hud-module-family-color, var(--hud-primary, #39bfff))
+    var(--hud-module-family-color, var(--hud-primary, var(--sa-blue-500)))
       var(--hud-module-inner-border-pct, 55%),
     transparent
   );
-  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 66%, transparent);
+  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 66%, transparent);
   --hud-btn-fill: var(--hud-btn-plate);
   --hud-action-color: var(--hud-module-family-color, var(--hud-primary));
 }
@@ -448,7 +480,7 @@ const CSS = `
   white-space: nowrap;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #fff;
+  color: var(--sa-white);
   font-size: 0.52em;
   font-weight: 700;
   opacity: 0.92;
@@ -461,12 +493,12 @@ const CSS = `
 .hud-module-btn.state-retracted { filter: saturate(0.6) brightness(0.72); }
 .hud-module-btn.state-deploying { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 82%, transparent); }
 .hud-module-btn.state-active {
-  --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 88%, #fff);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 88%, var(--sa-white));
   /* ON is the one state that earns the family colour as a fill — layered over
      the dark plate so it stays a tint, not a paint bucket. */
   --hud-btn-fill: color-mix(
     in srgb,
-    var(--hud-module-family-color, var(--hud-primary, #39bfff)) var(--hud-module-fill-pct, 32%),
+    var(--hud-module-family-color, var(--hud-primary, var(--sa-blue-500))) var(--hud-module-fill-pct, 32%),
     var(--hud-btn-plate)
   );
 }
@@ -477,28 +509,28 @@ const CSS = `
 }
 .hud-module-btn.state-retracting { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 45%, transparent); }
 .hud-module-btn.state-overheated {
-  --hud-btn-rim: var(--hud-danger, #ff405c);
-  --hud-action-color: var(--hud-danger, #ff405c);
+  --hud-btn-rim: var(--hud-danger, var(--sa-red-500));
+  --hud-action-color: var(--hud-danger, var(--sa-red-500));
 }
-.hud-module-btn.state-overheated > .icon { color: var(--hud-danger, #ff405c); }
-.hud-module-btn.state-overheated > .ring { background: conic-gradient(var(--hud-danger, #ff405c) calc(var(--ring, 0) * 1%), transparent 0); }
+.hud-module-btn.state-overheated > .icon { color: var(--hud-danger, var(--sa-red-500)); }
+.hud-module-btn.state-overheated > .ring { background: conic-gradient(var(--hud-danger, var(--sa-red-500)) calc(var(--ring, 0) * 1%), transparent 0); }
 .hud-module-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
 .hud-module-btn.no-energy { filter: saturate(0.42) brightness(0.7); opacity: 0.78; }
 .hud-module-btn.armed {
-  --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 72%, #fff);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 72%, var(--sa-white));
 }
 .hud-module-btn.armed::before {
   filter: drop-shadow(0 0 calc(11px * var(--hud-glow)) var(--hud-module-family-color));
 }
 .hud-module-btn.cooling > .ring { opacity: 0.4; }
 .hud-module-btn.unarmable {
-  --hud-btn-rim: color-mix(in srgb, var(--hud-neutral, #7f9dc4) 60%, transparent);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-neutral, var(--sa-n-400)) 60%, transparent);
   filter: saturate(0.62) brightness(0.76);
 }
-.hud-module-btn.unarmable > .icon { color: #fff; opacity: 0.86; }
+.hud-module-btn.unarmable > .icon { color: var(--sa-white); opacity: 0.86; }
 @keyframes hud-overheat-flash {
-  0%, 100% { filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c)); }
-  50% { filter: drop-shadow(0 0 calc(18px * var(--hud-glow)) var(--hud-danger, #ff405c)); }
+  0%, 100% { filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500))); }
+  50% { filter: drop-shadow(0 0 calc(18px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500))); }
 }
 
 /* --- Flight controls (FLIGHT.md §4) ---
@@ -544,20 +576,20 @@ const CSS = `
   height: calc(var(--hud-steer-origin-radius, 7px) * 2);
   margin: calc(var(--hud-steer-origin-radius, 7px) * -1);
   border-radius: 50%;
-  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, #39bfff) 62%, transparent);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 45%, transparent);
+  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 62%, transparent);
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 45%, transparent);
 }
 .hud-relative-steer-current {
   width: calc(var(--hud-steer-current-radius, 12px) * 2);
   height: calc(var(--hud-steer-current-radius, 12px) * 2);
   margin: calc(var(--hud-steer-current-radius, 12px) * -1);
   border-radius: 50%;
-  background: color-mix(in srgb, var(--hud-primary, #39bfff) 32%, transparent);
-  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, #39bfff) 72%, transparent);
+  background: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 32%, transparent);
+  border: var(--hud-steer-vector-width, 2px) solid color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 72%, transparent);
 }
 .hud-relative-steer-vector {
   height: var(--hud-steer-vector-width, 2px);
-  background: color-mix(in srgb, var(--hud-primary, #39bfff) 48%, transparent);
+  background: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 48%, transparent);
 }
 .hud-joystick[data-anchor="bottom-right"],
 .hud-throttle[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
@@ -590,12 +622,12 @@ const CSS = `
   height: calc(var(--hud-joy-base-radius, 62px) * 2);
   border-radius: 50%;
   border: var(--hud-rim) solid var(--hud-rim-dim);
-  background: radial-gradient(circle at center, color-mix(in srgb, var(--hud-bg, #0a0f1e) 55%, transparent) 40%, transparent 100%);
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 55%, transparent) 40%, transparent 100%);
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   transition: border-color 0.12s linear;
 }
-.hud-joystick-base.active { border-color: var(--hud-primary, #39bfff); }
+.hud-joystick-base.active { border-color: var(--hud-primary, var(--sa-blue-500)); }
 .hud-joystick-thumb {
   position: absolute;
   left: 50%;
@@ -604,8 +636,8 @@ const CSS = `
   width: calc(var(--hud-joy-thumb-radius, 28px) * 2);
   height: calc(var(--hud-joy-thumb-radius, 28px) * 2);
   border-radius: 50%;
-  border: 2px solid var(--hud-primary, #39bfff);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 80%, transparent);
+  border: 2px solid var(--hud-primary, var(--sa-blue-500));
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 80%, transparent);
   transform: translate(-50%, -50%);
 }
 
@@ -640,7 +672,7 @@ const CSS = `
   inset: var(--hud-rim);
   background: var(--hud-panel-fill);
 }
-.hud-throttle-track.active { --hud-frame-rim: var(--hud-primary, #39bfff); }
+.hud-throttle-track.active { --hud-frame-rim: var(--hud-primary, var(--sa-blue-500)); }
 .hud-throttle-fill,
 .hud-throttle-thumb,
 .hud-throttle-ticks { z-index: 1; }
@@ -652,8 +684,8 @@ const CSS = `
   height: 0%;
   background: linear-gradient(
     to top,
-    color-mix(in srgb, var(--hud-primary, #39bfff) 18%, transparent),
-    color-mix(in srgb, var(--hud-primary, #39bfff) 72%, transparent)
+    color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 18%, transparent),
+    color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 72%, transparent)
   );
 }
 /* Fine scale ticks on the left flank — one repeating gradient, pitch from the
@@ -668,8 +700,8 @@ const CSS = `
   opacity: var(--hud-tick-opacity, 0.34);
   background: repeating-linear-gradient(
     to bottom,
-    var(--hud-primary, #39bfff) 0,
-    var(--hud-primary, #39bfff) 1px,
+    var(--hud-primary, var(--sa-blue-500)) 0,
+    var(--hud-primary, var(--sa-blue-500)) 1px,
     transparent 1px,
     transparent var(--hud-throttle-tick-pct, 12.5%)
   );
@@ -681,8 +713,8 @@ const CSS = `
   top: 0;
   box-sizing: border-box;
   height: var(--hud-throttle-thumb-height, 26px);
-  border: 2px solid var(--hud-primary, #39bfff);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 88%, transparent);
+  border: 2px solid var(--hud-primary, var(--sa-blue-500));
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 88%, transparent);
   clip-path: polygon(0% 0%, 100% 0%, 100% 62%, 62% 100%, 0% 100%);
 }
 .hud-throttle-readout {
@@ -693,8 +725,8 @@ const CSS = `
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.1em;
-  color: var(--hud-primary, #39bfff);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 66%, transparent);
+  color: var(--hud-primary, var(--sa-blue-500));
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 66%, transparent);
   clip-path: polygon(5px 0%, 100% 0%, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0% 100%, 0% 5px);
   white-space: nowrap;
 }
@@ -709,7 +741,7 @@ const CSS = `
   height: calc(var(--hud-fire-radius, 34px) * 2);
   background: transparent;
   border: 0;
-  color: #fff;
+  color: var(--sa-white);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -718,18 +750,18 @@ const CSS = `
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  --hud-btn-rim: var(--hud-fire-color, #ff4655);
+  --hud-btn-rim: var(--hud-fire-color, var(--sa-red-500));
   transition: transform 0.1s ease, filter 0.15s linear, opacity 0.15s linear;
 }
 .hud-fire-btn {
   z-index: 1;
-  color: #fff;
+  color: var(--sa-white);
   font-size: 0.75em;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
 .hud-fire-btn::before {
-  filter: drop-shadow(0 0 var(--hud-fire-glow, 10px) var(--hud-fire-color, #ff4655));
+  filter: drop-shadow(0 0 var(--hud-fire-glow, 10px) var(--hud-fire-color, var(--sa-red-500)));
 }
 .hud-fire-btn::before,
 .hud-fire-btn::after {
@@ -751,7 +783,7 @@ const CSS = `
 }
 .hud-fire-btn > * { position: relative; z-index: 1; }
 .hud-fire-btn .label {
-  color: #fff;
+  color: var(--sa-white);
   font: 800 1em/1 var(--hud-font-display, system-ui, sans-serif);
 }
 .hud-fire-btn .label .hud-icon-svg { width: 30px; height: auto; display: block; }
@@ -763,25 +795,25 @@ const CSS = `
   background: repeating-conic-gradient(from -45deg, var(--hud-fire-color) 0 calc(90deg - var(--hud-fire-ring-tick-gap, 3deg)), transparent calc(90deg - var(--hud-fire-ring-tick-gap, 3deg)) 90deg);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-ring-stroke, 2px)), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-ring-stroke, 2px)), #000 0);
-  filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) var(--hud-fire-color, #ff4655));
+  filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) var(--hud-fire-color, var(--sa-red-500)));
   pointer-events: none;
 }
-.hud-fire-btn.active { --hud-btn-rim: color-mix(in srgb, var(--hud-fire-color, #ff4655) 78%, #fff); }
+.hud-fire-btn.active { --hud-btn-rim: color-mix(in srgb, var(--hud-fire-color, var(--sa-red-500)) 78%, var(--sa-white)); }
 .hud-fire-btn.active::after {
   background: color-mix(
     in srgb,
-    var(--hud-fire-color, #ff4655) var(--hud-fire-armed-fill-pct, 52%),
+    var(--hud-fire-color, var(--sa-red-500)) var(--hud-fire-armed-fill-pct, 52%),
     transparent
   );
 }
 .hud-fire-btn.active::before {
-  filter: drop-shadow(0 0 var(--hud-fire-armed-glow, 18px) var(--hud-fire-color, #ff4655));
+  filter: drop-shadow(0 0 var(--hud-fire-armed-glow, 18px) var(--hud-fire-color, var(--sa-red-500)));
 }
 .hud-fire-btn.active { transform: scale(0.96); }
 .hud-fire-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.18) brightness(0.72); }
 .hud-fire-btn.disabled::before { --hud-btn-rim: var(--hud-danger); filter: none; }
 .hud-fire-btn.active .label {
-  filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) #fff);
+  filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) var(--sa-white));
 }
 
 /* BOOST: a compact circular module-language action: dark plate, thin family
@@ -804,8 +836,8 @@ const CSS = `
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition: filter 0.15s linear, opacity 0.15s linear;
-  --hud-btn-rim: color-mix(in srgb, var(--hud-boost-color, #e8b44f) 58%, transparent);
-  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 72%, transparent);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-boost-color, var(--sa-white)) 58%, transparent);
+  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 72%, transparent);
   --hud-btn-fill: var(--hud-btn-plate);
   --hud-action-color: var(--hud-boost-color);
 }
@@ -822,7 +854,7 @@ const CSS = `
   background: repeating-conic-gradient(from -45deg, var(--hud-btn-rim) 0 calc(90deg - var(--hud-action-ring-tick-gap, 3deg)), transparent calc(90deg - var(--hud-action-ring-tick-gap, 3deg)) 90deg);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
-  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-boost-color, #e8b44f));
+  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-boost-color, var(--sa-white)));
 }
 .hud-boost-btn::after {
   inset: 1.5px;
@@ -834,7 +866,7 @@ const CSS = `
 .hud-boost-btn > .icon {
   width: 55%;
   max-width: 26px;
-  color: #fff;
+  color: var(--sa-white);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -846,7 +878,7 @@ const CSS = `
   left: 50%;
   transform: translateX(-50%);
   white-space: nowrap;
-  color: #fff;
+  color: var(--sa-white);
   font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing: 0.06em;
   opacity: 0.92;
@@ -865,7 +897,7 @@ const CSS = `
   bottom: 12%;
   height: 2px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--hud-text, #dbe9ff) 20%, transparent);
+  background: color-mix(in srgb, var(--hud-text, var(--sa-white)) 20%, transparent);
 }
 .hud-boost-btn > .heat::after {
   content: "";
@@ -874,28 +906,28 @@ const CSS = `
   top: 0;
   bottom: 0;
   width: calc(var(--heat, 0) * 1%);
-  background: var(--hud-heat, var(--hud-accent, #ffb35c));
+  background: var(--hud-heat, var(--hud-accent, var(--sa-white)));
 }
 /* ON. The module is asking for boost — whether the sim grants it this tick is
    the ship's business, and the speed readout already tells that story. */
 .hud-boost-btn.active {
-  --hud-btn-rim: color-mix(in srgb, var(--hud-boost-color, #e8b44f) 92%, #fff);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-boost-color, var(--sa-white)) 92%, var(--sa-white));
   --hud-btn-fill: color-mix(
     in srgb,
-    var(--hud-boost-color, #e8b44f) var(--hud-module-fill-pct, 32%),
+    var(--hud-boost-color, var(--sa-white)) var(--hud-module-fill-pct, 32%),
     var(--hud-btn-plate)
   );
 }
 .hud-boost-btn.active::before {
-  filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-boost-color, #e8b44f));
+  filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-boost-color, var(--sa-white)));
 }
 .hud-boost-btn.active > .icon { animation: hud-boost-surge 0.7s ease-in-out infinite; }
 .hud-boost-btn.pressed { transform: scale(0.96); filter: brightness(1.22); }
 .hud-boost-btn.state-overheated {
-  --hud-btn-rim: var(--hud-danger, #ff405c);
-  --hud-action-color: var(--hud-danger, #ff405c);
+  --hud-btn-rim: var(--hud-danger, var(--sa-red-500));
+  --hud-action-color: var(--hud-danger, var(--sa-red-500));
 }
-.hud-boost-btn.state-overheated > .icon { color: var(--hud-danger, #ff405c); }
+.hud-boost-btn.state-overheated > .icon { color: var(--hud-danger, var(--sa-red-500)); }
 .hud-boost-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
 /* Refused by the RULES, not by the module: a flag carrier has no afterburner.
    Greyed and inert, never hidden — the flag is picked up mid-flight, and a
@@ -904,7 +936,7 @@ const CSS = `
   cursor: default;
   opacity: 0.72;
   filter: saturate(0.22) brightness(0.62);
-  --hud-btn-rim: color-mix(in srgb, var(--hud-neutral, #7f9dc4) 55%, transparent);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-neutral, var(--sa-n-400)) 55%, transparent);
 }
 .hud-boost-btn.disabled::before { filter: none; }
 .hud-boost-btn.disabled > .icon { animation: none; }
@@ -930,8 +962,8 @@ const CSS = `
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  --hud-btn-rim: color-mix(in srgb, var(--hud-jettison-color, #5ec9e8) 55%, transparent);
-  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, #0a0f1e) 72%, transparent);
+  --hud-btn-rim: color-mix(in srgb, var(--hud-jettison-color, var(--sa-blue-500)) 55%, transparent);
+  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 72%, transparent);
   --hud-action-color: var(--hud-jettison-color);
 }
 .hud-jettison-btn::before, .hud-jettison-btn::after, .hud-jettison-btn > .ring {
@@ -940,7 +972,7 @@ const CSS = `
   border-radius: 50%;
   pointer-events: none;
 }
-.hud-jettison-btn::before { inset: 0; background:repeating-conic-gradient(from -45deg,var(--hud-btn-rim) 0 calc(90deg - var(--hud-action-ring-tick-gap, 3deg)),transparent calc(90deg - var(--hud-action-ring-tick-gap, 3deg)) 90deg); -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-jettison-color, #5ec9e8)); }
+.hud-jettison-btn::before { inset: 0; background:repeating-conic-gradient(from -45deg,var(--hud-btn-rim) 0 calc(90deg - var(--hud-action-ring-tick-gap, 3deg)),transparent calc(90deg - var(--hud-action-ring-tick-gap, 3deg)) 90deg); -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-jettison-color, var(--sa-blue-500))); }
 .hud-jettison-btn::after { inset: 1.5px; background: var(--hud-btn-plate); backdrop-filter: blur(var(--hud-blur)); -webkit-backdrop-filter: blur(var(--hud-blur)); }
 .hud-jettison-btn > .ring { inset: 2px; background: conic-gradient(var(--hud-action-color) calc(var(--ring, 0) * 1%), transparent 0); opacity: 0.4; -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); }
 .hud-jettison-btn > .icon, .hud-jettison-btn > .label { position: relative; z-index: 1; color: var(--hud-text); }
@@ -948,7 +980,7 @@ const CSS = `
 .hud-jettison-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
 .hud-jettison-btn > .label { position: absolute; top: calc(100% + var(--hud-module-label-gap, 4px)); left: 50%; transform: translateX(-50%); white-space: nowrap; font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif); letter-spacing: 0.06em; box-sizing:border-box; padding:1px 4px; background:color-mix(in srgb,var(--hud-bg) var(--hud-action-label-plate-pct,76%),transparent); border:1px solid color-mix(in srgb,var(--hud-action-color) var(--hud-action-label-border-pct,42%),transparent); }
 .hud-jettison-btn.pressed { transform:scale(0.96); filter: brightness(1.22); }
-.hud-jettison-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.25) brightness(0.72); --hud-action-color: var(--hud-danger, #ff405c); --hud-btn-rim: var(--hud-danger, #ff405c); }
+.hud-jettison-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.25) brightness(0.72); --hud-action-color: var(--hud-danger, var(--sa-red-500)); --hud-btn-rim: var(--hud-danger, var(--sa-red-500)); }
 .hud-jettison-btn.disabled::before { filter: none; }
 
 /* Hull and shield now flank the ship as restrained side arcs. */
@@ -975,21 +1007,21 @@ const CSS = `
   vector-effect: non-scaling-stroke;
 }
 .hud-vital-arc.track {
-  stroke: var(--hud-neutral, #7f9dc4);
+  stroke: var(--hud-neutral, var(--sa-n-400));
   opacity: var(--hud-vital-track-opacity, 0.16);
 }
-.hud-vital-arc.track.hull { stroke: var(--hud-hull, #ffb35c); }
-.hud-vital-arc.track.shield { stroke: var(--hud-shield, #39bfff); }
+.hud-vital-arc.track.hull { stroke: var(--hud-hull, var(--sa-white)); }
+.hud-vital-arc.track.shield { stroke: var(--hud-shield, var(--sa-blue-500)); }
 .hud-vital-arc.fill.hull {
-  stroke: var(--hud-hull, #ffb35c);
-  filter: drop-shadow(0 0 calc(4px * var(--hud-glow)) var(--hud-hull, #ffb35c));
+  stroke: var(--hud-hull, var(--sa-white));
+  filter: drop-shadow(0 0 calc(4px * var(--hud-glow)) var(--hud-hull, var(--sa-white)));
 }
 .hud-vital-arc.fill.shield {
-  stroke: var(--hud-shield, #39bfff);
-  filter: drop-shadow(0 0 calc(4px * var(--hud-glow)) var(--hud-shield, #39bfff));
+  stroke: var(--hud-shield, var(--sa-blue-500));
+  filter: drop-shadow(0 0 calc(4px * var(--hud-glow)) var(--hud-shield, var(--sa-blue-500)));
 }
 .hud-vital-arcs.hull-critical .hud-vital-arc.fill.hull {
-  stroke: var(--hud-danger, #ff405c);
+  stroke: var(--hud-danger, var(--sa-red-500));
 }
 .hud-vital-label {
   position: absolute;
@@ -998,7 +1030,7 @@ const CSS = `
   flex-direction: column;
   gap: 3px;
   transform: translateY(-50%);
-  color: var(--hud-neutral, #7f9dc4);
+  color: var(--hud-neutral, var(--sa-n-400));
   font: 500 0.5em/1 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1006,12 +1038,12 @@ const CSS = `
 .hud-vital-label.hull { left: 7%; align-items: flex-start; }
 .hud-vital-label.shield { right: 7%; align-items: flex-end; }
 .hud-vital-label .value {
-  color: var(--hud-text, #dbe9ff);
+  color: var(--hud-text, var(--sa-white));
   font-size: 1.18em;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
 }
-.hud-vital-arcs.hull-critical .hud-vital-label.hull .value { color: var(--hud-danger, #ff405c); }
+.hud-vital-arcs.hull-critical .hud-vital-label.hull .value { color: var(--hud-danger, var(--sa-red-500)); }
 
 /* Lock reticle: optional centre zone plus a bracket projected onto the candidate. */
 .hud-reticle {
@@ -1024,10 +1056,10 @@ const CSS = `
   left: 50%;
   top: calc(50% + 42px);
   transform: translate(-50%, -50%) scale(0.9);
-  color: var(--hud-danger, #ff405c);
+  color: var(--hud-danger, var(--sa-red-500));
   font: 800 0.78em/1 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing: 0.16em;
-  text-shadow: 0 0 calc(14px * var(--hud-glow)) var(--hud-danger, #ff405c);
+  text-shadow: 0 0 calc(14px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500));
   opacity: 0;
 }
 .hud-reticle-blocked.visible {
@@ -1048,14 +1080,14 @@ const CSS = `
   border-radius: 50%;
   /* Finer than a dashed ring: a dotted hairline plus four cardinal ticks (the
      ::before/::after crosses below) reads as an instrument, not a border. */
-  border: var(--hud-rim) dotted color-mix(in srgb, var(--hud-text, #dbe9ff) 34%, transparent);
+  border: var(--hud-rim) dotted color-mix(in srgb, var(--hud-text, var(--sa-white)) 34%, transparent);
 }
 .hud-reticle-zone.visible { display: block; }
 .hud-reticle-zone::before,
 .hud-reticle-zone::after {
   content: "";
   position: absolute;
-  background: color-mix(in srgb, var(--hud-primary, #39bfff) 55%, transparent);
+  background: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 55%, transparent);
 }
 /* Horizontal pair of edge ticks. */
 .hud-reticle-zone::before {
@@ -1093,7 +1125,7 @@ const CSS = `
 .hud-reticle-bracket .corners {
   position: absolute;
   inset: 0;
-  border: 1.5px solid var(--hud-primary, #39bfff);
+  border: 1.5px solid var(--hud-primary, var(--sa-blue-500));
   /* Keep only the corners: a cross-shaped hole erases the middle of each edge. */
   -webkit-mask:
     linear-gradient(90deg, #000 0 30%, transparent 30% 70%, #000 70% 100%),
@@ -1103,7 +1135,7 @@ const CSS = `
     linear-gradient(90deg, #000 0 30%, transparent 30% 70%, #000 70% 100%),
     linear-gradient(180deg, #000 0 30%, transparent 30% 70%, #000 70% 100%);
   mask-composite: intersect;
-  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, #39bfff));
+  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
 }
 /* Progress ring: a conic wedge masked to an annulus, so lockProgress reads as
    a filling arc without a second element or an SVG. */
@@ -1111,16 +1143,16 @@ const CSS = `
   position: absolute;
   inset: -5px;
   border-radius: 50%;
-  background: conic-gradient(var(--hud-primary, #39bfff) calc(var(--ring, 0) * 1%), transparent 0);
+  background: conic-gradient(var(--hud-primary, var(--sa-blue-500)) calc(var(--ring, 0) * 1%), transparent 0);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-reticle-ring-stroke, 4px)), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-reticle-ring-stroke, 4px)), #000 0);
 }
 .hud-reticle-bracket.locked .corners {
-  border-color: var(--hud-danger, #ff405c);
-  filter: drop-shadow(0 0 calc(8px * var(--hud-glow)) var(--hud-danger, #ff405c));
+  border-color: var(--hud-danger, var(--sa-red-500));
+  filter: drop-shadow(0 0 calc(8px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
 }
 .hud-reticle-bracket.locked .ring {
-  background: conic-gradient(var(--hud-danger, #ff405c) 100%, var(--hud-danger, #ff405c) 0);
+  background: conic-gradient(var(--hud-danger, var(--sa-red-500)) 100%, var(--hud-danger, var(--sa-red-500)) 0);
   animation: hud-lock-pulse 0.9s ease-in-out infinite;
 }
 @keyframes hud-lock-pulse {
@@ -1149,14 +1181,14 @@ const CSS = `
   height: var(--hud-enemy-arrow-size, 20px);
   /* Open chevron: outer wedge minus an inner wedge, cut in one polygon. */
   clip-path: polygon(0% 0%, 100% 50%, 0% 100%, 0% 72%, 55% 50%, 0% 28%);
-  background: var(--hud-danger, #ff405c);
-  filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, #ff405c));
+  background: var(--hud-danger, var(--sa-red-500));
+  filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
   will-change: transform;
 }
 .hud-enemy-arrow.visible { display: block; }
 .hud-enemy-arrow.candidate {
-  background: var(--hud-primary, #39bfff);
-  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, #39bfff));
+  background: var(--hud-primary, var(--sa-blue-500));
+  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
 }
 
 /* --- Notifications (top-center toast stack) --- */
@@ -1185,16 +1217,16 @@ const CSS = `
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--hud-text, #dbe9ff);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 88%, transparent);
+  color: var(--hud-text, var(--sa-white));
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 88%, transparent);
   clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
-  box-shadow: inset 3px 0 0 0 var(--hud-toast-tint, var(--hud-primary, #39bfff));
+  box-shadow: inset 3px 0 0 0 var(--hud-toast-tint, var(--hud-primary, var(--sa-blue-500)));
   animation: hud-toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.hud-toast.warning { --hud-toast-tint: var(--hud-accent, #ffb35c); color: var(--hud-accent, #ffb35c); }
-.hud-toast.critical { --hud-toast-tint: var(--hud-danger, #ff405c); color: var(--hud-danger, #ff405c); }
-.hud-toast.success { --hud-toast-tint: var(--hud-success, #5fe08c); color: var(--hud-success, #5fe08c); }
-.hud-toast.info { --hud-toast-tint: var(--hud-primary, #39bfff); color: var(--hud-primary, #39bfff); }
+.hud-toast.warning { --hud-toast-tint: var(--hud-accent, var(--sa-white)); color: var(--hud-accent, var(--sa-white)); }
+.hud-toast.critical { --hud-toast-tint: var(--hud-danger, var(--sa-red-500)); color: var(--hud-danger, var(--sa-red-500)); }
+.hud-toast.success { --hud-toast-tint: var(--hud-success, var(--sa-blue-500)); color: var(--hud-success, var(--sa-blue-500)); }
+.hud-toast.info { --hud-toast-tint: var(--hud-primary, var(--sa-blue-500)); color: var(--hud-primary, var(--sa-blue-500)); }
 /* Slide + fade in from above the stack, as a banner deploying. */
 @keyframes hud-toast-in {
   from { opacity: 0; transform: translateY(-10px); }
@@ -1215,8 +1247,8 @@ const CSS = `
   font-size: 0.6875em;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--hud-neutral, #7f9dc4);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 52%, transparent);
+  color: var(--hud-neutral, var(--sa-n-400));
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 52%, transparent);
   padding: 3px 12px;
   clip-path: polygon(7px 0%, calc(100% - 7px) 0%, 100% 100%, 0% 100%);
   white-space: nowrap;
@@ -1233,14 +1265,14 @@ const CSS = `
   min-width: 1.2em;
 }
 .hud-match-status .hud-team-score.blue {
-  color: var(--hud-primary, #39bfff);
+  color: var(--hud-primary, var(--sa-blue-500));
   text-align: right;
-  text-shadow: 0 0 calc(6px * var(--hud-glow)) color-mix(in srgb, var(--hud-primary, #39bfff) 60%, transparent);
+  text-shadow: 0 0 calc(6px * var(--hud-glow)) color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 60%, transparent);
 }
 .hud-match-status .hud-team-score.red {
-  color: var(--hud-danger, #ff405c);
+  color: var(--hud-danger, var(--sa-red-500));
   text-align: left;
-  text-shadow: 0 0 calc(6px * var(--hud-glow)) color-mix(in srgb, var(--hud-danger, #ff405c) 60%, transparent);
+  text-shadow: 0 0 calc(6px * var(--hud-glow)) color-mix(in srgb, var(--hud-danger, var(--sa-red-500)) 60%, transparent);
 }
 /* The meta line is the only part that can grow without bound ("FIRST TO 10 ·
    2:30 · RESPAWNING…"); with the row set to nowrap it would push the scores off
@@ -1284,7 +1316,7 @@ const CSS = `
   max-width: calc(
     (100vw - var(--hud-inset-left) - var(--hud-inset-right) - 16px) / var(--hud-announce-pop)
   );
-  color: var(--hud-primary, #39bfff);
+  color: var(--hud-primary, var(--sa-blue-500));
 }
 /* Below this width the longest call at its capped size could not survive a 1.5x
    overshoot inside the safe area, so the punch is dialled back rather than the
@@ -1292,13 +1324,13 @@ const CSS = `
 @media (max-width: 960px) {
   .hud-kill-announce { --hud-announce-pop: 1.12; }
 }
-.hud-kill-announce.first-blood { color: var(--hud-danger, #ff405c); }
-.hud-kill-announce.multi { color: var(--hud-module-boost-color, #e8b44f); }
+.hud-kill-announce.first-blood { color: var(--hud-danger, var(--sa-red-500)); }
+.hud-kill-announce.multi { color: var(--hud-module-boost-color, var(--sa-white)); }
 /* Capture-the-flag calls share the kill announcer's slot and animation; only the
    colour says whose news it is. */
-.hud-kill-announce.flag-good { color: var(--hud-friendly, #57d8ff); }
-.hud-kill-announce.flag-bad { color: var(--hud-danger, #ff405c); }
-.hud-kill-announce.flag-info { color: var(--hud-module-boost-color, #e8b44f); }
+.hud-kill-announce.flag-good { color: var(--hud-friendly, var(--sa-blue-500)); }
+.hud-kill-announce.flag-bad { color: var(--hud-danger, var(--sa-red-500)); }
+.hud-kill-announce.flag-info { color: var(--hud-module-boost-color, var(--sa-white)); }
 .hud-kill-announce.visible {
   animation: hud-kill-announce 1.8s ease-out forwards;
 }
@@ -1318,7 +1350,7 @@ const CSS = `
   inset: 0;
   pointer-events: none;
   opacity: 0;
-  background: radial-gradient(ellipse at center, transparent 55%, var(--hud-danger, #ff405c) 130%);
+  background: radial-gradient(ellipse at center, transparent 55%, var(--hud-danger, var(--sa-red-500)) 130%);
 }
 .hud-vignette.flash { animation: hud-vignette-flash 0.35s ease-out; }
 @keyframes hud-vignette-flash {
@@ -1340,7 +1372,7 @@ const CSS = `
 .hud-hitmarker::after {
   content: "";
   position: absolute;
-  background: var(--hud-text, #dbe9ff);
+  background: var(--hud-text, var(--sa-white));
 }
 .hud-hitmarker::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
 .hud-hitmarker::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
@@ -1356,7 +1388,7 @@ const CSS = `
   position: absolute;
   left: 0;
   top: 0;
-  color: var(--hud-hull, #ffb35c);
+  color: var(--hud-hull, var(--sa-white));
   font-family: var(--hud-font-display, system-ui, sans-serif);
   font-size: calc(18px * var(--hud-damage-scale, 1));
   font-weight: 800;
@@ -1367,8 +1399,8 @@ const CSS = `
   text-shadow: -1px -1px 0 rgba(2, 5, 12, .95), 1px -1px 0 rgba(2, 5, 12, .95), -1px 1px 0 rgba(2, 5, 12, .95), 1px 1px 0 rgba(2, 5, 12, .95), 0 0 8px currentColor;
   will-change: transform, opacity;
 }
-.hud-damage-number.shield { color: var(--hud-shield, #39bfff); }
-.hud-damage-number.taken { color: var(--hud-danger, #ff405c); }
+.hud-damage-number.shield { color: var(--hud-shield, var(--sa-blue-500)); }
+.hud-damage-number.taken { color: var(--hud-danger, var(--sa-red-500)); }
 .hud-damage-number.other { filter: saturate(.75); }
 
 /* --- Results overlay --- */
@@ -1378,7 +1410,7 @@ const CSS = `
   display: none;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--hud-bg, #0a0f1e) 62%, transparent) 0%, rgba(2, 4, 10, 0.86) 100%);
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 62%, transparent) 0%, rgba(2, 4, 10, 0.86) 100%);
   pointer-events: auto;
   isolation: isolate;
 }
@@ -1391,8 +1423,8 @@ const CSS = `
   pointer-events:none;
   opacity:0;
   background:
-    radial-gradient(circle at 38% 47%, color-mix(in srgb, var(--hud-primary, #39bfff) 23%, transparent) 0%, transparent 24%),
-    radial-gradient(ellipse at center, transparent 22%, color-mix(in srgb, var(--hud-bg, #0a0f1e) 86%, transparent) 78%);
+    radial-gradient(circle at 38% 47%, color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 23%, transparent) 0%, transparent 24%),
+    radial-gradient(ellipse at center, transparent 22%, color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 86%, transparent) 78%);
   transition:opacity .35s ease-out;
 }
 .hud-results--mvp .hud-results-backdrop { opacity:1; }
@@ -1404,7 +1436,7 @@ const CSS = `
   width:2px;
   height:2px;
   border-radius:50%;
-  background:var(--hud-primary, #39bfff);
+  background:var(--hud-primary, var(--sa-blue-500));
   box-shadow:0 0 8px currentColor;
   animation:hud-mvp-mote calc(5s + var(--mote) * .31s) ease-in-out calc(var(--mote) * -.47s) infinite;
 }
@@ -1441,7 +1473,7 @@ const CSS = `
   font-size: min(clamp(3rem, 12vw, 8rem), calc((100vw - var(--hud-inset-left) - var(--hud-inset-right)) / 7 / 0.8));
   letter-spacing: var(--hud-results-title-tracking);
   white-space: nowrap;
-  text-shadow: 0 0 18px currentColor, 0 0 52px currentColor, 0 3px 2px #02040a;
+  text-shadow: 0 0 18px currentColor, 0 0 52px currentColor, 0 3px 2px var(--sa-n-900);
 }
 /* Portrait phones: drop the panel to the thumb end of the screen so "Play
    again" stays a one-thumb reach (ROADMAP S3). */
@@ -1501,21 +1533,21 @@ const CSS = `
 }
 .hud-results-panel::after {
   inset: var(--hud-rim);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 94%, transparent);
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 94%, transparent);
 }
 .hud-results-panel > * { position: relative; z-index: 1; }
 .hud-results-outcome-tag {
   align-self:flex-end;
   padding:3px 9px;
   border-right:2px solid currentColor;
-  color:var(--hud-neutral, #7f9dc4);
+  color:var(--hud-neutral, var(--sa-n-400));
   background:color-mix(in srgb, currentColor 9%, transparent);
   font:700 .62em/1.4 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing:.16em;
 }
 .hud-results-outcome-tag[data-outcome="victory"],
-.hud-results-outcome-tag[data-outcome="targets-cleared"] { color:var(--hud-primary, #39bfff); }
-.hud-results-outcome-tag[data-outcome="defeat"] { color:var(--hud-danger, #ff405c); }
+.hud-results-outcome-tag[data-outcome="targets-cleared"] { color:var(--hud-primary, var(--sa-blue-500)); }
+.hud-results-outcome-tag[data-outcome="defeat"] { color:var(--hud-danger, var(--sa-red-500)); }
 .hud-results-mvp-badge {
   width:var(--hud-mvp-badge-size, 112px);
   height:var(--hud-mvp-badge-size, 112px);
@@ -1523,15 +1555,15 @@ const CSS = `
   place-items:center;
   margin-top:calc(var(--hud-mvp-badge-size, 112px) * -.36);
   clip-path:polygon(50% 0, 88% 12%, 100% 50%, 88% 88%, 50% 100%, 12% 88%, 0 50%, 12% 12%);
-  color:var(--hud-bg, #0a0f1e);
-  background:var(--mvp-team, var(--hud-primary, #39bfff));
+  color:var(--hud-bg, var(--sa-n-900));
+  background:var(--mvp-team, var(--hud-primary, var(--sa-blue-500)));
   font:900 clamp(1.5rem, 4vw, 2.5rem)/1 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing:.08em;
-  filter:drop-shadow(0 0 calc(24px * var(--hud-glow)) var(--mvp-team, var(--hud-primary, #39bfff)));
+  filter:drop-shadow(0 0 calc(24px * var(--hud-glow)) var(--mvp-team, var(--hud-primary, var(--sa-blue-500))));
   animation:hud-mvp-badge var(--hud-mvp-badge-ms, 520ms) cubic-bezier(.16, 1.35, .32, 1) both;
 }
-.hud-results[data-mvp-team="1"] { --mvp-team:var(--hud-accent, #ffb35c); }
-.hud-results[data-mvp-team="0"] { --mvp-team:var(--hud-primary, #39bfff); }
+.hud-results[data-mvp-team="1"] { --mvp-team:var(--hud-accent, var(--sa-white)); }
+.hud-results[data-mvp-team="0"] { --mvp-team:var(--hud-primary, var(--sa-blue-500)); }
 @keyframes hud-mvp-badge {
   0% { opacity:0; transform:scale(.25) rotate(-12deg); filter:brightness(3) drop-shadow(0 0 45px currentColor); }
   62% { opacity:1; transform:scale(1.12) rotate(2deg); }
@@ -1566,7 +1598,7 @@ const CSS = `
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  color:var(--hud-text, #dbe9ff);
+  color:var(--hud-text, var(--sa-white));
   font-size:clamp(1.75rem, 4.5vw, 3.25rem);
   line-height:1.05;
   text-shadow:0 0 22px color-mix(in srgb, var(--mvp-team) 55%, transparent);
@@ -1576,14 +1608,14 @@ const CSS = `
 /* Outcome colouring — all four banners share one element, only the tint moves. */
 .hud-results-title[data-outcome="victory"],
 .hud-results-title[data-outcome="targets-cleared"] {
-  color: var(--hud-primary, #39bfff);
-  text-shadow: 0 0 calc(30px * var(--hud-glow)) var(--hud-primary, #39bfff);
+  color: var(--hud-primary, var(--sa-blue-500));
+  text-shadow: 0 0 calc(30px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500));
 }
 .hud-results-title[data-outcome="defeat"] {
-  color: var(--hud-danger, #ff405c);
-  text-shadow: 0 0 calc(30px * var(--hud-glow)) var(--hud-danger, #ff405c);
+  color: var(--hud-danger, var(--sa-red-500));
+  text-shadow: 0 0 calc(30px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500));
 }
-.hud-results-title[data-outcome="draw"] { color: var(--hud-accent, #ffb35c); }
+.hud-results-title[data-outcome="draw"] { color: var(--hud-accent, var(--sa-white)); }
 @keyframes hud-results-banner {
   from { opacity: 0; transform: translateY(-10px) scale(0.94); letter-spacing: 0.02em; }
   to { opacity: 1; transform: none; letter-spacing: var(--hud-results-title-tracking); }
@@ -1592,18 +1624,18 @@ const CSS = `
 .hud-results-rule {
   width: 78%;
   height: var(--hud-rim);
-  background: linear-gradient(90deg, transparent, var(--hud-primary, #39bfff), var(--hud-accent, #ffb35c), transparent);
+  background: linear-gradient(90deg, transparent, var(--hud-primary, var(--sa-blue-500)), var(--hud-accent, var(--sa-white)), transparent);
   opacity: 0.85;
 }
 .hud-results-sub {
   font-size: 0.75em;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--hud-neutral, #7f9dc4);
+  color: var(--hud-neutral, var(--sa-n-400));
 }
 .hud-results-sub:empty { display: none; }
 .hud-results-participants {
-  color: var(--hud-text, #dbe9ff);
+  color: var(--hud-text, var(--sa-white));
   font: 600 0.78em/1.4 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1629,8 +1661,8 @@ const CSS = `
 }
 .hud-results-stat:nth-child(2) { --chip-delay:80ms; }
 .hud-results-stat:nth-child(3) { --chip-delay:160ms; }
-.hud-results-stat-value { color:var(--hud-text, #dbe9ff); font:800 1.45em/1 var(--hud-font-display, system-ui, sans-serif); font-variant-numeric:tabular-nums; }
-.hud-results-stat-label { margin-top:4px; color:var(--hud-neutral, #7f9dc4); font-size:.56em; letter-spacing:.12em; }
+.hud-results-stat-value { color:var(--hud-text, var(--sa-white)); font:800 1.45em/1 var(--hud-font-display, system-ui, sans-serif); font-variant-numeric:tabular-nums; }
+.hud-results-stat-label { margin-top:4px; color:var(--hud-neutral, var(--sa-n-400)); font-size:.56em; letter-spacing:.12em; }
 @keyframes hud-mvp-chip { from { opacity:0; transform:translateY(10px) scale(.94); } to { opacity:1; transform:none; } }
 .hud-results-rewards {
   display: flex;
@@ -1642,12 +1674,12 @@ const CSS = `
 .hud-results-rewards:empty { display: none; }
 .hud-results-rewards-line {
   font-size: 1.125em;
-  color: var(--hud-primary, #39bfff);
+  color: var(--hud-primary, var(--sa-blue-500));
   letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
 }
-.hud-results-rewards-line .credits { color: var(--hud-accent, #ffb35c); font-weight: 700; }
-.hud-results-rewards-line .xp { color: var(--hud-primary, #39bfff); font-weight: 700; }
+.hud-results-rewards-line .credits { color: var(--hud-accent, var(--sa-white)); font-weight: 700; }
+.hud-results-rewards-line .xp { color: var(--hud-primary, var(--sa-blue-500)); font-weight: 700; }
 .hud-results-rewards-line .unit,
 .hud-results-rewards-line .dot { font-size: 0.7em; opacity: 0.75; letter-spacing: 0.06em; }
 /* One soft pop when the count-up lands — marks "that's your total". */
@@ -1679,7 +1711,7 @@ const CSS = `
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--hud-success, #5fe08c);
+  color: var(--hud-success, var(--sa-blue-500));
   animation: hud-toast-in 0.2s ease-out;
 }
 .hud-results-btn {
@@ -1694,22 +1726,22 @@ const CSS = `
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--hud-text, #dbe9ff);
-  background: color-mix(in srgb, var(--hud-primary, #39bfff) 8%, transparent);
+  color: var(--hud-text, var(--sa-white));
+  background: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 8%, transparent);
   border: var(--hud-rim) solid var(--hud-rim-color);
   clip-path: polygon(9px 0%, 100% 0%, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0% 100%, 0% 9px);
   transition: background-color 0.12s linear, color 0.12s linear;
 }
-.hud-results-btn:hover { background: color-mix(in srgb, var(--hud-primary, #39bfff) 20%, transparent); }
+.hud-results-btn:hover { background: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 20%, transparent); }
 .hud-results-btn--primary {
   flex: 1 1 100%;
-  color: var(--hud-bg, #0a0f1e);
-  background: var(--hud-primary, #39bfff);
-  border-color: var(--hud-primary, #39bfff);
+  color: var(--hud-bg, var(--sa-n-900));
+  background: var(--hud-primary, var(--sa-blue-500));
+  border-color: var(--hud-primary, var(--sa-blue-500));
   font-size: 0.875em;
   font-weight: 700;
 }
-.hud-results-btn--primary:hover { background: color-mix(in srgb, var(--hud-primary, #39bfff) 82%, #ffffff); }
+.hud-results-btn--primary:hover { background: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 82%, var(--sa-white)); }
 
 /* --- In-match settings affordance (top-right) ---
    Tagged data-hud-control so edge palm rejection never eats it (5.4). */
@@ -1726,15 +1758,15 @@ const CSS = `
   justify-content: center;
   font-size: 1em;
   line-height: 1;
-  color: var(--hud-primary, #39bfff);
-  background: color-mix(in srgb, var(--hud-bg, #0a0f1e) 68%, transparent);
+  color: var(--hud-primary, var(--sa-blue-500));
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 68%, transparent);
   border: var(--hud-rim) solid var(--hud-rim-color);
   clip-path: polygon(9px 0%, 100% 0%, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0% 100%, 0% 9px);
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
-.hud-settings-btn:hover { border-color: var(--hud-primary, #39bfff); }
+.hud-settings-btn:hover { border-color: var(--hud-primary, var(--sa-blue-500)); }
 
 /* ============================================================
    Match-start countdown (3 → 2 → 1 → GO). One centred numeral,
@@ -1754,12 +1786,12 @@ const CSS = `
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.06em;
-  color: var(--hud-primary, #39bfff);
-  text-shadow: 0 0 calc(40px * var(--hud-glow)) var(--hud-primary, #39bfff);
+  color: var(--hud-primary, var(--sa-blue-500));
+  text-shadow: 0 0 calc(40px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500));
   /* Scrim only behind the glyph, so the arena stays readable at the edges. */
   background: radial-gradient(
     circle at center,
-    color-mix(in srgb, var(--hud-bg, #0a0f1e) 46%, transparent) 0%,
+    color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 46%, transparent) 0%,
     transparent 46%
   );
 }
@@ -1769,8 +1801,8 @@ const CSS = `
 }
 /* GO reads as a release, not a fourth beat: accent tint, wider, snappier. */
 .hud-countdown.go {
-  color: var(--hud-accent, #ffb35c);
-  text-shadow: 0 0 calc(48px * var(--hud-glow)) var(--hud-accent, #ffb35c);
+  color: var(--hud-accent, var(--sa-white));
+  text-shadow: 0 0 calc(48px * var(--hud-glow)) var(--hud-accent, var(--sa-white));
   font-size: min(18vh, 26vw);
   letter-spacing: 0.2em;
   animation: hud-countdown-go 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -1810,7 +1842,7 @@ const CSS = `
   }
   .hud-module-btn.state-overheated::before,
   .hud-boost-btn.state-overheated::before {
-    filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-danger, #ff405c));
+    filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
   }
 }
 `;

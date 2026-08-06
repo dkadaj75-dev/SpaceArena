@@ -195,7 +195,7 @@ export class Lobby {
   ): void {
     const b = document.createElement("button");
     b.textContent = label;
-    b.className = `sa-screen-btn${variant ? ` sa-screen-btn--${variant}` : ""}`;
+    b.className = `sa-screen-btn sa-button sa-button--${variant === "primary" ? "primary" : "secondary"}${variant ? ` sa-screen-btn--${variant}` : ""}`;
     b.addEventListener("click", onClick);
     this.buttons.push({ el: b, online });
     parent.append(b);
@@ -231,7 +231,7 @@ export class Lobby {
     }
 
     const settings = document.createElement("button");
-    settings.className = "sa-screen-icon-btn";
+    settings.className = "sa-screen-icon-btn sa-icon-button";
     settings.textContent = "⚙";
     settings.title = "Settings";
     settings.setAttribute("aria-label", "Settings");
