@@ -5,24 +5,25 @@ import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
 import { anchoredOffset, resolveFlightSecondaryControls, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconId, moduleIconSvg } from "./moduleIcons.js";
+import { DEFAULT_DESIGN_TOKENS } from "../themeTokens.js";
 
 const log = createLogger("HudModuleButtons");
 const THEME_ID = "theme.default";
 
 export const MODULE_FAMILY_COLOR_FALLBACKS: Readonly<Record<ModuleFamily, string>> = {
-  shield: "#3b5bdb",
-  missile: "#7b2fbf",
-  laser: "#12b5cb",
-  kinetic: "#f59f35",
-  utility: "#67c587",
-  boost: "#e8b44f",
+  shield: DEFAULT_DESIGN_TOKENS.blue500,
+  missile: DEFAULT_DESIGN_TOKENS.red500,
+  laser: DEFAULT_DESIGN_TOKENS.red500,
+  kinetic: DEFAULT_DESIGN_TOKENS.red500,
+  utility: DEFAULT_DESIGN_TOKENS.white,
+  boost: DEFAULT_DESIGN_TOKENS.blue500,
   // Internals (2026-07-31). They get no HUD button, but the hangar colour-codes
   // slots from the same map, so every family needs an entry.
-  engine: "#e8b44f",
-  generator: "#63d2a4",
-  transformer: "#b07de0",
-  heatsink: "#5ec9e8",
-  sensors: "#9aa8bd",
+  engine: DEFAULT_DESIGN_TOKENS.blue500,
+  generator: DEFAULT_DESIGN_TOKENS.blue500,
+  transformer: DEFAULT_DESIGN_TOKENS.white,
+  heatsink: DEFAULT_DESIGN_TOKENS.blue500,
+  sensors: DEFAULT_DESIGN_TOKENS.white,
 };
 
 export function resolveModuleFamilyColor(

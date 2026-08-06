@@ -145,7 +145,7 @@ export class AuthScreen {
   private bigButton(label: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.textContent = label;
-    b.className = "sa-screen-btn";
+    b.className = "sa-screen-btn sa-button sa-button--secondary";
     this.actionButtons.push(b);
     return b;
   }
@@ -153,7 +153,7 @@ export class AuthScreen {
   private formButton(label: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.textContent = label;
-    b.className = "sa-screen-formbtn";
+    b.className = "sa-screen-formbtn sa-button sa-button--primary";
     this.actionButtons.push(b);
     return b;
   }
@@ -161,7 +161,7 @@ export class AuthScreen {
   private tabButton(label: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.textContent = label;
-    b.className = "sa-screen-tab";
+    b.className = "sa-screen-tab sa-tab";
     return b;
   }
 

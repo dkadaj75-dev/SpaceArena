@@ -53,17 +53,17 @@ export class LockReticle {
         left: 50%;
         top: calc(100% + var(--hud-reticle-ring-stroke, 4px) + 6px);
         transform: translateX(-50%);
-        color: var(--hud-primary, #39bfff);
+        color: var(--hud-primary, var(--sa-blue-500));
         font-size: 0.625em;
         font-weight: 600;
         font-variant-numeric: tabular-nums;
         letter-spacing: 0.08em;
         line-height: 1;
         white-space: nowrap;
-        text-shadow: 0 0 calc(6px * var(--hud-glow)) var(--hud-bg, #0a0f1e);
+        text-shadow: 0 0 calc(6px * var(--hud-glow)) var(--hud-bg, var(--sa-n-900));
       }
       .hud-reticle-bracket.locked .hud-reticle-distance {
-        color: var(--hud-danger, #ff405c);
+        color: var(--hud-danger, var(--sa-red-500));
       }
       .hud-reticle-target-name {
         position: absolute;
@@ -71,14 +71,14 @@ export class LockReticle {
         left: calc(100% + var(--hud-reticle-target-name-offset, 12px));
         top: 50%;
         transform: translateY(-50%);
-        color: var(--hud-danger, #ff405c);
+        color: var(--hud-danger, var(--sa-red-500));
         font-size: var(--hud-reticle-target-name-size, 10px);
         font-weight: 600;
         letter-spacing: 0.12em;
         line-height: 1;
         white-space: nowrap;
         text-transform: uppercase;
-        text-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-bg, #0a0f1e);
+        text-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-bg, var(--sa-n-900));
       }
       .hud-reticle-bracket.locked .hud-reticle-target-name {
         display: block;

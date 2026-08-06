@@ -752,6 +752,40 @@ export const menuSchema = z.object({
 });
 export type MenuConfig = z.infer<typeof menuSchema>;
 
+/** Optional design-system foundation. Older themes remain valid when omitted. */
+export const designTokensSchema = z.object({
+  palette: z
+    .object({
+      blue500: z.string().optional(),
+      red500: z.string().optional(),
+      white: z.string().optional(),
+      n900: z.string().optional(),
+      n800: z.string().optional(),
+      n700: z.string().optional(),
+      n600: z.string().optional(),
+      n500: z.string().optional(),
+      n400: z.string().optional(),
+    })
+    .optional(),
+  typography: z
+    .object({
+      h1: z.string().optional(),
+      h2: z.string().optional(),
+      h3: z.string().optional(),
+      body: z.string().optional(),
+      caption: z.string().optional(),
+      data: z.string().optional(),
+    })
+    .optional(),
+  lineWeights: z
+    .object({ hairline: z.string().optional(), thin: z.string().optional(), medium: z.string().optional(), strong: z.string().optional() })
+    .optional(),
+  radii: z
+    .object({ small: z.string().optional(), medium: z.string().optional(), large: z.string().optional() })
+    .optional(),
+});
+export type DesignTokensConfig = z.infer<typeof designTokensSchema>;
+
 export const themeSchema = z.object({
   ...baseShape("theme"),
   /** CSS custom-property values, e.g. { "--hud-primary": "#57d8ff" }. */
@@ -762,6 +796,8 @@ export const themeSchema = z.object({
       display: z.string().optional(),
     })
     .optional(),
+  /** Shared palette, type, stroke, and corner tokens exposed as CSS variables. */
+  tokens: designTokensSchema.optional(),
   hud: z
     .object({
       scale: z.number().positive().optional(),

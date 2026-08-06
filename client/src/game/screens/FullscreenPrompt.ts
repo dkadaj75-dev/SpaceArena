@@ -24,11 +24,11 @@ const CSS = `
   width: min(340px, 100%);
   padding: 22px 20px 18px;
   box-sizing: border-box;
-  background: #0b1526ee;
-  border: 1px solid color-mix(in srgb, var(--sa-menu-primary, #39bfff) 40%, transparent);
+  background: var(--sa-n-800)ee;
+  border: 1px solid color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 40%, transparent);
   clip-path: polygon(12px 0%, calc(100% - 12px) 0%, 100% 12px, 100% calc(100% - 12px),
     calc(100% - 12px) 100%, 12px 100%, 0% calc(100% - 12px), 0% 12px);
-  color: var(--sa-menu-text, #dbe9ff);
+  color: var(--sa-menu-text, var(--sa-white));
   font-family: var(--sa-menu-font-body, system-ui, sans-serif);
   text-align: center;
 }
@@ -38,13 +38,13 @@ const CSS = `
   font-weight: 600;
   letter-spacing: .24em;
   text-transform: uppercase;
-  color: var(--sa-menu-primary, #39bfff);
+  color: var(--sa-menu-primary, var(--sa-blue-500));
 }
 .sa-fullscreen-prompt-text {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--sa-menu-muted, #9fb4d0);
+  color: var(--sa-menu-muted, var(--sa-n-400));
 }
 `;
 
@@ -104,7 +104,7 @@ export class FullscreenPrompt {
     text.textContent = "Space Arena plays best without the browser chrome.";
 
     const go = document.createElement("button");
-    go.className = "sa-screen-btn sa-screen-btn--primary";
+    go.className = "sa-screen-btn sa-screen-btn--primary sa-button sa-button--primary";
     go.textContent = "GO FULLSCREEN";
     go.addEventListener("click", () => {
       void deps.request();

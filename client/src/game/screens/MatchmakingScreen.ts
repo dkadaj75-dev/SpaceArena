@@ -190,7 +190,7 @@ export function formatElapsed(elapsedMs: number): string {
 
 function button(label: string, onClick: () => void): HTMLButtonElement {
   const element = document.createElement("button");
-  element.className = "sa-screen-btn";
+  element.className = "sa-screen-btn sa-button sa-button--secondary";
   element.textContent = label;
   element.addEventListener("click", onClick);
   return element;

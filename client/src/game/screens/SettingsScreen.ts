@@ -154,7 +154,7 @@ export class SettingsScreen {
     );
 
     const back = document.createElement("button");
-    back.className = "sa-screen-btn sa-screen-btn--primary";
+    back.className = "sa-screen-btn sa-screen-btn--primary sa-button sa-button--primary";
     back.dataset["settingsClose"] = "";
     back.textContent = context === "match" ? "Resume match" : "Back";
     back.addEventListener("click", () => this.close());
@@ -164,7 +164,7 @@ export class SettingsScreen {
     // to the main menu, without hunting for the results screen.
     if (context === "match" && this.onQuitToMenu) {
       const quit = document.createElement("button");
-      quit.className = "sa-screen-btn";
+      quit.className = "sa-screen-btn sa-button sa-button--secondary";
       quit.dataset["settingsQuit"] = "";
       quit.textContent = "Quit to main menu";
       quit.addEventListener("click", () => {
@@ -463,7 +463,7 @@ export class SettingsScreen {
     });
 
     const reload = document.createElement("button");
-    reload.className = "sa-screen-btn";
+    reload.className = "sa-screen-btn sa-button sa-button--secondary";
     reload.dataset["settingsReload"] = "";
     reload.textContent = "Reload now";
     reload.addEventListener("click", () => (this.host.reload ?? (() => window.location.reload()))());

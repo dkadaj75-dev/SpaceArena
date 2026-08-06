@@ -375,7 +375,7 @@ function button(
   key: string,
 ): HTMLButtonElement {
   const b = document.createElement("button");
-  b.className = `hud-results-btn${variant ? ` hud-results-btn--${variant}` : ""}`;
+  b.className = `hud-results-btn hud-button hud-button--${variant === "primary" ? "primary" : "secondary"}${variant ? ` hud-results-btn--${variant}` : ""}`;
   b.textContent = label;
   b.dataset["resultsAction"] = key;
   b.addEventListener("click", onClick);

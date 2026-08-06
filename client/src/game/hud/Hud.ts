@@ -31,6 +31,7 @@ import { BlockedPullFeedback } from "./BlockedPullFeedback.js";
 import { KillFeed } from "./KillFeed.js";
 import { Scoreboard } from "./Scoreboard.js";
 import { MatchPresentationFlow, mvpPresentationSettings } from "./matchPresentation.js";
+import { designTokenCssVars } from "../themeTokens.js";
 
 const log = createLogger("Hud");
 
@@ -138,7 +139,7 @@ export class Hud {
     // guard exempts it — it sits close to the top edge on phones.
     if (callbacks.onSettings) {
       const settingsBtn = document.createElement("button");
-      settingsBtn.className = "hud-settings-btn";
+      settingsBtn.className = "hud-settings-btn hud-icon-button";
       settingsBtn.textContent = "⚙";
       settingsBtn.title = "Settings";
       settingsBtn.setAttribute("aria-label", "Settings");
@@ -226,6 +227,7 @@ export class Hud {
     for (const [prop, value] of Object.entries(theme?.colors ?? {})) {
       this.root.style.setProperty(prop, value);
     }
+    for (const [prop, value] of Object.entries(designTokenCssVars(theme))) this.root.style.setProperty(prop, value);
     // Fonts used to stop at the menu screens; the results banner and the gauge
     // labels want the same faces the lobby wordmark uses.
     if (theme?.fonts?.body) this.root.style.setProperty("--hud-font-body", theme.fonts.body);

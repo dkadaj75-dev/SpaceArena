@@ -6,7 +6,7 @@ import type { ThemeConfig } from "@space-arena/shared";
  *
  * Pure and DOM-free so the whole "which config field drives which variable"
  * mapping is unit-testable, and so a content pack that ships no `menu` block
- * still gets the exact dark/cyan look the screens had before 5.8.
+ * still gets the board-authored design-system palette.
  */
 
 export interface MenuTheme {
@@ -38,17 +38,17 @@ export interface MenuTheme {
   bodyFont: string;
 }
 
-/** The pre-5.8 hardcoded palette, kept as the fallback for packs with no `menu` block. */
+/** Board defaults for packs with no `menu` block. */
 export const DEFAULT_MENU_THEME: MenuTheme = {
-  base: "#04070f",
-  panel: "#0b1424",
-  primary: "#57d8ff",
-  accent: "#ff8c42",
-  text: "#e8f1ff",
-  muted: "#8ba3c4",
-  border: "#1d3a5e",
-  nebulaPrimary: "#0f4f7a",
-  nebulaAccent: "#7a3a12",
+  base: "#05080D",
+  panel: "#0B1118",
+  primary: "#3B82F6",
+  accent: "#E6F0FF",
+  text: "#E6F0FF",
+  muted: "#475569",
+  border: "#1E2937",
+  nebulaPrimary: "#151E2A",
+  nebulaAccent: "#1E2937",
   nebulaOpacity: 0.55,
   starDensity: 0.5,
   vignette: 0.55,
@@ -59,8 +59,8 @@ export const DEFAULT_MENU_THEME: MenuTheme = {
   panelChamferPx: 12,
   panelGlow: 0.5,
   panelOpacity: 0.72,
-  displayFont: "system-ui, sans-serif",
-  bodyFont: "system-ui, sans-serif",
+  displayFont: "'Orbitron', system-ui, sans-serif",
+  bodyFont: "'Rajdhani', system-ui, sans-serif",
 };
 
 function str(value: string | undefined, fallback: string): string {
