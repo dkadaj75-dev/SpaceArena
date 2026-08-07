@@ -161,3 +161,9 @@ Predictive floor avoidance uses collider radius only and commands positive recov
 ### FINDING: behavior personality spread is role-dominant
 
 Measured combined occupancy differs strongly—flagrunner 100% objective, cautious 74.4%, aggressive 36.6%, rookie 28.7%—so multipliers do produce spread. The flagrunner's complete objective lockout means its combat behavior weights never win in sampled CTF, even though opportunistic fire still occurs. Proposed fix, if the owner wants occasional flagrunner combat maneuvers, cap objective utility or assign only a subset of flagrunners to attack roles; otherwise document this as intended specialization.
+
+## Twin Titans duel audit (2026-08-07)
+
+The audit now permanently runs Twin Titans rookie-interceptor 1v1, rookie-brawler 1v1, and mixed interceptor/brawler 2v2 matches for seeds 7, 17, and 42. Each 1v1 ran to the 600.0 s cap. The mixed 2v2 matches ended at 450.9, 518.9, and 470.5 s. Strict accumulated-motion detection reported zero powered 10 s stalls before and after the fix; aggregate duel behavior occupancy changed from 84.1% engage / 14.8% kite / 1.1% none to 84.7% / 14.2% / 1.0%, and aggregate energy starvation remained 3.0%.
+
+The focused shipped-geometry probe covers the unsampled failure band directly. A 1.4-scale colossal has rendered radius 25.20 and collider radius 23.94. With the brawler's rendered radius 3.60 and collider radius 2.10, a centre distance of 28.30 yields collider clearance +2.26 but rendered clearance -0.50. Before the fix, the ship-only visual threshold was +1.85 and surface recovery remained false after 1.7 s. After asteroid visual overhang is included, recovery is true at 1.7 s and aims outward. The full-match audit also resets a retained driver while its entity id is absent, matching the practice host's respawn lifecycle and excluding stale-order respawn artifacts.

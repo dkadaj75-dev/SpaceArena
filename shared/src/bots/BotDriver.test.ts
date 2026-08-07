@@ -281,6 +281,36 @@ describe("BotDriver flight orders", () => {
     driver.update(clear, 1_800);
     expect(driver.lastDecision?.surfaceRecovery).toBe(false);
   });
+
+  it("arms recovery in the rendered-contact band of a scaled Twin Titans colossal", () => {
+    const p = profile({ decisionIntervalMs: 100, behaviors: { engage: { baseWeight: 1 } } });
+    const driver = new BotDriver({
+      entityId: 1,
+      profile: p,
+      configs: emptyConfigs,
+      rng: zeroRng,
+      visualRadius: 3.6,
+    });
+    const colossal = {
+      ...rock(3, 0, 0, 25.2),
+      configId: "asteroid.colossal-a",
+      colliderRadius: 23.94,
+    };
+    const pinned = snap([
+      ship(1, 0, 28.3, 0, { colliderRadius: 2.1, velocity: { x: 0, y: 0, z: 0 }, heading: Math.PI }),
+      ship(2, 1, -28.3, 0),
+    ], [colossal]);
+
+    driver.update(pinned, 0);
+    for (const nowMs of [100, 600, 1_100, 1_700]) driver.update(pinned, nowMs);
+
+    // Collider clearance is +2.26, outside the old +1.85 ship-only visual
+    // threshold; rendered clearance is -0.50 because the scaled rock adds a
+    // further 1.26 units of overhang.
+    expect(driver.lastDecision?.surfaceRecovery).toBe(true);
+    expect(driver.lastDecision!.plannedMove!.x).toBeGreaterThan(28.3);
+  });
+
   it("emits only schema-valid orders, and never a targeting one", () => {
     const p = profile({ behaviors: { engage: { baseWeight: 1 } } });
     const driver = new BotDriver({ entityId: 1, profile: p, configs: emptyConfigs, rng: zeroRng });
