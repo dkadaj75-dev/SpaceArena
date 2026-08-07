@@ -846,6 +846,7 @@ describe("gamemode schema", () => {
 
   it("rejects an unsupported team layout and fractional rewards", () => {
     expect(mutated("gamemode", (d) => (d["teams"] = "2v2"))).toBe(true);
+    expect(mutated("gamemode", (d) => (d["teams"] = "10v10"))).toBe(true);
     expect(mutated("gamemode", (d) => (d["teams"] = "3v3"))).toBe(false);
     expect(mutated("gamemode", (d) => ((d["rewards"] as Record<string, number>)["win"] = 10.5))).toBe(false);
     expect(mutated("gamemode", (d) => ((d["rewards"] as Record<string, number>)["perKill"] = -1))).toBe(false);

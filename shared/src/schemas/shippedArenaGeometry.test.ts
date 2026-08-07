@@ -1,9 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { arenaSchema, type ArenaConfig } from "./arena.js";
 import { asteroidSchema, type AsteroidConfig } from "./asteroid.js";
+import { gamemodeSchema } from "./gamemode.js";
+import { shipSchema } from "./ship.js";
 
 type Vec3 = { x: number; y?: number; z: number };
 type ShippedArena = {
@@ -72,6 +74,12 @@ const radii = new Map<string, number>(
     const asteroid: AsteroidConfig = asteroidSchema.parse(loadJson(`${CONTENT_ROOT}asteroids/${file}`));
     return [asteroid.id, asteroid.radius];
   }),
+);
+
+const maxShipDiameter = Math.max(
+  ...readdirSync(`${CONTENT_ROOT}ships/`, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => shipSchema.parse(loadJson(`${CONTENT_ROOT}ships/${entry.name}`)).collider.radius * 2),
 );
 
 describe("shipped arena asteroid geometry", () => {
@@ -152,6 +160,47 @@ describe("shipped arena asteroid geometry", () => {
         }
       } else if (arena.bounds.shape !== "sphere" || arena.bounds.floorY === undefined) {
         expect(Math.max(...ys.map(Math.abs))).toBeGreaterThanOrEqual(35);
+      }
+    });
+  }
+});
+
+describe("shipped CTF spawn capacity and clearance", () => {
+  const ctfModes = readdirSync(`${CONTENT_ROOT}gamemodes/`, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => gamemodeSchema.parse(loadJson(`${CONTENT_ROOT}gamemodes/${entry.name}`)))
+    .filter((mode) => mode.ctf !== undefined);
+
+  for (const mode of ctfModes) {
+    it(`${mode.id} has one clear spawn per team slot`, () => {
+      expect(mode.defaultArena, `${mode.id} needs a default CTF arena`).toBeDefined();
+      const arenaFile = `${mode.defaultArena!.replace("arena.", "")}.json`;
+      const arena = arenaSchema.parse(loadJson(`${CONTENT_ROOT}arenas/${arenaFile}`));
+      const teamSize = Number.parseInt(mode.teams, 10);
+
+      for (const team of [0, 1]) {
+        expect(
+          arena.spawnPoints.filter((spawn) => spawn.team === team).length,
+          `${arena.id} team ${team} spawn capacity for ${mode.id}`,
+        ).toBeGreaterThanOrEqual(teamSize);
+      }
+
+      for (let index = 0; index < arena.spawnPoints.length; index++) {
+        const spawn = arena.spawnPoints[index]!;
+        const spawnPosition = positionOf(spawn.position);
+        for (let otherIndex = 0; otherIndex < index; otherIndex++) {
+          expect(
+            distance(spawnPosition, positionOf(arena.spawnPoints[otherIndex]!.position)),
+            `${arena.id} spawns ${otherIndex}/${index} ship clearance`,
+          ).toBeGreaterThanOrEqual(maxShipDiameter);
+        }
+        for (const placement of arena.asteroidPlacements) {
+          const asteroidRadius = radii.get(placement.asteroidId)! * (placement.scale ?? 1);
+          expect(
+            distance(spawnPosition, positionOf(placement.position)),
+            `${arena.id} spawn ${spawn.id} outside ${placement.asteroidId}`,
+          ).toBeGreaterThan(asteroidRadius);
+        }
       }
     });
   }

@@ -367,7 +367,7 @@
       "id": "sp-blue-1",
       "team": 0,
       "position": {
-        "x": -248,
+        "x": -238,
         "y": 20,
         "z": -44
       },
@@ -377,7 +377,7 @@
       "id": "sp-blue-2",
       "team": 0,
       "position": {
-        "x": -248,
+        "x": -238,
         "y": 20,
         "z": -22
       },
@@ -387,7 +387,7 @@
       "id": "sp-blue-3",
       "team": 0,
       "position": {
-        "x": -248,
+        "x": -238,
         "y": 20,
         "z": 0
       },
@@ -397,7 +397,7 @@
       "id": "sp-blue-4",
       "team": 0,
       "position": {
-        "x": -248,
+        "x": -238,
         "y": 20,
         "z": 22
       },
@@ -407,17 +407,47 @@
       "id": "sp-blue-5",
       "team": 0,
       "position": {
-        "x": -248,
+        "x": -238,
         "y": 20,
         "z": 44
       },
       "heading": 0
     },
     {
+      "id": "sp-blue-6",
+      "team": 0,
+      "position": { "x": -216, "y": 20, "z": -44 },
+      "heading": 0
+    },
+    {
+      "id": "sp-blue-7",
+      "team": 0,
+      "position": { "x": -216, "y": 20, "z": -22 },
+      "heading": 0
+    },
+    {
+      "id": "sp-blue-8",
+      "team": 0,
+      "position": { "x": -216, "y": 20, "z": 0 },
+      "heading": 0
+    },
+    {
+      "id": "sp-blue-9",
+      "team": 0,
+      "position": { "x": -216, "y": 20, "z": 22 },
+      "heading": 0
+    },
+    {
+      "id": "sp-blue-10",
+      "team": 0,
+      "position": { "x": -216, "y": 20, "z": 44 },
+      "heading": 0
+    },
+    {
       "id": "sp-red-1",
       "team": 1,
       "position": {
-        "x": 248,
+        "x": 238,
         "y": 20,
         "z": -44
       },
@@ -427,7 +457,7 @@
       "id": "sp-red-2",
       "team": 1,
       "position": {
-        "x": 248,
+        "x": 238,
         "y": 20,
         "z": -22
       },
@@ -437,7 +467,7 @@
       "id": "sp-red-3",
       "team": 1,
       "position": {
-        "x": 248,
+        "x": 238,
         "y": 20,
         "z": 0
       },
@@ -447,7 +477,7 @@
       "id": "sp-red-4",
       "team": 1,
       "position": {
-        "x": 248,
+        "x": 238,
         "y": 20,
         "z": 22
       },
@@ -457,10 +487,40 @@
       "id": "sp-red-5",
       "team": 1,
       "position": {
-        "x": 248,
+        "x": 238,
         "y": 20,
         "z": 44
       },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-6",
+      "team": 1,
+      "position": { "x": 216, "y": 20, "z": -44 },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-7",
+      "team": 1,
+      "position": { "x": 216, "y": 20, "z": -22 },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-8",
+      "team": 1,
+      "position": { "x": 216, "y": 20, "z": 0 },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-9",
+      "team": 1,
+      "position": { "x": 216, "y": 20, "z": 22 },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-10",
+      "team": 1,
+      "position": { "x": 216, "y": 20, "z": 44 },
       "heading": 3.141593
     }
   ],

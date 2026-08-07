@@ -99,7 +99,7 @@ export type GamemodeCtf = z.infer<typeof gamemodeCtf>;
 
 export const gamemodeSchema = z.object({
   ...baseShape("gamemode"),
-  teams: z.enum(["1v1", "2v2"]),
+  teams: z.enum(["1v1", "2v2", "10v10"]),
   /** Optional bot roster / backfill policy (Phase 5 5.1). Omitted ⇒ no bots. */
   bots: gamemodeBots.optional(),
   /** Optional default arena id this mode is played on when the room gets none. */
