@@ -27,6 +27,10 @@ test("hud screenshot rig @hudshot", async ({ page }) => {
   await authOverlay.getByRole("button", { name: "Play as Guest", exact: true }).click();
   const lobby = page.locator(".lobby-overlay");
   await expect(lobby).toBeVisible();
+  if (process.env["HUD_SHOT_LOBBY"]) {
+    await page.screenshot({ path: `${outDir}/lobby.png` });
+    return;
+  }
   if (process.env["HUD_SHOT_SHIP"]) {
     await lobby.getByRole("button", { name: "Hangar", exact: true }).click();
     const hangar = page.locator(".hangar-panel");
