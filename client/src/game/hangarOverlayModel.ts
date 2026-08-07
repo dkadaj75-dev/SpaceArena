@@ -16,7 +16,7 @@ import type { HangarStatPanel } from "./hangarStats.js";
  * improvement) is testable without a DOM or an engine.
  */
 
-export type HangarGaugeKey = "power" | "hull" | "speed" | "capacitor" | "heat" | "dps";
+export type HangarGaugeKey = "power" | "hull" | "speed" | "tanks" | "thermal" | "dps";
 
 /** Which way a change moves for the PILOT, not for the number. */
 export type HangarGaugeTrend = "none" | "better" | "worse";
@@ -84,8 +84,8 @@ export interface HangarOverlayModel {
 export const HANGAR_GAUGE_REFERENCE: Record<Exclude<HangarGaugeKey, "power">, number> = {
   hull: 250,
   speed: 40,
-  capacitor: 250,
-  heat: 250,
+  tanks: 250,
+  thermal: 12,
   dps: 40,
 };
 
@@ -139,28 +139,30 @@ const SPECS: readonly GaugeSpec[] = [
     warn: () => false,
   },
   {
-    // The bar is the capacitor; the reading beside it is the IDLE budget, which
-    // is the half of "energy" a fit can actually get wrong.
-    key: "capacitor",
-    label: "Capacitor",
+    // The bar is everything this fit can store in its module tanks; the reading
+    // beside it is how fast the hull refills them (2026-08-07: there is no ship
+    // capacitor — a boost bottle and a shield reserve are separate stores).
+    key: "tanks",
+    label: "Tanks",
     decimals: 0,
     higherIsBetter: true,
-    value: (p) => p.capacitorMax,
-    reference: () => HANGAR_GAUGE_REFERENCE.capacitor,
-    valueText: (p) => `${round(p.capacitorMax, 0)} · ${signed(p.energyBudget, 1)}/s`,
-    warn: (p) => p.energyBudget < 0,
+    value: (p) => p.energyReserve,
+    reference: () => HANGAR_GAUGE_REFERENCE.tanks,
+    valueText: (p) => `${round(p.energyReserve, 0)} · ×${round(p.rechargeMult, 2)}`,
+    warn: (p) => p.rechargeMult < 1,
   },
   {
-    // Likewise heat: capacity on the bar, the sustained-fire trend beside it —
-    // a positive trend is a fit that cooks itself.
-    key: "heat",
-    label: "Heat",
-    decimals: 0,
+    // Thermals read as TIME, which is what the pilot feels: how many seconds of
+    // held trigger the fit gets, and how long the racks take to come back.
+    key: "thermal",
+    label: "Burn",
+    decimals: 1,
     higherIsBetter: true,
-    value: (p) => p.heatCapacity,
-    reference: () => HANGAR_GAUGE_REFERENCE.heat,
-    valueText: (p) => `${round(p.heatCapacity, 0)} · ${signed(p.heatNetPerSec, 1)}/s`,
-    warn: (p) => p.heatNetPerSec > 0,
+    value: (p) => (Number.isFinite(p.burnSec) ? p.burnSec : HANGAR_GAUGE_REFERENCE.thermal),
+    reference: () => HANGAR_GAUGE_REFERENCE.thermal,
+    valueText: (p) =>
+      `${Number.isFinite(p.burnSec) ? round(p.burnSec, 1) : "∞"}s · ${round(p.recoverSec, 1)}s cool`,
+    warn: (p) => p.burnSec < 3,
   },
   {
     key: "dps",

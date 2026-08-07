@@ -23,11 +23,10 @@ const STAT_PATHS = [
   "engine.nominalSpeed",
   "engine.accel",
   "engine.turnRate",
-  "energy.capacitor",
-  "energy.regen",
-  "heat.capacity",
-  "heat.dissipation",
-  "heat.criticalDamagePerSec",
+  "cooling.multiplier",
+  "recharge.multiplier",
+  "heatStore.multiplier",
+  "energyStore.multiplier",
   "sensors.lockRange",
   "sensors.lockTimeSec",
   "sensors.coneDeg",
@@ -67,11 +66,13 @@ export function resolveShipStats(
     "engine.nominalSpeed": c.engine.nominalSpeed,
     "engine.accel": c.engine.accel,
     "engine.turnRate": c.engine.turnRate,
-    "energy.capacitor": c.energy.capacitor,
-    "energy.regen": c.energy.regen,
-    "heat.capacity": c.heat.capacity,
-    "heat.dissipation": c.heat.dissipation,
-    "heat.criticalDamagePerSec": c.heat.criticalDamagePerSec,
+    // Hull-wide heat/energy levers (overhaul 2026-08-07). Defaulted rather than
+    // required for the same reason `efficiency` is: hand-built cores (editor
+    // previews, benches) may omit them, and "no opinion" is a multiplier of 1.
+    "cooling.multiplier": c.cooling?.multiplier ?? 1,
+    "recharge.multiplier": c.recharge?.multiplier ?? 1,
+    "heatStore.multiplier": c.heatStore?.multiplier ?? 1,
+    "energyStore.multiplier": c.energyStore?.multiplier ?? 1,
     "sensors.lockRange": c.sensors.lockRange,
     "sensors.lockTimeSec": c.sensors.lockTimeSec,
     "sensors.coneDeg": c.sensors.coneDeg,
@@ -112,10 +113,14 @@ export function resolveShipStats(
     for (const [k, v] of Object.entries(level.mul ?? {})) mulOp(k, v);
   }
 
-  // 2. Module passives (utility modules). Iterate in fitted order for determinism.
+  // 2. Module passives (utility modules) plus the two dedicated ship-wide blocks
+  //    a heatsink and a generator author directly. Iterate in fitted order for
+  //    determinism; both blocks are multiplicative, so two sinks stack.
   for (const moduleId of opts.fittedModuleIds ?? []) {
     if (!moduleId) continue;
     const mod = configs.get<ModuleConfig>("module", moduleId);
+    if (mod?.cooling) mulOp("cooling.multiplier", mod.cooling.multiplier);
+    if (mod?.recharge) mulOp("recharge.multiplier", mod.recharge.multiplier);
     const passives: StatOp[] | undefined = mod?.passives;
     if (!passives) continue;
     for (const op of passives) {
@@ -143,17 +148,10 @@ export function resolveShipStats(
       accel: stats["engine.accel"]!,
       turnRate: stats["engine.turnRate"]!,
     },
-    capacitor: {
-      cur: stats["energy.capacitor"]!,
-      max: stats["energy.capacitor"]!,
-      regen: stats["energy.regen"]!,
-    },
-    heat: {
-      cur: 0,
-      capacity: stats["heat.capacity"]!,
-      dissipation: stats["heat.dissipation"]!,
-      criticalDamagePerSec: stats["heat.criticalDamagePerSec"]!,
-    },
+    cooling: { multiplier: stats["cooling.multiplier"]! },
+    recharge: { multiplier: stats["recharge.multiplier"]! },
+    heatStore: { multiplier: stats["heatStore.multiplier"]! },
+    energyStore: { multiplier: stats["energyStore.multiplier"]! },
     sensors: {
       lockRange: stats["sensors.lockRange"]!,
       lockTimeSec: stats["sensors.lockTimeSec"]!,

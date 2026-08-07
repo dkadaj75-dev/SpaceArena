@@ -388,17 +388,6 @@ describe("shipped FIRE-centred control rail", () => {
       (flight.throttle.anchor.startsWith("bottom") ? 1 : -1) *
         (flight.throttle.heightPx / 2 + 10 * flight.scale);
     const minimapSize = Math.min(hud.minimapSizePx, viewport.width * 0.4);
-    const gaugeWidth = hud.gaugeWidthPx + 1.6 * hud.style.chamferPx;
-    const gaugeHeight =
-      4 * (9 * hud.scale + 2 + hud.gauges.trackHeightPx) +
-      3 * hud.gauges.gapPx +
-      1.4 * hud.style.chamferPx;
-    const gaugeLeft = hud.gauges.anchor.endsWith("right")
-      ? viewport.width - hud.safeAreaInsetPx - hud.gauges.offsetXPx - gaugeWidth
-      : hud.safeAreaInsetPx + hud.gauges.offsetXPx;
-    const gaugeTop = hud.gauges.anchor.startsWith("bottom")
-      ? viewport.height - hud.safeAreaInsetPx - hud.gauges.offsetYPx - gaugeHeight
-      : hud.safeAreaInsetPx + hud.gauges.offsetYPx;
     const obstacles = [
       {
         name: "minimap",
@@ -406,13 +395,6 @@ describe("shipped FIRE-centred control rail", () => {
         top: hud.safeAreaInsetPx,
         right: hud.safeAreaInsetPx + minimapSize,
         bottom: hud.safeAreaInsetPx + minimapSize,
-      },
-      {
-        name: "gauges",
-        left: gaugeLeft,
-        top: gaugeTop,
-        right: gaugeLeft + gaugeWidth,
-        bottom: gaugeTop + gaugeHeight,
       },
       around(
         "throttle",

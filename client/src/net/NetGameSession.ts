@@ -809,8 +809,6 @@ export class NetGameSession extends GameSession {
         // never reconstructed from the base ship config, which would ignore
         // upgrade tracks and utility-module passives (capacitor battery, heat sink).
         hullMax: p.hullMax,
-        energy: { cur: p.energyCur, max: p.energyMax },
-        heat: { cur: p.heatCur, capacity: p.heatCapacity },
         // Flight + sensor state, quantized server-side by `encodeUnit`
         // (FLIGHT.md §5). `targetId` travels as -1 for "none" because the
         // schema field is a plain number.
@@ -885,7 +883,7 @@ export function boostMult(configs: ConfigService, fittedModuleIds: readonly stri
 
 /**
  * Decode a replicated `PlayerState.modules` ArraySchema into `ModuleSnapshot[]`,
- * reading `hardpointIndex`/`moduleId`/`cycleTimer`/`shieldPool` verbatim from
+ * reading `hardpointIndex`/`moduleId`/`cycleTimer`/heat+energy stores verbatim from
  * the wire state — never synthesized from array position or the ship config's
  * `defaultFitting`. The modules array is sparse-safe (see `spawn.ts`): a
  * fitting like `{0: laser, 2: shield}` replicates two entries whose own
@@ -902,7 +900,13 @@ export function decodeModules(raw: any): Snapshot["ships"][number]["modules"] {
     hardpointIndex: m.hardpointIndex,
     moduleId: m.moduleId,
     state: decodeModuleState(m.state),
+    // Per-module stores (heat/energy overhaul 2026-08-07): the four numbers the
+    // button rings are drawn from. Capacities are resolved server-side against
+    // the hull, so they are replicated rather than recomputed from the config.
     heat: m.heat,
+    heatCapacity: m.heatCapacity ?? 0,
+    energy: m.energy ?? 0,
+    energyCapacity: m.energyCapacity ?? 0,
     stateTimer: m.stateTimer,
     cycleTimer: m.cycleTimer,
     channeling: m.channeling ?? false,

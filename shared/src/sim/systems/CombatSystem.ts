@@ -1,5 +1,5 @@
 import type { ModuleConfig } from "../../schemas/index.js";
-import type { EntityId, ModuleRuntime, ShipCore, TargetRef, Transform3D } from "../components.js";
+import type { EntityId, ModuleRuntime, TargetRef, Transform3D } from "../components.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { headingOf, len3, pitchOf, segmentIntersectsSphere } from "../math.js";
 import { hasLineOfSightBetween } from "../los.js";
@@ -20,7 +20,8 @@ export const CHANNEL_EVENT_INTERVAL_SEC = 0.25;
  * CombatSystem (1.7) — active discrete weapon modules repeat on their authored
  * cycle while the trigger is held.
  * WITH a lock (FLIGHT.md §2) shots are aimed at the locked target: range, LoS
- * (if required), cycle and energy gates all apply, exactly as before.
+ * (if required) and the cycle gate all apply, exactly as before. Weapons cost NO
+ * energy since the 2026-08-07 overhaul: heat alone limits them.
  * WITHOUT a lock, non-homing weapons fire STRAIGHT along the ship's nose
  * (owner request 2026-07-31): beams raycast out to `fire.range` and damage the
  * first enemy ship or asteroid on the line, kinetics launch a dumb projectile
@@ -35,8 +36,8 @@ export const CHANNEL_EVENT_INTERVAL_SEC = 0.25;
  * `fire.mode: "continuous"` weapons take a separate path ({@link channelStep}):
  * no cycle timer, no shots, no per-tick events — while the trigger is held and
  * the same gates pass they apply `fire.damage * dt` every tick and are marked
- * worked-this-tick every tick, so the EXISTING `drawActive` /
- * `heat.perSecondActive` per-second cost model charges them naturally.
+ * worked-this-tick every tick, so the `heat.perSecondActive` per-second cost
+ * model charges them naturally.
  */
 export function combatSystem(world: World, dt: number): void {
   for (const id of world.shipIds()) {
@@ -55,7 +56,7 @@ export function combatSystem(world: World, dt: number): void {
       // Continuous weapons never touch the cycle timer, and must be visited even
       // while inactive so a retract/overheat stops the channel on the same tick.
       if (cfg.fire.mode === "continuous") {
-        channelStep(world, { id, m, cfg, core, ref, firing: fs?.fire === true, myTf, dt });
+        channelStep(world, { id, m, cfg, ref, firing: fs?.fire === true, myTf, dt });
         continue;
       }
 
@@ -81,13 +82,13 @@ export function combatSystem(world: World, dt: number): void {
       if (homing && targetId === null) continue;
 
       if (targetId === null) {
-        // No lock: fire straight along the nose. Energy is the only remaining
-        // gate — a shot into empty space still spends its cycle, heat and energy
-        // (that trade is exactly what makes heat management a decision).
-        if (core.capacitor.cur <= cfg.energy.drawActive * core.efficiency.energyDraw * dt) continue;
+        // No lock: fire straight along the nose. Nothing else gates a shot —
+        // a weapon costs no energy since the 2026-08-07 overhaul, and a shot
+        // into empty space still spends its cycle and its heat (that trade is
+        // exactly what makes heat management a decision).
         m.cycleTimer = cfg.fire.cycleTime;
         m.workedThisTick = true;
-        m.heat += (cfg.fire.heatPerShot ?? 0) * core.efficiency.heatGen;
+        m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
 
         if (cfg.fire.projectile === null) {
           const hit = raycastNose(world, id, myTeam, myTf, cfg.fire.range);
@@ -139,12 +140,11 @@ export function combatSystem(world: World, dt: number): void {
       const dist = len3(dx, dy, dz);
       if (dist > cfg.fire.range) continue;
       if (cfg.fire.requiresLineOfSight && !hasLineOfSightBetween(world, id, targetId)) continue;
-      if (core.capacitor.cur <= cfg.energy.drawActive * core.efficiency.energyDraw * dt) continue;
 
       // Fire.
       m.cycleTimer = cfg.fire.cycleTime;
       m.workedThisTick = true;
-      m.heat += (cfg.fire.heatPerShot ?? 0) * core.efficiency.heatGen;
+      m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
       const heading = headingOf(dx, dz);
       // Ordnance leaves along the 3D bearing, so a shot at a climbing enemy
       // actually climbs (dumb kinetics included — they still lead nothing).
@@ -278,7 +278,6 @@ interface ChannelCtx {
   id: EntityId;
   m: ModuleRuntime;
   cfg: ModuleConfig;
-  core: ShipCore;
   ref: TargetRef | undefined;
   /** Trigger level for this ship this tick (`held` semantics — no edge latch). */
   firing: boolean;
@@ -289,7 +288,7 @@ interface ChannelCtx {
 /**
  * One tick of a `continuous` weapon. Every gate is the SAME gate the discrete
  * path applies — active state, trigger, lock (FLIGHT.md §2), live target, 3D
- * range, LoS, energy — evaluated fresh each tick, which is exactly what makes a
+ * range, LoS — evaluated fresh each tick, which is exactly what makes a
  * channel stop INSTANTLY on release or lock loss: there is no in-flight ordnance
  * and no timer to run down, the next tick simply applies nothing.
  */
@@ -303,9 +302,9 @@ function channelStep(world: World, ctx: ChannelCtx): void {
   }
 
   m.channeling = true;
-  // Charged like any other working module: EnergySystem bills `drawActive * dt`
-  // and `heat.perSecondActive * dt` this tick. `fire.heatPerShot` is a per-SHOT
-  // field and deliberately does not apply — a channel has no shots.
+  // Charged like any other working module: EnergySystem bills
+  // `heat.perSecondActive * dt` this tick. `heat.perShot` is a per-SHOT field
+  // and deliberately does not apply — a channel has no shots.
   m.workedThisTick = true;
 
   // A rising edge announces itself once, so the existing beam fire event (and
@@ -354,13 +353,12 @@ function channelStep(world: World, ctx: ChannelCtx): void {
  * not chew them: the banked-damage ledger is ship-shaped).
  */
 function channelTarget(world: World, ctx: ChannelCtx): EntityId | null {
-  const { id, m, cfg, core, ref, firing, myTf, dt } = ctx;
+  const { id, m, cfg, ref, firing, myTf } = ctx;
   const fire = cfg.fire!;
   if (m.state !== "active") return null;
   if (!firing) return null;
   const targetId = lockedLiveTarget(world, ref);
   if (targetId === null) {
-    if (core.capacitor.cur <= cfg.energy.drawActive * core.efficiency.energyDraw * dt) return null;
     const myTeam = world.teams.get(id)!.team;
     const hit = raycastNose(world, id, myTeam, myTf, fire.range);
     return hit !== null && !hit.isAsteroid ? hit.id : null;
@@ -369,7 +367,6 @@ function channelTarget(world: World, ctx: ChannelCtx): EntityId | null {
   const dist = len3(tgtTf.pos.x - myTf.pos.x, tgtTf.pos.y - myTf.pos.y, tgtTf.pos.z - myTf.pos.z);
   if (dist > fire.range) return null;
   if (fire.requiresLineOfSight && !hasLineOfSightBetween(world, id, targetId)) return null;
-  if (core.capacitor.cur <= cfg.energy.drawActive * core.efficiency.energyDraw * dt) return null;
   return targetId;
 }
 

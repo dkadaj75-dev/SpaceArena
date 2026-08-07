@@ -84,13 +84,13 @@ export class BalanceWorkbench implements EditorPanel {
       ["Hull", (m) => fmt(m.hull)],
       ["EHP", (m) => fmt(m.ehp)],
       ["Speed", (m) => fmt(m.speed)],
-      ["Cap", (m) => fmt(m.capacitor)],
-      ["Regen/s", (m) => fmt(m.regen)],
-      ["Idle draw", (m) => fmt(m.idleDraw)],
-      ["Active draw", (m) => fmt(m.activeDraw)],
-      ["DPS", (m) => fmt(m.sustainedDps)],
-      ["Heat/s", (m) => fmt(m.heatPerSec)],
+      ["Tanks", (m) => fmt(m.energyReserve)],
+      ["Recharge x", (m) => fmt(m.rechargeMult)],
+      ["Cooling x", (m) => fmt(m.coolingMult)],
+      ["Burst DPS", (m) => fmt(m.burstDps)],
+      ["Sustained DPS", (m) => fmt(m.sustainedDps)],
       ["TTOverheat", (m) => fmtTime(m.timeToOverheat)],
+      ["Recover", (m) => fmtTime(m.recoverSec)],
       ["Shield", (m) => fmt(m.shieldPool)],
     ];
     const table = document.createElement("table");
@@ -176,9 +176,11 @@ export class BalanceWorkbench implements EditorPanel {
     canvas.height = 140;
     canvas.className = "ed-chart";
     box.append(canvas);
-    this.plot(canvas, result.samples.map((s) => s.energy), result.capacitorMax, "#57d8ff", result.samples.map((s) => s.heat), result.heatCapacity, "#ff9a3c");
+    // Both series are already 0..1 fractions of each module's OWN store, which
+    // is the only way to draw one line for a fit whose racks have different caps.
+    this.plot(canvas, result.samples.map((s) => s.energy), 1, "#57d8ff", result.samples.map((s) => s.heat), 1, "#ff9a3c");
 
-    const legend = textEl("p", `energy (cyan, max ${fmt(result.capacitorMax)}) · heat (orange, cap ${fmt(result.heatCapacity)}) · uptime ${fmt(result.uptime * 100)}%${result.brownedOut ? " · brown-out occurred" : ""}`);
+    const legend = textEl("p", `emptiest tank (cyan) · hottest rack (orange) · uptime ${fmt(result.uptime * 100)}% · ${result.lockouts} lockout(s)`);
     legend.className = "ed-legend";
     box.append(legend);
     return box;

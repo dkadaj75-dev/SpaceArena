@@ -10,11 +10,13 @@ import type { World } from "../World.js";
  *   retracted ─(toggle)→ deploying(deployTime) → active
  *        ▲                                          │
  *        └─ retracting(retractTime) ←─(toggle)──────┘
- *   any active/deploying ─(heat ≥ threshold, in EnergySystem)→ overheated
- *        overheated ─(overheatCooldown)→ retracted (weapons: → active)
+ *   any active/deploying ─(heat ≥ its own capacity)→ overheated
+ *        overheated ─(heat ≤ capacity × rearmBelow)→ retracted (weapons: → active)
  *
- * Heat generation, overheat *detection*, dissipation and energy live in
- * EnergySystem (after combat) since they depend on the worked-this-tick flags.
+ * The whole heat/energy half — generation, cooling, the overheat trip AND the
+ * re-arm, tank drain and refill — lives in EnergySystem (after combat), because
+ * all of it depends on the worked-this-tick flags. Since the 2026-08-07 overhaul
+ * a lockout is not timed at all, so nothing about it is counted down here.
  */
 export function moduleSystem(world: World, dt: number): void {
   // Apply toggle orders. Modules are addressed by hardpoint index (the modules
@@ -41,30 +43,6 @@ export function moduleSystem(world: World, dt: number): void {
       } else if (m.state === "retracting") {
         m.stateTimer -= dt;
         if (m.stateTimer <= 0) transition(world, id, m, "retracted");
-      } else if (m.state === "overheated") {
-        m.stateTimer -= dt;
-        if (m.stateTimer <= 0) {
-          m.overheatDamaged = false;
-          // Weapons come straight back ONLINE after the lockout — they are
-          // always-on (spawned active, see spawn.ts) and the overheat cooldown
-          // IS their punishment; making the pilot re-toggle would double it.
-          // Support modules (shield/boost) return retracted as before.
-          //
-          // An overheated module holds no rail current, so the pilot may have
-          // spent it meanwhile. The automatic return never displaces a
-          // deliberate choice: if the rail is full, the weapon stays offline.
-          transition(world, id, m, cfg.fire && railFits(world, id, m, mods.modules) ? "active" : "retracted");
-        }
-      }
-
-      // Shield reservoir: regen while active (1-second cap), drop when offline.
-      if (cfg.mitigation?.absorbPerSecond !== undefined) {
-        const cap = cfg.mitigation.absorbPerSecond;
-        if (m.state === "active") {
-          m.shieldPool = Math.min(cap, m.shieldPool + cfg.mitigation.absorbPerSecond * dt);
-        } else {
-          m.shieldPool = 0;
-        }
       }
     }
   }
@@ -75,6 +53,11 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
   if (!cfg) return;
   switch (m.state) {
     case "retracted": {
+      // A flamed-out tank must charge past its own `rearmAbove` before the
+      // module can be raised again (heat/energy overhaul 2026-08-07) — the
+      // energy twin of the overheat re-arm, and what stops an empty boost
+      // bottle from stuttering one tick of thrust per three of trickle-charge.
+      if (!tankReady(m, cfg)) return;
       // POWER RAIL (2026-07-31): bringing this up may mean taking others down.
       // That is the intended trade, and it happens AUTOMATICALLY — the pilot
       // clicks the big shield, the guns drop offline, no fitting-screen error.
@@ -99,6 +82,7 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
     }
     case "retracting": {
       // Re-deploy.
+      if (!tankReady(m, cfg)) return;
       if (!clearRailFor(world, entityId, m, siblings)) return;
       m.stateTimer = cfg.activation.deployTime;
       transition(world, entityId, m, cfg.activation.deployTime <= 0 ? "active" : "deploying", cfg.onActivate);
@@ -109,8 +93,24 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
   }
 }
 
-/** Whether `m` can come up on what is left of the rail, displacing nothing. */
-function railFits(world: World, entityId: number, m: ModuleRuntime, siblings: readonly ModuleRuntime[]): boolean {
+/**
+ * Whether an energy-bearing module holds enough charge to be raised at all.
+ * Modules with no tank are always ready. Exported so the HUD/bot side can ask
+ * the same question the sim answers (a BOOST button that lights up on a tank
+ * the sim will refuse is worse than no button).
+ */
+export function tankReady(m: ModuleRuntime, cfg: ModuleConfig | undefined): boolean {
+  if (m.energyCapacity <= 0 || !cfg?.energy) return true;
+  return m.energy >= m.energyCapacity * cfg.energy.rearmAbove;
+}
+
+/**
+ * Whether `m` can come up on what is left of the rail, displacing nothing.
+ * Exported for the overheat RE-ARM in EnergySystem: a locked-out module holds no
+ * rail current, so the pilot may have spent it meanwhile, and the automatic
+ * return must never displace that deliberate choice.
+ */
+export function railFits(world: World, entityId: number, m: ModuleRuntime, siblings: readonly ModuleRuntime[]): boolean {
   const capacity = world.shipCores.get(entityId)?.power.capacity ?? 0;
   const draw = powerDrawOf(world.configs.get<ModuleConfig>("module", m.moduleId));
   return activePowerDraw(world.configs, siblings, m) + draw <= capacity;

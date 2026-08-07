@@ -17,7 +17,7 @@ import {
 export interface ConfigError {
   /** Source file (relative path from the manifest), or "<manifest>". */
   file: string;
-  /** JSON path within the file, e.g. `core.energy.capacitor`. */
+  /** JSON path within the file, e.g. `core.cooling.multiplier`. */
   path: string;
   /** What went wrong. */
   message: string;

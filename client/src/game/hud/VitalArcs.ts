@@ -94,10 +94,12 @@ export class VitalArcs {
     let capacity = 0;
     for (const fitted of ship.modules) {
       const cfg = this.configs.get<ModuleConfig>("module", fitted.moduleId);
-      const cap = cfg?.mitigation?.absorbPerSecond;
-      if (cap === undefined) continue;
+      // A shield's reserve IS its energy tank since the 2026-08-07 overhaul, so
+      // the arc reads the replicated per-module store rather than an authored
+      // absorb rate.
+      if (!cfg?.mitigation || fitted.energyCapacity <= 0) continue;
       pool += fitted.shieldPool;
-      capacity += cap;
+      capacity += fitted.energyCapacity;
     }
     this.set(this.shield, capacity > 0 ? pool / capacity : 0);
   }

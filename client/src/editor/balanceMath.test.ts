@@ -11,8 +11,7 @@ function mod(id: string, family: ModuleConfig["family"], patch: Partial<ModuleCo
     family,
     level: 1,
     activation: { deployTime: 0, retractTime: 0 },
-    energy: { drawIdle: 1, drawActive: 5 },
-    heat: { perSecondActive: 0, overheatThreshold: 100, overheatCooldown: 3, overheatSelfDamage: 0 },
+    heat: { capacity: 100, coolingPerSec: 8, perShot: 6 },
     ui: { icon: "x", label: "x" },
     price: 0,
     requiresLevel: 1,
@@ -38,8 +37,6 @@ function makeShip(patch: Partial<ShipConfig["core"]> = {}): ShipConfig {
     core: {
       hull: { base: 100, resists: { kinetic: 0.2, energy: 0.0 } },
       engine: { nominalSpeed: 30, accel: 20, turnRate: 3 },
-      energy: { capacitor: 120, regen: 14 },
-      heat: { capacity: 100, dissipation: 9, criticalDamagePerSec: 4 },
       sensors: { lockRange: 60, lockTimeSec: 1.5, coneDeg: 70 },
       ...patch,
     },
@@ -66,37 +63,57 @@ describe("balanceMath", () => {
     expect(m.ehp).toBeCloseTo(110, 5); // 100 * (1 + 0.1 avg resist)
   });
 
-  it("EHP + shield pool drive a first-order TTK", () => {
+  it("EHP + shield reserve drive a first-order TTK", () => {
     const modules = [
-      mod("module.laser", "laser", { fire: { mode: "held", range: 30, cycleTime: 1, damage: 10, damageType: "energy", requiresLineOfSight: true, projectile: null } }),
-      mod("module.shield", "shield", { mitigation: { damageReduction: 0.5, absorbPerSecond: 20 } }),
+      // Cooling that keeps pace with generation ⇒ duty cycle 1, so this weapon's
+      // sustained DPS is its nominal one and the arithmetic stays readable.
+      mod("module.laser", "laser", {
+        heat: { capacity: 100, coolingPerSec: 10, perShot: 10, perSecondActive: 0, rearmBelow: 0.25 },
+        fire: { mode: "held", range: 30, cycleTime: 1, damage: 10, damageType: "energy", requiresLineOfSight: true, projectile: null },
+      }),
+      mod("module.shield", "shield", {
+        heat: undefined,
+        energy: { capacity: 20, rechargePerSec: 4, drawPerSec: 4, rearmAbove: 0.25 },
+        mitigation: { damageReduction: 0.5 },
+      }),
     ];
     const cfg = lookup(modules);
     const attacker = fitMetrics(makeShip(), cfg, ["module.laser"]); // 10 dps
-    const defender = fitMetrics(makeShip(), cfg, ["module.shield"]); // ehp 110 + shield 20
+    const defender = fitMetrics(makeShip(), cfg, ["module.shield"]); // ehp 110 + reserve 20
     expect(timeToKill(attacker, defender)).toBeCloseTo((110 + 20) / 10, 5);
     // Zero-DPS attacker never kills.
     expect(timeToKill(defender, defender)).toBe(Infinity);
   });
 
-  it("engagement sim keeps energy in [0, max] and reports full uptime for a stable fit", () => {
-    const modules = [mod("module.laser", "laser", { energy: { drawIdle: 1, drawActive: 5 }, heat: { perSecondActive: 0, overheatThreshold: 100, overheatCooldown: 3, overheatSelfDamage: 0 } })];
-    const ship = makeShip({ energy: { capacitor: 200, regen: 40 } });
-    const result = simulateEngagement(ship, lookup(modules), ["module.laser"], { duration: 20, dt: 0.1 });
+  it("engagement sim keeps both stores in bounds and never locks a heat-stable rack", () => {
+    // Cooling out-paces generation ⇒ the rack never trips and uptime is 1.
+    const modules = [
+      mod("module.laser", "laser", {
+        heat: { capacity: 100, coolingPerSec: 50, perShot: 1, perSecondActive: 0, rearmBelow: 0.25 },
+        fire: { mode: "held", range: 30, cycleTime: 1, damage: 5, damageType: "energy", requiresLineOfSight: true, projectile: null },
+      }),
+    ];
+    const result = simulateEngagement(makeShip(), lookup(modules), ["module.laser"], { duration: 20, dt: 0.1 });
     for (const s of result.samples) {
+      expect(s.heat).toBeGreaterThanOrEqual(0);
       expect(s.energy).toBeGreaterThanOrEqual(0);
-      expect(s.energy).toBeLessThanOrEqual(result.capacitorMax + 1e-9);
+      expect(s.energy).toBeLessThanOrEqual(1 + 1e-9);
     }
-    expect(result.brownedOut).toBe(false);
+    expect(result.lockouts).toBe(0);
     expect(result.uptime).toBeCloseTo(1, 5);
   });
 
-  it("engagement sim never lets energy go negative under a power-starved fit", () => {
-    const modules = [mod("module.hog", "laser", { energy: { drawIdle: 5, drawActive: 500 } })];
-    const ship = makeShip({ energy: { capacitor: 30, regen: 5 } });
-    const result = simulateEngagement(ship, lookup(modules), ["module.hog"], { duration: 10, dt: 0.1 });
-    expect(result.brownedOut).toBe(true);
-    for (const s of result.samples) expect(s.energy).toBeGreaterThanOrEqual(0);
+  it("engagement sim locks out a rack that cooks itself, then re-arms it", () => {
+    const modules = [
+      mod("module.hog", "laser", {
+        heat: { capacity: 40, coolingPerSec: 5, perSecondActive: 60, perShot: 0, rearmBelow: 0.25 },
+        fire: { mode: "continuous", range: 30, cycleTime: 0.1, damage: 5, damageType: "energy", requiresLineOfSight: true, projectile: null },
+      }),
+    ];
+    const result = simulateEngagement(makeShip(), lookup(modules), ["module.hog"], { duration: 20, dt: 0.1 });
+    expect(result.lockouts).toBeGreaterThan(1);
+    expect(result.uptime).toBeLessThan(1);
+    for (const s of result.samples) expect(s.heat).toBeGreaterThanOrEqual(0);
   });
 
   it("defaultFitOf pads to the hardpoint count", () => {

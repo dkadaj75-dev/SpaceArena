@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import type { ConfigService, Snapshot } from "@space-arena/shared";
-import { Gauges, heatGaugeModel } from "./Gauges.js";
+import { heatGaugeModel } from "./Gauges.js";
 import { resolveHudLayout } from "./hudLayout.js";
 import { VitalArcs } from "./VitalArcs.js";
 
@@ -25,8 +25,6 @@ const snapshot: Snapshot = {
     up: { x: 0, y: 1, z: 0 },
     hull: 75,
     hullMax: 100,
-    energy: { cur: 60, max: 100 },
-    heat: { cur: 10, capacity: 100 },
     targetId: null,
     throttle: 0,
     lockProgress: 0,
@@ -36,6 +34,11 @@ const snapshot: Snapshot = {
       moduleId: "module.shield",
       state: "retracted",
       heat: 0,
+      heatCapacity: 100,
+      // A shield's reserve IS its energy tank (2026-08-07): `shieldPool` mirrors
+      // that charge for the hull arc, and `energyCapacity` is its denominator.
+      energy: 20,
+      energyCapacity: 40,
       stateTimer: 0,
       cycleTimer: 0,
       channeling: false,
@@ -47,7 +50,7 @@ const snapshot: Snapshot = {
 const configs = {
   get: (type: string, id: string) =>
     type === "module" && id === "module.shield"
-      ? { mitigation: { absorbPerSecond: 40 } }
+      ? { mitigation: { damageReduction: 0.5 } }
       : undefined,
 } as unknown as ConfigService;
 
@@ -55,7 +58,6 @@ describe("centre vital arcs", () => {
   it("reflects an overheated rack even when the denormalized ship pool is zero", () => {
     const lockedOut = structuredClone(snapshot);
     const ship = lockedOut.ships[0]!;
-    ship.heat.cur = 0;
     ship.modules[0]!.state = "overheated";
     ship.modules[0]!.heat = 40;
 
@@ -63,15 +65,6 @@ describe("centre vital arcs", () => {
     expect(model).toMatchObject({ value: 40, capacity: 100, overheated: true });
     expect(model.fraction).toBe(0.4);
 
-    const root = document.createElement("div");
-    const gauges = new Gauges(root, configs, {} as never, 1);
-    gauges.update(lockedOut);
-
-    const heat = root.querySelector<HTMLElement>('[data-gauge="heat"]')!;
-    expect(heat.querySelector<HTMLElement>(".hud-gauge-value")!.textContent).toBe("40/100");
-    expect(heat.querySelector<HTMLElement>(".hud-gauge-fill")!.style.transform).toBe("scaleX(0.4)");
-    expect(heat.classList.contains("critical")).toBe(true);
-    gauges.dispose();
   });
 
   it("follows replicated rack heat downward continuously", () => {
@@ -83,33 +76,28 @@ describe("centre vital arcs", () => {
     expect(heatGaugeModel(ship)).toMatchObject({ value: 25, fraction: 0.25 });
   });
 
-  it("moves hull/shield out of the lower-left panel and follows live pools", () => {
+  it("keeps hull/shield in centre vital arcs with no lower-left panel", () => {
     const root = document.createElement("div");
     const layout = resolveHudLayout(
       {
         hud: {
-          gauges: { showHull: false, showShield: false },
+          gauges: { showHull: true, showShield: true },
           vitalArcs: { enabled: true, radiusPx: 140, strokePx: 5, arcDeg: 120 },
         },
       } as never,
       { width: 400, height: 800 },
     );
-    const gauges = new Gauges(root, configs, {} as never, 1);
     const arcs = new VitalArcs(root, configs, 1);
-    gauges.applyLayout(layout);
     arcs.applyLayout(layout);
-    gauges.update(snapshot);
     arcs.update(snapshot);
 
-    expect(root.querySelector<HTMLElement>('[data-gauge="hull"]')!.hidden).toBe(true);
-    expect(root.querySelector<HTMLElement>('[data-gauge="shield"]')!.hidden).toBe(true);
-    expect(root.querySelector<HTMLElement>('[data-gauge="energy"]')!.hidden).toBe(false);
-    expect(root.querySelector<HTMLElement>('[data-gauge="heat"]')!.hidden).toBe(false);
+    expect(root.querySelector(".hud-gauges")).toBeNull();
+    expect(root.querySelector('[data-gauge="energy"]')).toBeNull();
+    expect(root.querySelector('[data-gauge="heat"]')).toBeNull();
     expect(root.querySelector<HTMLElement>(".hud-vital-label.hull .value")!.textContent).toBe("75%");
     expect(root.querySelector<HTMLElement>(".hud-vital-label.shield .value")!.textContent).toBe("50%");
     expect(root.querySelector<SVGPathElement>(".hud-vital-arc.fill.hull")!.style.strokeDasharray).toBe("75 100");
 
     arcs.dispose();
-    gauges.dispose();
   });
 });

@@ -10,31 +10,21 @@
     "retractTime": 0.25
   },
   "energy": {
-    "drawIdle": 2,
-    "drawActive": 36
+    "capacity": 60,
+    "rechargePerSec": 8.0,
+    "drawPerSec": 20
   },
   "power": {
     "draw": 1.5
   },
-  "heat": {
-    "perSecondActive": 3.9000000000000004,
-    "overheatThreshold": 45,
-    "overheatCooldown": 3,
-    "overheatSelfDamage": 0
-  },
   "boost": {
-    "speedMult": 1.8,
-    "heatPerSec": 1.5
+    "speedMult": 1.8
   },
   "onActivate": [
     "action.play-sound-boost-up"
   ],
   "onDeactivate": [
     "action.play-sound-boost-down"
-  ],
-  "onOverheat": [
-    "action.notify-overheat",
-    "action.play-sound-overheat"
   ],
   "ui": {
     "icon": "[ICON: boost]",

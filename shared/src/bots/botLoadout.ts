@@ -6,7 +6,8 @@ import { resolveShipStats } from "../sim/resolveStats.js";
 /** Seeded bot fittings use every tier and specialist in the installed pack. */
 export const MAX_BOT_MODULE_LEVEL = Infinity;
 const MAX_ATTEMPTS = 2_000;
-const SUSTAIN_WINDOW_SEC = 3;
+/** Shortest held-trigger burn a rolled bot fitting may have (seconds). */
+const MIN_BURN_SEC = 2;
 
 function pick<T>(rng: () => number, list: readonly T[]): T | undefined {
   if (list.length === 0) return undefined;
@@ -40,22 +41,34 @@ function flavorWeight(profile: BotprofileConfig | undefined, mod: ModuleConfig):
 }
 
 /**
- * Conservative combat viability: the resolved capacitor/thermal system must
- * sustain every fitted module active for a useful exchange, and the rail must
- * be able to online at least one weapon. Fits may still need discipline during
- * an extended brawl; they cannot brown out or cook instantly.
+ * Conservative combat viability under the per-module heat/energy model
+ * (2026-08-07): the rail must be able to online at least one weapon, and every
+ * fitted weapon must be able to hold its trigger for a useful stretch —
+ * `capacity × (1 - rearmBelow) / (generation - cooling)` seconds — before it
+ * locks itself out. A fit may still need discipline in a long brawl; it may not
+ * cook itself instantly, and it can no longer hurt its own hull at all.
  */
 export function isBotFittingViable(configs: ConfigService, ship: ShipConfig, fitting: readonly (string | null)[]): boolean {
   const modules = fitting.flatMap((id) => id ? [configs.get<ModuleConfig>("module", id)] : []).filter((m): m is ModuleConfig => !!m);
   const weapons = modules.filter((m) => m.fire);
   if (weapons.length === 0) return false;
   const core = resolveShipStats(ship, configs, { fittedModuleIds: fitting });
-  const energyDraw = modules.reduce((sum, m) => sum + m.energy.drawActive, 0) * core.efficiency.energyDraw;
-  const heatGen = modules.reduce((sum, m) => sum + m.heat.perSecondActive + ((m.fire?.heatPerShot ?? 0) / (m.fire?.cycleTime ?? Infinity)), 0) * core.efficiency.heatGen;
-  const energyBudget = core.capacitor.regen + core.capacitor.max / SUSTAIN_WINDOW_SEC;
-  const heatBudget = core.heat.dissipation + core.heat.capacity / SUSTAIN_WINDOW_SEC;
   const canOnlineWeapon = weapons.some((m) => (m.power?.draw ?? 0) <= core.power.capacity);
-  return energyDraw <= energyBudget && heatGen <= heatBudget && canOnlineWeapon;
+  if (!canOnlineWeapon) return false;
+  return weapons.every((m) => burnSeconds(m, core.cooling.multiplier, core.efficiency.heatGen, core.heatStore.multiplier) >= MIN_BURN_SEC);
+}
+
+/** Seconds of held trigger a weapon gets from cold before it locks out. */
+function burnSeconds(mod: ModuleConfig, coolingMult: number, heatGenMult: number, storeMult: number): number {
+  const heat = mod.heat;
+  if (!heat) return Infinity;
+  const perSec =
+    (mod.fire?.mode === "continuous"
+      ? heat.perSecondActive
+      : heat.perSecondActive + heat.perShot / Math.max(1e-6, mod.fire?.cycleTime ?? Infinity)) * heatGenMult;
+  const net = perSec - heat.coolingPerSec * coolingMult;
+  if (net <= 0) return Infinity;
+  return (heat.capacity * storeMult) / net;
 }
 
 /** Comparable catalogue-independent fitting quality used for player-relative rolls. */

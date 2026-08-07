@@ -667,7 +667,7 @@ describe("Determinism", () => {
 });
 
 describe("Scripted 60s engagement (regression anchor)", () => {
-  it("interceptor vs static target: energy never negative under x2 heat lockouts", () => {
+  it("interceptor vs static target: stores stay in bounds and the kill lands", () => {
     const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.duel-1v1");
     // Open space, 22 apart and clear of the surrounding belt, so this remains
     // an engagement anchor rather than a collision-pushout test.
@@ -684,16 +684,20 @@ describe("Scripted 60s engagement (regression anchor)", () => {
     for (let t = 0; t < 1800; t++) {
       sim.tick(DT);
       sim.getEvents();
-      const s = sim.world.shipCores.get(shooter);
-      if (s) {
-        expect(s.capacitor.cur).toBeGreaterThanOrEqual(0);
-        for (const m of sim.world.modules.get(shooter)!.modules) expect(m.heat).toBeGreaterThanOrEqual(0);
+      if (sim.world.shipCores.has(shooter)) {
+        for (const m of sim.world.modules.get(shooter)!.modules) {
+          expect(m.heat).toBeGreaterThanOrEqual(0);
+          expect(m.energy).toBeGreaterThanOrEqual(0);
+          expect(m.energy).toBeLessThanOrEqual(m.energyCapacity + 1e-9);
+        }
       }
       if (diedTick < 0 && !sim.world.shipCores.has(target)) diedTick = t;
     }
-    // The doubled per-shot heat stalls the stock two-rack interceptor before
-    // it can finish this target in the 60-second regression window.
-    expect(diedTick).toBe(-1);
+    // Heat/energy overhaul (2026-08-07): a held trigger now RESOLVES. The stock
+    // light hull kills a stationary identical hull well inside the window, and
+    // the shooter is alive at the end — nothing about firing costs it hull.
+    expect(diedTick).toBeGreaterThan(0);
+    expect(sim.world.shipCores.has(shooter)).toBe(true);
   });
 });
 

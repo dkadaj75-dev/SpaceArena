@@ -91,9 +91,9 @@ describe("CombatSystem beam", () => {
     expect(world.shipCores.get(target)!.hull).toBe(before);
   });
 
-  it("does not fire with an empty capacitor", () => {
+  it("does not fire while its own rack is locked out", () => {
     const { world, shooter, target } = duel({ x: 20, z: 0 });
-    world.shipCores.get(shooter)!.capacitor.cur = 0;
+    world.modules.get(shooter)!.modules[LASER]!.state = "overheated";
     const before = world.shipCores.get(target)!.hull;
     combatSystem(world, DT);
     expect(world.shipCores.get(target)!.hull).toBe(before);
@@ -132,7 +132,7 @@ describe("CombatSystem straight fire — no lock, non-homing weapons (2026-07-31
     const weapon = world.modules.get(shooter)!.modules[LASER]!;
     expect(weapon.workedThisTick).toBe(true);
     expect(weapon.cycleTimer).toBeGreaterThan(0);
-    expect(weapon.heat).toBeGreaterThan(0); // authored heatPerShot
+    expect(weapon.heat).toBeGreaterThan(0); // authored heat.perShot
     expect(world.events.find((e) => e.type === "projectileFired")).toMatchObject({
       kind: "beam",
       targetId: null,
@@ -266,13 +266,13 @@ describe("CombatSystem trigger discipline", () => {
     // need a target to home on. Straight-fire weapons are covered below.
     const { world, shooter } = duel({ x: 20, z: 0 }, MISSILE);
     world.targets.get(shooter)!.locked = false;
-    const core = world.shipCores.get(shooter)!;
-    const before = core.capacitor.cur;
+    const rack = world.modules.get(shooter)!.modules[MISSILE]!;
+    const before = rack.heat;
 
     combatSystem(world, DT);
 
-    expect(core.capacitor.cur).toBe(before);
-    expect(world.modules.get(shooter)!.modules[MISSILE]!.workedThisTick).toBe(false);
+    expect(rack.heat).toBe(before);
+    expect(rack.workedThisTick).toBe(false);
     expect(world.events.some((event) => event.type === "projectileFired")).toBe(false);
   });
 
@@ -301,21 +301,20 @@ describe("CombatSystem trigger discipline", () => {
     expect(world.flightStates.get(shooter)!.firePrev).toBe(true);
   });
 
-  it("adds optional heatPerShot on the firing tick", () => {
+  it("adds heat.perShot on the firing tick, then cools at the rack's own rate", () => {
     const { world, shooter } = duel({ x: 20, z: 0 });
     const config = world.configs.get<ModuleConfig>("module", "module.laser-mk1")!;
     const weapon = world.modules.get(shooter)!.modules[LASER]!;
-    configs.replace({ ...config, fire: { ...config.fire!, heatPerShot: 3 } });
+    configs.replace({ ...config, heat: { ...config.heat!, perShot: 3 } });
     try {
       combatSystem(world, DT);
       // The per-shot heat lands verbatim: the stock transformer's heatGen is 1.
       expect(weapon.heat).toBe(3);
       energySystem(world, DT);
-      // Then the usual per-second active heat and ship dissipation apply. Only
-      // this weapon is hot, so it absorbs the whole dissipation budget.
+      // Then the rack's OWN cooling applies (x the hull's cooling multiplier).
       const cfg = world.configs.get<ModuleConfig>("module", "module.laser-mk1")!;
-      const dissipation = world.shipCores.get(shooter)!.heat.dissipation;
-      expect(weapon.heat).toBeCloseTo(3 + (cfg.heat.perSecondActive - dissipation) * DT, 6);
+      const cooling = cfg.heat!.coolingPerSec * world.shipCores.get(shooter)!.cooling.multiplier;
+      expect(weapon.heat).toBeCloseTo(3 - cooling * DT, 6);
     } finally {
       configs.replace(config);
     }
@@ -521,14 +520,15 @@ describe("Damage pipeline — shield mitigation", () => {
     const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING_SHIELD, 0, { x: 0, z: 0 }, 0);
     const shield = world.modules.get(id)!.modules[SHIELD]!;
     shield.state = "active";
-    shield.shieldPool = 12; // full reservoir
+    shield.energy = shield.energyCapacity; // full reserve
     const core = world.shipCores.get(id)!;
     const before = core.hull;
 
     applyDamageToShip(world, id, null, 20, "energy");
     const drop = before - core.hull;
-    // damageReduction 0.5, pool caps absorb at 10 → ~10 through to hull (energy resist 0).
+    // damageReduction 0.5 with charge to spare → half through to hull (energy resist 0).
     expect(drop).toBeCloseTo(10, 1);
+    expect(shield.energy).toBeCloseTo(shield.energyCapacity - 10, 6);
     expect(world.events.some((e) => e.type === "shieldAbsorb")).toBe(true);
   });
 
@@ -713,65 +713,67 @@ describe("CombatSystem continuous channel", () => {
     expect(blocked.world.shipCores.get(blocked.target)!.hull).toBe(beforeBlocked);
   });
 
-  it("stops on an exhausted capacitor and RESUMES from regen with the trigger still held", () => {
+  it("stops on its own LOCKOUT and RESUMES on re-arm with the trigger still held", () => {
     const { world, shooter, target } = channelDuel();
-    const core = world.shipCores.get(shooter)!;
-    core.capacitor.cur = 0;
+    const beam = world.modules.get(shooter)!.modules[BEAM]!;
+    beam.heat = beam.heatCapacity * 1.2;
 
-    // Energy-starved: the gate blocks the channel, and EnergySystem's regen then
-    // refills against the idle draw only.
-    const beforeStarved = world.shipCores.get(target)!.hull;
-    combatSystem(world, DT);
-    energySystem(world, DT);
-    latchFireState(world);
-    expect(world.shipCores.get(target)!.hull).toBe(beforeStarved);
-    expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(false);
-
-    // The trigger was never released — as soon as regen clears the gate the
-    // channel resumes on its own.
-    let resumed = false;
-    for (let i = 0; i < 30 && !resumed; i++) {
+    // Cooked: the rack goes offline and the channel stops. Heat is the ONLY
+    // thing that can stop a beam now — weapons cost no energy.
+    // `workedThisTick` is reset at the top of every sim tick (ArenaSimulation),
+    // so a bench that drives the systems directly has to do the same.
+    const step = (): void => {
+      for (const m of world.modules.get(shooter)!.modules) m.workedThisTick = false;
       combatSystem(world, DT);
       energySystem(world, DT);
       latchFireState(world);
-      resumed = world.modules.get(shooter)!.modules[BEAM]!.channeling;
+    };
+    step();
+    expect(beam.state).toBe("overheated");
+
+    const beforeLocked = world.shipCores.get(target)!.hull;
+    combatSystem(world, DT);
+    expect(world.shipCores.get(target)!.hull).toBeCloseTo(beforeLocked, 6);
+    expect(beam.channeling).toBe(false);
+
+    // The trigger was never released — as soon as it cools past `rearmBelow`
+    // the channel resumes on its own.
+    let resumed = false;
+    for (let i = 0; i < 200 && !resumed; i++) {
+      step();
+      resumed = beam.channeling;
     }
     expect(resumed).toBe(true);
-    expect(world.shipCores.get(target)!.hull).toBeLessThan(beforeStarved);
+    expect(world.shipCores.get(target)!.hull).toBeLessThan(beforeLocked);
   });
 
-  it("pays drawActive and per-second heat EVERY tick it channels (the point of the cost model)", () => {
+  it("pays per-second heat EVERY tick it channels (the point of the cost model)", () => {
     const { world, shooter } = channelDuel();
     const beam = world.modules.get(shooter)!.modules[BEAM]!;
     const cfg = configs.get<ModuleConfig>("module", "module.beamlaser-mk1")!;
     const core = world.shipCores.get(shooter)!;
-    core.capacitor.cur = core.capacitor.max;
-    // The rebalance puts the beam's authored heat generation below the stock
-    // heatsink's dissipation. Disable that unrelated cooling here so this test
-    // continues to prove the channel applies its per-tick heat cost.
-    core.heat.dissipation = 0;
-    // The shipped x2 heat figure intentionally trips this beam before one
-    // second; this unit bench isolates the per-tick accounting contract.
+    // The shipped beam trips inside 5 s of channelling; this unit bench raises
+    // its capacity so a full second of accounting is observable in one burn.
+    expect(configs.replace({ ...cfg, heat: { ...cfg.heat!, capacity: 1000 } }).ok).toBe(true);
+    beam.heatCapacity = 1000;
     beam.heat = 0;
-    expect(configs.replace({ ...cfg, heat: { ...cfg.heat, overheatThreshold: 1000 } }).ok).toBe(true);
     const benchCfg = configs.get<ModuleConfig>("module", "module.beamlaser-mk1")!;
-    const energyBefore = core.capacitor.cur;
 
     for (let i = 0; i < 30; i++) {
+      for (const m of world.modules.get(shooter)!.modules) m.workedThisTick = false;
       combatSystem(world, DT);
       expect(beam.workedThisTick).toBe(true); // worked-this-tick on EVERY tick
       energySystem(world, DT);
       latchFireState(world);
     }
 
-    // One second of channel: `drawActive - regen` out of the capacitor (the
-    // other fitted modules are retracted and cost nothing), and
-    // `perSecondActive - dissipation` into the module's own heat.
-    const spent = energyBefore - core.capacitor.cur;
-    expect(spent).toBeGreaterThan(0);
-    expect(spent).toBeCloseTo(benchCfg.energy.drawActive - core.capacitor.regen, 0);
+    // One second of channel: `perSecondActive - its own cooling` into the
+    // module's own heat store, and NOTHING out of any energy tank (a weapon
+    // costs no energy under the 2026-08-07 model).
+    const cooling = benchCfg.heat!.coolingPerSec * core.cooling.multiplier;
     expect(beam.heat).toBeGreaterThan(0);
-    expect(beam.heat).toBeCloseTo(benchCfg.heat.perSecondActive - core.heat.dissipation, 0);
+    expect(beam.heat).toBeCloseTo(benchCfg.heat!.perSecondActive - cooling, 0);
+    expect(beam.energyCapacity).toBe(0);
     expect(configs.replace(cfg).ok).toBe(true);
   });
 
@@ -793,13 +795,14 @@ describe("CombatSystem continuous channel", () => {
     // Throttling the EVENTS must not lose any DAMAGE: the reported total is the
     // hull the target actually lost.
     const reported = damage.reduce((sum, e) => sum + (e.type === "damage" ? e.amount : 0), 0);
-    expect(reported).toBeCloseTo(80 - world.shipCores.get(target)!.hull, 9);
+    const targetCore = world.shipCores.get(target)!;
+    expect(reported).toBeCloseTo(targetCore.hullMax - targetCore.hull, 9);
     expect(reported).toBeCloseTo(dps * 60 * DT, 9);
   });
 
   it("emits damage-then-destroyed when the channel lands the kill", () => {
     const { world, target } = channelDuel();
-    world.shipCores.get(target)!.hull = 0.2; // dies inside one tick
+    world.shipCores.get(target)!.hull = 0.05; // dies inside one tick
     channelTick(world);
 
     const types = world.events.map((e) => e.type);
@@ -809,12 +812,10 @@ describe("CombatSystem continuous channel", () => {
     expect(world.shipCores.get(target)!.hull).toBe(0);
   });
 
-  it("ignores fire.heatPerShot — a channel has no shot to charge it against", async () => {
-    // Fresh registry: the override must not leak into the rest of this file.
+  it("takes no per-SHOT heat — a channel has no shot to charge it against", async () => {
+    // Fresh registry: the schema forbids authoring perShot on a channel, so the
+    // guard is that CombatSystem never adds shot heat on the channel path.
     const cfgs = await loadTestConfigs();
-    const base = cfgs.get<ModuleConfig>("module", "module.beamlaser-mk1")!;
-    expect(cfgs.replace({ ...base, fire: { ...base.fire!, heatPerShot: 100 } }).ok).toBe(true);
-
     const { world, shooter } = channelDuel({ x: 20, z: 0 }, cfgs);
     combatSystem(world, DT); // heat accrual is EnergySystem's job, not the shot's
     expect(world.modules.get(shooter)!.modules[BEAM]!.heat).toBe(0);

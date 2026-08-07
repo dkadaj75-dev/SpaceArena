@@ -7,14 +7,13 @@ function panel(over: Partial<HangarStatPanel> = {}): HangarStatPanel {
   return {
     hullMax: 100,
     nominalSpeed: 20,
-    capacitorMax: 120,
-    capacitorRegen: 7,
-    heatCapacity: 100,
-    heatDissipation: 9,
-    idleDrawTotal: 2,
-    energyBudget: 5,
-    heatNetPerSec: -3,
+    energyReserve: 120,
+    rechargeMult: 1.25,
+    coolingMult: 1.6,
+    burnSec: 5,
+    recoverSec: 2.5,
     dps: 20,
+    sustainedDps: 14,
     ehpApprox: 110,
     powerCapacity: 10,
     powerDrawTotal: 6,
@@ -33,7 +32,7 @@ function gauge(model: ReturnType<typeof buildOverlayModel>, key: HangarGaugeKey)
 describe("hangar stage overlay gauges", () => {
   it("shows every headline characteristic, power first", () => {
     const model = buildOverlayModel(panel(), null);
-    expect(model.gauges.map((g) => g.key)).toEqual(["power", "hull", "speed", "capacitor", "heat", "dps"]);
+    expect(model.gauges.map((g) => g.key)).toEqual(["power", "hull", "speed", "tanks", "thermal", "dps"]);
     expect(model.previewing).toBe(false);
   });
 
@@ -143,12 +142,12 @@ describe("hangar stage overlay gauges", () => {
     expect(model.projectedPowerOverBy).toBe(0);
   });
 
-  it("warns on a fit that drains its capacitor at idle or cooks itself under fire", () => {
-    const model = buildOverlayModel(panel({ energyBudget: -1.5, heatNetPerSec: 2.5 }), null);
-    expect(gauge(model, "capacitor").warn).toBe(true);
-    expect(gauge(model, "capacitor").valueText).toBe("120 · -1.5/s");
-    expect(gauge(model, "heat").warn).toBe(true);
-    expect(gauge(model, "heat").valueText).toBe("100 · +2.5/s");
+  it("warns on a fit whose tanks refill slowly or whose racks lock out fast", () => {
+    const model = buildOverlayModel(panel({ rechargeMult: 0.9, burnSec: 2.2, recoverSec: 3 }), null);
+    expect(gauge(model, "tanks").warn).toBe(true);
+    expect(gauge(model, "tanks").valueText).toBe("120 · ×0.90");
+    expect(gauge(model, "thermal").warn).toBe(true);
+    expect(gauge(model, "thermal").valueText).toBe("2.2s · 3.0s cool");
   });
 
   it("treats float noise as no change at all", () => {

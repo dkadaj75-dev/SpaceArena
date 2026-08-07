@@ -16,12 +16,12 @@ function moduleConfig(over: Partial<ModuleConfig> = {}): ModuleConfig {
     family: "laser",
     level: 1,
     activation: { deployTime: 1.5, retractTime: 1 },
-    energy: { drawIdle: 3, drawActive: 11 },
     heat: {
-      perSecondActive: 6,
-      overheatThreshold: 55,
-      overheatCooldown: 5,
-      overheatSelfDamage: 0,
+      capacity: 100,
+      coolingPerSec: 25,
+      perSecondActive: 0,
+      perShot: 30,
+      rearmBelow: 0.25,
     },
     fire: {
       mode: "held",
@@ -31,7 +31,6 @@ function moduleConfig(over: Partial<ModuleConfig> = {}): ModuleConfig {
       damageType: "energy",
       requiresLineOfSight: true,
       projectile: null,
-      heatPerShot: 0.2,
     },
     onFire: ["action.play-sound-laser"],
     ui: { icon: "[ICON: laser]", iconId: "laser", shortName: "Laser Mk1", label: "Laser" },
@@ -90,9 +89,11 @@ describe("ModuleEditor", () => {
       "engine", "generator", "transformer", "heatsink", "sensors",
     ]);
     expect(panel.element.querySelector('[name="fire.mode"]')).not.toBeNull();
-    expect(panel.element.querySelector('[name="fire.heatPerShot"]')).not.toBeNull();
-    expect(panel.element.querySelector('[name="energy.drawActive"]')).not.toBeNull();
-    expect(panel.element.querySelector('[name="heat.overheatThreshold"]')).not.toBeNull();
+    // The per-module heat store (2026-08-07) is what a weapon is authored in.
+    expect(panel.element.querySelector('[name="heat.capacity"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="heat.coolingPerSec"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="heat.perShot"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="heat.rearmBelow"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.icon"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.iconId"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.shortName"]')).not.toBeNull();

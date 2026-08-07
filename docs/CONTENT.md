@@ -54,6 +54,26 @@ loaded, and the first symptom is a gamemode falling back to a different arena.
 > continuous beams, for which `fire.damage` is DPS. Fire cadence, heat, and
 > energy costs are unchanged.
 
+> **Heat/energy overhaul (2026-08-07) — supersedes both notes above for every
+> heat and energy number.** There is no ship heat pool and no shared capacitor.
+> Each weapon authors its own `heat` block (`capacity`, `coolingPerSec`,
+> `perShot` or `perSecondActive`, `rearmBelow`) and each energy-bearing module
+> its own `energy` block (`capacity`, `rechargePerSec`, `drawPerSec`,
+> `rearmAbove`); heatsinks author `cooling.multiplier` and generators
+> `recharge.multiplier`, both ship-wide and multiplicative. **Weapons cost no
+> energy at all.** Two identities do all the authoring work:
+>
+> ```
+> burn (s)     = (capacity - perShot) / (generation - cooling)
+> recovery (s) = capacity / cooling            duty = cooling / generation
+> ```
+>
+> so a rack's damage across a whole trigger-down is `nominalDPS × cooling ÷
+> generation`, independent of its capacity. The shipped catalogue is authored
+> against the free kit (radiator ×1.6, plant ×1.25): mk1 weapons burn ~5 s and
+> cool in ~2.5 s, mk2 ~6 s, mk3 ~7 s. Reproduce every number with
+> `node --import tsx tools/heat-feel-bench.ts`.
+
 A **bundle** is that pack serialized as one JSON document. It is the unit that
 travels between machines:
 

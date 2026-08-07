@@ -62,8 +62,19 @@ export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
   hullFraction: (s) => (s.hullMax > 0 ? clamp01(s.hull / s.hullMax) : 0),
   /** 1 while any shield module has an absorb reservoir, else 0. */
   shieldActive: (s) => (s.modules.some((m) => m.shieldPool > 0) ? 1 : 0),
-  /** Current heat as a fraction of capacity, 0..1. */
-  heatFraction: (s) => (s.heat.capacity > 0 ? clamp01(s.heat.cur / s.heat.capacity) : 0),
+  /**
+   * How hot the ship's HOTTEST rack is, 0..1 (heat/energy overhaul 2026-08-07).
+   * There is no ship heat pool to read any more, and the hottest module is the
+   * one an emitter should glow for — a single cooking gun is the visual event,
+   * not an average that a cold second rack would hide.
+   */
+  heatFraction: (s) => {
+    let hottest = 0;
+    for (const m of s.modules) {
+      if (m.heatCapacity > 0) hottest = Math.max(hottest, m.heat / m.heatCapacity);
+    }
+    return clamp01(hottest);
+  },
   /**
    * 1 while any active module is mid weapon cycle (a proxy for firing) OR is
    * channelling a continuous beam — which never uses a cycle timer and would

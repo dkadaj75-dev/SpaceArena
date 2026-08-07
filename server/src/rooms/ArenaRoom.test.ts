@@ -140,10 +140,13 @@ describe("ArenaRoom", () => {
     const ack3 = await c1.waitForMessage("orderAck");
     expect(ack3).toMatchObject({ accepted: false, reason: "malformed" });
 
-    // Under the x5 weapon-heat scale (owner 2026-08-04) twenty ticks of held
-    // fire trip the laser rack into its overheat lockout (4); the internal bay
-    // is the ship's own systems and stays online (2026-07-31).
-    expect(p1.modules[0]!.state).toBe(4);
+    // Heat/energy overhaul (2026-08-07): a mk1 rack burns for ~5 s before it
+    // locks out, so twenty ticks in it is still ONLINE (2) and merely warm —
+    // and the per-module heat/capacity pair the HUD rings read is replicated.
+    expect(p1.modules[0]!.state).toBe(2);
+    expect(p1.modules[0]!.heatCapacity).toBeGreaterThan(0);
+    expect(p1.modules[0]!.heat).toBeGreaterThan(0);
+    expect(p1.modules[0]!.energyCapacity).toBe(0); // a weapon costs no energy
     expect(p1.modules[2]!.state).toBe(2); // engine bay
     // The continuous-channel flag rides the same per-module state; a `held`
     // laser must never set it.
@@ -1055,7 +1058,7 @@ describe("ArenaRoom", () => {
   it("reflects a player's ship upgrades in the replicated maxima (Finding 3)", async () => {
     usersRepo.create({ id: "u-upg", email: null, pass_hash: null, guest_token: "gt-upg" });
     seedNewUser(configs, "u-upg", "Upgraded");
-    // Buy the full hull track (5 purchases) → resolved hullMax = 80 + 90 = 170.
+    // Buy the full hull track (5 purchases) → resolved hullMax = 120 + 90 = 210.
     shipUpgradesRepo.setTrackLevel("u-upg", "ship.interceptor", "hull", 5);
     const token = signAccessToken("u-upg");
 
@@ -1064,11 +1067,13 @@ describe("ArenaRoom", () => {
     await advance(room, 1);
 
     const ps = room.state.players.get(c.sessionId)!;
-    expect(ps.hullMax).toBeCloseTo(170, 3);
-    expect(ps.hull).toBeCloseTo(170, 3); // spawns at full resolved hull
-    // Base energy/heat maxima also present.
-    expect(ps.energyMax).toBeCloseTo(120, 3);
-    expect(ps.heatCapacity).toBeCloseTo(100, 3);
+    expect(ps.hullMax).toBeCloseTo(210, 3);
+    expect(ps.hull).toBeCloseTo(210, 3); // spawns at full resolved hull
+    // Heat and energy are PER MODULE since 2026-08-07: the replicated maxima a
+    // client needs are the module stores, not a ship-wide pair.
+    const laser = ps.modules[0]!;
+    expect(laser.heatCapacity).toBeCloseTo(100, 3);
+    expect(laser.heat).toBe(0);
 
     await c.leave();
   });

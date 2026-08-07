@@ -454,3 +454,98 @@ Jettisonable sinks author `jettison.purgeAmount`; that bounded budget is removed
 proportionally from hot racks (never below zero), then the existing decoy is
 spawned and overheated racks receive the existing emergency re-arm behavior.
 Unsuccessful/no-order jettison ticks do not purge heat.
+
+# 2026-08-07 amendment — the heat/energy overhaul (per-module stores)
+
+Everything above about a **ship heat pool** and a **shared capacitor** is
+superseded. Both are gone from the schema, the sim, the snapshot and the wire.
+
+## Why
+
+The 2026-08-07 design audit measured what those two pools had become: over five
+tuning passes weapon heat had been multiplied roughly twentyfold while hull heat
+capacity never moved, so `laser-mk1` put a ship **120% of its entire capacity**
+over the line with one shot, `criticalDamagePerSec` burned hull from there, and
+holding the trigger at a target that never fired back killed the firer in
+20.0 s / 36.7 s / 53.4 s. In a shipped five-minute practice match **58.8% of all
+hull damage and 13 of 19 deaths were self-inflicted**, four of five stock
+matchups had literally unbounded TTK, and the balance bench certified all of it —
+it restored both hulls every tick, and `timeToKill()` reported an attacker's
+suicide as "the defender is unkillable".
+
+A pool that every module shares is also the wrong shape for the game: it makes a
+second weapon a tax on the first, and it gives the HUD one number that cannot
+tell a pilot *which* trigger to release.
+
+## The model
+
+**Heat is per weapon.** Every weapon owns a `heat` block:
+
+| field | meaning |
+|---|---|
+| `capacity` | heat the rack holds before it locks itself out |
+| `coolingPerSec` | passive cooling, before the hull's `cooling.multiplier` |
+| `perShot` | heat added on the tick a discrete shot fires |
+| `perSecondActive` | heat per second while a channel works |
+| `rearmBelow` | fraction of capacity a lockout must decay to before re-arming |
+
+Reaching `capacity` forces the rack `overheated`. **The lockout carries no timer
+at all** — it ends when cooling brings the rack back under
+`capacity × rearmBelow`, which is what makes the punishment proportional to how
+hard the trigger was abused. There is no self-damage, no hull burn, no critical
+state: the cost of cooking a rack is the seconds you do not have it. A ship can
+no longer hurt itself by firing, and `balanceRegression.test.ts` asserts exactly
+that on all three hulls.
+
+Two identities do all the authoring work:
+
+```
+burn (s)     = (capacity - perShot) / (generation - cooling)
+recovery (s) = capacity / cooling
+duty         = cooling / generation          ⇒ sustained DPS = nominal × duty
+```
+
+Duty is independent of capacity, so a hull may carry deeper racks (longer
+bursts, longer refills) without silently rebalancing its damage.
+
+**Energy is per module.** Boost tanks, shield reserves and active utilities own
+an `energy` block (`capacity`, `rechargePerSec`, `drawPerSec`, `rearmAbove`):
+drain while the module works, refill while it rests, cut offline the tick it runs
+dry, and refuse to come back up until the tank passes `rearmAbove` — the energy
+twin of the heat re-arm, and what stops an empty afterburner from stuttering one
+tick of thrust per three of trickle-charge. **Weapons cost no energy at all.** A
+shield's reserve *is* its tank: every point it soaks spends a point of charge.
+
+**Ship-wide levers.** Heatsinks author `cooling.multiplier` and generators
+`recharge.multiplier`, both multiplicative across fitted modules and applied to
+every module's own rate. Hulls carry `cooling` / `recharge` / `heatStore` /
+`energyStore` multipliers in place of the deleted `energy` and `heat` blocks.
+The transformer keeps its `efficiency` pair, now applied per module. Jettisoning
+a heatsink **purges every rack to zero and clears every lockout** — the one
+instant clear in the game, which is why it costs the sink.
+
+## Replication
+
+`ModuleSnapshot` (offline) and `ModuleState` (Colyseus) both carry `heat`,
+`heatCapacity`, `energy`, `energyCapacity`. A capacity of 0 means "this module
+has no ring of that kind", which is the only signal the HUD needs. `PlayerState`
+lost `energyCur`/`energyMax`/`heatCur`/`heatCapacity` — there is nothing
+ship-wide left to send.
+
+## Shipped numbers (free kit: radiator ×1.6, plant ×1.25, light hull ×1.0)
+
+mk1 weapons burn ~5 s and cool in ~2.5 s; mk2 ~6 s / ~2.3 s; mk3 ~7 s / ~2.1 s.
+Boost tanks give ~3 s of afterburner and refill in ~6 s. A shield soaks its
+reserve in ~4 s of focused fire and refills in ~8 s. Every stock matchup resolves
+in 12.6–35.4 s, inside the 8–45 s design band, with no attacker ever killing
+itself. Reproduce all three tables with:
+
+```
+node --import tsx tools/heat-feel-bench.ts
+```
+
+## Bench
+
+`timeToKill()` now returns a discriminated `killed | attackerDied | neither` and
+the matrix forbids `Infinity` anchors; `runEngagement()` never restores the
+subject's hull and reports the hull it lost, which must be zero.

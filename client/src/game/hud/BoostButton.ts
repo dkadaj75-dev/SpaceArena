@@ -22,10 +22,10 @@ export interface BoostButtonState {
   hardpointIndex: number | null;
   /** The module's replicated `active` state: the ship is asking for boost. */
   active: boolean;
-  /** The module has tripped its overheat threshold and is cooling down. */
-  overheated: boolean;
-  /** Module heat as a 0..100 percentage of its own overheat threshold. */
-  heatPct: number;
+  /** Replicated module-local energy remaining. */
+  energy: number;
+  /** Replicated module-local energy capacity; zero means no ring. */
+  energyCapacity: number;
   /**
    * True when the sim would refuse the boost no matter what the module says —
    * today that is exactly "this ship carries a CTF flag" (see
@@ -39,8 +39,8 @@ export interface BoostButtonState {
 const ABSENT: BoostButtonState = {
   hardpointIndex: null,
   active: false,
-  overheated: false,
-  heatPct: 0,
+  energy: 0,
+  energyCapacity: 0,
   blocked: false,
 };
 
@@ -59,7 +59,7 @@ const ABSENT: BoostButtonState = {
  * one tap emits the same `moduleToggle` order the Shift key sends, and the
  * module's replicated state — not the pointer — decides what the button looks
  * like. That keeps the touch control and the keyboard shortcut honestly in sync
- * even when the sim shuts the module down on its own (overheat, no energy).
+ * even when the sim shuts the module down on its own after energy depletion.
  *
  * Geometry comes entirely from `layout.boost`, derived from the FIRE control in
  * `flightHudLayout.ts`; nothing about its position lives in CSS. Every DOM write
@@ -69,15 +69,14 @@ export class BoostButton {
   private readonly container: HTMLDivElement;
   private readonly button: HTMLDivElement;
   private readonly ring: HTMLSpanElement;
-  private readonly heat: HTMLSpanElement;
 
   private state: BoostButtonState = ABSENT;
   // Last-rendered values, so a frame that changes nothing writes nothing.
   private lastFitted: boolean | null = null;
   private lastActive: boolean | null = null;
-  private lastOverheated: boolean | null = null;
   private lastBlocked: boolean | null = null;
-  private lastHeatPct = -1;
+  private lastEnergyPct = -1;
+  private lastHasEnergyRing: boolean | null = null;
   private pointerId: number | null = null;
 
   private readonly onPointerDown = (ev: PointerEvent): void => {
@@ -121,13 +120,9 @@ export class BoostButton {
     this.button.setAttribute("aria-label", BOOST_LABEL);
     this.button.setAttribute("aria-pressed", "false");
 
-    this.heat = document.createElement("span");
-    this.heat.className = "heat";
-    this.heat.setAttribute("aria-hidden", "true");
-    this.heat.style.setProperty("--heat", "0");
-
     this.ring = document.createElement("span");
     this.ring.className = "ring";
+    this.ring.hidden = true;
     this.ring.setAttribute("aria-hidden", "true");
 
     const icon = document.createElement("span");
@@ -137,7 +132,7 @@ export class BoostButton {
     label.className = "label";
     label.textContent = BOOST_LABEL;
 
-    this.button.append(this.ring, this.heat, icon, label);
+    this.button.append(this.ring, icon, label);
     this.container.append(this.button);
     root.appendChild(this.container);
 
@@ -205,10 +200,6 @@ export class BoostButton {
       this.button.setAttribute("aria-pressed", state.active ? "true" : "false");
       this.lastActive = state.active;
     }
-    if (state.overheated !== this.lastOverheated) {
-      this.button.classList.toggle("state-overheated", state.overheated);
-      this.lastOverheated = state.overheated;
-    }
     if (state.blocked !== this.lastBlocked) {
       this.button.classList.toggle("disabled", state.blocked);
       if (state.blocked) {
@@ -220,13 +211,20 @@ export class BoostButton {
       }
       this.lastBlocked = state.blocked;
     }
-    // Rounded before the comparison: heat drifts continuously, and a raw float
+    const hasEnergyRing = state.energyCapacity > 0;
+    if (hasEnergyRing !== this.lastHasEnergyRing) {
+      this.ring.hidden = !hasEnergyRing;
+      this.button.classList.toggle("ring-energy", hasEnergyRing);
+      this.lastHasEnergyRing = hasEnergyRing;
+    }
+    // Rounded before the comparison: energy drifts continuously, and a raw float
     // would rewrite the custom property on every single frame.
-    const heatPct = Math.max(0, Math.min(100, Math.round(state.heatPct)));
-    if (heatPct !== this.lastHeatPct) {
-      this.heat.style.setProperty("--heat", String(heatPct));
-      this.ring.style.setProperty("--ring", String(heatPct));
-      this.lastHeatPct = heatPct;
+    const energyPct = hasEnergyRing
+      ? Math.max(0, Math.min(100, Math.round((100 * state.energy) / state.energyCapacity)))
+      : 0;
+    if (energyPct !== this.lastEnergyPct) {
+      this.button.style.setProperty("--ring", String(energyPct));
+      this.lastEnergyPct = energyPct;
     }
   }
 
@@ -239,15 +237,15 @@ export class BoostButton {
 
   /** Drop every state class and its cached flag, back to "fitted but idle". */
   private resetSkin(): void {
-    this.button.classList.remove("active", "state-overheated", "disabled", "pressed");
+    this.button.classList.remove("active", "disabled", "pressed", "ring-energy");
+    this.ring.hidden = true;
     this.button.setAttribute("aria-pressed", "false");
     this.button.removeAttribute("aria-disabled");
     this.button.removeAttribute("title");
-    this.heat.style.setProperty("--heat", "0");
     this.lastActive = false;
-    this.lastOverheated = false;
     this.lastBlocked = false;
-    this.lastHeatPct = 0;
+    this.lastEnergyPct = 0;
+    this.lastHasEnergyRing = false;
   }
 
   dispose(): void {

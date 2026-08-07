@@ -87,16 +87,16 @@ describe("internals shape the hull", () => {
     expect(agile.engine.nominalSpeed).toBeLessThan(stock.engine.nominalSpeed);
   });
 
-  it("GENERATOR: a bigger plant buys energy and costs top speed", () => {
+  it("GENERATOR: a bigger plant refills the module tanks faster and costs top speed", () => {
     const stock = base();
     const heavy = withInternal("module.generator-heavy");
-    expect(heavy.capacitor.max).toBeGreaterThan(stock.capacitor.max);
-    expect(heavy.capacitor.regen).toBeGreaterThan(stock.capacitor.regen);
+    expect(heavy.recharge.multiplier).toBeGreaterThan(stock.recharge.multiplier);
+    expect(heavy.energyStore.multiplier).toBeGreaterThan(stock.energyStore.multiplier);
     expect(heavy.engine.nominalSpeed).toBeLessThan(stock.engine.nominalSpeed);
 
     // The siege plant takes that trade further on both axes.
     const siege = withInternal("module.generator-siege");
-    expect(siege.capacitor.max).toBeGreaterThan(heavy.capacitor.max);
+    expect(siege.recharge.multiplier).toBeGreaterThan(heavy.recharge.multiplier);
     expect(siege.engine.nominalSpeed).toBeLessThan(heavy.engine.nominalSpeed);
   });
 
@@ -113,11 +113,11 @@ describe("internals shape the hull", () => {
     expect(cryo.efficiency.energyDraw).toBeGreaterThan(1); // …and thirstier
   });
 
-  it("HEATSINK: better sinks dissipate more, and only the good ones can be jettisoned", () => {
+  it("HEATSINK: better sinks cool every rack faster, and only the good ones can be jettisoned", () => {
     const stock = base();
     const cryo = withInternal("module.heatsink-cryo");
-    expect(cryo.heat.dissipation).toBeGreaterThan(stock.heat.dissipation);
-    expect(cryo.heat.capacity).toBeGreaterThan(stock.heat.capacity);
+    expect(cryo.cooling.multiplier).toBeGreaterThan(stock.cooling.multiplier);
+    expect(cryo.heatStore.multiplier).toBeGreaterThan(stock.heatStore.multiplier);
 
     expect(configs.get<ModuleConfig>("module", "module.heatsink-basic")!.jettison).toBeUndefined();
     expect(configs.get<ModuleConfig>("module", "module.heatsink-ablative")!.jettison).toBeDefined();

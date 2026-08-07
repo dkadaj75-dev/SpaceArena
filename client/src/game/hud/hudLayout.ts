@@ -1,5 +1,4 @@
 import type {
-  GaugesConfig,
   HudAnchorName,
   HudOrientationConfig,
   HudStyleConfig,
@@ -47,26 +46,12 @@ export interface HudLayout {
   minimapSizePx: number;
   minimapRangeUnits: number | undefined;
   radar: RadarLayout;
-  gaugeWidthPx: number;
-  gauges: GaugeLayout;
   vitalArcs: VitalArcsLayout;
   notificationMaxVisible: number;
   thumbZoneFraction: number;
   cluster: ClusterLayout;
   /** Look-only frame knobs (chamfer / glow / panel fill), shared by every widget. */
   style: HudStyleLayout;
-}
-
-export interface GaugeLayout {
-  anchor: HudAnchorName;
-  offsetXPx: number;
-  offsetYPx: number;
-  gapPx: number;
-  trackHeightPx: number;
-  showHull: boolean;
-  showShield: boolean;
-  /** Segment cells per bar; 1 renders a solid bar. */
-  segments: number;
 }
 
 export interface RadarLayout {
@@ -124,17 +109,6 @@ export const HUD_DEFAULTS = {
     contactSizePx: 3.5,
     gridOpacity: 0.22,
   },
-  gaugeWidthPx: 140,
-  gauges: {
-    anchor: "bottom-left",
-    offsetXPx: 0,
-    offsetYPx: 0,
-    gapPx: 6,
-    trackHeightPx: 10,
-    showHull: true,
-    showShield: true,
-    segments: 12,
-  },
   vitalArcs: {
     enabled: false,
     radiusPx: 142,
@@ -184,10 +158,6 @@ function mergeCluster(base: ModuleClusterConfig | undefined, over: ModuleCluster
   return { ...(base ?? {}), ...stripUndefined(over ?? {}) };
 }
 
-function mergeGauges(base: GaugesConfig | undefined, over: GaugesConfig | undefined): GaugesConfig {
-  return { ...(base ?? {}), ...stripUndefined(over ?? {}) };
-}
-
 function mergeRadar(base: RadarConfig | undefined, over: RadarConfig | undefined): RadarConfig {
   return { ...(base ?? {}), ...stripUndefined(over ?? {}) };
 }
@@ -215,7 +185,6 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
 
   const scale = override.scale ?? hud?.scale ?? HUD_DEFAULTS.scale;
   const rawCluster = mergeCluster(hud?.moduleCluster, override.moduleCluster);
-  const rawGauges = mergeGauges(hud?.gauges, override.gauges);
   const rawRadar = mergeRadar(hud?.radar, override.radar);
   const rawVitalArcs = mergeVitalArcs(hud?.vitalArcs, override.vitalArcs);
 
@@ -245,19 +214,6 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
           HUD_DEFAULTS.radar.altitudeStemMaxPx) * scale,
       contactSizePx: (rawRadar.contactSizePx ?? HUD_DEFAULTS.radar.contactSizePx) * scale,
       gridOpacity: rawRadar.gridOpacity ?? HUD_DEFAULTS.radar.gridOpacity,
-    },
-    gaugeWidthPx: (override.gaugeWidthPx ?? hud?.gaugeWidthPx ?? HUD_DEFAULTS.gaugeWidthPx) * scale,
-    gauges: {
-      anchor: rawGauges.anchor ?? HUD_DEFAULTS.gauges.anchor,
-      offsetXPx: (rawGauges.offsetXPx ?? HUD_DEFAULTS.gauges.offsetXPx) * scale,
-      offsetYPx: (rawGauges.offsetYPx ?? HUD_DEFAULTS.gauges.offsetYPx) * scale,
-      gapPx: (rawGauges.gapPx ?? HUD_DEFAULTS.gauges.gapPx) * scale,
-      trackHeightPx: (rawGauges.trackHeightPx ?? HUD_DEFAULTS.gauges.trackHeightPx) * scale,
-      showHull: rawGauges.showHull ?? HUD_DEFAULTS.gauges.showHull,
-      showShield: rawGauges.showShield ?? HUD_DEFAULTS.gauges.showShield,
-      // Segment COUNT, not a length — scaling it would change the readout's
-      // resolution instead of its size.
-      segments: rawGauges.segments ?? HUD_DEFAULTS.gauges.segments,
     },
     vitalArcs: {
       enabled: rawVitalArcs.enabled ?? HUD_DEFAULTS.vitalArcs.enabled,
@@ -407,14 +363,6 @@ export function hudCssVars(layout: HudLayout): Record<string, string> {
     "--hud-safe-inset": `${layout.safeAreaInsetPx}px`,
     "--hud-minimap-size": `${layout.minimapSizePx}px`,
     "--hud-radar-size": `${layout.radar.sizePx}px`,
-    "--hud-gauge-width": `${layout.gaugeWidthPx}px`,
-    "--hud-gauge-offset-x": `${layout.gauges.offsetXPx}px`,
-    "--hud-gauge-offset-y": `${layout.gauges.offsetYPx}px`,
-    "--hud-gauge-gap": `${layout.gauges.gapPx}px`,
-    "--hud-gauge-track-height": `${layout.gauges.trackHeightPx}px`,
-    // Segment pitch as a percentage of the bar, so the cell overlay is one
-    // `repeating-linear-gradient` that needs no width measurement.
-    "--hud-gauge-segment-pct": `${100 / layout.gauges.segments}%`,
     "--hud-module-btn-radius": `${layout.cluster.buttonRadiusPx}px`,
     "--hud-module-gap": `${layout.cluster.gapPx}px`,
     "--hud-chamfer": `${layout.style.chamferPx}px`,

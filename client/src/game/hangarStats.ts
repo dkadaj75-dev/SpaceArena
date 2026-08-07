@@ -12,24 +12,28 @@ import {
  * resolver with the fit-level projections the Hangar UI needs that the
  * resolver itself doesn't compute: idle energy budget, sustained-fire heat
  * trend, rough DPS/EHP. All "sustained"/"worst case" figures assume every
- * fitted module is simultaneously deployed (idle draw) or firing (active
- * heat/DPS) — a deliberately pessimistic preview, not a sim replay.
+ * fitted module is simultaneously deployed and firing — a deliberately
+ * pessimistic preview, not a sim replay. Since the 2026-08-07 heat/energy
+ * overhaul every number here is a per-MODULE store rolled up over the fit:
+ * there is no ship capacitor and no ship heat pool to report.
  */
 export interface HangarStatPanel {
   hullMax: number;
   nominalSpeed: number;
-  capacitorMax: number;
-  capacitorRegen: number;
-  heatCapacity: number;
-  heatDissipation: number;
-  /** Sum of every fitted module's idle energy draw (all hardpoints deployed, none firing). */
-  idleDrawTotal: number;
-  /** `capacitorRegen - idleDrawTotal`; negative means idle draw alone drains the capacitor. */
-  energyBudget: number;
-  /** Sum of every fitted module's active heat rate minus ship dissipation; positive = heats up under sustained fire. */
-  heatNetPerSec: number;
+  /** Σ of every fitted module's own energy tank (boost bottle, shield reserve). */
+  energyReserve: number;
+  /** Resolved hull-wide recharge multiplier — how fast those tanks refill. */
+  rechargeMult: number;
+  /** Resolved hull-wide cooling multiplier — how fast every rack sheds heat. */
+  coolingMult: number;
+  /** Shortest held-trigger burn of any fitted weapon, in seconds (Infinity = heat-stable). */
+  burnSec: number;
+  /** Longest full cold-down of any fitted rack, in seconds. */
+  recoverSec: number;
   /** Rough damage/sec across every fitted weapon module (fire block present), ignoring range/LoS/target availability. */
   dps: number;
+  /** Same, but multiplied by each rack's duty cycle — what a held trigger really delivers. */
+  sustainedDps: number;
   /** hullMax stretched by the ship's average kinetic/energy resist — a rough "effective HP", not sim-accurate. */
   ehpApprox: number;
   /** Power-rail current the hull can deliver (2026-07-31), mostly from the transformer. */
@@ -62,9 +66,11 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     fittedModuleIds: opts.fittedModuleIds,
   });
 
-  let idleDrawTotal = 0;
-  let heatActiveTotal = 0;
+  let energyReserve = 0;
   let dps = 0;
+  let sustainedDps = 0;
+  let burnSec = Infinity;
+  let recoverSec = 0;
   let powerDrawRetracted = 0;
   for (const moduleId of opts.fittedModuleIds) {
     if (!moduleId) continue;
@@ -73,9 +79,22 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     // Weapons come up online at spawn, so their rail draw is what the hull
     // carries before the pilot raises anything.
     if (mod.fire) powerDrawRetracted += mod.power?.draw ?? 0;
-    idleDrawTotal += mod.energy.drawIdle;
-    heatActiveTotal += mod.boost ? mod.boost.heatPerSec : mod.heat.perSecondActive;
-    if (mod.fire) dps += mod.fire.damage / mod.fire.cycleTime;
+    energyReserve += (mod.energy?.capacity ?? 0) * core.energyStore.multiplier;
+    if (mod.heat) {
+      const capacity = mod.heat.capacity * core.heatStore.multiplier;
+      const cooling = mod.heat.coolingPerSec * core.cooling.multiplier;
+      const perShot = mod.fire && mod.fire.mode !== "continuous" ? mod.heat.perShot / mod.fire.cycleTime : 0;
+      const gen = (mod.heat.perSecondActive + perShot) * core.efficiency.heatGen;
+      if (cooling > 0) recoverSec = Math.max(recoverSec, capacity / cooling);
+      if (gen > cooling) {
+        burnSec = Math.min(burnSec, Math.max(0, capacity - mod.heat.perShot * core.efficiency.heatGen) / (gen - cooling));
+      }
+      if (mod.fire) {
+        const nominal = mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage / mod.fire.cycleTime;
+        sustainedDps += gen > cooling ? nominal * (cooling / gen) : nominal;
+      }
+    }
+    if (mod.fire) dps += mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage / mod.fire.cycleTime;
   }
 
   const powerDrawTotal = fittingPowerDraw(configs, opts.fittedModuleIds);
@@ -86,14 +105,13 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
   return {
     hullMax: core.hullMax,
     nominalSpeed: core.engine.nominalSpeed,
-    capacitorMax: core.capacitor.max,
-    capacitorRegen: core.capacitor.regen,
-    heatCapacity: core.heat.capacity,
-    heatDissipation: core.heat.dissipation,
-    idleDrawTotal,
-    energyBudget: core.capacitor.regen - idleDrawTotal,
-    heatNetPerSec: heatActiveTotal - core.heat.dissipation,
+    energyReserve,
+    rechargeMult: core.recharge.multiplier,
+    coolingMult: core.cooling.multiplier,
+    burnSec,
+    recoverSec,
     dps,
+    sustainedDps,
     ehpApprox,
     powerCapacity: core.power.capacity,
     powerDrawTotal,

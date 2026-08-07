@@ -269,106 +269,6 @@ const CSS = `
   opacity: 0.52;
 }
 
-/* --- Gauges: hull, shield, energy, heat --- */
-.hud-gauges {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hud-gauge-gap, 6px);
-  padding: calc(var(--hud-chamfer) * 0.7) calc(var(--hud-chamfer) * 0.8);
-  width: var(--hud-gauge-width, 140px);
-  box-sizing: content-box;
-  max-width: calc(100vw - var(--hud-inset-left) - var(--hud-inset-right));
-}
-.hud-gauges[data-anchor="bottom-left"] {
-  left: calc(var(--hud-inset-left) + var(--hud-gauge-offset-x, 0px));
-  bottom: calc(var(--hud-inset-bottom) + var(--hud-gauge-offset-y, 0px));
-}
-.hud-gauges[data-anchor="bottom-right"] {
-  right: calc(var(--hud-inset-right) + var(--hud-gauge-offset-x, 0px));
-  bottom: calc(var(--hud-inset-bottom) + var(--hud-gauge-offset-y, 0px));
-}
-.hud-gauges[data-anchor="top-left"] {
-  left: calc(var(--hud-inset-left) + var(--hud-gauge-offset-x, 0px));
-  top: calc(var(--hud-inset-top) + var(--hud-gauge-offset-y, 0px));
-}
-.hud-gauges[data-anchor="top-right"] {
-  right: calc(var(--hud-inset-right) + var(--hud-gauge-offset-x, 0px));
-  top: calc(var(--hud-inset-top) + var(--hud-gauge-offset-y, 0px));
-}
-.hud-gauge {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.hud-gauge[hidden] { display: none; }
-.hud-gauge-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-}
-.hud-gauge-label {
-  font-size: 0.5625em;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--hud-neutral, var(--sa-n-400));
-}
-.hud-gauge-value {
-  font-size: 0.5625em;
-  letter-spacing: 0.06em;
-  font-variant-numeric: tabular-nums;
-  color: var(--hud-text, var(--sa-white));
-  opacity: 0.9;
-}
-.hud-gauge-track {
-  position: relative;
-  width: 100%;
-  height: var(--hud-gauge-track-height, 10px);
-  background: color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 9%, transparent);
-  /* Thin inner rule instead of a border: the segment overlay below has to reach
-     the very edge of the track or the end cells read as clipped. */
-  box-shadow: inset 0 0 0 var(--hud-rim) var(--hud-rim-dim);
-  overflow: hidden;
-}
-.hud-gauge-fill {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  transform-origin: left center;
-  background: var(--hud-primary, var(--sa-blue-500));
-  transition: transform 0.08s linear, background-color 0.15s linear;
-}
-/* Segmented cells: one repeating gradient laid over the whole track, so the
-   FILL stays continuous (a value never quantizes) while the bar reads as cells.
-   --hud-gauge-segment-pct is the cell pitch, resolved in hudLayout.ts. */
-.hud-gauge-track::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    90deg,
-    transparent 0,
-    transparent calc(var(--hud-gauge-segment-pct, 8.33%) - 1px),
-    var(--hud-bg, var(--sa-n-900)) calc(var(--hud-gauge-segment-pct, 8.33%) - 1px),
-    var(--hud-bg, var(--sa-n-900)) var(--hud-gauge-segment-pct, 8.33%)
-  );
-}
-.hud-gauge-fill.hull { background: var(--hud-hull, var(--hud-accent, var(--sa-white))); }
-.hud-gauge-fill.shield { background: var(--hud-shield, var(--hud-primary, var(--sa-blue-500))); }
-.hud-gauge-fill.energy { background: var(--hud-energy, var(--sa-blue-500)); }
-.hud-gauge-fill.heat { background: var(--hud-heat, var(--hud-accent, var(--sa-white))); }
-/* One "warn" class, two meanings: hull runs it when the hull is nearly gone and
-   heat when it is nearly overheating, and both want the same critical red. */
-.hud-gauge-fill.warn { background: var(--hud-danger, var(--sa-red-500)); }
-/* Critical readouts pulse rather than just recolour — colour alone is the one
-   cue a player will miss mid-turn. */
-.hud-gauge.critical .hud-gauge-value { color: var(--hud-danger, var(--sa-red-500)); animation: hud-crit-pulse 1s ease-in-out infinite; }
-@keyframes hud-crit-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-
 /* --- Module radial cluster --- */
 /* Zero-size pivot pinned to the themed anchor corner; ModuleButtons places each
    button at a pivot-relative offset computed in hudLayout.ts. */
@@ -452,9 +352,18 @@ const CSS = `
   pointer-events: none;
   border-radius: 50%;
   background: conic-gradient(var(--hud-action-color) calc(var(--ring, 0) * 1%), transparent 0);
-  opacity: 0.4;
+  opacity: 0;
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
+}
+.hud-module-btn.ring-heat > .ring { opacity: 0.72; }
+.hud-module-btn.ring-energy > .ring {
+  opacity: 0.72;
+  background: conic-gradient(var(--hud-primary, var(--sa-blue-500)) calc(var(--ring, 0) * 1%), transparent 0);
+}
+.hud-module-btn.ring-danger > .ring {
+  opacity: 0.92;
+  background: conic-gradient(var(--hud-danger, var(--sa-red-500)) calc(var(--ring, 0) * 1%), transparent 0);
 }
 .hud-module-btn > .icon {
   z-index: 2;
@@ -513,7 +422,6 @@ const CSS = `
   --hud-action-color: var(--hud-danger, var(--sa-red-500));
 }
 .hud-module-btn.state-overheated > .icon { color: var(--hud-danger, var(--sa-red-500)); }
-.hud-module-btn.state-overheated > .ring { background: conic-gradient(var(--hud-danger, var(--sa-red-500)) calc(var(--ring, 0) * 1%), transparent 0); }
 .hud-module-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
 .hud-module-btn.no-energy { filter: saturate(0.42) brightness(0.7); opacity: 0.78; }
 .hud-module-btn.armed {
@@ -522,7 +430,6 @@ const CSS = `
 .hud-module-btn.armed::before {
   filter: drop-shadow(0 0 calc(11px * var(--hud-glow)) var(--hud-module-family-color));
 }
-.hud-module-btn.cooling > .ring { opacity: 0.4; }
 .hud-module-btn.unarmable {
   --hud-btn-rim: color-mix(in srgb, var(--hud-neutral, var(--sa-n-400)) 60%, transparent);
   filter: saturate(0.62) brightness(0.76);
@@ -886,28 +793,8 @@ const CSS = `
   background: color-mix(in srgb, var(--hud-bg) var(--hud-action-label-plate-pct, 76%), transparent);
   border: 1px solid color-mix(in srgb, var(--hud-action-color) var(--hud-action-label-border-pct, 42%), transparent);
 }
-.hud-boost-btn > .ring { position:absolute; inset:calc(var(--hud-rim) * 1.5); z-index:1; border-radius:50%; pointer-events:none; background:conic-gradient(var(--hud-action-color) calc(var(--ring, 0) * 1%), transparent 0); opacity:0.4; -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); }
-/* Heat: a hairline bar across the base of the plate, filled from the module's
-   heat against ITS OWN overheat threshold — the number that actually cuts the
-   afterburner off, which the ship-wide heat gauge does not show. */
-.hud-boost-btn > .heat {
-  position: absolute;
-  left: 26%;
-  right: 26%;
-  bottom: 12%;
-  height: 2px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--hud-text, var(--sa-white)) 20%, transparent);
-}
-.hud-boost-btn > .heat::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: calc(var(--heat, 0) * 1%);
-  background: var(--hud-heat, var(--hud-accent, var(--sa-white)));
-}
+.hud-boost-btn > .ring { position:absolute; inset:calc(var(--hud-rim) * 1.5); z-index:1; border-radius:50%; pointer-events:none; background:conic-gradient(var(--hud-primary, var(--sa-blue-500)) calc(var(--ring, 0) * 1%), transparent 0); opacity:0; -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); }
+.hud-boost-btn.ring-energy > .ring { opacity: 0.72; }
 /* ON. The module is asking for boost — whether the sim grants it this tick is
    the ship's business, and the speed readout already tells that story. */
 .hud-boost-btn.active {
@@ -923,12 +810,6 @@ const CSS = `
 }
 .hud-boost-btn.active > .icon { animation: hud-boost-surge 0.7s ease-in-out infinite; }
 .hud-boost-btn.pressed { transform: scale(0.96); filter: brightness(1.22); }
-.hud-boost-btn.state-overheated {
-  --hud-btn-rim: var(--hud-danger, var(--sa-red-500));
-  --hud-action-color: var(--hud-danger, var(--sa-red-500));
-}
-.hud-boost-btn.state-overheated > .icon { color: var(--hud-danger, var(--sa-red-500)); }
-.hud-boost-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
 /* Refused by the RULES, not by the module: a flag carrier has no afterburner.
    Greyed and inert, never hidden — the flag is picked up mid-flight, and a
    control that disappears teaches the pilot nothing. */
@@ -1829,10 +1710,8 @@ const CSS = `
    information — a hit marker that never appears is a hit the player never saw. */
 @media (prefers-reduced-motion: reduce) {
   .hud-module-btn.state-overheated::before,
-  .hud-boost-btn.state-overheated::before,
   .hud-boost-btn.active > .icon,
-  .hud-reticle-bracket.locked .ring,
-  .hud-gauge.critical .hud-gauge-value {
+  .hud-reticle-bracket.locked .ring {
     animation: none;
   }
   /* The countdown numerals ARE the information (one-shot, like the hit marker),
@@ -1843,8 +1722,7 @@ const CSS = `
     opacity: 1;
     transform: none;
   }
-  .hud-module-btn.state-overheated::before,
-  .hud-boost-btn.state-overheated::before {
+  .hud-module-btn.state-overheated::before {
     filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
   }
 }

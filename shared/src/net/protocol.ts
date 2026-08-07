@@ -10,6 +10,24 @@ import type { MatchStatDelta, MatchStatLine } from "../sim/MatchStats.js";
  * and these message types cover the request/reply + fire-event channels that are
  * intentionally NOT schema-synced (beams/kinetics are one-shot events, orders are
  * request/ack). Keep this file the single source of truth for both sides.
+ *
+ * ## Per-module heat/energy (protocol 4, 2026-08-07)
+ *
+ * Heat and energy are replicated PER MODULE, never per ship. Every module entry
+ * — schema-synced as `ModuleState`, and identical in the offline
+ * `ModuleSnapshot` the same client code consumes — carries exactly four store
+ * fields:
+ *
+ *   `heat` / `heatCapacity`     — the weapon rack's own heat and its resolved cap
+ *   `energy` / `energyCapacity` — the module's own tank and its resolved cap
+ *
+ * Capacities are resolved SERVER-SIDE against the hull (its `heatStore` /
+ * `energyStore` multipliers) and replicated rather than recomputed from config,
+ * for the same reason `hullMax` is. **A capacity of 0 means the module has no
+ * store of that kind**, which is the entire signal a renderer needs to decide
+ * whether to draw a ring. There are no ship-wide heat or energy fields: the pool
+ * and the capacitor were deleted, not deprecated (docs/COMBAT-REWORK.md,
+ * 2026-08-07 amendment).
  */
 
 /** Numeric wire encoding for the §2.3 module state machine (uint8 in schema). */

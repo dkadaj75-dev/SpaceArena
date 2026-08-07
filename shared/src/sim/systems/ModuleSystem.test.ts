@@ -93,46 +93,31 @@ describe("ModuleSystem state machine", () => {
     expect(evt).toBeTruthy();
   });
 
-  it("overheats a support module past threshold, then cools back to retracted", () => {
-    const { world, id } = shieldWorld();
-    const shield = world.modules.get(id)!.modules[1]!;
-    shield.state = "active";
-
-    // Start at the authored threshold: the balance pass deliberately reduced
-    // the one-tick heat increment, so a fixed 0.1 headroom no longer crosses it.
-    shield.heat = configs.get<ModuleConfig>("module", shield.moduleId)!.heat.overheatThreshold;
-    shield.workedThisTick = true;
-    energySystem(world, DT);
-    expect(shield.state).toBe("overheated");
-    expect(world.events.some((e) => e.type === "overheated")).toBe(true);
-
-    // Cooldown (5s ≈ 150 ticks; a margin covers float drift) → retracted.
-    tickModules(world, 160);
-    expect(shield.state).toBe("retracted");
-    expect(shield.heat).toBeGreaterThan(0);
-  });
-
-  it("re-arms a WEAPON straight to active after its overheat lockout", () => {
+  it("re-arms a WEAPON straight to active once its own heat falls under rearmBelow", () => {
     const { world, id } = shipWorld();
     const laser = world.modules.get(id)!.modules[LASER]!;
     expect(laser.state).toBe("active");
 
-    laser.heat = configs.get<ModuleConfig>("module", laser.moduleId)!.heat.overheatThreshold;
-    laser.workedThisTick = true;
+    laser.heat = laser.heatCapacity * 1.2;
     energySystem(world, DT);
     expect(laser.state).toBe("overheated");
 
-    // 3 s lockout (90 ticks; margin for float drift) → straight back online.
-    tickModules(world, 100);
+    // Lockout is not a timer: it ends when cooling brings the rack under
+    // `rearmBelow` (laser-mk1: 100 x 0.25 at 40/s ⇒ under 2.5 s).
+    for (let i = 0; i < 90; i++) {
+      for (const m of world.modules.get(id)!.modules) m.workedThisTick = false;
+      moduleSystem(world, DT);
+      energySystem(world, DT);
+    }
     expect(laser.state).toBe("active");
-    expect(laser.heat).toBeGreaterThan(0);
+    const rearm = configs.get<ModuleConfig>("module", laser.moduleId)!.heat!.rearmBelow;
+    expect(laser.heat).toBeLessThanOrEqual(laser.heatCapacity * rearm);
   });
 
   it("routes a weapon's 100% lockout through the authored warning notification", () => {
     const { world, id } = shipWorld();
     const laser = world.modules.get(id)!.modules[LASER]!;
-    laser.heat = configs.get<ModuleConfig>("module", laser.moduleId)!.heat.overheatThreshold;
-    laser.workedThisTick = true;
+    laser.heat = laser.heatCapacity * 1.2;
 
     energySystem(world, DT);
     expect(world.events).toContainEqual(
@@ -149,7 +134,6 @@ describe("ModuleSystem state machine", () => {
     const { world, id } = shipWorld();
     const mod = world.modules.get(id)!.modules[LASER]!;
     mod.state = "overheated";
-    mod.stateTimer = 5;
     world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
     moduleSystem(world, DT);
     expect(mod.state).toBe("overheated");
@@ -266,35 +250,35 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
     expect(down && down.type === "moduleStateChanged" && down.actions).toEqual(["action.play-sound-shield-down"]);
   });
 
-  it("a brown-out force-retracts instantly, bypassing retractTime", () => {
+  it("an empty tank force-retracts instantly, bypassing retractTime", () => {
     const { world, id } = shieldWorld();
     const mods = world.modules.get(id)!.modules;
-    for (const m of mods) m.state = "active";
-    world.shipCores.get(id)!.capacitor.cur = 0;
-    for (const m of mods) m.workedThisTick = true;
+    const shield = mods[SHIELD]!;
+    shield.state = "active";
+    shield.energy = 0.01;
 
     const mark = world.events.length;
     energySystem(world, DT);
-    // Support modules shed before weapons (2026-07-31), so the shield is the
-    // one dropped — instantly, with no `retracting` step at all.
-    expect(mods[SHIELD]!.state).toBe("retracted");
+    // The shield's reserve IS its tank: run it dry and the shield drops that
+    // tick, with no `retracting` step at all.
+    expect(shield.state).toBe("retracted");
+    expect(shield.energy).toBe(0);
     expect(transitions(world, mark)).toContain("active->retracted");
-    expect(mods[SHIELD]!.workedThisTick).toBe(false); // dropped work does not draw or heat
+    expect(shield.workedThisTick).toBe(false); // dropped work costs nothing more
   });
 
-  it("regenerates the shield reservoir while active and drops it the moment it is not", () => {
+  it("refuses to raise a module again until its tank passes `rearmAbove`", () => {
     const { world, id } = shieldWorld();
     const shield = world.modules.get(id)!.modules[SHIELD]!;
-    shield.state = "active";
-    advance(world, id, 30); // 1s at absorbPerSecond 12
-    expect(shield.shieldPool).toBeCloseTo(12, 5);
+    const cfg = configs.get<ModuleConfig>("module", shield.moduleId)!;
+    shield.state = "retracted";
+    shield.energy = shield.energyCapacity * cfg.energy!.rearmAbove * 0.5;
+    toggle(world, id, SHIELD);
+    expect(shield.state).toBe("retracted"); // still flamed out
 
-    advance(world, id, 30); // capped at one second's worth
-    expect(shield.shieldPool).toBeCloseTo(12, 5);
-
-    shield.state = "retracting";
-    advance(world, id, 1);
-    expect(shield.shieldPool).toBe(0);
+    shield.energy = shield.energyCapacity * cfg.energy!.rearmAbove;
+    toggle(world, id, SHIELD);
+    expect(shield.state).toBe("deploying");
   });
 
   it("ignores a toggle addressed to an empty or out-of-range hardpoint", () => {
@@ -335,30 +319,39 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
       for (const m of mods) {
         expect(legal.has(m.state)).toBe(true);
         expect(m.heat).toBeGreaterThanOrEqual(0);
-        expect(m.shieldPool).toBeGreaterThanOrEqual(0);
+        expect(m.energy).toBeGreaterThanOrEqual(0);
+        expect(m.energy).toBeLessThanOrEqual(m.energyCapacity + 1e-9);
       }
-      expect(world.shipCores.get(id)!.capacitor.cur).toBeGreaterThanOrEqual(0);
     }
   });
 });
 
-describe("ModuleSystem overheat exit (self-damage applied once per overheat)", () => {
+describe("ModuleSystem overheat exit (hysteresis, not a timer)", () => {
   let ops: ConfigService;
-  const SELF_DAMAGE_MODULE = "module.test-hotlaser";
+  const HOT_MODULE = "module.test-hotlaser";
 
   beforeAll(async () => {
-    // Private ConfigService: no shipped module carries overheatSelfDamage > 0 yet,
-    // so the branch needs a fixture. Kept off the shared instance on purpose.
+    // Private ConfigService: a fixture that out-paces its own cooling by a wide
+    // margin, so the trip/lockout/re-arm cycle is reached in a handful of ticks.
     ops = await loadTestConfigs();
     const res = ops.replace({
-      id: SELF_DAMAGE_MODULE,
+      id: HOT_MODULE,
       type: "module",
       version: 1,
       family: "laser",
       level: 1,
+      name: "Test Hot Laser",
       activation: { deployTime: 0, retractTime: 0 },
-      energy: { drawIdle: 0, drawActive: 0 },
-      heat: { perSecondActive: 60, overheatThreshold: 10, overheatCooldown: 1, overheatSelfDamage: 5 },
+      heat: { capacity: 10, coolingPerSec: 5, perSecondActive: 60, rearmBelow: 0.4 },
+      fire: {
+        mode: "continuous",
+        range: 40,
+        cycleTime: 0.1,
+        damage: 1,
+        damageType: "energy",
+        requiresLineOfSight: false,
+        projectile: null,
+      },
       ui: { icon: "i", label: "Hot Laser" },
       price: 0,
       requiresLevel: 1,
@@ -366,46 +359,42 @@ describe("ModuleSystem overheat exit (self-damage applied once per overheat)", (
     if (!res.ok) throw new Error(`fixture module rejected: ${JSON.stringify(res.errors)}`);
   });
 
-  it("charges overheatSelfDamage exactly once, then re-arms after the cooldown", () => {
+  it("locks out at capacity, stays locked while hot, and re-arms under rearmBelow", () => {
     const world = makeWorld(ops);
-    const id = spawnShipFromConfig(world, ops, "ship.interceptor", [SELF_DAMAGE_MODULE], 0, { x: 0, z: 0 }, 0);
+    const id = spawnShipFromConfig(world, ops, "ship.interceptor", [HOT_MODULE], 0, { x: 0, z: 0 }, 0);
     const core = world.shipCores.get(id)!;
     const mod = world.modules.get(id)!.modules[0]!;
-    core.heat.dissipation = 0; // isolate the overheat path from cooling
     const startHull = core.hull;
+    const cooling = 5 * core.cooling.multiplier;
 
     mod.state = "active";
-    mod.heat = 9.9;
+    mod.heat = mod.heatCapacity;
     mod.workedThisTick = true;
     energySystem(world, DT);
     expect(mod.state).toBe("overheated");
-    expect(mod.overheatDamaged).toBe(true);
-    expect(startHull - core.hull).toBeCloseTo(5, 6);
+    // The lockout carries no timer at all — that is the whole mechanic.
+    expect(mod.stateTimer).toBe(0);
 
-    // Still overheated: no further charge on subsequent ticks.
-    for (let i = 0; i < 10; i++) {
+    // Half way down to the re-arm line it is still offline.
+    const toRearm = (mod.heat - mod.heatCapacity * 0.4) / cooling;
+    for (let i = 0; i < Math.floor(toRearm / DT / 2); i++) {
       mod.workedThisTick = false;
       moduleSystem(world, DT);
       energySystem(world, DT);
     }
-    expect(startHull - core.hull).toBeCloseTo(5, 6);
+    expect(mod.state).toBe("overheated");
 
-    // Cooldown (1s) elapses → back to retracted without an instant heat clear;
-    // ordinary finite dissipation continues and the damage flag is re-armed.
-    for (let i = 0; i < 32; i++) {
+    // …and comes back the moment it crosses it, still carrying real heat.
+    for (let i = 0; i < Math.ceil(toRearm / DT) + 2; i++) {
       mod.workedThisTick = false;
       moduleSystem(world, DT);
       energySystem(world, DT);
     }
-    expect(mod.state).toBe("retracted");
-    expect(mod.heat).toBeCloseTo(11.9, 6); // dissipation is disabled: lockout did not clear it
-    expect(mod.overheatDamaged).toBe(false);
+    expect(mod.state).toBe("active");
+    expect(mod.heat).toBeGreaterThan(0);
+    expect(mod.heat).toBeLessThanOrEqual(mod.heatCapacity * 0.4 + 1e-9);
 
-    // A second overheat charges again.
-    mod.state = "active";
-    mod.heat = 9.9;
-    mod.workedThisTick = true;
-    energySystem(world, DT);
-    expect(startHull - core.hull).toBeCloseTo(10, 6);
+    // And the hull never paid for any of it (no overheat self-damage exists).
+    expect(core.hull).toBe(startHull);
   });
 });

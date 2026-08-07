@@ -174,8 +174,10 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
     expect(speedOf(world, id)).toBeGreaterThan(core.engine.nominalSpeed + 1);
     expect(boost.workedThisTick).toBe(true);
 
-    // Overheated module: no speed bonus, no energy/heat charge this tick.
-    boost.heat = 1000;
+    // Empty tank: no speed bonus and no charge this tick. Boost is priced in
+    // ENERGY since 2026-08-07, so an empty bottle is what silences it — the
+    // module carries no heat at all.
+    boost.energy = 0;
     boost.workedThisTick = false;
     navigationSystem(world, DT);
     expect(boost.workedThisTick).toBe(false);

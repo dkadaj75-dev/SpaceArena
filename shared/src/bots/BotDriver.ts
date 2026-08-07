@@ -588,7 +588,11 @@ export class BotDriver {
       if (!cmd.boost || m.state !== "retracted") continue;
       const cfg = this.configs.get<ModuleConfig>("module", m.moduleId);
       if (!cfg?.boost) continue;
-      orders.push({ kind: "moduleToggle", hardpointIndex: m.hardpointIndex });
+      // Read the BOTTLE before pulling the handle (heat/energy overhaul
+      // 2026-08-07): the sim refuses to raise an energy module below its own
+      // `rearmAbove`, so arming a flamed-out afterburner would be a toggle order
+      // spent every decision tick for nothing — against the bot's rate budget.
+      if (m.energyCapacity > 0 && m.energy < m.energyCapacity * (cfg.energy?.rearmAbove ?? 0)) continue;
       modulePlan.decisions.push({
         hardpointIndex: m.hardpointIndex,
         moduleId: m.moduleId,
@@ -840,8 +844,14 @@ export class BotDriver {
       // upward attitude into actual separation instead of hovering in a cut.
       // A ship already on the collision plane needs positive thrust along its
       // newly raised nose. Cutting throttle here was the ground-stick bug.
+      // A recovering hull whose nose is not yet up still needs way on: rotation
+      // is speed-independent, but a ship at a dead stop has nothing to convert
+      // the new attitude into separation with, and (since the 2026-08-07
+      // heat/energy overhaul removed self-destruction) nothing will ever kill it
+      // out of the stall either. Keep a floor under the cut instead of zeroing
+      // it — full cut only ever applied to a nose already pointing down.
       throttle: this.floorRecovering
-        ? (self.pitch > 0.12 ? Math.max(cmd.throttle, 0.7) : 0)
+        ? (self.pitch > 0.12 ? Math.max(cmd.throttle, 0.7) : Math.max(cmd.throttle * 0.5, 0.25))
         : cmd.throttle * (1 - strength) + (self.pitch > 0 ? Math.min(cmd.throttle, 0.35) : 0) * strength,
       boost: strength < 0.15 && cmd.boost,
     };

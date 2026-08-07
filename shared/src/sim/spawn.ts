@@ -105,6 +105,11 @@ export function spawnShipFromConfig(
     if (!hp.accepts.includes(modCfg.family)) {
       throw new Error(`module ${moduleId} (family '${modCfg.family}') not accepted by hardpoint ${hardpointIndex} of ${shipId} (accepts ${hp.accepts.join(", ")})`);
     }
+    // Per-module stores are resolved ONCE, here, against the hull that carries
+    // them (heat/energy overhaul 2026-08-07): the runtime then owns absolute
+    // numbers, so every consumer — sim, snapshot, HUD ring — reads
+    // `heat / heatCapacity` without re-deriving a multiplier chain per tick.
+    const core = world.shipCores.get(id)!;
     modules.push({
       moduleId,
       hardpointIndex,
@@ -115,12 +120,16 @@ export function spawnShipFromConfig(
       state: modCfg.fire || (isInternalFamily(modCfg.family) && !modCfg.boost) ? "active" : "retracted",
       stateTimer: 0,
       heat: 0,
+      heatCapacity: modCfg.heat ? modCfg.heat.capacity * core.heatStore.multiplier : 0,
+      // Tanks spawn FULL: a pilot leaves the pad with a charged boost bottle and
+      // a charged shield, and pays for what they spend from there.
+      energy: modCfg.energy ? modCfg.energy.capacity * core.energyStore.multiplier : 0,
+      energyCapacity: modCfg.energy ? modCfg.energy.capacity * core.energyStore.multiplier : 0,
+      absorbs: modCfg.mitigation !== undefined,
       cycleTimer: 0,
       channeling: false,
       channel: null,
       workedThisTick: false,
-      shieldPool: 0,
-      overheatDamaged: false,
     });
   });
   // POWER RAIL (2026-07-31): an over-subscribed fitting is legal, so the hull

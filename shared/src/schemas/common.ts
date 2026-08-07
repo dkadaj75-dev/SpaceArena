@@ -31,7 +31,7 @@ export type ModuleFamily = z.infer<typeof moduleFamily>;
  *
  *  - `engine`      — speed / acceleration / turn rate, and whether the hull has
  *                    a boost at all (the base engine does not)
- *  - `generator`   — capacitor size and regen, at the cost of top speed: a
+ *  - `generator`   — how fast every module tank refills, at the cost of top speed: a
  *                    bigger plant is heavier and steals thrust
  *  - `transformer` — how efficiently power is delivered: scales BOTH energy
  *                    draw and heat generation across the whole ship

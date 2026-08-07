@@ -60,17 +60,6 @@
       "contactSizePx": 3.5,
       "gridOpacity": 0.2
     },
-    "gaugeWidthPx": 132,
-    "gauges": {
-      "anchor": "bottom-left",
-      "offsetXPx": 10,
-      "offsetYPx": 12,
-      "gapPx": 5,
-      "trackHeightPx": 10,
-      "showHull": false,
-      "showShield": false,
-      "segments": 12
-    },
     "vitalArcs": {
       "enabled": true,
       "radiusPx": 118,
@@ -211,14 +200,6 @@
       }
     },
     "portrait": {
-      "gauges": {
-        "anchor": "bottom-left",
-        "offsetXPx": 10,
-        "offsetYPx": 12,
-        "gapPx": 5,
-        "trackHeightPx": 10,
-        "segments": 12
-      },
       "flight": {
         "fire": {
           "anchor": "bottom-right",
@@ -246,15 +227,6 @@
         "radiusPx": 145,
         "strokePx": 4,
         "offsetYPx": 4
-      },
-      "gaugeWidthPx": 120,
-      "gauges": {
-        "anchor": "bottom-left",
-        "offsetXPx": 8,
-        "offsetYPx": 8,
-        "gapPx": 4,
-        "trackHeightPx": 9,
-        "segments": 10
       },
       "flight": {
         "joystick": {
