@@ -9,24 +9,14 @@
     "deployTime": 0,
     "retractTime": 0
   },
-  "energy": {
-    "drawIdle": 4,
-    "drawActive": 4
-  },
-  "heat": {
-    "perSecondActive": 0,
-    "overheatThreshold": 100,
-    "overheatCooldown": 0,
-    "overheatSelfDamage": 0
-  },
   "passives": [
     {
-      "target": "heat.dissipation",
-      "op": "add",
-      "value": 12
+      "target": "cooling.multiplier",
+      "op": "mul",
+      "value": 1.15
     },
     {
-      "target": "heat.capacity",
+      "target": "heatStore.multiplier",
       "op": "mul",
       "value": 1.1
     }

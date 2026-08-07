@@ -161,8 +161,10 @@ describe("shipped theme - compact flight HUD", () => {
     expect(hud?.radar?.elevationDeg).toBeGreaterThan(0);
     expect(hud?.vitalArcs?.enabled).toBe(true);
     expect(hud?.vitalArcs?.opacity).toBeLessThan(0.75);
-    expect(hud?.gauges?.showHull).toBe(false);
-    expect(hud?.gauges?.showShield).toBe(false);
+    // The ship-wide ENERGY/HEAT panel died with the 2026-08-07 heat/energy
+    // overhaul: heat and energy are per-module now and ride the module buttons'
+    // own rings, so the shipped theme authors no `gauges` block at all.
+    expect(hud?.gauges).toBeUndefined();
     expect(hud?.flight?.reticle?.showZone).toBe(false);
     // FIRE is the one intentionally prominent control: a complete but hairline
     // danger ring keeps the enlarged circular disc from reading as a plain dot.

@@ -6,7 +6,7 @@
   "class": "light",
   "core": {
     "hull": {
-      "base": 80,
+      "base": 120,
       "resists": {
         "kinetic": 0.1,
         "energy": 0
@@ -17,17 +17,20 @@
       "accel": 18,
       "turnRate": 3
     },
-    "energy": {
-      "capacitor": 120,
-      "regen": 7
-    },
     "power": {
       "capacity": 10
     },
-    "heat": {
-      "capacity": 100,
-      "dissipation": 9,
-      "criticalDamagePerSec": 4
+    "cooling": {
+      "multiplier": 1.0
+    },
+    "recharge": {
+      "multiplier": 1.0
+    },
+    "heatStore": {
+      "multiplier": 1.0
+    },
+    "energyStore": {
+      "multiplier": 1.0
     },
     "sensors": {
       "lockRange": 195.0,

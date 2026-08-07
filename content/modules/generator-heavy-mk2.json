@@ -9,26 +9,14 @@
     "deployTime": 0,
     "retractTime": 0
   },
-  "energy": {
-    "drawIdle": 0,
-    "drawActive": 0
-  },
-  "heat": {
-    "perSecondActive": 0,
-    "overheatThreshold": 100,
-    "overheatCooldown": 0,
-    "overheatSelfDamage": 0
+  "recharge": {
+    "multiplier": 1.9
   },
   "passives": [
     {
-      "target": "energy.capacitor",
-      "op": "add",
-      "value": 88
-    },
-    {
-      "target": "energy.regen",
-      "op": "add",
-      "value": 11
+      "target": "energyStore.multiplier",
+      "op": "mul",
+      "value": 1.3
     },
     {
       "target": "engine.nominalSpeed",

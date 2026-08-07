@@ -9,13 +9,6 @@ const MODULE = {
   family: "utility",
   level: 1,
   activation: { deployTime: 0, retractTime: 0 },
-  energy: { drawIdle: 0, drawActive: 0 },
-  heat: {
-    perSecondActive: 0,
-    overheatThreshold: 1,
-    overheatCooldown: 0,
-    overheatSelfDamage: 0,
-  },
   ui: { icon: "[ICON: utility]", label: "Test" },
   price: 0,
   requiresLevel: 1,

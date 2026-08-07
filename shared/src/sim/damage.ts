@@ -20,9 +20,9 @@ export interface DamageTally {
  *   1. base *= tuning.globalDamageMult
  *   2. active shield module mitigation (per §2.3): for each `active` shield whose
  *      `coversFamilies` includes the damage type, remove `damageReduction`× of the
- *      hit, capped by that module's per-tick absorb budget (`absorbPerSecond`×dt).
- *      Absorbing marks the shield worked-this-tick (EnergySystem charges
- *      `drawActive`) and emits `shieldAbsorb`.
+ *      hit, capped by whatever charge is left in that module's OWN energy tank —
+ *      which the absorb then spends. Absorbing marks the shield worked-this-tick
+ *      (EnergySystem also bills its upkeep) and emits `shieldAbsorb`.
  *   3. innate ship shield hp (shieldMax is 0 in MVP — ships have no innate shield;
  *      shielding is entirely module-provided — so this step is a no-op today).
  *   4. remaining damage hits hull after the hull resist for that damage type.
@@ -58,12 +58,15 @@ export function applyDamageToShip(
       const mit = cfg?.mitigation;
       if (!mit) continue;
       if (mit.coversFamilies && !mit.coversFamilies.includes(type)) continue;
-      const available = mit.absorbPerSecond === undefined ? Infinity : m.shieldPool;
+      // The shield's RESERVE is its own energy tank (heat/energy overhaul
+      // 2026-08-07): a point soaked is a point of charge spent, so a shield
+      // holds exactly as long as its tank and returns as fast as it refills.
+      const available = m.energyCapacity > 0 ? m.energy : Infinity;
       if (available <= 0) continue;
       const reduced = Math.min(dmg * mit.damageReduction, available);
       if (reduced <= 0) continue;
       dmg -= reduced;
-      if (mit.absorbPerSecond !== undefined) m.shieldPool -= reduced;
+      if (m.energyCapacity > 0) m.energy -= reduced;
       m.workedThisTick = true;
       if (tally) {
         tally.absorbed.set(m.hardpointIndex, (tally.absorbed.get(m.hardpointIndex) ?? 0) + reduced);

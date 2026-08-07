@@ -2,13 +2,47 @@
   "id": "upgrade.heat-std",
   "type": "upgrade",
   "version": 2,
-  "name": "Standard Heat Sink",
+  "name": "Standard Cooling Loop",
   "track": "heat",
   "levels": [
-    { "level": 1, "price": 0, "add": { "heat.capacity": 0 } },
-    { "level": 2, "price": 200, "add": { "heat.capacity": 15, "heat.dissipation": 1.5 } },
-    { "level": 3, "price": 500, "add": { "heat.capacity": 35, "heat.dissipation": 3.5 } },
-    { "level": 4, "price": 900, "add": { "heat.capacity": 60, "heat.dissipation": 6 } },
-    { "level": 5, "price": 1400, "add": { "heat.capacity": 90, "heat.dissipation": 9 } }
+    {
+      "level": 1,
+      "price": 0,
+      "mul": {
+        "cooling.multiplier": 1.0
+      }
+    },
+    {
+      "level": 2,
+      "price": 200,
+      "mul": {
+        "cooling.multiplier": 1.05,
+        "heatStore.multiplier": 1.05
+      }
+    },
+    {
+      "level": 3,
+      "price": 500,
+      "mul": {
+        "cooling.multiplier": 1.1,
+        "heatStore.multiplier": 1.1
+      }
+    },
+    {
+      "level": 4,
+      "price": 900,
+      "mul": {
+        "cooling.multiplier": 1.16,
+        "heatStore.multiplier": 1.16
+      }
+    },
+    {
+      "level": 5,
+      "price": 1400,
+      "mul": {
+        "cooling.multiplier": 1.22,
+        "heatStore.multiplier": 1.22
+      }
+    }
   ]
 }

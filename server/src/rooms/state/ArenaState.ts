@@ -27,8 +27,20 @@ export class ModuleState extends Schema {
   @type("uint8") state = 0;
   /** Remaining seconds in a timed state (deploying/retracting/overheated). */
   @type("float32") stateTimer = 0;
-  /** Module heat vs its overheat threshold (for the button heat fill). */
+  /**
+   * This module's OWN heat and its resolved capacity (heat/energy overhaul
+   * 2026-08-07). The button's heat ring is `heat / heatCapacity`; a capacity of
+   * 0 means the module has no heat ring at all.
+   */
   @type("float32") heat = 0;
+  @type("float32") heatCapacity = 0;
+  /**
+   * This module's OWN energy tank and its resolved capacity (boost bottle,
+   * shield reserve, active utility). The button's energy ring is
+   * `energy / energyCapacity`; a capacity of 0 means no energy ring.
+   */
+  @type("float32") energy = 0;
+  @type("float32") energyCapacity = 0;
   /** Weapon cooldown countdown (seconds) — drives fire-cadence visuals. */
   @type("float32") cycleTimer = 0;
   /**
@@ -80,14 +92,12 @@ export class PlayerState extends Schema {
   @type("float32") hull = 0;
   /** Resolved max hull (ship class + upgrades + module passives) — for HUD bars. */
   @type("float32") hullMax = 0;
-  /** Sum of active shield-module absorb reservoirs. */
+  /**
+   * Sum of active shield-module reserves — the hull's shield arc. Ship-wide
+   * energy and heat fields are GONE with the 2026-08-07 overhaul: both live per
+   * module, on {@link ModuleState}, because that is where the pilot spends them.
+   */
   @type("float32") shieldPool = 0;
-  @type("float32") energyCur = 0;
-  /** Resolved capacitor max (ship class + upgrades + module passives). */
-  @type("float32") energyMax = 0;
-  @type("float32") heatCur = 0;
-  /** Resolved heat capacity (ship class + upgrades + module passives). */
-  @type("float32") heatCapacity = 0;
   /**
    * Commanded throttle (the ship's live `FlightState` value, 0 when it has
    * none), normalized 0..1 as uint8 — decode with shared `decodeUnit`. Clients

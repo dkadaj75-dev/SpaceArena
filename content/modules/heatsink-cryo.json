@@ -9,32 +9,19 @@
     "deployTime": 0,
     "retractTime": 0
   },
-  "energy": {
-    "drawIdle": 10,
-    "drawActive": 10
-  },
-  "heat": {
-    "perSecondActive": 0,
-    "overheatThreshold": 100,
-    "overheatCooldown": 0,
-    "overheatSelfDamage": 0
+  "cooling": {
+    "multiplier": 2.1
   },
   "jettison": {
-    "purgeAmount": 240,
     "cooldownSec": 18,
     "decoyLifetimeSec": 12,
     "decoyRadius": 1.8
   },
   "passives": [
     {
-      "target": "heat.dissipation",
-      "op": "add",
-      "value": 66
-    },
-    {
-      "target": "heat.capacity",
-      "op": "add",
-      "value": 40
+      "target": "heatStore.multiplier",
+      "op": "mul",
+      "value": 1.25
     }
   ],
   "onActivate": [

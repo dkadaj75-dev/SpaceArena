@@ -178,8 +178,7 @@ const moduleOf = (id: string, family: string) => ({
   level: 1,
   name: id,
   activation: { deployTime: 0, retractTime: 0 },
-  energy: { drawIdle: 0, drawActive: 0 },
-  heat: { perSecondActive: 0, overheatThreshold: 1, overheatCooldown: 0, overheatSelfDamage: 0 },
+  heat: { capacity: 1, coolingPerSec: 1, perSecondActive: 0 },
   ui: { icon: "i", label: "l" },
   price: 0,
   requiresLevel: 1,
@@ -216,8 +215,6 @@ function shipFiles(defaultFitting: string[]): Record<string, unknown> {
       core: {
         hull: { base: 80, resists: { kinetic: 0.1, energy: 0 } },
         engine: { nominalSpeed: 34, accel: 22, turnRate: 3 },
-        energy: { capacitor: 120, regen: 14 },
-        heat: { capacity: 100, dissipation: 9, criticalDamagePerSec: 4 },
         sensors: { lockRange: 60, lockTimeSec: 1.5, coneDeg: 70 },
       },
       upgradeTracks: { hull: "upgrade.hull", engine: "upgrade.engine", energy: "upgrade.energy", heat: "upgrade.heat" },

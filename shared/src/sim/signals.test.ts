@@ -12,8 +12,6 @@ function ship(overrides: Partial<ShipSnapshot> = {}): ShipSnapshot {
     up: { x: 0, y: 1, z: 0 },
     hull: 100,
     hullMax: 100,
-    energy: { cur: 50, max: 100 },
-    heat: { cur: 0, capacity: 100 },
     targetId: null,
     throttle: 0,
     lockProgress: 0,
@@ -68,13 +66,20 @@ describe("signal registry", () => {
 
   it("hullFraction / heatFraction are exact ratios, clamped 0..1", () => {
     expect(evalSignal("hullFraction", ship({ hull: 40, hullMax: 80 }))).toBeCloseTo(0.5, 6);
-    expect(evalSignal("heatFraction", ship({ heat: { cur: 30, capacity: 60 } }))).toBeCloseTo(0.5, 6);
+    // heatFraction is the HOTTEST rack now — there is no ship pool to read.
+    const hot = ship({
+      modules: [
+        { moduleId: "a", hardpointIndex: 0, state: "active", heat: 30, heatCapacity: 60, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 },
+        { moduleId: "b", hardpointIndex: 1, state: "active", heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 },
+      ],
+    });
+    expect(evalSignal("heatFraction", hot)).toBeCloseTo(0.5, 6);
     expect(evalSignal("hullFraction", ship({ hull: 999, hullMax: 100 }))).toBe(1);
   });
 
   it("shieldActive reflects any module with an absorb reservoir", () => {
     const withShield = ship({
-      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 5 }],
+      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 5 }],
     });
     expect(evalSignal("shieldActive", withShield)).toBe(1);
     expect(evalSignal("shieldActive", ship())).toBe(0);
@@ -82,7 +87,7 @@ describe("signal registry", () => {
 
   it("firing reflects an active module mid weapon cycle", () => {
     const firing = ship({
-      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 }],
+      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 }],
     });
     expect(evalSignal("firing", firing)).toBe(1);
   });

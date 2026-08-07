@@ -71,16 +71,26 @@ export interface ShipCore {
   shieldMax: number;
   resists: { kinetic: number; energy: number };
   engine: { nominalSpeed: number; accel: number; turnRate: number };
-  capacitor: { cur: number; max: number; regen: number };
-  /** `cur` is the shared ship heat pool = sum of module heats (recomputed each tick). */
-  heat: { cur: number; capacity: number; dissipation: number; criticalDamagePerSec: number };
+  /**
+   * Resolved hull-wide COOLING multiplier (heat/energy overhaul 2026-08-07) —
+   * hull base × every fitted heatsink's `cooling.multiplier` × passives. Applied
+   * to every module's own `heat.coolingPerSec`. There is no ship heat pool.
+   */
+  cooling: { multiplier: number };
+  /** Resolved hull-wide RECHARGE multiplier, applied to every module tank's refill. */
+  recharge: { multiplier: number };
+  /** Resolved multiplier on every module's authored `heat.capacity`. */
+  heatStore: { multiplier: number };
+  /** Resolved multiplier on every module's authored `energy.capacity`. */
+  energyStore: { multiplier: number };
   /** Resolved sensor suite driving the lock cone (FLIGHT.md §2). `coneDeg` is the FULL width. */
   sensors: { lockRange: number; lockTimeSec: number; coneDeg: number };
   /**
    * POWER RAIL (2026-07-31): the instantaneous current the hull can deliver.
    * Every ACTIVE hardpoint module occupies its own `power.draw` out of this,
    * which is what makes two heavy weapons mutually exclusive on a thin rail.
-   * Distinct from `capacitor`, which is a reservoir drained over time.
+   * Distinct from a module's own energy tank, which is a reservoir drained
+   * over time (see {@link ModuleRuntime.energy}).
    */
   power: { capacity: number };
   /**
@@ -121,10 +131,34 @@ export interface ModuleRuntime {
   /** Index into the ship fitting / hardpoint order. */
   hardpointIndex: number;
   state: ModuleState;
-  /** Remaining seconds in a timed state (deploying/retracting/overheated). */
+  /**
+   * Remaining seconds in a timed state (deploying/retracting). An `overheated`
+   * lockout is NOT timed — it ends when the rack's own heat falls back under
+   * `heat.capacity × heat.rearmBelow` — so this is 0 throughout one.
+   */
   stateTimer: number;
-  /** This module's own heat vs its `overheatThreshold`. */
+  /** This module's own heat, 0..{@link ModuleRuntime.heatCapacity}. */
   heat: number;
+  /**
+   * Resolved capacity of this module's heat store (authored `heat.capacity` ×
+   * the hull's `heatStore.multiplier`), or 0 for a module that never heats.
+   * Resolved once at spawn: the HUD's heat ring is `heat / heatCapacity`.
+   */
+  heatCapacity: number;
+  /** This module's own energy charge, 0..{@link ModuleRuntime.energyCapacity}. */
+  energy: number;
+  /**
+   * Resolved capacity of this module's energy tank (authored `energy.capacity` ×
+   * the hull's `energyStore.multiplier`), or 0 for a module that needs none.
+   * Resolved once at spawn: the HUD's energy ring is `energy / energyCapacity`.
+   */
+  energyCapacity: number;
+  /**
+   * True for a module whose energy tank doubles as a damage-absorbing shield
+   * reserve (anything authoring `mitigation`). Cached at spawn so the per-tick
+   * damage path and the snapshot never have to re-read the config.
+   */
+  absorbs: boolean;
   /** Weapon cooldown countdown (seconds). Always 0 for `fire.mode: "continuous"`. */
   cycleTimer: number;
   /**
@@ -140,16 +174,8 @@ export interface ModuleRuntime {
    * {@link ModuleRuntime.channeling}.
    */
   channel: ChannelRuntime | null;
-  /** Set true by nav/combat when the module actually did work this tick. */
+  /** Set true by nav/combat/damage when the module actually did work this tick. */
   workedThisTick: boolean;
-  /**
-   * Shield-family absorb reservoir (damage points). Regenerates at
-   * `mitigation.absorbPerSecond` up to a 1-second cap while the shield is active;
-   * drained as it soaks damage. 0 for non-shield modules.
-   */
-  shieldPool: number;
-  /** Guards one-shot overheat self-damage. */
-  overheatDamaged: boolean;
 }
 
 export interface ModulesComp {

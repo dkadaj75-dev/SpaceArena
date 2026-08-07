@@ -10,18 +10,12 @@
     "retractTime": 0
   },
   "energy": {
-    "drawIdle": 0,
-    "drawActive": 16
-  },
-  "heat": {
-    "perSecondActive": 0,
-    "overheatThreshold": 45,
-    "overheatCooldown": 3,
-    "overheatSelfDamage": 0
+    "capacity": 50,
+    "rechargePerSec": 6.7,
+    "drawPerSec": 18
   },
   "boost": {
-    "speedMult": 1.35,
-    "heatPerSec": 2.4000000000000004
+    "speedMult": 1.35
   },
   "passives": [
     {

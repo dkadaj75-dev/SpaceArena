@@ -45,8 +45,8 @@ const DEFAULT_MAX_ORDERS_PER_SEC = 20;
 const NO_BOOST_FITTED: BoostButtonState = {
   hardpointIndex: null,
   active: false,
-  overheated: false,
-  heatPct: 0,
+  energy: 0,
+  energyCapacity: 0,
   blocked: false,
 };
 const NO_JETTISON_FITTED: JettisonButtonState = { fitted: false, cooldownSec: 0, cooldownTotalSec: 0 };
@@ -544,14 +544,11 @@ export class FlightControls {
     const module = ship.modules[index]!;
     this.boostHardpointIndex = module.hardpointIndex;
     this.boostActive = module.state === "active";
-    // Heat against the module's OWN overheat threshold, not the ship's capacity:
-    // the threshold is what actually shuts the afterburner off.
-    const threshold = this.configs.get<ModuleConfig>("module", module.moduleId)?.heat.overheatThreshold ?? 0;
     this.boostButton.update({
       hardpointIndex: module.hardpointIndex,
       active: this.boostActive,
-      overheated: module.state === "overheated",
-      heatPct: threshold > 0 ? (100 * module.heat) / threshold : 0,
+      energy: module.energy,
+      energyCapacity: module.energyCapacity,
       blocked: carriesFlag(cur, ship.id),
     });
   }

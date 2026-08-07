@@ -6,7 +6,7 @@
   "class": "medium",
   "core": {
     "hull": {
-      "base": 110,
+      "base": 145,
       "resists": {
         "kinetic": 0.15,
         "energy": 0.2
@@ -17,17 +17,20 @@
       "accel": 13,
       "turnRate": 2.4
     },
-    "energy": {
-      "capacitor": 170,
-      "regen": 10
-    },
     "power": {
       "capacity": 12
     },
-    "heat": {
-      "capacity": 130,
-      "dissipation": 14,
-      "criticalDamagePerSec": 3
+    "cooling": {
+      "multiplier": 1.1
+    },
+    "recharge": {
+      "multiplier": 1.15
+    },
+    "heatStore": {
+      "multiplier": 1.1
+    },
+    "energyStore": {
+      "multiplier": 1.25
     },
     "sensors": {
       "lockRange": 175.0,

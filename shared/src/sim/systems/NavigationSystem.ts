@@ -1,5 +1,5 @@
 import type { ModuleConfig } from "../../schemas/index.js";
-import type { EntityId, ShipCore } from "../components.js";
+import type { EntityId } from "../components.js";
 import { clamp, len3 } from "../math.js";
 import { advanceFrame, type FrameAttitude } from "../frame.js";
 
@@ -11,11 +11,12 @@ import type { World } from "../World.js";
 
 /**
  * Boost speed multiplier for one ship this tick: 1 unless a fitted boost module
- * is `active` with energy + heat headroom, in which case its `boost.speedMult`
- * applies and the module is flagged worked-this-tick so EnergySystem charges
- * `drawActive` and its boost heat.
+ * is `active` with charge left in ITS OWN TANK (heat/energy overhaul
+ * 2026-08-07 — there is no ship capacitor to check), in which case its
+ * `boost.speedMult` applies and the module is flagged worked-this-tick so
+ * EnergySystem drains `energy.drawPerSec` from that tank.
  */
-function resolveBoostMult(world: World, id: EntityId, core: ShipCore, dt: number): number {
+function resolveBoostMult(world: World, id: EntityId): number {
   let speedMult = 1;
   // A FLAG CARRIER has no afterburner (owner 2026-07-31). Not a penalty bolted
   // on afterwards — it is what gives a defence time to arrive, and what makes
@@ -26,10 +27,11 @@ function resolveBoostMult(world: World, id: EntityId, core: ShipCore, dt: number
   for (const m of mods.modules) {
     if (m.state !== "active") continue;
     const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
-    if (!cfg?.boost) continue;
-    const hasEnergy = core.capacitor.cur > cfg.energy.drawActive * core.efficiency.energyDraw * dt;
-    const hasHeat = m.heat < cfg.heat.overheatThreshold;
-    if (hasEnergy && hasHeat) {
+    if (!cfg?.boost || !cfg.energy) continue;
+    // Any charge at all buys this tick of thrust; EnergySystem takes the module
+    // offline on the tick the bottle actually empties, and it then has to charge
+    // past `energy.rearmAbove` before the pilot can arm it again.
+    if (m.energy > 0) {
       speedMult = cfg.boost.speedMult;
       m.workedThisTick = true;
     }
@@ -50,7 +52,7 @@ function resolveBoostMult(world: World, id: EntityId, core: ShipCore, dt: number
  * velocity it still carries (a fresh spawn has none).
  *
  * Boost: when the state asks for boost AND a fitted boost module is `active`
- * with energy + heat headroom, nominal speed is multiplied by `boost.speedMult`
+ * with charge in its own tank, nominal speed is multiplied by `boost.speedMult`
  * (see {@link resolveBoostMult}).
  */
 export function navigationSystem(world: World, dt: number): void {
@@ -113,7 +115,7 @@ export function navigationSystem(world: World, dt: number): void {
     // Continuous flight (FLIGHT.md §1). MUST stay identical to `flightStep` in
     // steering.ts — that function is the client-prediction mirror and a test
     // asserts the two produce the same trajectory.
-    const speedMult = flight.boost ? resolveBoostMult(world, id, core, dt) : 1;
+    const speedMult = flight.boost ? resolveBoostMult(world, id) : 1;
     advanceFrame(
       tf.heading,
       tf.pitch,

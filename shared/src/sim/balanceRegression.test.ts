@@ -11,16 +11,35 @@ import { loadTestConfigs, pinLock } from "./testutil.js";
  * (regression-guards balance)" + "TTK sanity bounds".
  *
  * These are BALANCE guards, not unit tests. They freeze the *shape* of the
- * capacitor/heat curves and the time-to-kill of the shipped fittings, so a
- * tuning change to a module, a ship core or the heat model that moves the game
+ * per-module heat/energy curves and the time-to-kill of the shipped fittings, so
+ * a tuning change to a module, a ship core or the heat model that moves the game
  * outside its intended feel fails CI instead of shipping silently.
+ *
+ * ## What the 2026-08-07 rebuild fixed
+ *
+ * The previous bench could not fail. It restored BOTH hulls every tick, so the
+ * self-inflicted hull loss that dominated real matches was invisible; and
+ * `timeToKill()` looped until the DEFENDER died, reporting `Infinity` when it
+ * was in fact the ATTACKER that had died — which is how four of five stock
+ * matchups came to be recorded as "unkillable" and asserted as correct.
+ *
+ * Both holes are closed here, and the closure is the point:
+ *
+ *  - {@link runEngagement} never touches hull. It MEASURES hull instead, and
+ *    asserts that a ship holding its trigger at a target that cannot reach it
+ *    loses no hull at all. Under the new model nothing a pilot fires can hurt
+ *    their own ship — that invariant is now a test rather than a hope.
+ *  - {@link timeToKill} returns a discriminated {@link KillResult}. An attacker
+ *    dying is `attackerDied` and fails loudly; nothing collapses to `Infinity`.
+ *  - The TTK matrix forbids `Infinity` outright: every stock matchup must
+ *    resolve, and inside the 8–45 s design band.
  *
  * Reading a failure:
  *  - a BAND violation means a content/tuning change moved a curve. If that was
  *    intentional, re-record the literal in the same commit as the content change
  *    so the diff shows the balance intent.
- *  - an INVARIANT failure (negative energy, energy above capacity, negative
- *    heat, TTK outside the hard floor/ceiling) means something is actually broken.
+ *  - an INVARIANT failure (negative heat, a tank over capacity, self-inflicted
+ *    hull loss, a TTK outside the band) means something is actually broken.
  *
  * Determinism: every scenario runs on a private, asteroid-free bench arena with
  * a fixed 30 Hz tick, a fully scripted order stream and no RNG consumer, so the
@@ -46,7 +65,7 @@ beforeAll(async () => {
   configs = await loadTestConfigs();
 
   // A featureless disc: no asteroids ⇒ no LoS breaks, no avoidance steering, no
-  // impact damage. The bench measures the energy/heat model, nothing else.
+  // impact damage. The bench measures the heat/energy model, nothing else.
   expectReplaced(
     configs.replace({
       id: BENCH_ARENA,
@@ -81,9 +100,9 @@ beforeAll(async () => {
     }),
   );
 
-  // Heat-model stress fixture: unlike every shipped weapon, this one out-paces
-  // the no-sink interceptor's authored 9/s dissipation, so it exercises accumulation → overheat →
-  // cooldown → resume. Guards the MODEL independently of shipped balance.
+  // Heat-model stress fixture: a channel that out-paces its own cooling by 4x,
+  // so it exercises accumulation → lockout → cool-down → re-arm in a couple of
+  // seconds. Guards the MODEL independently of shipped balance.
   expectReplaced(
     configs.replace({
       id: HOT_LASER,
@@ -93,10 +112,9 @@ beforeAll(async () => {
       level: 1,
       name: "Bench Hot Laser",
       activation: { deployTime: 0, retractTime: 0 },
-      energy: { drawIdle: 1, drawActive: 4 },
-      heat: { perSecondActive: 240, overheatThreshold: 40, overheatCooldown: 4, overheatSelfDamage: 0 },
+      heat: { capacity: 40, coolingPerSec: 15, perSecondActive: 100, rearmBelow: 0.25 },
       fire: {
-        mode: "held",
+        mode: "continuous",
         range: 38,
         cycleTime: 0.2,
         damage: 1,
@@ -135,45 +153,50 @@ interface ScriptStep {
 }
 
 interface Trajectory {
-  /** capacitor.cur / capacitor.max sampled at {@link CHECKPOINTS}. */
+  /** Emptiest module tank (0..1 of its own capacity) sampled at {@link CHECKPOINTS}. */
   energy: number[];
-  /** Lowest capacitor fraction seen at any tick. */
+  /** Lowest tank fraction seen at any tick. */
   energyFloor: number;
   /**
-   * Highest heat any single module reached, as a fraction of its own
-   * `overheatThreshold` — the number that actually decides whether a fitting
-   * cooks itself, unlike the ship pool which is a sum over modules.
+   * Highest heat any single module reached as a fraction of ITS OWN capacity —
+   * the number that decides whether a rack locks out.
    */
   peakModuleHeat: number;
-  /** Highest ship heat pool fraction (pool / heat.capacity) seen at any tick. */
-  peakPoolHeat: number;
   /** Times a subject module was forced `overheated`. */
   overheats: number;
-  /** Times the capacitor bottomed out and a module was force-retracted. */
-  brownOuts: number;
+  /**
+   * Hull the SUBJECT lost across the whole engagement. The opponent in this
+   * bench is out of weapon range, so this is self-inflicted damage and the
+   * whole scenario asserts it is zero — the failure the old bench could not see
+   * (it restored hull every tick and therefore measured nothing).
+   */
+  hullLost: number;
 }
 
 const CHECKPOINTS = [5, 10, 20, 30, 40, 50, 60];
 
 /**
- * Run `script` for the subject in a mutual 60 s duel: the opponent has every
- * weapon hot and the subject locked, and BOTH hulls are restored each tick, so
- * the fight never ends and shields keep absorbing (the only way a shield module
- * generates heat). Everything except the scripted orders is fixed.
+ * Run `script` for the subject for 60 s with the trigger held and every module
+ * it toggles honoured, against a DISARMED sparring partner at knife range.
+ *
+ * The partner is scenery: its hull is restored every tick so the scenario always
+ * runs its full minute, and it carries no live weapon, so it can never touch the
+ * subject. The SUBJECT is never restored and never healed. Any hull it loses is
+ * therefore its own doing — which is the exact measurement the pre-overhaul
+ * bench threw away by restoring both hulls, and the reason it certified a
+ * catalogue in which 58.8% of all damage was self-inflicted.
  */
 function runEngagement(shipId: string, script: readonly ScriptStep[], opponentShip = "ship.brawler"): Trajectory {
   const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
   const subject = sim.spawnPlayerAt(shipId, fittingOf(shipId), 0, { x: 0, z: 0 }, 0);
   const opponent = sim.spawnPlayerAt(opponentShip, fittingOf(opponentShip), 1, { x: 22, z: 0 }, Math.PI);
-  // No target orders: targeting is automatic (FLIGHT.md §2). Both hulls are nose
-  // to nose inside each other's sensor cone, so each picks the other on tick 1.
-
-  // Opponent fires from tick 0 — it is pressure, not a participant in the script.
+  // Disarm the partner outright: this bench measures the subject's upkeep, and
+  // an unattributable point of hull loss would defeat its whole purpose.
   for (const m of sim.world.modules.get(opponent)!.modules) {
-    if (isWeapon(m.moduleId)) m.state = "active";
+    if (isWeapon(m.moduleId)) m.state = "retracted";
   }
+  // No target orders: targeting is automatic (FLIGHT.md §2).
   sim.applyOrder(subject, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
-  sim.applyOrder(opponent, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
   const byTick = new Map<number, ScriptStep[]>();
   for (const step of script) {
@@ -185,62 +208,50 @@ function runEngagement(shipId: string, script: readonly ScriptStep[], opponentSh
     energy: [],
     energyFloor: 1,
     peakModuleHeat: 0,
-    peakPoolHeat: 0,
     overheats: 0,
-    brownOuts: 0,
+    hullLost: 0,
   };
   const checkpointTicks = new Set(CHECKPOINTS.map((s) => s * TPS));
   const subjectCore = sim.world.shipCores.get(subject)!;
   const opponentCore = sim.world.shipCores.get(opponent)!;
-  const thresholds = new Map(
-    sim.world.modules
-      .get(subject)!
-      .modules.map((m) => [m.hardpointIndex, configs.get<ModuleConfig>("module", m.moduleId)!.heat.overheatThreshold]),
-  );
+  const startHull = subjectCore.hull;
 
   for (let tick = 0; tick <= ENGAGEMENT_SECONDS * TPS; tick++) {
     for (const step of byTick.get(tick) ?? []) {
       if (step.toggle !== undefined) sim.applyOrder(subject, { kind: "moduleToggle", hardpointIndex: step.toggle });
       if (step.flight) sim.applyOrder(subject, { kind: "flight", ...step.flight, fire: true });
     }
-    // Immortal sparring partners: the bench measures upkeep, not lethality.
-    subjectCore.hull = subjectCore.hullMax;
+    // The partner is restored — it is a target, not a participant. The subject
+    // never is.
     opponentCore.hull = opponentCore.hullMax;
     // Locks pinned every tick (FLIGHT.md §2): this bench measures the upkeep
     // curve, so the guns must never fall silent for a targeting reason. Lock
     // behaviour has its own tests.
     pinLock(sim.world, subject);
-    pinLock(sim.world, opponent);
 
     const eventsBefore = sim.world.events.length;
     sim.tick(DT);
     for (const e of sim.world.events.slice(eventsBefore)) {
       if (e.type === "overheated" && e.entityId === subject) traj.overheats++;
-      // active → retracted with no `retracting` step is the brown-out signature.
-      if (e.type === "moduleStateChanged" && e.entityId === subject && e.from === "active" && e.to === "retracted") {
-        traj.brownOuts++;
-      }
     }
     sim.getEvents();
 
     // Hard invariants, every tick of every scenario.
-    expect(subjectCore.capacitor.cur).toBeGreaterThanOrEqual(0);
-    expect(subjectCore.capacitor.cur).toBeLessThanOrEqual(subjectCore.capacitor.max + 1e-9);
-    expect(subjectCore.heat.cur).toBeGreaterThanOrEqual(0);
-
-    const energyFraction = subjectCore.capacitor.cur / subjectCore.capacitor.max;
-    if (energyFraction < traj.energyFloor) traj.energyFloor = energyFraction;
-    traj.peakPoolHeat = Math.max(traj.peakPoolHeat, subjectCore.heat.cur / subjectCore.heat.capacity);
+    let emptiest = 1;
     for (const m of sim.world.modules.get(subject)!.modules) {
       expect(m.heat).toBeGreaterThanOrEqual(0);
-      traj.peakModuleHeat = Math.max(traj.peakModuleHeat, m.heat / thresholds.get(m.hardpointIndex)!);
+      expect(m.energy).toBeGreaterThanOrEqual(0);
+      expect(m.energy).toBeLessThanOrEqual(m.energyCapacity + 1e-9);
+      if (m.heatCapacity > 0) traj.peakModuleHeat = Math.max(traj.peakModuleHeat, m.heat / m.heatCapacity);
+      if (m.energyCapacity > 0) emptiest = Math.min(emptiest, m.energy / m.energyCapacity);
     }
-
-    if (checkpointTicks.has(tick)) traj.energy.push(round(energyFraction));
+    if (emptiest < traj.energyFloor) traj.energyFloor = emptiest;
+    if (checkpointTicks.has(tick)) traj.energy.push(round(emptiest));
   }
+
+  traj.hullLost = round(startHull - subjectCore.hull);
   traj.energyFloor = round(traj.energyFloor);
   traj.peakModuleHeat = round(traj.peakModuleHeat);
-  traj.peakPoolHeat = round(traj.peakPoolHeat);
   return traj;
 }
 
@@ -260,34 +271,17 @@ const expectNear = (label: string, value: number, recorded: number, band = BAND)
 };
 
 /**
- * Sustained brawl: every hardpoint up early and held, one cycled off and back
- * on, boost pulsed in three-second bursts. The "everything on" worst case for
- * the capacitor.
- *
- * The burst legs used to be tap-to-move dashes whose length the arrival logic
- * decided for us; move orders retired with FLIGHT.md §7, so the bursts are now
- * explicit and the SUSTAINED anchors below were re-recorded against them. What
- * the bench asserts is unchanged — upkeep curve, brown-out count, class
- * ordering — only the script that produces it is written in flight vocabulary.
+ * Sustained brawl: every hardpoint held down, one rack rested for a stretch and
+ * brought back, boost pulsed in three-second bursts. The "everything on" worst
+ * case for the module tanks.
  *
  * Scripts address HARDPOINT INDICES, exactly like a player's thumb does, so the
  * same script runs on every hull; a toggle for an index a hull does not have is
- * a documented no-op (see `ModuleSystem.test.ts`). Index 4 therefore only does
- * something on the five-hardpoint brawler.
+ * a documented no-op (see `ModuleSystem.test.ts`).
  */
 const SUSTAINED: ScriptStep[] = [
-  // Weapons spawn ONLINE and internals are always on (2026-07-31), so the
-  // script no longer deploys anything — "everything on" holds from tick 0. What
-  // it still does is REST a rack for a stretch and pulse boost, which is what
-  // the upkeep curve is measuring. Only hardpoint indices (0..3) are addressed:
-  // slots 4+ are the internal bay on every hull, and toggling a ship's own
-  // engine or generator is not a thing a pilot does.
   { at: 3, toggle: 3 },
   { at: 5, toggle: 2 },
-  // Boost bursts, three seconds each. Throttle stays at 0 so the burst is a
-  // pure energy/heat event: `resolveBoostMult` charges `drawActive` + boost heat
-  // whenever boost is REQUESTED and the module is hot, and the bench wants that
-  // upkeep without the range/LoS drift a 40-unit dash would smuggle in.
   { at: 6, toggle: 3, flight: { throttle: 0, turn: 0, boost: true } },
   { at: 9, flight: { throttle: 0, turn: 0, boost: false } },
   { at: 12, flight: { throttle: 0, turn: 0, boost: true } },
@@ -303,9 +297,7 @@ const SUSTAINED: ScriptStep[] = [
 /**
  * Disciplined skirmish: one weapon at a time, shield only in bursts, no boost.
  * The "playing well is rewarded" curve. Weapons spawn online, so discipline is
- * now expressed by RESTING the rack you are not using — the toggles below
- * produce exactly the same active windows as the pre-2026-07-31 script did:
- * laser [0,8] and [34,44], missile [12,20] and [48,58], shield [24,30].
+ * expressed by RESTING the rack you are not using.
  */
 const DISCIPLINED: ScriptStep[] = [
   { at: 0, toggle: 1 }, // missile rack rested at the bell — laser only
@@ -320,89 +312,79 @@ const DISCIPLINED: ScriptStep[] = [
   { at: 58, toggle: 1 },
 ];
 
-describe("scripted 60 s engagements — energy/heat regression bands", () => {
-  // Anchors rechecked 2026-08-05 for finite proportional cooling. Hulls carry a
-  // fixed systems block (engine/generator/transformer/heatsink/sensors) and far
-  // fewer weapon hardpoints — light 2, medium 3, heavy 4 — so the upkeep curves
-  // are a different shape entirely. The stock internals draw no idle power,
-  // which is why the light and medium hulls now hold their capacitor; the heavy
-  // still out-draws its plant with four racks firing.
-  it("interceptor, sustained brawl (expanded fit, boost pulses)", () => {
+describe("scripted 60 s engagements — per-module heat/energy regression bands", () => {
+  // Anchors recorded 2026-08-07 against the heat/energy overhaul. Under the new
+  // model a held trigger costs a rack its uptime and NOTHING else: no shared
+  // pool, no capacitor, no hull. The energy curve is the emptiest module tank,
+  // which on the light hull is `1` throughout (it carries no tank at all).
+  it("interceptor, sustained brawl (both racks held, boost pulses)", () => {
     const t = runEngagement("ship.interceptor", SUSTAINED);
-    expectWithinBand("interceptor sustained energy", t.energy, [0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999]);
-    expectNear("interceptor sustained energy floor", t.energyFloor, 0.996);
-    expect(t.overheats).toBe(36);
-    expect(t.brownOuts).toBe(4);
+    // The light hull carries no energy-bearing module at all, so its tank curve
+    // is flat at 1 — "no ring of that kind" all the way down the fitting.
+    expectWithinBand("interceptor sustained energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
+    expectNear("interceptor sustained energy floor", t.energyFloor, 1);
+    expect(t.overheats).toBe(13);
+    expect(t.hullLost).toBe(0);
   });
 
   it("interceptor, disciplined skirmish (one weapon at a time)", () => {
     const t = runEngagement("ship.interceptor", DISCIPLINED);
-    expectWithinBand("interceptor disciplined energy", t.energy, [0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999]);
-    expectNear("interceptor disciplined energy floor", t.energyFloor, 0.996);
-    expect(t.overheats).toBe(32);
-    expect(t.brownOuts).toBe(1);
+    expectWithinBand("interceptor disciplined energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
+    expect(t.overheats).toBe(6);
+    expect(t.hullLost).toBe(0);
   });
 
-  it("brawler, sustained brawl — expanded utility fit under capacitor pressure", () => {
+  it("brawler, sustained brawl — three racks and a shield on one hull", () => {
     const t = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    expectWithinBand("brawler sustained energy", t.energy, [0.678, 0.528, 0.664, 0.017, 0.152, 0.291, 0.427]);
+    // The shield tank is the curve: raised at t=3 it drains on upkeep alone,
+    // flames out, refills while down, and is raised again by the script.
+    expectWithinBand("brawler sustained energy", t.energy, [0.852, 1, 1, 0.488, 0.621, 1, 1]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
-    // The heavy still browns out once; x10 weapon heat creates repeated
-    // rack lockouts even with its expanded cooling block.
-    expect(t.brownOuts).toBe(1);
-    expect(t.overheats).toBe(53);
+    expect(t.overheats).toBe(13);
+    expect(t.hullLost).toBe(0);
   });
 
-  it("support, sustained brawl (big capacitor, strong dissipation)", () => {
+  it("support, sustained brawl (cool hull, deep tanks)", () => {
     const t = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
-    expectWithinBand("support sustained energy", t.energy, [0.995, 0.635, 0.073, 0.773, 0.064, 0.487, 0.999]);
+    expectWithinBand("support sustained energy", t.energy, [1, 0.629, 0.302, 1, 0.229, 1, 1]);
     expectNear("support sustained energy floor", t.energyFloor, 0);
-    expect(t.overheats).toBe(34);
-    expect(t.brownOuts).toBe(5);
+    expect(t.overheats).toBe(8);
+    expect(t.hullLost).toBe(0);
   });
 
-  it("keeps the class fantasy on upkeep: dissipation and capacitor still separate the hulls", () => {
+  it("keeps the class fantasy on upkeep: PER RACK, the light hull cooks fastest", () => {
     const support = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
     const interceptor = runEngagement("ship.interceptor", SUSTAINED);
     const brawler = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    // All hulls lock racks under x10 weapon heat; the heavy separates on its extra
-    // weapon's heat and on capacitor pressure.
-    expect(support.overheats).toBe(34);
-    expect(interceptor.overheats).toBe(36);
-    expect(brawler.overheats).toBeGreaterThan(interceptor.overheats);
-    expect(brawler.energyFloor).toBeLessThanOrEqual(support.energyFloor);
-    expect(brawler.energyFloor).toBeLessThanOrEqual(interceptor.energyFloor);
+    // Lockouts per WEAPON, which is the only fair comparison once the pool is
+    // gone: the light hull has the shallowest racks (heatStore ×1.00) and no
+    // cooling bonus, the support hull runs cool (×1.10) and the heavy carries
+    // deep racks (×1.25) on three hardpoints.
+    expect(interceptor.overheats / 2).toBeGreaterThan(support.overheats / 2);
+    expect(interceptor.overheats / 2).toBeGreaterThan(brawler.overheats / 3);
+    // …and the heavy's three racks still cook more in TOTAL than the light's two.
+    expect(brawler.overheats).toBeGreaterThanOrEqual(interceptor.overheats);
   });
 
   it("keeps the design contract: holding everything on costs more than cycling", () => {
     const sustained = runEngagement("ship.interceptor", SUSTAINED);
     const disciplined = runEngagement("ship.interceptor", DISCIPLINED);
-    expect(sustained.energyFloor).toBeLessThanOrEqual(disciplined.energyFloor);
-    expect(disciplined.energyFloor).toBeGreaterThan(0.5); // discipline never starves
-    // Peak ratios can be slightly higher in the cycled script when its sparse
-    // shot lands on a hotter phase; total forced lockouts measure the intended
-    // sustained-vs-disciplined thermal cost without that sampling artefact.
     expect(sustained.overheats).toBeGreaterThan(disciplined.overheats);
-    // An overheat may exceed its threshold by at most one tick's generation —
-    // and brown-outs (not hull damage) are the relief valve for the capacitor,
-    // so a legal all-on fit is still never an instant self-destruct.
-    // A discrete shot can legitimately jump a rack several thresholds under
-    // the x2 heat multiplier; lockout and the shared-pool cap guard survival.
-    expect(sustained.peakModuleHeat).toBeLessThan(4);
-    expect(disciplined.overheats).toBe(32);
+    // A rack may exceed its capacity by at most the one shot that trips it,
+    // which for the shipped catalogue is well under 2x.
+    expect(sustained.peakModuleHeat).toBeLessThan(2);
   });
 
-  it("a 60 s all-on engagement stays survivable: pool heat never goes critical", () => {
-    // Heat now BINDS on the shipped fittings (that is the point of the rework):
-    // individual racks trip, cool during lockout, and re-arm. Keep the
-    // x2 weapon heat can briefly push the shared pool past capacity while a
-    // rack serves its lockout. Keep the recorded 6× ceiling as the durable
-    // contract; the multiplier is intentional and must not be softened.
+  it("A SHIP CAN NEVER HURT ITSELF BY FIRING — the invariant the old bench could not see", () => {
+    // The 2026-08-07 audit measured 58.8% of all hull damage as self-inflicted,
+    // with 13 of 19 deaths caused by the pilot's own heat, while this suite was
+    // green. It was green because it restored hull every tick. It no longer
+    // does, and this is the assertion that closes that hole for good.
     for (const ship of ["ship.interceptor", "ship.brawler", "ship.support"]) {
       const t = runEngagement(ship, SUSTAINED, ship === "ship.brawler" ? "ship.interceptor" : "ship.brawler");
-      // Discrete shots now add up to 360 heat at once; the pool remains finite
-      // and non-critical, with a recorded light-hull transient of 6.193×.
-      expect(t.peakPoolHeat, `${ship} pool heat`).toBeLessThan(6.5);
+      expect(t.hullLost, `${ship} self-inflicted hull loss`).toBe(0);
+      // …and every rack stays inside a sane multiple of its own capacity.
+      expect(t.peakModuleHeat, `${ship} peak rack heat`).toBeLessThan(2);
     }
   });
 
@@ -413,7 +395,7 @@ describe("scripted 60 s engagements — energy/heat regression bands", () => {
   });
 });
 
-describe("heat model stress (synthetic fitting that out-paces dissipation)", () => {
+describe("heat model stress (synthetic rack that out-paces its own cooling)", () => {
   /** Interceptor flying the bench hot laser on its nose hardpoint, nothing else. */
   const HOT_FITTING = [HOT_LASER];
 
@@ -437,6 +419,8 @@ describe("heat model stress (synthetic fitting that out-paces dissipation)", () 
     let peakHeat = 0;
 
     for (let tick = 0; tick < seconds * TPS; tick++) {
+      // The TARGET is the immortal one here (it is scenery for a model bench);
+      // the SUBJECT is never touched, so its hull is still a real measurement.
       targetCore.hull = targetCore.hullMax;
       const before = sim.world.events.length;
       sim.tick(DT);
@@ -447,14 +431,20 @@ describe("heat model stress (synthetic fitting that out-paces dissipation)", () 
       statesSeen.add(mod.state);
       peakHeat = Math.max(peakHeat, mod.heat);
       expect(mod.heat).toBeGreaterThanOrEqual(0);
-      // A module may exceed its threshold within the tick it trips, but never
-      // by more than one tick's worth of generation.
-      expect(mod.heat).toBeLessThanOrEqual(40 + 240 * DT + 1e-9);
+      // A rack may exceed its capacity within the tick it trips, but never by
+      // more than one tick's worth of generation.
+      expect(mod.heat).toBeLessThanOrEqual(40 + 100 * DT + 1e-9);
     }
-    return { overheats, peakHeat: round(peakHeat), statesSeen: [...statesSeen].sort(), finalState: mod.state, finalHeat: round(mod.heat) };
+    return {
+      overheats,
+      peakHeat: round(peakHeat),
+      statesSeen: [...statesSeen].sort(),
+      finalState: mod.state,
+      finalHeat: round(mod.heat),
+    };
   }
 
-  it("accumulates past the threshold, forces the module offline, then re-arms", () => {
+  it("accumulates past its capacity, forces the module offline, then re-arms", () => {
     const r = runHot(20);
     expect(r.overheats).toBeGreaterThan(1);
     expect(r.statesSeen).toContain("overheated");
@@ -462,16 +452,15 @@ describe("heat model stress (synthetic fitting that out-paces dissipation)", () 
     // module never passes through retracted any more.
     expect(r.statesSeen).toContain("active");
     expect(r.statesSeen).not.toContain("retracted");
-    expect(r.peakHeat).toBeGreaterThan(40);
+    expect(r.peakHeat).toBeGreaterThanOrEqual(40);
   });
 
-  it("cycles overheat → 4 s lockout → straight back online at a stable, recorded rate", () => {
-    // 60 s at cycleTime 0.2 / 240 heat-per-second-of-work / 9 dissipation:
-    // the rack trips, sits out its 4 s cooldown, comes back ONLINE (weapons
-    // auto-re-arm) and immediately starts climbing again — a stable
-    // trip/lockout/resume duty cycle, eleven times in a minute.
+  it("cycles lockout → cool-down → back online at a stable, recorded rate", () => {
+    // 60 s at 100 heat/s against 24 effective cooling (15 × the free radiator's
+    // 1.6): the rack trips, cools to 25% of capacity, comes back ONLINE and
+    // immediately starts climbing again — a stable duty cycle.
     const r = runHot(60);
-    expect(r.overheats).toBe(11);
+    expect(r.overheats).toBe(26);
     expect(["active", "overheated"]).toContain(r.finalState);
     expect(r.statesSeen).toEqual(["active", "overheated"]);
   });
@@ -481,44 +470,75 @@ describe("heat model stress (synthetic fitting that out-paces dissipation)", () 
 // TTK sanity bounds
 // --------------------------------------------------------------------------
 
-describe("shipped discrete-weapon single-shot grace", () => {
-  it("never locks a rack from one shot", () => {
+describe("shipped weapon single-shot grace", () => {
+  it("never locks a rack from one shot, on any hull", () => {
+    const hullStores = configs
+      .getAll<ShipConfig>("ship")
+      .map((s) => s.core.heatStore?.multiplier ?? 1);
+    const smallestHull = Math.min(...hullStores);
     for (const module of configs.getAll<ModuleConfig>("module")) {
-      const shotHeat = module.fire?.heatPerShot ?? 0;
-      if (shotHeat <= 0) continue; // Continuous beams generate heat per tick.
-      const firstFiringTickHeat = shotHeat + module.heat.perSecondActive * DT;
+      const heat = module.heat;
+      if (!heat || heat.perShot <= 0) continue; // channels pay per second
       expect(
-        firstFiringTickHeat,
-        `${module.id}: one firing tick (${firstFiringTickHeat}) must stay below threshold (${module.heat.overheatThreshold})`,
-      ).toBeLessThan(module.heat.overheatThreshold);
+        heat.perShot,
+        `${module.id}: one shot (${heat.perShot}) must stay below the smallest hull's rack (${heat.capacity * smallestHull})`,
+      ).toBeLessThan(heat.capacity * smallestHull);
+    }
+  });
+
+  it("gives every weapon a finite, sane burn and recovery on the free kit", () => {
+    // The feel targets from the overhaul contract, expressed as content rules:
+    // a mk1 rack burns ~5 s and cools in ~2.5 s with the free radiator (×1.6),
+    // and nothing in the catalogue may sit outside a playable envelope.
+    const sink = configs.get<ModuleConfig>("module", "module.heatsink-basic")!.cooling!.multiplier;
+    for (const module of configs.getAll<ModuleConfig>("module")) {
+      const heat = module.heat;
+      if (!heat || !module.fire) continue;
+      if (module.id === HOT_LASER) continue; // synthetic stress fixture, not content
+      const cooling = heat.coolingPerSec * sink;
+      const gen =
+        module.fire.mode === "continuous"
+          ? heat.perSecondActive
+          : heat.perShot / module.fire.cycleTime;
+      expect(gen, `${module.id}: must out-pace its own cooling or heat means nothing`).toBeGreaterThan(cooling);
+      const burn = (heat.capacity - heat.perShot) / (gen - cooling);
+      const recover = heat.capacity / cooling;
+      expect(burn, `${module.id} burn`).toBeGreaterThan(1.5);
+      expect(burn, `${module.id} burn`).toBeLessThan(12);
+      expect(recover, `${module.id} recovery`).toBeGreaterThan(1.5);
+      expect(recover, `${module.id} recovery`).toBeLessThan(6);
     }
   });
 });
 
 /** Hard design floor: no default fitting may delete a hull faster than this. */
-const TTK_HARD_FLOOR_S = 0.75;
-/**
- * Hard design ceiling: a full-offence engagement must resolve inside two minutes.
- * The 2026-08-05 catalogue-wide 50% weapon-damage rebase pushes the heat-limited
- * interceptor-vs-brawler anchor beyond the former 60 s ceiling; 120 s is the
- * narrowest whole-minute ceiling that preserves a finite-resolution contract.
- */
-const TTK_HARD_CEILING_S = 300;
+const TTK_FLOOR_S = 8;
+/** Hard design ceiling: a stock engagement must resolve well inside a match. */
+const TTK_CEILING_S = 45;
 /** Regression band around each recorded TTK, as a fraction of the recorded value. */
 const TTK_BAND = 0.25;
 
 /**
  * Ticks allowed for the sensor lock to complete before the TTK clock starts. The
  * slowest hull locks in 2.2 s; a pair that cannot lock at all (out of sensor
- * range) burns this window without firing and then reports Infinity as before.
+ * range) burns this window without firing and then reports `neither` as before.
  */
 const LOCK_WARMUP_TICKS = 5 * TPS;
 
 /**
+ * The three ways a scripted duel can end. Making `attackerDied` its own outcome
+ * is the whole fix: the old helper collapsed it into `Infinity`, i.e. reported a
+ * pilot who had just killed himself as evidence the DEFENDER was unkillable.
+ */
+type KillResult =
+  | { outcome: "killed"; seconds: number }
+  | { outcome: "attackerDied"; seconds: number }
+  | { outcome: "neither"; seconds: number };
+
+/**
  * Advance until `shooter` holds a lock, or the warm-up window expires. Nothing
  * can fire before the lock completes (FLIGHT.md §2), so this window is dead time
- * for every measurement below — running it before the clock starts keeps the
- * recorded TTKs measuring what they always measured: time-to-kill once engaged.
+ * for every measurement below.
  */
 function warmUpLock(sim: ArenaSimulation, shooter: EntityId): void {
   for (let t = 0; t < LOCK_WARMUP_TICKS; t++) {
@@ -531,13 +551,9 @@ function warmUpLock(sim: ArenaSimulation, shooter: EntityId): void {
 /**
  * Seconds for `attacker` (default fitting, every weapon already deployed, target
  * locked) to destroy a stationary `defender` whose modules stay offline, at
- * `range` world units. `Infinity` if the defender survives the ceiling.
+ * `range` world units — and, distinctly, whether the ATTACKER died instead.
  */
-function timeToKill(
-  attackerShip: string,
-  defenderShip: string,
-  range: number,
-): number {
+function timeToKill(attackerShip: string, defenderShip: string, range: number): KillResult {
   const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
   const attacker = sim.spawnPlayerAt(attackerShip, fittingOf(attackerShip), 0, { x: 0, z: 0 }, 0);
   const defender = sim.spawnPlayerAt(defenderShip, fittingOf(defenderShip), 1, { x: range, z: 0 }, Math.PI);
@@ -547,85 +563,96 @@ function timeToKill(
   warmUpLock(sim, attacker);
   sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
-  for (let tick = 1; tick <= TTK_HARD_CEILING_S * TPS; tick++) {
+  const observationTicks = 120 * TPS;
+  for (let tick = 1; tick <= observationTicks; tick++) {
     sim.tick(DT);
     sim.getEvents();
-    if (!sim.hasShip(defender as EntityId)) {
-      return round(tick / TPS);
-    }
+    // ATTACKER FIRST: a bench that only ever asks "is the defender dead?"
+    // reports a self-kill as an unkillable defender, which is exactly how the
+    // pre-overhaul catalogue was certified.
+    if (!sim.hasShip(attacker)) return { outcome: "attackerDied", seconds: round(tick / TPS) };
+    if (!sim.hasShip(defender)) return { outcome: "killed", seconds: round(tick / TPS) };
   }
-  return Infinity;
+  return { outcome: "neither", seconds: Infinity };
 }
 
 describe("TTK sanity bounds (default fittings, weapons hot)", () => {
-  // Re-recorded 2026-08-05 for the catalogue-wide 50% weapon-damage rebase.
-  // Existing heat lockouts make the light-vs-heavy timing grow beyond 2×.
+  // Recorded 2026-08-07 against the heat/energy overhaul. EVERY stock matchup
+  // resolves — that is the acceptance bar of the overhaul, and `Infinity` is no
+  // longer a legal anchor anywhere in this matrix.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    ["ship.interceptor", "ship.interceptor", 22, Infinity],
-    ["ship.interceptor", "ship.brawler", 22, Infinity],
-    ["ship.brawler", "ship.interceptor", 22, 14.533],
-    ["ship.brawler", "ship.brawler", 22, Infinity], // starter-only default fit
-    ["ship.support", "ship.interceptor", 22, 26.033],
+    ["ship.interceptor", "ship.interceptor", 22, 18.733],
+    ["ship.interceptor", "ship.brawler", 22, 35.367],
+    ["ship.interceptor", "ship.support", 22, 24.933],
+    ["ship.brawler", "ship.interceptor", 22, 12.633],
+    ["ship.brawler", "ship.brawler", 22, 24.233],
+    ["ship.brawler", "ship.support", 22, 16.2],
+    ["ship.support", "ship.interceptor", 22, 16.833],
+    ["ship.support", "ship.brawler", 22, 33.1],
+    ["ship.support", "ship.support", 22, 23.033],
   ];
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {
-    const ttk = timeToKill(attacker, defender, range);
-    if (recorded === Infinity) {
-      // x2 weapon heat leaves these default fits heat-stalled within the
-      // 300-second observation window; retain that explicit balance anchor.
-      expect(ttk).toBe(Infinity);
-      return;
-    }
-    expect(ttk).toBeGreaterThan(TTK_HARD_FLOOR_S);
-    expect(ttk).toBeLessThan(TTK_HARD_CEILING_S);
+    const result = timeToKill(attacker, defender, range);
+    // An attacker that dies is a FAILURE with its own message, never a silent
+    // "the defender survived".
+    expect(result.outcome, `${attacker} vs ${defender}: attacker died at ${result.seconds}s`).toBe("killed");
+    expect(result.seconds).toBeGreaterThan(TTK_FLOOR_S);
+    expect(result.seconds).toBeLessThan(TTK_CEILING_S);
     // The band catches a change that is still "legal" but reshapes play.
     expect(
-      Math.abs(ttk - recorded) / recorded <= TTK_BAND,
-      `${attacker} vs ${defender}: TTK ${ttk}s outside ${recorded}s ±${TTK_BAND * 100}%`,
+      Math.abs(result.seconds - recorded) / recorded <= TTK_BAND,
+      `${attacker} vs ${defender}: TTK ${result.seconds}s outside ${recorded}s ±${TTK_BAND * 100}%`,
     ).toBe(true);
   });
 
-  it("records held missile fire without a re-pull requirement", () => {
-    const ttk = timeToKill("ship.interceptor", "ship.brawler", 22);
-    expect(ttk).toBe(Infinity);
+  it("every stock matchup resolves — no unkillable pairs, no self-kills", () => {
+    for (const [attacker, defender] of MATRIX) {
+      const result = timeToKill(attacker, defender, 22);
+      expect(result.outcome, `${attacker} vs ${defender}`).toBe("killed");
+      expect(Number.isFinite(result.seconds)).toBe(true);
+    }
   });
 
   it("keeps the class fantasy: the heavy out-trades the light and tanks longer", () => {
     const lightKillsHeavy = timeToKill("ship.interceptor", "ship.brawler", 22);
     const heavyKillsLight = timeToKill("ship.brawler", "ship.interceptor", 22);
-    expect(heavyKillsLight).toBeLessThan(lightKillsHeavy);
-    expect(lightKillsHeavy).toBe(Infinity);
-    expect(timeToKill("ship.brawler", "ship.brawler", 22)).toBe(Infinity);
+    expect(lightKillsHeavy.outcome).toBe("killed");
+    expect(heavyKillsLight.outcome).toBe("killed");
+    expect(heavyKillsLight.seconds).toBeLessThan(lightKillsHeavy.seconds);
   });
 
   it("nobody dies out of range", () => {
-    // Past every default weapon's reach (missile-mk1 is the longest at 55).
-    expect(timeToKill("ship.interceptor", "ship.interceptor", 120)).toBe(Infinity);
+    // Past every default weapon's reach (missile-mk1 is the longest at 137.5).
+    const r = timeToKill("ship.interceptor", "ship.interceptor", 200);
+    expect(r.outcome).toBe("neither");
   });
 
   it("an active shield measurably extends survival", () => {
     // The heavy is the hull under test here: since the internal bay landed
     // (2026-07-31) the light hull's two hardpoints carry no shield at all.
-    const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
-    const attacker = sim.spawnPlayerAt("ship.interceptor", fittingOf("ship.interceptor"), 0, { x: 0, z: 0 }, 0);
-    const defender = sim.spawnPlayerAt("ship.brawler", fittingOf("ship.brawler"), 1, { x: 22, z: 0 }, Math.PI);
-    for (const m of sim.world.modules.get(attacker)!.modules) {
-      if (isWeapon(m.moduleId)) m.state = "active";
-    }
-    // Defender raises its shield (hardpoint 3 on the heavy hull) and holds it.
-    sim.applyOrder(defender, { kind: "moduleToggle", hardpointIndex: 3 });
-    warmUpLock(sim, attacker); // same pre-engagement window as timeToKill()
-    sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
-
-    let shieldedTtk = Infinity;
-    for (let tick = 1; tick <= TTK_HARD_CEILING_S * TPS; tick++) {
-      sim.tick(DT);
-      sim.getEvents();
-      if (!sim.hasShip(defender)) {
-        shieldedTtk = round(tick / TPS);
-        break;
+    const measure = (raiseShield: boolean): KillResult => {
+      const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
+      const attacker = sim.spawnPlayerAt("ship.interceptor", fittingOf("ship.interceptor"), 0, { x: 0, z: 0 }, 0);
+      const defender = sim.spawnPlayerAt("ship.brawler", fittingOf("ship.brawler"), 1, { x: 22, z: 0 }, Math.PI);
+      for (const m of sim.world.modules.get(attacker)!.modules) {
+        if (isWeapon(m.moduleId)) m.state = "active";
       }
-    }
-    expect(shieldedTtk).toBe(Infinity);
+      if (raiseShield) sim.applyOrder(defender, { kind: "moduleToggle", hardpointIndex: 3 });
+      warmUpLock(sim, attacker);
+      sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
+      for (let tick = 1; tick <= 120 * TPS; tick++) {
+        sim.tick(DT);
+        sim.getEvents();
+        if (!sim.hasShip(attacker)) return { outcome: "attackerDied", seconds: round(tick / TPS) };
+        if (!sim.hasShip(defender)) return { outcome: "killed", seconds: round(tick / TPS) };
+      }
+      return { outcome: "neither", seconds: Infinity };
+    };
+    const bare = measure(false);
+    const shielded = measure(true);
+    expect(bare.outcome).toBe("killed");
+    expect(shielded.outcome).toBe("killed");
+    expect(shielded.seconds).toBeGreaterThan(bare.seconds);
   });
 });

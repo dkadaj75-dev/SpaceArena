@@ -15,12 +15,14 @@ beforeAll(async () => {
 describe("resolveShipStats (4.1)", () => {
   it("returns ship-class base stats with no upgrades or passives", () => {
     const core = resolveShipStats(interceptor, configs);
-    expect(core.hullMax).toBe(80);
+    expect(core.hullMax).toBe(120);
     expect(core.engine.nominalSpeed).toBe(27);
-    expect(core.capacitor.max).toBe(120);
-    expect(core.capacitor.regen).toBe(7); // halved 2026-07-31: shield/boost are energy-budgeted
-    expect(core.heat.capacity).toBe(100);
-    expect(core.heat.dissipation).toBe(9);
+    // Hull-wide heat/energy levers (2026-08-07): the light hull has no opinion,
+    // so every multiplier is 1 and the modules' own numbers stand as authored.
+    expect(core.cooling.multiplier).toBe(1);
+    expect(core.recharge.multiplier).toBe(1);
+    expect(core.heatStore.multiplier).toBe(1);
+    expect(core.energyStore.multiplier).toBe(1);
     // Sensor suite comes through the same pipeline as engine/heat (FLIGHT.md §2).
     expect(core.sensors).toEqual(interceptor.core.sensors);
   });
@@ -30,7 +32,7 @@ describe("resolveShipStats (4.1)", () => {
     const core = resolveShipStats(interceptor, configs, {
       upgradeLevels: { hull: 5, engine: 2, energy: 0, heat: 0 },
     });
-    expect(core.hullMax).toBe(170); // 80 + 90
+    expect(core.hullMax).toBe(210); // 120 + 90
     expect(core.engine.nominalSpeed).toBeCloseTo(27 * 1.08, 6);
   });
 
@@ -38,31 +40,27 @@ describe("resolveShipStats (4.1)", () => {
     const zero = resolveShipStats(interceptor, configs, { upgradeLevels: { hull: 0, engine: 0, energy: 0, heat: 0 } });
     const one = resolveShipStats(interceptor, configs, { upgradeLevels: { hull: 1, engine: 1, energy: 1, heat: 1 } });
     expect(one.hullMax).toBe(zero.hullMax);
-    expect(one.capacitor.max).toBe(zero.capacitor.max);
+    expect(one.energyStore.multiplier).toBe(zero.energyStore.multiplier);
   });
 
   it("applies fitted module passives (capacitor battery, heat sink)", () => {
     const core = resolveShipStats(interceptor, configs, {
       fittedModuleIds: ["module.utility-capacitor-battery", "module.utility-heat-sink"],
     });
-    // battery: capacitor +40, regen +4.
-    expect(core.capacitor.max).toBe(160);
-    expect(core.capacitor.regen).toBe(11);
-    // utility heat sink: dissipation +12, capacity *1.1.
-    expect(core.heat.dissipation).toBe(21);
-    expect(core.heat.capacity).toBeCloseTo(110, 6);
+    // battery: tanks x1.3; utility heat sink: cooling x1.15, racks x1.10.
+    expect(core.energyStore.multiplier).toBeCloseTo(1.3, 6);
+    expect(core.cooling.multiplier).toBeCloseTo(1.15, 6);
+    expect(core.heatStore.multiplier).toBeCloseTo(1.1, 6);
   });
 
-  it("orders operations add → mul (not mul → add) on the same stat", () => {
-    // heat count 3 → levels[2] add heat.capacity 35; heat-sink → mul heat.capacity 1.1.
-    // add-then-mul: (100 + 35) * 1.1 = 148.5   (mul-then-add would be 145).
+  it("stacks multiplicative ops from a track and a passive on the same stat", () => {
+    // heat count 3 -> levels[2] mul cooling 1.10; utility heat sink -> mul 1.15.
     const core = resolveShipStats(interceptor, configs, {
       upgradeLevels: { hull: 0, engine: 0, energy: 0, heat: 3 },
       fittedModuleIds: ["module.utility-heat-sink"],
     });
-    expect(core.heat.capacity).toBeCloseTo(148.5, 6);
-    // dissipation: base 9 + upgrade 3.5 + utility heat-sink 12 = 24.5.
-    expect(core.heat.dissipation).toBeCloseTo(24.5, 6);
+    expect(core.cooling.multiplier).toBeCloseTo(1.1 * 1.15, 6);
+    expect(core.heatStore.multiplier).toBeCloseTo(1.1 * 1.1, 6);
   });
 
   it("is deterministic: identical inputs ⇒ identical output", () => {
@@ -78,7 +76,7 @@ describe("resolveShipStats (4.1)", () => {
   it("clamps resolved stats to never go below zero", () => {
     // Empty ship with no negatives stays positive; sanity that clamp never inverts.
     const core = resolveShipStats(interceptor, configs);
-    for (const v of [core.hullMax, core.capacitor.max, core.heat.capacity, core.engine.nominalSpeed]) {
+    for (const v of [core.hullMax, core.cooling.multiplier, core.heatStore.multiplier, core.engine.nominalSpeed]) {
       expect(v).toBeGreaterThanOrEqual(0);
     }
   });
@@ -95,19 +93,18 @@ describe("resolveShipStats — pipeline edges", () => {
     const max = resolveShipStats(interceptor, configs, { upgradeLevels: { hull: 5, engine: 0, energy: 0, heat: 0 } });
     const overflow = resolveShipStats(interceptor, configs, { upgradeLevels: { hull: 99, engine: 0, energy: 0, heat: 0 } });
     expect(overflow.hullMax).toBe(max.hullMax);
-    expect(overflow.hullMax).toBe(170);
+    expect(overflow.hullMax).toBe(210);
   });
 
   it("applies all four tracks together without cross-talk", () => {
     const core = resolveShipStats(interceptor, configs, { upgradeLevels: { hull: 5, engine: 5, energy: 5, heat: 5 } });
-    expect(core.hullMax).toBe(170); // 80 + 90
+    expect(core.hullMax).toBe(210); // 120 + 90
     expect(core.engine.nominalSpeed).toBeCloseTo(27 * 1.45, 6);
     expect(core.engine.accel).toBeCloseTo(18 * 1.3, 6);
-    expect(core.capacitor.max).toBe(230); // 120 + 110
-    expect(core.capacitor.regen).toBe(19); // 7 + 12
-    expect(core.heat.capacity).toBe(190); // 100 + 90
-    expect(core.heat.dissipation).toBe(18); // 9 + 9
-    expect(core.heat.criticalDamagePerSec).toBe(4); // untouched by every track
+    expect(core.energyStore.multiplier).toBeCloseTo(1.35, 6);
+    expect(core.recharge.multiplier).toBeCloseTo(1.3, 6);
+    expect(core.heatStore.multiplier).toBeCloseTo(1.22, 6);
+    expect(core.cooling.multiplier).toBeCloseTo(1.22, 6);
   });
 
   it("ignores a track whose upgrade config does not exist (content gap ⇒ base stats, not a crash)", () => {
@@ -117,8 +114,8 @@ describe("resolveShipStats — pipeline edges", () => {
       upgradeTracks: { hull: "upgrade.ghost", engine: "upgrade.ghost", energy: "upgrade.ghost", heat: "upgrade.ghost" },
     });
     const core = resolveShipStats(ghostTracks, configs, { upgradeLevels: { hull: 5, engine: 5, energy: 5, heat: 5 } });
-    expect(core.hullMax).toBe(80);
-    expect(core.capacitor.max).toBe(120);
+    expect(core.hullMax).toBe(120);
+    expect(core.energyStore.multiplier).toBe(1);
   });
 
   it("skips empty hardpoints and unknown module ids in the fitting", () => {
@@ -137,11 +134,9 @@ describe("resolveShipStats — pipeline edges", () => {
     expect(core.resists).toEqual(interceptor.core.hull.resists);
   });
 
-  it("returns a fresh, full core: hull = hullMax, capacitor full, heat cold, no shield", () => {
+  it("returns a fresh, full core: hull = hullMax and no innate shield", () => {
     const core = resolveShipStats(interceptor, configs, { upgradeLevels: { hull: 3, engine: 0, energy: 2, heat: 0 } });
     expect(core.hull).toBe(core.hullMax);
-    expect(core.capacitor.cur).toBe(core.capacitor.max);
-    expect(core.heat.cur).toBe(0);
     expect(core.shield).toBe(0);
     expect(core.shieldMax).toBe(0);
   });
@@ -158,9 +153,8 @@ describe("resolveShipStats — module passive ops", () => {
       version: 1,
       family: "utility",
       level: 1,
+      name: id,
       activation: { deployTime: 0, retractTime: 0 },
-      energy: { drawIdle: 0, drawActive: 0 },
-      heat: { perSecondActive: 0, overheatThreshold: 1, overheatCooldown: 0, overheatSelfDamage: 0 },
       passives,
       ui: { icon: "i", label: id },
       price: 0,
@@ -172,11 +166,11 @@ describe("resolveShipStats — module passive ops", () => {
   beforeAll(async () => {
     // Private ConfigService so the synthetic fixtures never leak into other tests.
     ops = await loadTestConfigs();
-    addModule("module.test-coreprefix", [{ target: "core.energy.capacitor", op: "add", value: 10 }]);
+    addModule("module.test-coreprefix", [{ target: "core.energyStore.multiplier", op: "add", value: 0.1 }]);
     addModule("module.test-bighit", [{ target: "hull.base", op: "add", value: -1000 }]);
     addModule("module.test-unknownpath", [{ target: "shields.mega", op: "add", value: 99 }]);
-    addModule("module.test-halfcap", [{ target: "energy.capacitor", op: "mul", value: 0.5 }]);
-    addModule("module.test-plus30cap", [{ target: "energy.capacitor", op: "add", value: 30 }]);
+    addModule("module.test-halfcap", [{ target: "energyStore.multiplier", op: "mul", value: 0.5 }]);
+    addModule("module.test-plus30cap", [{ target: "energyStore.multiplier", op: "add", value: 0.3 }]);
     addModule("module.test-sensorbooster", [
       { target: "sensors.lockRange", op: "add", value: 15 },
       { target: "core.sensors.lockTimeSec", op: "mul", value: 0.5 },
@@ -186,7 +180,7 @@ describe("resolveShipStats — module passive ops", () => {
 
   it("accepts an optional leading `core.` on a passive target path", () => {
     const core = resolveShipStats(interceptor, ops, { fittedModuleIds: ["module.test-coreprefix"] });
-    expect(core.capacitor.max).toBe(130);
+    expect(core.energyStore.multiplier).toBeCloseTo(1.1, 6);
   });
 
   it("clamps a stat driven negative to exactly 0 rather than inverting it", () => {
@@ -202,15 +196,15 @@ describe("resolveShipStats — module passive ops", () => {
   });
 
   it("sums adds and multiplies muls across several fitted modules, add before mul", () => {
-    // (120 + 30 + 40) * 0.5 = 95. Fitting order must not change the result.
+    // (1 + 0.3) * 1.3 * 0.5 = 0.845. Fitting order must not change the result.
     const forward = resolveShipStats(interceptor, ops, {
       fittedModuleIds: ["module.test-plus30cap", "module.utility-capacitor-battery", "module.test-halfcap"],
     });
     const reversed = resolveShipStats(interceptor, ops, {
       fittedModuleIds: ["module.test-halfcap", "module.utility-capacitor-battery", "module.test-plus30cap"],
     });
-    expect(forward.capacitor.max).toBeCloseTo(95, 6);
-    expect(reversed.capacitor.max).toBeCloseTo(95, 6);
+    expect(forward.energyStore.multiplier).toBeCloseTo(0.845, 6);
+    expect(reversed.energyStore.multiplier).toBeCloseTo(0.845, 6);
   });
 
   it("moves the resolved sensor stats from a module statOp (all three registration sites wired)", () => {
@@ -228,12 +222,11 @@ describe("resolveShipStats — module passive ops", () => {
   });
 
   it("stacks upgrade ops and passive ops on the same stat in one add→mul pass", () => {
-    // energy count 5 → +110; battery → +40; half-cap → ×0.5 ⇒ (120+110+40)*0.5 = 135.
+    // energy count 5 → ×1.35; battery → ×1.3; half-cap → ×0.5.
     const core = resolveShipStats(interceptor, ops, {
       upgradeLevels: { hull: 0, engine: 0, energy: 5, heat: 0 },
       fittedModuleIds: ["module.utility-capacitor-battery", "module.test-halfcap"],
     });
-    expect(core.capacitor.max).toBeCloseTo(135, 6);
-    expect(core.capacitor.cur).toBe(core.capacitor.max);
+    expect(core.energyStore.multiplier).toBeCloseTo(1.35 * 1.3 * 0.5, 6);
   });
 });

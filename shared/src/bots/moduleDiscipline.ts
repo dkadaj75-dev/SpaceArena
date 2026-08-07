@@ -30,10 +30,9 @@ export interface ModulePlan {
   decisions: ModuleDecision[];
 }
 
-/** Fraction of a module's own overheat threshold currently used. */
-function moduleHeatFraction(m: ModuleSnapshot, cfg: ModuleConfig): number {
-  const threshold = cfg.heat.overheatThreshold;
-  return threshold > 0 ? m.heat / threshold : 0;
+/** Fraction of a module's own heat capacity currently used. */
+function moduleHeatFraction(m: ModuleSnapshot): number {
+  return m.heatCapacity > 0 ? m.heat / m.heatCapacity : 0;
 }
 
 /**
@@ -43,15 +42,15 @@ function moduleHeatFraction(m: ModuleSnapshot, cfg: ModuleConfig): number {
  *
  * Rules, all config-driven:
  *  - **heatShutdownAt** — a module is retracted once *either* its own heat (vs
- *    its `overheatThreshold`) or the ship's heat pool (vs `heatCapacity`)
- *    reaches the fraction. Retracting before the sim force-overheats it is the
- *    whole skill axis: no forced cooldown, no self-damage.
+ *    its own `heatCapacity`) or the ship's hottest rack reaches the fraction.
+ *    Retracting before the sim force-locks it is the whole skill axis: the rack
+ *    comes back when the pilot says so instead of when the metal says so.
  *  - **reactivateBelow** — a retracted module is redeployed only once *both*
  *    fractions have fallen back below it (hysteresis, so bots don't chatter).
- *  - **energyReserve** — nothing is *activated* while the capacitor is below the
- *    reserve fraction; already-active modules are left alone (the sim's own
- *    brown-out handles a truly empty capacitor, and retracting under load would
- *    thrash deploy timers).
+ *  - **energyReserve** — nothing is *activated* while the emptiest module tank is
+ *    below the reserve fraction; already-active modules are left alone (the sim
+ *    cuts a module that actually runs its own tank dry, and retracting under
+ *    load would thrash deploy timers).
  *  - **shieldOnlyWhenEngaged** — shield-family modules follow the chosen
  *    behaviour's `engaged` flag.
  *
@@ -83,7 +82,7 @@ export function planModuleOrders(
     if (isInternalFamily(cfg.family)) continue;
 
     const isActive = m.state === "active";
-    const heatFrac = Math.max(moduleHeatFraction(m, cfg), ctx.heatFraction);
+    const heatFrac = Math.max(moduleHeatFraction(m), ctx.heatFraction);
     const isShield = cfg.family === "shield";
 
     let want: boolean;
@@ -100,7 +99,7 @@ export function planModuleOrders(
     } else if (heatFrac > discipline.reactivateBelow) {
       continue; // still too hot to come back
     } else if (ctx.energyFraction < discipline.energyReserve) {
-      continue; // reserve protects the capacitor
+      continue; // reserve keeps a charge in the module tanks
     } else {
       want = true;
       reason = isShield && discipline.shieldOnlyWhenEngaged ? "shield-engaged" : "heat-cooled";

@@ -10,7 +10,6 @@ import type {
 import { createLogger } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { ModuleButtons } from "./ModuleButtons.js";
-import { Gauges } from "./Gauges.js";
 import { VitalArcs } from "./VitalArcs.js";
 import { Minimap } from "./Minimap.js";
 import { NotificationCenter } from "./Notifications.js";
@@ -96,7 +95,6 @@ export interface HudOptions {
  */
 export class Hud {
   private readonly moduleButtons: ModuleButtons;
-  private readonly gauges: Gauges;
   private readonly vitalArcs: VitalArcs;
   private readonly minimap: Minimap;
   private readonly notifications: NotificationCenter;
@@ -150,7 +148,6 @@ export class Hud {
     }
 
     this.minimap = new Minimap(this.root, configs, bus, session);
-    this.gauges = new Gauges(this.root, configs, bus, playerId);
     this.vitalArcs = new VitalArcs(this.root, configs, playerId);
     this.moduleButtons = new ModuleButtons(this.root, configs, bus, session, playerId);
     this.notifications = new NotificationCenter(this.root, configs);
@@ -244,13 +241,12 @@ export class Hud {
       this.root.style.setProperty(prop, value);
     }
     this.root.dataset["orientation"] = this.layout.orientation;
-    this.gauges.applyLayout(this.layout);
     this.vitalArcs.applyLayout(this.layout);
     this.minimap.applyLayout(this.layout);
 
     // Flight geometry resolves from the same theme + viewport, through its own
     // portrait/landscape block (FLIGHT.md §4). Its CSS vars land on the same
-    // root. Gauges now resolve their own orientation-aware bottom-left geometry.
+    // root. The retired lower-left gauges intentionally reserve no layout slot.
     this.flightLayout = resolveFlightHudLayout(theme, viewportSize());
     this.moduleButtons.applyLayout(this.layout);
     this.moduleButtons.applyFlightLayout(this.flightLayout);
@@ -300,7 +296,6 @@ export class Hud {
     }
     const presenting = this.presentation.state !== "playing";
     if (!presenting) this.flight?.update(cur, prev, alpha, dtMs, nowMs());
-    this.gauges.update(cur);
     this.vitalArcs.update(cur);
     this.moduleButtons.update(cur);
     this.minimap.update(cur, dtMs);
@@ -393,7 +388,6 @@ export class Hud {
     this.killAnnouncements.dispose();
     this.killFeed.dispose();
     this.scoreboard.dispose();
-    this.gauges.dispose();
     this.vitalArcs.dispose();
     this.minimap.dispose();
     this.notifications.dispose();

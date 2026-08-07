@@ -2,7 +2,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import type { ConfigService } from "../core/ConfigService.js";
 import { botprofileSchema, type BotprofileConfig } from "../schemas/botprofile.js";
-import type { ModuleConfig } from "../schemas/module.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { buildBotContext } from "./context.js";
@@ -42,8 +41,6 @@ function ship(id: number, team: number, x: number, locked: boolean, heat = 0): S
     up: { x: 0, y: 1, z: 0 },
     hull: 80,
     hullMax: 80,
-    energy: { cur: 100, max: 100 },
-    heat: { cur: heat, capacity: 100 },
     targetId: team === 0 ? 2 : 1,
     throttle: 0,
     lockProgress: locked ? 1 : 0,
@@ -54,6 +51,9 @@ function ship(id: number, team: number, x: number, locked: boolean, heat = 0): S
         hardpointIndex: 0,
         state: "active",
         heat,
+        heatCapacity: 100,
+        energy: 0,
+        energyCapacity: 0,
         stateTimer: 0,
         cycleTimer: 0,
         channeling: false,
@@ -114,20 +114,22 @@ describe("fireDiscipline", () => {
   });
 
   it("stops at the configured armed-module heat headroom", () => {
-    const threshold = configs.get<ModuleConfig>("module", "module.laser-mk1")!.heat.overheatThreshold;
-    expect(decideFire(context(true, threshold * 0.8), configs, discipline, true)).toEqual({
+    // The bench snapshot gives every rack a capacity of 100 (see `ship`), which
+    // is what a per-module heat fraction is measured against now.
+    const capacity = 100;
+    expect(decideFire(context(true, capacity * 0.8), configs, discipline, true)).toEqual({
       fire: false,
       reason: "heat-headroom",
     });
   });
 
   it("holds through cooling and re-arms at the configured hysteresis floor", () => {
-    const threshold = configs.get<ModuleConfig>("module", "module.laser-mk1")!.heat.overheatThreshold;
+    const capacity = 100;
     const state = { heatHeld: false };
     const hysteretic = { ...discipline, rearmHeatBelow: 0.4 };
-    expect(decideFire(context(true, threshold * 0.81), configs, hysteretic, true, state).fire).toBe(false);
-    expect(decideFire(context(true, threshold * 0.6), configs, hysteretic, true, state).fire).toBe(false);
-    expect(decideFire(context(true, threshold * 0.4), configs, hysteretic, true, state).fire).toBe(true);
+    expect(decideFire(context(true, capacity * 0.81), configs, hysteretic, true, state).fire).toBe(false);
+    expect(decideFire(context(true, capacity * 0.6), configs, hysteretic, true, state).fire).toBe(false);
+    expect(decideFire(context(true, capacity * 0.4), configs, hysteretic, true, state).fire).toBe(true);
   });
 
   it("holds fire outside the authored armed-weapon envelope", () => {
@@ -143,10 +145,24 @@ describe("fireDiscipline", () => {
     ).toEqual({ fire: false, reason: "no-armed-weapons" });
   });
 
-  it("holds fire below the configured capacitor floor", () => {
-    expect(
-      decideFire({ ...context(true), energyFraction: 0.1 }, configs, discipline, true),
-    ).toEqual({ fire: false, reason: "energy-floor" });
+  it("holds fire below the floor of an ARMED WEAPON'S OWN tank", () => {
+    // The ship-wide capacitor is gone (2026-08-07): the floor is asked of the
+    // guns themselves, so a drained shield reserve cannot silence them.
+    const ctx = context(true);
+    const drained = {
+      ...ctx,
+      energyFraction: 0.1, // a nearly-empty shield elsewhere on the hull
+      self: {
+        ...ctx.self,
+        modules: ctx.self.modules.map((m) => ({ ...m, energy: 10, energyCapacity: 100 })),
+      },
+    };
+    expect(decideFire(drained, configs, discipline, true)).toEqual({ fire: false, reason: "energy-floor" });
+    // …while the shipped, tank-less weapons keep firing on heat alone.
+    expect(decideFire({ ...ctx, energyFraction: 0.1 }, configs, discipline, true)).toEqual({
+      fire: true,
+      reason: "fire",
+    });
   });
 
   it("follows the exact burst/pause pattern at the simulation tick rate", () => {

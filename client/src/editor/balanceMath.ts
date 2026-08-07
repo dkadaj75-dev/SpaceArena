@@ -24,19 +24,25 @@ export interface FitMetrics {
   /** Effective HP: `hull × (1 + averageResist)`. A coarse tankiness proxy (ignores channel split). */
   ehp: number;
   speed: number;
-  capacitor: number;
-  regen: number;
-  /** Σ `energy.drawIdle` over all fitted modules (baseline passive draw). */
-  idleDraw: number;
-  /** Σ `energy.drawActive` over modules assumed active (weapons + boost/shield). */
-  activeDraw: number;
-  /** Σ weapon `damage / cycleTime` over fitted weapons (sustained, no LoS/travel). */
+  /** Σ of every fitted module's own energy tank (boost bottles, shield reserves). */
+  energyReserve: number;
+  /** Resolved hull-wide recharge multiplier (generator + passives). */
+  rechargeMult: number;
+  /** Resolved hull-wide cooling multiplier (heatsink + passives). */
+  coolingMult: number;
+  /** Σ weapon `damage / cycleTime` over fitted weapons — the trigger-down rate. */
+  burstDps: number;
+  /**
+   * Σ weapon DPS across a whole heat cycle: nominal × the rack's duty, which
+   * under the 2026-08-07 model is exactly `cooling / generation`. This is the
+   * number a fit actually delivers on a held trigger.
+   */
   sustainedDps: number;
-  /** Σ active-heat rate (`heat.perSecondActive`, or `boost.heatPerSec`). */
-  heatPerSec: number;
-  /** Seconds until the first module overheats under sustained fire, or Infinity if heat-stable. */
+  /** Seconds of held trigger before the FIRST rack locks out, or Infinity if heat-stable. */
   timeToOverheat: number;
-  /** Shield absorb pool this fit contributes (Σ `mitigation.absorbPerSecond`). */
+  /** Longest full cold-down of any fitted rack (capacity / effective cooling). */
+  recoverSec: number;
+  /** Shield reserve this fit contributes (Σ shield-module tank capacity). */
   shieldPool: number;
 }
 
@@ -47,6 +53,13 @@ export function resolveFitCore(ship: ShipConfig, configs: ConfigLookup, moduleId
   return resolveShipStats(ship, configs as ConfigService, { fittedModuleIds: moduleIds });
 }
 
+/** Heat a module generates per second of work, transformer tax included. */
+function heatGenPerSec(m: ModuleConfig, heatGenMult: number): number {
+  if (!m.heat) return 0;
+  const perShot = m.fire && m.fire.mode !== "continuous" ? m.heat.perShot / m.fire.cycleTime : 0;
+  return (m.heat.perSecondActive + perShot) * heatGenMult;
+}
+
 /** Compute the balance metrics for a ship with a given ordered module loadout. */
 export function fitMetrics(ship: ShipConfig, configs: ConfigLookup, moduleIds: readonly (string | null)[]): FitMetrics {
   const core = resolveFitCore(ship, configs, moduleIds);
@@ -54,25 +67,35 @@ export function fitMetrics(ship: ShipConfig, configs: ConfigLookup, moduleIds: r
     .map((id) => (id ? configs.get<ModuleConfig>("module", id) : undefined))
     .filter((m): m is ModuleConfig => !!m);
 
-  let idleDraw = 0;
-  let activeDraw = 0;
+  let energyReserve = 0;
+  let burstDps = 0;
   let sustainedDps = 0;
-  let heatPerSec = 0;
   let shieldPool = 0;
   let timeToOverheat = Infinity;
-  const activeMods = mods.filter((m) => ACTIVE_FAMILIES.has(m.family));
-  const dissipationShare = activeMods.length > 0 ? core.heat.dissipation / activeMods.length : 0;
+  let recoverSec = 0;
 
   for (const m of mods) {
-    idleDraw += m.energy.drawIdle;
-    if (ACTIVE_FAMILIES.has(m.family)) activeDraw += m.energy.drawActive;
-    if (m.fire) sustainedDps += m.fire.damage / m.fire.cycleTime;
-    if (m.mitigation?.absorbPerSecond) shieldPool += m.mitigation.absorbPerSecond;
-    const heatRate = m.boost ? m.boost.heatPerSec : ACTIVE_FAMILIES.has(m.family) ? m.heat.perSecondActive : 0;
-    heatPerSec += heatRate;
-    // Per-module time-to-overheat: threshold / net heat rate (gen minus its dissipation share).
-    const net = heatRate - dissipationShare;
-    if (net > 0) timeToOverheat = Math.min(timeToOverheat, m.heat.overheatThreshold / net);
+    const tank = (m.energy?.capacity ?? 0) * core.energyStore.multiplier;
+    energyReserve += tank;
+    if (m.mitigation) shieldPool += tank;
+    if (m.fire) {
+      const nominal = m.fire.mode === "continuous" ? m.fire.damage : m.fire.damage / m.fire.cycleTime;
+      burstDps += nominal;
+      const gen = heatGenPerSec(m, core.efficiency.heatGen);
+      const cooling = (m.heat?.coolingPerSec ?? 0) * core.cooling.multiplier;
+      // Duty cycle of a rack that trips and re-arms forever is cooling/generation
+      // — burn and lockout both scale with the same capacity, so it cancels out.
+      sustainedDps += gen > cooling ? nominal * (cooling / gen) : nominal;
+    }
+    if (!m.heat) continue;
+    const capacity = m.heat.capacity * core.heatStore.multiplier;
+    const cooling = m.heat.coolingPerSec * core.cooling.multiplier;
+    if (cooling > 0) recoverSec = Math.max(recoverSec, capacity / cooling);
+    const net = heatGenPerSec(m, core.efficiency.heatGen) - cooling;
+    if (net > 0 && ACTIVE_FAMILIES.has(m.family)) {
+      const perShot = (m.heat.perShot || 0) * core.efficiency.heatGen;
+      timeToOverheat = Math.min(timeToOverheat, Math.max(0, capacity - perShot) / net);
+    }
   }
 
   const avgResist = (core.resists.kinetic + core.resists.energy) / 2;
@@ -80,22 +103,23 @@ export function fitMetrics(ship: ShipConfig, configs: ConfigLookup, moduleIds: r
     hull: core.hullMax,
     ehp: core.hullMax * (1 + avgResist),
     speed: core.engine.nominalSpeed,
-    capacitor: core.capacitor.max,
-    regen: core.capacitor.regen,
-    idleDraw,
-    activeDraw,
+    energyReserve,
+    rechargeMult: core.recharge.multiplier,
+    coolingMult: core.cooling.multiplier,
+    burstDps,
     sustainedDps,
-    heatPerSec,
     timeToOverheat,
+    recoverSec,
     shieldPool,
   };
 }
 
 /**
  * Time-to-kill of `attacker` firing on `defender`, in seconds.
- * Simplification: `(defenderEHP + defenderShieldPool) / attackerSustainedDps`.
- * Ignores movement, range, line-of-sight, shield damage-reduction and heat
- * downtime — a first-order comparator, not a duel outcome. Infinity if 0 DPS.
+ * Simplification: `(defenderEHP + defenderShieldPool) / attackerSustainedDps`,
+ * where sustained DPS already carries the rack duty cycle. Ignores movement,
+ * range, line-of-sight and shield damage-reduction — a first-order comparator,
+ * not a duel outcome. Infinity if 0 DPS.
  */
 export function timeToKill(attacker: FitMetrics, defender: FitMetrics): number {
   if (attacker.sustainedDps <= 0) return Infinity;
@@ -105,38 +129,41 @@ export function timeToKill(attacker: FitMetrics, defender: FitMetrics): number {
 /** One sampled point in the engagement curve. */
 export interface EngagementSample {
   t: number;
-  energy: number;
+  /** Hottest rack, 0..1 of its own capacity. */
   heat: number;
+  /** Emptiest module tank, 0..1 of its own capacity (1 when the fit has none). */
+  energy: number;
   /** Number of modules actively working this step. */
   activeCount: number;
 }
 
 export interface EngagementResult {
   samples: EngagementSample[];
-  capacitorMax: number;
-  heatCapacity: number;
   /** Fraction of module-time spent actively working (0..1) across the run. */
   uptime: number;
-  /** True if the capacitor ever hit 0 (brown-out). */
-  brownedOut: boolean;
+  /** How many times a rack locked itself out during the run. */
+  lockouts: number;
 }
 
 interface SimModule {
   cfg: ModuleConfig;
   heat: number;
-  overheatTimer: number;
-  /** Working = active and not overheated / browned-out. */
+  heatCapacity: number;
+  cooling: number;
+  gen: number;
+  energy: number;
+  energyCapacity: number;
+  lockedOut: boolean;
   working: boolean;
-  heatRate: number;
 }
 
 /**
- * Headless 60 s engagement simulation for a fit — a faithful arithmetic port of
- * {@link EnergySystem}'s energy/heat model (regen, active/idle draw, per-module
- * overheat shutdown + cooldown, proportional dissipation, brown-out) WITHOUT the
- * ECS/world. Movement and combat resolution are omitted on purpose: the fit's
- * sustained energy/heat envelope does not depend on them. Invariant: energy is
- * clamped to `[0, capacitorMax]` every step, so it is never negative.
+ * Headless 60 s engagement simulation for a fit — an arithmetic port of
+ * {@link EnergySystem}'s PER-MODULE model (2026-08-07): each rack heats, cools,
+ * locks out at its own capacity and re-arms under `rearmBelow`; each tank drains
+ * while its module works and refills while it rests. Movement and combat
+ * resolution are omitted on purpose. Invariants: heat never goes negative and
+ * energy is clamped to `[0, capacity]` every step.
  */
 export function simulateEngagement(
   ship: ShipConfig,
@@ -154,89 +181,69 @@ export function simulateEngagement(
     .map((cfg) => ({
       cfg,
       heat: 0,
-      overheatTimer: 0,
+      heatCapacity: (cfg.heat?.capacity ?? 0) * core.heatStore.multiplier,
+      cooling: (cfg.heat?.coolingPerSec ?? 0) * core.cooling.multiplier,
+      gen: heatGenPerSec(cfg, core.efficiency.heatGen),
+      energy: (cfg.energy?.capacity ?? 0) * core.energyStore.multiplier,
+      energyCapacity: (cfg.energy?.capacity ?? 0) * core.energyStore.multiplier,
+      lockedOut: false,
       working: true,
-      heatRate: cfg.boost ? cfg.boost.heatPerSec : cfg.heat.perSecondActive,
     }));
 
-  let energy = core.capacitor.max;
   const samples: EngagementSample[] = [];
   let workingTicks = 0;
-  let brownedOut = false;
+  let lockouts = 0;
   const steps = Math.max(1, Math.round(duration / dt));
 
   for (let i = 0; i <= steps; i++) {
     const t = i * dt;
-
-    // Overheat cooldown countdown (module returns to working when it expires).
     for (const m of sim) {
-      if (m.overheatTimer > 0) {
-        m.overheatTimer = Math.max(0, m.overheatTimer - dt);
-        if (m.overheatTimer === 0) {
-          m.heat = 0;
-          m.working = true;
+      // A module with no tank at all is always fed; one with a tank works only
+      // while it has charge (the sim's flameout, in arithmetic form).
+      m.working = !m.lockedOut && (m.energyCapacity <= 0 || m.energy > 0);
+
+      // Energy: drain while working, refill while resting.
+      if (m.energyCapacity > 0) {
+        if (m.working) {
+          m.energy = Math.max(0, m.energy - (m.cfg.energy?.drawPerSec ?? 0) * core.efficiency.energyDraw * dt);
+        } else {
+          m.energy = Math.min(
+            m.energyCapacity,
+            m.energy + (m.cfg.energy?.rechargePerSec ?? 0) * core.recharge.multiplier * dt,
+          );
         }
       }
-    }
 
-    // Energy: regen first, then drain per working (drawActive) / non-working idle (drawIdle).
-    energy = Math.min(core.capacitor.max, energy + core.capacitor.regen * dt);
-    let drain = 0;
-    for (const m of sim) drain += (m.working ? m.cfg.energy.drawActive : m.cfg.energy.drawIdle) * dt;
-    energy -= drain;
-    if (energy < 0) {
-      energy = 0;
-      brownedOut = true;
-      // Brown-out: force the last still-working module offline this step.
-      for (let k = sim.length - 1; k >= 0; k--) {
-        if (sim[k]!.working && sim[k]!.overheatTimer === 0) {
-          sim[k]!.working = false;
-          break;
+      // Heat: generate while working, cool always, trip and re-arm on the pair.
+      if (m.heatCapacity > 0) {
+        if (m.working) m.heat += m.gen * dt;
+        m.heat = Math.max(0, m.heat - m.cooling * dt);
+        if (m.lockedOut) {
+          if (m.heat <= m.heatCapacity * (m.cfg.heat?.rearmBelow ?? 0.25)) m.lockedOut = false;
+        } else if (m.heat >= m.heatCapacity) {
+          m.lockedOut = true;
+          lockouts++;
         }
-      }
-    } else {
-      // Recover browned-out modules once the capacitor is comfortably full.
-      if (energy > core.capacitor.max * 0.5) {
-        for (const m of sim) if (!m.working && m.overheatTimer === 0) m.working = true;
-      }
-    }
-
-    // Heat: generation for working modules, then overheat detection.
-    for (const m of sim) if (m.working) m.heat += m.heatRate * dt;
-    for (const m of sim) {
-      if (m.working && m.heat >= m.cfg.heat.overheatThreshold) {
-        m.working = false;
-        m.overheatTimer = m.cfg.heat.overheatCooldown;
-      }
-    }
-    // Heat: proportional dissipation across still-hot working modules.
-    let hotTotal = 0;
-    for (const m of sim) if (m.working && m.heat > 0) hotTotal += m.heat;
-    if (hotTotal > 0) {
-      const budget = core.heat.dissipation * dt;
-      for (const m of sim) {
-        if (!m.working || m.heat <= 0) continue;
-        m.heat = Math.max(0, m.heat - budget * (m.heat / hotTotal));
       }
     }
 
     let heat = 0;
+    let energy = 1;
     let activeCount = 0;
     for (const m of sim) {
-      heat += m.heat;
+      if (m.heatCapacity > 0) heat = Math.max(heat, m.heat / m.heatCapacity);
+      if (m.energyCapacity > 0) energy = Math.min(energy, m.energy / m.energyCapacity);
       if (m.working) activeCount++;
     }
     workingTicks += activeCount;
-    samples.push({ t, energy, heat, activeCount });
+    samples.push({ t, heat, energy, activeCount });
   }
 
   const totalPossible = sim.length * (steps + 1);
   return {
     samples,
-    capacitorMax: core.capacitor.max,
-    heatCapacity: core.heat.capacity,
     uptime: totalPossible > 0 ? workingTicks / totalPossible : 0,
-    brownedOut,
+    lockouts,
   };
 }
 

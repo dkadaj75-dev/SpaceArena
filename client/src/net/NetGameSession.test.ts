@@ -37,8 +37,8 @@ import {
 describe("decodeModules (Finding 2 + 5)", () => {
   it("preserves true hardpointIndex for a sparse fitting instead of reindexing by array position", () => {
     const raw = [
-      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 12, stateTimer: 0, cycleTimer: 0.1, shieldPool: 0 },
-      { hardpointIndex: 2, moduleId: "module.shield-mk1", state: 2, heat: 3, stateTimer: 0, cycleTimer: 0, shieldPool: 8 },
+      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 12, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.1, shieldPool: 0 },
+      { hardpointIndex: 2, moduleId: "module.shield-mk1", state: 2, heat: 3, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 8 },
     ];
     const modules = decodeModules(raw);
     expect(modules).toHaveLength(2);
@@ -48,7 +48,7 @@ describe("decodeModules (Finding 2 + 5)", () => {
   });
 
   it("reads moduleId verbatim off the wire, never from a ship config's defaultFitting", () => {
-    const raw = [{ hardpointIndex: 3, moduleId: "module.boost-mk2", state: 0, heat: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 3, moduleId: "module.boost-mk2", state: 0, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
     const modules = decodeModules(raw);
     // The old buggy path would have produced whatever id sat at array index 0
     // in some ship's defaultFitting — assert the actual replicated id instead.
@@ -56,13 +56,13 @@ describe("decodeModules (Finding 2 + 5)", () => {
   });
 
   it("wires replicated cycleTimer and shieldPool through per-module (Finding 5 — firing/shieldActive signals)", () => {
-    const raw = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, stateTimer: 0, cycleTimer: 0.35, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.35, shieldPool: 0 }];
     const modules = decodeModules(raw);
     expect(modules[0]!.cycleTimer).toBe(0.35);
   });
 
   it("decodes the module state code (2 = active) via decodeModuleState", () => {
-    const raw = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
     expect(decodeModules(raw)[0]!.state).toBe("active");
   });
 
@@ -71,8 +71,8 @@ describe("decodeModules (Finding 2 + 5)", () => {
     // remote client has nothing to draw a channelled beam from, since a channel
     // emits one fire event at its start and none per tick afterwards.
     const raw = [
-      { hardpointIndex: 0, moduleId: "module.beamlaser-mk1", state: 2, heat: 4, stateTimer: 0, cycleTimer: 0, channeling: true, shieldPool: 0 },
-      { hardpointIndex: 1, moduleId: "module.laser-mk1", state: 2, heat: 0, stateTimer: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 },
+      { hardpointIndex: 0, moduleId: "module.beamlaser-mk1", state: 2, heat: 4, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: true, shieldPool: 0 },
+      { hardpointIndex: 1, moduleId: "module.laser-mk1", state: 2, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 },
     ];
     const modules = decodeModules(raw);
     expect(modules[0]!.channeling).toBe(true);
@@ -80,17 +80,17 @@ describe("decodeModules (Finding 2 + 5)", () => {
   });
 
   it("defaults a missing channeling flag to false without dropping the module", () => {
-    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, heat: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
     expect(decodeModules(raw)[0]!.channeling).toBe(false);
   });
 
   it("defaults a missing shieldPool to 0 without dropping the module", () => {
-    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, heat: 0, stateTimer: 0, cycleTimer: 0 }];
+    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0 }];
     expect(decodeModules(raw)[0]!.shieldPool).toBe(0);
   });
 
   it("accepts a Colyseus-style ArraySchema (a values()-bearing collection), not just a plain array", () => {
-    const backing = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    const backing = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
     const arraySchemaLike = { values: () => backing.values() };
     expect(decodeModules(arraySchemaLike)).toHaveLength(1);
     expect(decodeModules(arraySchemaLike)[0]!.hardpointIndex).toBe(0);
@@ -108,7 +108,7 @@ describe("boostMult (Finding 4)", () => {
   it("returns the boost module's speedMult when a boost module is among the FITTED ids", () => {
     const configs = fakeConfigs({
       "module.laser-mk1": {},
-      "module.boost-mk1": { boost: { speedMult: 1.8, heatPerSec: 5 } },
+      "module.boost-mk1": { boost: { speedMult: 1.8 } },
     });
     expect(boostMult(configs, ["module.laser-mk1", "module.boost-mk1"])).toBe(1.8);
   });
@@ -122,7 +122,7 @@ describe("boostMult (Finding 4)", () => {
     // Regression: the old implementation read `ship.defaultFitting`, which
     // could include a boost module the player has since unfitted — a
     // Hangar-saved fit without a boost module must not get its speed bonus.
-    const configs = fakeConfigs({ "module.boost-mk1": { boost: { speedMult: 1.8, heatPerSec: 5 } } });
+    const configs = fakeConfigs({ "module.boost-mk1": { boost: { speedMult: 1.8 } } });
     expect(boostMult(configs, ["module.laser-mk1"])).toBe(1);
   });
 });

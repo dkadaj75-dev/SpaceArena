@@ -893,10 +893,6 @@ export class ArenaRoom extends Room<ArenaState> {
     // Resolved maxima (ship class + upgrades + module passives): the sim already
     // resolved these into the snapshot at spawn, so mirror them straight through.
     if (ps.hullMax !== ship.hullMax) ps.hullMax = ship.hullMax;
-    if (ps.energyCur !== ship.energy.cur) ps.energyCur = ship.energy.cur;
-    if (ps.energyMax !== ship.energy.max) ps.energyMax = ship.energy.max;
-    if (ps.heatCur !== ship.heat.cur) ps.heatCur = ship.heat.cur;
-    if (ps.heatCapacity !== ship.heat.capacity) ps.heatCapacity = ship.heat.capacity;
 
     // Flight + sensor state (FLIGHT.md §5). `throttle` and `lockProgress` are
     // already normalized 0..1 in the snapshot, so they quantize through the same
@@ -921,6 +917,9 @@ export class ArenaRoom extends Room<ArenaState> {
         ms.state = encodeModuleState(m.state);
         ms.stateTimer = m.stateTimer;
         ms.heat = m.heat;
+        ms.heatCapacity = m.heatCapacity;
+        ms.energy = m.energy;
+        ms.energyCapacity = m.energyCapacity;
         ms.cycleTimer = m.cycleTimer;
         ms.channeling = m.channeling;
         ms.shieldPool = m.shieldPool;
@@ -933,6 +932,9 @@ export class ArenaRoom extends Room<ArenaState> {
       if (target.state !== code) target.state = code;
       if (target.stateTimer !== m.stateTimer) target.stateTimer = m.stateTimer;
       if (target.heat !== m.heat) target.heat = m.heat;
+      if (target.heatCapacity !== m.heatCapacity) target.heatCapacity = m.heatCapacity;
+      if (target.energy !== m.energy) target.energy = m.energy;
+      if (target.energyCapacity !== m.energyCapacity) target.energyCapacity = m.energyCapacity;
       if (target.cycleTimer !== m.cycleTimer) target.cycleTimer = m.cycleTimer;
       if (target.channeling !== m.channeling) target.channeling = m.channeling;
       if (target.shieldPool !== m.shieldPool) target.shieldPool = m.shieldPool;

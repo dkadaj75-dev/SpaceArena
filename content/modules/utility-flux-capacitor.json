@@ -9,31 +9,21 @@
     "deployTime": 0,
     "retractTime": 0
   },
-  "energy": {
-    "drawIdle": 8,
-    "drawActive": 8
-  },
-  "heat": {
-    "perSecondActive": 0,
-    "overheatThreshold": 100,
-    "overheatCooldown": 0,
-    "overheatSelfDamage": 0
-  },
   "passives": [
     {
-      "target": "energy.capacitor",
-      "op": "add",
-      "value": 85
+      "target": "recharge.multiplier",
+      "op": "mul",
+      "value": 1.35
     },
     {
-      "target": "energy.regen",
-      "op": "add",
-      "value": -2
+      "target": "energyStore.multiplier",
+      "op": "mul",
+      "value": 1.15
     },
     {
-      "target": "heat.capacity",
-      "op": "add",
-      "value": -8
+      "target": "cooling.multiplier",
+      "op": "mul",
+      "value": 0.92
     }
   ],
   "ui": {

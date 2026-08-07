@@ -11,8 +11,6 @@ const baseShip = {
   core: {
     hull: { base: 80, resists: { kinetic: 0.1, energy: 0 } },
     engine: { nominalSpeed: 34, accel: 22, turnRate: 3 },
-    energy: { capacitor: 120, regen: 14 },
-    heat: { capacity: 100, dissipation: 9, criticalDamagePerSec: 4 },
     sensors: { lockRange: 60, lockTimeSec: 1.5, coneDeg: 70 },
   },
   upgradeTracks: { hull: "upgrade.hull-std", engine: "upgrade.engine-std", energy: "upgrade.energy-std", heat: "upgrade.heat-std" },

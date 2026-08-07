@@ -9,26 +9,11 @@
     "deployTime": 0,
     "retractTime": 0
   },
-  "energy": {
-    "drawIdle": 4,
-    "drawActive": 4
-  },
-  "heat": {
-    "perSecondActive": 0,
-    "overheatThreshold": 100,
-    "overheatCooldown": 0,
-    "overheatSelfDamage": 0
-  },
   "passives": [
     {
-      "target": "energy.capacitor",
-      "op": "add",
-      "value": 50
-    },
-    {
-      "target": "energy.regen",
-      "op": "add",
-      "value": 5
+      "target": "energyStore.multiplier",
+      "op": "mul",
+      "value": 1.45
     }
   ],
   "ui": {

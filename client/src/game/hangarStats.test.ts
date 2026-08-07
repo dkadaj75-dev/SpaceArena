@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ConfigService, type ShipConfig } from "@space-arena/shared";
+import { ConfigService, type ModuleConfig, type ShipConfig } from "@space-arena/shared";
 import { computeStatPanel } from "./hangarStats.js";
 
 // Mirrors shared/src/sim/testutil.ts's fsLoader (that file lives inside the
@@ -40,44 +40,55 @@ beforeAll(async () => {
 });
 
 describe("computeStatPanel (Hangar stat panel)", () => {
-  it("resolves base stats with an empty fit (no idle draw, no dps)", () => {
+  it("resolves base stats with an empty fit (no tanks, no dps)", () => {
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: [] });
-    expect(panel.hullMax).toBe(80);
-    expect(panel.capacitorMax).toBe(120);
-    expect(panel.idleDrawTotal).toBe(0);
-    expect(panel.energyBudget).toBe(panel.capacitorRegen);
+    expect(panel.hullMax).toBe(120);
+    // Nothing fitted ⇒ nothing to store, nothing to cool, nothing to shoot.
+    expect(panel.energyReserve).toBe(0);
+    expect(panel.coolingMult).toBe(1);
+    expect(panel.rechargeMult).toBe(1);
+    expect(panel.burnSec).toBe(Infinity);
     expect(panel.dps).toBe(0);
   });
 
-  it("sums idle draw and dps across the default fitting", () => {
+  it("rolls the per-module stores up across the default fitting", () => {
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: interceptor.defaultFitting });
+    const laser = configs.get<ModuleConfig>("module", "module.laser-mk1")!;
+    const missile = configs.get<ModuleConfig>("module", "module.missile-mk1")!;
     // The light hull's stock fit: laser + missile on its two hardpoints, plus
-    // the five stock internals. Weapons still idle free (heat is their budget),
-    // but since the 2026-08-05 energy pass the stock sensors and heatsink hold
-    // a standing rail current, so simply carrying the fit costs power.
-    expect(panel.idleDrawTotal).toBe(4);
-    expect(panel.energyBudget).toBe(panel.capacitorRegen - 4);
-    // laser 5.5/0.4 + missile 17.5/2.5 = 13.75 + 7 = 20.75 (internals do not fire).
-    expect(panel.dps).toBeCloseTo(5.5 / 0.4 + 17.5 / 2.5, 6);
+    // the five stock internals. No fitted module carries an energy tank, and
+    // the free radiator sets the hull's cooling multiplier.
+    expect(panel.energyReserve).toBe(0);
+    expect(panel.coolingMult).toBeCloseTo(1.6, 6);
+    expect(panel.dps).toBeCloseTo(
+      laser.fire!.damage / laser.fire!.cycleTime + missile.fire!.damage / missile.fire!.cycleTime,
+      6,
+    );
+    // Sustained DPS is the same figure across a whole heat cycle, so it is
+    // strictly smaller for any weapon that can cook itself.
+    expect(panel.sustainedDps).toBeGreaterThan(0);
+    expect(panel.sustainedDps).toBeLessThan(panel.dps);
+    // …and both racks come back inside a few seconds.
+    expect(panel.burnSec).toBeGreaterThan(2);
+    expect(panel.recoverSec).toBeCloseTo(laser.heat!.capacity / (laser.heat!.coolingPerSec * 1.6), 6);
   });
 
-  it("flags a negative energy budget when idle draw exceeds regen", () => {
-    // Shields carry the heaviest idle draw, so a rack of them forces a deficit.
+  it("sums the tanks of a fit made entirely of shields", () => {
     // (computeStatPanel sums whatever it is handed; socket legality is the
     // Hangar's job, not the stat panel's.)
     const heavy = interceptor.defaultFitting.map(() => "module.shield-mk1");
+    const shield = configs.get<ModuleConfig>("module", "module.shield-mk1")!;
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: heavy });
-    expect(panel.idleDrawTotal).toBe(24 * heavy.length);
-    expect(panel.energyBudget).toBeLessThan(0);
+    expect(panel.energyReserve).toBeCloseTo(shield.energy!.capacity * heavy.length, 6);
+    expect(panel.burnSec).toBe(Infinity); // shields carry no heat at all
   });
 
-  it("reflects fitted module passives (capacitor battery raises capacitor + regen)", () => {
+  it("reflects fitted module passives (a battery deepens every module tank)", () => {
     const withBattery = computeStatPanel(interceptor, configs, {
-      fittedModuleIds: ["module.utility-capacitor-battery"],
+      fittedModuleIds: ["module.shield-mk1", "module.utility-capacitor-battery"],
     });
-    const empty = computeStatPanel(interceptor, configs, { fittedModuleIds: [] });
-    expect(withBattery.capacitorMax).toBe(empty.capacitorMax + 40);
-    expect(withBattery.capacitorRegen).toBe(empty.capacitorRegen + 4);
+    const bare = computeStatPanel(interceptor, configs, { fittedModuleIds: ["module.shield-mk1"] });
+    expect(withBattery.energyReserve).toBeGreaterThan(bare.energyReserve);
   });
 
   it("applies upgrade levels through the same resolveShipStats pipeline", () => {
@@ -85,7 +96,7 @@ describe("computeStatPanel (Hangar stat panel)", () => {
       fittedModuleIds: [],
       upgradeLevels: { hull: 5, engine: 0, energy: 0, heat: 0 },
     });
-    expect(upgraded.hullMax).toBe(170); // 80 + upgrade.hull-std levels[4] add 90
+    expect(upgraded.hullMax).toBe(210); // 120 + upgrade.hull-std levels[4] add 90
   });
 
   it("reports the power rail, and calls the stock fit comfortable (2026-07-31)", () => {

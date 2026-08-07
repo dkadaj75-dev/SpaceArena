@@ -48,6 +48,9 @@ describe("LockReticle distance label", () => {
     expect(getComputedStyle(zone).display).toBe("none");
     expect(root.querySelector(".hud-reticle-bracket.visible")).toBeNull();
     expect(root.querySelector(".hud-enemy-arrow.visible")).toBeNull();
+    expect(root.querySelector(".hud-gauges")).toBeNull();
+    expect(root.textContent).not.toContain("ENERGY");
+    expect(root.textContent).not.toContain("HEAT");
     hud.dispose();
     canvasContext.mockRestore();
     root.remove();

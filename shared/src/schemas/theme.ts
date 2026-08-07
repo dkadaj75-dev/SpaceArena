@@ -135,7 +135,7 @@ export const relativeSteerSchema = z.object({
 });
 export type RelativeSteerConfig = z.infer<typeof relativeSteerSchema>;
 
-/** Theme-driven status-gauge placement and geometry. */
+/** @deprecated Legacy lower-left gauges are accepted but ignored by the HUD. */
 export const gaugesSchema = z.object({
   anchor: hudAnchor.optional(),
   offsetXPx: z.number().nonnegative().optional(),
@@ -500,7 +500,9 @@ export const hudOrientationSchema = z.object({
   minimapSizePx: z.number().positive().optional(),
   minimapAltitudeTickPx: z.number().nonnegative().optional(),
   radar: radarSchema.optional(),
+  /** @deprecated Accepted for old themes; ignored by the HUD. */
   gaugeWidthPx: z.number().positive().optional(),
+  /** @deprecated Accepted for old themes; ignored by the HUD. */
   gauges: gaugesSchema.optional(),
   vitalArcs: vitalArcsSchema.optional(),
   thumbZoneFraction: z.number().gt(0).max(1).optional(),
@@ -831,9 +833,9 @@ export const themeSchema = z.object({
       minimapAltitudeTickPx: z.number().nonnegative().optional(),
       /** Player-centred 3D sensor disc. Legacy minimap fields remain fallbacks. */
       radar: radarSchema.optional(),
-      /** Width of the hull/shield/energy/heat gauge bars. */
+      /** @deprecated Accepted for old themes; ignored by the HUD. */
       gaugeWidthPx: z.number().positive().optional(),
-      /** Status-gauge placement and bar geometry. */
+      /** @deprecated Accepted for old themes; ignored by the HUD. */
       gauges: gaugesSchema.optional(),
       /** Hull/shield arcs flanking the ship at the viewport centre. */
       vitalArcs: vitalArcsSchema.optional(),

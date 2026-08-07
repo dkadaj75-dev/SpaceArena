@@ -26,12 +26,23 @@ export function moduleDps(cfg: ModuleConfig): number {
   return fire.cycleTime > 0 ? fire.damage / fire.cycleTime : 0;
 }
 
-/** Heat per second of sustained use — the number that decides if a fit cooks. */
+/** Heat per second of sustained use — the number that decides if a rack cooks. */
 export function moduleHeatPerSec(cfg: ModuleConfig): number {
-  if (cfg.boost) return cfg.boost.heatPerSec;
-  const perShot = cfg.fire?.heatPerShot ?? 0;
-  const cadence = cfg.fire && cfg.fire.mode !== "continuous" && cfg.fire.cycleTime > 0 ? perShot / cfg.fire.cycleTime : 0;
+  if (!cfg.heat) return 0;
+  const cadence =
+    cfg.fire && cfg.fire.mode !== "continuous" && cfg.fire.cycleTime > 0 ? cfg.heat.perShot / cfg.fire.cycleTime : 0;
   return cfg.heat.perSecondActive + cadence;
+}
+
+/**
+ * Seconds of held trigger this rack survives from cold, on a hull with no
+ * cooling opinion. Infinity when its own cooling out-paces its generation.
+ */
+export function moduleBurnSec(cfg: ModuleConfig): number {
+  if (!cfg.heat) return Infinity;
+  const net = moduleHeatPerSec(cfg) - cfg.heat.coolingPerSec;
+  if (net <= 0) return Infinity;
+  return Math.max(0, cfg.heat.capacity - cfg.heat.perShot) / net;
 }
 
 const num = (v: number, digits = 0): string => v.toFixed(digits).replace(/\.0+$/, "");
@@ -47,10 +58,10 @@ const STAT_LABELS: Record<string, string> = {
   "engine.nominalSpeed": "Speed",
   "engine.accel": "Accel",
   "engine.turnRate": "Turn",
-  "energy.capacitor": "Capacity",
-  "energy.regen": "Regen",
-  "heat.capacity": "Heat cap",
-  "heat.dissipation": "Cooling",
+  "energyStore.multiplier": "Tanks",
+  "recharge.multiplier": "Recharge",
+  "heatStore.multiplier": "Racks",
+  "cooling.multiplier": "Cooling",
   "sensors.lockRange": "Range",
   "sensors.lockTimeSec": "Lock time",
   "sensors.coneDeg": "Cone",
@@ -81,27 +92,37 @@ export function moduleStats(cfg: ModuleConfig): ModuleStat[] {
   }
   if (cfg.mitigation) {
     stats.push({ label: "Absorb", value: `${Math.round(cfg.mitigation.damageReduction * 100)}%` });
-    if (cfg.mitigation.absorbPerSecond !== undefined) {
-      stats.push({ label: "Pool", value: `${num(cfg.mitigation.absorbPerSecond)}/s` });
-    }
   }
   if (cfg.boost) stats.push({ label: "Boost", value: pct(cfg.boost.speedMult) });
   if (cfg.jettison) stats.push({ label: "Jettison", value: `${num(cfg.jettison.cooldownSec)}s` });
 
-  // The two energy axes, and they read differently on purpose (2026-07-31):
-  // "Power" is the rail current this module holds while online — a flat number
-  // budgeted against the hull's capacity — while "Energy" is the per-second
-  // capacitor drain it costs to run. A pilot fits against the first and flies
+  // The two axes a pilot fits against (2026-07-31 / 2026-08-07): "Power" is the
+  // rail current this module holds while online — a flat number budgeted
+  // against the hull's capacity — while "Tank" is the module's OWN energy store
+  // and how long it lasts flat out. A pilot fits against the first and flies
   // against the second.
   if (cfg.power?.draw) stats.push({ label: "Power", value: num(cfg.power.draw, 1) });
 
-  // Energy drain: the active figure is what a pilot budgets against; an
-  // always-on module with only an idle draw shows that instead.
-  const draw = cfg.energy.drawActive > 0 ? cfg.energy.drawActive : cfg.energy.drawIdle;
-  if (draw > 0) stats.push({ label: "Energy", value: `${num(draw, 1)}/s` });
+  if (cfg.energy) {
+    stats.push({ label: "Tank", value: num(cfg.energy.capacity) });
+    if (cfg.energy.drawPerSec > 0) {
+      stats.push({ label: "Lasts", value: `${num(cfg.energy.capacity / cfg.energy.drawPerSec, 1)}s` });
+    }
+    if (cfg.energy.rechargePerSec > 0) {
+      stats.push({ label: "Refill", value: `${num(cfg.energy.capacity / cfg.energy.rechargePerSec, 1)}s` });
+    }
+  }
 
-  const heat = moduleHeatPerSec(cfg);
-  if (heat > 0) stats.push({ label: "Heat", value: `${num(heat, 1)}/s` });
+  if (cfg.cooling) stats.push({ label: "Cooling", value: pct(cfg.cooling.multiplier) });
+  if (cfg.recharge) stats.push({ label: "Recharge", value: pct(cfg.recharge.multiplier) });
+
+  if (cfg.heat) {
+    const burn = moduleBurnSec(cfg);
+    if (Number.isFinite(burn)) stats.push({ label: "Burn", value: `${num(burn, 1)}s` });
+    if (cfg.heat.coolingPerSec > 0) {
+      stats.push({ label: "Cool", value: `${num(cfg.heat.capacity / cfg.heat.coolingPerSec, 1)}s` });
+    }
+  }
 
   stats.push(...passiveStats(cfg.passives));
   return stats;

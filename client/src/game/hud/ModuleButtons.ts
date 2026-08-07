@@ -41,6 +41,7 @@ export function moduleHudName(cfg: Pick<ModuleConfig, "name" | "ui"> | undefined
 interface ButtonEntry {
   hardpointIndex: number;
   root: HTMLDivElement;
+  ring: HTMLSpanElement;
   icon: HTMLSpanElement;
   label: HTMLSpanElement;
   moduleId: string;
@@ -48,6 +49,8 @@ interface ButtonEntry {
   // Last-rendered values so we only touch the DOM on change.
   lastState: ModuleState | null;
   lastRing: number;
+  lastRingKind: "heat" | "energy" | null;
+  lastDanger: boolean;
   lastNoEnergy: boolean;
   lastArmed: boolean;
   lastCooling: boolean;
@@ -208,33 +211,21 @@ export class ModuleButtons {
       const entry = this.entries.get(m.hardpointIndex);
       if (!entry) continue;
 
-      let ringPct = 0;
-      if (entry.cfg) {
-        if (m.state === "deploying" && entry.cfg.activation.deployTime > 0) {
-          ringPct = 100 * (1 - m.stateTimer / entry.cfg.activation.deployTime);
-        } else if (m.state === "retracting" && entry.cfg.activation.retractTime > 0) {
-          ringPct = 100 * (1 - m.stateTimer / entry.cfg.activation.retractTime);
-        } else if (m.state === "overheated" && entry.cfg.heat.overheatCooldown > 0) {
-          ringPct = 100 * (1 - m.stateTimer / entry.cfg.heat.overheatCooldown);
-        } else if (
-          m.state === "active" &&
-          entry.cfg.fire &&
-          // A `continuous` weapon has no shot cadence — its `cycleTime` is an
-          // ignored placeholder and `cycleTimer` stays 0 — so it never shows a
-          // cooldown ring; the `channeling` class below is its live indicator.
-          entry.cfg.fire.mode !== "continuous" &&
-          m.cycleTimer > 0 &&
-          entry.cfg.fire.cycleTime > 0
-        ) {
-          ringPct = 100 * (m.cycleTimer / entry.cfg.fire.cycleTime);
-        } else if (m.state === "active") {
-          ringPct = 100;
-        }
-      }
-      ringPct = Math.max(0, Math.min(100, Math.round(ringPct)));
+      const ringKind = entry.cfg?.fire && m.heatCapacity > 0
+        ? "heat"
+        : m.energyCapacity > 0
+          ? "energy"
+          : null;
+      const ringPct = ringKind === "heat"
+        ? m.state === "overheated"
+          ? 100
+          : resourcePct(m.heat, m.heatCapacity)
+        : ringKind === "energy"
+          ? resourcePct(m.energy, m.energyCapacity)
+          : 0;
+      const danger = ringKind === "heat" && (m.state === "overheated" || ringPct > 80);
 
-      const drawIdle = entry.cfg?.energy.drawIdle ?? 0;
-      const noEnergy = m.state === "retracted" && ship.energy.cur < drawIdle;
+      const noEnergy = ringKind === "energy" && m.energy <= 0;
       const armed = m.state === "active" && entry.cfg?.fire !== undefined;
       const cooling = m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0;
       // Only homing weapons still hard-require a lock; straight-fire weapons
@@ -250,6 +241,16 @@ export class ModuleButtons {
       if (ringPct !== entry.lastRing) {
         entry.root.style.setProperty("--ring", String(ringPct));
         entry.lastRing = ringPct;
+      }
+      if (ringKind !== entry.lastRingKind) {
+        entry.ring.hidden = ringKind === null;
+        entry.root.classList.toggle("ring-heat", ringKind === "heat");
+        entry.root.classList.toggle("ring-energy", ringKind === "energy");
+        entry.lastRingKind = ringKind;
+      }
+      if (danger !== entry.lastDanger) {
+        entry.root.classList.toggle("ring-danger", danger);
+        entry.lastDanger = danger;
       }
       if (noEnergy !== entry.lastNoEnergy) {
         entry.root.classList.toggle("no-energy", noEnergy);
@@ -313,6 +314,7 @@ export class ModuleButtons {
         // pseudo-elements are spent on the chamfered rim + fill plates.
         const ring = document.createElement("span");
         ring.className = "ring";
+        ring.hidden = true;
         ring.setAttribute("aria-hidden", "true");
 
         const icon = document.createElement("span");
@@ -336,12 +338,15 @@ export class ModuleButtons {
           {
             hardpointIndex,
             root: btn,
+            ring,
             icon,
             label,
             moduleId,
             cfg,
             lastState: null,
             lastRing: -1,
+            lastRingKind: null,
+            lastDanger: false,
             lastNoEnergy: false,
             lastArmed: false,
             lastCooling: false,
@@ -370,6 +375,10 @@ export class ModuleButtons {
     this.unsubscribeTheme();
     this.container.remove();
   }
+}
+
+function resourcePct(value: number, capacity: number): number {
+  return capacity > 0 ? Math.max(0, Math.min(100, Math.round((100 * value) / capacity))) : 0;
 }
 
 function findShipSnapshot(snap: Snapshot, id: EntityId): ShipSnapshot | undefined {

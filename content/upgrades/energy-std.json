@@ -2,13 +2,47 @@
   "id": "upgrade.energy-std",
   "type": "upgrade",
   "version": 2,
-  "name": "Standard Capacitor",
+  "name": "Standard Power Cells",
   "track": "energy",
   "levels": [
-    { "level": 1, "price": 0, "add": { "energy.capacitor": 0 } },
-    { "level": 2, "price": 200, "add": { "energy.capacitor": 20, "energy.regen": 2 } },
-    { "level": 3, "price": 500, "add": { "energy.capacitor": 45, "energy.regen": 5 } },
-    { "level": 4, "price": 900, "add": { "energy.capacitor": 75, "energy.regen": 8 } },
-    { "level": 5, "price": 1400, "add": { "energy.capacitor": 110, "energy.regen": 12 } }
+    {
+      "level": 1,
+      "price": 0,
+      "mul": {
+        "energyStore.multiplier": 1.0
+      }
+    },
+    {
+      "level": 2,
+      "price": 200,
+      "mul": {
+        "energyStore.multiplier": 1.08,
+        "recharge.multiplier": 1.06
+      }
+    },
+    {
+      "level": 3,
+      "price": 500,
+      "mul": {
+        "energyStore.multiplier": 1.16,
+        "recharge.multiplier": 1.12
+      }
+    },
+    {
+      "level": 4,
+      "price": 900,
+      "mul": {
+        "energyStore.multiplier": 1.25,
+        "recharge.multiplier": 1.2
+      }
+    },
+    {
+      "level": 5,
+      "price": 1400,
+      "mul": {
+        "energyStore.multiplier": 1.35,
+        "recharge.multiplier": 1.3
+      }
+    }
   ]
 }

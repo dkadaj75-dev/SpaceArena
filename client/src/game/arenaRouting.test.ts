@@ -159,8 +159,6 @@ describe("Minimap arena resolution", () => {
           up: { x: 0, y: 1, z: 0 },
           hull: 100,
           hullMax: 100,
-          energy: { cur: 100, max: 100 },
-          heat: { cur: 0, capacity: 100 },
           targetId: null,
           throttle: 0,
           lockProgress: 0,

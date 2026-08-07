@@ -9,23 +9,9 @@
     "deployTime": 0,
     "retractTime": 0
   },
-  "energy": {
-    "drawIdle": 5,
-    "drawActive": 5
+  "cooling": {
+    "multiplier": 1.8
   },
-  "heat": {
-    "perSecondActive": 0,
-    "overheatThreshold": 100,
-    "overheatCooldown": 0,
-    "overheatSelfDamage": 0
-  },
-  "passives": [
-    {
-      "target": "heat.dissipation",
-      "op": "add",
-      "value": 31
-    }
-  ],
   "ui": {
     "icon": "[ICON: heatsink]",
     "shortName": "Radiator",

@@ -16,8 +16,8 @@ function fitted(overrides: Partial<BoostButtonState> = {}): BoostButtonState {
   return {
     hardpointIndex: 3,
     active: false,
-    overheated: false,
-    heatPct: 0,
+    energy: 0,
+    energyCapacity: 0,
     blocked: false,
     ...overrides,
   };
@@ -48,7 +48,7 @@ describe("BoostButton", () => {
     const container = root.querySelector<HTMLElement>(".hud-boost")!;
     expect(container.hidden).toBe(true);
 
-    boost.update({ hardpointIndex: null, active: false, overheated: false, heatPct: 0, blocked: false });
+    boost.update({ hardpointIndex: null, active: false, energy: 0, energyCapacity: 0, blocked: false });
     expect(container.hidden).toBe(true);
 
     boost.update(fitted());
@@ -60,7 +60,7 @@ describe("BoostButton", () => {
     expect(button().getAttribute("role")).toBe("button");
 
     // A respawn into a fitting without one takes the control away again.
-    boost.update({ hardpointIndex: null, active: false, overheated: false, heatPct: 0, blocked: false });
+    boost.update({ hardpointIndex: null, active: false, energy: 0, energyCapacity: 0, blocked: false });
     expect(container.hidden).toBe(true);
     boost.dispose();
   });
@@ -103,27 +103,29 @@ describe("BoostButton", () => {
     boost.dispose();
   });
 
-  it("reflects active, overheated and heat straight off the replicated module", () => {
+  it("reflects active and module-local energy straight off replication", () => {
     const { boost, button } = mount();
     boost.update(fitted());
     expect(button().classList).not.toContain("active");
     expect(button().getAttribute("aria-pressed")).toBe("false");
 
-    boost.update(fitted({ active: true, heatPct: 61.4 }));
+    boost.update(fitted({ active: true, energy: 36.8, energyCapacity: 60 }));
     expect(button().classList).toContain("active");
     expect(button().getAttribute("aria-pressed")).toBe("true");
-    const heat = button().querySelector<HTMLElement>(".heat")!;
-    expect(heat.style.getPropertyValue("--heat")).toBe("61");
+    expect(button().classList).toContain("ring-energy");
+    expect(button().style.getPropertyValue("--ring")).toBe("61");
 
-    // Out-of-range heat is clamped rather than spilling out of the bar.
-    boost.update(fitted({ overheated: true, heatPct: 140 }));
-    expect(button().classList).toContain("state-overheated");
-    expect(button().classList).not.toContain("active");
-    expect(heat.style.getPropertyValue("--heat")).toBe("100");
+    // Out-of-range energy is clamped rather than spilling out of the ring.
+    boost.update(fitted({ energy: 140, energyCapacity: 100 }));
+    expect(button().style.getPropertyValue("--ring")).toBe("100");
+
+    boost.update(fitted({ energy: 0, energyCapacity: 0 }));
+    expect(button().classList).not.toContain("ring-energy");
+    expect(button().querySelector<HTMLElement>(".ring")!.hidden).toBe(true);
 
     // Death / match end drops the fitting so a stale control cannot be tapped.
     boost.clear();
-    expect(button().classList).not.toContain("state-overheated");
+    expect(button().classList).not.toContain("ring-energy");
     boost.dispose();
   });
 

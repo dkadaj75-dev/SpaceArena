@@ -6,7 +6,7 @@
   "class": "heavy",
   "core": {
     "hull": {
-      "base": 160,
+      "base": 195,
       "resists": {
         "kinetic": 0.25,
         "energy": 0.15
@@ -17,17 +17,20 @@
       "accel": 10,
       "turnRate": 1.8
     },
-    "energy": {
-      "capacitor": 140,
-      "regen": 6
-    },
     "power": {
       "capacity": 14
     },
-    "heat": {
-      "capacity": 180,
-      "dissipation": 12,
-      "criticalDamagePerSec": 3
+    "cooling": {
+      "multiplier": 0.95
+    },
+    "recharge": {
+      "multiplier": 0.95
+    },
+    "heatStore": {
+      "multiplier": 1.25
+    },
+    "energyStore": {
+      "multiplier": 1.1
     },
     "sensors": {
       "lockRange": 155.0,
@@ -423,7 +426,7 @@
     "module.transformer-stock",
     "module.heatsink-basic",
     "module.sensors-basic",
-    "module.heatsink-basic"
+    "module.generator-compact"
   ],
   "render": {
     "recipe": "procedural.brawler",

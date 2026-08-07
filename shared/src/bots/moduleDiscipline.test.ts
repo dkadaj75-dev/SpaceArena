@@ -52,6 +52,9 @@ function shipWith(
     hardpointIndex: i,
     state: states[i] ?? "retracted",
     heat: opts.moduleHeat?.[i] ?? 0,
+    heatCapacity: 100,
+    energy: (opts.energy ?? 100) * 0.01 * 100,
+    energyCapacity: 100,
     stateTimer: 0,
     cycleTimer: 0,
     channeling: false,
@@ -66,8 +69,6 @@ function shipWith(
     up: { x: 0, y: 1, z: 0 },
     hull: 100,
     hullMax: 100,
-    energy: { cur: opts.energy ?? 100, max: 100 },
-    heat: { cur: opts.shipHeat ?? 0, capacity: 100 },
     targetId: 2,
     throttle: 0,
     lockProgress: 0,
@@ -103,9 +104,13 @@ function contextFor(self: ShipSnapshot) {
   });
 }
 
-/** Overheat threshold of the module at a hardpoint index of the test fitting. */
-function threshold(index: number): number {
-  return configs.get<ModuleConfig>("module", INTERCEPTOR_FITTING[index]!)!.heat.overheatThreshold;
+/**
+ * Heat capacity of the rack at a hardpoint index of the test fitting. Every
+ * module in {@link shipWith} is given the same round capacity, so a discipline
+ * fraction reads directly off it.
+ */
+function threshold(_index: number): number {
+  return 100;
 }
 
 function shieldIndex(): number {
@@ -150,8 +155,10 @@ describe("moduleDiscipline", () => {
     );
   });
 
-  it("treats the ship heat pool as a shutdown trigger too", () => {
-    const self = shipWith(["active", "active", "active", "active"], { shipHeat: 90 });
+  it("treats the ship's HOTTEST RACK as a shutdown trigger too", () => {
+    // There is no ship heat pool since 2026-08-07 — `ctx.heatFraction` is the
+    // hottest module — so a cooking weapon still pulls the support modules down.
+    const self = shipWith(["active", "active", "active", "active"], { moduleHeat: [90, 0, 0, 0] });
     const { decisions } = planModuleOrders(contextFor(self), configs, discipline, true);
     expect(decisions.length).toBe(TOGGLEABLE_SLOTS);
     expect(decisions.every((d) => !d.activate && d.reason === "heat-shutdown")).toBe(true);

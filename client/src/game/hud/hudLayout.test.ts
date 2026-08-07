@@ -4,7 +4,6 @@ import {
   clusterOffsets,
   clusterReachPx,
   clusterTopPx,
-  HUD_DEFAULTS,
   hudCssVars,
   orientationOf,
   rawClusterOffsets,
@@ -23,8 +22,6 @@ function theme(overrides: Partial<ThemeConfig["hud"]> = {}): ThemeConfig {
       scale: 1,
       safeAreaInsetPx: 12,
       minimapSizePx: 128,
-      gaugeWidthPx: 132,
-      gauges: { anchor: "bottom-left", offsetXPx: 10, offsetYPx: 12, gapPx: 5, trackHeightPx: 10 },
       thumbZoneFraction: 0.4,
       moduleCluster: {
         anchor: "bottom-right",
@@ -42,8 +39,6 @@ function theme(overrides: Partial<ThemeConfig["hud"]> = {}): ThemeConfig {
         scale: 0.85,
         safeAreaInsetPx: 10,
         minimapSizePx: 104,
-        gaugeWidthPx: 120,
-        gauges: { anchor: "bottom-left", offsetXPx: 8, offsetYPx: 8, gapPx: 4, trackHeightPx: 9 },
         moduleCluster: { buttonRadiusPx: 28, gapPx: 8, arcRadiusPx: 126, offsetXPx: 22, offsetYPx: 30 },
       },
       ...overrides,
@@ -87,30 +82,17 @@ describe("resolveHudLayout — portrait/landscape blocks", () => {
   it("scales control sizes by hud.scale but never the safe-area inset", () => {
     const layout = resolveHudLayout(theme({ scale: 2 }), PORTRAIT);
     expect(layout.cluster.buttonRadiusPx).toBe(64);
-    expect(layout.gaugeWidthPx).toBe(264);
     expect(layout.safeAreaInsetPx).toBe(12);
     expect(hudCssVars(layout)["--hud-scale"]).toBe("2");
   });
 
-  it("resolves bottom-left gauge relocation independently in portrait and landscape", () => {
-    const p = resolveHudLayout(theme(), PORTRAIT);
-    expect(p.gauges).toEqual({
-      anchor: "bottom-left",
-      offsetXPx: 10,
-      offsetYPx: 12,
-      gapPx: 5,
-      trackHeightPx: 10,
-      showHull: true,
-      showShield: true,
-      // Segment count is a look knob, not a dimension: it falls back to the
-      // shared default and is deliberately NOT multiplied by `hud.scale`.
-      segments: HUD_DEFAULTS.gauges.segments,
-    });
-    const l = resolveHudLayout(theme(), LANDSCAPE);
-    expect(l.gauges.anchor).toBe("bottom-left");
-    expect(l.gauges.offsetXPx).toBeCloseTo(8 * 0.85, 9);
-    expect(l.gauges.offsetYPx).toBeCloseTo(8 * 0.85, 9);
-    expect(hudCssVars(l)["--hud-gauge-offset-y"]).toBe(`${8 * 0.85}px`);
+  it("tolerates but ignores legacy lower-left gauge knobs", () => {
+    const layout = resolveHudLayout(theme({
+      gaugeWidthPx: 999,
+      gauges: { anchor: "top-right", offsetXPx: 99, offsetYPx: 88 },
+    }), PORTRAIT);
+    expect("gauges" in layout).toBe(false);
+    expect(Object.keys(hudCssVars(layout)).some((key) => key.includes("gauge"))).toBe(false);
   });
 
   it("resolves the 3D radar and centre vital arcs with orientation scaling", () => {

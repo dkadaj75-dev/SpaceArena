@@ -1,29 +1,34 @@
-import { isInternalFamily, type ModuleConfig } from "../../schemas/index.js";
-import type { ModuleRuntime } from "../components.js";
-import { transition } from "./ModuleSystem.js";
+import type { ModuleConfig } from "../../schemas/index.js";
+import type { EntityId, ModuleRuntime, ShipCore } from "../components.js";
+import { railFits, transition } from "./ModuleSystem.js";
 import type { World } from "../World.js";
 
-/** Heat generated per second by a working module (boost uses its own field). */
-function workingHeatRate(cfg: ModuleConfig): number {
-  if (cfg.boost) return cfg.boost.heatPerSec;
-  return cfg.heat.perSecondActive;
-}
-
 /**
- * EnergySystem (1.4) — capacitor + heat, run AFTER combat/nav so worked-this-tick
- * flags are set. Model:
+ * EnergySystem (heat/energy overhaul, 2026-08-07) — the per-module heat and
+ * energy stores, run AFTER combat/nav so the worked-this-tick flags are set.
  *
- * ENERGY: regen first, then every non-retracted module drains `drawActive` if it
- * worked this tick else `drawIdle` (× dt). If the capacitor would go negative it
- * is clamped to 0 and the highest-hardpoint-index active module is force-retracted
- * (brown-out, reverse order, one per tick — priority is tunable later).
+ * There is no ship heat pool and no shared capacitor any more. Every module owns
+ * what it spends:
  *
- * HEAT: each worked module adds heat (boost: `boost.heatPerSec`, else
- * `heat.perSecondActive`). A module crossing its own `overheatThreshold` goes
- * `overheated` for `overheatCooldown` (dealing `overheatSelfDamage` to hull once).
- * Ship `heat.dissipation` is then split across every hot module proportional to
- * its heat, including racks serving an overheat lockout. The shared ship heat pool = Σ module heats;
- * when it reaches `heat.capacity` the hull takes `criticalDamagePerSec`.
+ * **HEAT** (weapons, and anything else authoring a `heat` block)
+ *   - a working module adds `heat.perSecondActive × efficiency.heatGen × dt`
+ *     (discrete shots already added `heat.perShot` in CombatSystem);
+ *   - EVERY module with heat sheds `heat.coolingPerSec × cooling.multiplier × dt`,
+ *     lockout included — cooling during the lockout is what ends it;
+ *   - heat reaching `heatCapacity` forces the module `overheated`;
+ *   - the lockout clears the moment heat falls back below
+ *     `heatCapacity × heat.rearmBelow`. No timer, no self-damage, no hull burn:
+ *     the punishment for cooking a rack is the seconds you do not have it.
+ *
+ * **ENERGY** (boost tanks, shield reserves, active utilities)
+ *   - a module that WORKED drains `energy.drawPerSec × efficiency.energyDraw × dt`
+ *     and, at zero, is cut offline (a flameout — the tank is empty, not the ship);
+ *   - a module that did not work refills at
+ *     `energy.rechargePerSec × recharge.multiplier × dt` up to its capacity.
+ *
+ * The two ship-wide multipliers come from the fitted heatsink and generator; the
+ * transformer's `efficiency` pair still taxes generation and draw per module.
+ * Nothing here damages a hull — a loadout can no longer kill its own pilot.
  */
 export function energySystem(world: World, dt: number): void {
   for (const id of world.shipIds()) {
@@ -31,123 +36,90 @@ export function energySystem(world: World, dt: number): void {
     const mods = world.modules.get(id);
     if (!mods) continue;
 
-    // --- ENERGY ---
-    core.capacitor.cur = Math.min(core.capacitor.max, core.capacitor.cur + core.capacitor.regen * dt);
-    let drain = 0;
     for (const m of mods.modules) {
-      if (m.state === "retracted" || m.state === "overheated") continue;
       const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
       if (!cfg) continue;
-      drain += (m.workedThisTick ? cfg.energy.drawActive : cfg.energy.drawIdle) * dt;
-    }
-    // The fitted TRANSFORMER's efficiency applies to the whole bill.
-    core.capacitor.cur -= drain * core.efficiency.energyDraw;
-    if (core.capacitor.cur < 0) {
-      core.capacitor.cur = 0;
-      brownOut(world, id, mods.modules);
-    }
-
-    // --- HEAT: generation ---
-    for (const m of mods.modules) {
-      if (!m.workedThisTick) continue;
-      const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
-      if (!cfg) continue;
-      // Same transformer lever on the heat side: a good one runs the loadout
-      // cooler, a cheap one cooks it.
-      m.heat += workingHeatRate(cfg) * core.efficiency.heatGen * dt;
-    }
-
-    // --- HEAT: overheat detection ---
-    for (const m of mods.modules) {
-      if (m.state === "retracted" || m.state === "overheated") continue;
-      const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
-      if (!cfg) continue;
-      if (m.heat >= cfg.heat.overheatThreshold) {
-        m.stateTimer = cfg.heat.overheatCooldown;
-        transition(world, id, m, "overheated");
-        world.emit({
-          type: "overheated",
-          entityId: id,
-          hardpointIndex: m.hardpointIndex,
-          moduleId: m.moduleId,
-          actions: cfg.onOverheat,
-        });
-        if (cfg.heat.overheatSelfDamage > 0 && !m.overheatDamaged) {
-          m.overheatDamaged = true;
-          dealSelfDamage(world, id, core, cfg.heat.overheatSelfDamage);
-        }
-      }
-    }
-
-    // --- HEAT: dissipation (proportional across all hot modules) ---
-    let hotTotal = 0;
-    for (const m of mods.modules) {
-      if (m.heat > 0) hotTotal += m.heat;
-    }
-    if (hotTotal > 0) {
-      const budget = core.heat.dissipation * dt;
-      for (const m of mods.modules) {
-        if (m.heat <= 0) continue;
-        m.heat = Math.max(0, m.heat - budget * (m.heat / hotTotal));
-      }
-    }
-
-    // --- HEAT: shared pool + critical hull damage ---
-    let pool = 0;
-    for (const m of mods.modules) pool += m.heat;
-    core.heat.cur = pool;
-    if (pool >= core.heat.capacity && core.heat.criticalDamagePerSec > 0) {
-      dealSelfDamage(world, id, core, core.heat.criticalDamagePerSec * dt);
+      stepEnergy(world, id, core, m, cfg, dt);
+      stepHeat(world, id, core, m, cfg, mods.modules, dt);
     }
   }
 }
 
-/** Shed priority: 0 = drop first. Internals are never shed at all. */
-function shedTier(cfg: ModuleConfig | undefined): number {
-  if (cfg === undefined) return 0;
-  // The ship's own systems (engine, generator, transformer, heatsink, sensors)
-  // are not a power budget the pilot can trade away — cutting the engine to
-  // afford a shield would be worse than the brown-out. They stay on; the
-  // capacitor simply floors at 0.
-  if (isInternalFamily(cfg.family)) return Infinity;
-  // Then shields and the like: the big draws, and the deliberate activations.
-  if (cfg.fire === undefined) return 0;
-  // Weapons only as a last resort — an empty capacitor must never silently
-  // disarm a ship while a shield idles on.
-  return 1;
-}
-
-function brownOut(world: World, id: number, modules: ModuleRuntime[]): void {
-  for (const tier of [0, 1]) {
-    for (let i = modules.length - 1; i >= 0; i--) {
-      const m = modules[i]!;
-      if (m.state === "retracted" || m.state === "overheated") continue;
-      if (shedTier(world.configs.get<ModuleConfig>("module", m.moduleId)) !== tier) continue;
-      // Force-retract instantly (bypass retractTime) to relieve the deficit.
-      m.workedThisTick = false;
-      transition(world, id, m, "retracted");
-      return;
-    }
-  }
-}
-
-function dealSelfDamage(
+/** One module's energy tank: drain while working, refill while resting. */
+function stepEnergy(
   world: World,
-  id: number,
-  core: { hull: number },
-  amount: number,
+  id: EntityId,
+  core: ShipCore,
+  m: ModuleRuntime,
+  cfg: ModuleConfig,
+  dt: number,
 ): void {
-  const wasAlive = core.hull > 0;
-  core.hull -= amount;
-  world.emit({ type: "damage", targetId: id, sourceId: null, amount, damageType: "energy", isAsteroid: false });
-  if (wasAlive && core.hull <= 0) {
-    core.hull = 0;
+  if (m.energyCapacity <= 0 || !cfg.energy) return;
+
+  // A raised shield pays upkeep for being raised, whether or not it soaked a
+  // hit this tick — holding it up is the work.
+  const working = m.workedThisTick || (m.absorbs && m.state === "active");
+  if (!working) {
+    m.energy = Math.min(m.energyCapacity, m.energy + cfg.energy.rechargePerSec * core.recharge.multiplier * dt);
+    return;
+  }
+
+  m.energy -= cfg.energy.drawPerSec * core.efficiency.energyDraw * dt;
+  if (m.energy > 0) return;
+
+  // Flameout: the tank is dry, so the module drops offline (instantly — the
+  // charge is gone, there is nothing left to run a retract animation on). It
+  // refills from there like any resting module and the pilot brings it back.
+  m.energy = 0;
+  m.workedThisTick = false;
+  if (m.state !== "retracted" && m.state !== "overheated") {
+    transition(world, id, m, "retracted", cfg.onDeactivate);
+  }
+}
+
+/** One module's heat store: generate, cool, then trip or re-arm. */
+function stepHeat(
+  world: World,
+  id: EntityId,
+  core: ShipCore,
+  m: ModuleRuntime,
+  cfg: ModuleConfig,
+  siblings: readonly ModuleRuntime[],
+  dt: number,
+): void {
+  if (m.heatCapacity <= 0 || !cfg.heat) return;
+
+  if (m.workedThisTick) {
+    m.heat += cfg.heat.perSecondActive * core.efficiency.heatGen * dt;
+  }
+  // Cooling never stops — a locked-out rack is cooling, which is the only thing
+  // that will ever bring it back.
+  m.heat = Math.max(0, m.heat - cfg.heat.coolingPerSec * core.cooling.multiplier * dt);
+
+  if (m.state === "overheated") {
+    if (m.heat <= m.heatCapacity * cfg.heat.rearmBelow) {
+      m.stateTimer = 0;
+      // Weapons come straight back ONLINE (they are always-on: spawn.ts); a
+      // support module returns retracted for the pilot to raise deliberately.
+      // The rail still has the last word — see railFits.
+      const online = cfg.fire !== undefined && railFits(world, id, m, siblings);
+      transition(world, id, m, online ? "active" : "retracted", online ? cfg.onActivate : undefined);
+    }
+    return;
+  }
+  if (m.state === "retracted") return;
+
+  if (m.heat >= m.heatCapacity) {
+    m.heat = m.heatCapacity;
+    m.stateTimer = 0;
+    m.channeling = false;
+    transition(world, id, m, "overheated");
     world.emit({
-      type: "entityDestroyed",
+      type: "overheated",
       entityId: id,
-      killerId: null,
-      isAsteroid: false,
-      team: world.teams.get(id)?.team,
+      hardpointIndex: m.hardpointIndex,
+      moduleId: m.moduleId,
+      actions: cfg.onOverheat,
     });
   }
 }

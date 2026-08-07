@@ -632,7 +632,7 @@ export class Hangar {
     );
     this.idleModules = this.slots
       .filter((s): s is HangarSlot & { moduleId: string } => s.moduleId !== null)
-      .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
+      .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, heatCapacity: 0, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
   }
 
   /**
@@ -1301,7 +1301,7 @@ export class Hangar {
     specs.append(el("div", "hangar-specs-title", "Ship specs"));
     specs.append(specRow("Integrity", panel.hullMax.toFixed(0)));
     specs.append(specRow("Top speed", `${panel.nominalSpeed.toFixed(0)} m/s`));
-    specs.append(specRow("Heat capacity", panel.heatCapacity.toFixed(0)));
+    specs.append(specRow("Sustained DPS", panel.sustainedDps.toFixed(1)));
     specs.append(specRow("DPS (est.)", panel.dps.toFixed(1)));
     bar.append(specs);
 
@@ -1415,12 +1415,11 @@ export class Hangar {
     wrap.append(el("div", "hangar-section-title", "Stats"));
     wrap.append(statRow("Hull", panel.hullMax.toFixed(0)));
     wrap.append(statRow("Speed", panel.nominalSpeed.toFixed(1)));
-    wrap.append(statRow("Capacitor", `${panel.capacitorMax.toFixed(0)} (+${panel.capacitorRegen.toFixed(1)}/s)`));
-    wrap.append(statRow("Heat cap.", `${panel.heatCapacity.toFixed(0)} (-${panel.heatDissipation.toFixed(1)}/s)`));
+    wrap.append(statRow("Tanks", `${panel.energyReserve.toFixed(0)} (×${panel.rechargeMult.toFixed(2)} refill)`));
+    wrap.append(statRow("Burn", `${Number.isFinite(panel.burnSec) ? panel.burnSec.toFixed(1) : "∞"}s (${panel.recoverSec.toFixed(1)}s cool)`));
     wrap.append(statRow("DPS (est.)", panel.dps.toFixed(1)));
     wrap.append(statRow("EHP (est.)", panel.ehpApprox.toFixed(0)));
     wrap.append(statRow("Power rail", `${panel.powerDrawTotal.toFixed(0)} / ${panel.powerCapacity.toFixed(0)}`));
-    wrap.append(this.buildBudgetBar("Idle energy budget", panel.energyBudget, panel.idleDrawTotal, panel.capacitorRegen));
     wrap.append(this.buildPowerWarn(panel));
     wrap.append(this.buildHeatWarn(panel));
     return wrap;
@@ -1464,12 +1463,15 @@ export class Hangar {
 
   private buildHeatWarn(panel: HangarStatPanel): HTMLDivElement {
     const row = el("div", "hangar-bar-row");
-    const warn = panel.heatNetPerSec > 0;
+    // Thermals read as seconds now (2026-08-07): how long the trigger holds
+    // before the first rack locks, and how long it is gone for.
+    const warn = panel.burnSec < 3;
+    const burn = Number.isFinite(panel.burnSec) ? `${panel.burnSec.toFixed(1)}s` : "unlimited";
     row.append(
       el(
         "span",
         "hangar-bar-label" + (warn ? " warn-text" : ""),
-        `Sustained-fire heat: ${warn ? "+" : ""}${panel.heatNetPerSec.toFixed(1)}/s${warn ? " (will overheat)" : ""}`,
+        `Held trigger: ${burn} before lockout, ${panel.recoverSec.toFixed(1)}s to cool${warn ? " (locks fast)" : ""}`,
       ),
     );
     return row;
@@ -1709,8 +1711,6 @@ function idleSnapshot(): ShipSnapshot {
     up: { x: 0, y: 1, z: 0 }, // parked and level; the bubble's vertical axis is unused here
     hull: 1,
     hullMax: 1,
-    energy: { cur: 1, max: 1 },
-    heat: { cur: 0, capacity: 1 },
     targetId: null,
     throttle: 0, // parked on the hangar stage — no flight input
     lockProgress: 0, // …and nothing to lock onto

@@ -49,8 +49,6 @@ const ship = {
   core: {
     hull: { base: 80, resists: { kinetic: 0.1, energy: 0 } },
     engine: { nominalSpeed: 34, accel: 22, turnRate: 3 },
-    energy: { capacitor: 120, regen: 14 },
-    heat: { capacity: 100, dissipation: 9, criticalDamagePerSec: 4 },
     sensors: { lockRange: 60, lockTimeSec: 1.5, coneDeg: 70 },
   },
   upgradeTracks: {
@@ -83,8 +81,7 @@ const module_ = {
   level: 1,
   name: "Fixture Laser",
   activation: { deployTime: 1.5, retractTime: 1 },
-  energy: { drawIdle: 3, drawActive: 11 },
-  heat: { perSecondActive: 6, overheatThreshold: 55, overheatCooldown: 5, overheatSelfDamage: 0 },
+  heat: { capacity: 55, coolingPerSec: 8, perShot: 6 },
   fire: {
     mode: "held",
     range: 38,
@@ -387,10 +384,18 @@ describe("ship schema", () => {
         core["engine"]!["nominalSpeed"] = -1;
       }),
     ).toBe(false);
+    // Hull-wide heat/energy levers are MULTIPLIERS since 2026-08-07: zero would
+    // mean "this hull never cools", which is not a legal hull.
     expect(
       mutated("ship", (d) => {
         const core = d["core"] as Record<string, Record<string, number>>;
-        core["energy"]!["capacitor"] = 0;
+        core["cooling"] = { multiplier: 0 };
+      }),
+    ).toBe(false);
+    expect(
+      mutated("ship", (d) => {
+        const core = d["core"] as Record<string, Record<string, number>>;
+        core["energyStore"] = { multiplier: -1 };
       }),
     ).toBe(false);
   });
@@ -464,10 +469,17 @@ describe("module schema", () => {
     expect(mutated("module", (d) => (d["level"] = 1.5))).toBe(false);
   });
 
-  it("rejects negative activation/energy and a non-positive overheat threshold", () => {
+  it("rejects negative activation and a non-positive heat capacity", () => {
     expect(mutated("module", (d) => ((d["activation"] as Record<string, number>)["deployTime"] = -0.1))).toBe(false);
-    expect(mutated("module", (d) => ((d["energy"] as Record<string, number>)["drawActive"] = -1))).toBe(false);
-    expect(mutated("module", (d) => ((d["heat"] as Record<string, number>)["overheatThreshold"] = 0))).toBe(false);
+    expect(mutated("module", (d) => ((d["heat"] as Record<string, number>)["capacity"] = 0))).toBe(false);
+    expect(mutated("module", (d) => ((d["heat"] as Record<string, number>)["coolingPerSec"] = -1))).toBe(false);
+    // A weapon must be priced in heat, and a shot may never lock its own rack.
+    expect(mutated("module", (d) => delete d["heat"])).toBe(false);
+    expect(mutated("module", (d) => ((d["heat"] as Record<string, number>)["perShot"] = 55))).toBe(false);
+    // …and it may never be priced in energy at all.
+    expect(
+      mutated("module", (d) => (d["energy"] = { capacity: 10, rechargePerSec: 1, drawPerSec: 1 })),
+    ).toBe(false);
   });
 
   it("accepts instant activation (0s deploy + retract) as an edge", () => {
@@ -504,16 +516,22 @@ describe("module schema", () => {
     expect(mutated("module", patchFire({ range: 0 }))).toBe(false);
     expect(mutated("module", patchFire({ cycleTime: 0 }))).toBe(false);
     expect(mutated("module", patchFire({ damage: 0 }))).toBe(true); // 0 damage is legal (utility beam)
-    expect(mutated("module", patchFire({ heatPerShot: 0 }))).toBe(true);
-    expect(mutated("module", patchFire({ heatPerShot: -0.01 }))).toBe(false);
   });
 
   it("accepts `continuous` only as a hitscan channel, and still requires a cycleTime", () => {
     const patchFire = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
       d["fire"] = { ...(d["fire"] as Record<string, unknown>), ...patch };
     };
-    // The fixture is `projectile: null`, so plain `continuous` is legal.
-    expect(mutated("module", patchFire({ mode: "continuous" }))).toBe(true);
+    // The fixture is `projectile: null`, so `continuous` is legal — once it is
+    // priced per SECOND rather than per shot (a channel has no shots).
+    const asChannel = (d: Record<string, unknown>) => {
+      d["fire"] = { ...(d["fire"] as Record<string, unknown>), mode: "continuous" };
+      d["heat"] = { capacity: 55, coolingPerSec: 8, perSecondActive: 20 };
+    };
+    expect(mutated("module", asChannel)).toBe(true);
+    // Charging a channel per shot is the authoring mistake the schema exists to
+    // refuse — that field is what the pre-overhaul catalogue got wrong.
+    expect(mutated("module", patchFire({ mode: "continuous" }))).toBe(false);
     // A channel has no discrete shot to launch ordnance with — refined away.
     expect(
       mutated("module", patchFire({ mode: "continuous", projectile: { speed: 40, lifetime: 4 } })),
@@ -535,29 +553,39 @@ describe("module schema", () => {
       delete d["fire"];
       d[key] = value;
     };
-    expect(mutated("module", withBlock("mitigation", { damageReduction: 0.5, absorbPerSecond: 12, coversFamilies: ["kinetic", "energy"] }))).toBe(true);
-    expect(mutated("module", withBlock("mitigation", { damageReduction: 1 }))).toBe(true);
-    expect(mutated("module", withBlock("mitigation", { damageReduction: 1.01 }))).toBe(false);
-    expect(mutated("module", withBlock("mitigation", { damageReduction: 0.5, coversFamilies: ["thermal"] }))).toBe(false);
+    // A shield's reserve IS an energy tank, so mitigation requires one.
+    const withShield = (mitigation: unknown) => (d: Record<string, unknown>) => {
+      delete d["fire"];
+      delete d["heat"];
+      d["energy"] = { capacity: 40, rechargePerSec: 4, drawPerSec: 4 };
+      d["mitigation"] = mitigation;
+    };
+    expect(mutated("module", withShield({ damageReduction: 0.5, coversFamilies: ["kinetic", "energy"] }))).toBe(true);
+    expect(mutated("module", withShield({ damageReduction: 1 }))).toBe(true);
+    expect(mutated("module", withShield({ damageReduction: 1.01 }))).toBe(false);
+    expect(mutated("module", withShield({ damageReduction: 0.5, coversFamilies: ["thermal"] }))).toBe(false);
+    expect(mutated("module", withBlock("mitigation", { damageReduction: 0.5 }))).toBe(false); // no tank
     // A boost block belongs to the ENGINE that provides it (2026-07-31), so the
     // family has to move with it.
     const withBoost = (boost: unknown) => (d: Record<string, unknown>) => {
       delete d["fire"];
+      delete d["heat"];
       d["family"] = "engine";
       d["activation"] = { deployTime: 0, retractTime: 0 };
+      d["energy"] = { capacity: 60, rechargePerSec: 8, drawPerSec: 20 };
       d["boost"] = boost;
     };
-    expect(mutated("module", withBoost({ speedMult: 1.8, heatPerSec: 5 }))).toBe(true);
-    expect(mutated("module", withBoost({ speedMult: 0.9, heatPerSec: 5 }))).toBe(false); // must be ≥ 1
+    expect(mutated("module", withBoost({ speedMult: 1.8 }))).toBe(true);
+    expect(mutated("module", withBoost({ speedMult: 0.9 }))).toBe(false); // must be ≥ 1
     // …and stays refused on a family that cannot provide one.
-    expect(mutated("module", withBlock("boost", { speedMult: 1.8, heatPerSec: 5 }))).toBe(false);
+    expect(mutated("module", withBlock("boost", { speedMult: 1.8 }))).toBe(false);
   });
 
   it("validates passive stat ops (utility modules)", () => {
     const withPassives = (passives: unknown) => (d: Record<string, unknown>) => (d["passives"] = passives);
-    expect(mutated("module", withPassives([{ target: "energy.capacitor", op: "add", value: 40 }]))).toBe(true);
-    expect(mutated("module", withPassives([{ target: "core.heat.capacity", op: "mul", value: 1.1 }]))).toBe(true);
-    expect(mutated("module", withPassives([{ target: "heat.capacity", op: "sub", value: 1 }]))).toBe(false);
+    expect(mutated("module", withPassives([{ target: "energyStore.multiplier", op: "mul", value: 1.3 }]))).toBe(true);
+    expect(mutated("module", withPassives([{ target: "core.cooling.multiplier", op: "mul", value: 1.1 }]))).toBe(true);
+    expect(mutated("module", withPassives([{ target: "cooling.multiplier", op: "sub", value: 1 }]))).toBe(false);
     expect(mutated("module", withPassives([{ target: "", op: "add", value: 1 }]))).toBe(false);
     expect(mutated("module", withPassives([]))).toBe(true);
   });

@@ -20,20 +20,34 @@ const shipCore = z.object({
     accel: z.number().positive(),
     turnRate: z.number().positive(),
   }),
-  energy: z.object({
-    capacitor: z.number().positive(),
-    regen: z.number().nonnegative(),
-  }),
-  heat: z.object({
-    capacity: z.number().positive(),
-    dissipation: z.number().nonnegative(),
-    criticalDamagePerSec: z.number().nonnegative(),
-  }),
+  /**
+   * Hull-wide COOLING multiplier (heat/energy overhaul 2026-08-07). There is no
+   * ship heat pool any more — each module owns its own heat — so what a hull
+   * contributes is how fast every rack bolted to it sheds that heat. Fitted
+   * heatsinks multiply on top of this (`cooling.multiplier`), and the shipped
+   * weapon numbers are balanced against hull 1.0 × the free radiator.
+   */
+  cooling: z.object({ multiplier: z.number().positive().default(1) }).default({ multiplier: 1 }),
+  /**
+   * Hull-wide energy RECHARGE multiplier: how fast every module tank on this
+   * hull (boost, shields, active utilities) refills while it rests. Fitted
+   * generators multiply on top of this.
+   */
+  recharge: z.object({ multiplier: z.number().positive().default(1) }).default({ multiplier: 1 }),
+  /**
+   * Hull-wide STORE multipliers: how big the racks and tanks a hull carries are,
+   * relative to the module's authored capacity. These change the RHYTHM (longer
+   * bursts, longer refills) without touching the duty cycle, which is set by the
+   * generation/cooling ratio — so a hull may be given deeper magazines without
+   * silently rebalancing its damage output.
+   */
+  heatStore: z.object({ multiplier: z.number().positive().default(1) }).default({ multiplier: 1 }),
+  energyStore: z.object({ multiplier: z.number().positive().default(1) }).default({ multiplier: 1 }),
   /**
    * POWER RAIL capacity (owner 2026-07-31) — the second energy axis, and the
    * one that decides what can be online AT ONCE.
    *
-   * Think voltage vs amperage. `energy.capacitor` is the reservoir a module
+   * Think voltage vs amperage. A module's own `energy` tank is the reservoir it
    * drains over time; this is the instantaneous current the hull can deliver.
    * Every active hardpoint module occupies its `power.draw` while it is up, and
    * the total may never exceed this. Most of it comes from the fitted
@@ -47,10 +61,11 @@ const shipCore = z.object({
     .default({ capacity: 0 }),
   /**
    * Ship-wide efficiency multipliers (owner 2026-07-31), the TRANSFORMER's
-   * lever: `energyDrawMult` scales every module's energy draw and `heatGenMult`
-   * scales every module's heat generation. Both default to 1 (the hull as
-   * authored) and are moved by the fitted transformer's passives, so a good one
-   * makes the whole loadout cheaper to run while a cheap one taxes it.
+   * lever: `energyDraw` scales every module's own energy draw and `heatGen`
+   * scales every module's own heat generation — the per-module trade the
+   * heat/energy overhaul kept. Both default to 1 (the hull as authored) and are
+   * moved by the fitted transformer's passives, so a good one makes the whole
+   * loadout cheaper to run while a cheap one taxes it.
    */
   efficiency: z
     .object({

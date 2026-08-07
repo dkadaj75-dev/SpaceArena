@@ -10,21 +10,15 @@
     "retractTime": 0.3
   },
   "energy": {
-    "drawIdle": 22,
-    "drawActive": 40
+    "capacity": 60,
+    "rechargePerSec": 5.6,
+    "drawPerSec": 5.0
   },
   "power": {
     "draw": 7
   },
-  "heat": {
-    "perSecondActive": 3,
-    "overheatThreshold": 65,
-    "overheatCooldown": 5,
-    "overheatSelfDamage": 0
-  },
   "mitigation": {
     "damageReduction": 0.6,
-    "absorbPerSecond": 20,
     "coversFamilies": [
       "kinetic",
       "energy"
@@ -35,10 +29,6 @@
   ],
   "onDeactivate": [
     "action.play-sound-shield-down"
-  ],
-  "onOverheat": [
-    "action.notify-overheat",
-    "action.play-sound-overheat"
   ],
   "ui": {
     "icon": "[ICON: shield]",

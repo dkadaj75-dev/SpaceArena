@@ -30,19 +30,18 @@ const jettisonCfg = (): NonNullable<ModuleConfig["jettison"]> =>
   configs.get<ModuleConfig>("module", "module.heatsink-ablative")!.jettison!;
 
 describe("heatsink jettison (owner 2026-07-31)", () => {
-  it("purges only the authored amount proportionally and leaves a decoy behind", () => {
+  it("purges EVERY rack to zero and leaves a decoy behind", () => {
     const world = makeWorld(configs);
     const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
     const mods = world.modules.get(id)!.modules;
-    const core = world.shipCores.get(id)!;
     for (const m of mods) m.heat = 40;
-    core.heat.cur = 40 * mods.length;
 
     world.queueOrder(id, { kind: "jettisonHeatsink" });
     jettisonSystem(world, DT);
 
-    for (const m of mods) expect(m.heat).toBeCloseTo(40 - jettisonCfg().purgeAmount / mods.length, 9);
-    expect(core.heat.cur).toBeCloseTo(40 * mods.length - jettisonCfg().purgeAmount, 9);
+    // The one instant clear in the game (heat/energy overhaul 2026-08-07): the
+    // sink carrying the heat has left the hull, so every rack reads zero.
+    for (const m of mods) expect(m.heat).toBe(0);
     expect(world.decoyIds()).toHaveLength(1);
     const decoy = world.decoys.get(world.decoyIds()[0]!)!;
     expect(decoy.team).toBe(0);
@@ -55,14 +54,13 @@ describe("heatsink jettison (owner 2026-07-31)", () => {
     const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
     const laser = world.modules.get(id)!.modules[INTERCEPTOR_SLOTS.laser]!;
     laser.state = "overheated";
-    laser.stateTimer = 3;
     laser.heat = 60;
 
     world.queueOrder(id, { kind: "jettisonHeatsink" });
     jettisonSystem(world, DT);
 
     expect(laser.state).toBe("active");
-    expect(laser.heat).toBe(0); // purge exceeds this single rack's heat
+    expect(laser.heat).toBe(0); // the purge is total
   });
 
   it("does not purge heat without a successful jettison order", () => {
@@ -70,10 +68,8 @@ describe("heatsink jettison (owner 2026-07-31)", () => {
     const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
     const laser = world.modules.get(id)!.modules[INTERCEPTOR_SLOTS.laser]!;
     laser.heat = 60;
-    world.shipCores.get(id)!.heat.cur = 60;
     jettisonSystem(world, DT);
     expect(laser.heat).toBe(60);
-    expect(world.shipCores.get(id)!.heat.cur).toBe(60);
   });
 
   it("drops the sink WHERE THE SHIP IS, at rest — a lure that flew along would shadow the hull", () => {

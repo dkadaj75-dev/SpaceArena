@@ -25,7 +25,24 @@ export interface ModuleSnapshot {
   /** Hardpoint index this module occupies (stable; toggle addresses by this). */
   hardpointIndex: number;
   state: ModuleState;
+  /**
+   * This module's OWN heat (heat/energy overhaul 2026-08-07). The HUD's heat
+   * ring is `heat / heatCapacity`; there is no ship heat pool to fall back on.
+   */
   heat: number;
+  /**
+   * Resolved capacity of this module's heat store, already multiplied by the
+   * hull. **0 means the module has no heat ring at all** — that is the signal a
+   * renderer reads, not a special-case list of families.
+   */
+  heatCapacity: number;
+  /** This module's OWN energy charge (boost tank, shield reserve, …). */
+  energy: number;
+  /**
+   * Resolved capacity of this module's energy tank, already multiplied by the
+   * hull. **0 means the module has no energy ring at all.**
+   */
+  energyCapacity: number;
   stateTimer: number;
   cycleTimer: number;
   /**
@@ -35,7 +52,13 @@ export interface ModuleSnapshot {
    * stream to render from. Always false for `held`/`semi` modules.
    */
   channeling: boolean;
-  /** Shield-family absorb reservoir (0 for non-shield modules); see ModuleRuntime. */
+  /**
+   * Shield absorb reservoir — the charge left in a MITIGATION module's tank, and
+   * 0 for everything else. Redundant with {@link ModuleSnapshot.energy} by
+   * construction (it is the same number for a shield), and kept as its own field
+   * because the hull's shield arc and the ship visuals want "how much shielding
+   * is up" without resolving each module's config to ask which tanks count.
+   */
   shieldPool: number;
 }
 
@@ -59,8 +82,6 @@ export interface ShipSnapshot {
   up: { x: number; y: number; z: number };
   hull: number;
   hullMax: number;
-  energy: { cur: number; max: number };
-  heat: { cur: number; capacity: number };
   targetId: EntityId | null;
   /**
    * Commanded throttle 0..1 — the ship's actual FlightState value, 0 when it has
@@ -223,8 +244,8 @@ export interface Snapshot {
  *   1. NavigationSystem  — apply move/flight orders, steer/avoid, boost
  *   2. ModuleSystem      — toggle orders + deploy/retract/overheat-cooldown timers
  *   3. TargetingSystem   — resolve TargetRef + advance/drain the sensor lock
- *   4. CombatSystem      — auto-fire beams/kinetics/missiles (lock+range+LoS+energy)
- *   5. EnergySystem      — regen/drain/brown-out; heat gen/overheat/dissipation/critical
+ *   4. CombatSystem      — auto-fire beams/kinetics/missiles (lock+range+LoS)
+ *   5. EnergySystem      — per-module tanks (drain/refill) and racks (heat/cool/lockout)
  *   6. ProjectileSystem  — move/home/expire/hit
  *   7. CollisionSystem   — ship-asteroid, ship-ship, boundary
  *   8. CleanupSystem     — remove destroyed ships
@@ -717,8 +738,6 @@ export class ArenaSimulation {
         up: { x: tf.up.x, y: tf.up.y, z: tf.up.z },
         hull: core.hull,
         hullMax: core.hullMax,
-        energy: { cur: core.capacitor.cur, max: core.capacitor.max },
-        heat: { cur: core.heat.cur, capacity: core.heat.capacity },
         targetId: ref?.targetId ?? null,
         throttle: w.flightStates.get(id)?.throttle ?? 0,
         velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
@@ -734,10 +753,13 @@ export class ArenaSimulation {
           hardpointIndex: m.hardpointIndex,
           state: m.state,
           heat: m.heat,
+          heatCapacity: m.heatCapacity,
+          energy: m.energy,
+          energyCapacity: m.energyCapacity,
           stateTimer: m.stateTimer,
           cycleTimer: m.cycleTimer,
           channeling: m.channeling,
-          shieldPool: m.shieldPool,
+          shieldPool: m.absorbs ? m.energy : 0,
         })),
       };
     });

@@ -6,9 +6,9 @@ import type { ModuleRuntime } from "./components.js";
  * The POWER RAIL (owner 2026-07-31) — the second energy axis, and the one that
  * decides what can be online **at once**.
  *
- * The existing capacitor is a reservoir: modules drain it over time and it
- * refills. The rail is the opposite kind of quantity — an instantaneous current
- * budget. A module occupies its `power.draw` for as long as it is active, and
+ * A module's own energy tank is a reservoir: it drains while the module works
+ * and refills while it rests. The rail is the opposite kind of quantity — an
+ * instantaneous current budget. A module occupies its `power.draw` for as long as it is active, and
  * the sum across active modules may never exceed the hull's `power.capacity`
  * (mostly supplied by the fitted transformer).
  *

@@ -9,25 +9,20 @@
     "deployTime": 0.65,
     "retractTime": 0.45
   },
-  "energy": {
-    "drawIdle": 4,
-    "drawActive": 13
-  },
   "power": {
     "draw": 5
   },
   "heat": {
-    "perSecondActive": 40,
-    "overheatThreshold": 282,
-    "overheatCooldown": 5.5,
-    "overheatSelfDamage": 1
+    "capacity": 120,
+    "coolingPerSec": 30.0,
+    "rearmBelow": 0.25,
+    "perShot": 64.8
   },
   "fire": {
     "mode": "held",
     "range": 125,
-    "cycleTime": 0.9,
-    "heatPerShot": 280,
-    "damage": 19.5,
+    "cycleTime": 1.1,
+    "damage": 6.75,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
     "projectile": {
