@@ -46,6 +46,8 @@ const objective: BotBehavior = {
     return {
       aim: job.aim,
       throttle: holding ? 0 : close ? numParam(params, "arriveThrottle", 0.4) : numParam(params, "throttle", 1),
+      arrive: close && !holding && job.terminal,
+      arriveRadius: job.arriveRadius,
       // A carrier CANNOT boost (the sim refuses it), so asking would only burn
       // energy and heat for nothing. Everyone else may run.
       boost: !job.carrying && numParam(params, "boostChance", 0.5) > ctx.rng(),
@@ -59,6 +61,8 @@ interface ObjectiveJob {
   urgency: number;
   carrying: boolean;
   blockedAtHome?: boolean;
+  terminal: boolean;
+  arriveRadius?: number;
 }
 
 function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null {
@@ -75,6 +79,8 @@ function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null
       aim: own?.home ?? enemyFlag.home,
       urgency: numParam(params, "carryUrgency", 3) * (weights?.takeEnemyFlag ?? 1),
       carrying: true,
+      terminal: true,
+      arriveRadius: (own?.baseRadius ?? enemyFlag.baseRadius) + (ctx.self.colliderRadius ?? 0),
       blockedAtHome: own?.state !== "home",
     };
   }
@@ -82,7 +88,7 @@ function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null
   // 2. My flag is loose in space: touching it sends it home instantly, and
   //    until it IS home my team cannot score at all.
   if (own?.state === "dropped") {
-    return { aim: own.pos, urgency: recoverUrgency(ctx, own, params) * (weights?.returnOwnFlag ?? 1), carrying: false };
+    return { aim: own.pos, urgency: recoverUrgency(ctx, own, params) * (weights?.returnOwnFlag ?? 1), carrying: false, terminal: true, arriveRadius: (own.pickupRadius ?? 0) + (ctx.self.colliderRadius ?? 0) };
   }
 
   // 3. My flag is being carried: chase whoever has it.
@@ -93,6 +99,7 @@ function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null
         aim: carrier.pos,
         urgency: numParam(params, "chaseUrgency", 1.6) * (weights?.killEnemyCarrier ?? 1),
         carrying: false,
+        terminal: false,
       };
     }
   }
@@ -111,6 +118,7 @@ function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null
         },
         urgency: numParam(params, "escortUrgency", 1.15) * (weights?.escortOwnCarrier ?? 1),
         carrying: false,
+        terminal: false,
       };
     }
   }
@@ -123,8 +131,8 @@ function chooseJob(ctx: BotContext, params: BehaviorParams): ObjectiveJob | null
       ? numParam(params, "defendUrgency", 0.45) * (weights?.defendOwnBase ?? 1)
       : 0;
     return defend > take
-      ? { aim: own!.home, urgency: defend, carrying: false }
-      : { aim: enemyFlag.pos, urgency: take, carrying: false };
+      ? { aim: own!.home, urgency: defend, carrying: false, terminal: true, arriveRadius: own!.baseRadius + (ctx.self.colliderRadius ?? 0) }
+      : { aim: enemyFlag.pos, urgency: take, carrying: false, terminal: true, arriveRadius: (enemyFlag.pickupRadius ?? 0) + (ctx.self.colliderRadius ?? 0) };
   }
   return null;
 }

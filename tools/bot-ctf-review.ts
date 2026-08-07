@@ -97,7 +97,7 @@ function run(seed: number): RunMetrics {
     for (let i = 0; i < 10; i++) {
       const id = sim.spawnPlayer(ship.id, ship.defaultFitting, team);
       const profile = profiles[(team * 10 + i) % profiles.length]!;
-      drivers.set(id, new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id), floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined, visualRadius: ship.render.modelScale }));
+      drivers.set(id, new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id), arenaBounds: sim.world.arena.bounds, floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined, visualRadius: ship.render.modelScale }));
     }
   }
   const ids = [...drivers.keys()];

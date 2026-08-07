@@ -135,6 +135,34 @@ export interface Steer3 {
   pitchStick: number;
 }
 
+/**
+ * Cap thrust for a terminal point approach using the hull's measured motion.
+ * A ship can bend a path of speed `v` no tighter than `v / angularRate`; keeping
+ * that radius below half the remaining range makes successive arcs spiral in.
+ * The ratio is fed back against observed speed, so acceleration, drag, boost,
+ * and fitted engine tuning are all measured rather than imported from content.
+ */
+export function throttleForPointArrival(
+  distance: number,
+  speed: number,
+  turnRate: number,
+  pitchRate: number,
+  planThrottle: number,
+  verticalFraction = 0,
+  minimumThrottle = 0.01,
+): number {
+  const maximum = clamp(planThrottle, 0, 1);
+  if (!(maximum > 0) || !(distance > 0) || !(speed > 0)) return maximum;
+  const rates = [turnRate, pitchRate].filter((rate) => Number.isFinite(rate) && rate > 0);
+  if (rates.length === 0) return maximum;
+  const yawRate = turnRate > 0 ? turnRate : rates[0]!;
+  const verticalRate = pitchRate > 0 ? pitchRate : yawRate;
+  const verticalWeight = clamp(verticalFraction, 0, 1);
+  const angularRate = yawRate * (1 - verticalWeight) + verticalRate * verticalWeight;
+  const desiredSpeed = 0.5 * distance * angularRate;
+  return clamp(maximum * desiredSpeed / speed, Math.min(minimumThrottle, maximum), maximum);
+}
+
 /** Hull + control-loop constants {@link steerForPoint} needs. */
 export interface Steer3Params {
   /** Measured yaw rate per unit stick (rad/s); 0 ⇒ uncalibrated. */

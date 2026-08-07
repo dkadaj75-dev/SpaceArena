@@ -186,17 +186,25 @@ const CHECKPOINTS = [5, 10, 20, 30, 40, 50, 60];
  * bench threw away by restoring both hulls, and the reason it certified a
  * catalogue in which 58.8% of all damage was self-inflicted.
  */
-function runEngagement(shipId: string, script: readonly ScriptStep[], opponentShip = "ship.brawler"): Trajectory {
+function runEngagement(
+  shipId: string,
+  script: readonly ScriptStep[],
+  opponentShip = "ship.brawler",
+  opts: { returnFire?: boolean } = {},
+): Trajectory {
   const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
   const subject = sim.spawnPlayerAt(shipId, fittingOf(shipId), 0, { x: 0, z: 0 }, 0);
   const opponent = sim.spawnPlayerAt(opponentShip, fittingOf(opponentShip), 1, { x: 22, z: 0 }, Math.PI);
   // Disarm the partner outright: this bench measures the subject's upkeep, and
-  // an unattributable point of hull loss would defeat its whole purpose.
+  // an unattributable point of hull loss would defeat its whole purpose. The one
+  // exception is the LIVE-PROBE scenario below, which needs the partner shooting
+  // to prove `hullLost` is still wired to anything at all.
   for (const m of sim.world.modules.get(opponent)!.modules) {
-    if (isWeapon(m.moduleId)) m.state = "retracted";
+    if (isWeapon(m.moduleId)) m.state = opts.returnFire ? "active" : "retracted";
   }
   // No target orders: targeting is automatic (FLIGHT.md §2).
   sim.applyOrder(subject, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
+  if (opts.returnFire) sim.applyOrder(opponent, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
   const byTick = new Map<number, ScriptStep[]>();
   for (const step of script) {
@@ -228,6 +236,7 @@ function runEngagement(shipId: string, script: readonly ScriptStep[], opponentSh
     // curve, so the guns must never fall silent for a targeting reason. Lock
     // behaviour has its own tests.
     pinLock(sim.world, subject);
+    if (opts.returnFire) pinLock(sim.world, opponent);
 
     const eventsBefore = sim.world.events.length;
     sim.tick(DT);
@@ -235,6 +244,10 @@ function runEngagement(shipId: string, script: readonly ScriptStep[], opponentSh
       if (e.type === "overheated" && e.entityId === subject) traj.overheats++;
     }
     sim.getEvents();
+
+    // A subject shot to pieces has lost all of it; there is nothing left to
+    // sample. Only reachable under `returnFire`.
+    if (!sim.hasShip(subject)) return { ...traj, hullLost: round(startHull), energyFloor: round(traj.energyFloor) };
 
     // Hard invariants, every tick of every scenario.
     let emptiest = 1;
@@ -386,6 +399,17 @@ describe("scripted 60 s engagements — per-module heat/energy regression bands"
       // …and every rack stays inside a sane multiple of its own capacity.
       expect(t.peakModuleHeat, `${ship} peak rack heat`).toBeLessThan(2);
     }
+  });
+
+  it("PROVES THE HULL PROBE IS LIVE: the same bench records real damage when it is dealt", () => {
+    // A positive control for the assertion above it. `hullLost === 0` is only
+    // evidence if `hullLost` can be non-zero: restoring the subject's hull each
+    // tick — the exact defect of the pre-overhaul bench — makes every
+    // self-damage assertion in this suite vacuously true, and nothing else here
+    // notices. So run the identical scenario against an ARMED partner and
+    // require the number to move.
+    const t = runEngagement("ship.interceptor", SUSTAINED, "ship.brawler", { returnFire: true });
+    expect(t.hullLost, "hull probe is not wired to the subject's hull").toBeGreaterThan(0);
   });
 
   it("is bit-for-bit reproducible across runs", () => {
@@ -553,15 +577,29 @@ function warmUpLock(sim: ArenaSimulation, shooter: EntityId): void {
  * locked) to destroy a stationary `defender` whose modules stay offline, at
  * `range` world units — and, distinctly, whether the ATTACKER died instead.
  */
-function timeToKill(attackerShip: string, defenderShip: string, range: number): KillResult {
+function timeToKill(
+  attackerShip: string,
+  defenderShip: string,
+  range: number,
+  // `reverse` inverts the duel: the DEFENDER shoots and the attacker is unarmed.
+  // Only the attacker-death control below uses it — see that test for why the
+  // discriminator needs a scenario that actually reaches it.
+  opts: { reverse?: boolean } = {},
+): KillResult {
   const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
   const attacker = sim.spawnPlayerAt(attackerShip, fittingOf(attackerShip), 0, { x: 0, z: 0 }, 0);
   const defender = sim.spawnPlayerAt(defenderShip, fittingOf(defenderShip), 1, { x: range, z: 0 }, Math.PI);
+  const gunner = opts.reverse ? defender : attacker;
   for (const m of sim.world.modules.get(attacker)!.modules) {
-    if (isWeapon(m.moduleId)) m.state = "active";
+    if (isWeapon(m.moduleId)) m.state = opts.reverse ? "retracted" : "active";
   }
-  warmUpLock(sim, attacker);
-  sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
+  if (opts.reverse) {
+    for (const m of sim.world.modules.get(defender)!.modules) {
+      if (isWeapon(m.moduleId)) m.state = "active";
+    }
+  }
+  warmUpLock(sim, gunner);
+  sim.applyOrder(gunner, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
 
   const observationTicks = 120 * TPS;
   for (let tick = 1; tick <= observationTicks; tick++) {
@@ -596,7 +634,9 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
     const result = timeToKill(attacker, defender, range);
     // An attacker that dies is a FAILURE with its own message, never a silent
     // "the defender survived".
-    expect(result.outcome, `${attacker} vs ${defender}: attacker died at ${result.seconds}s`).toBe("killed");
+    expect(result.outcome, `${attacker} vs ${defender}: ended "${result.outcome}" at ${result.seconds}s`).toBe(
+      "killed",
+    );
     expect(result.seconds).toBeGreaterThan(TTK_FLOOR_S);
     expect(result.seconds).toBeLessThan(TTK_CEILING_S);
     // The band catches a change that is still "legal" but reshapes play.
@@ -612,6 +652,19 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
       expect(result.outcome, `${attacker} vs ${defender}`).toBe("killed");
       expect(Number.isFinite(result.seconds)).toBe(true);
     }
+  });
+
+  it("PROVES THE ATTACKER-DEATH DISCRIMINATOR IS LIVE: a pilot who dies is reported as one", () => {
+    // Positive control for the outcome asserted above. On the shipped catalogue
+    // no attacker ever dies, so the `attackerDied` branch — the entire point of
+    // the 2026-08-07 rebuild — is never reached by the matrix, and deleting it
+    // leaves the whole suite green. Inverting one duel exercises it on every run,
+    // so the branch cannot rot back into the `Infinity` it replaced.
+    const r = timeToKill("ship.interceptor", "ship.brawler", 22, { reverse: true });
+    expect(r.outcome, `an unarmed pilot under fire must read as attackerDied, got "${r.outcome}"`).toBe(
+      "attackerDied",
+    );
+    expect(Number.isFinite(r.seconds)).toBe(true);
   });
 
   it("keeps the class fantasy: the heavy out-trades the light and tanks longer", () => {

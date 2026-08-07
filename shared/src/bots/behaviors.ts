@@ -23,6 +23,10 @@ export interface BotPlan {
   aim: Vec3 | null;
   /** Engine command, 0..1 (clamped by the driver). */
   throttle: number;
+  /** Terminal destination: cap throttle from measured turn radius so the hull converges. */
+  arrive?: boolean;
+  /** Radius that counts as arrival; steering manages the distance left to its edge. */
+  arriveRadius?: number;
   /** Request afterburner (resolves in the sim exactly as a human's boost does). */
   boost: boolean;
   /**

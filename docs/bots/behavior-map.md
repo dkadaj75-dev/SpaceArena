@@ -1,0 +1,163 @@
+# Bot behavior map
+
+This document maps the shipped bot controller after the per-module heat/energy change. Bots consume the same read-only `Snapshot` as clients and emit ordinary `flight` and `moduleToggle` orders; room wiring seeds each driver from match seed plus entity id (`server/src/rooms/ArenaRoom.ts:464-516`).
+
+## Decision pipeline
+
+`update` does nothing outside the live phase, staggers the first decision, calibrates turn/pitch every live tick, and otherwise chooses between a full utility decision and a trigger-only fire update (`shared/src/bots/BotDriver.ts:326-344`). Full-decision spacing is `max(16 ms, decisionIntervalMs ± orderJitterMs)` (`shared/src/bots/BotDriver.ts:435-438`).
+
+1. Build a preliminary context, choose a maneuver target, then rebuild against that target. Context contains enemies/allies, 3D range and LoS, incoming missiles, hottest per-module heat fraction, and emptiest per-module energy fraction (`shared/src/bots/BotDriver.ts:448-467`, `shared/src/bots/context.ts:114-196`).
+2. Score only behavior keys declared by the profile. Utility is `baseWeight × situational factor`; `engage` also gets `ctfWeights.threatResponse` in CTF. Positive-factor behaviors with overlays remain live even if their weighted utility loses (`shared/src/bots/BotDriver.ts:469-490`). CTF objective/combat role changes can be held for `roleHoldMs` (default 2,500 ms) (`shared/src/bots/BotDriver.ts:493-501`).
+3. Ask the winner for a plan, then replace that plan in this order: carrier no-progress home commit, all-surface progress recovery, powered-contact tangent escape. Later calls have precedence because each receives the prior result; an active surface escape suppresses the tangent escape (`shared/src/bots/BotDriver.ts:503-506`, `shared/src/bots/BotDriver.ts:932-1057`).
+4. Treat an objective plan as trigger-engaged when a visible target lies inside `weaponRange × opportunisticCombat`, without changing its route (`shared/src/bots/BotDriver.ts:507-515`).
+5. Convert the aim point to yaw/pitch sticks. Imperfect aim is applied only to engaged combat plans. Every losing live overlay is then applied in profile declaration order; shipped overlays are missile `dodge` and `avoidRocks` (`shared/src/bots/BotDriver.ts:517-552`, `shared/src/bots/behaviors.ts:478-490`, `shared/src/bots/behaviors.ts:530-543`).
+6. Predictive floor avoidance runs last and can rewrite both sticks, throttle, and boost. It is skipped while measured surface recovery owns the command (`shared/src/bots/BotDriver.ts:553-566`). Thus floor avoidance outranks behavior overlays, while surface recovery outranks floor avoidance.
+7. Clamp/sanitize the command and emit a level-triggered `flight` order only on a stick/throttle/boost/fire edge beyond profile epsilons (`shared/src/bots/BotDriver.ts:558-583`, `shared/src/bots/BotDriver.ts:733-746`). Fire is re-evaluated every tick between utility decisions (`shared/src/bots/BotDriver.ts:686-730`). A newly acquired flag immediately cancels a standing boost request; objective carrier plans also always request `boost: false` (`shared/src/bots/BotDriver.ts:689-696`, `shared/src/bots/ctfBehavior.ts:46-53`).
+8. Run module discipline and append its toggles. A requested boost additionally activates a retracted boost module only when that module's own tank meets its `rearmAbove` threshold (`shared/src/bots/BotDriver.ts:585-605`).
+
+```mermaid
+flowchart TD
+  A[Live tick] --> B{Full decision due?}
+  B -- no --> T[Rebuild trigger context]
+  T --> C0{Now carrying flag with standing boost?}
+  C0 -- yes --> C1[Force boost false]
+  C0 -- no --> F0[Fire discipline]
+  C1 --> F0
+  F0 --> E0{Fire or carrier-boost edge?}
+  E0 -- yes --> EO[Emit flight order]
+  E0 -- no --> N[No order]
+  B -- yes --> C[Build context and choose target]
+  C --> U[Score declared behaviors: baseWeight × factor × CTF threatResponse]
+  U --> H[Apply role hold]
+  H --> P[Winning plan]
+  P --> CR{Carrier stalled?}
+  CR -- yes --> CRP[Home-commit plan; boost false]
+  CR -- no --> SR
+  CRP --> SR{Surface no-progress recovery active?}
+  SR -- yes --> SRP[Outward recovery plan; boost false]
+  SR -- no --> W{Powered contact wedge?}
+  W -- yes --> WP[Tangent escape; boost false]
+  W -- no --> S[Steer aim to yaw/pitch]
+  WP --> S
+  SRP --> S
+  S --> D[Apply losing live overlays in profile order]
+  D --> FA{Surface recovery owns flight?}
+  FA -- yes --> CL[Sanitize and clamp]
+  FA -- no --> FL{Predicted floor risk or recovering?}
+  FL -- yes --> FR[Floor recovery overrides sticks/throttle/boost]
+  FL -- no --> CL
+  FR --> CL
+  CL --> FD[Fire discipline]
+  FD --> EG{Flight/fire edge exceeds epsilon?}
+  EG -- yes --> EF[Emit flight]
+  EG -- no --> MD[Module discipline]
+  EF --> MD
+  MD --> CB{Command requests boost and carrier?}
+  CB -- carrier --> NB[Boost remains false]
+  CB -- not carrier --> BA[Activate eligible boost module]
+  NB --> O[Return emitted orders]
+  BA --> O
+```
+
+## Registered behaviors
+
+All six general behaviors self-register at `shared/src/bots/behaviors.ts:564-569`; `objective` registers separately at `shared/src/bots/ctfBehavior.ts:144`. Parameter fallbacks are the values read by the implementation; editor metadata is collected at `shared/src/bots/behaviors.ts:624-685`.
+
+| Behavior | Scores when / factor | Winning plan | Shipped profiles | Parameters and defaults |
+|---|---|---|---|---|
+| `engage` | Target exists. `(0.5 + 0.5×hullFraction)`, up to ×2 beyond preferred max, ×`tooCloseFalloff` inside min, ×`noLosFalloff` without LoS (`behaviors.ts:151-163`). | Aim at target; approach/band/close throttle; turn-throttle on hard reversals; boost only while far (`behaviors.ts:165-179`). | all | `throttleApproach` 1, `throttleBand` .55, `throttleClose` .2, `hardTurnRad` 1.2, `throttleTurn` .35, `tooCloseFalloff` .6, `noLosFalloff` 1.2, `targetPreference` nearest, `losPenalty` 2, `holdLockTarget` true, `boostChance` 0; optional aim-error fields are driver-read (`behaviors.ts:627-637`, `BotDriver.ts:639-678`). |
+| `kite` | Target inside `breakRange` (default preferred min); `1 + proximity×urgencyGain` (`behaviors.ts:216-223`). | Extend away with yaw/optional vertical slip, full throttle by default (`behaviors.ts:224-251`). | all | `urgencyGain` 1, `breakRange` preferred min, `standoffFrac` .9, `slipRad` .5, `verticalSlipRad` 0 in runtime, `throttleRun` 1, `boostChance` 0 (`behaviors.ts:219-251`). |
+| `breakLoS` | Target and LoS and reachable cover; optionally only below `triggerHullBelow`; factor `1 + hull-depth×urgencyGain` (`behaviors.ts:299-312`). | Fly to nearest searched point actually hidden behind an asteroid; not engaged (`behaviors.ts:313-322`). | aggressive, cautious | `triggerHullBelow` absent, `urgencyGain` 1, `coverOffset` 3, `coverSearchRadius` 2×preferred max, `throttle` 1, `hardTurnRad` 1.2, `throttleTurn` .35, `boostChance` 0 (`behaviors.ts:648-656`). |
+| `retreat` | Enemies exist and configured hull/shield trigger fires; with no triggers it is always eligible. Factor grows with hull-depth (`behaviors.ts:334-345`). | Fly away from enemy centroid in 3D at full throttle/boost by default; not engaged (`behaviors.ts:346-369`). | aggressive, cautious | `triggerHullBelow` absent, `triggerShieldDown` false, `urgencyGain` 1, `retreatDistance` 2×preferred max, `throttle` 1, `boostChance` 1 (`behaviors.ts:658-664`). |
+| `dodge` | Inbound missile within `dodgeRadius`; `1 + proximity×urgencyGain` (`behaviors.ts:437-444`). | If winner, break perpendicular to missile track with optional climb; if loser, add deterministic alternating yaw/pitch jink (`behaviors.ts:445-490`). | aggressive, cautious | `dodgeRadius` 20, `dodgeDistance` 12, `dodgeClimbRad` .4, `throttle` 1, `jinkAmp` .4, `jinkPitchAmp`=`jinkAmp`, `jinkPeriodSec` .8, `jinkPhasePerId` .618, `urgencyGain` 1, `boostChance` 0 (`behaviors.ts:666-676`). |
+| `avoidRocks` | Nose corridor intersects an asteroid; factor 1 (`behaviors.ts:511-514`, `behaviors.ts:553-561`). | If winner, yaw sidestep; normally weight 0 makes it a pure turn/throttle overlay (`behaviors.ts:515-543`). | all | `lookahead` 16, `clearance` 2, `turnBias` .8, `throttleFactor` 1, winning `throttle` .6 (`behaviors.ts:678-684`). |
+| `objective` | A CTF job exists; factor is that job's urgency (`ctfBehavior.ts:27-34`). | Aim at job; terminal flag/base jobs declare their contact radius and a maximum arrival throttle, while the driver derives the actual cap from measured speed and turn/pitch rates. Hold at zero only when a carrier is home-blocked, never boost on terminal approach, `engaged:false`. | all | Authored `arriveThrottle` remains an upper bound; the default kinematic arrival controller converges without hull-specific tuning. Other defaults are unchanged. |
+
+Profiles are authored at `content/bots/aggressive.json:28-103`, `content/bots/cautious.json:28-104`, `content/bots/flagrunner.json:32-87`, and `content/bots/rookie.json:32-85`. Their nonzero weights—not registry membership—determine what can win.
+
+## CTF objective ladder
+
+`chooseJob` returns at the first applicable rung, so this is strict precedence (`shared/src/bots/ctfBehavior.ts:64-130`). The final utility is still objective `baseWeight × urgency` in the driver.
+
+| Priority | Job | Aim | Urgency factor before objective base weight |
+|---|---|---|---|
+| 1 | Carry enemy flag home | Own flag home, or enemy home fallback | `carryUrgency(3) × takeEnemyFlag`; blocked when own flag is away (`ctfBehavior.ts:72-79`). |
+| 2 | Recover dropped own flag | Own flag position | `recoverUrgency(2.2) × returnOwnFlag`; urgency halves beyond `recoverRange(90)` (`ctfBehavior.ts:82-86`, `ctfBehavior.ts:137-142`). |
+| 3 | Hunt own-flag carrier | Carrier position | `chaseUrgency(1.6) × killEnemyCarrier` (`ctfBehavior.ts:88-97`). |
+| 4a | Escort friendly carrier | Point 20% of the carrier-to-home vector ahead | `escortUrgency(1.15) × escortOwnCarrier` (`ctfBehavior.ts:100-115`). |
+| 4b | Take/defend | Enemy flag, unless defend utility is larger | max of `attackUrgency(1) × takeEnemyFlag` and, while own flag is home, `defendUrgency(.45) × defendOwnBase` (`ctfBehavior.ts:118-128`). |
+
+`threatResponse` scales only `engage` utility in CTF; `opportunisticCombat` scales the objective route's fire range; `roleHoldMs` controls objective/combat stickiness (`shared/src/bots/BotDriver.ts:482-498`, `shared/src/bots/BotDriver.ts:509-514`).
+
+## Fire discipline
+
+The trigger is level-triggered and its only memory is `heatHeld` (`shared/src/bots/fireDiscipline.ts:25-28`). The gate order is: engaged → sensor lock → authored discipline/armed active weapons → shortest armed range × `engageRangeMult` → heat hysteresis → weapon-tank energy floor → burst clock (`shared/src/bots/fireDiscipline.ts:41-103`).
+
+Heat is per rack. The shared trigger enters `heatHeld` only when every active rack is at or above `heatHeadroom` (default 1), and exits when any rack cools to or below `rearmHeatBelow` (default headroom). This lets cool racks continue while the combat system independently skips an overheated one (`shared/src/bots/fireDiscipline.ts:56-76`). Energy is the minimum fraction only among active weapons that actually own tanks; shipped weapons have none, so shield/boost energy cannot silence guns (`shared/src/bots/fireDiscipline.ts:78-91`). Optional bursts use deterministic driver ticks (`shared/src/bots/fireDiscipline.ts:93-101`).
+
+## Module discipline
+
+Transitional, overheated, weapon, and internal-family modules are skipped (`shared/src/bots/moduleDiscipline.ts:70-82`). For each remaining module:
+
+- Active → retract when `max(own heat fraction, hottest rack fraction) >= heatShutdownAt`, or when it is a shield with `shieldOnlyWhenEngaged` and the trigger engagement is false.
+- Retracted → remain retracted above `reactivateBelow`; otherwise activate if the energy reserve gate passes.
+- Active modules otherwise remain active, avoiding deploy-timer chatter (`shared/src/bots/moduleDiscipline.ts:84-110`).
+
+The energy reserve gate compares each candidate module with its own `energy / energyCapacity`; a module without a tank is treated as fully supplied (`shared/src/bots/moduleDiscipline.ts`). The context still exposes the emptiest-tank aggregate for diagnostics, but module activation does not consume it.
+
+## Loadout adaptation
+
+Ship choice is seeded from the allowed pool. For a fitting, every socket filters the full module catalogue by accepted family, then weighted choice favors weapons 4× for aggressive profiles, tank modules 4× for cautious profiles, and weapons/tank 2× for balanced profiles (`shared/src/bots/botLoadout.ts:29-40`, `shared/src/bots/botLoadout.ts:84-104`).
+
+If a player fitting exists, its power score is the sum of `level×100 + log2(price+2)×12`; the bot samples a target uniformly within `fittingPowerSpread` (default ±25%) and retains the closest viable roll across 2,000 attempts (`shared/src/bots/botLoadout.ts:74-110`). A roll is viable only with at least one weapon, at least one weapon that can online within resolved power, and every weapon capable of a cold burn of at least two seconds after hull cooling, heat-generation, and heat-store multipliers (`shared/src/bots/botLoadout.ts:43-71`). Failure falls back to the socket-aligned stock fit (`shared/src/bots/botLoadout.ts:110-113`). Existing loadout tests cover socket legality and viability; the audit also records every rolled fitting.
+
+## Audit results (2026-08-07)
+
+`tools/bot-behavior-audit.ts` runs two seeded 10v10 lunar-crater CTF matches to the match end/cap and one seeded ring-nebula team deathmatch, using randomized legal loadouts. It records per-bot/team objective, combat, trigger, rack, overlay, movement, and energy measurements and prints threshold-based issues.
+
+The final run produced CTF results of 2–1 at 600.0 s (seed 11) and 3–0 at 417.2 s (seed 73), plus a 25–17 deathmatch completed at 623.7 s. Across the combined runs, objective occupancy was 100.0% flagrunner, 36.6% aggressive, 74.4% cautious, and 28.7% rookie. Aggregate rack lockout remained near zero (individual CTF maximum 1.7%), while per-bot engaged fire uptime ranged from 0–24.8% in CTF. These numbers show neither permanent thermal lockout nor an always-firing bypass; low CTF fire uptime mostly reflects objective routing and lock/range gates.
+
+## Issues
+
+### FIX NOW: standing boost survived flag pickup
+
+Objective plans correctly set carrier boost false, but a bot could pick up a flag between decisions while its previous level-triggered command still requested boost. The sim refused acceleration, yet the audit saw five carrier ticks with boost intent. Trigger updates now cancel that edge immediately (`shared/src/bots/BotDriver.ts:689-696`). Regression: `BotDriver.test.ts` — “cancels a standing boost request immediately when the bot takes a flag.”
+
+### FIXED: objective travel could lower engagement-only shields under fire
+
+Objective plans still return `engaged:false`, and opportunistic trigger engagement remains range/LoS-bound. `BotDriver` now latches threat for 4,000 ms after its observed hull or summed shield pool drops, or while an inbound missile is detected inside the existing scan radius. Only module discipline receives `triggerEngaged || underThreat`; steering, firing, utility scores, and the recorded engagement flag remain unchanged. Regression: `BotDriver.test.ts` — “raises an engagement-only shield after objective-travel damage outside opportunistic range.”
+
+### FIXED: energy reserve coupled independent module tanks
+
+Module activation now compares the candidate module's own `energy / energyCapacity` with `energyReserve`; an empty boost bottle no longer blocks a charged shield. The aggregate remains in context because diagnostics consume it, but module discipline does not. Regression: `moduleDiscipline.test.ts` — “gates shield activation on the shield's own tank, not an empty boost tank.”
+
+### FIXED: enclosing-shell contact recovery coverage
+
+Room, offline-session, and audit wiring pass arena bounds to `BotDriver`. The inside of a spherical shell is a rest surface with an inward recovery normal for both the no-progress watchdog and powered-contact tangent escape; entry/exit clearance retains the visual-overhang allowance for heavy hulls. Regression: `BotDriver.test.ts` — “arms surface recovery after stationary contact with the enclosing sphere.” This is valid shell-contact coverage, but it was not the cause of the seed-11 stalls: the probed bots were near the flag base, roughly 80 units inside the radius-360 shell.
+
+## Final-approach orbit: root cause and fix
+
+The seed-11 per-tick replay placed bot 43 at roughly `(274,31,5)` aiming at the enemy flag at `(268,16,0)`: only about 17 units away, with throttle 0.4, no recovery overlay, and nowhere near the arena shell. The fixed `arriveRange`/`arriveThrottle` assumption let re-authored hulls settle into a final-approach orbit outside the flag contact sphere. Holding y≈31 was part of that 3D orbit; predictive floor avoidance was inactive and its safe band lies below the y=16 flag, so no bubble-altitude clamp needed weakening.
+
+Terminal objective plans now declare `arrive` plus the actual flag/base contact radius. `BotDriver` applies `throttleForPointArrival` from `flight.ts`: it measures current speed and calibrated yaw/pitch rates, blends the angular rate by the approach's vertical fraction, and caps authored throttle so `v / angularRate <= 0.5 × distanceRemainingToContactSphere`, clamped to `[0.01, planThrottle]`. Authored `arriveThrottle` is therefore still an override/upper bound, while the default works across fitted hull kinematics. Boost is disabled only during terminal arrival. Surface escape explicitly clears arrival intent; floor avoidance still runs afterward and retains crash authority.
+
+Regression coverage in `CtfBots.test.ts` places the shipped flagrunner profile and the seed-11 shipped interceptor fitting 30 units from a lunar home flag, 15 units high, with full lateral way. It must enter the shipped pickup sphere within ten nominal travel times (`10 × 30 / resolvedNominalSpeed`), so the bound scales with content rather than wall-clock guesswork. The enclosing-shell recovery test remains, relabelled as shell-contact coverage. The audit's stall window was also corrected to reset during cut-throttle loiter/respawn waits; those waits accounted for the prior 39 zero-motion records and are not powered flight stalls.
+
+### Same-seed before/after audit
+
+| Seed | Arrival controller | Captures by team | Attempts by team | Powered 10 s stalls | End |
+|---|---:|---:|---:|---:|---:|
+| 11 | before | 2–2 | 4–3 | 0 | 600.0 s cap |
+| 11 | after | 3–0 | 6–1 | 0 | capture limit, 294.8 s |
+| 73 | before | 2–0 | 4–2 | 0 | 600.0 s cap |
+| 73 | after | 3–1 | 6–4 | 0 | capture limit, 379.5 s |
+
+The old audit printed 39 “stalls” because its window included zero-throttle waits; under the corrected powered-window definition both controller variants report zero. The important route result is independent of that instrumentation correction: attempts rise from 7→7 on seed 11 and 6→10 on seed 73, and both post-fix matches reach the authored three-capture limit well before 600 seconds. The old `|x|≈273, y≈31` outside-pickup hover is absent from the final worst-stuck table (the table is empty). Aggregate energy starvation is 2.1%; objective shield-down incoming-hit fraction is 62.0%. Deathmatch remains 25–17 at 623.7 s.
+
+### FINDING: floor and surface recovery do not form one invariant
+
+Predictive floor avoidance uses collider radius only and commands positive recovery throttle, while the no-progress watchdog expands entry/exit clearance by visual overhang (`shared/src/bots/BotDriver.ts:815-871`, `shared/src/bots/BotDriver.ts:978-1010`). During an active surface escape, floor prediction is wholly skipped to prevent rock/floor seam deadlock (`shared/src/bots/BotDriver.ts:553-556`). The composition is safe for the tested floor, blocked-home zero-throttle, carrier, and visual-overhang cases only after a 1.5 s stationary detection; it is not a proof that every state maintains immediate surface progress. Proposed fix: replace the two owners with one bounds-aware recovery controller that combines active contact normals and uses visual extent consistently.
+
+### FINDING: behavior personality spread is role-dominant
+
+Measured combined occupancy differs strongly—flagrunner 100% objective, cautious 74.4%, aggressive 36.6%, rookie 28.7%—so multipliers do produce spread. The flagrunner's complete objective lockout means its combat behavior weights never win in sampled CTF, even though opportunistic fire still occurs. Proposed fix, if the owner wants occasional flagrunner combat maneuvers, cap objective utility or assign only a subset of flagrunners to attack roles; otherwise document this as intended specialization.

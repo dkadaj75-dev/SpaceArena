@@ -47,8 +47,8 @@ function moduleHeatFraction(m: ModuleSnapshot): number {
  *    comes back when the pilot says so instead of when the metal says so.
  *  - **reactivateBelow** — a retracted module is redeployed only once *both*
  *    fractions have fallen back below it (hysteresis, so bots don't chatter).
- *  - **energyReserve** — nothing is *activated* while the emptiest module tank is
- *    below the reserve fraction; already-active modules are left alone (the sim
+ *  - **energyReserve** — a module is not *activated* while its own tank is below
+ *    the reserve fraction; already-active modules are left alone (the sim
  *    cuts a module that actually runs its own tank dry, and retracting under
  *    load would thrash deploy timers).
  *  - **shieldOnlyWhenEngaged** — shield-family modules follow the chosen
@@ -98,7 +98,7 @@ export function planModuleOrders(
       continue; // already on and nothing says otherwise
     } else if (heatFrac > discipline.reactivateBelow) {
       continue; // still too hot to come back
-    } else if (ctx.energyFraction < discipline.energyReserve) {
+    } else if ((m.energyCapacity > 0 ? m.energy / m.energyCapacity : 1) < discipline.energyReserve) {
       continue; // reserve keeps a charge in the module tanks
     } else {
       want = true;
