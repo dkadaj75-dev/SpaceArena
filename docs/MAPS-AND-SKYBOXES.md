@@ -136,8 +136,8 @@ configs too, and register them in `content/manifest.json`.
 
 - `team` is an integer; `0` is the player's side in practice modes, `1` the opposition.
 - At least one spawn point is required, and **every spawn must sit inside `bounds`** (schema-enforced).
-- Respawn picks a random pad belonging to the ship's team, so **give each team at least 2–3 pads**
-  or respawns become predictable. A 5v5 mode wants ~5 per side.
+- Respawn picks a random pad belonging to the ship's team, so **author at least one clear pad per team slot**
+  (the shipped 10v10 CTF mode has 10 per side), or initial spawns overlap and respawns become predictable.
 - `heading` should point roughly toward the middle of the map — players spawn facing it.
 
 ---

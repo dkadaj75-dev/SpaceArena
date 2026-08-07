@@ -56,5 +56,9 @@ export function resolveBackfillBot(
 
 /** Ships per team implied by a gamemode's `teams` string. */
 export function teamSizeOf(gamemode: GamemodeConfig): number {
-  return gamemode.teams === "2v2" ? 2 : 1;
+  switch (gamemode.teams) {
+    case "10v10": return 10;
+    case "2v2": return 2;
+    default: return 1;
+  }
 }

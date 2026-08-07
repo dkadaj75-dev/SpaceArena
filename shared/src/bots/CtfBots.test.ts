@@ -10,7 +10,7 @@ import { loadTestConfigs } from "../sim/testutil.js";
 import { BotDriver } from "./BotDriver.js";
 
 const DT = 1 / 30;
-const CTF = "gamemode.practice-ctf-5v5";
+const CTF = "gamemode.practice-ctf-10v10";
 
 let configs: ConfigService;
 beforeAll(async () => {
@@ -18,7 +18,7 @@ beforeAll(async () => {
 });
 
 /**
- * A full 5v5 capture match driven entirely by bots. This is the proof that the
+ * A full 10v10 capture match driven entirely by bots. This is the proof that the
  * `objective` behaviour actually plays the mode rather than merely existing: no
  * assertion here inspects a bot's internals, only what the match produced.
  */

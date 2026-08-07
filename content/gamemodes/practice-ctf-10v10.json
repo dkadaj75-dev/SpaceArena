@@ -1,9 +1,9 @@
 {
-  "id": "gamemode.practice-ctf-5v5",
+  "id": "gamemode.practice-ctf-10v10",
   "type": "gamemode",
   "version": 1,
-  "name": "Capture the Flag — 5v5",
-  "teams": "2v2",
+  "name": "Capture the Flag — 10v10",
+  "teams": "10v10",
   "defaultArena": "arena.lunar-crater",
   "winCondition": {
     "type": "captureLimit",
@@ -35,16 +35,14 @@
     "backfillWaitMs": 15000,
     "randomizeLoadouts": true,
     "roster": [
-      {
-        "profile": "bot.flagrunner",
-        "team": 0,
-        "count": 4
-      },
-      {
-        "profile": "bot.flagrunner",
-        "team": 1,
-        "count": 5
-      }
+      { "profile": "bot.flagrunner", "team": 0, "count": 3 },
+      { "profile": "bot.aggressive", "team": 0, "count": 2 },
+      { "profile": "bot.cautious", "team": 0, "count": 2 },
+      { "profile": "bot.rookie", "team": 0, "count": 2 },
+      { "profile": "bot.flagrunner", "team": 1, "count": 3 },
+      { "profile": "bot.aggressive", "team": 1, "count": 3 },
+      { "profile": "bot.cautious", "team": 1, "count": 2 },
+      { "profile": "bot.rookie", "team": 1, "count": 2 }
     ]
   },
   "timeLimitCapSec": 600

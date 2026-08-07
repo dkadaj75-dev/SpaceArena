@@ -1,145 +1,150 @@
 import { GameSession } from "../client/src/game/GameSession.js";
 import type { BotDecisionSnapshot } from "../shared/src/bots/BotDriver.js";
-import type { GamemodeConfig } from "../shared/src/schemas/index.js";
+import type { GamemodeConfig, ShipConfig } from "../shared/src/schemas/index.js";
 import type { EntityId } from "../shared/src/sim/components.js";
 import { dist3 } from "../shared/src/sim/math.js";
 import { loadTestConfigs } from "../shared/src/sim/testutil.js";
 
 const DT = 1 / 30;
-const MAX_SEC = Number(process.env.BOT_REPRO_SECONDS ?? 600);
-const SEED_COUNT = Number(process.env.BOT_REPRO_SEEDS ?? 20);
+const MAX_SEC = Number(process.env.BOT_REPRO_SECONDS ?? 12);
+const SEED_COUNT = Number(process.env.BOT_REPRO_SEEDS ?? 5);
 const SLOW_SPEED = 0.5;
-const NO_PROGRESS_RADIUS = 1;
 const STUCK_SEC = 5;
+const MODE_ID = process.env.BOT_REPRO_MODE ?? "gamemode.practice-ctf-10v10";
+const ARENA_ID = "arena.lunar-crater";
+const ROCK_CONFIG_ID = "asteroid.colossal-a";
 
-interface SurfaceSample {
-  kind: "floor" | "collider" | "none";
-  clearance: number;
-  normal: { x: number; y: number; z: number };
-}
-
+type RosterKind = "heavy-only" | "mixed" | "light-only";
 interface BotRow {
-  arena: string;
-  mode: string;
+  roster: RosterKind;
   seed: number;
   bot: number;
-  minAltitude: number;
-  minSurface: number;
-  maxStillSec: number;
-  stuckSec: number;
+  hull: string;
+  class: string;
+  colliderRadius: number;
+  renderRadius: number;
+  colliderClearance: number;
+  renderClearance: number;
+  clearanceGap: number;
   speed: number;
   throttle: number;
-  noseDotNormal: number;
-  recovery: string;
-  surface: string;
+  turn: number;
+  pitchStick: number;
+  recoveryEntries: number;
+  recoveryExits: number;
+  stationarySec: number;
+  maxStationarySec: number;
+  stalled: boolean;
 }
 
 const configs = await loadTestConfigs();
-const modeFilter = process.env.BOT_REPRO_MODE;
-const modes = configs.getAll<GamemodeConfig>("gamemode").filter((mode) =>
-  mode.bots?.roster?.length && (!modeFilter || mode.id === modeFilter));
+const baseMode = configs.get<GamemodeConfig>("gamemode", MODE_ID);
+if (!baseMode) throw new Error(`missing shipped CTF mode ${MODE_ID}`);
+const layouts: Record<RosterKind, readonly string[]> = {
+  "heavy-only": Array(8).fill("ship.brawler"),
+  mixed: ["ship.brawler", "ship.interceptor", "ship.support", "ship.brawler", "ship.interceptor", "ship.support", "ship.brawler", "ship.interceptor"],
+  "light-only": Array(8).fill("ship.interceptor"),
+};
 const rows: BotRow[] = [];
 
-for (const mode of modes) {
-  if (!mode.defaultArena) continue;
-  for (let seed = 1; seed <= SEED_COUNT; seed++) run(mode, mode.defaultArena, seed);
+for (const [roster, hulls] of Object.entries(layouts) as [RosterKind, readonly string[]][]) {
+  const patched: GamemodeConfig = {
+    ...baseMode,
+    bots: {
+      ...baseMode.bots!,
+      randomizeLoadouts: false,
+      roster: hulls.map((ship, index) => ({ profile: "bot.flagrunner", ship, team: index % 2, count: 1 })),
+    },
+  };
+  const replaced = configs.replace(patched);
+  if (!replaced.ok) throw new Error(`could not install ${roster} roster: ${JSON.stringify(replaced)}`);
+  for (let seed = 1; seed <= SEED_COUNT; seed++) run(roster, hulls, seed);
 }
 
-const stuck = rows.filter((row) => row.stuckSec >= STUCK_SEC);
-console.table((stuck.length ? stuck : rows)
-  .sort((a, b) => b.stuckSec - a.stuckSec || b.maxStillSec - a.maxStillSec)
-  .slice(0, 80));
-console.log(JSON.stringify({ runs: modes.length * SEED_COUNT, bots: rows.length, stuckBots: stuck.length }, null, 2));
+console.table(rows.map((row) => ({
+  roster: row.roster, seed: row.seed, hull: row.hull.replace("ship.", ""), r: row.colliderRadius,
+  colliderGap: row.colliderClearance, renderGap: row.renderClearance, visualDelta: row.clearanceGap,
+  speed: row.speed, throttle: row.throttle, turn: row.turn, pitch: row.pitchStick, recoverIn: row.recoveryEntries, recoverOut: row.recoveryExits,
+  stationary: row.stationarySec, maxStill: row.maxStationarySec, stalled: row.stalled,
+})));
+const grouped = new Map<string, { bots: number; stalled: number; entries: number; exits: number; maxStill: number }>();
+for (const row of rows) {
+  const key = `${row.roster}/${row.class}`;
+  const value = grouped.get(key) ?? { bots: 0, stalled: 0, entries: 0, exits: 0, maxStill: 0 };
+  value.bots++;
+  value.stalled += Number(row.stalled);
+  value.entries += row.recoveryEntries;
+  value.exits += row.recoveryExits;
+  value.maxStill = Math.max(value.maxStill, row.maxStationarySec);
+  grouped.set(key, value);
+}
+console.table([...grouped].map(([group, value]) => ({ group, ...value, maxStill: fixed(value.maxStill) })));
 
-function run(mode: GamemodeConfig, arena: string, seed: number): void {
-  const session = new GameSession(configs, arena, mode.id, seed);
-  const states = new Map<EntityId, {
-    anchor: { x: number; y: number; z: number };
-    stillTicks: number;
-    maxStillTicks: number;
-    stuckTicks: number;
-    minAltitude: number;
-    minSurface: number;
-    lastSpeed: number;
-    lastSurface: SurfaceSample;
-    lastDecision: BotDecisionSnapshot | null;
-    lastDot: number;
-  }>();
-  for (const id of session.bots.keys()) {
-    const pos = session.sim.world.transforms.get(id)!.pos;
-    states.set(id, {
-      anchor: { ...pos }, stillTicks: 0, maxStillTicks: 0, stuckTicks: 0,
-      minAltitude: Infinity, minSurface: Infinity, lastSpeed: 0,
-      lastSurface: { kind: "none", clearance: Infinity, normal: { x: 0, y: 1, z: 0 } },
-      lastDecision: null, lastDot: 0,
-    });
-  }
-  for (let tick = 0; tick < MAX_SEC / DT && !session.sim.isEnded; tick++) {
+function run(roster: RosterKind, hulls: readonly string[], seed: number): void {
+  const session = new GameSession(configs, ARENA_ID, MODE_ID, seed);
+  const rockId = [...session.sim.world.asteroidIds()].find((id) => session.sim.world.asteroids.get(id)?.configId === ROCK_CONFIG_ID);
+  if (rockId === undefined) throw new Error("shipped colossal centre rock was not spawned");
+  const rockPos = session.sim.world.transforms.get(rockId)!.pos;
+  const rockRadius = session.sim.world.colliders.get(rockId)!.radius;
+  const states = new Map<EntityId, { hull: ShipConfig; anchor: { x: number; y: number; z: number }; still: number; maxStill: number; entries: number; exits: number; recovering: boolean; decision: BotDecisionSnapshot | null }>();
+
+  [...session.bots.keys()].forEach((id, index) => {
+    const hull = configs.get<ShipConfig>("ship", hulls[index]!)!;
+    const tf = session.sim.world.transforms.get(id)!;
+    const radius = session.sim.world.colliders.get(id)!.radius;
+    const angle = index * Math.PI * 2 / hulls.length;
+    tf.pos.x = rockPos.x + Math.cos(angle) * (rockRadius + radius - 0.05);
+    tf.pos.y = rockPos.y;
+    tf.pos.z = rockPos.z + Math.sin(angle) * (rockRadius + radius - 0.05);
+    tf.heading = Math.atan2(-Math.sin(angle), -Math.cos(angle));
+    tf.pitch = 0;
+    const velocity = session.sim.world.velocities.get(id)!;
+    velocity.x = velocity.y = velocity.z = 0;
+    states.set(id, { hull, anchor: { ...tf.pos }, still: 0, maxStill: 0, entries: 0, exits: 0, recovering: false, decision: null });
+  });
+
+  for (let tick = 0; tick < MAX_SEC / DT; tick++) {
     session.tick(DT);
     for (const [id, driver] of session.bots) {
+      const state = states.get(id)!;
       const tf = session.sim.world.transforms.get(id);
       const velocity = session.sim.world.velocities.get(id);
-      const collider = session.sim.world.colliders.get(id);
-      const state = states.get(id)!;
-      if (!tf || !velocity || !collider) continue;
+      if (!tf || !velocity) continue;
       const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
-      const sample = nearestSurface(session, id);
-      const floorY = session.sim.world.arena.bounds.shape === "sphere" ? session.sim.world.arena.bounds.floorY : undefined;
-      const altitude = floorY === undefined ? Infinity : tf.pos.y - floorY - collider.radius;
-      state.minAltitude = Math.min(state.minAltitude, altitude);
-      state.minSurface = Math.min(state.minSurface, sample.clearance);
-      const nearSurface = sample.clearance <= 0.1;
-      if (nearSurface && speed < SLOW_SPEED && dist3(state.anchor, tf.pos) <= NO_PROGRESS_RADIUS) {
-        state.stillTicks++;
-        if (state.stillTicks >= STUCK_SEC / DT) state.stuckTicks++;
-      } else {
-        state.anchor = { ...tf.pos };
-        state.stillTicks = 0;
-      }
-      state.maxStillTicks = Math.max(state.maxStillTicks, state.stillTicks);
-      const cp = Math.cos(tf.pitch);
-      state.lastDot = cp * Math.cos(tf.heading) * sample.normal.x + Math.sin(tf.pitch) * sample.normal.y
-        + cp * Math.sin(tf.heading) * sample.normal.z;
-      state.lastSpeed = speed;
-      state.lastSurface = sample;
-      state.lastDecision = driver.lastDecision;
+      const clearance = dist3(tf.pos, rockPos) - rockRadius - state.hull.collider.radius;
+      if (clearance <= 0.35 && speed < SLOW_SPEED && dist3(state.anchor, tf.pos) <= 1) state.still++;
+      else { state.anchor = { ...tf.pos }; state.still = 0; }
+      state.maxStill = Math.max(state.maxStill, state.still);
+      const recovering = driver.lastDecision?.surfaceRecovery === true;
+      if (recovering && !state.recovering) state.entries++;
+      if (!recovering && state.recovering) state.exits++;
+      state.recovering = recovering;
+      state.decision = driver.lastDecision;
     }
   }
-  for (const [id, state] of states) rows.push({
-    arena, mode: mode.id, seed, bot: id,
-    minAltitude: finite(state.minAltitude), minSurface: finite(state.minSurface),
-    maxStillSec: state.maxStillTicks * DT, stuckSec: state.stuckTicks * DT,
-    speed: state.lastSpeed, throttle: state.lastDecision?.flight?.throttle ?? -1,
-    noseDotNormal: state.lastDot,
-    recovery: state.lastDecision?.floorRecovery ? "floor" : "none",
-    surface: state.lastSurface.kind,
-  });
+
+  for (const [id, state] of states) {
+    const tf = session.sim.world.transforms.get(id)!;
+    const velocity = session.sim.world.velocities.get(id)!;
+    const colliderClearance = dist3(tf.pos, rockPos) - rockRadius - state.hull.collider.radius;
+    // Content scales the rendered hull independently of physics. This conservative
+    // extent makes the mismatch explicit; it is diagnostic, never collision input.
+    const renderRadius = state.hull.render.modelScale ?? state.hull.collider.radius;
+    const renderClearance = dist3(tf.pos, rockPos) - rockRadius - renderRadius;
+    const stationarySec = state.still * DT;
+    rows.push({
+      roster, seed, bot: id, hull: state.hull.id, class: state.hull.class,
+      colliderRadius: state.hull.collider.radius, renderRadius: fixed(renderRadius),
+      colliderClearance: fixed(colliderClearance), renderClearance: fixed(renderClearance),
+      clearanceGap: fixed(colliderClearance - renderClearance),
+      speed: fixed(Math.hypot(velocity.x, velocity.y, velocity.z)),
+      throttle: state.decision?.flight?.throttle ?? -1,
+      turn: fixed(state.decision?.flight?.turn ?? 0), pitchStick: fixed(state.decision?.flight?.pitchStick ?? 0),
+      recoveryEntries: state.entries, recoveryExits: state.exits,
+      stationarySec: fixed(stationarySec), maxStationarySec: fixed(state.maxStill * DT),
+      stalled: stationarySec >= STUCK_SEC,
+    });
+  }
 }
 
-function nearestSurface(session: GameSession, id: EntityId): SurfaceSample {
-  const world = session.sim.world;
-  const pos = world.transforms.get(id)!.pos;
-  const radius = world.colliders.get(id)!.radius;
-  let best: SurfaceSample = { kind: "none", clearance: Infinity, normal: { x: 0, y: 1, z: 0 } };
-  if (world.arena.bounds.shape === "sphere" && world.arena.bounds.floorY !== undefined) {
-    best = { kind: "floor", clearance: pos.y - world.arena.bounds.floorY - radius, normal: { x: 0, y: 1, z: 0 } };
-  }
-  for (const other of [...world.asteroidIds(), ...world.shipIds()]) {
-    if (other === id || !world.transforms.has(other) || !world.colliders.has(other)) continue;
-    const at = world.transforms.get(other)!.pos;
-    const dx = pos.x - at.x;
-    const dy = pos.y - at.y;
-    const dz = pos.z - at.z;
-    const length = Math.hypot(dx, dy, dz) || 1;
-    const clearance = length - radius - world.colliders.get(other)!.radius;
-    if (clearance < best.clearance) best = {
-      kind: "collider", clearance,
-      normal: { x: dx / length, y: dy / length, z: dz / length },
-    };
-  }
-  return best;
-}
-
-function finite(value: number): number {
-  return Number.isFinite(value) ? Number(value.toFixed(3)) : -1;
-}
+function fixed(value: number): number { return Number(value.toFixed(3)); }

@@ -6,7 +6,7 @@ every schema rule, wire limit, and geometry-test threshold this repo enforces, s
 that follows it imports cleanly. Companion reference: `docs/MAPS-AND-SKYBOXES.md`.
 
 The design brief you append can be as loose as a design sheet image ("Lunar Crater,
-5v5 CTF, bases east/west, high ground in the middle") or as tight as exact coordinates.
+10v10 CTF, bases east/west, high ground in the middle") or as tight as exact coordinates.
 Everything the brief leaves out, the builder decides within the rules below.
 
 ````text
@@ -22,7 +22,7 @@ breaks one does not ship.
   A spawn's heading should face the map centre / the enemy side.
 - HARD: no coordinate may exceed ±327.67 (int16 centi-unit wire format), and
   bounds extent + 20 (projectile margin) must stay under it. Practical ceiling:
-  sphere radius ≤ 300. Shipped maps use 100–210; 126 is a good 5v5 size.
+  sphere radius sized for the encounter. Shipped maps use 100–360; 360 supports the shipped 10v10 CTF mode.
 
 ## The file
 {
@@ -68,7 +68,7 @@ Let P = placement position, r = collider radius × scale.
   scale 1.3–1.8 reads well. Skip it when the brief wants an open eye ("broken ring").
 - Rim: heavier rocks toward the boundary give the bubble a readable edge.
 - Density by feel: ~15 rocks = sparse duel, ~25 = standard team map, 90+ = dense field.
-- Spawns: one pad per expected pilot per team (5v5 ⇒ 5+5), spread 8–16 units apart,
+- Spawns: one pad per expected pilot per team (10v10 ⇒ 10+10), spread beyond the largest ship collider diameter,
   ~70–80% of the radius out, facing the enemy (team 0 west/−x, team 1 east/+x
   by convention). Respawn picks a random friendly pad, so never author just one.
 - CTF briefs: add flagBases — one per team, id "flag-base-blue" (team 0) /

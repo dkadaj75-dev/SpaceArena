@@ -50,7 +50,8 @@ describe("GamemodeEditor", () => {
     const panel = new GamemodeEditor(host, vi.fn());
 
     const teams = panel.element.querySelector<HTMLSelectElement>('[name="teams"]')!;
-    expect(Array.from(teams.options).map((o) => o.value)).toEqual(["1v1", "2v2"]);
+    // 10v10 joined the union when CTF scaled up (owner 2026-08-06).
+    expect(Array.from(teams.options).map((o) => o.value)).toEqual(["1v1", "2v2", "10v10"]);
 
     // Discriminated union -> a `type` <select> plus only the chosen branch's fields.
     const kind = panel.element.querySelector<HTMLSelectElement>('[name="winCondition.type"]')!;

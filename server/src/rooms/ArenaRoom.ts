@@ -7,6 +7,7 @@ import {
   pickBotShip,
   randomBotFitting,
   resolveBackfillBot,
+  resolveBotRoster,
   teamSizeOf,
   SIM_TICK_RATE,
   createLogger,
@@ -206,7 +207,7 @@ export class ArenaRoom extends Room<ArenaState> {
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
     this.maxOrdersPerSec = tuning?.maxOrdersPerSec ?? DEFAULT_MAX_ORDERS_PER_SEC;
 
-    this.maxClients = gamemode.teams === "2v2" ? 4 : 2;
+    this.maxClients = teamSizeOf(gamemode) * 2;
     this.minPlayers = Math.max(1, options.minPlayers ?? this.maxClients);
     // Anti-farming: overrides that enable trivial solo wins forfeit rewards.
     this.rewardsEligible = options.minPlayers === undefined;
@@ -460,6 +461,7 @@ export class ArenaRoom extends Room<ArenaState> {
     if (!ship) return;
 
     const teamSize = teamSizeOf(this.gamemode);
+    const authoredRoster = resolveBotRoster(this.gamemode, configs);
     const perTeam = new Map<number, number>();
     for (const eid of this.keyToEntity.values()) {
       const team = this.sim.teamOf(eid);
@@ -477,12 +479,14 @@ export class ArenaRoom extends Room<ArenaState> {
       .find((candidate): candidate is readonly (string | null)[] => candidate !== undefined);
     for (let team = 0; team < 2; team++) {
       for (let i = perTeam.get(team) ?? 0; i < teamSize; i++) {
+        const teamRoster = authoredRoster.filter((slot) => slot.team === team);
+        const botProfile = teamRoster.length > 0 ? teamRoster[i % teamRoster.length]!.profile : backfill.profile;
         const botShipId = randomize
           ? pickBotShip(configs, rosterRng, backfill.shipId, this.sim.world.gamemode.bots?.shipPool)
           : backfill.shipId;
         const botShip = configs.get<ShipConfig>("ship", botShipId) ?? ship;
         const botFitting = randomize
-          ? randomBotFitting(configs, botShipId, rosterRng, backfill.profile, referenceFitting)
+          ? randomBotFitting(configs, botShipId, rosterRng, botProfile, referenceFitting)
           : botShip.defaultFitting;
         const entityId = this.sim.spawnPlayer(botShipId, botFitting, team);
         const key = `bot-${entityId}`;
@@ -507,10 +511,11 @@ export class ArenaRoom extends Room<ArenaState> {
           entityId,
           new BotDriver({
             entityId,
-            profile: backfill.profile,
+            profile: botProfile,
             configs,
             rng: deriveRng(this.seed, entityId),
             floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
+            visualRadius: botShip.render.modelScale,
           }),
         );
         this.syncShipState(entityId, ps);

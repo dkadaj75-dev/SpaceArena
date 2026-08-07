@@ -102,6 +102,8 @@ export interface BotDriverOptions {
   orbitSign?: 1 | -1;
   /** Arena floor plane. Omit for fully enclosed/unfloored arenas. */
   floorY?: number;
+  /** Maximum rendered hull extent, when larger than the gameplay collider. */
+  visualRadius?: number;
 }
 
 /**
@@ -158,6 +160,9 @@ const SURFACE_STALL_MS = 1_500;
 const SURFACE_STALL_RADIUS = 1;
 const SURFACE_ESCAPE_CLEARANCE = 4;
 const SURFACE_ESCAPE_AIM_DISTANCE = 30;
+const SURFACE_ESCAPE_RADIUS_MULT = 3;
+const SURFACE_VISUAL_MARGIN = 0.35;
+const SURFACE_ANTIPARALLEL_BIAS = 0.35;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -195,6 +200,7 @@ export class BotDriver {
   private readonly behaviors: BehaviorRegistry;
   private readonly orbitSign: 1 | -1;
   private readonly floorY: number | undefined;
+  private readonly visualRadius: number | undefined;
 
   private nextDecisionMs = 0;
   private started = false;
@@ -225,7 +231,7 @@ export class BotDriver {
   private wedgeContactSinceMs: number | null = null;
   private unstuck: { untilMs: number; obstacleId: EntityId; side: 1 | -1 } | null = null;
   private surfaceStall: { key: string; sinceMs: number; anchor: Required<Vec3> } | null = null;
-  private surfaceEscape: { key: string; normal: Required<Vec3> } | null = null;
+  private surfaceEscape: { key: string; normal: Required<Vec3>; side: 1 | -1 } | null = null;
   private floorRecovering = false;
   private heldBehavior: { key: string; untilMs: number } | null = null;
 
@@ -237,6 +243,7 @@ export class BotDriver {
     this.behaviors = options.behaviors ?? botBehaviors();
     this.orbitSign = options.orbitSign ?? (this.rng() < 0.5 ? -1 : 1);
     this.floorY = options.floorY;
+    this.visualRadius = options.visualRadius;
   }
 
   /**
@@ -944,7 +951,14 @@ export class BotDriver {
       : nearestRestSurface(snapshot, self, this.floorY);
 
     if (this.surfaceEscape) {
-      if (!surface || surface.clearance >= SURFACE_ESCAPE_CLEARANCE) {
+      const ownRadius = self.colliderRadius ?? 0;
+      const visualOverhang = Math.max(0, (this.visualRadius ?? ownRadius) - ownRadius);
+      const exitClearance = Math.max(
+        SURFACE_ESCAPE_CLEARANCE,
+        ownRadius * SURFACE_ESCAPE_RADIUS_MULT,
+        visualOverhang + ownRadius * 2,
+      );
+      if (!surface || surface.clearance >= exitClearance) {
         this.surfaceEscape = null;
         this.surfaceStall = null;
         return plan;
@@ -952,19 +966,22 @@ export class BotDriver {
       this.surfaceEscape.normal = surface.normal;
     } else {
       const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
-      if (!surface || surface.clearance > WEDGE_CONTACT_EPSILON || speed >= WEDGE_SPEED) {
+      const ownRadius = self.colliderRadius ?? 0;
+      const visualOverhang = Math.max(0, (this.visualRadius ?? ownRadius) - ownRadius);
+      const enterClearance = SURFACE_VISUAL_MARGIN + visualOverhang;
+      if (!surface || surface.clearance > enterClearance || speed >= WEDGE_SPEED) {
         this.surfaceStall = null;
         return plan;
       }
       const stationary = this.surfaceStall
         && this.surfaceStall.key === surface.key
-        && dist3(this.surfaceStall.anchor, self.pos) <= SURFACE_STALL_RADIUS;
+        && dist3(this.surfaceStall.anchor, self.pos) <= Math.max(SURFACE_STALL_RADIUS, ownRadius / 1.4);
       if (!stationary) {
         this.surfaceStall = { key: surface.key, sinceMs: nowMs, anchor: aimPoint(self.pos) };
         return plan;
       }
       if (nowMs - this.surfaceStall!.sinceMs < SURFACE_STALL_MS) return plan;
-      this.surfaceEscape = { key: surface.key, normal: surface.normal };
+      this.surfaceEscape = { key: surface.key, normal: surface.normal, side: this.orbitSign };
       this.wedgeContactSinceMs = null;
       this.unstuck = null;
     }
@@ -974,11 +991,27 @@ export class BotDriver {
     const noseDot = Math.cos(self.pitch) * Math.cos(self.heading) * normal.x
       + Math.sin(self.pitch) * normal.y
       + Math.cos(self.pitch) * Math.sin(self.heading) * normal.z;
+    // A direction exactly opposite the nose is singular in the two-axis body
+    // decomposition: both candidate turn planes are equally valid. Give that
+    // case a deterministic tangential component so recovery cannot command
+    // turn=0, pitch=0, throttle=0 forever while nose-in against a surface.
+    const tangentLength = Math.hypot(normal.x, normal.z);
+    const tx = tangentLength > 1e-6 ? -normal.z / tangentLength : 1;
+    const tz = tangentLength > 1e-6 ? normal.x / tangentLength : 0;
+    const bias = noseDot < -0.9 ? SURFACE_ANTIPARALLEL_BIAS * this.surfaceEscape.side : 0;
+    const aimNormal = {
+      x: normal.x + tx * bias,
+      // Include lift for a mostly vertical wall. A pure planar tangent can
+      // still project to signed zero in the persisted body frame at exactly
+      // 180 degrees; the up component makes the escape direction unambiguous.
+      y: normal.y + (Math.abs(normal.y) < 0.9 ? Math.abs(bias) : 0),
+      z: normal.z + tz * bias,
+    };
     return {
       aim: {
-        x: self.pos.x + normal.x * SURFACE_ESCAPE_AIM_DISTANCE,
-        y: self.pos.y + normal.y * SURFACE_ESCAPE_AIM_DISTANCE,
-        z: self.pos.z + normal.z * SURFACE_ESCAPE_AIM_DISTANCE,
+        x: self.pos.x + aimNormal.x * Math.max(SURFACE_ESCAPE_AIM_DISTANCE, (self.colliderRadius ?? 0) * 12),
+        y: self.pos.y + aimNormal.y * Math.max(SURFACE_ESCAPE_AIM_DISTANCE, (self.colliderRadius ?? 0) * 12),
+        z: self.pos.z + aimNormal.z * Math.max(SURFACE_ESCAPE_AIM_DISTANCE, (self.colliderRadius ?? 0) * 12),
       },
       // Do not rebuild the cancelled inward velocity while turning. As soon as
       // the nose has an outward component, full thrust creates real separation.

@@ -10,7 +10,7 @@ const DT = 1 / 30;
 const SEEDS = [11, 42, 73];
 const DURATION_SEC = 180;
 const ARENA = "arena.lunar-crater";
-const MODE = "gamemode.practice-ctf-5v5";
+const MODE = "gamemode.practice-ctf-10v10";
 const NEAR_ZERO_SPEED = 0.5;
 const STUCK_RADIUS = 2;
 const STUCK_SEC = 5;
@@ -94,10 +94,10 @@ function run(seed: number): RunMetrics {
   const ship = configs.get<ShipConfig>("ship", mode.bots!.defaultShip!)!;
   const drivers = new Map<EntityId, BotDriver>();
   for (let team = 0; team < 2; team++) {
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       const id = sim.spawnPlayer(ship.id, ship.defaultFitting, team);
-      const profile = profiles[(team * 5 + i) % profiles.length]!;
-      drivers.set(id, new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id), floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined }));
+      const profile = profiles[(team * 10 + i) % profiles.length]!;
+      drivers.set(id, new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id), floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined, visualRadius: ship.render.modelScale }));
     }
   }
   const ids = [...drivers.keys()];
