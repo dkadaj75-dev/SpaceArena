@@ -21,6 +21,7 @@ import {
   interpolateFrame,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
+import { recoverFromStaleContentPack } from "./core/contentRecovery.js";
 import { designTokenCssVars } from "./game/themeTokens.js";
 import { createUpdateGate } from "./core/swUpdate.js";
 import { installTouchGuards } from "./core/touchGuards.js";
@@ -157,6 +158,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     }
     boot?.settle("content", "fail", `${loadResult.errors.length} problem(s) — see console`);
     if (redirectToOfflinePageIfNeeded()) return;
+    // A pack this client cannot parse usually means the deploy moved on and
+    // THIS page is the stale half of the pairing (contentRecovery.ts). Reload
+    // into the new version rather than boot a menu with no valid ships in it.
+    if (await recoverFromStaleContentPack()) return;
   }
   wireContentHotReload(configService);
 

@@ -126,6 +126,66 @@ function carryFlagHome(seed: number, seconds: number, arenaId = "arena.ring-nebu
   return { events, distances };
 }
 
+function approachHomeFlagFromAbove(seed: number) {
+  const sim = new ArenaSimulation(configs, "arena.lunar-crater", CTF, seed);
+  const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
+  const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+  const enemy = sim.snapshot().flags.find((flag) => flag.team === 1)!;
+  const fitting = [
+    "module.kinetic-mk1", "module.shield-mk1", "module.engine-mk2", "module.generator-dynamo",
+    "module.transformer-mk3", "module.heatsink-mk3", "module.sensors-snap", "module.utility-flux-capacitor-mk2",
+  ];
+  const vertical = 15;
+  const initialDistance = 30;
+  const horizontal = Math.sqrt(initialDistance ** 2 - vertical ** 2);
+  const id = sim.spawnPlayerAt(
+    ship.id,
+    fitting,
+    0,
+    { x: enemy.home.x + horizontal, y: enemy.home.y + vertical, z: enemy.home.z },
+    Math.PI / 2,
+  );
+  // Reproduce a live final approach, not a stationary spawn: the failure is a
+  // turn-radius equilibrium reached with lateral way already on the hull.
+  const engine = sim.world.shipCores.get(id)!.engine;
+  Object.assign(sim.world.velocities.get(id)!, { x: 0, y: 0, z: engine.nominalSpeed });
+  const driver = new BotDriver({
+    entityId: id,
+    profile,
+    configs,
+    rng: deriveRng(seed, id),
+    arenaBounds: sim.world.arena.bounds,
+    floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined,
+    visualRadius: ship.render.modelScale,
+  });
+  // Ten nominal point-to-point travel times allow for calibration, the initial
+  // broadside turn, and deceleration while remaining tied to shipped kinematics.
+  const boundSec = 10 * initialDistance / engine.nominalSpeed;
+  const distances: number[] = [];
+  const positions: string[] = [];
+  let minimumApproachThrottle = Infinity;
+  let nowMs = 0;
+  for (let tick = 0; tick < boundSec / DT; tick++) {
+    nowMs += DT * 1000;
+    const snapshot = sim.snapshot();
+    const self = snapshot.ships.find((candidate) => candidate.id === id)!;
+    if (tick % 30 === 0) {
+      distances.push(Math.hypot(self.pos.x - enemy.home.x, self.pos.y - enemy.home.y, self.pos.z - enemy.home.z));
+      positions.push(`${self.pos.x.toFixed(1)}/${self.pos.y.toFixed(1)}/${self.pos.z.toFixed(1)}@${(driver.lastDecision?.flight?.throttle ?? 0).toFixed(2)}`);
+    }
+    for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
+    const distance = Math.hypot(self.pos.x - enemy.home.x, self.pos.y - enemy.home.y, self.pos.z - enemy.home.z);
+    const throttle = driver.lastDecision?.flight?.throttle;
+    if (distance < 30 && distance > (enemy.pickupRadius ?? 0) + (self.colliderRadius ?? 0) && throttle !== undefined && throttle > 0) {
+      minimumApproachThrottle = Math.min(minimumApproachThrottle, throttle);
+    }
+    sim.tick(DT);
+    const taken = sim.getEvents().some((event) => event.type === "flagTaken" && event.carrierId === id);
+    if (taken) return { taken, boundSec, distances, positions, minimumApproachThrottle };
+  }
+  return { taken: false, boundSec, distances, positions, minimumApproachThrottle };
+}
+
 function carryFlagAcrossCentre(seed: number, seconds: number) {
   const sim = new ArenaSimulation(configs, "arena.ring-nebula", CTF, seed);
   const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
@@ -331,6 +391,12 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
       events.some((event) => event.type === "flagCaptured"),
       `lunar carrier distance to home each second: ${distances.map((distance) => distance.toFixed(2)).join(", ")}`,
     ).toBe(true);
+  });
+
+  it("brings a flagrunner-hulled bot down into a nearby home flag pickup sphere", () => {
+    const result = approachHomeFlagFromAbove(11);
+    expect(result.minimumApproachThrottle).toBeLessThan(0.4);
+    expect(result.taken, `bound=${result.boundSec.toFixed(2)}s distances=${result.distances.map((d) => d.toFixed(2)).join(", ")} positions=${result.positions.join(", ")}`).toBe(true);
   });
 
   it("routes a carrier around the colossal centrepiece without getting pinned", () => {

@@ -180,6 +180,7 @@ export class GameSession {
           profile: slot.profile,
           configs,
           rng: options.botRng ?? deriveRng(seed, id),
+          arenaBounds: this.sim.world.arena.bounds,
           floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
           visualRadius: botShip.render.modelScale,
         }),

@@ -142,6 +142,8 @@ export interface FlagSnapshot {
   /** Base position — where it returns to and where its owners score. */
   home: { x: number; y: number; z: number };
   baseRadius: number;
+  /** Contact radius for taking or returning this flag. */
+  pickupRadius?: number;
   /** Seconds left before a dropped flag returns itself; 0 when not dropped. */
   dropRemaining: number;
   /** Wake positions, oldest first. Empty while the flag is home. */
@@ -810,6 +812,7 @@ export class ArenaSimulation {
         pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
         home: { x: f.home.x, y: f.home.y, z: f.home.z },
         baseRadius: f.baseRadius,
+        pickupRadius: f.pickupRadius,
         dropRemaining: f.state === "dropped" ? Math.max(0, f.dropTimer) : 0,
         trail: f.trail.map((p) => ({ x: p.x, y: p.y, z: p.z })),
       };

@@ -1,5 +1,6 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import type { BotprofileConfig } from "../schemas/botprofile.js";
+import type { ArenaBounds } from "../schemas/arena.js";
 import type { Vec3 } from "../schemas/common.js";
 import type { ModuleConfig } from "../schemas/module.js";
 import type { TuningConfig } from "../schemas/tuning.js";
@@ -22,7 +23,7 @@ import { boolParam, buildBotContext, numParam, strParam, type BehaviorParams, ty
 // pulls this one in — without it a capture-the-flag profile would name an
 // `objective` behaviour the registry has never heard of and silently ignore it.
 import "./ctfBehavior.js";
-import { steerForPoint } from "./flight.js";
+import { steerForPoint, throttleForPointArrival } from "./flight.js";
 import { decideFire, type FireDecisionReason, type FireDisciplineState } from "./fireDiscipline.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";
 
@@ -73,6 +74,8 @@ export interface BotDecisionSnapshot {
   floorRecovery?: boolean;
   /** True while no-progress recovery owns flight until real surface separation. */
   surfaceRecovery?: boolean;
+  /** True while the dodge behavior is winning or layering an inbound-missile jink. */
+  missileEvasion?: boolean;
   /** Level-triggered fire decision and its debug-overlay explanation. */
   fire?: boolean;
   fireReason?: FireDecisionReason;
@@ -102,6 +105,8 @@ export interface BotDriverOptions {
   orbitSign?: 1 | -1;
   /** Arena floor plane. Omit for fully enclosed/unfloored arenas. */
   floorY?: number;
+  /** Enclosing arena shell used by contact and no-progress recovery. */
+  arenaBounds?: ArenaBounds;
   /** Maximum rendered hull extent, when larger than the gameplay collider. */
   visualRadius?: number;
 }
@@ -117,6 +122,8 @@ const NO_ORDERS: readonly Order[] = Object.freeze([]);
 const MIN_DECISION_MS = 16;
 /** Missiles farther than this multiple of the preferred range are ignored. */
 const MISSILE_SCAN_MULT = 2;
+/** Keep defensive shields armed briefly after observed damage or an inbound missile. */
+const THREAT_LATCH_MS = 4_000;
 
 /**
  * Rotation budget for one stick command, as a multiple of the decision interval.
@@ -200,6 +207,7 @@ export class BotDriver {
   private readonly behaviors: BehaviorRegistry;
   private readonly orbitSign: 1 | -1;
   private readonly floorY: number | undefined;
+  private readonly arenaBounds: ArenaBounds | undefined;
   private readonly visualRadius: number | undefined;
 
   private nextDecisionMs = 0;
@@ -210,6 +218,8 @@ export class BotDriver {
   /** Engagement choice held between utility decisions; trigger phase samples it every tick. */
   private lastEngaged = false;
   private lastTargetId: EntityId | null = null;
+  private previousDurability: { hull: number; shield: number } | null = null;
+  private underThreatUntilMs = 0;
   /** Increments once per live update; deterministic source for trigger bursts. */
   private driverTick = 0;
   private decision: BotDecisionSnapshot | null = null;
@@ -229,7 +239,7 @@ export class BotDriver {
   private fireState: FireDisciplineState = { heatHeld: false };
   private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number } | null = null;
   private wedgeContactSinceMs: number | null = null;
-  private unstuck: { untilMs: number; obstacleId: EntityId; side: 1 | -1 } | null = null;
+  private unstuck: { untilMs: number; surfaceKey: string; side: 1 | -1 } | null = null;
   private surfaceStall: { key: string; sinceMs: number; anchor: Required<Vec3> } | null = null;
   private surfaceEscape: { key: string; normal: Required<Vec3>; side: 1 | -1 } | null = null;
   private floorRecovering = false;
@@ -243,6 +253,7 @@ export class BotDriver {
     this.behaviors = options.behaviors ?? botBehaviors();
     this.orbitSign = options.orbitSign ?? (this.rng() < 0.5 ? -1 : 1);
     this.floorY = options.floorY;
+    this.arenaBounds = options.arenaBounds;
     this.visualRadius = options.visualRadius;
   }
 
@@ -287,6 +298,8 @@ export class BotDriver {
     this.lastFire = null;
     this.lastEngaged = false;
     this.lastTargetId = null;
+    this.previousDurability = null;
+    this.underThreatUntilMs = 0;
     this.driverTick = 0;
     this.decision = null;
     this.turnRateEst = 0;
@@ -327,6 +340,7 @@ export class BotDriver {
     if (!self) return NO_ORDERS;
     this.driverTick += 1;
     this.calibrate(self, snapshot.elapsed);
+    this.sampleThreat(snapshot, self, nowMs);
 
     if (!this.started) {
       this.started = true;
@@ -436,6 +450,30 @@ export class BotDriver {
     return Math.max(MIN_DECISION_MS, this.profile.decisionIntervalMs + offset);
   }
 
+  /** Driver-local defensive memory; intentionally does not alter planning or trigger state. */
+  private sampleThreat(snapshot: Snapshot, self: ShipSnapshot, nowMs: number): void {
+    const durability = {
+      hull: self.hull,
+      shield: self.modules.reduce((total, module) => total + module.shieldPool, 0),
+    };
+    const tookDamage = this.previousDurability !== null
+      && (durability.hull < this.previousDurability.hull || durability.shield < this.previousDurability.shield);
+    this.previousDurability = durability;
+
+    const profile = this.profile;
+    const inboundMissile = snapshot.projectiles.length > 0 && buildBotContext({
+      snapshot,
+      self,
+      profile,
+      weaponRange: this.weaponRange(self),
+      targetId: null,
+      missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
+      orbitSign: this.orbitSign,
+      rng: this.rng,
+    }).incomingMissiles.length > 0;
+    if (tookDamage || inboundMissile) this.underThreatUntilMs = nowMs + THREAT_LATCH_MS;
+  }
+
   private decide(snapshot: Snapshot, self: ShipSnapshot, nowMs: number): Order[] {
     const orders: Order[] = [];
     // One registry read per decision: the profile cannot change mid-decision.
@@ -543,6 +581,20 @@ export class BotDriver {
       throttle: clamp(bestPlan?.throttle ?? 0, 0, 1),
       boost: bestPlan?.boost ?? false,
     };
+    if (aim && bestPlan?.arrive) {
+      const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : 0;
+      const centreDistance = dist3(self.pos, aimPoint(aim));
+      cmd.throttle = throttleForPointArrival(
+        Math.max(0, centreDistance - (bestPlan.arriveRadius ?? 0)),
+        speed,
+        this.turnRateEst,
+        this.pitchRateEst,
+        cmd.throttle,
+        centreDistance > 0 ? Math.abs((aim.y ?? self.pos.y) - self.pos.y) / centreDistance : 0,
+      );
+      // Arrival is terminal, so boost cannot invalidate the measured-radius cap.
+      cmd.boost = false;
+    }
     for (const l of live) {
       if (l.key === bestKey) continue; // the winner already spoke through its plan
       cmd = l.behavior.overlay!(ctx, l.params, cmd);
@@ -580,7 +632,12 @@ export class BotDriver {
     }
 
     // --- module discipline ---
-    const modulePlan = planModuleOrders(ctx, this.configs, this.profile.moduleDiscipline, triggerEngaged);
+    const modulePlan = planModuleOrders(
+      ctx,
+      this.configs,
+      this.profile.moduleDiscipline,
+      triggerEngaged || nowMs < this.underThreatUntilMs,
+    );
     orders.push(...modulePlan.orders);
     // Boost-capable engines spawn disabled. When a bot elects to boost, it
     // explicitly arms that engine through the normal module-toggle pipeline.
@@ -613,6 +670,7 @@ export class BotDriver {
       engaged: triggerEngaged,
       floorRecovery: this.floorRecovering,
       surfaceRecovery: this.surfaceEscape !== null,
+      missileEvasion: bestKey === "dodge" || live.some((entry) => entry.key === "dodge" && entry.key !== bestKey),
       fire: fireDecision.fire,
       fireReason: fireDecision.reason,
       moduleDecisions: modulePlan.decisions,
@@ -683,8 +741,13 @@ export class BotDriver {
    * jittered decision cadence.
    */
   private updateTrigger(snapshot: Snapshot, self: ShipSnapshot): readonly Order[] {
-    const flight = this.lastFlight;
+    let flight = this.lastFlight;
     if (!flight) return NO_ORDERS;
+    const carrying = flight.boost && snapshot.flags.some((flag) => flag.carrierId === self.id && flag.team !== self.team);
+    if (carrying) {
+      flight = { ...flight, boost: false };
+      this.lastFlight = flight;
+    }
     const profile = this.profile;
     const horizonSec =
       (profile.decisionIntervalMs / 1000) * (profile.flight?.turnHorizonMult ?? DEFAULT_TURN_HORIZON_MULT);
@@ -703,7 +766,7 @@ export class BotDriver {
       driverTick: this.driverTick,
     });
     const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, this.lastEngaged);
-    if (fireDecision.fire === this.lastFire) return NO_ORDERS;
+    if (!carrying && fireDecision.fire === this.lastFire) return NO_ORDERS;
 
     this.lastFire = fireDecision.fire;
     return [
@@ -905,7 +968,7 @@ export class BotDriver {
       return plan;
     }
 
-    const obstacle = nearestContact(snapshot, self);
+    const obstacle = nearestContact(snapshot, self, this.arenaBounds);
     const speed = self.velocity
       ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z)
       : Infinity;
@@ -919,18 +982,15 @@ export class BotDriver {
     if (!this.unstuck && nowMs - this.wedgeContactSinceMs >= WEDGE_DETECT_MS) {
       this.unstuck = {
         untilMs: nowMs + UNSTUCK_COMMIT_MS,
-        obstacleId: obstacle.id,
-        side: tangentSide(self, obstacle.pos, plan.aim, this.orbitSign),
+        surfaceKey: obstacle.key,
+        side: tangentSide(obstacle.normal, self, plan.aim, this.orbitSign),
       };
     }
     if (!this.unstuck || nowMs >= this.unstuck.untilMs) return plan;
 
-    const active = colliderById(snapshot, self, this.unstuck.obstacleId) ?? obstacle;
-    const dx = self.pos.x - active.pos.x;
-    const dz = self.pos.z - active.pos.z;
-    const length = Math.hypot(dx, dz) || 1;
-    const nx = dx / length;
-    const nz = dz / length;
+    const active = surfaceByKey(snapshot, self, this.floorY, this.arenaBounds, this.unstuck.surfaceKey) ?? obstacle;
+    const nx = active.normal.x;
+    const nz = active.normal.z;
     const side = this.unstuck.side;
     return {
       ...plan,
@@ -940,6 +1000,7 @@ export class BotDriver {
         z: self.pos.z + (nx * side + nz * 0.35) * UNSTUCK_AIM_DISTANCE,
       },
       throttle: Math.max(plan.throttle, 0.65),
+      arrive: false,
       boost: false,
     };
   }
@@ -957,8 +1018,8 @@ export class BotDriver {
     nowMs: number,
   ): BotPlan | null {
     let surface = this.surfaceEscape
-      ? surfaceByKey(snapshot, self, this.floorY, this.surfaceEscape.key)
-      : nearestRestSurface(snapshot, self, this.floorY);
+      ? surfaceByKey(snapshot, self, this.floorY, this.arenaBounds, this.surfaceEscape.key)
+      : nearestRestSurface(snapshot, self, this.floorY, this.arenaBounds);
 
     if (this.surfaceEscape) {
       const ownRadius = self.colliderRadius ?? 0;
@@ -996,7 +1057,7 @@ export class BotDriver {
       this.unstuck = null;
     }
 
-    surface = surface ?? nearestRestSurface(snapshot, self, this.floorY);
+    surface = surface ?? nearestRestSurface(snapshot, self, this.floorY, this.arenaBounds);
     const normal = surface?.normal ?? this.surfaceEscape.normal;
     const noseDot = Math.cos(self.pitch) * Math.cos(self.heading) * normal.x
       + Math.sin(self.pitch) * normal.y
@@ -1055,8 +1116,11 @@ function nearestRestSurface(
   snapshot: Snapshot,
   self: ShipSnapshot,
   floorY: number | undefined,
+  arenaBounds: ArenaBounds | undefined,
 ): RestSurface | null {
-  let nearest = floorY === undefined ? null : surfaceByKey(snapshot, self, floorY, "floor");
+  let nearest = floorY === undefined ? null : surfaceByKey(snapshot, self, floorY, arenaBounds, "floor");
+  const shell = arenaShellSurface(self, arenaBounds);
+  if (shell && (!nearest || shell.clearance < nearest.clearance)) nearest = shell;
   const consider = (candidate: ContactCollider): void => {
     const surface = colliderRestSurface(self, candidate);
     if (!nearest || surface.clearance < nearest.clearance) nearest = surface;
@@ -1074,6 +1138,7 @@ function surfaceByKey(
   snapshot: Snapshot,
   self: ShipSnapshot,
   floorY: number | undefined,
+  arenaBounds: ArenaBounds | undefined,
   key: string,
 ): RestSurface | null {
   if (key === "floor") {
@@ -1083,9 +1148,21 @@ function surfaceByKey(
       normal: { x: 0, y: 1, z: 0 },
     };
   }
+  if (key === "arena:shell") return arenaShellSurface(self, arenaBounds);
   const id = Number(key.slice("collider:".length));
   const collider = colliderById(snapshot, self, id);
   return collider ? colliderRestSurface(self, collider) : null;
+}
+
+function arenaShellSurface(self: ShipSnapshot, bounds: ArenaBounds | undefined): RestSurface | null {
+  if (!bounds || bounds.shape !== "sphere") return null;
+  const length = Math.hypot(self.pos.x, self.pos.y, self.pos.z) || 1;
+  return {
+    key: "arena:shell",
+    clearance: bounds.radius - (self.colliderRadius ?? 0) - length,
+    // The playable volume is inside the shell, so its escape normal is inward.
+    normal: { x: -self.pos.x / length, y: -self.pos.y / length, z: -self.pos.z / length },
+  };
 }
 
 function colliderRestSurface(self: ShipSnapshot, collider: ContactCollider): RestSurface {
@@ -1107,33 +1184,27 @@ function colliderById(snapshot: Snapshot, self: ShipSnapshot, id: EntityId): Con
   return ship ? { id, pos: ship.pos, radius: ship.colliderRadius ?? 0 } : null;
 }
 
-function nearestContact(snapshot: Snapshot, self: ShipSnapshot): ContactCollider | null {
-  const ownRadius = self.colliderRadius ?? 0;
-  let nearest: ContactCollider | null = null;
-  let bestSurface = Infinity;
-  const consider = (candidate: ContactCollider): void => {
-    const surface = dist3(self.pos, candidate.pos) - ownRadius - candidate.radius;
-    if (surface <= WEDGE_CONTACT_EPSILON && surface < bestSurface) {
-      bestSurface = surface;
-      nearest = candidate;
-    }
+function nearestContact(snapshot: Snapshot, self: ShipSnapshot, bounds: ArenaBounds | undefined): RestSurface | null {
+  let nearest: RestSurface | null = null;
+  const consider = (surface: RestSurface): void => {
+    if (surface.clearance <= WEDGE_CONTACT_EPSILON && (!nearest || surface.clearance < nearest.clearance)) nearest = surface;
   };
+  const shell = arenaShellSurface(self, bounds);
+  if (shell) consider(shell);
   for (const asteroid of snapshot.asteroids) {
-    if (asteroid.state !== "destroyed") consider({ id: asteroid.id, pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius });
+    if (asteroid.state !== "destroyed") consider(colliderRestSurface(self, { id: asteroid.id, pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius }));
   }
   for (const ship of snapshot.ships) {
-    if (ship.id !== self.id) consider({ id: ship.id, pos: ship.pos, radius: ship.colliderRadius ?? 0 });
+    if (ship.id !== self.id) consider(colliderRestSurface(self, { id: ship.id, pos: ship.pos, radius: ship.colliderRadius ?? 0 }));
   }
   return nearest;
 }
 
-function tangentSide(self: ShipSnapshot, center: Vec3, objective: Vec3 | null, fallback: 1 | -1): 1 | -1 {
+function tangentSide(normal: Vec3, self: ShipSnapshot, objective: Vec3 | null, fallback: 1 | -1): 1 | -1 {
   if (!objective) return fallback;
-  const dx = self.pos.x - center.x;
-  const dz = self.pos.z - center.z;
   const ox = objective.x - self.pos.x;
   const oz = objective.z - self.pos.z;
-  const cross = -dz * ox + dx * oz;
+  const cross = -(normal.z ?? 0) * ox + normal.x * oz;
   return Math.abs(cross) < 1e-6 ? fallback : cross > 0 ? 1 : -1;
 }
 

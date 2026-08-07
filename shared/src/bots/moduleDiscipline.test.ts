@@ -45,7 +45,7 @@ function profile(): BotprofileConfig {
 /** Build a ship snapshot from the real interceptor fitting. */
 function shipWith(
   states: ModuleState[],
-  opts: { moduleHeat?: number[]; shipHeat?: number; energy?: number } = {},
+  opts: { moduleHeat?: number[]; shipHeat?: number; energy?: number; moduleEnergy?: number[] } = {},
 ): ShipSnapshot {
   const modules: ModuleSnapshot[] = INTERCEPTOR_FITTING.map((moduleId, i) => ({
     moduleId,
@@ -53,7 +53,7 @@ function shipWith(
     state: states[i] ?? "retracted",
     heat: opts.moduleHeat?.[i] ?? 0,
     heatCapacity: 100,
-    energy: (opts.energy ?? 100) * 0.01 * 100,
+    energy: (opts.moduleEnergy?.[i] ?? opts.energy ?? 100) * 0.01 * 100,
     energyCapacity: 100,
     stateTimer: 0,
     cycleTimer: 0,
@@ -170,6 +170,23 @@ describe("moduleDiscipline", () => {
 
     const rich = shipWith(["retracted", "retracted", "retracted", "retracted"], { energy: 20 });
     expect(planModuleOrders(contextFor(rich), configs, discipline, true).orders.length).toBeGreaterThan(0);
+  });
+
+  it("gates shield activation on the shield's own tank, not an empty boost tank", () => {
+    const idx = shieldIndex();
+    const self = shipWith(["retracted", "retracted", "retracted", "retracted"], {
+      moduleEnergy: INTERCEPTOR_FITTING.map((moduleId) => moduleId.includes("boost") ? 0 : 100),
+    });
+    self.modules.push({
+      ...self.modules[idx]!,
+      moduleId: "module.boost-mk1",
+      hardpointIndex: self.modules.length,
+      energy: 0,
+    });
+
+    expect(planModuleOrders(contextFor(self), configs, discipline, true).decisions).toContainEqual(
+      expect.objectContaining({ hardpointIndex: idx, activate: true }),
+    );
   });
 
   it("toggles the shield with the engagement flag when shieldOnlyWhenEngaged", () => {

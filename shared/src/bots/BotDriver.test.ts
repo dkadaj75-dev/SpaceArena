@@ -118,7 +118,7 @@ describe("BotDriver utility scoring", () => {
       ship(2, 1, 10, 0),
       ship(3, 1, 30, 0),
     ]);
-    s.flags = [{ id: 90, team: 0, state: "carried", carrierId: 3, pos: { x: 30, y: 0, z: 0 }, home: { x: 0, y: 0, z: 0 }, baseRadius: 4, dropRemaining: 0, trail: [] }];
+    s.flags = [{ id: 90, team: 0, state: "carried", carrierId: 3, pos: { x: 30, y: 0, z: 0 }, home: { x: 0, y: 0, z: 0 }, baseRadius: 4, pickupRadius: 4, dropRemaining: 0, trail: [] }];
     decide(driver, s);
     expect(driver.lastDecision?.targetId).toBe(3);
 
@@ -252,6 +252,35 @@ describe("BotDriver flight orders", () => {
     decide(unfloored, s);
     expect(unfloored.lastDecision!.flight!.pitchStick).toBeLessThan(0);
   });
+
+  it("arms surface recovery after stationary contact with the enclosing sphere", () => {
+    const p = profile({ decisionIntervalMs: 100, behaviors: { engage: { baseWeight: 1 } } });
+    const driver = new BotDriver({
+      entityId: 1,
+      profile: p,
+      configs: emptyConfigs,
+      rng: zeroRng,
+      orbitSign: 1,
+      arenaBounds: { shape: "sphere", radius: 100 },
+      visualRadius: 3,
+    });
+    const pinned = snap([
+      ship(1, 0, 98, 0, { colliderRadius: 2, velocity: { x: 0, y: 0, z: 0 }, heading: 0 }),
+      ship(2, 1, 0, 0),
+    ]);
+    driver.update(pinned, 0);
+    for (const nowMs of [100, 600, 1_100, 1_700]) driver.update(pinned, nowMs);
+
+    expect(driver.lastDecision?.surfaceRecovery).toBe(true);
+    expect(driver.lastDecision!.plannedMove!.x).toBeLessThan(98);
+
+    const clear = snap([
+      ship(1, 0, 88, 0, { colliderRadius: 2, velocity: { x: -5, y: 0, z: 0 }, heading: Math.PI }),
+      ship(2, 1, 0, 0),
+    ]);
+    driver.update(clear, 1_800);
+    expect(driver.lastDecision?.surfaceRecovery).toBe(false);
+  });
   it("emits only schema-valid orders, and never a targeting one", () => {
     const p = profile({ behaviors: { engage: { baseWeight: 1 } } });
     const driver = new BotDriver({ entityId: 1, profile: p, configs: emptyConfigs, rng: zeroRng });
@@ -293,6 +322,17 @@ describe("BotDriver flight orders", () => {
     const closed = flightOrder(driver.update(snap([ship(1, 0, 0, 0), ship(2, 1, 27, 0)]), 2_000));
     expect(closed).toBeDefined();
     expect(closed!.boost).toBe(false);
+  });
+
+  it("cancels a standing boost request immediately when the bot takes a flag", () => {
+    const p = profile({ decisionIntervalMs: 1_000, behaviors: { engage: { baseWeight: 1, boostChance: 1 } } });
+    const driver = makeDriver(p, emptyConfigs);
+    const s = snap([ship(1, 0, 0, 0), ship(2, 1, 80, 0)]);
+    driver.update(s, 0);
+    expect(flightOrder(driver.update(s, 1_000))?.boost).toBe(true);
+
+    s.flags = [{ id: 90, team: 1, state: "carried", carrierId: 1, pos: { x: 0, y: 0, z: 0 }, home: { x: 80, y: 0, z: 0 }, baseRadius: 4, pickupRadius: 4, dropRemaining: 0, trail: [] }];
+    expect(flightOrder(driver.update(s, 1_001))?.boost).toBe(false);
   });
 
   it("measures the hull turn rate from its own stick and then aims proportionally", () => {
@@ -599,6 +639,51 @@ describe("BotDriver flight orders", () => {
     // the sim integrates between the sparse utility decisions.
     expect(pattern).toEqual([true, false, false, false, true, true, true]);
     expect(driver.lastDecision?.atMs).toBe(0);
+  });
+
+  it("raises an engagement-only shield after objective-travel damage outside opportunistic range", async () => {
+    const configs = await loadTestConfigs();
+    const objective: BotBehavior = {
+      score: () => 1,
+      plan: () => ({ aim: { x: 100, y: 0, z: 0 }, throttle: 1, boost: false, engaged: false }),
+    };
+    const p = profile({
+      decisionIntervalMs: 100,
+      behaviors: { objective: { baseWeight: 1 } },
+      ctfWeights: { opportunisticCombat: 0.1 },
+    });
+    const shield = {
+      moduleId: "module.shield-mk1",
+      hardpointIndex: 0,
+      state: "retracted" as const,
+      heat: 0,
+      heatCapacity: 100,
+      energy: 100,
+      energyCapacity: 100,
+      stateTimer: 0,
+      cycleTimer: 0,
+      channeling: false,
+      shieldPool: 0,
+    };
+    const driver = new BotDriver({
+      entityId: 1,
+      profile: p,
+      configs,
+      rng: zeroRng,
+      behaviors: new Map([["objective", objective]]),
+    });
+    const healthy = snap([ship(1, 0, 0, 0, { hull: 100, modules: [shield] }), ship(2, 1, 200, 0)]);
+    driver.update(healthy, 0);
+    driver.update(healthy, 100);
+
+    const damaged = snap([ship(1, 0, 0, 0, { hull: 90, modules: [shield] }), ship(2, 1, 200, 0)]);
+    driver.update(damaged, 200);
+
+    expect(driver.lastDecision?.behavior).toBe("objective");
+    expect(driver.lastDecision?.engaged).toBe(false);
+    expect(driver.lastDecision?.moduleDecisions).toContainEqual(
+      expect.objectContaining({ hardpointIndex: 0, activate: true, reason: "shield-engaged" }),
+    );
   });
 
   it("re-reads its profile from the registry, so a Behavior Editor tweak reaches a flying bot", () => {
