@@ -515,6 +515,7 @@ export class ArenaRoom extends Room<ArenaState> {
             configs,
             rng: deriveRng(this.seed, entityId),
             floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
+            visualRadius: botShip.render.modelScale,
           }),
         );
         this.syncShipState(entityId, ps);

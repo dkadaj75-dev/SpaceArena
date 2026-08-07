@@ -635,4 +635,45 @@ describe("bots in a live ArenaSimulation", () => {
     expect(solo.boundaryRule).toEqual(duo.boundaryRule);
     expect(solo.defaultArena).toBe(duo.defaultArena);
   });
+
+  it("separates a nose-in BRAWLER from the shipped colossal CTF rock and resumes movement", () => {
+    const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-ctf-10v10", 17);
+    const hull = configs.get<ShipConfig>("ship", "ship.brawler")!;
+    const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
+    const botId = sim.spawnPlayerAt(hull.id, hull.defaultFitting, 0, { x: 0, y: 12, z: 0 }, -Math.PI / 2);
+    sim.spawnPlayerAt("ship.interceptor", configs.get<ShipConfig>("ship", "ship.interceptor")!.defaultFitting, 1, { x: 250, y: 12, z: 250 });
+    const rockId = sim.world.asteroidIds().find((id) => sim.world.asteroids.get(id)?.configId === "asteroid.colossal-a")!;
+    const rock = sim.world.transforms.get(rockId)!;
+    const rockRadius = sim.world.colliders.get(rockId)!.radius;
+    const bot = sim.world.transforms.get(botId)!;
+    bot.pos.x = rock.pos.x;
+    bot.pos.y = rock.pos.y;
+    bot.pos.z = rock.pos.z + rockRadius + hull.collider.radius - 0.05;
+    bot.heading = -Math.PI / 2; // exactly nose-in: the old recovery steering singularity
+    const velocity = sim.world.velocities.get(botId)!;
+    velocity.x = velocity.y = velocity.z = 0;
+
+    const driver = new BotDriver({
+      entityId: botId,
+      profile,
+      configs,
+      rng: deriveRng(17, botId),
+      floorY: 0,
+      visualRadius: hull.render.modelScale,
+    });
+    let nowMs = 0;
+    let separated = false;
+    let resumed = false;
+    for (let tick = 0; tick < 12 / DT; tick++) {
+      nowMs += DT * 1000;
+      for (const order of driver.update(sim.snapshot(), nowMs)) sim.applyOrder(botId, order);
+      sim.tick(DT);
+      const clearance = Math.hypot(bot.pos.x - rock.pos.x, bot.pos.y - rock.pos.y, bot.pos.z - rock.pos.z)
+        - rockRadius - hull.collider.radius;
+      separated ||= clearance >= Math.max(4, hull.collider.radius * 3);
+      resumed ||= separated && Math.hypot(velocity.x, velocity.y, velocity.z) > 1;
+    }
+    expect(separated).toBe(true);
+    expect(resumed).toBe(true);
+  });
 });
