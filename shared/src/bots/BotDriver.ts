@@ -1028,7 +1028,7 @@ export class BotDriver {
         SURFACE_ESCAPE_CLEARANCE,
         ownRadius * SURFACE_ESCAPE_RADIUS_MULT,
         visualOverhang + ownRadius * 2,
-      );
+      ) + (surface?.visualOverhang ?? 0);
       if (!surface || surface.clearance >= exitClearance) {
         this.surfaceEscape = null;
         this.surfaceStall = null;
@@ -1036,10 +1036,10 @@ export class BotDriver {
       }
       this.surfaceEscape.normal = surface.normal;
     } else {
-      const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
       const ownRadius = self.colliderRadius ?? 0;
       const visualOverhang = Math.max(0, (this.visualRadius ?? ownRadius) - ownRadius);
-      const enterClearance = SURFACE_VISUAL_MARGIN + visualOverhang;
+      const enterClearance = SURFACE_VISUAL_MARGIN + visualOverhang + (surface?.visualOverhang ?? 0);
+      const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
       if (!surface || surface.clearance > enterClearance || speed >= WEDGE_SPEED) {
         this.surfaceStall = null;
         return plan;
@@ -1105,11 +1105,13 @@ export class BotDriver {
   }
 }
 
-interface ContactCollider { id: EntityId; pos: Required<Vec3>; radius: number }
+interface ContactCollider { id: EntityId; pos: Required<Vec3>; radius: number; visualRadius?: number }
 interface RestSurface {
   key: string;
   clearance: number;
   normal: Required<Vec3>;
+  /** Rendered obstacle extent beyond its authoritative collider. */
+  visualOverhang?: number;
 }
 
 function nearestRestSurface(
@@ -1123,10 +1125,15 @@ function nearestRestSurface(
   if (shell && (!nearest || shell.clearance < nearest.clearance)) nearest = shell;
   const consider = (candidate: ContactCollider): void => {
     const surface = colliderRestSurface(self, candidate);
-    if (!nearest || surface.clearance < nearest.clearance) nearest = surface;
+    if (!nearest || surface.clearance - (surface.visualOverhang ?? 0) < nearest.clearance - (nearest.visualOverhang ?? 0)) nearest = surface;
   };
   for (const asteroid of snapshot.asteroids) {
-    if (asteroid.state !== "destroyed") consider({ id: asteroid.id, pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius });
+    if (asteroid.state !== "destroyed") consider({
+      id: asteroid.id,
+      pos: asteroid.pos,
+      radius: asteroid.colliderRadius ?? asteroid.radius,
+      visualRadius: asteroid.radius,
+    });
   }
   for (const ship of snapshot.ships) {
     if (ship.id !== self.id) consider({ id: ship.id, pos: ship.pos, radius: ship.colliderRadius ?? 0 });
@@ -1174,12 +1181,18 @@ function colliderRestSurface(self: ShipSnapshot, collider: ContactCollider): Res
     key: `collider:${collider.id}`,
     clearance: length - (self.colliderRadius ?? 0) - collider.radius,
     normal: { x: dx / length, y: dy / length, z: dz / length },
+    visualOverhang: Math.max(0, (collider.visualRadius ?? collider.radius) - collider.radius),
   };
 }
 
 function colliderById(snapshot: Snapshot, self: ShipSnapshot, id: EntityId): ContactCollider | null {
   const asteroid = snapshot.asteroids.find((candidate) => candidate.id === id && candidate.state !== "destroyed");
-  if (asteroid) return { id, pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius };
+  if (asteroid) return {
+    id,
+    pos: asteroid.pos,
+    radius: asteroid.colliderRadius ?? asteroid.radius,
+    visualRadius: asteroid.radius,
+  };
   const ship = snapshot.ships.find((candidate) => candidate.id === id && candidate.id !== self.id);
   return ship ? { id, pos: ship.pos, radius: ship.colliderRadius ?? 0 } : null;
 }

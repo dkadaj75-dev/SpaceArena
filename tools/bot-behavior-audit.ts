@@ -13,6 +13,7 @@ const DT = 1 / 30;
 const CTF_SEEDS = [11, 73];
 const CTF_LIMIT_SEC = 600;
 const DM_LIMIT_SEC = 900;
+const DUEL_LIMIT_SEC = 600;
 const STUCK_WINDOW_SEC = 10;
 const STUCK_DISTANCE = 3;
 const ZERO_THROTTLE = 0.05;
@@ -57,9 +58,18 @@ interface BotAudit {
 
 interface StuckIncident {
   distance: number;
+  pathDistance: number;
   elapsed: number;
   pos: { x: number; y: number; z: number };
   behavior: string | null;
+  scores: Readonly<Record<string, number>>;
+  throttle: number;
+  turn: number;
+  pitchStick: number;
+  speed: number;
+  surfaceRecovery: boolean;
+  floorRecovery: boolean;
+  contacts: readonly string[];
 }
 
 interface CarrierRun {
@@ -87,16 +97,55 @@ interface MatchAudit {
 }
 
 const configs = await loadTestConfigs();
-const matches = [
+const duelSeedArg = process.env.BOT_AUDIT_DUEL_SEEDS ?? "7,17,42";
+const range = duelSeedArg.match(/^(\d+)-(\d+)$/);
+const duelSeeds = range
+  ? Array.from({ length: Number(range[2]) - Number(range[1]) + 1 }, (_, index) => Number(range[1]) + index)
+  : duelSeedArg.split(",").map(Number);
+const baselineMatches = [
   ...CTF_SEEDS.map((seed) => runMatch("ctf", seed, "arena.lunar-crater", "gamemode.practice-ctf-10v10", CTF_LIMIT_SEC)),
   runMatch("deathmatch", 42, "arena.ring-nebula", "gamemode.practice-bots-5v5", DM_LIMIT_SEC),
 ];
+const duelMatches = [
+  ...duelSeeds.map((seed) => runMatch("duel-rookie", seed, "arena.twin-titans", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
+    { profile: "bot.rookie", ship: "ship.interceptor", team: 0 },
+    { profile: "bot.rookie", ship: "ship.interceptor", team: 1 },
+  ])),
+  ...duelSeeds.map((seed) => runMatch("duel-brawler", seed, "arena.twin-titans", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
+    { profile: "bot.rookie", ship: "ship.brawler", team: 0 },
+    { profile: "bot.rookie", ship: "ship.brawler", team: 1 },
+  ])),
+  ...duelSeeds.map((seed) => runMatch("duel-2v2", seed, "arena.twin-titans", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
+    { profile: "bot.rookie", ship: "ship.interceptor", team: 0 },
+    { profile: "bot.rookie", ship: "ship.brawler", team: 0 },
+    { profile: "bot.rookie", ship: "ship.interceptor", team: 1 },
+    { profile: "bot.rookie", ship: "ship.brawler", team: 1 },
+  ])),
+];
+const scenarioFilter = process.env.BOT_AUDIT_SCENARIO;
+const selectedDuels = scenarioFilter ? duelMatches.filter((match) => match.label === scenarioFilter) : duelMatches;
+const matches = process.env.BOT_AUDIT_DUELS_ONLY === "1" ? selectedDuels : [...baselineMatches, ...selectedDuels];
 
-for (const match of matches) printMatch(match);
-printProfileSummary(matches);
+if (process.env.BOT_AUDIT_QUIET !== "1") {
+  for (const match of matches) printMatch(match);
+  printProfileSummary(matches);
+} else {
+  for (const match of matches) {
+    for (const bot of match.bots.filter((candidate) => candidate.worstStuck)) {
+      console.log("STUCK", match.label, `seed=${match.seed}`, `id=${bot.id}`, `ship=${bot.ship}`, bot.worstStuck);
+    }
+  }
+}
 printIssues(matches);
 
-function runMatch(label: string, seed: number, arenaId: string, modeId: string, limitSec: number): MatchAudit {
+function runMatch(
+  label: string,
+  seed: number,
+  arenaId: string,
+  modeId: string,
+  limitSec: number,
+  authoredRoster?: readonly { profile: string; ship: string; team: number }[],
+): MatchAudit {
   const sim = new ArenaSimulation(configs, arenaId, modeId, seed);
   const mode = configs.get<GamemodeConfig>("gamemode", modeId)!;
   const slots = resolveBotRoster(mode, configs);
@@ -123,7 +172,13 @@ function runMatch(label: string, seed: number, arenaId: string, modeId: string, 
     audits.set(id, freshAudit(id, team, profile.id, ship.id, fitting));
     teamCounts.set(team, (teamCounts.get(team) ?? 0) + 1);
   };
-  for (const slot of slots) spawn(slot.profile, slot.shipId, slot.team, slot.fitting);
+  if (authoredRoster) {
+    for (const slot of authoredRoster) {
+      spawn(configs.get<BotprofileConfig>("botprofile", slot.profile)!, slot.ship, slot.team);
+    }
+  } else {
+    for (const slot of slots) spawn(slot.profile, slot.shipId, slot.team, slot.fitting);
+  }
   if (label === "ctf") {
     const fallback = configs.get<BotprofileConfig>("botprofile", mode.bots!.defaultProfile!)!;
     const shipId = mode.bots!.defaultShip!;
@@ -146,7 +201,13 @@ function runMatch(label: string, seed: number, arenaId: string, modeId: string, 
     trackCarrierRuns(snapshot, audits, activeRuns);
     for (const [id, driver] of drivers) {
       const self = snapshot.ships.find((ship) => ship.id === id);
-      if (!self) continue;
+      if (!self) {
+        // Production practice hosts reset retained drivers while the old entity
+        // id waits to respawn. Mirroring that is essential: otherwise the audit
+        // invents a zero-throttle respawn stall from stale standing-order memory.
+        driver.reset();
+        continue;
+      }
       const audit = audits.get(id)!;
       for (const order of driver.update(snapshot, nowMs)) {
         if (order.kind === "flight") {
@@ -156,7 +217,7 @@ function runMatch(label: string, seed: number, arenaId: string, modeId: string, 
         }
         sim.applyOrder(id, order);
       }
-      sampleBot(audit, self, snapshot, driver, carriers.has(id));
+      sampleBot(audit, self, snapshot, driver, carriers.has(id), label.startsWith("duel"));
     }
     sim.tick(DT);
     const events = sim.getEvents();
@@ -208,7 +269,7 @@ function freshAudit(id: EntityId, team: number, profile: string, ship: string, f
   };
 }
 
-function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driver: BotDriver, carrying: boolean): void {
+function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driver: BotDriver, carrying: boolean, detectIdle: boolean): void {
   // Respawning ships remain in snapshots with hull <= 0. Counting that authored
   // delay as a ten-second flight stall made every bot that died look wedged.
   if (self.hull <= 0) {
@@ -253,16 +314,45 @@ function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driv
   }
   // A cut-throttle arrival/respawn wait is loiter, not a powered flight stall.
   // Reset the window so it cannot bridge that wait and indict the next route.
-  if (audit.commandThrottle < ZERO_THROTTLE || blockedHold) {
+  if ((audit.commandThrottle < ZERO_THROTTLE && !detectIdle) || blockedHold) {
     audit.moveWindow.length = 0;
     return;
   }
   audit.moveWindow.push({ elapsed: snapshot.elapsed, pos: { ...self.pos }, distance: audit.distance });
   while (audit.moveWindow.length && snapshot.elapsed - audit.moveWindow[0]!.elapsed > STUCK_WINDOW_SEC) audit.moveWindow.shift();
   if (audit.moveWindow.length > 1 && snapshot.elapsed - audit.moveWindow[0]!.elapsed >= STUCK_WINDOW_SEC - DT * 2) {
-    const moved = audit.distance - audit.moveWindow[0]!.distance;
+    const pathDistance = audit.distance - audit.moveWindow[0]!.distance;
+    const moved = process.env.BOT_AUDIT_STUCK_METRIC === "net" ? dist3(audit.moveWindow[0]!.pos, self.pos) : pathDistance;
     if (moved < STUCK_DISTANCE && (!audit.worstStuck || moved < audit.worstStuck.distance)) {
-      audit.worstStuck = { distance: moved, elapsed: snapshot.elapsed, pos: { ...self.pos }, behavior: decision?.behavior ?? null };
+      const hull = configs.get<ShipConfig>("ship", audit.ship)!;
+      const shipCollider = self.colliderRadius ?? hull.collider.radius;
+      const shipVisual = hull.render.modelScale ?? shipCollider;
+      const contacts = snapshot.asteroids
+        .filter((asteroid) => asteroid.state !== "destroyed")
+        .map((asteroid) => ({
+          asteroid,
+          center: dist3(self.pos, asteroid.pos),
+          collider: dist3(self.pos, asteroid.pos) - (asteroid.colliderRadius ?? asteroid.radius) - shipCollider,
+          rendered: dist3(self.pos, asteroid.pos) - asteroid.radius - shipVisual,
+        }))
+        .sort((a, b) => a.rendered - b.rendered);
+      const velocity = self.velocity ?? { x: 0, y: 0, z: 0 };
+      audit.worstStuck = {
+        distance: moved,
+        pathDistance,
+        elapsed: snapshot.elapsed,
+        pos: { ...self.pos },
+        behavior: decision?.behavior ?? null,
+        scores: decision?.scores ?? {},
+        throttle: audit.commandThrottle,
+        turn: decision?.flight?.turn ?? 0,
+        pitchStick: decision?.flight?.pitchStick ?? 0,
+        speed: Math.hypot(velocity.x, velocity.y, velocity.z),
+        surfaceRecovery: decision?.surfaceRecovery === true,
+        floorRecovery: decision?.floorRecovery === true,
+        contacts: contacts.map(({ asteroid, center, collider, rendered }) =>
+          `${asteroid.configId} center=${center.toFixed(2)} colliderGap=${collider.toFixed(2)} renderGap=${rendered.toFixed(2)} colliderContact=${collider <= 0.35} renderedContact=${rendered <= 0.35} rockCollider=${(asteroid.colliderRadius ?? asteroid.radius).toFixed(2)} rockRender=${asteroid.radius.toFixed(2)} shipCollider=${shipCollider.toFixed(2)} shipRender=${shipVisual.toFixed(2)}`),
+      };
     }
   }
 }
@@ -322,7 +412,14 @@ function printMatch(match: MatchAudit): void {
   }));
   if (match.carrierRuns.length) console.table(match.carrierRuns.map((run) => ({ id: run.id, team: run.team, survivalSec: run.duration.toFixed(1), distance: run.distance.toFixed(1), outcome: run.outcome })));
   const stuck = match.bots.filter((bot) => bot.worstStuck).sort((a, b) => a.worstStuck!.distance - b.worstStuck!.distance);
-  if (stuck.length) console.table(stuck.slice(0, 8).map((bot) => ({ id: bot.id, profile: bot.profile, moved: bot.worstStuck!.distance.toFixed(2), atSec: bot.worstStuck!.elapsed.toFixed(1), position: vec(bot.worstStuck!.pos), behavior: bot.worstStuck!.behavior })));
+  if (stuck.length) console.table(stuck.slice(0, 8).map((bot) => ({
+    id: bot.id, profile: bot.profile, moved: bot.worstStuck!.distance.toFixed(2), path: bot.worstStuck!.pathDistance.toFixed(2),
+    atSec: bot.worstStuck!.elapsed.toFixed(1), position: vec(bot.worstStuck!.pos), behavior: bot.worstStuck!.behavior,
+    scores: JSON.stringify(bot.worstStuck!.scores), throttle: bot.worstStuck!.throttle.toFixed(2),
+    stick: `${bot.worstStuck!.turn.toFixed(2)},${bot.worstStuck!.pitchStick.toFixed(2)}`,
+    speed: bot.worstStuck!.speed.toFixed(2), surface: bot.worstStuck!.surfaceRecovery, floor: bot.worstStuck!.floorRecovery,
+    contacts: bot.worstStuck!.contacts.join(" | "),
+  })));
 }
 
 function printProfileSummary(matches: MatchAudit[]): void {
