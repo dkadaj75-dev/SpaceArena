@@ -3,6 +3,7 @@ import type { ProjectileSnapshot, ShipSnapshot, Snapshot } from "../sim/ArenaSim
 import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong, type LosCircle } from "../sim/los.js";
 import { dist3 } from "../sim/math.js";
+import type { BotRole } from "./roleAllocator.js";
 
 /** Per-behaviour tunables straight out of the botprofile config (`baseWeight` + catchall). */
 export type BehaviorParams = BotprofileConfig["behaviors"][string];
@@ -79,6 +80,12 @@ export interface BotContext {
   readonly blockers: readonly LosCircle[];
   /** Enemy missiles currently closing on this bot, nearest first. */
   readonly incomingMissiles: readonly IncomingMissile[];
+  /**
+   * The team job this bot holds this allocation window (`allocateTeamRoles`).
+   * `free` means no claim, which is what lets the combat behaviours own the
+   * decision. Non-CTF snapshots are always `free`.
+   */
+  readonly role: BotRole;
   /** Stable per-bot orbit direction (+1/-1) so kiting does not jitter. */
   readonly orbitSign: 1 | -1;
   /** Injected RNG (deterministic in tests). */
@@ -101,6 +108,8 @@ export interface BuildContextInput {
   missileScanRadius: number;
   orbitSign: 1 | -1;
   rng: () => number;
+  /** Team job claim for this bot; defaults to `free` (no objective claim). */
+  role?: BotRole;
   /** Measured hull turn rate (rad/s); 0 when the driver has not calibrated yet. */
   turnRate?: number;
   /** Measured hull pitch rate (rad/s per unit stick); 0 when not calibrated yet. */
@@ -190,6 +199,7 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     turnHorizonSec: input.turnHorizonSec ?? profile.decisionIntervalMs / 1000,
     blockers,
     incomingMissiles,
+    role: input.role ?? "free",
     orbitSign: input.orbitSign,
     rng: input.rng,
     driverTick: input.driverTick ?? snapshot.tick,

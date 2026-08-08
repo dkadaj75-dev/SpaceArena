@@ -172,14 +172,12 @@ describe("moduleDiscipline", () => {
     expect(planModuleOrders(contextFor(rich), configs, discipline, true).orders.length).toBeGreaterThan(0);
   });
 
-  it("gates shield activation on the shield's own tank, not an empty boost tank", () => {
+  it("gates shield activation on the shield's own tank, not another module's empty one", () => {
     const idx = shieldIndex();
-    const self = shipWith(["retracted", "retracted", "retracted", "retracted"], {
-      moduleEnergy: INTERCEPTOR_FITTING.map((moduleId) => moduleId.includes("boost") ? 0 : 100),
-    });
+    const self = shipWith(["retracted", "retracted", "retracted", "retracted"]);
     self.modules.push({
       ...self.modules[idx]!,
-      moduleId: "module.boost-mk1",
+      moduleId: "module.shield-skirmish",
       hardpointIndex: self.modules.length,
       energy: 0,
     });

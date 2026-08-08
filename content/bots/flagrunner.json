@@ -55,7 +55,8 @@
       "aimErrorRad": 0.36,
       "velocityErrorSec": 0.32,
       "aimErrorHoldMs": 1400,
-      "boostChance": 0.15
+      "boostChance": 0.15,
+      "threatWeight": 2.6
     },
     "kite": {
       "baseWeight": 0.7,
@@ -63,7 +64,8 @@
       "breakRange": 12,
       "standoffFrac": 0.5,
       "slipRad": 0.4,
-      "throttleRun": 1.0
+      "throttleRun": 1.0,
+      "threatWeight": 2.8
     },
     "avoidRocks": {
       "baseWeight": 0,

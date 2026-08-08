@@ -7,7 +7,7 @@ import type { TuningConfig } from "../schemas/tuning.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong } from "../sim/los.js";
-import { clamp, dist3, facingVec, segmentIntersectsSphere } from "../sim/math.js";
+import { clamp, dist3, facingVec } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
 import { deriveRng } from "../sim/rng.js";
 import { pitchTuningOf } from "../sim/tuningDefaults.js";
@@ -18,12 +18,14 @@ import {
   type BotPlan,
   type FlightCommand,
 } from "./behaviors.js";
-import { boolParam, buildBotContext, numParam, strParam, type BehaviorParams, type BotContext } from "./context.js";
+import { boolParam, buildBotContext, hasParam, numParam, strParam, type BehaviorParams, type BotContext } from "./context.js";
 // Side-effect import: behaviours self-register on load, and nothing else here
 // pulls this one in — without it a capture-the-flag profile would name an
 // `objective` behaviour the registry has never heard of and silently ignore it.
 import "./ctfBehavior.js";
 import { steerForPoint, throttleForPointArrival } from "./flight.js";
+import { allocateTeamRoles, type BotRole } from "./roleAllocator.js";
+import { RecoveryController } from "./recovery.js";
 import { decideFire, type FireDecisionReason, type FireDisciplineState } from "./fireDiscipline.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";
 
@@ -70,6 +72,10 @@ export interface BotDecisionSnapshot {
    */
   targetId: EntityId | null;
   engaged: boolean;
+  /** Team job this decision was taken under (`free` outside CTF). */
+  role?: BotRole;
+  /** True while the driver's damage/missile threat latch was hot. */
+  underThreat?: boolean;
   /** True while the LATCHED floor recovery override is commanding a climb. */
   floorRecovery?: boolean;
   /**
@@ -132,6 +138,12 @@ const MIN_DECISION_MS = 16;
 const MISSILE_SCAN_MULT = 2;
 /** Keep defensive shields armed briefly after observed damage or an inbound missile. */
 const THREAT_LATCH_MS = 4_000;
+/**
+ * Behaviours a profile may unlock with `threatWeight` (D3). Only the two that
+ * MANOEUVRE against a shooter: `retreat`/`breakLoS` abandon the objective outright,
+ * which is a different decision from defending the run.
+ */
+const THREAT_UNLOCK_KEYS = new Set(["engage", "kite"]);
 
 /**
  * Rotation budget for one stick command, as a multiple of the decision interval.
@@ -160,12 +172,6 @@ const CALIBRATION_MAX_SPAN_SEC = 0.2;
  * only absorbs float noise — it is not a tolerance band.
  */
 const CLAMP_PINNED_EPSILON = 1e-9;
-const FLOOR_LOOKAHEAD_SEC = 2.5;
-const FLOOR_NOMINAL_SPEED = 20;
-/** Below this hull speed a floor-avoidance throttle cut would strand the ship. */
-const FLOOR_STALL_SPEED = 4;
-/** Way the predictive cut always leaves a stalled hull, so it can fly out. */
-const FLOOR_STALL_THROTTLE = 0.3;
 /**
  * Largest single-window body rotation a calibration sample may claim. One sim
  * tick at any flyable rate is a small fraction of this; anything larger means
@@ -176,20 +182,6 @@ const CALIBRATION_MAX_ROTATION = Math.PI / 2;
 const CARRIER_STUCK_MS = 5_000;
 const CARRIER_COMMIT_MS = 3_000;
 const CARRIER_PROGRESS_EPSILON = 0.75;
-const WEDGE_CONTACT_EPSILON = 0.35;
-const WEDGE_SPEED = 0.75;
-const WEDGE_DETECT_MS = 900;
-const UNSTUCK_COMMIT_MS = 2_000;
-const UNSTUCK_AIM_DISTANCE = 28;
-const FLOOR_RECOVERY_CLEARANCE_MULT = 4;
-const SURFACE_STALL_MS = 1_500;
-const SURFACE_STALL_RADIUS = 1;
-const SURFACE_ESCAPE_CLEARANCE = 4;
-const SURFACE_ESCAPE_AIM_DISTANCE = 30;
-const SURFACE_ESCAPE_RADIUS_MULT = 3;
-const SURFACE_VISUAL_MARGIN = 0.35;
-const SURFACE_ANTIPARALLEL_BIAS = 0.35;
-const COMMANDED_STALL_THROTTLE = 0.2;
 
 // Scratch nose vectors — calibration runs every tick for every bot, so the two
 // facing vectors it needs are reused rather than allocated (same discipline as
@@ -270,15 +262,11 @@ export class BotDriver {
   private targetMotion: { id: EntityId; pos: Required<Vec3>; atMs: number } | null = null;
   private fireState: FireDisciplineState = { heatHeld: false };
   private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number } | null = null;
-  private wedgeContactSinceMs: number | null = null;
-  private unstuck: { untilMs: number; surfaceKey: string; side: 1 | -1 } | null = null;
-  private surfaceStall: { key: string; sinceMs: number; anchor: Required<Vec3> } | null = null;
-  private surfaceEscape: { key: string; normal: Required<Vec3>; side: 1 | -1 } | null = null;
-  private commandedStall: { sinceMs: number; anchor: Required<Vec3> } | null = null;
-  private floorRecovering = false;
-  /** How much of the last command floor avoidance owned, 0..1 (diagnostics). */
-  private floorAvoidStrength = 0;
+  /** L0: the single owner of every "not making progress against a surface" rule. */
+  private readonly recovery: RecoveryController;
   private heldBehavior: { key: string; untilMs: number } | null = null;
+  /** Team job claim from the last full decision; the trigger phase re-reads it. */
+  private lastRole: BotRole = "free";
 
   constructor(options: BotDriverOptions) {
     this.entityId = options.entityId;
@@ -290,6 +278,12 @@ export class BotDriver {
     this.floorY = options.floorY;
     this.arenaBounds = options.arenaBounds;
     this.visualRadius = options.visualRadius;
+    this.recovery = new RecoveryController({
+      floorY: options.floorY,
+      arenaBounds: options.arenaBounds,
+      visualRadius: options.visualRadius,
+      orbitSign: this.orbitSign,
+    });
   }
 
   /**
@@ -346,13 +340,9 @@ export class BotDriver {
     this.targetMotion = null;
     this.fireState = { heatHeld: false };
     this.carrierProgress = null;
-    this.wedgeContactSinceMs = null;
-    this.unstuck = null;
-    this.surfaceStall = null;
-    this.surfaceEscape = null;
-    this.commandedStall = null;
-    this.floorRecovering = false;
+    this.recovery.reset();
     this.heldBehavior = null;
+    this.lastRole = "free";
   }
 
   /**
@@ -558,6 +548,10 @@ export class BotDriver {
 
     // --- context (target choice first: behaviours score relative to it) ---
     const weaponRange = this.weaponRange(self);
+    // L2: the team job board, recomputed from the SHARED snapshot. Every driver
+    // on the team derives the identical board from the identical input, so the
+    // bots divide the work with no channel between them.
+    this.lastRole = allocateTeamRoles(snapshot, self.team).roles.get(self.id) ?? "free";
     const build = (targetId: EntityId | null): BotContext =>
       buildBotContext({
         snapshot,
@@ -565,6 +559,7 @@ export class BotDriver {
         profile,
         weaponRange,
         targetId,
+        role: this.lastRole,
         missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
         orbitSign: this.orbitSign,
         rng: this.rng,
@@ -586,14 +581,32 @@ export class BotDriver {
     let bestKey: string | null = null;
     let bestScore = 0;
     let bestPlan: BotPlan | null = null;
+    const underThreat = nowMs < this.underThreatUntilMs;
     for (const [key, params] of Object.entries(profile.behaviors)) {
       const behavior = this.behaviors.get(key);
       if (!behavior) continue; // unknown key in config: ignored, never crashes a match
       const factor = behavior.score(ctx, params);
-      const ctfCombatMultiplier = snapshot.flags.length > 0 && key === "engage"
+      // D3 — the threat unlock. A profile that authors `threatWeight` on a combat
+      // behaviour is declaring "this is what I do while someone is shooting at
+      // me", and the weight applies ONLY while the driver's latch is hot (or the
+      // bot is already in the fight it started). Calm, and holding a team job, the
+      // behaviour scores zero: an objective personality that fights on its way to
+      // the flag is a worse runner, and the audit proved that a blanket weight
+      // change is what produces one. A `free` agent is not on a job at all, so it
+      // keeps its authored `baseWeight` and fights normally.
+      const unlocked = snapshot.flags.length > 0
+        && THREAT_UNLOCK_KEYS.has(key)
+        && hasParam(params, "threatWeight")
+        && this.lastRole !== "free";
+      // `threatWeight` IS the CTF threat response for this behaviour, so the
+      // profile-wide multiplier does not scale it a second time.
+      const ctfCombatMultiplier = snapshot.flags.length > 0 && key === "engage" && !unlocked
         ? (profile.ctfWeights?.threatResponse ?? 1)
         : 1;
-      const score = params.baseWeight * factor * ctfCombatMultiplier;
+      const weight = unlocked
+        ? (underThreat || this.lastEngaged ? numParam(params, "threatWeight", params.baseWeight) : 0)
+        : params.baseWeight;
+      const score = weight * factor * ctfCombatMultiplier;
       scores[key] = score;
       if (factor > 0 && behavior.overlay) live.push({ key, params, behavior });
       if (score > bestScore) {
@@ -612,11 +625,10 @@ export class BotDriver {
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
     bestPlan = this.commitStuckCarrier(snapshot, self, bestPlan, nowMs);
-    const commandedStalled = this.commandedProgressFailed(self, nowMs);
-    const routed = commandedStalled ? this.routeBlockedPlan(snapshot, self, bestPlan) : null;
-    if (routed) bestPlan = routed;
-    bestPlan = this.surfaceRecoveryPlan(snapshot, self, bestPlan, nowMs, commandedStalled && routed === null);
-    bestPlan = this.unstuckPlan(snapshot, self, bestPlan, nowMs);
+    // L0 outranks everything below it: the recovery controller sees the plan the
+    // layers above chose and replaces it whenever the hull is not making progress
+    // against a physical constraint.
+    bestPlan = this.recovery.plan(snapshot, self, bestPlan, nowMs, this.lastFlight?.throttle ?? 0);
     const engaged = bestPlan?.engaged ?? false;
     // Objective travel owns steering, but it must not make nearby enemies
     // invulnerable. Fire opportunistically without replacing the route home.
@@ -677,11 +689,19 @@ export class BotDriver {
       if (l.key === bestKey) continue; // the winner already spoke through its plan
       cmd = l.behavior.overlay!(ctx, l.params, cmd);
     }
-    // A measured surface escape already includes the floor normal when needed.
-    // Letting predictive floor avoidance rewrite it here can deadlock a hull in
-    // the seam between the plane and a rock, with the two overrides alternating.
-    this.floorAvoidStrength = 0;
-    if (!this.surfaceEscape) cmd = this.avoidFloor(self, cmd, horizonSec, tolerance);
+    // A measured contact escape already composes the floor normal when the floor
+    // is one of the active contacts. Letting the predictive branch rewrite it
+    // here can deadlock a hull in the seam between the plane and a rock, with the
+    // two overrides alternating.
+    if (!this.recovery.owningFlight) {
+      cmd = this.recovery.avoidFloor(self, cmd, {
+        turnRate: this.turnRateEst,
+        pitchRate: this.pitchRateEst,
+        horizonSec,
+        toleranceRad: tolerance,
+        maxPitchRad: this.maxPitch(),
+      });
+    }
     // A flag carrier CANNOT boost — the sim refuses it outright. `objective`
     // already declines to ask while it is the winning behaviour, but a carrier
     // whose utility swings to engage/kite/retreat used to ask anyway, and the
@@ -723,7 +743,7 @@ export class BotDriver {
       ctx,
       this.configs,
       this.profile.moduleDiscipline,
-      triggerEngaged || nowMs < this.underThreatUntilMs,
+      triggerEngaged || underThreat,
     );
     orders.push(...modulePlan.orders);
     // Boost-capable engines spawn disabled. When a bot elects to boost, it
@@ -755,9 +775,11 @@ export class BotDriver {
       boost: cmd.boost,
       targetId,
       engaged: triggerEngaged,
-      floorRecovery: this.floorRecovering,
-      floorAvoidance: this.floorAvoidStrength,
-      surfaceRecovery: this.surfaceEscape !== null,
+      role: this.lastRole,
+      underThreat,
+      floorRecovery: this.recovery.climbing,
+      floorAvoidance: this.recovery.floorAvoidance,
+      surfaceRecovery: this.recovery.owningFlight,
       missileEvasion: bestKey === "dodge" || live.some((entry) => entry.key === "dodge" && entry.key !== bestKey),
       fire: fireDecision.fire,
       fireReason: fireDecision.reason,
@@ -845,6 +867,7 @@ export class BotDriver {
       profile,
       weaponRange: this.weaponRange(self),
       targetId: this.lastTargetId,
+      role: this.lastRole,
       missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
       orbitSign: this.orbitSign,
       rng: this.rng,
@@ -950,96 +973,6 @@ export class BotDriver {
     return best;
   }
 
-  /**
-   * Blend a world-up correction over utility steering when the near-future
-   * flight path enters the terrain safety band. This is intentionally an
-   * overlay, not a position clamp: utility still owns the command above the
-   * band and increasingly yields as impact approaches.
-   */
-  private avoidFloor(
-    self: ShipSnapshot,
-    cmd: FlightCommand,
-    horizonSec: number,
-    toleranceRad: number,
-  ): FlightCommand {
-    if (this.floorY === undefined) return cmd;
-    const radius = self.colliderRadius ?? 0;
-    // The terrain mesh has visual relief, but collision is the authored floor
-    // plane. Keep a small hull clearance without treating normal lunar spawn/
-    // base altitude (y=8..10) as an emergency band.
-    const clearance = Math.max(radius * FLOOR_RECOVERY_CLEARANCE_MULT, radius + 3);
-    const safeY = this.floorY + clearance;
-    const noseY = Math.sin(self.pitch);
-    const observedVy = self.velocity?.y ?? 0;
-    const projectedVy = Math.min(observedVy, noseY * FLOOR_NOMINAL_SPEED * cmd.throttle);
-    const predictedY = self.pos.y + projectedVy * FLOOR_LOOKAHEAD_SEC;
-    const recoveryExitY = safeY + Math.max(radius, 2);
-    if (self.pos.y <= safeY) this.floorRecovering = true;
-    else if (self.pos.y >= recoveryExitY && predictedY >= safeY) this.floorRecovering = false;
-    if (!this.floorRecovering && predictedY >= safeY) return cmd;
-
-    const band = 4;
-    const strength = this.floorRecovering ? 1 : clamp((safeY - predictedY) / band, 0, 1);
-    this.floorAvoidStrength = strength;
-    // The escape point has to be ABOVE the hull, and it has to be reachable.
-    //
-    // `safeY + band` is an ABSOLUTE altitude, and the predictive branch fires
-    // mostly at hulls that are already well above it — only the projection is
-    // bad. Aiming at a fixed altitude therefore pointed the nose DOWN, and a
-    // nose that was already down read as "on target" once the error fell inside
-    // the profile's aim tolerance: turn 0, pitch 0, and a throttle cut to zero
-    // for being nose-down. Zero throttle keeps the projection catastrophic, so
-    // nothing ever released the override (CTF seed 73 bot 43 sat there for
-    // 558 s, nose 81 deg down, which is what the owner saw in a live match).
-    //
-    // The lead ahead of the nose matters as much as the rise. A point straight
-    // overhead is ANTI-PARALLEL to a nose-down hull, and that is the singular
-    // case of the two-axis body decomposition — the same one `surfaceRecovery`
-    // already biases its way out of. Climbing along the hull's own heading at
-    // 45 deg is unambiguous at every attitude and is what a pilot flies.
-    const rise = Math.max(safeY, self.pos.y) + band - self.pos.y;
-    const lift = steerForPoint(
-      self.pos,
-      self.heading,
-      self.pitch,
-      {
-        x: self.pos.x + Math.cos(self.heading) * rise,
-        y: self.pos.y + rise,
-        z: self.pos.z + Math.sin(self.heading) * rise,
-      },
-      { turnRate: this.turnRateEst, pitchRate: this.pitchRateEst, horizonSec, toleranceRad, maxPitchRad: this.maxPitch() },
-      self.up,
-    );
-    const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
-    return {
-      turn: cmd.turn + (lift.turn - cmd.turn) * strength,
-      pitchStick: cmd.pitchStick + (lift.pitchStick - cmd.pitchStick) * strength,
-      // Rotation is speed-independent; retain enough thrust to turn the new
-      // upward attitude into actual separation instead of hovering in a cut.
-      // A ship already on the collision plane needs positive thrust along its
-      // newly raised nose. Cutting throttle here was the ground-stick bug.
-      // A recovering hull whose nose is not yet up still needs way on: rotation
-      // is speed-independent, but a ship at a dead stop has nothing to convert
-      // the new attitude into separation with, and (since the 2026-08-07
-      // heat/energy overhaul removed self-destruction) nothing will ever kill it
-      // out of the stall either. Keep a floor under the cut instead of zeroing
-      // it — full cut only ever applied to a nose already pointing down.
-      // The PREDICTIVE branch needs the same floor, for the same reason. It cuts
-      // to exactly zero for any nose-down attitude, and a hull that has already
-      // stopped cannot climb out of that: with no way on, the projection reads
-      // the plan's throttle, keeps predicting a dive, and holds the cut forever.
-      // Only stalled hulls get the floor — a fast hull diving at the deck still
-      // wants its throttle cut, which is the whole point of the rule.
-      throttle: this.floorRecovering
-        ? (self.pitch > 0.12 ? Math.max(cmd.throttle, 0.7) : Math.max(cmd.throttle * 0.5, 0.25))
-        : Math.max(
-            cmd.throttle * (1 - strength) + (self.pitch > 0 ? Math.min(cmd.throttle, 0.35) : 0) * strength,
-            speed < FLOOR_STALL_SPEED ? Math.min(cmd.throttle, FLOOR_STALL_THROTTLE) : 0,
-          ),
-      boost: strength < 0.15 && cmd.boost,
-    };
-  }
-
   /** Time-box a carrier's wait and force a deterministic home commit after no progress. */
   private commitStuckCarrier(snapshot: Snapshot, self: ShipSnapshot, plan: BotPlan | null, nowMs: number): BotPlan | null {
     const carried = snapshot.flags.find((flag) => flag.state === "carried" && flag.carrierId === self.id && flag.team !== self.team);
@@ -1071,207 +1004,6 @@ export class BotDriver {
     };
   }
 
-  /**
-   * Break sustained powered contact with a collider. Collision resolution removes
-   * inward velocity, but a level-triggered throttle command reconstructs it on
-   * the next navigation tick; without memory the pilot can therefore press into
-   * the same surface forever. After a short, measured wedge, commit to one
-   * tangent for a bounded interval. The tangent side that still advances toward
-   * the winning utility plan is preferred, with the seeded orbit sign as a
-   * deterministic tie-break.
-   */
-  private unstuckPlan(snapshot: Snapshot, self: ShipSnapshot, plan: BotPlan | null, nowMs: number): BotPlan | null {
-    if (this.surfaceEscape) return plan;
-    if (!plan || plan.throttle < 0.2) {
-      this.wedgeContactSinceMs = null;
-      this.unstuck = null;
-      return plan;
-    }
-
-    const obstacle = nearestContact(snapshot, self, this.arenaBounds);
-    const speed = self.velocity
-      ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z)
-      : Infinity;
-    if (!obstacle || speed >= WEDGE_SPEED) {
-      this.wedgeContactSinceMs = null;
-      if (this.unstuck && nowMs >= this.unstuck.untilMs) this.unstuck = null;
-      return plan;
-    }
-
-    this.wedgeContactSinceMs ??= nowMs;
-    if (!this.unstuck && nowMs - this.wedgeContactSinceMs >= WEDGE_DETECT_MS) {
-      this.unstuck = {
-        untilMs: nowMs + UNSTUCK_COMMIT_MS,
-        surfaceKey: obstacle.key,
-        side: tangentSide(obstacle.normal, self, plan.aim, this.orbitSign),
-      };
-    }
-    if (!this.unstuck || nowMs >= this.unstuck.untilMs) return plan;
-
-    const active = surfaceByKey(snapshot, self, this.floorY, this.arenaBounds, this.unstuck.surfaceKey) ?? obstacle;
-    const nx = active.normal.x;
-    const nz = active.normal.z;
-    const side = this.unstuck.side;
-    return {
-      ...plan,
-      aim: {
-        x: self.pos.x + (-nz * side + nx * 0.35) * UNSTUCK_AIM_DISTANCE,
-        y: plan.aim?.y ?? self.pos.y,
-        z: self.pos.z + (nx * side + nz * 0.35) * UNSTUCK_AIM_DISTANCE,
-      },
-      throttle: Math.max(plan.throttle, 0.65),
-      arrive: false,
-      boost: false,
-    };
-  }
-
-  /** True only after a sustained powered command has failed to move the hull. */
-  private commandedProgressFailed(self: ShipSnapshot, nowMs: number): boolean {
-    if ((this.lastFlight?.throttle ?? 0) < COMMANDED_STALL_THROTTLE) {
-      this.commandedStall = null;
-      return false;
-    }
-    const ownRadius = self.colliderRadius ?? 0;
-    const tolerance = Math.max(SURFACE_STALL_RADIUS, ownRadius / 1.4);
-    if (!this.commandedStall || dist3(this.commandedStall.anchor, self.pos) > tolerance) {
-      this.commandedStall = { sinceMs: nowMs, anchor: aimPoint(self.pos) };
-      return false;
-    }
-    return nowMs - this.commandedStall.sinceMs >= SURFACE_STALL_MS;
-  }
-
-  /**
-   * A combat target behind rendered scenery is a route, not a contact-recovery
-   * problem. Once a powered plan has demonstrably made no progress, replace the
-   * through-rock bearing with a deterministic tangent waypoint outside the
-   * rendered obstacle. This uses the same forward-corridor fact as avoidRocks,
-   * but changes the plan's destination so its steering cannot cancel the overlay.
-   */
-  private routeBlockedPlan(snapshot: Snapshot, self: ShipSnapshot, plan: BotPlan | null): BotPlan | null {
-    if (!plan?.aim || !plan.engaged) return null;
-    const ownVisual = this.visualRadius ?? self.colliderRadius ?? 0;
-    const aim = aimPoint(plan.aim);
-    let blocker: Snapshot["asteroids"][number] | null = null;
-    let distance = Infinity;
-    for (const asteroid of snapshot.asteroids) {
-      if (asteroid.state === "destroyed") continue;
-      const radius = asteroid.radius + ownVisual + SURFACE_VISUAL_MARGIN;
-      if (!segmentIntersectsSphere(self.pos, aim, asteroid.pos, radius)) continue;
-      const candidateDistance = dist3(self.pos, asteroid.pos);
-      if (candidateDistance < distance) {
-        blocker = asteroid;
-        distance = candidateDistance;
-      }
-    }
-    if (!blocker) return null;
-    const dx = self.pos.x - blocker.pos.x;
-    const dz = self.pos.z - blocker.pos.z;
-    const planar = Math.hypot(dx, dz);
-    const nx = planar > 1e-6 ? dx / planar : Math.cos(self.heading);
-    const nz = planar > 1e-6 ? dz / planar : Math.sin(self.heading);
-    const clearance = blocker.radius + ownVisual + 2;
-    return {
-      ...plan,
-      aim: {
-        x: blocker.pos.x + (nx - nz * this.orbitSign) * clearance,
-        y: self.pos.y,
-        z: blocker.pos.z + (nz + nx * this.orbitSign) * clearance,
-      },
-      throttle: Math.max(plan.throttle, 0.65),
-      arrive: false,
-      boost: false,
-    };
-  }
-
-  /**
-   * Last-resort progress invariant for every physical surface. Unlike the older
-   * wedge and floor guards, detection is independent of the utility plan's
-   * throttle, current attitude, descent, and predicted path. Once committed it
-   * keeps ownership until the hull has measured clearance from the same surface.
-   */
-  private surfaceRecoveryPlan(
-    snapshot: Snapshot,
-    self: ShipSnapshot,
-    plan: BotPlan | null,
-    nowMs: number,
-    commandedStalled: boolean,
-  ): BotPlan | null {
-    let surface = this.surfaceEscape
-      ? surfaceByKey(snapshot, self, this.floorY, this.arenaBounds, this.surfaceEscape.key)
-      : nearestRestSurface(snapshot, self, this.floorY, this.arenaBounds);
-
-    if (this.surfaceEscape) {
-      const ownRadius = self.colliderRadius ?? 0;
-      const visualOverhang = Math.max(0, (this.visualRadius ?? ownRadius) - ownRadius);
-      const exitClearance = Math.max(
-        SURFACE_ESCAPE_CLEARANCE,
-        ownRadius * SURFACE_ESCAPE_RADIUS_MULT,
-        visualOverhang + ownRadius * 2,
-      );
-      if (!surface || surface.clearance >= exitClearance) {
-        this.surfaceEscape = null;
-        this.surfaceStall = null;
-        return plan;
-      }
-      this.surfaceEscape.normal = surface.normal;
-    } else {
-      const ownRadius = self.colliderRadius ?? 0;
-      const visualOverhang = Math.max(0, (this.visualRadius ?? ownRadius) - ownRadius);
-      const enterClearance = SURFACE_VISUAL_MARGIN + visualOverhang;
-      const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
-      const realContact = surface !== null && surface.clearance <= enterClearance;
-      if (!surface || (!realContact && !commandedStalled) || (!commandedStalled && speed >= WEDGE_SPEED)) {
-        this.surfaceStall = null;
-        return plan;
-      }
-      const stationary = this.surfaceStall
-        && this.surfaceStall.key === surface.key
-        && dist3(this.surfaceStall.anchor, self.pos) <= Math.max(SURFACE_STALL_RADIUS, ownRadius / 1.4);
-      if (!stationary) {
-        this.surfaceStall = { key: surface.key, sinceMs: nowMs, anchor: aimPoint(self.pos) };
-        return plan;
-      }
-      if (nowMs - this.surfaceStall!.sinceMs < SURFACE_STALL_MS) return plan;
-      this.surfaceEscape = { key: surface.key, normal: surface.normal, side: this.orbitSign };
-      this.wedgeContactSinceMs = null;
-      this.unstuck = null;
-    }
-
-    surface = surface ?? nearestRestSurface(snapshot, self, this.floorY, this.arenaBounds);
-    const normal = surface?.normal ?? this.surfaceEscape.normal;
-    const noseDot = Math.cos(self.pitch) * Math.cos(self.heading) * normal.x
-      + Math.sin(self.pitch) * normal.y
-      + Math.cos(self.pitch) * Math.sin(self.heading) * normal.z;
-    // A direction exactly opposite the nose is singular in the two-axis body
-    // decomposition: both candidate turn planes are equally valid. Give that
-    // case a deterministic tangential component so recovery cannot command
-    // turn=0, pitch=0, throttle=0 forever while nose-in against a surface.
-    const tangentLength = Math.hypot(normal.x, normal.z);
-    const tx = tangentLength > 1e-6 ? -normal.z / tangentLength : 1;
-    const tz = tangentLength > 1e-6 ? normal.x / tangentLength : 0;
-    const bias = noseDot < -0.9 ? SURFACE_ANTIPARALLEL_BIAS * this.surfaceEscape.side : 0;
-    const aimNormal = {
-      x: normal.x + tx * bias,
-      // Include lift for a mostly vertical wall. A pure planar tangent can
-      // still project to signed zero in the persisted body frame at exactly
-      // 180 degrees; the up component makes the escape direction unambiguous.
-      y: normal.y + (Math.abs(normal.y) < 0.9 ? Math.abs(bias) : 0),
-      z: normal.z + tz * bias,
-    };
-    return {
-      aim: {
-        x: self.pos.x + aimNormal.x * Math.max(SURFACE_ESCAPE_AIM_DISTANCE, (self.colliderRadius ?? 0) * 12),
-        y: self.pos.y + aimNormal.y * Math.max(SURFACE_ESCAPE_AIM_DISTANCE, (self.colliderRadius ?? 0) * 12),
-        z: self.pos.z + aimNormal.z * Math.max(SURFACE_ESCAPE_AIM_DISTANCE, (self.colliderRadius ?? 0) * 12),
-      },
-      // Do not rebuild the cancelled inward velocity while turning. As soon as
-      // the nose has an outward component, full thrust creates real separation.
-      throttle: noseDot > 0.12 ? 1 : 0,
-      boost: false,
-      engaged: false,
-    };
-  }
-
   /** Longest fitted weapon range (cached; the fitting never changes mid-match). */
   private weaponRange(self: ShipSnapshot): number {
     if (this.weaponRangeCache >= 0) return this.weaponRangeCache;
@@ -1283,122 +1015,6 @@ export class BotDriver {
     this.weaponRangeCache = max;
     return max;
   }
-}
-
-interface ContactCollider { id: EntityId; pos: Required<Vec3>; radius: number; visualRadius?: number }
-interface RestSurface {
-  key: string;
-  clearance: number;
-  normal: Required<Vec3>;
-  /** Rendered obstacle extent beyond its authoritative collider. */
-  visualOverhang?: number;
-}
-
-function nearestRestSurface(
-  snapshot: Snapshot,
-  self: ShipSnapshot,
-  floorY: number | undefined,
-  arenaBounds: ArenaBounds | undefined,
-): RestSurface | null {
-  let nearest = floorY === undefined ? null : surfaceByKey(snapshot, self, floorY, arenaBounds, "floor");
-  const shell = arenaShellSurface(self, arenaBounds);
-  if (shell && (!nearest || shell.clearance < nearest.clearance)) nearest = shell;
-  const consider = (candidate: ContactCollider): void => {
-    const surface = colliderRestSurface(self, candidate);
-    if (!nearest || surface.clearance < nearest.clearance) nearest = surface;
-  };
-  for (const asteroid of snapshot.asteroids) {
-    if (asteroid.state !== "destroyed") consider({
-      id: asteroid.id,
-      pos: asteroid.pos,
-      radius: asteroid.colliderRadius ?? asteroid.radius,
-      visualRadius: asteroid.radius,
-    });
-  }
-  for (const ship of snapshot.ships) {
-    if (ship.id !== self.id) consider({ id: ship.id, pos: ship.pos, radius: ship.colliderRadius ?? 0 });
-  }
-  return nearest;
-}
-
-function surfaceByKey(
-  snapshot: Snapshot,
-  self: ShipSnapshot,
-  floorY: number | undefined,
-  arenaBounds: ArenaBounds | undefined,
-  key: string,
-): RestSurface | null {
-  if (key === "floor") {
-    return floorY === undefined ? null : {
-      key,
-      clearance: self.pos.y - floorY - (self.colliderRadius ?? 0),
-      normal: { x: 0, y: 1, z: 0 },
-    };
-  }
-  if (key === "arena:shell") return arenaShellSurface(self, arenaBounds);
-  const id = Number(key.slice("collider:".length));
-  const collider = colliderById(snapshot, self, id);
-  return collider ? colliderRestSurface(self, collider) : null;
-}
-
-function arenaShellSurface(self: ShipSnapshot, bounds: ArenaBounds | undefined): RestSurface | null {
-  if (!bounds || bounds.shape !== "sphere") return null;
-  const length = Math.hypot(self.pos.x, self.pos.y, self.pos.z) || 1;
-  return {
-    key: "arena:shell",
-    clearance: bounds.radius - (self.colliderRadius ?? 0) - length,
-    // The playable volume is inside the shell, so its escape normal is inward.
-    normal: { x: -self.pos.x / length, y: -self.pos.y / length, z: -self.pos.z / length },
-  };
-}
-
-function colliderRestSurface(self: ShipSnapshot, collider: ContactCollider): RestSurface {
-  const dx = self.pos.x - collider.pos.x;
-  const dy = self.pos.y - collider.pos.y;
-  const dz = self.pos.z - collider.pos.z;
-  const length = Math.hypot(dx, dy, dz) || 1;
-  return {
-    key: `collider:${collider.id}`,
-    clearance: length - (self.colliderRadius ?? 0) - collider.radius,
-    normal: { x: dx / length, y: dy / length, z: dz / length },
-    visualOverhang: Math.max(0, (collider.visualRadius ?? collider.radius) - collider.radius),
-  };
-}
-
-function colliderById(snapshot: Snapshot, self: ShipSnapshot, id: EntityId): ContactCollider | null {
-  const asteroid = snapshot.asteroids.find((candidate) => candidate.id === id && candidate.state !== "destroyed");
-  if (asteroid) return {
-    id,
-    pos: asteroid.pos,
-    radius: asteroid.colliderRadius ?? asteroid.radius,
-    visualRadius: asteroid.radius,
-  };
-  const ship = snapshot.ships.find((candidate) => candidate.id === id && candidate.id !== self.id);
-  return ship ? { id, pos: ship.pos, radius: ship.colliderRadius ?? 0 } : null;
-}
-
-function nearestContact(snapshot: Snapshot, self: ShipSnapshot, bounds: ArenaBounds | undefined): RestSurface | null {
-  let nearest: RestSurface | null = null;
-  const consider = (surface: RestSurface): void => {
-    if (surface.clearance <= WEDGE_CONTACT_EPSILON && (!nearest || surface.clearance < nearest.clearance)) nearest = surface;
-  };
-  const shell = arenaShellSurface(self, bounds);
-  if (shell) consider(shell);
-  for (const asteroid of snapshot.asteroids) {
-    if (asteroid.state !== "destroyed") consider(colliderRestSurface(self, { id: asteroid.id, pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius }));
-  }
-  for (const ship of snapshot.ships) {
-    if (ship.id !== self.id) consider(colliderRestSurface(self, { id: ship.id, pos: ship.pos, radius: ship.colliderRadius ?? 0 }));
-  }
-  return nearest;
-}
-
-function tangentSide(normal: Vec3, self: ShipSnapshot, objective: Vec3 | null, fallback: 1 | -1): 1 | -1 {
-  if (!objective) return fallback;
-  const ox = objective.x - self.pos.x;
-  const oz = objective.z - self.pos.z;
-  const cross = -(normal.z ?? 0) * ox + normal.x * oz;
-  return Math.abs(cross) < 1e-6 ? fallback : cross > 0 ? 1 : -1;
 }
 
 /**

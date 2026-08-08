@@ -35,11 +35,12 @@ describe("fittings API", () => {
     expect(ok.status).toBe(201);
     expect(ok.body.fitting.id).toBeTruthy();
 
-    // Wrong family: hardpoint 0 accepts laser/kinetic, not boost.
+    // Wrong family: hardpoint 0 accepts laser/kinetic, not missile. The module is
+    // a pre-owned starter, so only the family can be what fails here.
     const wrongFamily = await request(app)
       .post("/api/fittings")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", name: "Bad", hardpointMap: { "0": "module.boost-mk1" } });
+      .send({ shipId: "ship.interceptor", name: "Bad", hardpointMap: { "0": "module.missile-mk1" } });
     expect(wrongFamily.status).toBe(400);
     expect(wrongFamily.body.error.code).toBe("family-mismatch");
 
@@ -65,14 +66,14 @@ describe("modules + upgrades API", () => {
     profilesRepo.addCredits(userId, 1000); // afford a priced mk2
     const before = profilesRepo.byUser(userId)!.credits;
 
-    // boost-mk2 costs 300, requiresLevel 2 (mk1 variants are free/pre-owned).
+    // laser-mk2 costs 350, requiresLevel 2 (mk1 variants are free/pre-owned).
     profilesRepo.setProgress(userId, 2, 0, before);
-    const buy = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk2" });
+    const buy = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.laser-mk2" });
     expect(buy.status).toBe(200);
-    expect(buy.body.credits).toBe(before - 300);
+    expect(buy.body.credits).toBe(before - 350);
 
     // Buying again → already owned.
-    const again = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk2" });
+    const again = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.laser-mk2" });
     expect(again.status).toBe(409);
   });
 
@@ -80,13 +81,13 @@ describe("modules + upgrades API", () => {
     const { auth, userId } = await newUser("brokebuy@example.com");
     // Level 2 so the gate passes; drain the starter credits so nothing is left.
     profilesRepo.setProgress(userId, 2, 0, 0);
-    const res = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.boost-mk2" });
+    const res = await request(app).post("/api/modules/buy").set("Authorization", auth).send({ moduleId: "module.laser-mk2" });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("insufficient-credits");
     // Nothing was granted (debit + grant are atomic).
     const list = await request(app).get("/api/modules").set("Authorization", auth);
-    const boost = (list.body.modules as Array<{ id: string; owned: boolean }>).find((m) => m.id === "module.boost-mk2")!;
-    expect(boost.owned).toBe(false);
+    const priced = (list.body.modules as Array<{ id: string; owned: boolean }>).find((m) => m.id === "module.laser-mk2")!;
+    expect(priced.owned).toBe(false);
   });
 
   it("upgrades a ship track, deducting credits and capping at max level", async () => {

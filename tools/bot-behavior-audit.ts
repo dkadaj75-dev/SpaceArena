@@ -7,6 +7,7 @@ import type { EntityId } from "../shared/src/sim/components.js";
 import { MatchStatsAccumulator } from "../shared/src/sim/MatchStats.js";
 import { dist3 } from "../shared/src/sim/math.js";
 import { deriveRng } from "../shared/src/sim/rng.js";
+import type { BotRole } from "../shared/src/bots/roleAllocator.js";
 import { loadTestConfigs } from "../shared/src/sim/testutil.js";
 
 const DT = 1 / 30;
@@ -59,6 +60,10 @@ interface BotAudit {
   decisions: number;
   lastDecisionAt: number;
   behaviors: Map<string, number>;
+  /** Decisions taken under each team job claim (L2 occupancy). */
+  roles: Map<BotRole, number>;
+  /** Decisions where a combat behaviour won on a JOB while the threat latch was hot (D3). */
+  combatUnderThreat: number;
   priorPos: { x: number; y: number; z: number } | null;
   moveWindow: Array<{ elapsed: number; pos: { x: number; y: number; z: number }; distance: number }>;
   worstStuck: StuckIncident | null;
@@ -137,6 +142,8 @@ const matches = process.env.BOT_AUDIT_DUELS_ONLY === "1" ? selectedDuels : [...b
 if (process.env.BOT_AUDIT_QUIET !== "1") {
   for (const match of matches) printMatch(match);
   printProfileSummary(matches);
+  console.log("\nACCEPTANCE");
+  for (const match of matches) printSummary(match);
 } else {
   for (const match of matches) {
     for (const bot of match.bots.filter((candidate) => candidate.worstStuck)) {
@@ -273,6 +280,7 @@ function freshAudit(id: EntityId, team: number, profile: string, ship: string, f
     damageDealt: 0, damageTaken: 0, objectiveHitEvents: 0, objectiveHitShieldDown: 0,
     shieldWantedTicks: 0, shieldEmptyWantedTicks: 0,
     boostWantedTicks: 0, boostEmptyWantedTicks: 0, decisions: 0, lastDecisionAt: -1, behaviors: new Map(),
+    roles: new Map(), combatUnderThreat: 0,
     priorPos: null, moveWindow: [], worstStuck: null,
   };
 }
@@ -303,6 +311,11 @@ function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driv
     audit.decisions++;
     const key = decision.behavior ?? "none";
     audit.behaviors.set(key, (audit.behaviors.get(key) ?? 0) + 1);
+    const role = decision.role ?? "free";
+    audit.roles.set(role, (audit.roles.get(role) ?? 0) + 1);
+    // The D3 unlock only exists for a bot holding a claim; a free agent fighting
+    // under fire is ordinary combat and would drown the measurement.
+    if (decision.underThreat && role !== "free" && (key === "engage" || key === "kite")) audit.combatUnderThreat++;
   }
   for (const module of self.modules) {
     const config = configs.get<ModuleConfig>("module", module.moduleId);
@@ -438,6 +451,33 @@ function printMatch(match: MatchAudit): void {
     speed: bot.worstStuck!.speed.toFixed(2), surface: bot.worstStuck!.surfaceRecovery, floor: bot.worstStuck!.floorRecovery,
     contacts: bot.worstStuck!.contacts.join(" | "),
   })));
+}
+
+/**
+ * One machine-comparable line per scenario. The per-bot tables are the evidence;
+ * this is the acceptance row a before/after run is read off.
+ */
+function printSummary(match: MatchAudit): void {
+  const zero = match.bots.filter((bot) => bot.liveTicks > 0).map((bot) => bot.zeroThrottleTicks / bot.liveTicks);
+  const runs = match.carrierRuns;
+  const survived = runs.filter((run) => run.outcome === "captured").length;
+  const decisions = sum(match.bots, (bot) => bot.decisions);
+  const roles = ["striker", "interceptor", "escort", "warden", "free"] as const;
+  console.log("SUMMARY", {
+    scenario: `${match.label}:${match.seed}`,
+    end: match.ended ? `${match.elapsed.toFixed(1)}s ended` : `${match.elapsed.toFixed(1)}s cap`,
+    captures: match.captures.join("-"),
+    attempts: match.attempts.join("-"),
+    carrierRuns: runs.length,
+    carrierCaptured: survived,
+    carrierDied: runs.filter((run) => run.outcome === "died").length,
+    carrierMeanSec: Number((runs.reduce((total, run) => total + run.duration, 0) / Math.max(runs.length, 1)).toFixed(1)),
+    zeroPctMean: Number(((zero.reduce((a, b) => a + b, 0) / Math.max(zero.length, 1)) * 100).toFixed(1)),
+    zeroPctMax: Number((Math.max(0, ...zero) * 100).toFixed(1)),
+    stuckRuns: match.bots.filter((bot) => bot.worstStuck).length,
+    roleOccupancy: Object.fromEntries(roles.map((role) => [role, pct(sum(match.bots, (bot) => bot.roles.get(role) ?? 0), decisions)])),
+    flagrunnerCombatUnderThreat: sum(match.bots.filter((bot) => bot.profile === "bot.flagrunner"), (bot) => bot.combatUnderThreat),
+  });
 }
 
 function printProfileSummary(matches: MatchAudit[]): void {

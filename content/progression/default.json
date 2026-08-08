@@ -20,7 +20,6 @@
   "unlocks": {
     "1": [
       "module.beamlaser-mk1",
-      "module.boost-mk1",
       "module.engine-civ",
       "module.generator-compact",
       "module.heatsink-basic",
@@ -33,7 +32,6 @@
       "ship.interceptor"
     ],
     "2": [
-      "module.boost-mk2",
       "module.engine-agile",
       "module.engine-endurance",
       "module.engine-mk2",
@@ -62,7 +60,6 @@
       "module.utility-armor-plating"
     ],
     "4": [
-      "module.boost-mk3",
       "module.engine-mk3",
       "module.generator-heavy-mk2",
       "module.generator-siege",

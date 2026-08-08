@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ConfigService } from "../core/ConfigService.js";
 import { botprofileSchema, type BotprofileConfig } from "../schemas/botprofile.js";
 import { orderSchema } from "../net/protocol.js";
-import type { AsteroidSnapshot, ProjectileSnapshot, ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
+import type { AsteroidSnapshot, FlagSnapshot, ProjectileSnapshot, ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import { angleDelta, wrapAngle } from "../sim/math.js";
 import { advanceFrame, seedUp } from "../sim/frame.js";
 import type { Order } from "../sim/orders.js";
@@ -42,8 +42,16 @@ function snap(
   asteroids: AsteroidSnapshot[] = [],
   projectiles: ProjectileSnapshot[] = [],
   elapsed = 1,
+  flags: FlagSnapshot[] = [],
 ): Snapshot {
-  return { tick: 1, elapsed, phase: "live", teamScores: [], countdownRemaining: 0, winnerTeam: null, ships, asteroids, projectiles, decoys: [], flags: [] };
+  return { tick: 1, elapsed, phase: "live", teamScores: [], countdownRemaining: 0, winnerTeam: null, ships, asteroids, projectiles, decoys: [], flags };
+}
+
+function flag(id: number, team: number, x: number, z: number, over: Partial<FlagSnapshot> = {}): FlagSnapshot {
+  return {
+    id, team, state: "home", carrierId: null, pos: { x, y: 0, z }, home: { x, y: 0, z },
+    baseRadius: 6, pickupRadius: 3, dropRemaining: 0, trail: [], ...over,
+  };
 }
 
 function rock(id: number, x: number, z: number, radius = 8): AsteroidSnapshot {
@@ -898,6 +906,80 @@ describe("BotDriver flight orders", () => {
     expect(run(7)).toBe(run(7));
     // ...and a different seed diverges (proving the RNG is actually in play).
     expect(run(99)).not.toBe(run(7));
+  });
+});
+
+describe("BotDriver team roles (D2-D4, owner 2026-08-08)", () => {
+  /** Both bases on the z axis, ours behind the bot, theirs ahead. */
+  const homeFlags = (): FlagSnapshot[] => [flag(70, 0, 0, -200), flag(71, 1, 0, 200)];
+
+  async function flagrunner(): Promise<{ configs: ConfigService; p: BotprofileConfig }> {
+    const configs = await loadTestConfigs();
+    return { configs, p: configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")! };
+  }
+
+  it("keeps a calm flagrunner on the objective and lets it fight back under sustained fire", async () => {
+    const { configs, p } = await flagrunner();
+    const driver = new BotDriver({ entityId: 1, profile: p, configs, rng: zeroRng, orbitSign: 1 });
+    // A pursuer inside the authored break range, and our runner on a striker claim.
+    const frame = (hull: number, elapsed: number): Snapshot =>
+      snap([ship(1, 0, 0, 0, { hull }), ship(2, 1, 8, 0)], [], [], elapsed, homeFlags());
+
+    driver.update(frame(100, 1), 0);
+    const calm: (string | null)[] = [];
+    for (let step = 1; step <= 4; step++) {
+      driver.update(frame(100, 1 + step * 0.6), step * 600);
+      calm.push(driver.lastDecision?.behavior ?? null);
+    }
+    // Nothing has shot at it, so the combat weights do not exist for it at all.
+    expect(calm).toEqual(["objective", "objective", "objective", "objective"]);
+
+    const combat: (string | null)[] = [];
+    let hull = 100;
+    for (let step = 5; step <= 10; step++) {
+      hull -= 6; // sustained hull damage from the pursuer
+      driver.update(frame(hull, 1 + step * 0.6), step * 600);
+      combat.push(driver.lastDecision?.behavior ?? null);
+    }
+    expect(combat.filter((key) => key === "kite" || key === "engage").length, JSON.stringify(combat)).toBeGreaterThan(0);
+    expect(driver.lastDecision?.underThreat).toBe(true);
+  });
+
+  it("peels an escort onto the enemy closing on our carrier instead of holding formation", async () => {
+    const { configs, p } = await flagrunner();
+    const driver = new BotDriver({ entityId: 1, profile: p, configs, rng: zeroRng, orbitSign: 1 });
+    const carrier = ship(3, 0, 0, 0, { velocity: { x: 0, y: 0, z: -18 } });
+    const pursuer = ship(2, 1, 60, 0, { heading: Math.PI, velocity: { x: -22, y: 0, z: 0 } });
+    const flags = [
+      flag(70, 0, 0, -200),
+      flag(71, 1, 0, 200, { state: "carried", carrierId: 3, pos: { x: 0, y: 0, z: 0 } }),
+    ];
+    const frame = (elapsed: number): Snapshot =>
+      snap([ship(1, 0, 0, 20, { velocity: { x: 0, y: 0, z: -10 } }), carrier, pursuer], [], [], elapsed, flags);
+
+    driver.update(frame(1), 0);
+    driver.update(frame(1.6), 600);
+
+    expect(driver.lastDecision?.behavior).toBe("objective");
+    // A peel is a fight, not travel: the plan says so, which is what raises the
+    // shield and lets the driver apply combat aim.
+    expect(driver.lastDecision?.engaged).toBe(true);
+    const aim = driver.lastDecision!.plannedMove!;
+    // Formation is the point 20% of the way from the carrier to home — (0, 0, -40).
+    // The peel has to be somewhere else entirely: out on the pursuer's side.
+    expect(aim.x, JSON.stringify(aim)).toBeGreaterThan(10);
+    expect(driver.lastDecision?.role).toBe("escort");
+  });
+
+  it("leaves a free agent fighting on its authored weights, roles or no roles", async () => {
+    const { configs, p } = await flagrunner();
+    const driver = new BotDriver({ entityId: 1, profile: p, configs, rng: zeroRng, orbitSign: 1 });
+    // Ten claimants nearer both jobs than this bot: it holds no claim at all.
+    const crowd = Array.from({ length: 10 }, (_, index) => ship(20 + index, 0, 0, -100 + index * 22));
+    const s = snap([ship(1, 0, 300, 0), ...crowd, ship(2, 1, 308, 0)], [], [], 1, homeFlags());
+    decide(driver, s);
+    expect(driver.lastDecision?.role).toBe("free");
+    expect(driver.lastDecision?.behavior).toBe("kite");
   });
 });
 
