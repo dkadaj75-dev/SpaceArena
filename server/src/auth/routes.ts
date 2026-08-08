@@ -11,6 +11,7 @@ import { withTransaction } from "../db/index.js";
 import { profilesRepo, sessionsRepo, usersRepo } from "../db/repos.js";
 import { ensureStarterKit, seedNewUser } from "../db/seed.js";
 import { asyncHandler, bearerToken, parseBody, requireAuth, sendError, type AuthedRequest } from "../api/http.js";
+import { inventoryFor } from "../api/ownership.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { issueTokenPair, rotateRefreshToken, verifyAccessToken } from "./tokens.js";
 import { generateGuestPilotName } from "./guestNames.js";
@@ -185,18 +186,21 @@ export function createAuthRouter(): Router {
     }),
   );
 
-  // GET /me — current profile.
+  // GET /me — current profile + the whole inventory (hulls, modules, paints,
+  // equipped paint per hull). ONE read: the Shop and the Hangar need all four
+  // together, and a second endpoint could only return a second opinion.
   router.get(
     "/me",
     requireAuth,
     asyncHandler(async (req: AuthedRequest, res) => {
-      ensureStarterKit(getConfigService(), req.userId!);
+      const configs = getConfigService();
+      ensureStarterKit(configs, req.userId!);
       const payload = profilePayload(req.userId!);
       if (!payload) {
         sendError(res, 404, "not-found", "profile not found");
         return;
       }
-      res.json({ profile: payload });
+      res.json({ profile: payload, inventory: inventoryFor(configs, req.userId!) });
     }),
   );
 

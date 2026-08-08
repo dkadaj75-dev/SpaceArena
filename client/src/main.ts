@@ -44,6 +44,8 @@ import { Lobby, type LobbyChoice } from "./game/screens/Lobby.js";
 import { BootScreen } from "./game/screens/BootScreen.js";
 import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
+import { ShopScreen } from "./game/screens/ShopScreen.js";
+import { createSessionOwnership } from "./game/sessionOwnership.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
 import { MatchmakingScreen } from "./game/screens/MatchmakingScreen.js";
 import { FullscreenPrompt } from "./game/screens/FullscreenPrompt.js";
@@ -682,6 +684,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         lobby.hide();
         hangar.show();
       },
+      onShopRequested: () => {
+        lobby.hide();
+        shop.show();
+      },
       // The settings overlay stacks ON TOP of the lobby (z-index 40 vs 20), so
       // there is nothing to restore when it closes.
       onSettingsRequested: () => openSettings("menu"),
@@ -713,6 +719,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     settings: userSettings,
   });
 
+  // One ownership ledger for the whole session: the Shop buys through it and
+  // the Hangar gates on it, so the two can never disagree about what is owned.
+  const ownership = createSessionOwnership(authService, configService);
+  void ownership.refresh().catch((err: unknown) => log.warn("initial ownership read failed", err));
+
   const hangar = new Hangar(
     document.body,
     scene,
@@ -724,6 +735,20 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       lobby.show();
     },
     quality.current.particles,
+    ownership,
+  );
+
+  const shop = new ShopScreen(
+    document.body,
+    configService,
+    ownership,
+    {
+      onClose: () => {
+        shop.hide();
+        lobby.show();
+      },
+    },
+    bus,
   );
 
   const authScreen = new AuthScreen(
@@ -785,11 +810,15 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   FullscreenPrompt.maybeShow();
 
   /** The Hangar's last-saved ship/fitting choice (ROADMAP §9 4.5), as additive NetGameSession join options. */
-  function hangarJoinOptions(): { shipId?: string; fittingId?: string } {
+  function hangarJoinOptions(): { shipId?: string; fittingId?: string; cosmeticId?: string } {
     const sel = loadHangarSelection();
-    const opts: { shipId?: string; fittingId?: string } = {};
+    const opts: { shipId?: string; fittingId?: string; cosmeticId?: string } = {};
     if (sel.shipId) opts.shipId = sel.shipId;
     if (sel.fittingId) opts.fittingId = sel.fittingId;
+    // Stated, not assumed: the room re-reads its own selection when this is
+    // absent, and re-validates ownership either way.
+    const cosmeticId = sel.shipId ? ownership.selectedCosmetic(sel.shipId) : null;
+    if (cosmeticId) opts.cosmeticId = cosmeticId;
     return opts;
   }
 
@@ -912,6 +941,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
               // fitting, which an online room cannot accept on trust.
               playerShipId: hangar.shipId,
               playerFitting: hangar.moduleIds,
+              // The paint equipped on the hull being flown; the sim gates it.
+              playerCosmeticId: hangar.shipId ? ownership.selectedCosmetic(hangar.shipId) : null,
               playerDisplayName: authState.status === "authed"
                 ? authState.profile.displayName
                 : "Pilot",

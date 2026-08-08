@@ -31,6 +31,21 @@ test("hud screenshot rig @hudshot", async ({ page }) => {
     await page.screenshot({ path: `${outDir}/lobby.png` });
     return;
   }
+  // HUD_SHOT_SHOP: the shop, one shot per tab. Set it to a tab name
+  // (ships/modules/paints) to capture only that one.
+  if (process.env["HUD_SHOT_SHOP"]) {
+    await lobby.getByRole("button", { name: "Shop", exact: true }).click();
+    const shop = page.locator(".shop-overlay");
+    await expect(shop).toBeVisible();
+    const only = process.env["HUD_SHOT_SHOP"]!.toLowerCase();
+    const tabs = ["ships", "modules", "paints"].filter((t) => only === "1" || only === t);
+    for (const tab of tabs) {
+      await shop.locator(`.sa-tab[data-tab="${tab}"]`).click();
+      await expect(shop.locator(`.sa-tab[data-tab="${tab}"]`)).toHaveAttribute("aria-selected", "true");
+      await page.screenshot({ path: `${outDir}/shop-${tab}.png`, fullPage: false });
+    }
+    return;
+  }
   if (process.env["HUD_SHOT_SHIP"]) {
     await lobby.getByRole("button", { name: "Hangar", exact: true }).click();
     const hangar = page.locator(".hangar-panel");

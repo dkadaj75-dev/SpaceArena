@@ -18,6 +18,7 @@ import {
 } from "@space-arena/shared";
 import {
   boostMult,
+  decodeCosmeticId,
   decodeModules,
   sampledVelocity,
   snapPrediction,
@@ -479,5 +480,24 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
     expect(Math.abs(pitch)).toBeGreaterThan(Math.PI / 2);
     expect(pitchDrift).toBe(0);
     expect(drift).toBeLessThan(1e-9);
+  });
+});
+
+/**
+ * Cosmetics (protocol 5): the wire carries "" for "authored look" because a
+ * schema string has no null, and the offline snapshot carries an ABSENT field
+ * for the same state. Both must land on the renderer as one case.
+ */
+describe("decodeCosmeticId", () => {
+  it("reads a replicated paint verbatim", () => {
+    expect(decodeCosmeticId("cosmetic.paint-crimson")).toBe("cosmetic.paint-crimson");
+  });
+
+  it("maps the empty wire value, the standard id and junk alike to absent", () => {
+    expect(decodeCosmeticId("")).toBeUndefined();
+    expect(decodeCosmeticId("cosmetic.paint-standard")).toBeUndefined();
+    expect(decodeCosmeticId(undefined)).toBeUndefined();
+    expect(decodeCosmeticId(null)).toBeUndefined();
+    expect(decodeCosmeticId(7)).toBeUndefined();
   });
 });

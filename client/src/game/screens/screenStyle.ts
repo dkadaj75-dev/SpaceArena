@@ -338,7 +338,11 @@ const CSS = `
   inset: 0;
   /* Negative z-index inside the screen's own stacking context (the roots set an
      explicit z-index) paints the backdrop behind every sibling WITHOUT having to
-     restyle them — restyling them would clobber the header's absolute pinning. */
+     restyle them — restyling them would clobber the header's absolute pinning.
+     Load-bearing, not decorative: a fixed element at z-index auto paints in the
+     positioned layer, i.e. OVER the static title, subtitle and tabs, which is
+     exactly what swallowed the wordmark. */
+  z-index: -1;
   pointer-events: none;
   background-color: var(--sa-menu-base, var(--sa-n-900));
   overflow: hidden;

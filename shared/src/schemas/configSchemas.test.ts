@@ -266,6 +266,17 @@ const quality = {
   },
 };
 
+const cosmetic = {
+  id: "cosmetic.paint-fixture",
+  type: "cosmetic",
+  version: 1,
+  name: "Fixture Paint",
+  kind: "paint",
+  price: 0,
+  appliesTo: "any",
+  paint: { primary: "#112233", accent: "#445566" },
+};
+
 /** One canonical valid fixture per content type. Keys MUST cover CONFIG_TYPES. */
 const VALID: Record<ConfigType, Record<string, unknown>> = {
   ship,
@@ -284,6 +295,7 @@ const VALID: Record<ConfigType, Record<string, unknown>> = {
   progression,
   botprofile,
   quality,
+  cosmetic,
 };
 
 /** Parse `fixture` with the schema registered for `type`. */

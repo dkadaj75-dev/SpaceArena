@@ -119,6 +119,17 @@
     "modules/utility-armor-plating-mk2.json",
     "modules/utility-capacitor-battery-mk2.json",
     "modules/utility-flux-capacitor-mk2.json",
-    "modules/utility-heat-sink-mk2.json"
+    "modules/utility-heat-sink-mk2.json",
+    "cosmetics/paint-standard.json",
+    "cosmetics/paint-crimson.json",
+    "cosmetics/paint-void.json",
+    "cosmetics/paint-arctic.json",
+    "cosmetics/paint-solar.json",
+    "cosmetics/paint-jade.json",
+    "cosmetics/paint-violet.json",
+    "cosmetics/paint-carbon.json",
+    "cosmetics/paint-vanguard.json",
+    "cosmetics/paint-ironclad.json",
+    "cosmetics/paint-fieldmedic.json"
   ]
 }

@@ -1,0 +1,14 @@
+{
+  "id": "cosmetic.paint-arctic",
+  "type": "cosmetic",
+  "version": 1,
+  "name": "Arctic Signal",
+  "kind": "paint",
+  "price": 0,
+  "appliesTo": "any",
+  "paint": {
+    "primary": "#dfe9f2",
+    "accent": "#7fb4d8",
+    "emissive": "#a8e6ff"
+  }
+}

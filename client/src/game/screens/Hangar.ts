@@ -43,6 +43,10 @@ import {
 } from "../offlineFittings.js";
 import { moduleStats } from "../moduleSummary.js";
 import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
+import type { OwnershipStore } from "../ownershipStore.js";
+import { hullOwned, moduleOwned } from "../hangarGating.js";
+import { priceLabel } from "../shopModel.js";
+import { ShipPaintBank } from "../shipPaint.js";
 import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
 import { HangarBay } from "./HangarBay.js";
 import { swapFrame, SWAP_DISTANCE_RADII, SWAP_DURATION_SEC } from "../shipSwap.js";
@@ -213,6 +217,9 @@ export class Hangar {
   private error = "";
 
   private previewInstance: InstancedMesh | null = null;
+  /** Painted hull masters for the staged preview (contract §5). */
+  private readonly paint: ShipPaintBank;
+  private readonly unsubscribeOwnership: (() => void) | null = null;
   /** Hull ids whose GLB has already been requested (see `rebuildPreview`). */
   private readonly modelsRequested = new Set<string>();
   /** The bay the ship is parked in — built with the screen, sized to the hull. */
@@ -278,8 +285,15 @@ export class Hangar {
      * a budget phone should not run full-rate trails on a menu screen.
      */
     private readonly particleQuality?: ParticleQuality,
+    /**
+     * The shop's ownership seam (contract §5). Wired, it is the sole authority
+     * on what may be flown or fitted and the path every purchase takes; absent,
+     * the screen keeps its pre-shop answers (see `hangarGating.ts`).
+     */
+    private readonly ownership: OwnershipStore | null = null,
   ) {
     this.api = new HangarApi(auth);
+    this.paint = new ShipPaintBank(scene, configs);
     this.assets = new AssetRegistry(scene);
     this.stageRoot = new TransformNode("hangarStage", scene);
     this.stageRoot.position.copyFrom(STAGE_POS);
@@ -321,6 +335,14 @@ export class Hangar {
     this.unsubscribeAuth = this.auth.onChange(() => {
       if (this.root.style.display !== "none") void this.refreshFromServer();
     });
+    // A purchase or a paint equipped in the Shop reaches the staged hull without
+    // a revisit — the ledger, not the click, is what the screen listens to.
+    this.unsubscribeOwnership =
+      this.ownership?.onChange(() => {
+        if (this.root.style.display === "none") return;
+        this.rebuildPreview();
+        this.render();
+      }) ?? null;
 
     this.root.style.display = "none";
   }
@@ -366,8 +388,10 @@ export class Hangar {
    * one we will ship rather than one we bolt on later.
    */
   private canEquip(moduleId: string): boolean {
-    if (this.offlineFitting) return ownsModule(this.configs, moduleId);
-    return this.apiModules.find((m) => m.id === moduleId)?.owned ?? false;
+    const legacy = this.offlineFitting
+      ? ownsModule(this.configs, moduleId)
+      : (this.apiModules.find((m) => m.id === moduleId)?.owned ?? false);
+    return moduleOwned(this.ownership, moduleId, legacy);
   }
 
   /**
@@ -377,7 +401,7 @@ export class Hangar {
    * server grows the same notion.
    */
   private canFly(shipId: string): boolean {
-    return this.offlineFitting ? ownsShip(shipId) : true;
+    return hullOwned(this.ownership, shipId, this.offlineFitting ? ownsShip(shipId) : true);
   }
 
   /** The hull the player takes into a match, as last set. */
@@ -586,7 +610,12 @@ export class Hangar {
       });
     }
 
-    const master = this.assets.getShipMaster(ship.render);
+    // The hull wears whatever paint the pilot has equipped on it; an absent
+    // selection is the authored look (contract §1).
+    const master = this.paint.masterFor(
+      this.assets.getShipMaster(ship.render),
+      this.ownership?.selectedCosmetic(ship.id) ?? null,
+    );
 
     // A hull the player has not bought is shown as a SILHOUETTE (2026-07-31):
     // black and half-transparent, so its shape reads while its detail stays
@@ -828,13 +857,31 @@ export class Hangar {
   }
 
   /** Buy the hull on screen. Free for now — the unlock step is what is real. */
-  private buyShip(shipId: string): void {
+  private async buyShip(shipId: string): Promise<void> {
+    if (this.ownership) {
+      this.busy = true;
+      this.render();
+      try {
+        await this.ownership.buyShip(shipId);
+      } catch (err) {
+        this.error = errorMessage(err, "Purchase failed");
+      }
+      this.busy = false;
+      if (!this.isVisible) return;
+      this.afterHullUnlock();
+      return;
+    }
     if (this.offlineFitting) {
       buyShipLocal(shipId);
-      this.rebuildPreview();
-      this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
-      this.render();
+      this.afterHullUnlock();
     }
+  }
+
+  /** An unlocked hull stops being a silhouette, so the stage is rebuilt around it. */
+  private afterHullUnlock(): void {
+    this.rebuildPreview();
+    this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+    this.render();
   }
 
   private loadFitting(fittingId: string | null): void {
@@ -873,6 +920,18 @@ export class Hangar {
   }
 
   private async buyModule(moduleId: string): Promise<void> {
+    if (this.ownership) {
+      this.busy = true;
+      this.render();
+      try {
+        await this.ownership.buyModule(moduleId);
+      } catch (err) {
+        this.error = errorMessage(err, "Purchase failed");
+      }
+      this.busy = false;
+      if (this.isVisible) this.render();
+      return;
+    }
     // Offline: the unlock is local and free, but it IS an unlock — a module has
     // to be bought before it can be fitted (owner 2026-07-31).
     if (this.offlineFitting) {
@@ -1387,9 +1446,9 @@ export class Hangar {
       buy.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
       // Free for now (testing) — the purchase still has to happen, so the flow
       // is the real one and only the price is provisional.
-      buy.textContent = "Unlock (free)";
-      buy.disabled = this.busy || !this.offlineFitting;
-      buy.addEventListener("click", () => this.buyShip(ship.id));
+      buy.textContent = `Buy · ${priceLabel(0)}`;
+      buy.disabled = this.busy || !(this.ownership || this.offlineFitting);
+      buy.addEventListener("click", () => void this.buyShip(ship.id));
       row.append(buy);
       return row;
     }
@@ -1588,8 +1647,8 @@ export class Hangar {
         buyBtn.className = "hangar-btn sa-button sa-button--secondary";
         // Offline every module is free — but still bought, so the unlock flow
         // is the shipped one and only the price is provisional.
-        buyBtn.textContent = this.offlineFitting || mod.price <= 0 ? "Unlock (free)" : `Buy (${mod.price} cr)`;
-        buyBtn.disabled = this.busy || (!this.offlineFitting && credits < mod.price);
+        buyBtn.textContent = `Buy · ${priceLabel(this.offlineFitting ? 0 : mod.price)}`;
+        buyBtn.disabled = this.busy || (!this.offlineFitting && !this.ownership && credits < mod.price);
         buyBtn.addEventListener("click", () => void this.buyModule(mod.id));
         actions.append(buyBtn);
       }
@@ -1695,6 +1754,10 @@ export class Hangar {
     this.previewInstance?.dispose();
     this.lockedMaterial?.dispose();
     this.lockedMaterial = null;
+    this.unsubscribeOwnership?.();
+    // After the preview instance above: a painted master disposed under a live
+    // instance would take the staged hull with it.
+    this.paint.dispose();
     this.assets.dispose();
     this.stageRoot.dispose();
     this.root.remove();

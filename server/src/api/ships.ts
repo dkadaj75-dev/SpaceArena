@@ -1,8 +1,17 @@
 import { Router } from "express";
-import { hardpointsOf, upgradeBodySchema, type ShipConfig, type UpgradeConfig, type UpgradeTrackName } from "@space-arena/shared";
+import {
+  buyShipBodySchema,
+  hardpointsOf,
+  shipPrice,
+  upgradeBodySchema,
+  type ShipConfig,
+  type UpgradeConfig,
+  type UpgradeTrackName,
+} from "@space-arena/shared";
 import { getConfigService } from "../configService.js";
 import { withTransaction } from "../db/index.js";
-import { profilesRepo, shipUpgradesRepo, type ShipUpgradeRow } from "../db/repos.js";
+import { ownedShipsRepo, profilesRepo, shipUpgradesRepo, type ShipUpgradeRow } from "../db/repos.js";
+import { ownedShipIds } from "./ownership.js";
 import { asyncHandler, parseBody, requireAuth, sendError, type AuthedRequest } from "./http.js";
 
 const TRACK_TO_ROW: Record<UpgradeTrackName, keyof ShipUpgradeRow> = {
@@ -44,6 +53,43 @@ export function createShipsRouter(): Router {
         },
       }));
       res.json({ ships });
+    }),
+  );
+
+  // POST /api/ships/buy { shipId } — spend credits to own a hull.
+  // Declared before `/:shipId/upgrade` for readability only; the paths cannot
+  // collide (that route needs a second segment).
+  router.post(
+    "/buy",
+    asyncHandler(async (req: AuthedRequest, res) => {
+      const body = parseBody(res, buyShipBodySchema, req.body);
+      if (!body) return;
+      const configs = getConfigService();
+      const ship = configs.get<ShipConfig>("ship", body.shipId);
+      if (!ship) {
+        sendError(res, 404, "unknown-ship", `unknown ship: ${body.shipId}`);
+        return;
+      }
+      const profile = profilesRepo.byUser(req.userId!)!;
+      // Idempotent: a second buy is the state the caller asked for, so it is a
+      // success with an unchanged balance — never a second debit.
+      if (ownedShipIds(configs, req.userId!).has(ship.id)) {
+        res.json({ shipId: ship.id, credits: profile.credits });
+        return;
+      }
+      const price = shipPrice(ship);
+      // Atomic: guarded debit + grant in one transaction; the funds check IS the
+      // conditional UPDATE, so concurrent buys cannot overspend.
+      const credits = withTransaction(() => {
+        if (!profilesRepo.tryDebit(req.userId!, price)) return null;
+        ownedShipsRepo.grant(req.userId!, ship.id);
+        return profilesRepo.byUser(req.userId!)!.credits;
+      });
+      if (credits === null) {
+        sendError(res, 409, "insufficient-credits", `need ${price} credits, have ${profile.credits}`);
+        return;
+      }
+      res.json({ shipId: ship.id, credits });
     }),
   );
 

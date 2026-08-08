@@ -1,4 +1,5 @@
 import type { ConfigService } from "../core/ConfigService.js";
+import { resolveCosmeticFor } from "../content/cosmetics.js";
 import type { ArenaConfig, GamemodeConfig, TuningConfig } from "../schemas/index.js";
 import type { EntityId, FlagState, ModuleState, ShipCore, TargetRef } from "./components.js";
 import type { SimEvent } from "./events.js";
@@ -101,6 +102,14 @@ export interface ShipSnapshot {
   lockProgress: number;
   /** True while the lock is complete; weapons only fire in this state. */
   locked: boolean;
+  /**
+   * Equipped paint (`cosmetic.*`), or ABSENT for the hull's authored look. The
+   * renderer must treat absent and `cosmetic.paint-standard` identically — the
+   * standard paint exists so a shop selection is never undefined, not so it can
+   * mean different pixels. Validated at the spawn seam (offline) and again by
+   * the room (online); a snapshot never carries an id the pack does not have.
+   */
+  cosmeticId?: string;
   modules: ModuleSnapshot[];
 }
 
@@ -272,7 +281,14 @@ export class ArenaSimulation {
    */
   private readonly spawnRecords = new Map<
     EntityId,
-    { shipId: string; fitting: readonly (string | null)[]; team: number; upgradeLevels?: UpgradeLevels }
+    {
+      shipId: string;
+      fitting: readonly (string | null)[];
+      team: number;
+      upgradeLevels?: UpgradeLevels;
+      /** Equipped paint, kept with the record so a respawn comes back wearing it. */
+      cosmeticId?: string;
+    }
   >();
   /** Deaths waiting out `respawn.delay`, in death order. */
   private readonly pendingRespawns: { entityId: EntityId; timer: number }[] = [];
@@ -353,6 +369,7 @@ export class ArenaSimulation {
     fitting: readonly (string | null)[],
     team: number,
     upgradeLevels?: UpgradeLevels,
+    cosmeticId?: string | null,
   ): EntityId {
     const spawns = this.world.arena.spawnPoints.filter((s) => s.team === team);
     const used = this.world.shipIds().length;
@@ -369,7 +386,7 @@ export class ArenaSimulation {
       upgradeLevels,
       sp.pitch ?? 0,
     );
-    this.spawnRecords.set(id, { shipId, fitting, team, upgradeLevels });
+    this.spawnRecords.set(id, { shipId, fitting, team, upgradeLevels, cosmeticId: this.paintFor(shipId, cosmeticId) });
     return id;
   }
 
@@ -385,11 +402,21 @@ export class ArenaSimulation {
     heading = 0,
     upgradeLevels?: UpgradeLevels,
     pitch = 0,
+    cosmeticId?: string | null,
   ): EntityId {
     this.teamsEverPresent.add(team);
     const id = spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, pos, heading, upgradeLevels, pitch);
-    this.spawnRecords.set(id, { shipId, fitting, team, upgradeLevels });
+    this.spawnRecords.set(id, { shipId, fitting, team, upgradeLevels, cosmeticId: this.paintFor(shipId, cosmeticId) });
     return id;
+  }
+
+  /**
+   * Gate a requested paint against the pack at the SPAWN seam, so no snapshot
+   * can carry an id that is unknown or illegal for the hull wearing it. Standard
+   * (and anything rejected) is stored as absent — see {@link ShipSnapshot.cosmeticId}.
+   */
+  private paintFor(shipId: string, cosmeticId: string | null | undefined): string | undefined {
+    return resolveCosmeticFor(this.configs, shipId, cosmeticId) ?? undefined;
   }
 
   applyOrder(entityId: EntityId, order: Order): void {
@@ -750,6 +777,7 @@ export class ArenaSimulation {
         // instantly, so report the flag rather than dividing by zero.
         lockProgress: lockFraction(core, ref),
         locked: ref?.locked ?? false,
+        cosmeticId: this.spawnRecords.get(id)?.cosmeticId,
         modules: mods.modules.map((m) => ({
           moduleId: m.moduleId,
           hardpointIndex: m.hardpointIndex,

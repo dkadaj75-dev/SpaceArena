@@ -5,6 +5,7 @@ import { arenaSchema, type ArenaConfig } from "./arena.js";
 import { asteroidSchema, type AsteroidConfig } from "./asteroid.js";
 import { botprofileSchema, type BotprofileConfig } from "./botprofile.js";
 import { cameraSchema, type CameraConfig } from "./camera.js";
+import { cosmeticSchema, type CosmeticConfig } from "./cosmetic.js";
 import { effectSchema, type EffectConfig } from "./effect.js";
 import { eventSchema, type EventConfig } from "./event.js";
 import { gamemodeSchema, type GamemodeConfig } from "./gamemode.js";
@@ -37,6 +38,7 @@ export * from "./theme.js";
 export * from "./progression.js";
 export * from "./quality.js";
 export * from "./botprofile.js";
+export * from "./cosmetic.js";
 export * from "./manifest.js";
 
 /**
@@ -61,6 +63,7 @@ export const CONFIG_SCHEMAS = {
   progression: progressionSchema,
   botprofile: botprofileSchema,
   quality: qualitySchema,
+  cosmetic: cosmeticSchema,
 } as const;
 
 export type ConfigType = keyof typeof CONFIG_SCHEMAS;
@@ -82,7 +85,8 @@ export type AnyConfig =
   | ThemeConfig
   | ProgressionConfig
   | BotprofileConfig
-  | QualityConfig;
+  | QualityConfig
+  | CosmeticConfig;
 
 export type { ManifestConfig };
 
@@ -249,6 +253,14 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
           refs.push({ path: `bots.roster[${i}].profile`, id: slot.profile, expects: "botprofile" });
           if (slot.ship) refs.push({ path: `bots.roster[${i}].ship`, id: slot.ship, expects: "ship" });
         });
+      }
+      break;
+    }
+    case "cosmetic": {
+      // An explicit hull list is resolved as ship references: a typo here would
+      // otherwise ship a paint that no hull can ever equip.
+      if (config.appliesTo !== "any") {
+        config.appliesTo.forEach((id, i) => refs.push({ path: `appliesTo[${i}]`, id, expects: "ship" }));
       }
       break;
     }

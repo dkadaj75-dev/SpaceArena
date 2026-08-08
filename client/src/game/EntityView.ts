@@ -39,6 +39,7 @@ import {
   type FrameAttitude,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
+import { cosmeticIdOf, ShipPaintBank } from "./shipPaint.js";
 import { ShipSocketRig } from "./ShipSocketRig.js";
 import { resampleTrail, trailAlphas, TRAIL_POINTS, type TrailPoint } from "./flagTrail.js";
 import { advanceBeaconClock, beaconPhase, beaconPulse, beaconRadius } from "./flagBeacon.js";
@@ -103,6 +104,13 @@ interface ShipView {
   quat: Quaternion;
   /** Retained after despawn so destruction debris inherits the ship's last motion. */
   velocity: Vector3;
+  /**
+   * The cosmetic this instance was built for (contract §5). A paint changes the
+   * MASTER an instance comes from, so a snapshot that reports a different one
+   * has to rebuild the view rather than restyle it — which is also why online
+   * paint arriving a tick after the ship does still lands.
+   */
+  cosmeticId: string | null;
 }
 
 interface AsteroidView {
@@ -207,6 +215,8 @@ type ProjectileNode = Mesh | InstancedMesh;
  */
 export class ViewManager {
   private readonly assets: AssetRegistry;
+  /** Painted hull masters for the cosmetics on screen (contract §5). */
+  private readonly paint: ShipPaintBank;
   private readonly root: TransformNode;
   private readonly heroRoot: TransformNode;
   private heroShip: InstancedMesh | null = null;
@@ -276,6 +286,7 @@ export class ViewManager {
     options: ViewManagerOptions = {},
   ) {
     this.assets = new AssetRegistry(scene);
+    this.paint = new ShipPaintBank(scene, configs);
     this.root = new TransformNode("viewRoot", scene);
     this.heroRoot = new TransformNode("mvpHeroRoot", scene);
     this.heroRoot.setEnabled(false);
@@ -654,6 +665,12 @@ export class ViewManager {
     for (let i = 0; i < cur.ships.length; i++) {
       const s = cur.ships[i]!;
       let view = this.ships.get(s.id);
+      if (view && view.cosmeticId !== cosmeticIdOf(s)) {
+        view.rig?.dispose();
+        view.node.dispose();
+        this.ships.delete(s.id);
+        view = undefined;
+      }
       if (!view) {
         view = this.createShipView(s);
         if (!view) continue;
@@ -721,7 +738,10 @@ export class ViewManager {
       log.warn(`no ship config for entity ${s.id} (configId=${configId ?? "?"})`);
       return undefined;
     }
-    const master = this.assets.getShipMaster(ship.render);
+    // A painted hull instances from its own tinted master, so every ship
+    // wearing that paint still batches into one draw call (contract §5).
+    const cosmeticId = cosmeticIdOf(s);
+    const master = this.paint.masterFor(this.assets.getShipMaster(ship.render), cosmeticId);
     const node = master.createInstance(`ship.${s.id}`);
     // Frame-based pose: the quaternion owns the rotation from here on (once
     // assigned, Babylon ignores `node.rotation`). Updated in place per frame.
@@ -747,7 +767,7 @@ export class ViewManager {
       this.juice,
     );
 
-    return { node, rig, roll: 0, rollTarget: 0, quat, velocity: new Vector3() };
+    return { node, rig, roll: 0, rollTarget: 0, quat, velocity: new Vector3(), cosmeticId };
   }
 
   private syncAsteroids(cur: Snapshot, frameDtMs: number): void {
@@ -1214,6 +1234,9 @@ export class ViewManager {
       v.node.dispose();
     }
     this.ships.clear();
+    // After the instances, never before: a painted master disposed while a
+    // hull still instances it would take the hull with it.
+    this.paint.dispose();
     for (const v of this.asteroids.values()) v.instance.dispose();
     this.asteroids.clear();
     for (const v of this.decoys.values()) disposeDecoyView(v);

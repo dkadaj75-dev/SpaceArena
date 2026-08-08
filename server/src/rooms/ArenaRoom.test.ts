@@ -16,7 +16,15 @@ import { loadContent, setConfigService } from "../configService.js";
 import { getDb, openDatabase, setDb } from "../db/index.js";
 import { getMetrics } from "../telemetry/metrics.js";
 import { seedNewUser } from "../db/seed.js";
-import { fittingsRepo, ownedModulesRepo, profilesRepo, shipUpgradesRepo, usersRepo } from "../db/repos.js";
+import {
+  fittingsRepo,
+  ownedCosmeticsRepo,
+  ownedModulesRepo,
+  profilesRepo,
+  selectedCosmeticsRepo,
+  shipUpgradesRepo,
+  usersRepo,
+} from "../db/repos.js";
 import { signAccessToken } from "../auth/tokens.js";
 import { ArenaRoom } from "./ArenaRoom.js";
 import type { ArenaState } from "./state/ArenaState.js";
@@ -892,6 +900,73 @@ describe("ArenaRoom", () => {
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
     // resolveFitting validates the loadout in onJoin → join rejected.
     await expect(colyseus.connectTo(room, { token, fittingId: fit.id })).rejects.toBeDefined();
+  });
+
+  describe("cosmetics (protocol 5)", () => {
+    it("replicates an owned, applicable paint and falls back to the DB selection", async () => {
+      usersRepo.create({ id: "u-paint", email: null, pass_hash: null, guest_token: "gt-paint" });
+      seedNewUser(configs, "u-paint", "Painter");
+      ownedCosmeticsRepo.grant("u-paint", "cosmetic.paint-crimson");
+      const token = signAccessToken("u-paint");
+
+      const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+      const c = await colyseus.connectTo(room, { token, shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-crimson" });
+      await advance(room, 1);
+      expect(room.state.players.get(c.sessionId)!.cosmeticId).toBe("cosmetic.paint-crimson");
+      await c.leave();
+
+      // No join-option paint: the account's saved selection is what flies.
+      selectedCosmeticsRepo.set("u-paint", "ship.interceptor", "cosmetic.paint-crimson");
+      const room2 = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+      const c2 = await colyseus.connectTo(room2, { token, shipId: "ship.interceptor" });
+      await advance(room2, 1);
+      expect(room2.state.players.get(c2.sessionId)!.cosmeticId).toBe("cosmetic.paint-crimson");
+      await c2.leave();
+    });
+
+    it("sanitizes an unowned, unknown or wrong-hull paint to standard instead of refusing the join", async () => {
+      usersRepo.create({ id: "u-nopaint", email: null, pass_hash: null, guest_token: "gt-nopaint" });
+      seedNewUser(configs, "u-nopaint", "Bare");
+      // Owned but authored for ship.brawler only.
+      ownedCosmeticsRepo.grant("u-nopaint", "cosmetic.paint-ironclad");
+      const token = signAccessToken("u-nopaint");
+
+      for (const cosmeticId of ["cosmetic.paint-violet", "cosmetic.paint-nonexistent", "cosmetic.paint-ironclad"]) {
+        const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+        const c = await colyseus.connectTo(room, { token, shipId: "ship.interceptor", cosmeticId });
+        await advance(room, 1);
+        expect(room.state.players.get(c.sessionId)!.cosmeticId, cosmeticId).toBe("");
+        await c.leave();
+      }
+    });
+
+    it("gives an anonymous join no paint at all — it owns nothing to wear", async () => {
+      const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+      const c = await colyseus.connectTo(room, { shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-crimson" });
+      await advance(room, 1);
+      expect(room.state.players.get(c.sessionId)!.cosmeticId).toBe("");
+      await c.leave();
+    });
+
+    it("dresses backfilled bots in a free universal paint, identically for the same seed", async () => {
+      const paints: string[] = [];
+      for (let run = 0; run < 2; run++) {
+        const room = await colyseus.createRoom<ArenaState>("arena", {
+          gamemode: "gamemode.duel-1v1",
+          minPlayers: 2,
+          botBackfillMs: 0,
+          seed: 42,
+        });
+        const c = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        await advance(room, 2);
+        const botKey = [...room.state.players.keys()].find((k) => k.startsWith("bot-"))!;
+        paints.push(room.state.players.get(botKey)!.cosmeticId);
+        await c.leave();
+      }
+      expect(paints[0]).toMatch(/^cosmetic\.paint-/);
+      expect(paints[1]).toBe(paints[0]);
+    });
   });
 
   it("backfills empty slots with bots and starts the match (5.1)", async () => {
