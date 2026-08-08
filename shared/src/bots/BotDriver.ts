@@ -7,7 +7,7 @@ import type { TuningConfig } from "../schemas/tuning.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong } from "../sim/los.js";
-import { angleDelta, clamp, dist3 } from "../sim/math.js";
+import { angleDelta, clamp, dist3, segmentIntersectsSphere } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
 import { deriveRng } from "../sim/rng.js";
 import { pitchTuningOf } from "../sim/tuningDefaults.js";
@@ -170,6 +170,7 @@ const SURFACE_ESCAPE_AIM_DISTANCE = 30;
 const SURFACE_ESCAPE_RADIUS_MULT = 3;
 const SURFACE_VISUAL_MARGIN = 0.35;
 const SURFACE_ANTIPARALLEL_BIAS = 0.35;
+const COMMANDED_STALL_THROTTLE = 0.2;
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -242,6 +243,7 @@ export class BotDriver {
   private unstuck: { untilMs: number; surfaceKey: string; side: 1 | -1 } | null = null;
   private surfaceStall: { key: string; sinceMs: number; anchor: Required<Vec3> } | null = null;
   private surfaceEscape: { key: string; normal: Required<Vec3>; side: 1 | -1 } | null = null;
+  private commandedStall: { sinceMs: number; anchor: Required<Vec3> } | null = null;
   private floorRecovering = false;
   private heldBehavior: { key: string; untilMs: number } | null = null;
 
@@ -315,6 +317,7 @@ export class BotDriver {
     this.unstuck = null;
     this.surfaceStall = null;
     this.surfaceEscape = null;
+    this.commandedStall = null;
     this.floorRecovering = false;
     this.heldBehavior = null;
   }
@@ -537,7 +540,10 @@ export class BotDriver {
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
     bestPlan = this.commitStuckCarrier(snapshot, self, bestPlan, nowMs);
-    bestPlan = this.surfaceRecoveryPlan(snapshot, self, bestPlan, nowMs);
+    const commandedStalled = this.commandedProgressFailed(self, nowMs);
+    const routed = commandedStalled ? this.routeBlockedPlan(snapshot, self, bestPlan) : null;
+    if (routed) bestPlan = routed;
+    bestPlan = this.surfaceRecoveryPlan(snapshot, self, bestPlan, nowMs, commandedStalled && routed === null);
     bestPlan = this.unstuckPlan(snapshot, self, bestPlan, nowMs);
     const engaged = bestPlan?.engaged ?? false;
     // Objective travel owns steering, but it must not make nearby enemies
@@ -1005,6 +1011,64 @@ export class BotDriver {
     };
   }
 
+  /** True only after a sustained powered command has failed to move the hull. */
+  private commandedProgressFailed(self: ShipSnapshot, nowMs: number): boolean {
+    if ((this.lastFlight?.throttle ?? 0) < COMMANDED_STALL_THROTTLE) {
+      this.commandedStall = null;
+      return false;
+    }
+    const ownRadius = self.colliderRadius ?? 0;
+    const tolerance = Math.max(SURFACE_STALL_RADIUS, ownRadius / 1.4);
+    if (!this.commandedStall || dist3(this.commandedStall.anchor, self.pos) > tolerance) {
+      this.commandedStall = { sinceMs: nowMs, anchor: aimPoint(self.pos) };
+      return false;
+    }
+    return nowMs - this.commandedStall.sinceMs >= SURFACE_STALL_MS;
+  }
+
+  /**
+   * A combat target behind rendered scenery is a route, not a contact-recovery
+   * problem. Once a powered plan has demonstrably made no progress, replace the
+   * through-rock bearing with a deterministic tangent waypoint outside the
+   * rendered obstacle. This uses the same forward-corridor fact as avoidRocks,
+   * but changes the plan's destination so its steering cannot cancel the overlay.
+   */
+  private routeBlockedPlan(snapshot: Snapshot, self: ShipSnapshot, plan: BotPlan | null): BotPlan | null {
+    if (!plan?.aim || !plan.engaged) return null;
+    const ownVisual = this.visualRadius ?? self.colliderRadius ?? 0;
+    const aim = aimPoint(plan.aim);
+    let blocker: Snapshot["asteroids"][number] | null = null;
+    let distance = Infinity;
+    for (const asteroid of snapshot.asteroids) {
+      if (asteroid.state === "destroyed") continue;
+      const radius = asteroid.radius + ownVisual + SURFACE_VISUAL_MARGIN;
+      if (!segmentIntersectsSphere(self.pos, aim, asteroid.pos, radius)) continue;
+      const candidateDistance = dist3(self.pos, asteroid.pos);
+      if (candidateDistance < distance) {
+        blocker = asteroid;
+        distance = candidateDistance;
+      }
+    }
+    if (!blocker) return null;
+    const dx = self.pos.x - blocker.pos.x;
+    const dz = self.pos.z - blocker.pos.z;
+    const planar = Math.hypot(dx, dz);
+    const nx = planar > 1e-6 ? dx / planar : Math.cos(self.heading);
+    const nz = planar > 1e-6 ? dz / planar : Math.sin(self.heading);
+    const clearance = blocker.radius + ownVisual + 2;
+    return {
+      ...plan,
+      aim: {
+        x: blocker.pos.x + (nx - nz * this.orbitSign) * clearance,
+        y: self.pos.y,
+        z: blocker.pos.z + (nz + nx * this.orbitSign) * clearance,
+      },
+      throttle: Math.max(plan.throttle, 0.65),
+      arrive: false,
+      boost: false,
+    };
+  }
+
   /**
    * Last-resort progress invariant for every physical surface. Unlike the older
    * wedge and floor guards, detection is independent of the utility plan's
@@ -1016,6 +1080,7 @@ export class BotDriver {
     self: ShipSnapshot,
     plan: BotPlan | null,
     nowMs: number,
+    commandedStalled: boolean,
   ): BotPlan | null {
     let surface = this.surfaceEscape
       ? surfaceByKey(snapshot, self, this.floorY, this.arenaBounds, this.surfaceEscape.key)
@@ -1028,7 +1093,7 @@ export class BotDriver {
         SURFACE_ESCAPE_CLEARANCE,
         ownRadius * SURFACE_ESCAPE_RADIUS_MULT,
         visualOverhang + ownRadius * 2,
-      ) + (surface?.visualOverhang ?? 0);
+      );
       if (!surface || surface.clearance >= exitClearance) {
         this.surfaceEscape = null;
         this.surfaceStall = null;
@@ -1038,9 +1103,10 @@ export class BotDriver {
     } else {
       const ownRadius = self.colliderRadius ?? 0;
       const visualOverhang = Math.max(0, (this.visualRadius ?? ownRadius) - ownRadius);
-      const enterClearance = SURFACE_VISUAL_MARGIN + visualOverhang + (surface?.visualOverhang ?? 0);
+      const enterClearance = SURFACE_VISUAL_MARGIN + visualOverhang;
       const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
-      if (!surface || surface.clearance > enterClearance || speed >= WEDGE_SPEED) {
+      const realContact = surface !== null && surface.clearance <= enterClearance;
+      if (!surface || (!realContact && !commandedStalled) || (!commandedStalled && speed >= WEDGE_SPEED)) {
         this.surfaceStall = null;
         return plan;
       }
@@ -1125,7 +1191,7 @@ function nearestRestSurface(
   if (shell && (!nearest || shell.clearance < nearest.clearance)) nearest = shell;
   const consider = (candidate: ContactCollider): void => {
     const surface = colliderRestSurface(self, candidate);
-    if (!nearest || surface.clearance - (surface.visualOverhang ?? 0) < nearest.clearance - (nearest.visualOverhang ?? 0)) nearest = surface;
+    if (!nearest || surface.clearance < nearest.clearance) nearest = surface;
   };
   for (const asteroid of snapshot.asteroids) {
     if (asteroid.state !== "destroyed") consider({

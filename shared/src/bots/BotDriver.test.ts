@@ -270,7 +270,6 @@ describe("BotDriver flight orders", () => {
     ]);
     driver.update(pinned, 0);
     for (const nowMs of [100, 600, 1_100, 1_700]) driver.update(pinned, nowMs);
-
     expect(driver.lastDecision?.surfaceRecovery).toBe(true);
     expect(driver.lastDecision!.plannedMove!.x).toBeLessThan(98);
 
@@ -282,7 +281,7 @@ describe("BotDriver flight orders", () => {
     expect(driver.lastDecision?.surfaceRecovery).toBe(false);
   });
 
-  it("arms recovery in the rendered-contact band of a scaled Twin Titans colossal", () => {
+  it("routes around a scaled colossal it has stalled against instead of faking a contact recovery", () => {
     const p = profile({ decisionIntervalMs: 100, behaviors: { engage: { baseWeight: 1 } } });
     const driver = new BotDriver({
       entityId: 1,
@@ -302,13 +301,23 @@ describe("BotDriver flight orders", () => {
     ], [colossal]);
 
     driver.update(pinned, 0);
-    for (const nowMs of [100, 600, 1_100, 1_700]) driver.update(pinned, nowMs);
+    // update(0) only schedules the staggered first decision, so the commanded-
+    // progress anchor arms on the second real decision (600) and trips a full
+    // stall window later (2100+).
+    for (const nowMs of [100, 600, 1_100, 1_700, 2_300]) driver.update(pinned, nowMs);
 
-    // Collider clearance is +2.26, outside the old +1.85 ship-only visual
-    // threshold; rendered clearance is -0.50 because the scaled rock adds a
-    // further 1.26 units of overhang.
-    expect(driver.lastDecision?.surfaceRecovery).toBe(true);
-    expect(driver.lastDecision!.plannedMove!.x).toBeGreaterThan(28.3);
+    // Collider clearance is +2.26 — the hull is NOT obstructed, it only LOOKS
+    // grounded (rendered clearance -0.50). Treating that as surface contact
+    // hijacked every slow flag arrival on lunar-crater (regressed both CTF
+    // acceptance seeds to the 600 s cap), so the answer here is a ROUTE: the
+    // engage bearing runs through the rock, progress has demonstrably stalled,
+    // and the plan's destination moves to a tangent point outside the rendered
+    // radius (25.2 + 3.6 visual + 2) with committed throttle.
+    expect(driver.lastDecision?.surfaceRecovery ?? false).toBe(false);
+    const move = driver.lastDecision!.plannedMove!;
+    expect(Math.hypot(move.x, move.z)).toBeGreaterThan(25.2 + 3.6);
+    expect(Math.abs(move.z)).toBeGreaterThan(20); // off the through-rock bearing
+    expect(driver.lastDecision!.flight!.throttle).toBeGreaterThanOrEqual(0.65);
   });
 
   it("emits only schema-valid orders, and never a targeting one", () => {
