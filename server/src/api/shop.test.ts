@@ -52,7 +52,7 @@ describe("inventory read (GET /api/auth/me)", () => {
     expect(ownedShipsRepo.byUser(userId)).toHaveLength(0); // derived, never a row
     expect(inv.cosmetics).toEqual([STANDARD_COSMETIC_ID]);
     expect(inv.modules).toContain("module.laser-mk1");
-    expect(inv.modules).not.toContain("module.boost-mk2"); // priced: must be bought
+    expect(inv.modules).not.toContain("module.laser-mk2"); // priced: must be bought
     expect(inv.selections).toEqual({});
   });
 

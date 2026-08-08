@@ -163,6 +163,53 @@ export function throttleForPointArrival(
   return clamp(maximum * desiredSpeed / speed, Math.min(minimumThrottle, maximum), maximum);
 }
 
+/**
+ * Where to aim to arrive at the same place as a moving ship: the lead point a
+ * pursuer travelling at `speed` reaches at the same instant the target does,
+ * solving `|target + v·t − from| = speed·t` for the earliest positive `t`.
+ *
+ * Falls back to the target's CURRENT position whenever the geometry has no
+ * honest answer — a stationary or slower pursuer, a stationary target, or a root
+ * beyond `maxLeadSec` (a lead thirty seconds out is a guess about a fight that
+ * will not exist by then, not an intercept). That fallback is deliberately the
+ * pure-pursuit point rather than a clamped extrapolation, so a bad estimate
+ * degrades to the behaviour that has always worked instead of aiming at empty
+ * space.
+ */
+export function interceptPoint(
+  from: Vec3,
+  speed: number,
+  targetPos: Vec3,
+  targetVelocity: Vec3 | undefined,
+  maxLeadSec = 6,
+): Required<Vec3> {
+  const here = { x: targetPos.x, y: targetPos.y ?? 0, z: targetPos.z };
+  const vx = targetVelocity?.x ?? 0;
+  const vy = targetVelocity?.y ?? 0;
+  const vz = targetVelocity?.z ?? 0;
+  if (!(speed > 0)) return here;
+  const rx = here.x - from.x;
+  const ry = here.y - (from.y ?? 0);
+  const rz = here.z - from.z;
+  const a = vx * vx + vy * vy + vz * vz - speed * speed;
+  const b = 2 * (rx * vx + ry * vy + rz * vz);
+  const c = rx * rx + ry * ry + rz * rz;
+  let t: number;
+  if (Math.abs(a) < 1e-6) {
+    t = b < 0 ? -c / b : Number.NaN;
+  } else {
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) return here;
+    const root = Math.sqrt(disc);
+    const t1 = (-b - root) / (2 * a);
+    const t2 = (-b + root) / (2 * a);
+    const positives = [t1, t2].filter((candidate) => candidate > 0);
+    t = positives.length ? Math.min(...positives) : Number.NaN;
+  }
+  if (!Number.isFinite(t) || t <= 0 || t > maxLeadSec) return here;
+  return { x: here.x + vx * t, y: here.y + vy * t, z: here.z + vz * t };
+}
+
 /** Hull + control-loop constants {@link steerForPoint} needs. */
 export interface Steer3Params {
   /** Measured yaw rate per unit stick (rad/s); 0 ⇒ uncalibrated. */

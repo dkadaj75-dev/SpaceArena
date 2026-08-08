@@ -9,6 +9,7 @@ import {
   pitchForElevation,
   pointOnRing,
   pointOnSphere,
+  interceptPoint,
   steerForPoint,
   turnForHeading,
   type Steer3Params,
@@ -356,5 +357,30 @@ describe("noseBlocker", () => {
     );
     expect(hit!.along).toBeCloseTo(6, 10);
     expect(hit!.offset).toBeCloseTo(0, 10);
+  });
+});
+
+describe("interceptPoint", () => {
+  it("leads a crossing target to the point both ships reach at once", () => {
+    // Target 100 ahead on +z crossing at 10 u/s on +x; a 20 u/s pursuer meets it
+    // where |lead| = 20t and the crossing has run 10t: t solves 100^2 + (10t)^2 = (20t)^2.
+    const t = Math.sqrt(10_000 / 300);
+    const lead = interceptPoint({ x: 0, y: 0, z: 0 }, 20, { x: 0, y: 0, z: 100 }, { x: 10, y: 0, z: 0 });
+    expect(lead.x).toBeCloseTo(10 * t, 6);
+    expect(lead.z).toBeCloseTo(100, 6);
+  });
+
+  it("answers the target's own position when there is no honest lead", () => {
+    const here = { x: 0, y: 0, z: 100 };
+    // Stationary pursuer, stationary target, and a lead further out than the horizon.
+    expect(interceptPoint({ x: 0, y: 0, z: 0 }, 0, here, { x: 10, y: 0, z: 0 })).toEqual(here);
+    expect(interceptPoint({ x: 0, y: 0, z: 0 }, 20, here, undefined).z).toBeCloseTo(100, 6);
+    expect(interceptPoint({ x: 0, y: 0, z: 0 }, 20, here, { x: 10, y: 0, z: 0 }, 1)).toEqual(here);
+  });
+
+  it("aims behind a target that is running away faster than the pursuer can close", () => {
+    // No positive root exists, so pure pursuit is the honest answer.
+    expect(interceptPoint({ x: 0, y: 0, z: 0 }, 5, { x: 0, y: 0, z: 50 }, { x: 0, y: 0, z: 30 }))
+      .toEqual({ x: 0, y: 0, z: 50 });
   });
 });
