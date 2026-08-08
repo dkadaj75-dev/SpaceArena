@@ -128,8 +128,11 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
 
   // Browsing is not choosing: making this hull the one you fly is a separate,
   // explicit act. Pick the heavy hull, since its stock fit carries the shield
-  // the match phase below toggles.
+  // the match phase below toggles. A fresh guest owns only the starter light
+  // hull (2026-08-08 shop), so the heavy must be BOUGHT first — the buy step
+  // is real, only the cost is not.
   await shipButtons.filter({ hasText: "Brawler" }).click();
+  await hangar.getByRole("button", { name: /Buy/ }).click();
   await hangar.getByRole("button", { name: "★ Set as main" }).click();
   await expect(hangar.locator(".hangar-badge.main")).toBeVisible();
 
