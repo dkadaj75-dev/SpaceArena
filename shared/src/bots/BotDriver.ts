@@ -7,7 +7,7 @@ import type { TuningConfig } from "../schemas/tuning.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong } from "../sim/los.js";
-import { angleDelta, clamp, dist3 } from "../sim/math.js";
+import { clamp, dist3, facingVec, segmentIntersectsSphere } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
 import { deriveRng } from "../sim/rng.js";
 import { pitchTuningOf } from "../sim/tuningDefaults.js";
@@ -70,8 +70,16 @@ export interface BotDecisionSnapshot {
    */
   targetId: EntityId | null;
   engaged: boolean;
-  /** True while the floor recovery override is commanding a climb. */
+  /** True while the LATCHED floor recovery override is commanding a climb. */
   floorRecovery?: boolean;
+  /**
+   * How much of this command predictive floor avoidance owned, 0..1. Distinct
+   * from {@link floorRecovery}, which only latches once the hull is already
+   * inside the safety band: the predictive branch can own the command outright
+   * (strength 1) at any altitude, and reporting only the latched flag is what
+   * hid a fleet-wide throttle cut from the behaviour audit.
+   */
+  floorAvoidance?: number;
   /** True while no-progress recovery owns flight until real surface separation. */
   surfaceRecovery?: boolean;
   /** True while the dodge behavior is winning or layering an inbound-missile jink. */
@@ -154,6 +162,17 @@ const CALIBRATION_MAX_SPAN_SEC = 0.2;
 const CLAMP_PINNED_EPSILON = 1e-9;
 const FLOOR_LOOKAHEAD_SEC = 2.5;
 const FLOOR_NOMINAL_SPEED = 20;
+/** Below this hull speed a floor-avoidance throttle cut would strand the ship. */
+const FLOOR_STALL_SPEED = 4;
+/** Way the predictive cut always leaves a stalled hull, so it can fly out. */
+const FLOOR_STALL_THROTTLE = 0.3;
+/**
+ * Largest single-window body rotation a calibration sample may claim. One sim
+ * tick at any flyable rate is a small fraction of this; anything larger means
+ * the frame was re-derived across a pole and the sample measures a coordinate
+ * artefact, not the hull.
+ */
+const CALIBRATION_MAX_ROTATION = Math.PI / 2;
 const CARRIER_STUCK_MS = 5_000;
 const CARRIER_COMMIT_MS = 3_000;
 const CARRIER_PROGRESS_EPSILON = 0.75;
@@ -170,6 +189,13 @@ const SURFACE_ESCAPE_AIM_DISTANCE = 30;
 const SURFACE_ESCAPE_RADIUS_MULT = 3;
 const SURFACE_VISUAL_MARGIN = 0.35;
 const SURFACE_ANTIPARALLEL_BIAS = 0.35;
+const COMMANDED_STALL_THROTTLE = 0.2;
+
+// Scratch nose vectors — calibration runs every tick for every bot, so the two
+// facing vectors it needs are reused rather than allocated (same discipline as
+// `noseDir` in flight.ts). Read and discarded inside `calibrate`, never held.
+const calibrationNose = { x: 0, y: 0, z: 0 };
+const calibrationNextNose = { x: 0, y: 0, z: 0 };
 
 /**
  * `BotDriver` (ROADMAP 5.1, re-planned for flight in FLIGHT.md §7) — drives one
@@ -232,6 +258,12 @@ export class BotDriver {
   private pitchRateEst = 0;
   private lastHeading: number | null = null;
   private lastPitch: number | null = null;
+  /**
+   * The frame's persisted up at the previous sample. Calibration measures the
+   * hull's BODY rotation, and a body rotation needs the frame it happened in —
+   * `heading`/`pitch` alone cannot express one near the poles.
+   */
+  private lastUp: Required<Vec3> | null = null;
   private lastElapsed = 0;
   /** Seeded combat-aim bias, held across decisions so misses look human, not noisy. */
   private marksmanship = { yaw: 0, pitch: 0, velocitySec: 0, untilMs: 0 };
@@ -242,7 +274,10 @@ export class BotDriver {
   private unstuck: { untilMs: number; surfaceKey: string; side: 1 | -1 } | null = null;
   private surfaceStall: { key: string; sinceMs: number; anchor: Required<Vec3> } | null = null;
   private surfaceEscape: { key: string; normal: Required<Vec3>; side: 1 | -1 } | null = null;
+  private commandedStall: { sinceMs: number; anchor: Required<Vec3> } | null = null;
   private floorRecovering = false;
+  /** How much of the last command floor avoidance owned, 0..1 (diagnostics). */
+  private floorAvoidStrength = 0;
   private heldBehavior: { key: string; untilMs: number } | null = null;
 
   constructor(options: BotDriverOptions) {
@@ -315,6 +350,7 @@ export class BotDriver {
     this.unstuck = null;
     this.surfaceStall = null;
     this.surfaceEscape = null;
+    this.commandedStall = null;
     this.floorRecovering = false;
     this.heldBehavior = null;
   }
@@ -394,25 +430,64 @@ export class BotDriver {
   private calibrate(self: ShipSnapshot, elapsed: number): void {
     const prevHeading = this.lastHeading;
     const prevPitch = this.lastPitch;
+    const prevUp = this.lastUp;
     const span = elapsed - this.lastElapsed;
     this.lastHeading = self.heading;
     this.lastPitch = self.pitch;
+    this.lastUp = self.up ? { x: self.up.x, y: self.up.y ?? 0, z: self.up.z } : null;
     this.lastElapsed = elapsed;
 
     if (prevHeading === null || prevPitch === null) return;
     if (span <= 0 || span > CALIBRATION_MAX_SPAN_SEC) return;
 
+    // Measure the rotation the hull actually performed, in the frame it
+    // performed it in. `heading`/`pitch` are re-derived COORDINATES, not body
+    // axes: with pitch free (the shipped case) the sim integrates the real
+    // frame and respells the pair from the resulting nose, so a hull crossing
+    // the pole shows most of a turn of heading change for a body yaw of almost
+    // nothing — and a hull that merely rolls shows a pitch change it was never
+    // commanded. Dividing either by the stick invented hulls of 90+ rad/s, and
+    // since a 90 rad/s hull answers every bearing error with a stick below the
+    // sampling minimum, the estimate could never be re-measured: one poisoned
+    // tick disabled the axis for the rest of the match.
+    //
+    // Inverting `advanceFrame` instead is exact. It applies body yaw psi about
+    // the persisted up, then body pitch delta about the already-yawed right
+    // axis, so writing N2 for the new nose and (N, U, W) for the old frame:
+    //
+    //     N2·U = sin delta        N2·N = cos psi cos delta
+    //     N2·W = sin psi cos delta
+    //
+    // which recovers both angles with no coordinate anywhere in the arithmetic.
+    const nose = facingVec(prevHeading, prevPitch, calibrationNose);
+    const nx = nose.x;
+    const ny = nose.y ?? 0;
+    const nz = nose.z;
+    // The persisted up when the snapshot carries one; otherwise the derived up,
+    // which is the frame a roll-less caller is flying by construction.
+    const ux = prevUp ? prevUp.x : -Math.cos(prevHeading) * Math.sin(prevPitch);
+    const uy = prevUp ? prevUp.y : Math.cos(prevPitch);
+    const uz = prevUp ? prevUp.z : -Math.sin(prevHeading) * Math.sin(prevPitch);
+    const wx = ny * uz - nz * uy;
+    const wy = nz * ux - nx * uz;
+    const wz = nx * uy - ny * ux;
+    const next = facingVec(self.heading, self.pitch, calibrationNextNose);
+    const ex = next.x;
+    const ey = next.y ?? 0;
+    const ez = next.z;
+    const alongNose = ex * nx + ey * ny + ez * nz;
+    const alongUp = ex * ux + ey * uy + ez * uz;
+    const alongRight = ex * wx + ey * wy + ez * wz;
+    const yawed = Math.atan2(alongRight, alongNose);
+    const pitched = Math.asin(clamp(alongUp, -1, 1));
+    // A window that claims a quarter-turn or more of body rotation is not a
+    // measurement — one tick at any flyable rate is a small fraction of that,
+    // so this is an aliased or re-derived frame. Drop the whole sample.
+    if (!(Math.abs(yawed) < CALIBRATION_MAX_ROTATION) || !(Math.abs(pitched) < CALIBRATION_MAX_ROTATION)) return;
+
     const turn = this.lastFlight?.turn ?? 0;
     if (Math.abs(turn) >= CALIBRATION_MIN_TURN) {
-      // `heading` is a COORDINATE, and yaw is applied in the ship's own frame
-      // (BUBBLE.md §A), so a body-frame yaw of psi moves the heading by
-      // `psi / cos(pitch)` — unbounded at the pole. Multiplying the observed
-      // heading change back by `cos(pitch)` recovers the hull's actual yaw rate,
-      // which is what {@link steerForPoint} plans with. Without this the estimate
-      // would balloon with pitch and the bot would centre its stick to nothing in
-      // a steep climb. The sample is taken at the END attitude, matching how the
-      // pitch axis below reads its own.
-      const rate = (angleDelta(prevHeading, self.heading) * Math.cos(self.pitch)) / (turn * span);
+      const rate = yawed / (turn * span);
       if (Number.isFinite(rate) && rate > 0) this.turnRateEst = rate;
     }
 
@@ -424,7 +499,7 @@ export class BotDriver {
     // a perfectly clean, fully observed rotation. No clamp ⇒ nothing to pin on.
     const limit = this.maxPitch();
     if (limit !== null && Math.abs(self.pitch) >= limit - CLAMP_PINNED_EPSILON) return;
-    const rate = angleDelta(prevPitch, self.pitch) / (stick * span);
+    const rate = pitched / (stick * span);
     if (Number.isFinite(rate) && rate > 0) this.pitchRateEst = rate;
   }
 
@@ -537,7 +612,10 @@ export class BotDriver {
       bestPlan = this.behaviors.get(bestKey)!.plan(ctx, params);
     }
     bestPlan = this.commitStuckCarrier(snapshot, self, bestPlan, nowMs);
-    bestPlan = this.surfaceRecoveryPlan(snapshot, self, bestPlan, nowMs);
+    const commandedStalled = this.commandedProgressFailed(self, nowMs);
+    const routed = commandedStalled ? this.routeBlockedPlan(snapshot, self, bestPlan) : null;
+    if (routed) bestPlan = routed;
+    bestPlan = this.surfaceRecoveryPlan(snapshot, self, bestPlan, nowMs, commandedStalled && routed === null);
     bestPlan = this.unstuckPlan(snapshot, self, bestPlan, nowMs);
     const engaged = bestPlan?.engaged ?? false;
     // Objective travel owns steering, but it must not make nearby enemies
@@ -602,7 +680,16 @@ export class BotDriver {
     // A measured surface escape already includes the floor normal when needed.
     // Letting predictive floor avoidance rewrite it here can deadlock a hull in
     // the seam between the plane and a rock, with the two overrides alternating.
+    this.floorAvoidStrength = 0;
     if (!this.surfaceEscape) cmd = this.avoidFloor(self, cmd, horizonSec, tolerance);
+    // A flag carrier CANNOT boost — the sim refuses it outright. `objective`
+    // already declines to ask while it is the winning behaviour, but a carrier
+    // whose utility swings to engage/kite/retreat used to ask anyway, and the
+    // request costs a module-toggle order (plus its heat and energy) every
+    // decision for a burner the sim will never light. The rule belongs to the
+    // ship's state, not to one behaviour, so it is enforced where the command
+    // is assembled.
+    if (cmd.boost && snapshot.flags.some((flag) => flag.carrierId === self.id)) cmd.boost = false;
     // `clamp` passes NaN straight through, and a non-finite axis would poison the
     // ship's attitude for the rest of the match (flight orders are level-triggered).
     // A mistyped content param is the realistic source, so neutralise it here
@@ -669,6 +756,7 @@ export class BotDriver {
       targetId,
       engaged: triggerEngaged,
       floorRecovery: this.floorRecovering,
+      floorAvoidance: this.floorAvoidStrength,
       surfaceRecovery: this.surfaceEscape !== null,
       missileEvasion: bestKey === "dodge" || live.some((entry) => entry.key === "dodge" && entry.key !== bestKey),
       fire: fireDecision.fire,
@@ -892,14 +980,37 @@ export class BotDriver {
 
     const band = 4;
     const strength = this.floorRecovering ? 1 : clamp((safeY - predictedY) / band, 0, 1);
+    this.floorAvoidStrength = strength;
+    // The escape point has to be ABOVE the hull, and it has to be reachable.
+    //
+    // `safeY + band` is an ABSOLUTE altitude, and the predictive branch fires
+    // mostly at hulls that are already well above it — only the projection is
+    // bad. Aiming at a fixed altitude therefore pointed the nose DOWN, and a
+    // nose that was already down read as "on target" once the error fell inside
+    // the profile's aim tolerance: turn 0, pitch 0, and a throttle cut to zero
+    // for being nose-down. Zero throttle keeps the projection catastrophic, so
+    // nothing ever released the override (CTF seed 73 bot 43 sat there for
+    // 558 s, nose 81 deg down, which is what the owner saw in a live match).
+    //
+    // The lead ahead of the nose matters as much as the rise. A point straight
+    // overhead is ANTI-PARALLEL to a nose-down hull, and that is the singular
+    // case of the two-axis body decomposition — the same one `surfaceRecovery`
+    // already biases its way out of. Climbing along the hull's own heading at
+    // 45 deg is unambiguous at every attitude and is what a pilot flies.
+    const rise = Math.max(safeY, self.pos.y) + band - self.pos.y;
     const lift = steerForPoint(
       self.pos,
       self.heading,
       self.pitch,
-      { x: self.pos.x, y: safeY + band, z: self.pos.z },
+      {
+        x: self.pos.x + Math.cos(self.heading) * rise,
+        y: self.pos.y + rise,
+        z: self.pos.z + Math.sin(self.heading) * rise,
+      },
       { turnRate: this.turnRateEst, pitchRate: this.pitchRateEst, horizonSec, toleranceRad, maxPitchRad: this.maxPitch() },
       self.up,
     );
+    const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
     return {
       turn: cmd.turn + (lift.turn - cmd.turn) * strength,
       pitchStick: cmd.pitchStick + (lift.pitchStick - cmd.pitchStick) * strength,
@@ -913,9 +1024,18 @@ export class BotDriver {
       // heat/energy overhaul removed self-destruction) nothing will ever kill it
       // out of the stall either. Keep a floor under the cut instead of zeroing
       // it — full cut only ever applied to a nose already pointing down.
+      // The PREDICTIVE branch needs the same floor, for the same reason. It cuts
+      // to exactly zero for any nose-down attitude, and a hull that has already
+      // stopped cannot climb out of that: with no way on, the projection reads
+      // the plan's throttle, keeps predicting a dive, and holds the cut forever.
+      // Only stalled hulls get the floor — a fast hull diving at the deck still
+      // wants its throttle cut, which is the whole point of the rule.
       throttle: this.floorRecovering
         ? (self.pitch > 0.12 ? Math.max(cmd.throttle, 0.7) : Math.max(cmd.throttle * 0.5, 0.25))
-        : cmd.throttle * (1 - strength) + (self.pitch > 0 ? Math.min(cmd.throttle, 0.35) : 0) * strength,
+        : Math.max(
+            cmd.throttle * (1 - strength) + (self.pitch > 0 ? Math.min(cmd.throttle, 0.35) : 0) * strength,
+            speed < FLOOR_STALL_SPEED ? Math.min(cmd.throttle, FLOOR_STALL_THROTTLE) : 0,
+          ),
       boost: strength < 0.15 && cmd.boost,
     };
   }
@@ -1005,6 +1125,64 @@ export class BotDriver {
     };
   }
 
+  /** True only after a sustained powered command has failed to move the hull. */
+  private commandedProgressFailed(self: ShipSnapshot, nowMs: number): boolean {
+    if ((this.lastFlight?.throttle ?? 0) < COMMANDED_STALL_THROTTLE) {
+      this.commandedStall = null;
+      return false;
+    }
+    const ownRadius = self.colliderRadius ?? 0;
+    const tolerance = Math.max(SURFACE_STALL_RADIUS, ownRadius / 1.4);
+    if (!this.commandedStall || dist3(this.commandedStall.anchor, self.pos) > tolerance) {
+      this.commandedStall = { sinceMs: nowMs, anchor: aimPoint(self.pos) };
+      return false;
+    }
+    return nowMs - this.commandedStall.sinceMs >= SURFACE_STALL_MS;
+  }
+
+  /**
+   * A combat target behind rendered scenery is a route, not a contact-recovery
+   * problem. Once a powered plan has demonstrably made no progress, replace the
+   * through-rock bearing with a deterministic tangent waypoint outside the
+   * rendered obstacle. This uses the same forward-corridor fact as avoidRocks,
+   * but changes the plan's destination so its steering cannot cancel the overlay.
+   */
+  private routeBlockedPlan(snapshot: Snapshot, self: ShipSnapshot, plan: BotPlan | null): BotPlan | null {
+    if (!plan?.aim || !plan.engaged) return null;
+    const ownVisual = this.visualRadius ?? self.colliderRadius ?? 0;
+    const aim = aimPoint(plan.aim);
+    let blocker: Snapshot["asteroids"][number] | null = null;
+    let distance = Infinity;
+    for (const asteroid of snapshot.asteroids) {
+      if (asteroid.state === "destroyed") continue;
+      const radius = asteroid.radius + ownVisual + SURFACE_VISUAL_MARGIN;
+      if (!segmentIntersectsSphere(self.pos, aim, asteroid.pos, radius)) continue;
+      const candidateDistance = dist3(self.pos, asteroid.pos);
+      if (candidateDistance < distance) {
+        blocker = asteroid;
+        distance = candidateDistance;
+      }
+    }
+    if (!blocker) return null;
+    const dx = self.pos.x - blocker.pos.x;
+    const dz = self.pos.z - blocker.pos.z;
+    const planar = Math.hypot(dx, dz);
+    const nx = planar > 1e-6 ? dx / planar : Math.cos(self.heading);
+    const nz = planar > 1e-6 ? dz / planar : Math.sin(self.heading);
+    const clearance = blocker.radius + ownVisual + 2;
+    return {
+      ...plan,
+      aim: {
+        x: blocker.pos.x + (nx - nz * this.orbitSign) * clearance,
+        y: self.pos.y,
+        z: blocker.pos.z + (nz + nx * this.orbitSign) * clearance,
+      },
+      throttle: Math.max(plan.throttle, 0.65),
+      arrive: false,
+      boost: false,
+    };
+  }
+
   /**
    * Last-resort progress invariant for every physical surface. Unlike the older
    * wedge and floor guards, detection is independent of the utility plan's
@@ -1016,6 +1194,7 @@ export class BotDriver {
     self: ShipSnapshot,
     plan: BotPlan | null,
     nowMs: number,
+    commandedStalled: boolean,
   ): BotPlan | null {
     let surface = this.surfaceEscape
       ? surfaceByKey(snapshot, self, this.floorY, this.arenaBounds, this.surfaceEscape.key)
@@ -1028,7 +1207,7 @@ export class BotDriver {
         SURFACE_ESCAPE_CLEARANCE,
         ownRadius * SURFACE_ESCAPE_RADIUS_MULT,
         visualOverhang + ownRadius * 2,
-      ) + (surface?.visualOverhang ?? 0);
+      );
       if (!surface || surface.clearance >= exitClearance) {
         this.surfaceEscape = null;
         this.surfaceStall = null;
@@ -1038,9 +1217,10 @@ export class BotDriver {
     } else {
       const ownRadius = self.colliderRadius ?? 0;
       const visualOverhang = Math.max(0, (this.visualRadius ?? ownRadius) - ownRadius);
-      const enterClearance = SURFACE_VISUAL_MARGIN + visualOverhang + (surface?.visualOverhang ?? 0);
+      const enterClearance = SURFACE_VISUAL_MARGIN + visualOverhang;
       const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
-      if (!surface || surface.clearance > enterClearance || speed >= WEDGE_SPEED) {
+      const realContact = surface !== null && surface.clearance <= enterClearance;
+      if (!surface || (!realContact && !commandedStalled) || (!commandedStalled && speed >= WEDGE_SPEED)) {
         this.surfaceStall = null;
         return plan;
       }
@@ -1125,7 +1305,7 @@ function nearestRestSurface(
   if (shell && (!nearest || shell.clearance < nearest.clearance)) nearest = shell;
   const consider = (candidate: ContactCollider): void => {
     const surface = colliderRestSurface(self, candidate);
-    if (!nearest || surface.clearance - (surface.visualOverhang ?? 0) < nearest.clearance - (nearest.visualOverhang ?? 0)) nearest = surface;
+    if (!nearest || surface.clearance < nearest.clearance) nearest = surface;
   };
   for (const asteroid of snapshot.asteroids) {
     if (asteroid.state !== "destroyed") consider({
