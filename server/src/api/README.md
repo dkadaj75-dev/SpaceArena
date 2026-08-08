@@ -43,7 +43,7 @@ All auth responses (except `/me`) return a **token pair + profile**:
 | `POST /login` | — | `{ email, password }` | 200 + pair. `401 invalid-credentials` otherwise. |
 | `POST /guest` | — | `{ displayName?, guestToken? }` | 201 creates a guest (returns `guestToken`). A known `guestToken` restores that guest → 200. A supplied-but-**unknown** `guestToken` → `401 invalid-guest-token` (does not mint a new guest). |
 | `POST /refresh` | — | `{ refreshToken }` | 200 + a fresh pair (old refresh token is invalidated). `401 invalid-refresh`. |
-| `GET /me` | **required** | — | `{ profile }`. |
+| `GET /me` | **required** | — | `{ profile, inventory }`. `inventory` is `{ ships, modules, cosmetics, selections }` — the WHOLE inventory in one read (the Shop and the Hangar need all four together). Ownership is **derived**: the starter hull, every `price: 0` module and `cosmetic.paint-standard` are computed from content on each read, never seeded rows, so re-authoring the starter set repairs existing accounts. `selections` maps ship id → equipped cosmetic id; an absent key is the hull's authored look. |
 
 Passwords: 8–200 chars, hashed with **argon2id**. `JWT_SECRET` is **required** in
 production — a missing secret when `NODE_ENV=production` is a hard startup failure
@@ -76,6 +76,7 @@ A fitting is `{ id, user_id, ship_id, name, hardpointMap, created_at }` where
 | Method & path | Body | Notes |
 |---|---|---|
 | `GET /` | — | `{ ships: [{ id, name, class, hardpoints, upgrades: { hull, engine, energy, heat } }] }`. `upgrades.*` = purchased level count per track (0 = base). |
+| `POST /buy` | `{ shipId }` | Spends the hull's `price` (absent = 0). 200 `{ shipId, credits }`. **Idempotent** — buying a hull you own succeeds with an unchanged balance. `404 unknown-ship`, `409 insufficient-credits`. |
 | `POST /:shipId/upgrade` | `{ track }` | Buys the **next** level of `track` (`hull`/`engine`/`energy`/`heat`). 200 `{ shipId, track, level, credits }`. `409 insufficient-credits`, `400 max-level`. |
 
 Upgrade level = count of purchased config levels; the next price comes from the
@@ -87,6 +88,23 @@ ship's `upgrade.<track>` config `levels[currentLevel]`. Max level = `levels.leng
 |---|---|---|
 | `GET /` | — | `{ modules: [{ id, name, family, level, price, requiresLevel, owned }] }`. |
 | `POST /buy` | `{ moduleId }` | Spends `price` credits. 200 `{ moduleId, credits }`. `409 insufficient-credits`, `403 level-locked`, `409 already-owned`. |
+
+## Cosmetics — `/api/cosmetics` (auth required)
+
+Paints are content (`cosmetic.*`, `content/cosmetics/*.json`), so there is no
+catalog route — every client already holds the pack. Only ownership and the
+per-hull selection are server state.
+
+| Method & path | Body | Notes |
+|---|---|---|
+| `POST /buy` | `{ cosmeticId }` | Spends `price` credits. 200 `{ cosmeticId, credits }`. **Idempotent**. `404 unknown-cosmetic`, `409 insufficient-credits`. |
+| `POST /select` | `{ shipId, cosmeticId }` | Equips a paint on a hull. 200 `{ shipId, cosmeticId }`. `cosmeticId: null` (or the standard id) clears back to the authored look and returns `cosmeticId: null`. `404 unknown-ship`/`unknown-cosmetic`, `403 not-owned` (the hull **or** the paint), `400 not-applicable` when the cosmetic's `appliesTo` excludes the hull. |
+
+The equipped paint also travels into a match: `ArenaRoom` accepts a `cosmeticId`
+join option, falls back to the saved selection for the spawned hull, and
+re-validates ownership + applicability server-side — anything else flies as the
+authored look rather than refusing the join. It replicates as
+`PlayerState.cosmeticId` (`""` = standard), protocol version 5.
 
 ## User configs — `/api/configs` (auth required)
 

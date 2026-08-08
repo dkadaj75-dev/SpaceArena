@@ -52,6 +52,10 @@ export const APPLICATION_POLICY: Record<ConfigType, ApplicationPolicy> = {
     message: "Applies live except particle budgets on existing ship emitters, which apply next match.",
   },
   event: { scope: "next-match", message: "Applies next match." },
+  cosmetic: {
+    scope: "next-match",
+    message: "Applies next match. Spawned ships keep the paint they were built with.",
+  },
 };
 
 export function applicationNotice(type: ConfigType): HTMLParagraphElement {

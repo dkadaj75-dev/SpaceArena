@@ -94,6 +94,13 @@ export const shipSchema = z
   .object({
     ...baseShape("ship"),
     class: z.string(),
+    /**
+     * Purchase price in credits. OPTIONAL, and absent means 0 (free) — read it
+     * through {@link shipPrice}, never directly. The shop still runs the real
+     * buy step against that 0, which is what makes turning the economy back on a
+     * content edit rather than a code change.
+     */
+    price: z.number().int().nonnegative().optional(),
     core: shipCore,
     /** Upgrade track ids (`upgrade.*`), one per core track. */
     upgradeTracks: z.object({
@@ -132,6 +139,11 @@ export const shipSchema = z
   });
 
 export type ShipConfig = z.infer<typeof shipSchema>;
+
+/** A hull's price in credits; an unauthored `price` is free, not "unknown". */
+export function shipPrice(ship: Pick<ShipConfig, "price">): number {
+  return ship.price ?? 0;
+}
 
 /**
  * The ship's FITTABLE sockets — hardpoints and internals alike — in array

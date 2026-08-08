@@ -5,6 +5,7 @@ import { createAuthRouter } from "./auth/routes.js";
 import { createFittingsRouter } from "./api/fittings.js";
 import { createShipsRouter } from "./api/ships.js";
 import { createModulesRouter } from "./api/modules.js";
+import { createCosmeticsRouter } from "./api/cosmetics.js";
 import { createConfigsRouter } from "./api/configs.js";
 import { createTelemetryRouter } from "./api/telemetry.js";
 import { createAdminContentRouter } from "./api/adminContent.js";
@@ -86,6 +87,7 @@ export function createHttpApp(options: HttpAppOptions = {}): Express {
   app.use("/api/fittings", apiLimiter, createFittingsRouter());
   app.use("/api/ships", apiLimiter, createShipsRouter());
   app.use("/api/modules", apiLimiter, createModulesRouter());
+  app.use("/api/cosmetics", apiLimiter, createCosmeticsRouter());
   app.use("/api/configs", apiLimiter, createConfigsRouter());
   if (options.matchmaking) app.use("/api/matchmaking", apiLimiter, createMatchmakingRouter(options.matchmaking));
   // Anonymous, unauthenticated, but on the same per-IP bucket as everything

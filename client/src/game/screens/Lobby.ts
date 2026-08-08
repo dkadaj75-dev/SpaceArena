@@ -37,6 +37,8 @@ export interface LobbyCallbacks {
   onLogout: () => void;
   onAccountRequested: (tab: "login" | "register") => void;
   onHangarRequested: () => void;
+  /** SHOP — hulls, modules and paints; a Fleet destination like the Hangar. */
+  onShopRequested: () => void;
   /** Gear button — opens the 5.8 settings screen over the lobby. */
   onSettingsRequested: () => void;
 }
@@ -171,6 +173,9 @@ export class Lobby {
 
     const fleet = this.section("Fleet", "accent");
     this.addButton(fleet, "Hangar", () => this.callbacks.onHangarRequested(), false, "accent");
+    // Offline-capable like the Hangar: the ledger is local without an account,
+    // so a pilot with no login can still buy (contract §3).
+    this.addButton(fleet, "Shop", () => this.callbacks.onShopRequested(), false, "accent");
   }
 
   private section(title: string, accent: "primary" | "accent"): HTMLDivElement {

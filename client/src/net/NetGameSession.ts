@@ -17,6 +17,7 @@ import {
   upFromAttitude,
   pitchTuningOf,
   resolveShipStats,
+  STANDARD_COSMETIC_ID,
   MSG_ORDER,
   createLogger,
   type ArenaConfig,
@@ -816,6 +817,7 @@ export class NetGameSession extends GameSession {
         throttle: decodeUnit(p.throttle ?? 0),
         lockProgress: decodeUnit(p.lockProgress ?? 0),
         locked: Boolean(p.locked),
+        cosmeticId: decodeCosmeticId(p.cosmeticId),
         modules: decodeModules(p.modules),
       };
     });
@@ -895,6 +897,17 @@ export function boostMult(configs: ConfigService, fittedModuleIds: readonly stri
  * decode contract has a direct regression test independent of a live
  * Colyseus room.
  */
+/**
+ * Replicated paint → the offline snapshot's optional field. The wire carries ""
+ * for "authored look" (a schema string has no null), and the standard paint id
+ * means the same thing, so both decode to ABSENT — the renderer then has exactly
+ * one case to handle, identically online and offline.
+ */
+export function decodeCosmeticId(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || raw.length === 0 || raw === STANDARD_COSMETIC_ID) return undefined;
+  return raw;
+}
+
 export function decodeModules(raw: any): Snapshot["ships"][number]["modules"] {
   return mapValues(raw).map((m: any) => ({
     hardpointIndex: m.hardpointIndex,

@@ -73,6 +73,7 @@ describe("Lobby practice section", () => {
       onLogout: vi.fn(),
       onAccountRequested: vi.fn(),
       onHangarRequested: vi.fn(),
+      onShopRequested: vi.fn(),
       onSettingsRequested: vi.fn(),
     });
   }
@@ -105,6 +106,27 @@ describe("Lobby practice section", () => {
   });
 });
 
+describe("Lobby fleet section", () => {
+  it("offers SHOP beside the Hangar, both usable without an account", () => {
+    const onShopRequested = vi.fn();
+    new Lobby(document.body, practiceConfigs(), auth(), new ServerHealthState(vi.fn()), {
+      onChoose: vi.fn(),
+      onLogout: vi.fn(),
+      onAccountRequested: vi.fn(),
+      onHangarRequested: vi.fn(),
+      onShopRequested,
+      onSettingsRequested: vi.fn(),
+    });
+    const fleet = document.querySelector<HTMLElement>('[data-section="fleet"]')!;
+    const buttons = [...fleet.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons.map((b) => b.textContent)).toEqual(["Hangar", "Shop"]);
+    // The ledger is local without a login, so the shop never gates on the server.
+    expect(buttons.every((b) => !b.disabled)).toBe(true);
+    buttons[1]!.click();
+    expect(onShopRequested).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Lobby server health", () => {
   it("refreshes while visible and offline, then clears the badge and enables online play", async () => {
     vi.useFakeTimers();
@@ -124,6 +146,7 @@ describe("Lobby server health", () => {
         onLogout: vi.fn(),
         onAccountRequested: vi.fn(),
         onHangarRequested: vi.fn(),
+        onShopRequested: vi.fn(),
         onSettingsRequested: vi.fn(),
       },
     );

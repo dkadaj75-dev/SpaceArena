@@ -3,14 +3,20 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ConfigService, type ShipConfig } from "@space-arena/shared";
+import { STANDARD_COSMETIC_ID } from "@space-arena/shared";
 import {
+  buyCosmeticLocal,
   buyModuleLocal,
   buyShipLocal,
   clearOwnership,
+  ownedCosmetics,
   ownedModules,
   ownedShips,
+  ownsCosmetic,
   ownsModule,
   ownsShip,
+  selectCosmeticLocal,
+  selectedCosmetic,
   starterModules,
   STARTER_SHIP_ID,
 } from "./offlineOwnership.js";
@@ -93,6 +99,63 @@ describe("offline ownership (owner 2026-07-31)", () => {
     localStorage.setItem("hangar.owned", JSON.stringify({ ships: [1, null, "ship.brawler"], modules: "nope" }));
     expect(ownsShip("ship.brawler")).toBe(true);
     expect(ownedModules(configs)).toEqual(starterModules(configs));
+  });
+
+  it("starts owning the standard paint and nothing else, with no hull painted", () => {
+    expect(ownsCosmetic(STANDARD_COSMETIC_ID)).toBe(true);
+    expect(ownsCosmetic("cosmetic.paint-crimson")).toBe(false);
+    expect([...ownedCosmetics()]).toEqual([STANDARD_COSMETIC_ID]);
+    expect(selectedCosmetic(STARTER_SHIP_ID)).toBeNull();
+  });
+
+  it("records a paint purchase and equips it per hull, surviving a reload", () => {
+    buyCosmeticLocal("cosmetic.paint-crimson");
+    buyCosmeticLocal("cosmetic.paint-crimson"); // idempotent
+    selectCosmeticLocal(STARTER_SHIP_ID, "cosmetic.paint-crimson");
+    expect(ownsCosmetic("cosmetic.paint-crimson")).toBe(true);
+    expect(selectedCosmetic(STARTER_SHIP_ID)).toBe("cosmetic.paint-crimson");
+    // A fresh read is all a reload amounts to here.
+    expect(selectedCosmetic("ship.brawler")).toBeNull();
+  });
+
+  it("refuses to equip a paint that was never bought", () => {
+    selectCosmeticLocal(STARTER_SHIP_ID, "cosmetic.paint-void");
+    expect(selectedCosmetic(STARTER_SHIP_ID)).toBeNull();
+  });
+
+  it("treats the standard paint and null as the same unequip", () => {
+    buyCosmeticLocal("cosmetic.paint-jade");
+    selectCosmeticLocal(STARTER_SHIP_ID, "cosmetic.paint-jade");
+    selectCosmeticLocal(STARTER_SHIP_ID, STANDARD_COSMETIC_ID);
+    expect(selectedCosmetic(STARTER_SHIP_ID)).toBeNull();
+    selectCosmeticLocal(STARTER_SHIP_ID, "cosmetic.paint-jade");
+    selectCosmeticLocal(STARTER_SHIP_ID, null);
+    expect(selectedCosmetic(STARTER_SHIP_ID)).toBeNull();
+  });
+
+  it("migrates a v1 stored shape without stranding an existing tester's purchases", () => {
+    // What a tester's storage looked like before cosmetics existed.
+    localStorage.setItem("hangar.owned", JSON.stringify({ ships: ["ship.brawler"], modules: ["module.laser-mk2"] }));
+    expect(ownsShip("ship.brawler")).toBe(true);
+    expect(ownedModules(configs).has("module.laser-mk2")).toBe(true);
+    expect([...ownedCosmetics()]).toEqual([STANDARD_COSMETIC_ID]);
+
+    // The next write upgrades the record in place; nothing older is lost.
+    buyCosmeticLocal("cosmetic.paint-solar");
+    const stored = JSON.parse(localStorage.getItem("hangar.owned")!) as Record<string, unknown>;
+    expect(stored.v).toBe(2);
+    expect(stored.ships).toEqual(["ship.brawler"]);
+    expect(stored.modules).toEqual(["module.laser-mk2"]);
+    expect(ownsCosmetic("cosmetic.paint-solar")).toBe(true);
+  });
+
+  it("ignores junk selections rather than crashing", () => {
+    localStorage.setItem(
+      "hangar.owned",
+      JSON.stringify({ v: 2, cosmetics: ["cosmetic.paint-void", 7], selections: { "ship.interceptor": 42 } }),
+    );
+    expect([...ownedCosmetics()].sort()).toEqual([STANDARD_COSMETIC_ID, "cosmetic.paint-void"].sort());
+    expect(selectedCosmetic("ship.interceptor")).toBeNull();
   });
 
   it("clears back to the starter set", () => {

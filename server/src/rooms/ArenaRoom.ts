@@ -8,6 +8,8 @@ import {
   randomBotFitting,
   resolveBackfillBot,
   resolveBotRoster,
+  botCosmeticFor,
+  resolveCosmeticFor,
   teamSizeOf,
   SIM_TICK_RATE,
   createLogger,
@@ -39,7 +41,8 @@ import {
 import type { HardpointMap, ModuleConfig, UpgradeLevels } from "@space-arena/shared";
 import { getConfigService } from "../configService.js";
 import { verifyAccessToken } from "../auth/tokens.js";
-import { fittingsRepo, ownedModulesRepo, profilesRepo, shipUpgradesRepo } from "../db/repos.js";
+import { fittingsRepo, ownedModulesRepo, profilesRepo, selectedCosmeticsRepo, shipUpgradesRepo } from "../db/repos.js";
+import { ownedCosmeticIds } from "../api/ownership.js";
 import { hardpointMapToFitting, validateFitting } from "../api/fittingValidation.js";
 import { finalizeMatch, type Participant } from "../progression/service.js";
 import { getMetrics, instrumentClientEgress } from "../telemetry/metrics.js";
@@ -86,6 +89,13 @@ interface JoinOptions {
   token?: string;
   /** Saved fitting to spawn with (must belong to the authed user). */
   fittingId?: string;
+  /**
+   * Paint to fly in (`cosmetic.*`). Omitted ⇒ the user's saved selection for the
+   * spawned hull. Anything the joiner does not own, or that does not apply to
+   * the hull, is silently flown as the authored look — a cosmetic is never worth
+   * refusing a join over.
+   */
+  cosmeticId?: string;
 }
 
 /** Result of {@link ArenaRoom.onAuth}, stored on `client.auth`. */
@@ -275,12 +285,14 @@ export class ArenaRoom extends Room<ArenaState> {
     const team = this.assignTeam();
     // Apply the player's persisted upgrade purchases to their spawned stats.
     const upgradeLevels = this.loadUpgradeLevels(userId, shipId);
-    const entityId = this.sim.spawnPlayer(shipId, fitting, team, upgradeLevels);
+    const cosmeticId = this.resolveCosmetic(configs, userId, shipId, options);
+    const entityId = this.sim.spawnPlayer(shipId, fitting, team, upgradeLevels, cosmeticId);
 
     const ps = new PlayerState();
     ps.entityId = entityId;
     ps.team = team;
     ps.shipId = shipId;
+    ps.cosmeticId = cosmeticId ?? "";
     ps.displayName = this.resolveDisplayName(userId, options);
     ps.connected = true;
     // One ModuleState per fitted (non-empty) module; empty hardpoints get none.
@@ -350,6 +362,25 @@ export class ArenaRoom extends Room<ArenaState> {
     }
     const ship = configs.get<ShipConfig>("ship", shipId)!;
     return { shipId, fitting: hardpointMapToFitting(ship, hardpointMap) };
+  }
+
+  /**
+   * The paint this join actually flies in — the trust boundary for cosmetics.
+   * A client may name one, but it must OWN it and it must apply to the hull;
+   * anything else resolves to the authored look instead of an error, because a
+   * stale selection (older pack, revoked paint) must never cost someone a match.
+   * An anonymous join owns nothing, so it always flies standard.
+   */
+  private resolveCosmetic(
+    configs: ReturnType<typeof getConfigService>,
+    userId: string | null,
+    shipId: string,
+    options: JoinOptions,
+  ): string | null {
+    const requested = options.cosmeticId ?? (userId ? selectedCosmeticsRepo.get(userId, shipId) : undefined);
+    const resolved = resolveCosmeticFor(configs, shipId, requested);
+    if (!resolved || !userId) return null;
+    return ownedCosmeticIds(configs, userId).has(resolved) ? resolved : null;
   }
 
   /**
@@ -488,12 +519,17 @@ export class ArenaRoom extends Room<ArenaState> {
         const botFitting = randomize
           ? randomBotFitting(configs, botShipId, rosterRng, botProfile, referenceFitting)
           : botShip.defaultFitting;
-        const entityId = this.sim.spawnPlayer(botShipId, botFitting, team);
+        // Bots wear a free universal paint, keyed off the room seed + entity id
+        // rather than drawn from `rosterRng`: dressing them must not shift the
+        // stream that picks their hulls and fittings.
+        const botCosmetic = resolveCosmeticFor(configs, botShipId, botCosmeticFor(configs, this.seed, spawned));
+        const entityId = this.sim.spawnPlayer(botShipId, botFitting, team, undefined, botCosmetic);
         const key = `bot-${entityId}`;
         const ps = new PlayerState();
         ps.entityId = entityId;
         ps.team = team;
         ps.shipId = botShipId;
+        ps.cosmeticId = botCosmetic ?? "";
         // A player-like handle, not the profile id: "Rookie" reads as furniture
         // on a scoreboard, "Vortexrunner_77" reads as an opponent.
         ps.displayName = generateBotName(rosterRng);

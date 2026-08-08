@@ -1,4 +1,11 @@
-import { createLogger, type HardpointMap, type ModuleFamily, type SocketConfig, type UpgradeTrackName } from "@space-arena/shared";
+import {
+  createLogger,
+  type ApiInventory,
+  type HardpointMap,
+  type ModuleFamily,
+  type SocketConfig,
+  type UpgradeTrackName,
+} from "@space-arena/shared";
 import type { AuthService } from "../core/AuthService.js";
 import { httpServerUrl } from "../core/serverConfig.js";
 
@@ -26,6 +33,16 @@ export interface ApiModule {
   price: number;
   requiresLevel: number;
   owned: boolean;
+}
+
+/** The profile block every auth response (and `/api/auth/me`) carries. */
+export interface ApiProfile {
+  userId: string;
+  displayName: string;
+  level: number;
+  xp: number;
+  credits: number;
+  isGuest: boolean;
 }
 
 export interface ApiFitting {
@@ -105,6 +122,29 @@ export class HangarApi {
 
   buyModule(moduleId: string): Promise<{ moduleId: string; credits: number }> {
     return this.request("POST", "/api/modules/buy", { moduleId });
+  }
+
+  /**
+   * Profile + the WHOLE inventory in one read (hulls, modules, paints, equipped
+   * paint per hull). The shop and the Hangar both need all of it at once, which
+   * is why it rides the existing profile read instead of a second endpoint that
+   * could disagree with it.
+   */
+  inventory(signal?: AbortSignal): Promise<{ profile: ApiProfile; inventory: ApiInventory }> {
+    return this.request("GET", "/api/auth/me", undefined, signal);
+  }
+
+  buyShip(shipId: string): Promise<{ shipId: string; credits: number }> {
+    return this.request("POST", "/api/ships/buy", { shipId });
+  }
+
+  buyCosmetic(cosmeticId: string): Promise<{ cosmeticId: string; credits: number }> {
+    return this.request("POST", "/api/cosmetics/buy", { cosmeticId });
+  }
+
+  /** `cosmeticId: null` clears back to the hull's authored look. */
+  selectCosmetic(shipId: string, cosmeticId: string | null): Promise<{ shipId: string; cosmeticId: string | null }> {
+    return this.request("POST", "/api/cosmetics/select", { shipId, cosmeticId });
   }
 
   upgradeShip(shipId: string, track: UpgradeTrackName): Promise<{ shipId: string; track: UpgradeTrackName; level: number; credits: number }> {

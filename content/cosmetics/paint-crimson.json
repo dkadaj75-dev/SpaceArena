@@ -1,0 +1,14 @@
+{
+  "id": "cosmetic.paint-crimson",
+  "type": "cosmetic",
+  "version": 1,
+  "name": "Crimson Vector",
+  "kind": "paint",
+  "price": 0,
+  "appliesTo": "any",
+  "paint": {
+    "primary": "#b8342f",
+    "accent": "#ff7a57",
+    "emissive": "#ff4d2e"
+  }
+}

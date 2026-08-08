@@ -1,5 +1,6 @@
 import {
   ArenaSimulation,
+  botCosmeticFor,
   MatchStatsAccumulator,
   BotDriver,
   createLogger,
@@ -98,6 +99,12 @@ export interface GameSessionOptions {
    * invalid ⇒ the hull's `defaultFitting`.
    */
   playerFitting?: readonly (string | null)[] | null;
+  /**
+   * The paint the PLAYER flies in (`cosmetic.*`), from the Shop's per-hull
+   * selection. Omitted/unknown/inapplicable ⇒ the hull's authored look; the sim
+   * gates it at the spawn seam, so nothing here has to pre-validate it.
+   */
+  playerCosmeticId?: string | null;
 }
 
 export class GameSession {
@@ -141,7 +148,7 @@ export class GameSession {
     const fitting = resolvePlayerFitting(configs, ship, options.playerFitting);
 
     // Player: team 0 at its spawn point.
-    this.playerId = this.sim.spawnPlayer(shipId, fitting, 0);
+    this.playerId = this.sim.spawnPlayer(shipId, fitting, 0, undefined, options.playerCosmeticId ?? null);
     this.shipConfigIds.set(this.playerId, shipId);
 
     // Bots are spawned from the gamemode config's `bots.roster` unless the
@@ -166,7 +173,16 @@ export class GameSession {
       const botFitting = slot.fitting ?? (randomize
         ? randomBotFitting(configs, shipId, rosterRng, slot.profile, fitting)
         : botShip.defaultFitting);
-      const id = this.sim.spawnPlayer(shipId, botFitting, slot.team);
+      // Bots wear a free universal paint, keyed off the session seed + roster
+      // slot rather than drawn from `rosterRng`: dressing them must not shift
+      // the stream that picks their hulls and fittings.
+      const id = this.sim.spawnPlayer(
+        shipId,
+        botFitting,
+        slot.team,
+        undefined,
+        botCosmeticFor(configs, seed, rosterIndex),
+      );
       this.shipConfigIds.set(id, shipId);
       this.botNames.set(id, names[rosterIndex] ?? `Bot ${rosterIndex + 1}`);
       // Seeded from the SESSION seed + the bot's entity id, so a practice match

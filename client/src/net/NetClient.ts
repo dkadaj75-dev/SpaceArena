@@ -26,6 +26,13 @@ export interface ArenaJoinOptions {
    * (see `ArenaRoom.test.ts`), the client just didn't send it yet (Hangar 4.5).
    */
   fittingId?: string;
+  /**
+   * Paint to fly in (`cosmetic.*`). Omitted ⇒ the server uses the account's
+   * saved selection for the spawned hull. The room validates ownership and
+   * `appliesTo` and quietly flies standard on anything else, so this is a
+   * request, never an instruction.
+   */
+  cosmeticId?: string;
   minPlayers?: number;
   /** Access token for authenticated join; omitted for DEV_ALLOW_ANON solo testing. */
   token?: string;

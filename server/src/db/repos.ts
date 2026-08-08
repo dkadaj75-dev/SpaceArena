@@ -285,6 +285,90 @@ export const ownedModulesRepo = {
 };
 
 // ---------------------------------------------------------------------------
+// owned_ships / owned_cosmetics / selected_cosmetics (shop, migration 005)
+// ---------------------------------------------------------------------------
+
+export interface OwnedShipRow {
+  user_id: string;
+  ship_id: string;
+  acquired_at: number;
+}
+
+export interface OwnedCosmeticRow {
+  user_id: string;
+  cosmetic_id: string;
+  acquired_at: number;
+}
+
+export interface SelectedCosmeticRow {
+  user_id: string;
+  ship_id: string;
+  cosmetic_id: string;
+}
+
+export const ownedShipsRepo = {
+  byUser(userId: string): OwnedShipRow[] {
+    return getDb().prepare("SELECT * FROM owned_ships WHERE user_id = ?").all(userId) as OwnedShipRow[];
+  },
+  owns(userId: string, shipId: string): boolean {
+    return (
+      getDb().prepare("SELECT 1 FROM owned_ships WHERE user_id = ? AND ship_id = ?").get(userId, shipId) !== undefined
+    );
+  },
+  /** Record a purchase. Idempotent — a repeat buy keeps the original timestamp. */
+  grant(userId: string, shipId: string, acquiredAt = Date.now()): void {
+    getDb()
+      .prepare("INSERT INTO owned_ships (user_id, ship_id, acquired_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
+      .run(userId, shipId, acquiredAt);
+  },
+};
+
+export const ownedCosmeticsRepo = {
+  byUser(userId: string): OwnedCosmeticRow[] {
+    return getDb().prepare("SELECT * FROM owned_cosmetics WHERE user_id = ?").all(userId) as OwnedCosmeticRow[];
+  },
+  owns(userId: string, cosmeticId: string): boolean {
+    return (
+      getDb()
+        .prepare("SELECT 1 FROM owned_cosmetics WHERE user_id = ? AND cosmetic_id = ?")
+        .get(userId, cosmeticId) !== undefined
+    );
+  },
+  /** Record a purchase. Idempotent. */
+  grant(userId: string, cosmeticId: string, acquiredAt = Date.now()): void {
+    getDb()
+      .prepare(
+        "INSERT INTO owned_cosmetics (user_id, cosmetic_id, acquired_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+      )
+      .run(userId, cosmeticId, acquiredAt);
+  },
+};
+
+export const selectedCosmeticsRepo = {
+  byUser(userId: string): SelectedCosmeticRow[] {
+    return getDb().prepare("SELECT * FROM selected_cosmetics WHERE user_id = ?").all(userId) as SelectedCosmeticRow[];
+  },
+  get(userId: string, shipId: string): string | undefined {
+    const row = getDb()
+      .prepare("SELECT cosmetic_id FROM selected_cosmetics WHERE user_id = ? AND ship_id = ?")
+      .get(userId, shipId) as { cosmetic_id: string } | undefined;
+    return row?.cosmetic_id;
+  },
+  set(userId: string, shipId: string, cosmeticId: string): void {
+    getDb()
+      .prepare(
+        "INSERT INTO selected_cosmetics (user_id, ship_id, cosmetic_id) VALUES (?, ?, ?) " +
+          "ON CONFLICT(user_id, ship_id) DO UPDATE SET cosmetic_id = excluded.cosmetic_id",
+      )
+      .run(userId, shipId, cosmeticId);
+  },
+  /** Back to the authored look: the standard paint is an absent row, not a stored id. */
+  clear(userId: string, shipId: string): void {
+    getDb().prepare("DELETE FROM selected_cosmetics WHERE user_id = ? AND ship_id = ?").run(userId, shipId);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // fittings
 // ---------------------------------------------------------------------------
 

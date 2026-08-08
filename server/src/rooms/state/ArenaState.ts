@@ -62,6 +62,13 @@ export class PlayerState extends Schema {
   /** Player display name (from profile), or a generated guest/anon label. */
   @type("string") displayName = "";
   /**
+   * Equipped paint (`cosmetic.*`), or "" for the hull's authored look (protocol
+   * 5). Validated server-side at join — ownership AND `appliesTo` — so a client
+   * can only ever make its OWN ship look like something it bought, and an
+   * invalid request replicates as standard rather than as a rejection.
+   */
+  @type("string") cosmeticId = "";
+  /**
    * Position, int16 centi-units (decode with shared `decodeCenti`). `y` is the
    * bubble's vertical axis (BUBBLE.md §B) and uses the SAME centi codec as x/z —
    * the arena is a sphere, so its vertical extent is the same radius.

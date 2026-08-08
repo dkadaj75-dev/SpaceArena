@@ -1,0 +1,16 @@
+{
+  "id": "cosmetic.paint-fieldmedic",
+  "type": "cosmetic",
+  "version": 1,
+  "name": "Field Medic",
+  "kind": "paint",
+  "price": 0,
+  "appliesTo": [
+    "ship.support"
+  ],
+  "paint": {
+    "primary": "#1f7a4a",
+    "accent": "#7affd0",
+    "emissive": "#7affd0"
+  }
+}

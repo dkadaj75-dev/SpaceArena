@@ -10,4 +10,9 @@ export const SIM_TICK_RATE = 30;
 // energyCapacity and `PlayerState` lost energyCur/energyMax/heatCur/
 // heatCapacity outright. An older client would read a ship-wide gauge that no
 // longer travels, and a newer one would find no ring data at all.
-export const PROTOCOL_VERSION = 4;
+// 5: cosmetics (shop, 2026-08-08). `PlayerState` replicates the equipped paint
+// as `cosmeticId`, and `ShipSnapshot` carries the same field offline. An older
+// client would render every hull in its authored colours while the rest of the
+// room sees paint, which is exactly the disagreement replication exists to
+// prevent.
+export const PROTOCOL_VERSION = 5;

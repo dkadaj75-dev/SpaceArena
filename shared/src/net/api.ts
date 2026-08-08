@@ -91,6 +91,45 @@ export const buyModuleBodySchema = z.object({
 export type BuyModuleBody = z.infer<typeof buyModuleBodySchema>;
 
 // ---------------------------------------------------------------------------
+// Shop (hulls + cosmetics)
+// ---------------------------------------------------------------------------
+
+export const buyShipBodySchema = z.object({
+  shipId: z.string().min(1).max(80),
+});
+export type BuyShipBody = z.infer<typeof buyShipBodySchema>;
+
+export const buyCosmeticBodySchema = z.object({
+  cosmeticId: z.string().min(1).max(80),
+});
+export type BuyCosmeticBody = z.infer<typeof buyCosmeticBodySchema>;
+
+/**
+ * Equip a paint on a hull. `cosmeticId: null` clears back to the authored look
+ * — the same state an absent selection describes, sent explicitly so unequipping
+ * is one request and not a delete route.
+ */
+export const selectCosmeticBodySchema = z.object({
+  shipId: z.string().min(1).max(80),
+  cosmeticId: z.string().min(1).max(80).nullable(),
+});
+export type SelectCosmeticBody = z.infer<typeof selectCosmeticBodySchema>;
+
+/**
+ * The whole inventory in one read (returned by `GET /api/auth/me` alongside the
+ * profile). Ownership is DERIVED at read time — the starter hull, the free
+ * starter modules and the standard paint are never seeded rows — so re-authoring
+ * the starter set repairs every existing account instead of stranding it.
+ */
+export interface ApiInventory {
+  ships: string[];
+  modules: string[];
+  cosmetics: string[];
+  /** ship id → equipped cosmetic id. Absent key = the hull's authored look. */
+  selections: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
 // User configs
 // ---------------------------------------------------------------------------
 
