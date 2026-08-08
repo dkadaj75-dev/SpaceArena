@@ -5,7 +5,7 @@ import { botprofileSchema, type BotprofileConfig } from "../schemas/botprofile.j
 import { orderSchema } from "../net/protocol.js";
 import type { AsteroidSnapshot, ProjectileSnapshot, ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import { angleDelta, wrapAngle } from "../sim/math.js";
-import { seedUp } from "../sim/frame.js";
+import { advanceFrame, seedUp } from "../sim/frame.js";
 import type { Order } from "../sim/orders.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
@@ -374,6 +374,35 @@ describe("BotDriver flight orders", () => {
     expect(flightOrder(driver.update(s, 1_001))?.boost).toBe(false);
   });
 
+  it("never asks a carrier for boost, whichever behaviour is flying it", () => {
+    // The sim refuses boost to a flag carrier outright, so the request is pure
+    // waste — and it is not free: the driver arms the burner through the normal
+    // module-toggle pipeline, spending an order plus its heat and energy every
+    // decision for an engine that will never light. `objective` already declines
+    // while it is winning, but a carrier whose utility swings to combat used to
+    // ask anyway (the audit counted 48 such ticks once the fleet started
+    // moving), so the rule lives with the ship's state, not with one behaviour.
+    const p = profile({ decisionIntervalMs: 100, behaviors: { engage: { baseWeight: 1, boostChance: 1 } } });
+    const driver = makeDriver(p, emptyConfigs);
+    const carrying = snap([ship(1, 0, 0, 0), ship(2, 1, 80, 0)]);
+    carrying.flags = [{
+      id: 90, team: 1, state: "carried", carrierId: 1,
+      pos: { x: 0, y: 0, z: 0 }, home: { x: 80, y: 0, z: 0 },
+      baseRadius: 4, pickupRadius: 4, dropRemaining: 0, trail: [],
+    }];
+    driver.update(carrying, 0);
+    driver.update(carrying, 1_000);
+    expect(driver.lastDecision!.behavior).toBe("engage"); // combat really is flying it
+    expect(driver.lastDecision!.flight!.boost).toBe(false);
+    expect(driver.lastDecision!.moduleDecisions.some((d) => d.reason === "boost-requested")).toBe(false);
+
+    // ...and the same bot with the flag gone still boosts, so this is the
+    // carrier rule and not a blanket ban.
+    const free = snap([ship(1, 0, 0, 0), ship(2, 1, 80, 0)]);
+    driver.update(free, 2_000);
+    expect(driver.lastDecision!.flight!.boost).toBe(true);
+  });
+
   it("measures the hull turn rate from its own stick and then aims proportionally", () => {
     const turnRate = 2.4;
     const dt = 1 / 30;
@@ -493,6 +522,105 @@ describe("BotDriver flight orders", () => {
     // Once pinned the bot also stops pushing: the desired elevation is clamped to
     // what the hull can reach, so the axis centres instead of holding full stick.
     expect(driver.lastDecision!.flight!.pitchStick).toBe(0);
+  });
+
+  it("keeps the measured turn rate honest through a loop past vertical", () => {
+    // `heading` is a COORDINATE, not a body axis: with pitch free (the shipped
+    // case) the sim integrates the real frame and RE-DERIVES heading/pitch from
+    // the nose, so a hull that loops past vertical sees its heading swing by
+    // most of a turn while the hull yawed barely at all. Dividing that swing by
+    // the commanded stick invented a 90+ rad/s hull in CTF seed 73, and because
+    // a 90 rad/s hull answers every bearing error with a ~0.02 stick, the axis
+    // never again produced a sample large enough to re-measure from. One bad
+    // tick permanently disabled the yaw axis.
+    const turnRate = 2.4;
+    const pitchRate = turnRate * DEFAULT_PITCH_RATE_MULT;
+    const dt = 1 / 30;
+    const p = profile({
+      // The flagrunner cadence: a long interval means the uncalibrated first
+      // command (full deflection, by design) is held long enough to loop.
+      decisionIntervalMs: 800,
+      orderJitterMs: 0,
+      behaviors: { engage: { baseWeight: 1 } },
+      flight: { turnHorizonMult: 1, aimToleranceRad: 0.14 },
+    });
+    const driver = makeDriver(p, emptyConfigs);
+    // Enemy directly overhead: the bot pitches up, sails past vertical, and
+    // keeps looping — the exact attitude history the audit trace captured.
+    const enemy = ship(2, 1, 0, 0, { pos: { x: 0, y: 220, z: 0 } });
+    const out = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
+    let att = { heading: 0.3, pitch: 0, up: seedUp(0.3, 0) };
+    let cmd = { turn: 0, pitchStick: 0 };
+    let elapsed = 0;
+    let loops = 0;
+    for (let i = 0; i < 400; i++) {
+      const self = ship(1, 0, 0, 0, { heading: att.heading, pitch: att.pitch, up: att.up });
+      const flight = flightOrder(driver.update(snap([self, enemy], [], [], elapsed), elapsed * 1000));
+      if (flight) cmd = { turn: flight.turn, pitchStick: flight.pitchStick ?? 0 };
+      // The sim's own integrator, free pitch (`maxPitchRad: null`) — nothing
+      // else moves a ship's attitude.
+      advanceFrame(att.heading, att.pitch, att.up, cmd.turn * turnRate * dt, cmd.pitchStick * pitchRate * dt, null, out);
+      if (Math.abs(out.pitch) > Math.PI / 2) loops++;
+      att = { heading: out.heading, pitch: out.pitch, up: { ...out.up } };
+      elapsed += dt;
+    }
+    // The scenario really did carry the nose past vertical, repeatedly.
+    expect(loops).toBeGreaterThan(20);
+    // ...and the driver still believes in a hull it could actually fly. Before
+    // the fix this settled around 90 rad/s and the yaw axis never recovered.
+    expect(driver.measuredTurnRate).toBeLessThan(turnRate * 1.5);
+    expect(driver.measuredPitchRate).toBeLessThan(pitchRate * 1.5);
+  });
+
+  it("climbs away from the floor instead of parking a nose-down hull above the safety altitude", () => {
+    // CTF seed 73, bot 43, t = 41.4 s — the state the audit found wedged for the
+    // remaining 558 s of the match, and the "bots facing down and not moving"
+    // the owner reported from a live match.
+    //
+    // floorY 0 with a 1.4 collider puts the safety altitude at 5.6 and the
+    // recovery target at 5.6 + 4 = 9.6. The hull sits at 14.62 — so the target
+    // is FIVE UNITS BELOW IT and the anti-crash overlay steers DOWN. The nose
+    // was already 81 deg down, i.e. pointing almost exactly at that target, so
+    // both steering errors landed inside the flagrunner's 0.14 rad aim
+    // tolerance and the overlay commanded turn 0 / pitch 0 — while cutting the
+    // throttle to zero for being nose-down. A stationary hull then still
+    // projects a dive (the projection reads the PLAN's throttle, not the one
+    // actually commanded), so the override never releases. Absorbing state.
+    const p = profile({
+      decisionIntervalMs: 800,
+      orderJitterMs: 0,
+      behaviors: { travel: { baseWeight: 1 } },
+      flight: { turnHorizonMult: 1, aimToleranceRad: 0.14 },
+    });
+    const travel: BotBehavior = {
+      score: () => 1,
+      plan: () => ({ aim: { x: 268, y: 16, z: 0 }, throttle: 1, boost: false, engaged: false }),
+    };
+    const driver = new BotDriver({
+      entityId: 43,
+      profile: p,
+      configs: emptyConfigs,
+      rng: zeroRng,
+      floorY: 0,
+      behaviors: new Map([["travel", travel]]),
+    });
+    const wedged = snap([ship(43, 0, -225.83, 163.86, {
+      pos: { x: -225.83, y: 14.622, z: 163.86 },
+      heading: 2.507,
+      pitch: -1.4123,
+      up: { x: -0.9877, y: 0.1173, z: -0.1032 },
+      velocity: { x: 0, y: 0, z: 0 },
+      colliderRadius: 1.4,
+    })]);
+    decide(driver, wedged);
+    const cmd = driver.lastDecision!.flight!;
+    // Away from the floor is UP. An avoidance rule that answers a nose-down
+    // hull with a nose-down stick is not an avoidance rule.
+    expect(cmd.pitchStick).toBeGreaterThan(0);
+    // ...and rotation alone frees nothing: a hull at a dead stop has no way to
+    // convert the new attitude into separation, and nothing kills it out of the
+    // stall. Keep way on, exactly as the latched recovery branch already does.
+    expect(cmd.throttle).toBeGreaterThan(0);
   });
 
   it("leaves the pitch rate unmeasured through a perfectly level fight", () => {

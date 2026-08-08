@@ -37,6 +37,14 @@ interface BotAudit {
   distance: number;
   zeroThrottleTicks: number;
   floorTicks: number;
+  /**
+   * Ticks where PREDICTIVE floor avoidance owned most of the command. Reported
+   * separately from `floorTicks` (the latched recovery) because the predictive
+   * branch fires at any altitude and can own the stick outright: counting only
+   * the latched flag reported floorPct ~= 0 while the override was in fact
+   * zeroing the throttle of most of the fleet.
+   */
+  floorAvoidTicks: number;
   surfaceTicks: number;
   missileTicks: number;
   carrierBoostTicks: number;
@@ -217,7 +225,7 @@ function runMatch(
         }
         sim.applyOrder(id, order);
       }
-      sampleBot(audit, self, snapshot, driver, carriers.has(id), label.startsWith("duel"));
+      sampleBot(audit, self, snapshot, driver, carriers.has(id));
     }
     sim.tick(DT);
     const events = sim.getEvents();
@@ -261,7 +269,7 @@ function freshAudit(id: EntityId, team: number, profile: string, ship: string, f
     id, team, profile, ship, fitting, liveTicks: 0, engagedTicks: 0, fireTicks: 0,
     commandThrottle: 0, commandBoost: false, commandFire: false, shots: 0,
     rackTicks: 0, rackLockoutTicks: 0, distance: 0, zeroThrottleTicks: 0,
-    floorTicks: 0, surfaceTicks: 0, missileTicks: 0, carrierBoostTicks: 0,
+    floorTicks: 0, floorAvoidTicks: 0, surfaceTicks: 0, missileTicks: 0, carrierBoostTicks: 0,
     damageDealt: 0, damageTaken: 0, objectiveHitEvents: 0, objectiveHitShieldDown: 0,
     shieldWantedTicks: 0, shieldEmptyWantedTicks: 0,
     boostWantedTicks: 0, boostEmptyWantedTicks: 0, decisions: 0, lastDecisionAt: -1, behaviors: new Map(),
@@ -269,7 +277,7 @@ function freshAudit(id: EntityId, team: number, profile: string, ship: string, f
   };
 }
 
-function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driver: BotDriver, carrying: boolean, detectIdle: boolean): void {
+function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driver: BotDriver, carrying: boolean): void {
   // Respawning ships remain in snapshots with hull <= 0. Counting that authored
   // delay as a ten-second flight stall made every bot that died look wedged.
   if (self.hull <= 0) {
@@ -286,6 +294,7 @@ function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driv
   if (audit.commandFire) audit.fireTicks++;
   if (audit.commandThrottle < ZERO_THROTTLE && !blockedHold) audit.zeroThrottleTicks++;
   if (decision?.floorRecovery) audit.floorTicks++;
+  if ((decision?.floorAvoidance ?? 0) >= 0.5) audit.floorAvoidTicks++;
   if (decision?.surfaceRecovery) audit.surfaceTicks++;
   if (decision?.missileEvasion) audit.missileTicks++;
   if (carrying && audit.commandBoost) audit.carrierBoostTicks++;
@@ -312,9 +321,18 @@ function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driv
       if (fraction <= EMPTY_FRACTION) audit.boostEmptyWantedTicks++;
     }
   }
-  // A cut-throttle arrival/respawn wait is loiter, not a powered flight stall.
-  // Reset the window so it cannot bridge that wait and indict the next route.
-  if ((audit.commandThrottle < ZERO_THROTTLE && !detectIdle) || blockedHold) {
+  // An AUTHORED wait is loiter, not a powered flight stall: reset the window so
+  // it cannot bridge the wait and indict the next route.
+  //
+  // Only the authored wait, though. This used to discard the window on ANY
+  // zero-throttle tick outside a duel, which made the stuck detector blind to
+  // exactly the failure it exists to catch: a bot whose throttle has been cut
+  // by a bug simply never accumulates a window, so it can sit motionless for
+  // an entire match and the audit reports `stuckRuns: 0`. That is what hid the
+  // parked-nose-down flagrunners — `zeroPct` was the only witness. A commanded
+  // zero in open space IS the stall, so it is now counted everywhere and
+  // `detectIdle` no longer gates it.
+  if (blockedHold) {
     audit.moveWindow.length = 0;
     return;
   }
@@ -396,7 +414,7 @@ function printMatch(match: MatchAudit): void {
       attempts: stat.flagsTaken, recoveries: stat.flagsReturned, kills: stat.kills, deaths: stat.deaths,
       assists: stat.assists, dealt: bot.damageDealt.toFixed(0), taken: bot.damageTaken.toFixed(0),
       firePct: pct(bot.fireTicks, bot.engagedTicks), shotsMin: rate(bot.shots, match.elapsed),
-      lockoutPct: pct(bot.rackLockoutTicks, bot.rackTicks), floorPct: pct(bot.floorTicks, bot.liveTicks),
+      lockoutPct: pct(bot.rackLockoutTicks, bot.rackTicks), floorPct: pct(bot.floorTicks, bot.liveTicks), avoidPct: pct(bot.floorAvoidTicks, bot.liveTicks),
       surfacePct: pct(bot.surfaceTicks, bot.liveTicks), missilePct: pct(bot.missileTicks, bot.liveTicks),
       zeroPct: pct(bot.zeroThrottleTicks, bot.liveTicks), energyStarvePct: pct(bot.shieldEmptyWantedTicks + bot.boostEmptyWantedTicks, bot.shieldWantedTicks + bot.boostWantedTicks),
     };

@@ -167,3 +167,62 @@ Measured combined occupancy differs strongly—flagrunner 100% objective, cautio
 The audit now permanently runs Twin Titans rookie-interceptor 1v1, rookie-brawler 1v1, and mixed interceptor/brawler 2v2 matches for seeds 7, 17, and 42. Each 1v1 ran to the 600.0 s cap. The mixed 2v2 matches ended at 450.9, 518.9, and 470.5 s. Strict accumulated-motion detection reported zero powered 10 s stalls before and after the fix; aggregate duel behavior occupancy changed from 84.1% engage / 14.8% kite / 1.1% none to 84.7% / 14.2% / 1.0%, and aggregate energy starvation remained 3.0%.
 
 The focused shipped-geometry probe covers the unsampled failure band directly. A 1.4-scale colossal has rendered radius 25.20 and collider radius 23.94. With the brawler's rendered radius 3.60 and collider radius 2.10, a centre distance of 28.30 yields collider clearance +2.26 but rendered clearance -0.50. Before the fix, the ship-only visual threshold was +1.85 and surface recovery remained false after 1.7 s. After asteroid visual overhang is included, recovery is true at 1.7 s and aims outward. The full-match audit also resets a retained driver while its entity id is absent, matching the practice host's respawn lifecycle and excluding stale-order respawn artifacts.
+
+## Parked nose-down: the floor-avoidance deadlock (2026-08-08)
+
+Owner report from a live CTF match: "most of the bots were facing down and not moving." The behaviour audit reproduced it. Alive bots commanded near-zero throttle for 55–97% of their live ticks across every profile while behaviour occupancy stayed normal, and on CTF seed 73 team 0 finished the match with zero capture attempts.
+
+### Mechanism
+
+Instrumenting CTF seed 73 bot 43 (flagrunner, 93.6% zero-throttle) over its stalled window showed a healthy plan and a dead command. At t = 41.4 s the winning plan was `objective` with throttle 1.0 and a steer of `turn +0.026, pitchStick −0.661`; the command actually emitted was `turn 0, pitchStick 0, throttle 0`. The bot then held position `(−225.826, 14.622, 163.863)` at speed 0.00 and pitch −1.412 rad — nose 81° down — for the remaining 558 s of the match. `floorRecovery` and `surfaceRecovery` were both false throughout, which is why `floorPct`/`surfacePct` ≈ 0 did not exonerate floor avoidance.
+
+`avoidFloor`'s predictive branch owned the command. With `floorY = 0` and a 1.4 collider, the safety altitude is `max(1.4×4, 1.4+3) = 5.6` and the recovery target was the absolute altitude `safeY + band = 9.6`. The hull sat at 14.62, so the anti-crash overlay was aiming five units *below* the ship. Three defects compose into an absorbing state:
+
+1. **The lift target could be below the hull.** `safeY + band` is absolute, and the predictive branch fires mostly at hulls already well clear of it — only the projection is bad. The overlay therefore steered the nose down.
+2. **A nose already down reads as "on target".** With the target 5.02 units below and the nose at −1.412 rad, both steering errors (yaw 0.108, pitch 0.118 rad) fell inside the flagrunner's authored `aimToleranceRad` of 0.14, so `steerForPoint` centred both axes: `lift = {turn: 0, pitchStick: 0}`.
+3. **The throttle cut had no floor.** `strength` was 1 and `self.pitch < 0`, so the predictive branch produced exactly 0. The projection then reads the *plan's* throttle, not the commanded one: `projectedVy = min(0, sin(−1.412)×20×1) = −19.75`, giving `predictedY = −34.75` against `safeY = 5.6`. A hull at a dead standstill was permanently predicted to crash, so the override never released.
+
+The nose-down attitude was itself produced by the same rule. At t = 39.9 s, y = 33.99, the overlay commanded `pitchStick −0.413` and throttle 0; by t = 40.6 s pitch had reached −1.412 and the steering had collapsed to zero.
+
+A second, independent defect latched at t = 19.8 s while the hull was passing through vertical: `turnRateEst` jumped to 91.93 rad/s against a true hull rate near 2.4. Calibration divided the observed `heading` change by the commanded stick, but with pitch free (the shipped case) the sim integrates the real frame and re-derives `heading`/`pitch` from the resulting nose, so a hull crossing the pole shows most of a turn of heading change for almost no body yaw. Because a 91.93 rad/s hull answers every bearing error with a stick of about 0.02 — below `CALIBRATION_MIN_TURN` — the estimate could never be re-measured. One poisoned tick disabled the yaw axis for the rest of the match. End-of-match estimates across the two CTF seeds included 91.93, 103.12, 169.38, 442.06, 524.31, 576.30 rad/s on yaw and up to 1177.62 on pitch.
+
+### Fixes
+
+- `avoidFloor` now climbs from the hull's own altitude, `max(safeY, pos.y) + band`, and leads the climb along the ship's heading at 45° rather than aiming straight overhead — a point directly above a nose-down hull is anti-parallel to the nose, which is the singular case of the two-axis body decomposition.
+- The predictive throttle cut keeps `min(planThrottle, 0.3)` under it while hull speed is below 4. A moving hull diving at the deck still gets the full cut; a stalled one keeps enough way to fly out.
+- `calibrate` measures the body rotation directly, inverting `advanceFrame`: with `(N, U, W)` the previous frame and `N2` the new nose, `N2·U = sin δ`, `N2·N = cos ψ cos δ`, `N2·W = sin ψ cos δ`. No coordinate appears in the arithmetic, so poles and rolled hulls are ordinary. Samples claiming ≥ π/2 of body rotation in one window are dropped as aliased.
+- A flag carrier can never request boost. The sim refuses it outright; `objective` already declined while winning, but a carrier whose utility swung to combat asked anyway, spending a module-toggle order plus heat and energy every decision on a burner that would never light. The rule now lives where the command is assembled.
+
+### Two metrics were also lying
+
+`decision.floorRecovery` reported only the *latched* recovery, which requires the hull to be inside the safety band. The predictive branch owns the command at any altitude, so a fleet-wide throttle cut was invisible. The decision snapshot now carries `floorAvoidance` (0..1) and the audit prints it as `avoidPct`.
+
+The stuck detector discarded its motion window on any zero-throttle tick outside a duel, treating a cut throttle as loiter. That made it structurally blind to the failure it exists to catch: bot 43 sat motionless for 558 s and the audit reported `stuckRuns: 0`. Only the authored blocked-home hold now resets the window, and idle detection applies to every scenario.
+
+### Before/after — `npx tsx tools/bot-behavior-audit.ts`
+
+| Scenario | End (before → after) | zeroPct mean | zeroPct max | avoidPct max |
+|---|---|---:|---:|---:|
+| CTF seed 11 | 375.3 s → **468.1 s, capture limit** | 72.1% → 5.8% | 99.6% → 11.0% | 12.2% |
+| CTF seed 73 | 600.0 s cap → 600.0 s cap | 85.0% → 5.1% | 97.2% → 11.3% | 13.5% |
+| Deathmatch seed 42 | 756.3 s → **366.7 s** | 0.1% → 0.1% | 0.1% → 0.2% | 0.0% |
+| Duel-rookie 7/17/42 | 600.0 s cap (unchanged) | 2.3/2.0/2.8% → 3.1/3.9/3.0% | — | 0.0% |
+| Duel-brawler 7/17/42 | 600.0 s cap (unchanged) | 1.4/1.9/1.8% → 3.5/3.9/3.5% | — | 0.0% |
+| Duel-2v2 7/17/42 | 450.9/518.9/470.5 s → **321.8/298.3/330.8 s** | 0.3/0.1/0.1% → 0.2/0.2/0.2% | — | 0.0% |
+
+CTF objective play, same seeds:
+
+| Seed | Carrier runs | Captures (t0–t1) | Attempts (t0–t1) | Recoveries (t0–t1) |
+|---|---:|---:|---:|---:|
+| 11 before | 7 | 3–0 | 6–1 | 1–2 |
+| 11 after | 36 | 3–1 | 26–10 | 7–16 |
+| 73 before | 4 | 0–2 | 0–4 | 2–0 |
+| 73 after | 42 | 0–1 | 20–22 | 16–19 |
+
+`AUDIT TOTALS` after: `stuckRuns: 0` (now measured with the corrected window), `energyStarvationPct: 2.0`, `objectiveShieldDownHitPct: 62.9`. The carrier-boost violation is gone.
+
+### What the numbers do and do not show
+
+The reported symptom is fixed: no bot is parked, per-bot zero-throttle is under 12% everywhere against a 30% bar, and team 0 on seed 73 goes from **0 capture attempts to 20**. Seed 11's earlier 375.3 s finish was not a healthy match — team 1 made a single attempt in the whole 375 s because most of it was frozen — and the post-fix 468.1 s finish is a contested one, 36 carrier runs against 7.
+
+Seed 73 still reaches the 600 s cap, and that is now a conversion problem rather than a movement one: 42 carrier runs produce 1 capture because 40 carriers die en route. The measured lever is the standing `objectiveShieldDownHitPct` of 62.9% — objective runners take most of their incoming fire with no shield up. That is a separate, pre-existing finding (66.6% before this work) and changing shield policy has balance consequences across every mode, so it is recorded here rather than changed.
