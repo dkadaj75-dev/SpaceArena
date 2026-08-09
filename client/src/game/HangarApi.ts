@@ -43,6 +43,7 @@ export interface ApiProfile {
   xp: number;
   credits: number;
   isGuest: boolean;
+  role?: "player" | "admin";
 }
 
 export interface ApiFitting {

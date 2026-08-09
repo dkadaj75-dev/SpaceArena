@@ -908,7 +908,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     authService,
     () => {
       authScreen.hide();
-      lobby.show();
+      if (new URLSearchParams(window.location.search).has("editor")) void openConstellation();
+      else lobby.show();
     },
     () => {
       // "Skip (offline practice)": go straight to the Lobby, still anonymous
@@ -919,6 +920,44 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     configService,
   );
   authScreen.hide();
+
+  let constellation: import("./editor/ConstellationApp.js").ConstellationApp | null = null;
+  let designToolsEntry: HTMLButtonElement | null = null;
+  async function openConstellation(): Promise<void> {
+    try {
+      const [{ ConstellationApp }, { AdminContentRepository }] = await Promise.all([
+        import("./editor/ConstellationApp.js"), import("./editor/repository/AdminContentRepository.js"),
+      ]);
+      lobby.hide(); authScreen.hide();
+      constellation = new ConstellationApp(new AdminContentRepository(authService), () => { constellation = null; lobby.show(); });
+      await constellation.open();
+    } catch (error) {
+      log.warn("Constellation access denied or unavailable", error);
+      if (authService.getState().status !== "authed") { lobby.hide(); authScreen.show(); return; }
+      lobby.showError(error instanceof Error ? error.message : "Admin access required"); lobby.show();
+    }
+  }
+  async function installDesignToolsEntry(): Promise<void> {
+    const state = authService.getState();
+    if (state.status !== "authed" || designToolsEntry) return;
+    // Players never probe the admin surface: an unauthorized status call is a
+    // guaranteed 403 in the console for every guest (the smoke's zero-error
+    // gate caught exactly that). The profile role gates the ATTEMPT; the
+    // server stays authoritative on every actual editor call.
+    if (state.profile.role !== "admin") return;
+    try {
+      const { AdminContentRepository } = await import("./editor/repository/AdminContentRepository.js");
+      await new AdminContentRepository(authService).status();
+      designToolsEntry = document.createElement("button"); designToolsEntry.type = "button";
+      designToolsEntry.className = "sa-design-tools-entry"; designToolsEntry.textContent = "DESIGN TOOLS";
+      Object.assign(designToolsEntry.style, { position: "fixed", right: "max(16px, env(safe-area-inset-right))", bottom: "max(16px, env(safe-area-inset-bottom))", zIndex: "35", minHeight: "44px", padding: "0 18px", color: "#dceaf7", background: "#0d1524", border: "1px solid #57d8ff", font: "600 13px Orbitron, sans-serif", letterSpacing: ".1em" });
+      designToolsEntry.setAttribute("aria-label", "Open Constellation design tools");
+      designToolsEntry.addEventListener("click", () => void openConstellation()); document.body.append(designToolsEntry);
+    } catch { /* Capability probe is authoritative: players see no entry. */ }
+  }
+  void installDesignToolsEntry();
+  authService.onChange(() => void installDesignToolsEntry());
+  if (new URLSearchParams(window.location.search).has("editor") && authService.getState().status === "authed") void openConstellation();
 
   // --- Boot stage 3: is the game server actually there? ---
   //

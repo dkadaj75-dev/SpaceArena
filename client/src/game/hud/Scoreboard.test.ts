@@ -2,14 +2,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameSession } from "../GameSession.js";
 import { Scoreboard } from "./Scoreboard.js";
+import { teamPerspective, viewerTeam } from "./matchPresentation.js";
 
-function session(): GameSession {
+function session(playerId = 1): GameSession {
   const lines = new Map([
     [1, { entityId: 1, kills: 4, deaths: 1, assists: 2, flagsTaken: 0, flagsReturned: 0, flagsCaptured: 0 }],
     [2, { entityId: 2, kills: 2, deaths: 3, assists: 1, flagsTaken: 0, flagsReturned: 0, flagsCaptured: 0 }],
   ]);
   return {
-    playerId: 1,
+    playerId,
     sim: { world: { gamemode: {} } },
     displayNameFor: (id: number) => (id === 1 ? "YOU" : "RIVAL"),
     matchStats: { forEach: (visit: (line: (typeof lines extends Map<number, infer T> ? T : never)) => void) => lines.forEach(visit), line: (id: number) => lines.get(id)! },
@@ -27,6 +28,49 @@ describe("Scoreboard", () => {
     expect(document.querySelector("tr[data-entity-id='2']")?.classList.contains("hud-scoreboard-local-player")).toBe(false);
     board.showFinal();
     expect(document.querySelector(".hud-scoreboard.final tr[data-entity-id='1']")?.classList.contains("hud-scoreboard-local-player")).toBe(true);
+    board.dispose();
+  });
+
+  it("maps teams from the current viewer's ship, with team zero as the spectator fallback", () => {
+    const snapshot = { ships: [{ id: 1, team: 1 }, { id: 2, team: 0 }] } as never;
+    expect(viewerTeam(snapshot, 1)).toBe(1);
+    expect(teamPerspective(1, viewerTeam(snapshot, 1))).toBe("ally");
+    expect(teamPerspective(0, viewerTeam(snapshot, 1))).toBe("enemy");
+    expect(viewerTeam({ ships: [] } as never, 1)).toBe(0);
+  });
+
+  it("uses blue ally and red enemy table classes from the viewer's perspective", () => {
+    const board = new Scoreboard(document.body, session(), { onPlayAgain: vi.fn(), onMenu: vi.fn() });
+    board.update({ ships: [{ id: 1, team: 1 }, { id: 2, team: 0 }] } as never);
+
+    expect(document.querySelector("table[data-team='1']")?.classList.contains("hud-scoreboard-team--ally")).toBe(true);
+    expect(document.querySelector("table[data-team='0']")?.classList.contains("hud-scoreboard-team--enemy")).toBe(true);
+    board.update({ ships: [{ id: 1, team: 0 }, { id: 2, team: 1 }] } as never);
+    expect(document.querySelector("table[data-team='0']")?.classList.contains("hud-scoreboard-team--ally")).toBe(true);
+    expect(document.querySelector("table[data-team='1']")?.classList.contains("hud-scoreboard-team--enemy")).toBe(true);
+    expect(document.querySelector("tr[data-entity-id='1']")?.classList.contains("hud-scoreboard-local-player")).toBe(true);
+    board.dispose();
+  });
+
+  it("switches the score control label and accessible name with the panel", () => {
+    const board = new Scoreboard(document.body, session(), { onPlayAgain: vi.fn(), onMenu: vi.fn() });
+    const button = document.querySelector<HTMLButtonElement>(".hud-scoreboard-btn")!;
+    expect(button.textContent).toBe("SCORE");
+    expect(button.getAttribute("aria-label")).toBe("SCORE");
+    button.click();
+    expect(button.textContent).toBe("CLOSE");
+    expect(button.getAttribute("aria-label")).toBe("CLOSE");
+    button.click();
+    expect(button.textContent).toBe("SCORE");
+    expect(button.getAttribute("aria-label")).toBe("SCORE");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+    expect(button.textContent).toBe("CLOSE");
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "Tab" }));
+    expect(button.textContent).toBe("SCORE");
+    button.click();
+    board.lockForEnd();
+    expect(button.textContent).toBe("SCORE");
+    expect(button.getAttribute("aria-label")).toBe("SCORE");
     board.dispose();
   });
 });

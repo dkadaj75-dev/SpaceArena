@@ -1,4 +1,4 @@
-import type { EntityId, MatchStatLine, MvpPresentationConfig, ThemeConfig } from "@space-arena/shared";
+import type { EntityId, MatchStatLine, MvpPresentationConfig, Snapshot, ThemeConfig } from "@space-arena/shared";
 import { DEFAULT_DESIGN_TOKENS } from "../themeTokens.js";
 
 export type MatchPresentationState = "playing" | "outcome" | "mvp" | "scoreboard" | "left";
@@ -57,6 +57,17 @@ export function mvpCountUpValue(target: number, elapsedMs: number, durationMs: n
 export function scoreboardScore(line: Readonly<MatchStatLine>, ctf: boolean): number {
   return line.kills * 100 - line.deaths * 10 + line.assists * 25
     + (ctf ? line.flagsCaptured * 1000 + line.flagsReturned * 100 : 0);
+}
+
+/** Resolve team meaning from the frame the HUD is about to paint. */
+export function viewerTeam(snapshot: Pick<Snapshot, "ships">, playerId: EntityId): number {
+  for (const ship of snapshot.ships) if (ship.id === playerId) return ship.team;
+  return 0;
+}
+
+/** The HUD palette is viewer-relative: blue is ally and red is enemy. */
+export function teamPerspective(team: number, ownTeam: number): "ally" | "enemy" {
+  return team === ownTeam ? "ally" : "enemy";
 }
 
 /**

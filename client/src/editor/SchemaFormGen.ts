@@ -28,7 +28,11 @@ export interface SchemaFormOptions<T> {
   value: T;
   configService: Pick<ConfigService, "getAll" | "replace">;
   onProblem?: (problem: FormProblem | null) => void;
+  /** Stable complete issue list for standalone whole-form rendering. */
+  onProblems?: (problems: FormProblem[]) => void;
   onSaved?: (value: T) => void;
+  /** Draft editors may retain schema-valid values while pack references are temporarily broken. */
+  allowPackInvalid?: boolean;
   /**
    * Bespoke renderers by dotted path (e.g. `"behaviors"`). Escape hatch for
    * shapes with no enumerable JSON-schema properties — a `z.record(...)` of
@@ -132,6 +136,10 @@ export class SchemaFormGen<T> {
       return this.field(branches[0] ?? union[0]!, value, path, label, root);
     }
     if (schema.type === "object" || schema.properties) {
+      // z.record/z.unknown/free-form objects have no enumerable properties in
+      // JSON Schema. A labelled JSON editor keeps every value authorable while
+      // friendly controls remain in place for known shapes.
+      if (!root && Object.keys(schema.properties ?? {}).length === 0) return this.jsonField(value, path, label);
       const box = document.createElement(root ? "div" : "details");
       box.className = root ? "ed-form-root" : "ed-group";
       if (!root) {
@@ -343,6 +351,20 @@ export class SchemaFormGen<T> {
     return wrap;
   }
 
+  private jsonField(value: unknown, path: string[], label: string): HTMLElement {
+    const wrap = this.wrap(`${label} (JSON)`);
+    const input = document.createElement("textarea");
+    input.className = "ed-input ed-json";
+    input.name = path.join("."); input.rows = 7;
+    input.value = JSON.stringify(value ?? {}, null, 2);
+    const error = document.createElement("small"); error.className = "editor-field-error"; error.dataset.errorFor = path.join(".");
+    input.addEventListener("change", () => {
+      try { this.change(path, JSON.parse(input.value)); }
+      catch { const problem = { path: path.join("."), message: "Enter valid JSON" }; this.showError(problem); this.options.onProblem?.(problem); this.options.onProblems?.([problem]); }
+    });
+    wrap.append(input, error); return wrap;
+  }
+
   private wrap(label: string): HTMLLabelElement {
     const wrap = document.createElement("label");
     wrap.className = "editor-field";
@@ -358,10 +380,10 @@ export class SchemaFormGen<T> {
     const result = this.options.schema.safeParse(candidate);
     this.clearErrors();
     if (!result.success) {
-      const issue = result.error.issues[0];
-      const problem = { path: issue?.path.map(String).join(".") || path.join("."), message: issue?.message ?? "Invalid value" };
-      this.showError(problem);
-      this.options.onProblem?.(problem);
+      const problems = result.error.issues.map((issue) => ({ path: issue.path.map(String).join(".") || path.join("."), message: issue.message }));
+      for (const problem of problems) this.showError(problem);
+      this.options.onProblem?.(problems[0] ?? null);
+      this.options.onProblems?.(problems);
       return;
     }
     const replaced = this.options.configService.replace(result.data);
@@ -369,10 +391,12 @@ export class SchemaFormGen<T> {
       const error = replaced.errors[0] ?? { path: path.join("."), message: "Config was rejected" };
       this.showError(error);
       this.options.onProblem?.(error);
-      return;
+      this.options.onProblems?.([error]);
+      if (!this.options.allowPackInvalid) return;
     }
     this.value = result.data;
     this.options.onProblem?.(null);
+    this.options.onProblems?.([]);
     this.options.onSaved?.(result.data);
     this.render();
   }

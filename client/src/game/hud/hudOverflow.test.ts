@@ -67,6 +67,17 @@ describe("centre-screen announcement sizing", () => {
 });
 
 describe("other full-bleed text overlays", () => {
+  it("caps the scoreboard to the safe-area height and scrolls only its team rows", () => {
+    const css = hudCss();
+    const panel = ruleBody(css, ".hud-scoreboard-panel");
+    expect(panel).toMatch(/max-height:\s*calc\(100% - var\(--hud-inset-top\) - var\(--hud-inset-bottom\)\)/);
+    expect(panel).toMatch(/overflow:\s*hidden/);
+    expect(panel).toMatch(/display:\s*flex/);
+    const rows = ruleBody(css, ".hud-scoreboard-rows");
+    expect(rows).toMatch(/min-height:\s*0/);
+    expect(rows).toMatch(/overflow-y:\s*auto/);
+  });
+
   it("keeps toast padding inside the notification stack's safe-area cap", () => {
     const css = hudCss();
     expect(ruleBody(css, ".hud-notifications")).toMatch(
