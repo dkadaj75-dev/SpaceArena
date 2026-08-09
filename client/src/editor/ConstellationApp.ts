@@ -47,8 +47,10 @@ export class ConstellationApp {
     importInput.addEventListener("change", () => { const file = importInput.files?.[0]; if (file) void this.import(file); });
     const importButton = this.button("Import JSON pack", "ed-btn", () => importInput.click());
     const discard = this.button("Discard draft", "ed-btn", () => { this.draft!.discard(); void this.preflight(); });
+    const undo = this.button("Undo", "ed-btn", () => { this.draft!.undo(); this.rebuildWorkspace(); }); undo.dataset.action = "undo";
+    const redo = this.button("Redo", "ed-btn", () => { this.draft!.redo(); this.rebuildWorkspace(); }); redo.dataset.action = "redo";
     const rollback = this.button("Roll back live", "ed-btn ed-btn--danger", () => void this.rollback());
-    bar.append(this.publishButton, download, importButton, importInput, discard, rollback); return bar;
+    bar.append(undo, redo, this.publishButton, download, importButton, importInput, discard, rollback); return bar;
   }
 
   private async preflight(): Promise<boolean> {
@@ -95,7 +97,8 @@ export class ConstellationApp {
     this.problemList.replaceChildren(title, ...this.problems.map((error) => { const row = document.createElement("button"); row.type = "button"; row.className = "constellation-problem"; row.textContent = `${error.file} → ${error.path}: ${error.message}`; return row; }));
   }
 
-  private update(): void { if (!this.draft) return; this.status.textContent = `${this.draft.dirtyCount()} changed file(s) · base ${this.draft.base.sourceHash.slice(0, 15)}…`; this.publishButton.disabled = this.problems.length > 0 || !this.draft.isDirty(); }
+  private update(): void { if (!this.draft) return; this.status.textContent = `${this.draft.dirtyCount()} changed file(s) · base ${this.draft.base.sourceHash.slice(0, 15)}…`; this.publishButton.disabled = this.problems.length > 0 || !this.draft.isDirty(); const undo = this.root?.querySelector<HTMLButtonElement>('[data-action="undo"]'); const redo = this.root?.querySelector<HTMLButtonElement>('[data-action="redo"]'); if (undo) undo.disabled = !this.draft.canUndo(); if (redo) redo.disabled = !this.draft.canRedo(); }
+  private rebuildWorkspace(): void { this.root?.querySelector(".constellation-workspace")?.replaceWith(this.workspace()); void this.preflight(); }
   private message(text: string): void { this.status.textContent = text; }
   private handle(error: unknown): void { if (error instanceof EditorRepositoryError && error.errors.length) { this.problems = error.errors; this.renderProblems(); } this.message(error instanceof Error ? error.message : "Operation failed"); }
   private button(label: string, className: string, action: () => void): HTMLButtonElement { const button = document.createElement("button"); button.type = "button"; button.className = className; button.textContent = label; button.addEventListener("click", action); return button; }

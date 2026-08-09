@@ -3,11 +3,13 @@ import { SchemaFormGen } from "./SchemaFormGen.js";
 import { applicationNotice } from "./applicationScope.js";
 import type { DraftPackStore } from "./DraftPackStore.js";
 import { PANEL_REGISTRY, registeredContentPath } from "./panelRegistry.js";
+import { renderPreview } from "./previewAdapters.js";
 
 export class GenericConfigPanel {
   readonly element = document.createElement("section");
   private type: ConfigType = CONFIG_TYPES[0]!;
   private selectedPath = "";
+  private disposePreview: (() => void) | null = null;
 
   constructor(private readonly draft: DraftPackStore, private readonly onProblems: (errors: ConfigError[]) => void) {
     this.element.className = "constellation-catalog";
@@ -15,6 +17,7 @@ export class GenericConfigPanel {
   }
 
   render(): void {
+    this.disposePreview?.(); this.disposePreview = null;
     const bundle = this.draft.snapshot();
     const configs = entriesOf(bundle, this.type);
     if (!configs.some(([path]) => path === this.selectedPath)) this.selectedPath = configs[0]?.[0] ?? "";
@@ -52,16 +55,41 @@ export class GenericConfigPanel {
     const deployed = document.createElement("p"); deployed.className = "constellation-asset-note";
     deployed.textContent = "Asset fields edit references to already deployed assets. Binary upload is not available in Phase 0.";
     const preview = document.createElement("p"); preview.className = "constellation-preview"; preview.textContent = PANEL_REGISTRY[this.type].preview;
+    const livePreview = document.createElement("section"); livePreview.setAttribute("aria-live", "polite");
+    const baseConfig = this.draft.base.files[path] as AnyConfig | undefined;
     const service = new ConfigService(bundleLoader(bundle));
     void service.load("manifest.json").then(() => {
       const form = new SchemaFormGen({
         schema: CONFIG_SCHEMAS[this.type], value: config, configService: service,
         allowPackInvalid: true,
         onProblems: (problems) => this.onProblems(problems.map((problem) => ({ file: path, ...problem }))),
-        onSaved: (value) => { this.draft.setFile(path, value); void this.preflight(); },
+        onSaved: (value) => { this.draft.setFile(path, value); void this.preflight(); void this.updatePreview(livePreview, value, baseConfig); },
       });
-      target.append(head, deployed, preview, applicationNotice(this.type), form.element);
+      target.append(head, deployed, preview, applicationNotice(this.type), this.workflowHelp(config), livePreview, form.element);
+      void this.updatePreview(livePreview, config, baseConfig);
     });
+  }
+
+  private async updatePreview(target: HTMLElement, config: AnyConfig, baseConfig?: AnyConfig): Promise<void> {
+    this.disposePreview?.();
+    this.disposePreview = await renderPreview(target, { bundle: this.draft.snapshot(), config, baseConfig });
+  }
+
+  private workflowHelp(config: AnyConfig): HTMLElement {
+    const box = document.createElement("details"); box.className = "constellation-workflow";
+    const summary = document.createElement("summary");
+    const copy: Partial<Record<ConfigType, string>> = {
+      ship: "Ship hull + socket gizmo workflow", module: "Module fitting + identity workflow", arena: "Map objects + spawn workflow",
+      event: "Trigger + ordered action builder", progression: "XP curve + unlock/reward table", cosmetic: "Swatch + applicability workflow",
+      effect: "Effect recipe + deployed asset workflow", upgrade: "Level curve + resulting metrics", action: "Action kind + record-key params",
+      tuning: "Tuning values + feature flags + draft balance bench", theme: "Tokens + portrait/landscape gallery",
+      botprofile: "Behavior weights + seeded audit", notification: "Notification sandbox", quality: "Device-quality budget workflow",
+    };
+    summary.textContent = copy[config.type] ?? `${PANEL_REGISTRY[config.type].label} workflow`;
+    const p = document.createElement("p");
+    p.textContent = config.type === "action" ? "Params is an arbitrary record: use Add property, edit its stable string key, then choose JSON/value editing. It is stored in this same draft file."
+      : "This dedicated workspace and the generic fields below are two views of the same draft entity; publish remains one whole-pack transaction.";
+    box.append(summary, p); return box;
   }
 
   private duplicate(): void {
