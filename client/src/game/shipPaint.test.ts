@@ -85,12 +85,13 @@ describe("painted masters", () => {
     const { bank: paint, master } = bank();
     expect(paint.masterFor(master, null)).toBe(master);
     expect(paint.masterFor(master, "cosmetic.paint-nope")).toBe(master);
+    expect(paint.masterFor(master, "cosmetic.paint-interceptor-standard")).toBe(master);
     expect(paint.size).toBe(0);
   });
 
   it("paints a CLONE and never the base master", () => {
     const { bank: paint, master } = bank();
-    const painted = paint.masterFor(master, "cosmetic.paint-crimson");
+    const painted = paint.masterFor(master, "cosmetic.paint-interceptor-crimson");
     expect(painted).not.toBe(master);
     expect((painted.material as StandardMaterial).diffuseColor.toHexString().toLowerCase()).toBe("#7a1f2b");
     // Removal is structural: the unpainted hull is the untouched original.
@@ -99,9 +100,9 @@ describe("painted masters", () => {
 
   it("reuses one master per (hull, paint) so ten ships share one draw batch", () => {
     const { bank: paint, master } = bank();
-    const a = paint.masterFor(master, "cosmetic.paint-crimson");
-    const b = paint.masterFor(master, "cosmetic.paint-crimson");
-    const c = paint.masterFor(master, "cosmetic.paint-lance");
+    const a = paint.masterFor(master, "cosmetic.paint-interceptor-crimson");
+    const b = paint.masterFor(master, "cosmetic.paint-interceptor-crimson");
+    const c = paint.masterFor(master, "cosmetic.paint-interceptor-lance");
     expect(a).toBe(b);
     expect(c).not.toBe(a);
     expect(paint.size).toBe(2);
@@ -109,7 +110,7 @@ describe("painted masters", () => {
 
   it("disposes every clone and leaves the base master alive", () => {
     const { bank: paint, master, scene } = bank();
-    const painted = paint.masterFor(master, "cosmetic.paint-crimson");
+    const painted = paint.masterFor(master, "cosmetic.paint-interceptor-crimson");
     const paintedMaterial = painted.material!;
     paint.dispose();
     expect(painted.isDisposed()).toBe(true);
@@ -123,8 +124,8 @@ describe("painted masters", () => {
 
 describe("snapshot cosmetic id", () => {
   it("reads the replicated id and treats absent/blank as standard", () => {
-    expect(cosmeticIdOf({ id: 1, cosmeticId: "cosmetic.paint-crimson" } as unknown as ShipSnapshot)).toBe(
-      "cosmetic.paint-crimson",
+    expect(cosmeticIdOf({ id: 1, cosmeticId: "cosmetic.paint-interceptor-crimson" } as unknown as ShipSnapshot)).toBe(
+      "cosmetic.paint-interceptor-crimson",
     );
     expect(cosmeticIdOf({ id: 1 } as unknown as ShipSnapshot)).toBeNull();
     expect(cosmeticIdOf({ id: 1, cosmeticId: "" } as unknown as ShipSnapshot)).toBeNull();

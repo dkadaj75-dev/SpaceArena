@@ -1,5 +1,5 @@
 import type { ConfigService } from "../core/ConfigService.js";
-import { cosmeticAppliesTo, STANDARD_COSMETIC_ID, type CosmeticConfig } from "../schemas/cosmetic.js";
+import { baseCosmeticIdFor, cosmeticAppliesTo, type CosmeticConfig } from "../schemas/cosmetic.js";
 
 /**
  * Content-side cosmetic queries shared by the shop, the sim spawn paths and the
@@ -13,18 +13,13 @@ export function allCosmetics(configs: Pick<ConfigService, "getAll">): CosmeticCo
   return configs.getAll<CosmeticConfig>("cosmetic").slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** The `appliesTo: "any"` paints — the pool a starter account and a bot draw from. */
-export function universalCosmetics(configs: Pick<ConfigService, "getAll">): CosmeticConfig[] {
-  return allCosmetics(configs).filter((c) => c.appliesTo === "any");
-}
-
 /** Cosmetics equippable on `shipId`, id-sorted. */
 export function cosmeticsForShip(configs: Pick<ConfigService, "getAll">, shipId: string): CosmeticConfig[] {
   return allCosmetics(configs).filter((c) => cosmeticAppliesTo(c, shipId));
 }
 
 /**
- * `cosmeticId` if it exists AND may be worn by `shipId`, else null (= standard).
+ * `cosmeticId` if it exists AND targets `shipId`, else that hull's base paint.
  * The one gate every trust boundary uses: the room on join, the store on select,
  * the offline ledger on read.
  */
@@ -32,26 +27,28 @@ export function resolveCosmeticFor(
   configs: Pick<ConfigService, "get">,
   shipId: string,
   cosmeticId: string | null | undefined,
-): string | null {
-  if (!cosmeticId || cosmeticId === STANDARD_COSMETIC_ID) return null;
+): string {
+  const baseId = baseCosmeticIdFor(shipId);
+  if (!cosmeticId) return baseId;
   const cosmetic = configs.get<CosmeticConfig>("cosmetic", cosmeticId);
-  if (!cosmetic || !cosmeticAppliesTo(cosmetic, shipId)) return null;
+  if (!cosmetic || !cosmeticAppliesTo(cosmetic, shipId)) return baseId;
   return cosmetic.id;
 }
 
 /**
- * The free paint a bot wears, drawn from the universal pool by a deterministic
+ * The free paint a bot wears, drawn from its target hull's pool by a deterministic
  * key rather than a roll off a shared stream — two hosts building the same
  * roster (offline practice and the authoritative room) must dress it the same,
  * and neither may perturb the other's seeded randomness to do it.
  */
 export function botCosmeticFor(
   configs: Pick<ConfigService, "getAll">,
+  shipId: string,
   seed: number,
   entityId: number,
-): string | null {
-  const pool = universalCosmetics(configs);
-  if (pool.length === 0) return null;
+): string {
+  const pool = cosmeticsForShip(configs, shipId);
+  if (pool.length === 0) return baseCosmeticIdFor(shipId);
   // 32-bit integer hash of (seed, entityId): cheap, stable across engines, and
   // independent of how many cosmetics happen to be authored.
   let h = (Math.imul(seed | 0, 0x9e3779b1) ^ Math.imul(entityId | 0, 0x85ebca6b)) >>> 0;

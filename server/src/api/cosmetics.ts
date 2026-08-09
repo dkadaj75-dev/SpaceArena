@@ -3,7 +3,6 @@ import {
   buyCosmeticBodySchema,
   cosmeticAppliesTo,
   selectCosmeticBodySchema,
-  STANDARD_COSMETIC_ID,
   type CosmeticConfig,
   type ShipConfig,
 } from "@space-arena/shared";
@@ -71,9 +70,8 @@ export function createCosmeticsRouter(): Router {
         return;
       }
 
-      // null / the standard id both mean the authored look, which is stored as
-      // the ABSENCE of a row (see migration 005).
-      if (body.cosmeticId === null || body.cosmeticId === STANDARD_COSMETIC_ID) {
+      // null clears the explicit row; reads derive this hull's owned base skin.
+      if (body.cosmeticId === null) {
         selectedCosmeticsRepo.clear(req.userId!, ship.id);
         res.json({ shipId: ship.id, cosmeticId: null });
         return;

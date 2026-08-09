@@ -122,7 +122,7 @@ export class ShipPaintBank {
    * absent, unknown or paintless cosmetic id — standard IS the base look.
    */
   masterFor(base: Mesh, cosmeticId: string | null): Mesh {
-    if (!cosmeticId) return base;
+    if (!cosmeticId || cosmeticId.endsWith("-standard")) return base;
     const cosmetic = cosmeticById(this.configs, cosmeticId);
     if (!cosmetic?.paint) return base;
     const key = `${base.uniqueId}|${cosmetic.id}`;

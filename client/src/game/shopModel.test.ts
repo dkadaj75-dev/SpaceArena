@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FakeOwnershipStore } from "./__fixtures__/ownershipStoreFake.js";
 import { shopConfigs } from "./__fixtures__/shopContent.js";
-import { STANDARD_COSMETIC_ID } from "./cosmetics.js";
 import {
   moduleGroups,
   paintEntries,
@@ -59,45 +58,44 @@ describe("shop modules tab", () => {
 });
 
 describe("shop paints tab", () => {
-  it("offers only owned, applicable hulls in the equip row", () => {
+  it("exposes exactly one ownership-aware target hull", () => {
     const store = new FakeOwnershipStore({
       ships: ["ship.interceptor", "ship.brawler"],
-      cosmetics: ["cosmetic.paint-crimson", "cosmetic.paint-lance"],
+      cosmetics: ["cosmetic.paint-interceptor-crimson", "cosmetic.paint-interceptor-lance"],
     });
     const entries = paintEntries(configs, store);
-    const crimson = entries.find((e) => e.id === "cosmetic.paint-crimson")!;
-    const lance = entries.find((e) => e.id === "cosmetic.paint-lance")!;
-    expect(crimson.sub).toBe("Fits every hull");
-    expect(crimson.targets.map((t) => t.shipId)).toEqual(["ship.brawler", "ship.interceptor"]);
+    const crimson = entries.find((e) => e.id === "cosmetic.paint-interceptor-crimson")!;
+    const lance = entries.find((e) => e.id === "cosmetic.paint-interceptor-lance")!;
+    expect(crimson.sub).toBe("Fits Interceptor");
+    expect(crimson.target).toMatchObject({ shipId: "ship.interceptor", owned: true });
     expect(lance.sub).toBe("Fits Interceptor");
-    expect(lance.targets.map((t) => t.shipId)).toEqual(["ship.interceptor"]);
+    expect(lance.target.shipId).toBe("ship.interceptor");
   });
 
   it("hides hulls the pilot does not own", () => {
-    const store = new FakeOwnershipStore({ ships: ["ship.interceptor"], cosmetics: ["cosmetic.paint-crimson"] });
-    const crimson = paintEntries(configs, store).find((e) => e.id === "cosmetic.paint-crimson")!;
-    expect(crimson.targets.map((t) => t.shipId)).toEqual(["ship.interceptor"]);
+    const store = new FakeOwnershipStore({ ships: ["ship.interceptor"] });
+    const base = paintEntries(configs, store).find((e) => e.id === "cosmetic.paint-brawler-standard")!;
+    expect(base.target).toMatchObject({ shipId: "ship.brawler", owned: false });
   });
 
   it("states are BUY unbought, OWNED bought, EQUIPPED once worn", () => {
     const store = new FakeOwnershipStore({
       ships: ["ship.interceptor"],
-      cosmetics: ["cosmetic.paint-crimson"],
-      selections: { "ship.interceptor": "cosmetic.paint-crimson" },
+      cosmetics: ["cosmetic.paint-interceptor-standard", "cosmetic.paint-interceptor-crimson"],
+      selections: { "ship.interceptor": "cosmetic.paint-interceptor-crimson" },
     });
     const byId = new Map(paintEntries(configs, store).map((e) => [e.id, e]));
-    expect(byId.get("cosmetic.paint-crimson")!.state).toBe("equipped");
-    expect(byId.get("cosmetic.paint-lance")!.state).toBe("buy");
+    expect(byId.get("cosmetic.paint-interceptor-crimson")!.state).toBe("equipped");
+    expect(byId.get("cosmetic.paint-interceptor-lance")!.state).toBe("buy");
     // Standard is owned by everyone — it is the authored look, not a purchase.
-    expect(byId.get(STANDARD_COSMETIC_ID)!.state).toBe("owned");
-    expect(byId.get("cosmetic.paint-crimson")!.targets[0]!.equipped).toBe(true);
+    expect(byId.get("cosmetic.paint-interceptor-standard")!.state).toBe("owned");
+    expect(byId.get("cosmetic.paint-interceptor-crimson")!.target.equipped).toBe(true);
   });
 
-  it("an absent selection reads as standard, and selecting standard stores absence", () => {
+  it("an absent selection reads as the hull-scoped base id", () => {
     const store = new FakeOwnershipStore({ ships: ["ship.interceptor"] });
-    expect(selectedCosmeticId(store, "ship.interceptor")).toBe(STANDARD_COSMETIC_ID);
-    expect(selectionValueFor(STANDARD_COSMETIC_ID)).toBeNull();
-    expect(selectionValueFor("cosmetic.paint-crimson")).toBe("cosmetic.paint-crimson");
+    expect(selectedCosmeticId(store, "ship.interceptor")).toBe("cosmetic.paint-interceptor-standard");
+    expect(selectionValueFor("cosmetic.paint-interceptor-standard")).toBe("cosmetic.paint-interceptor-standard");
   });
 
   it("a pack with no cosmetics yields an empty tab rather than throwing", () => {

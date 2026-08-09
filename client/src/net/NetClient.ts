@@ -29,7 +29,7 @@ export interface ArenaJoinOptions {
   /**
    * Paint to fly in (`cosmetic.*`). Omitted ⇒ the server uses the account's
    * saved selection for the spawned hull. The room validates ownership and
-   * `appliesTo` and quietly flies standard on anything else, so this is a
+   * target and quietly flies the base skin on anything else, so this is a
    * request, never an instruction.
    */
   cosmeticId?: string;

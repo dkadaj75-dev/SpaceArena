@@ -1,5 +1,5 @@
 import {
-  STANDARD_COSMETIC_ID,
+  baseCosmeticIdFor,
   resolveCosmeticFor,
   type ApiInventory,
   type ConfigService,
@@ -39,23 +39,26 @@ export function ownedModuleIds(configs: ConfigService, userId: string): Set<stri
 
 export function ownedCosmeticIds(configs: ConfigService, userId: string): Set<string> {
   const owned = new Set(ownedCosmeticsRepo.byUser(userId).map((r) => r.cosmetic_id));
-  if (configs.get("cosmetic", STANDARD_COSMETIC_ID)) owned.add(STANDARD_COSMETIC_ID);
+  for (const shipId of ownedShipIds(configs, userId)) {
+    const baseId = baseCosmeticIdFor(shipId);
+    if (configs.get("cosmetic", baseId)) owned.add(baseId);
+  }
   return owned;
 }
 
 /**
  * Equipped paint per hull, filtered through ownership AND applicability: a row
- * left behind by a re-authored paint (or one whose `appliesTo` no longer covers
+ * left behind by a re-authored paint (or one whose target no longer matches
  * the hull) reads as the authored look rather than travelling to a client that
  * would try to render it.
  */
 export function cosmeticSelections(configs: ConfigService, userId: string): Record<string, string> {
   const owned = ownedCosmeticIds(configs, userId);
   const out: Record<string, string> = {};
+  for (const shipId of ownedShipIds(configs, userId)) out[shipId] = baseCosmeticIdFor(shipId);
   for (const row of selectedCosmeticsRepo.byUser(userId)) {
-    if (!owned.has(row.cosmetic_id)) continue;
     const resolved = resolveCosmeticFor(configs, row.ship_id, row.cosmetic_id);
-    if (resolved) out[row.ship_id] = resolved;
+    if (owned.has(resolved)) out[row.ship_id] = resolved;
   }
   return out;
 }

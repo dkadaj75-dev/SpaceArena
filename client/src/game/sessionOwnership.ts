@@ -70,7 +70,7 @@ class SessionOwnershipStore implements OwnershipStore {
   ownedCosmetics(): ReadonlySet<string> {
     return this.backing.ownedCosmetics();
   }
-  selectedCosmetic(shipId: string): string | null {
+  selectedCosmetic(shipId: string): string {
     return this.backing.selectedCosmetic(shipId);
   }
   credits(): number {

@@ -285,11 +285,8 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
       break;
     }
     case "cosmetic": {
-      // An explicit hull list is resolved as ship references: a typo here would
-      // otherwise ship a paint that no hull can ever equip.
-      if (config.appliesTo !== "any") {
-        config.appliesTo.forEach((id, i) => refs.push({ path: `appliesTo[${i}]`, id, expects: "ship" }));
-      }
+      const expects = config.target.startsWith("ship.") ? "ship" : "module";
+      refs.push({ path: "target", id: config.target, expects });
       break;
     }
     case "theme": {

@@ -41,21 +41,21 @@ function paintOf(s: GameSession, id: number): string | undefined {
 
 describe("offline cosmetics", () => {
   it("flies the equipped paint", () => {
-    const s = session("cosmetic.paint-crimson");
-    expect(paintOf(s, s.playerId)).toBe("cosmetic.paint-crimson");
+    const s = session("cosmetic.paint-interceptor-crimson");
+    expect(paintOf(s, s.playerId)).toBe("cosmetic.paint-interceptor-crimson");
   });
 
   it("flies the authored look with no selection", () => {
     const s = session();
-    expect(paintOf(s, s.playerId)).toBeUndefined();
+    expect(paintOf(s, s.playerId)).toBe("cosmetic.paint-interceptor-standard");
   });
 
   it("drops a paint the hull may not wear rather than spawning it", () => {
-    const s = session("cosmetic.paint-ironclad"); // authored for ship.brawler
-    expect(paintOf(s, s.playerId)).toBeUndefined();
+    const s = session("cosmetic.paint-brawler-ironclad");
+    expect(paintOf(s, s.playerId)).toBe("cosmetic.paint-interceptor-standard");
   });
 
-  it("dresses bots in free universal paints, identically for the same seed", () => {
+  it("dresses bots in target-ship paints, identically for the same seed", () => {
     const first = session();
     const second = session();
     const botIds = [...first.bots.keys()];
@@ -64,7 +64,7 @@ describe("offline cosmetics", () => {
       const paint = paintOf(first, id);
       expect(paint).toBeDefined();
       const cosmetic = configs.get<CosmeticConfig>("cosmetic", paint!)!;
-      expect(cosmetic.appliesTo).toBe("any");
+      expect(cosmetic.target).toMatch(/^ship\./);
       expect(cosmetic.price).toBe(0);
       expect(paintOf(second, id)).toBe(paint);
     }

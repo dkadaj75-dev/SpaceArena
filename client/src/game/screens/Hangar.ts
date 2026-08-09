@@ -46,6 +46,7 @@ import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } f
 import type { OwnershipStore } from "../ownershipStore.js";
 import { hullOwned, moduleOwned } from "../hangarGating.js";
 import { priceLabel } from "../shopModel.js";
+import { buyAndEquipSkin, hangarSkinEntries, type HangarSkinEntry } from "../hangarSkins.js";
 import { ShipPaintBank } from "../shipPaint.js";
 import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
 import { HangarBay } from "./HangarBay.js";
@@ -99,7 +100,7 @@ const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine:
  * slot in the viewer's top-right corner. The rail is purely about outfitting
  * the hull already on the stage.
  */
-type HangarCategory = "hardpoints" | "internals" | "fitting";
+type HangarCategory = "skins" | "hardpoints" | "internals" | "fitting";
 
 export interface HangarSelection {
   shipId: string | null;
@@ -1390,6 +1391,8 @@ export class Hangar {
     if (!owned) {
       content.append(el("div", "hangar-hint", "You do not own this hull yet — buy it on the stage to fit and fly it."));
       content.append(this.buildStatPanel(ship));
+    } else if (this.category === "skins") {
+      content.append(this.buildSkins(ship));
     } else if (this.category === "fitting") {
       content.append(this.buildFittingControls(ship));
       content.append(this.buildStatPanel(ship));
@@ -1417,6 +1420,7 @@ export class Hangar {
   private buildCategoryRail(owned: boolean): HTMLDivElement {
     const rail = el("div", "hangar-rail");
     const entries: { key: HangarCategory; label: string; hint: string }[] = [
+      { key: "skins", label: "Skins", hint: "Hull paint and finish" },
       { key: "hardpoints", label: "Hardpoints", hint: "Weapons and shields" },
       { key: "internals", label: "Core internal", hint: "Engine, reactor, sink · upgrades" },
       { key: "fitting", label: "Fitting", hint: "Save and load loadouts" },
@@ -1447,6 +1451,48 @@ export class Hangar {
     // show a hardpoint's module list under the internals heading.
     this.pickerHardpoint = null;
     this.render();
+  }
+
+  private buildSkins(ship: ShipConfig): HTMLDivElement {
+    const list = el("div", "hangar-skins");
+    list.append(el("div", "hangar-section-title", `${ship.name ?? ship.id} skins`));
+    if (!this.ownership) return list;
+    for (const cosmetic of hangarSkinEntries(this.configs, this.ownership, ship.id)) {
+      const isOwned = cosmetic.owned;
+      const equipped = cosmetic.equipped;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `hangar-skin${equipped ? " equipped" : ""}`;
+      row.dataset["cosmetic"] = cosmetic.id;
+      row.disabled = this.busy || !this.ownership || equipped;
+      const swatch = el("span", "hangar-skin-swatch");
+      swatch.style.setProperty("--skin-primary", cosmetic.primary);
+      swatch.style.setProperty("--skin-accent", cosmetic.accent);
+      row.append(
+        swatch,
+        el("span", "hangar-skin-name", cosmetic.name),
+        el("span", "hangar-skin-state", equipped ? "EQUIPPED" : isOwned ? "EQUIP" : `Buy · ${priceLabel(cosmetic.price)}`),
+      );
+      row.addEventListener("click", () => void this.chooseSkin(ship, cosmetic, isOwned));
+      list.append(row);
+    }
+    return list;
+  }
+
+  private async chooseSkin(ship: ShipConfig, cosmetic: HangarSkinEntry, owned: boolean): Promise<void> {
+    if (!this.ownership || this.busy) return;
+    this.busy = true;
+    this.error = "";
+    this.render();
+    try {
+      await buyAndEquipSkin(this.ownership, ship.id, cosmetic.id, owned);
+    } catch (err) {
+      this.error = errorMessage(err, "Could not buy or equip that skin");
+    } finally {
+      this.busy = false;
+      this.rebuildPreview();
+      this.render();
+    }
   }
 
   /**
@@ -2162,6 +2208,14 @@ const HANGAR_CSS = `
 .hangar-rail-btn.back { margin-top: 8px; background: transparent; border: 1px solid var(--hg-line); }
 .hangar-rail-label { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .hangar-rail-hint { font-size: 9.5px; color: var(--hg-dim); line-height: 1.15; }
+.hangar-skins { display: flex; flex-direction: column; gap: 5px; max-height: 320px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.hangar-skin { display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 9px; min-height: 48px; padding: 6px 9px; color: var(--sa-white); background: var(--hg-panel-2); border: 1px solid var(--hg-line); text-align: left; touch-action: manipulation; }
+.hangar-skin:not(:disabled) { cursor: pointer; }
+.hangar-skin.equipped { border-color: var(--hg-accent); }
+.hangar-skin:disabled { opacity: .8; }
+.hangar-skin-swatch { width: 40px; height: 30px; background: linear-gradient(135deg, var(--skin-primary) 0 52%, var(--skin-accent) 52% 100%); border: 1px solid rgba(255,255,255,.25); }
+.hangar-skin-name { font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+.hangar-skin-state { font-size: 9.5px; font-weight: 700; letter-spacing: .08em; color: var(--hg-accent); text-transform: uppercase; }
 
 /* Landscape: the same halves, laid out left (stage) / right (panel). */
 @media (orientation: landscape) {

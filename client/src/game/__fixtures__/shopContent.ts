@@ -14,11 +14,12 @@ export const MODULES = [
 ] as const;
 
 export const COSMETICS: CosmeticConfig[] = [
-  paint("cosmetic.paint-standard", "Standard Issue", "any", { primary: "#2f6fb8", accent: "#57d8ff" }),
-  paint("cosmetic.paint-crimson", "Crimson Vector", "any", {
+  paint("cosmetic.paint-interceptor-standard", "Standard Issue", "ship.interceptor", { primary: "#2f6fb8", accent: "#57d8ff" }),
+  paint("cosmetic.paint-interceptor-crimson", "Crimson Vector", "ship.interceptor", {
     primary: "#7a1f2b", accent: "#e0546a", emissive: "#ff8a3d",
   }),
-  paint("cosmetic.paint-lance", "Lance Livery", ["ship.interceptor"], {
+  paint("cosmetic.paint-brawler-standard", "Standard Issue", "ship.brawler", { primary: "#8a94a6", accent: "#c3ccd8" }),
+  paint("cosmetic.paint-interceptor-lance", "Lance Livery", "ship.interceptor", {
     primary: "#1d3f2e", accent: "#8ce0a8",
   }),
 ];
@@ -87,8 +88,8 @@ function weapon(
 function paint(
   id: string,
   name: string,
-  appliesTo: CosmeticConfig["appliesTo"],
+  target: CosmeticConfig["target"],
   paintColors: CosmeticConfig["paint"],
 ): CosmeticConfig {
-  return { id, type: "cosmetic", version: 1, name, kind: "paint", price: 0, appliesTo, paint: paintColors };
+  return { id, type: "cosmetic", version: 1, name, kind: "paint", price: 0, target, paint: paintColors };
 }

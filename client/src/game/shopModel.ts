@@ -3,10 +3,7 @@ import type { OwnershipStore } from "./ownershipStore.js";
 import { moduleStats } from "./moduleSummary.js";
 import {
   allCosmetics,
-  appliesToShip,
   applicabilityLabel,
-  STANDARD_COSMETIC_ID,
-  type CosmeticConfig,
   type CosmeticPaint,
 } from "./cosmetics.js";
 
@@ -58,12 +55,14 @@ export interface ShopGroup {
 export interface PaintTarget {
   shipId: string;
   shipName: string;
+  kind: "ship" | "module";
+  owned: boolean;
   equipped: boolean;
 }
 
 export interface PaintEntry extends ShopEntry {
   paint: CosmeticPaint;
-  targets: PaintTarget[];
+  target: PaintTarget;
 }
 
 /** The read half of the ownership seam — everything the model needs. */
@@ -151,28 +150,28 @@ export function paintEntries(
   const shipName = (id: string): string => ships.find((s) => s.id === id)?.name ?? id;
   const ownedCosmetics = owned.ownedCosmetics();
   const ownedShips = owned.ownedShips();
+  const ownedModules = owned.ownedModules();
 
   return allCosmetics(configs).map((cosmetic) => {
-    const targets: PaintTarget[] = ships
-      .filter((ship) => ownedShips.has(ship.id) && appliesToShip(cosmetic, ship.id))
-      .map((ship) => ({
-        shipId: ship.id,
-        shipName: ship.name ?? ship.id,
-        // Resolved, not raw: a hull with no selection is wearing STANDARD, and
-        // the standard card has to say so rather than offer to equip what is
-        // already on the hull.
-        equipped: selectedCosmeticId(owned, ship.id) === cosmetic.id,
-      }));
-    const isOwned = ownedCosmetics.has(cosmetic.id) || cosmetic.id === STANDARD_COSMETIC_ID;
+    const targetShip = ships.find((ship) => ship.id === cosmetic.target);
+    const targetKind = cosmetic.target.startsWith("ship.") ? "ship" : "module";
+    const target: PaintTarget = {
+      shipId: cosmetic.target,
+      shipName: targetShip?.name ?? cosmetic.target,
+      kind: targetKind,
+      owned: targetKind === "ship" ? ownedShips.has(cosmetic.target) : ownedModules.has(cosmetic.target),
+      equipped: targetShip ? selectedCosmeticId(owned, targetShip.id) === cosmetic.id : false,
+    };
+    const isOwned = ownedCosmetics.has(cosmetic.id);
     return {
       id: cosmetic.id,
       name: cosmetic.name ?? cosmetic.id,
       sub: applicabilityLabel(cosmetic, shipName),
       price: cosmetic.price,
-      state: targets.some((t) => t.equipped) ? "equipped" : isOwned ? "owned" : "buy",
+      state: target.equipped ? "equipped" : isOwned ? "owned" : "buy",
       chips: [],
       paint: cosmetic.paint,
-      targets,
+      target,
     } satisfies PaintEntry;
   });
 }
@@ -182,7 +181,7 @@ export function paintEntries(
  * contract §1: standard is a real row in the shop but never a stored selection.
  */
 export function selectedCosmeticId(owned: ShopOwnership, shipId: string): string {
-  return owned.selectedCosmetic(shipId) ?? STANDARD_COSMETIC_ID;
+  return owned.selectedCosmetic(shipId);
 }
 
 /**
@@ -190,15 +189,16 @@ export function selectedCosmeticId(owned: ShopOwnership, shipId: string): string
  * standard paint is stored as "no selection" so a re-authored default look
  * never strands a pilot on a stale id.
  */
-export function selectionValueFor(cosmeticId: string): string | null {
-  return cosmeticId === STANDARD_COSMETIC_ID ? null : cosmeticId;
+export function selectionValueFor(cosmeticId: string): string {
+  return cosmeticId;
 }
 
 /** Whether the paint can be equipped anywhere yet — drives the equip row's hint. */
-export function equipHint(entry: PaintEntry, cosmetic?: CosmeticConfig): string {
+export function equipHint(entry: PaintEntry): string {
   if (entry.state === "buy") return "";
-  if (entry.targets.length > 0) return "";
-  return cosmetic && cosmetic.appliesTo !== "any" ? "No owned hull wears this paint." : "Buy a hull to wear this.";
+  if (entry.target.kind === "module") return "Owned module skins are stored now; module mesh rendering is forthcoming.";
+  if (entry.target.owned) return "";
+  return `Target hull not owned: ${entry.target.shipName}.`;
 }
 
 function sortedShips(configs: Pick<ConfigService, "getAll">): ShipConfig[] {

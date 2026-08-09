@@ -104,7 +104,7 @@ export interface ShipSnapshot {
   locked: boolean;
   /**
    * Equipped paint (`cosmetic.*`), or ABSENT for the hull's authored look. The
-   * renderer must treat absent and `cosmetic.paint-standard` identically — the
+   * renderer receives the target hull's base paint for absent or stale ids — the
    * standard paint exists so a shop selection is never undefined, not so it can
    * mean different pixels. Validated at the spawn seam (offline) and again by
    * the room (online); a snapshot never carries an id the pack does not have.
@@ -416,7 +416,7 @@ export class ArenaSimulation {
    * (and anything rejected) is stored as absent — see {@link ShipSnapshot.cosmeticId}.
    */
   private paintFor(shipId: string, cosmeticId: string | null | undefined): string | undefined {
-    return resolveCosmeticFor(this.configs, shipId, cosmeticId) ?? undefined;
+    return resolveCosmeticFor(this.configs, shipId, cosmeticId);
   }
 
   applyOrder(entityId: EntityId, order: Order): void {
