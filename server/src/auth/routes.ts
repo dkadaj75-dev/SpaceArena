@@ -24,6 +24,7 @@ function profilePayload(userId: string): {
   xp: number;
   credits: number;
   isGuest: boolean;
+  role: "player" | "admin";
 } | null {
   const profile = profilesRepo.byUser(userId);
   const user = usersRepo.byId(userId);
@@ -35,6 +36,10 @@ function profilePayload(userId: string): {
     xp: profile.xp,
     credits: profile.credits,
     isGuest: user.guest_token !== null,
+    // The role rides the profile so the client can GATE admin-only UI (the
+    // Constellation entry) without probing an admin endpoint as a player and
+    // spraying 403s into the console. The server stays authoritative on use.
+    role: user.role,
   };
 }
 

@@ -1,5 +1,6 @@
 import type { Snapshot } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
+import { viewerTeam } from "./matchPresentation.js";
 
 /**
  * Top-center match status (owner 2026-07-31): a TEAM SCOREBOARD, Overwatch
@@ -45,7 +46,7 @@ export class MatchStatus {
     // a team can win having lost every fight, and showing frags there would be
     // showing the wrong game (owner 2026-07-31).
     const isCtf = gamemode.ctf !== undefined;
-    const playerTeam = this.session.playerTeam;
+    const playerTeam = viewerTeam(cur, this.session.playerId);
     let blueScore = 0;
     let redScore = 0;
     for (const score of cur.teamScores) {

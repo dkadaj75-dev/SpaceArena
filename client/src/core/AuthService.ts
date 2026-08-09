@@ -15,6 +15,8 @@ export interface Profile {
   xp: number;
   credits: number;
   isGuest: boolean;
+  /** Absent on tokens minted before roles rode the profile; treat as player. */
+  role?: "player" | "admin";
 }
 
 /** Token pair + profile returned by every `/api/auth/*` route except `/me`. */
@@ -34,6 +36,7 @@ export class ApiRequestError extends Error {
     readonly code: string,
     message: string,
     readonly status: number,
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = "ApiRequestError";
@@ -42,6 +45,7 @@ export class ApiRequestError extends Error {
 
 interface ApiErrorBody {
   error: { code: string; message: string };
+  errors?: unknown;
 }
 
 export type AuthListener = (state: AuthState) => void;
@@ -306,13 +310,15 @@ export class AuthService {
   private async buildError(res: Response): Promise<ApiRequestError> {
     let code = "unknown";
     let message = `HTTP ${res.status}`;
+    let errBodyDetails: unknown;
     try {
       const errBody = (await res.json()) as ApiErrorBody;
       code = errBody.error.code;
       message = errBody.error.message;
+      errBodyDetails = errBody.errors;
     } catch {
       // Non-JSON error body (e.g. proxy 502) — fall back to the generic message.
     }
-    return new ApiRequestError(code, message, res.status);
+    return new ApiRequestError(code, message, res.status, errBodyDetails);
   }
 }

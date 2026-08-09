@@ -1,7 +1,7 @@
 import type { EntityId, MatchStatLine, Snapshot } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
-import { compareMatchStats } from "./matchPresentation.js";
+import { compareMatchStats, teamPerspective, viewerTeam } from "./matchPresentation.js";
 
 interface Row { tr: HTMLTableRowElement; cells: HTMLTableCellElement[]; signature: string }
 
@@ -11,6 +11,7 @@ export class Scoreboard {
   private readonly rows = new Map<EntityId, Row>();
   private readonly button: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
+  private readonly teamRows: HTMLDivElement;
   private readonly finalActions: HTMLDivElement;
   private visible = false;
   private mode: "play" | "locked" | "final" = "play";
@@ -31,6 +32,9 @@ export class Scoreboard {
     panel.className = "hud-scoreboard-panel hud-frame";
     const title = document.createElement("h2"); title.textContent = "SCOREBOARD";
     panel.appendChild(title);
+    this.teamRows = document.createElement("div");
+    this.teamRows.className = "hud-scoreboard-rows";
+    panel.appendChild(this.teamRows);
     this.finalActions = document.createElement("div");
     this.finalActions.className = "hud-scoreboard-actions";
     this.finalActions.append(
@@ -43,6 +47,7 @@ export class Scoreboard {
     this.button = document.createElement("button");
     this.button.className = "hud-scoreboard-btn hud-button hud-button--secondary";
     this.button.textContent = "SCORE";
+    this.button.setAttribute("aria-label", "SCORE");
     this.button.setAttribute(HUD_CONTROL_ATTR, "");
     this.button.addEventListener("click", () => { if (this.mode === "play") this.setVisible(!this.visible); });
     parent.appendChild(this.button);
@@ -51,7 +56,13 @@ export class Scoreboard {
   }
 
   update(snapshot: Snapshot): void {
-    for (const ship of snapshot.ships) this.ensureRow(ship.id, ship.team);
+    const ownTeam = viewerTeam(snapshot, this.session.playerId);
+    for (const ship of snapshot.ships) this.ensureRow(ship.id, ship.team, ownTeam);
+    for (const [team, body] of this.bodies) {
+      const table = body.parentElement!;
+      table.classList.toggle("hud-scoreboard-team--ally", teamPerspective(team, ownTeam) === "ally");
+      table.classList.toggle("hud-scoreboard-team--enemy", teamPerspective(team, ownTeam) === "enemy");
+    }
     this.session.matchStats.forEach((line) => this.paint(line));
   }
 
@@ -68,18 +79,19 @@ export class Scoreboard {
     this.setVisible(false);
   }
 
-  private ensureRow(id: EntityId, team: number): void {
+  private ensureRow(id: EntityId, team: number, ownTeam: number): void {
     if (this.rows.has(id)) return;
     let body = this.bodies.get(team);
     if (!body) {
       const table = document.createElement("table");
       table.dataset["team"] = String(team);
+      table.classList.add(`hud-scoreboard-team--${teamPerspective(team, ownTeam)}`);
       const caption = document.createElement("caption"); caption.textContent = `TEAM ${team + 1}`;
       const head = document.createElement("thead");
       const hr = document.createElement("tr");
       for (const label of ["PILOT", "K", "D", "A", ...(this.ctf ? ["TAKEN", "RETURN", "CAP"] : [])]) { const th = document.createElement("th"); th.textContent = label; hr.appendChild(th); }
       head.appendChild(hr); body = document.createElement("tbody"); table.append(caption, head, body);
-      this.panel.insertBefore(table, this.finalActions); this.bodies.set(team, body);
+      this.teamRows.appendChild(table); this.bodies.set(team, body);
     }
     const tr = document.createElement("tr");
     tr.dataset["entityId"] = String(id);
@@ -111,7 +123,13 @@ export class Scoreboard {
     for (const tr of sorted) body.appendChild(tr);
   }
 
-  private setVisible(visible: boolean): void { this.visible = visible; this.root.classList.toggle("visible", visible); this.button.setAttribute("aria-pressed", String(visible)); }
+  private setVisible(visible: boolean): void {
+    this.visible = visible;
+    this.root.classList.toggle("visible", visible);
+    this.button.textContent = visible ? "CLOSE" : "SCORE";
+    this.button.setAttribute("aria-label", visible ? "CLOSE" : "SCORE");
+    this.button.setAttribute("aria-pressed", String(visible));
+  }
   dispose(): void { window.removeEventListener("keydown", this.onKeyDown); window.removeEventListener("keyup", this.onKeyUp); this.root.remove(); this.button.remove(); }
 }
 

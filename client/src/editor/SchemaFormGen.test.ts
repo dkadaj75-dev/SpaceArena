@@ -274,4 +274,18 @@ describe("SchemaFormGen", () => {
     expect(Array.from(select.options).map((o) => o.value)).toEqual(["box", "sphere", "cone"]);
     expect(select.value).toBe("sphere");
   });
+
+  it("edits arbitrary record keys through the JSON fallback and retains invalid text", () => {
+    const schema = z.object({ id: z.string(), params: z.record(z.string(), z.unknown()) });
+    const onProblems = vi.fn();
+    const form = new SchemaFormGen({ schema, value: { id: "action.x", params: { amount: 1 } }, configService: fakeConfigService(), onProblems });
+    const json = form.element.querySelector<HTMLTextAreaElement>('[name="params"]')!;
+    expect(json.value).toContain('"amount": 1');
+    json.value = '{"amount":2,"newKey":true}'; json.dispatchEvent(new Event("change"));
+    expect(form.getValue().params).toEqual({ amount: 2, newKey: true });
+    const rerendered = form.element.querySelector<HTMLTextAreaElement>('[name="params"]')!;
+    rerendered.value = "{"; rerendered.dispatchEvent(new Event("change"));
+    expect(rerendered.value).toBe("{");
+    expect(onProblems).toHaveBeenLastCalledWith([{ path: "params", message: "Enter valid JSON" }]);
+  });
 });
