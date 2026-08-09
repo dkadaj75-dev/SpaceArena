@@ -1218,3 +1218,38 @@ body.sa-editor-open .game-screen {
 .sa-editor .ed-apply-scope--partial {
   border-left-color: #57d8ff;
 }
+
+/* Constellation Phase 1: every preview is draft-only and shares the catalog's
+   scroll/interaction contract. */
+.constellation-live-preview,
+.constellation-workflow {
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid var(--ed-border-soft);
+  background: color-mix(in srgb, var(--ed-panel) 84%, #071723);
+}
+.constellation-workflow summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--ed-accent); }
+.constellation-metric-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.constellation-metric-chips span { min-height: 44px; padding: 8px 10px; display: grid; align-content: center; border: 1px solid var(--ed-border-soft); font: var(--ed-mono); }
+.constellation-theme-gallery { display: grid; grid-template-columns: minmax(150px, .65fr) minmax(240px, 1.35fr); gap: 12px; }
+.constellation-theme-gallery > div { min-height: 128px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--sa-blue-500, var(--ed-accent)); background: var(--sa-n-800, #101926); color: var(--sa-white, white); }
+.constellation-theme-gallery button { background: var(--sa-blue-500, var(--ed-accent)); color: var(--sa-n-900, #071019); }
+.constellation-painted-hull { width: min(280px, 100%); aspect-ratio: 2.4; margin: 8px auto; clip-path: polygon(8% 44%, 34% 12%, 78% 24%, 100% 50%, 78% 76%, 34% 88%); background: linear-gradient(155deg, var(--paint-accent) 0 22%, var(--paint-primary) 23% 72%, var(--paint-accent) 73%); filter: drop-shadow(0 0 12px var(--paint-accent)); }
+
+@media (pointer: coarse) {
+  .sa-editor .ed-tab,
+  .sa-editor button,
+  .sa-editor .ed-btn,
+  .sa-editor .ed-status { min-height: 44px; min-width: 44px; }
+}
+
+@media (max-width: 768px) {
+  .constellation-standalone { height: 100vh; height: 100dvh; padding-bottom: env(safe-area-inset-bottom); }
+  .constellation-workspace, .constellation-catalog { min-height: 0; overflow: hidden auto; overscroll-behavior: contain; }
+  .constellation-catalog { grid-template-columns: 1fr; }
+  .constellation-types { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+  .constellation-list { max-height: 32dvh; overflow: auto; }
+  .constellation-theme-gallery { grid-template-columns: 1fr; }
+  .constellation-actions { position: sticky; bottom: 0; padding-bottom: max(8px, env(safe-area-inset-bottom)); overflow-x: auto; flex-wrap: nowrap; }
+  .constellation-actions > * { flex: 0 0 auto; }
+}

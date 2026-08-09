@@ -7,6 +7,16 @@ function bundle(): ContentBundle {
 }
 
 describe("DraftPackStore", () => {
+  it("undoes and redoes edits through the same draft history", () => {
+    const store = new DraftPackStore(bundle());
+    const before = store.snapshot().files["tuning/default.json"] as { id: string };
+    store.setFile("tuning/default.json", { ...before, name: "changed" });
+    expect(store.canUndo()).toBe(true);
+    store.undo();
+    expect(store.snapshot().files["tuning/default.json"]).toEqual(before);
+    store.redo();
+    expect(store.snapshot().files["tuning/default.json"]).toMatchObject({ name: "changed" });
+  });
   it("keeps an immutable base and tracks edit/create/delete/discard", () => {
     const store = new DraftPackStore(bundle());
     store.setFile("tuning/a.json", { id: "tuning.a", type: "tuning", version: 1, tickRate: 60 });
