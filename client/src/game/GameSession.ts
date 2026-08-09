@@ -5,16 +5,20 @@ import {
   BotDriver,
   createLogger,
   deriveRng,
+  facingVec,
   generateBotNames,
   hardpointsOf,
+  mirrorAttitude,
   pickBotShip,
   randomBotFitting,
   resolveBotRoster,
+  type BotprofileConfig,
   type ConfigService,
   type EntityId,
   type ModuleConfig,
   type Order,
   type ShipConfig,
+  type ShipSnapshot,
   type SimEvent,
   type Snapshot,
 } from "@space-arena/shared";
@@ -107,6 +111,46 @@ export interface GameSessionOptions {
   playerCosmeticId?: string | null;
 }
 
+/**
+ * One ship placed into a RUNNING offline sim, on demand (owner 2026-08-08 —
+ * the tutorial spawns its hulk and then its drone at the step that teaches
+ * each, never both at once).
+ *
+ * Deliberately minimal, and deliberately offline-only: an online room's ships
+ * all come from server state, so `NetGameSession` inherits this and must never
+ * be handed one. The whole seam is "put a ship in front of the player":
+ *
+ *  - `profile` present ⇒ it gets a {@link BotDriver} and fights back;
+ *  - `profile` absent  ⇒ it is an inert hulk. No driver means no orders, which
+ *    means it never moves and never fires — that is the disarmed practice
+ *    target, expressed as an absence rather than as a special ship class.
+ */
+export interface ScriptedSpawn {
+  shipId: string;
+  /** Positional fitting (index = hardpoint index). Omitted ⇒ nothing fitted at all. */
+  fitting?: readonly (string | null)[];
+  team?: number;
+  /** Placed this many world units along the player's current nose. */
+  aheadDistance?: number;
+  /**
+   * Hull to start at, clamped to the hull it resolved. A tutorial target has to
+   * die inside a lesson, and the shipped hulls are balanced for a 8–45 s duel.
+   */
+  hull?: number;
+  /** Bot profile id. Omitted ⇒ inert. */
+  profile?: string;
+  /** Name for the reticle and the kill feed. */
+  displayName?: string;
+}
+
+/** Where a scripted spawn goes when the player's ship is gone (or was never there). */
+const SCRIPTED_FALLBACK_DISTANCE = 45;
+
+// Scratch for {@link GameSession.spawnScripted} — a spawn is rare, but the
+// module-scope convention here is that nothing in a session allocates vectors.
+const scriptedFacing = { x: 0, y: 0, z: 0 };
+const scriptedAttitude = { heading: 0, pitch: 0 };
+
 export class GameSession {
   readonly sim: ArenaSimulation;
   readonly matchStats: MatchStatsAccumulator;
@@ -133,7 +177,7 @@ export class GameSession {
     private readonly configs: ConfigService,
     arenaId = "arena.ring-nebula",
     gamemodeId = "gamemode.practice-bots-1v1",
-    seed = 1,
+    private readonly seed = 1,
     options: GameSessionOptions = {},
   ) {
     this.playerDisplayName = options.playerDisplayName?.trim() || "Pilot";
@@ -267,6 +311,87 @@ export class GameSession {
   /** Convenience: issue an order for the local player ship. */
   order(order: Order): void {
     this.sim.applyOrder(this.playerId, order);
+  }
+
+  /**
+   * Place one scripted ship in front of the player, mid-match (see
+   * {@link ScriptedSpawn}). Returns its entity id, or `null` when there is no
+   * live player ship to place it in front of.
+   *
+   * It goes on the player's NOSE, at `aheadDistance`, facing back at them: a
+   * tutorial that told a new pilot to shoot something behind their own tail
+   * would be teaching the wrong first lesson. Everything else — stat
+   * resolution, cosmetics, snapshot replication, kill events — is the ordinary
+   * spawn path, so the rest of the client cannot tell a scripted ship from a
+   * roster one.
+   */
+  spawnScripted(spawn: ScriptedSpawn): EntityId | null {
+    const ship = this.configs.get<ShipConfig>("ship", spawn.shipId);
+    if (!ship) {
+      log.warn(`scripted spawn: unknown ship ${spawn.shipId}`);
+      return null;
+    }
+    const self = this.shipSnapshot(this.playerId);
+    const distance = spawn.aheadDistance ?? SCRIPTED_FALLBACK_DISTANCE;
+    facingVec(self?.heading ?? 0, self?.pitch ?? 0, scriptedFacing);
+    const origin = self?.pos ?? { x: 0, y: 0, z: 0 };
+    const pos = {
+      x: origin.x + scriptedFacing.x * distance,
+      y: origin.y + scriptedFacing.y * distance,
+      z: origin.z + scriptedFacing.z * distance,
+    };
+    // Nose to nose: heading is the player's, mirrored; pitch mirrored with it.
+    mirrorAttitude(self?.heading ?? 0, self?.pitch ?? 0, scriptedAttitude);
+    const fitting = spawn.fitting ?? [];
+    const team = spawn.team ?? 1;
+    const id = this.sim.spawnPlayerAt(
+      spawn.shipId,
+      fitting,
+      team,
+      pos,
+      scriptedAttitude.heading,
+      undefined,
+      scriptedAttitude.pitch,
+      null,
+    );
+    this.shipConfigIds.set(id, spawn.shipId);
+    if (spawn.displayName) this.botNames.set(id, spawn.displayName);
+    if (spawn.hull !== undefined) {
+      const core = this.sim.world.shipCores.get(id);
+      // A pre-wrecked hulk, not a weaker hull class: `hullMax` is untouched, so
+      // the damage bars and the death path read exactly as they always do.
+      if (core) core.hull = Math.min(spawn.hull, core.hullMax);
+    }
+    const profile = spawn.profile
+      ? this.configs.get<BotprofileConfig>("botprofile", spawn.profile)
+      : undefined;
+    if (spawn.profile && !profile) log.warn(`scripted spawn: unknown bot profile ${spawn.profile}`);
+    if (profile) {
+      this.bots.set(
+        id,
+        new BotDriver({
+          entityId: id,
+          profile,
+          configs: this.configs,
+          rng: deriveRng(this.seed, id),
+          arenaBounds: this.sim.world.arena.bounds,
+          floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
+          visualRadius: ship.render.modelScale,
+        }),
+      );
+    }
+    // The freshly spawned ship must exist in the snapshot the very next frame
+    // reads, not one tick later — the director highlights it immediately.
+    this.cur = this.sim.snapshot();
+    log.info("scripted spawn", { id, ship: spawn.shipId, driven: Boolean(spawn.profile) });
+    return id;
+  }
+
+  /** Indexed scan for a ship in the latest snapshot. */
+  private shipSnapshot(id: EntityId): ShipSnapshot | undefined {
+    const ships = this.cur.ships;
+    for (let i = 0; i < ships.length; i++) if (ships[i]!.id === id) return ships[i];
+    return undefined;
   }
 
   /** Ship-config id backing a sim entity, so the view layer can pick its recipe. */

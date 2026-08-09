@@ -137,6 +137,11 @@ export class ShopScreen {
     return this.root.style.display !== "none";
   }
 
+  /** Whether the screen is on — a re-`show()` would reset the tab and refetch. */
+  get isOpen(): boolean {
+    return this.isVisible;
+  }
+
   private applyTheme(): void {
     applyMenuTheme(this.root, this.configs.get<ThemeConfig>("theme", THEME_ID));
   }

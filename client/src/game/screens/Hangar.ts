@@ -90,8 +90,16 @@ const STAGE_POS = new Vector3(0, 5, 300); // far from the arena (radius 90) — 
 const UPGRADE_TRACKS: readonly UpgradeTrackName[] = ["hull", "engine", "energy", "heat"];
 const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine: "Engine", energy: "Capacitor", heat: "Heat Sink" };
 
-/** Which outfitting bay the panel is showing (owner 2026-07-31). */
-type HangarCategory = "hardpoints" | "internals" | "ship" | "fitting";
+/**
+ * Which outfitting bay the panel is showing (owner 2026-07-31).
+ *
+ * There is no SHIP bay (owner 2026-08-08): choosing a hull is something you do
+ * ON the 3D stage — arrows and swipe walk the bay, and the one decision that
+ * changes what you fly (set as main, or buy the hull first) is a single overlay
+ * slot in the viewer's top-right corner. The rail is purely about outfitting
+ * the hull already on the stage.
+ */
+type HangarCategory = "hardpoints" | "internals" | "fitting";
 
 export interface HangarSelection {
   shipId: string | null;
@@ -241,6 +249,13 @@ export class Hangar {
    */
   private readonly gauges: HTMLDivElement;
   /**
+   * The single ACTION slot over the 3D stage, top-right (owner 2026-08-08).
+   * Ownership decides what it holds: buy the hull, make it your main, or the
+   * badge saying it already is. Built once and refreshed in place for the same
+   * reason {@link gauges} is — `render()` owns the info panel, not this half.
+   */
+  private readonly stageAction: HTMLDivElement;
+  /**
    * The module the player is CONSIDERING but has not equipped — the hover /
    * keyboard focus / tapped row in the picker, or the "remove" affordance
    * (`moduleId: null`). Drives the ghost levels on {@link gauges}; cleared by
@@ -311,9 +326,11 @@ export class Hangar {
     }
     // Half the screen is a hole onto the 3D stage: it must NOT take pointer
     // events, or it would eat the orbit/zoom drags meant for the canvas below.
+    // It is NOT `aria-hidden`, though — the ship arrows and the hull action in
+    // its corner are real controls a screen reader (and Playwright's role
+    // queries) must be able to reach.
     this.stage = document.createElement("div");
     this.stage.className = "hangar-stage";
-    this.stage.setAttribute("aria-hidden", "true");
     this.panel = document.createElement("div");
     this.panel.className = "hangar-panel";
     this.root.append(this.stage, this.panel);
@@ -327,7 +344,11 @@ export class Hangar {
     // keeps orbit/zoom drags reaching the canvas through it — unlike the arrows,
     // it has nothing to click.
     this.gauges = el("div", "hangar-gauges");
-    this.stage.append(this.gauges, ...this.stageArrows);
+    // …and its counterpart in the opposite corner: the one thing on this screen
+    // that changes what the player flies. Only the control inside it takes
+    // pointer events; the corner around it stays click-through.
+    this.stageAction = el("div", "hangar-stage-action");
+    this.stage.append(this.gauges, this.stageAction, ...this.stageArrows);
     parent.append(this.root);
 
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
@@ -347,6 +368,13 @@ export class Hangar {
     this.root.style.display = "none";
   }
 
+  /**
+   * A module was fitted, swapped or cleared in the slots (owner 2026-08-08).
+   * Assigned by the tutorial, which teaches the fitting screen and has to know
+   * when the lesson actually happened; unset for every ordinary visit.
+   */
+  onLoadoutChanged: (() => void) | null = null;
+
   /** One stage-overlay arrow. `delta` is the direction it walks the bay. */
   private buildStageArrow(delta: -1 | 1): HTMLButtonElement {
     const btn = document.createElement("button");
@@ -364,6 +392,15 @@ export class Hangar {
 
   private isAuthed(): boolean {
     return this.auth.getState().status === "authed";
+  }
+
+  /**
+   * Whether the screen is on. Public because a caller that is about to `show()`
+   * an ALREADY-open hangar would rebuild the preview under the player's hands
+   * (the tutorial's stage navigation is exactly that caller).
+   */
+  get isOpen(): boolean {
+    return this.root.style.display !== "none";
   }
 
   private get isVisible(): boolean {
@@ -910,6 +947,9 @@ export class Hangar {
     const slot = this.slots[hardpointIndex];
     if (!slot) return;
     slot.moduleId = moduleId;
+    // Announced before the re-render, so a listener that reads the screen (the
+    // tutorial's coach mark) sees the fit it is reacting to.
+    this.onLoadoutChanged?.();
     this.fittingContextToken++;
     this.pickerHardpoint = null;
     // Persist immediately: an unsaved edit still flies (owner 2026-07-31), so
@@ -1206,11 +1246,18 @@ export class Hangar {
    * while they judge a hull. Gauges read the current fit; while a module is
    * being considered they grow a ghost segment out to the projected value, so
    * "what does this cost me" is answered before the module is equipped.
+   *
+   * It also NAMES the hull it is describing (owner 2026-08-08). That line used
+   * to head the rail's SHIP page; with the page gone this is the panel already
+   * on screen whenever a hull is staged, so the identity folds in here rather
+   * than earning a box of its own — and it sits directly under the caption a
+   * gauge block needs anyway.
    */
   private renderGauges(): void {
+    const ship = this.currentShip();
     const base = this.statPanelFor(fittedModuleIdsOf(this.slots));
     this.gauges.innerHTML = "";
-    if (!base) {
+    if (!base || !ship) {
       this.gauges.style.display = "none";
       return;
     }
@@ -1220,9 +1267,12 @@ export class Hangar {
     this.gauges.classList.toggle("previewing", model.previewing);
 
     const head = el("div", "hangar-gauges-head");
-    head.append(el("span", "hangar-gauges-title", "Characteristics"));
+    head.append(el("span", "hangar-gauges-title hangar-ship-name", ship.name));
     if (model.previewing) head.append(el("span", "hangar-gauges-preview", "Preview"));
     this.gauges.append(head);
+    this.gauges.append(
+      el("div", "hangar-ship-class", `${ship.class} hull · swipe to change`),
+    );
 
     for (const gauge of model.gauges) this.gauges.append(gaugeRow(gauge));
 
@@ -1240,6 +1290,60 @@ export class Hangar {
     }
   }
 
+  /**
+   * The hull ACTION, top-right of the 3D viewer (owner 2026-08-08). One slot,
+   * and OWNERSHIP decides what is in it:
+   *
+   *  - not bought → the LOCKED badge and the unlock, because that is the only
+   *    thing this hull can do for you yet;
+   *  - bought, not your main → "★ Set as main", the single point at which
+   *    browsing the bay turns into a decision;
+   *  - already your main → the badge saying so, and nothing to press.
+   *
+   * It sits in the viewer rather than the panel so the decision is where the
+   * ship is: you look at the hull, then you take it. The corner it is anchored
+   * to is the one the stage arrows (vertically centred) and the panel's Back
+   * button (in the other half, whichever way the split is turned) leave free.
+   */
+  private renderStageAction(): void {
+    this.stageAction.innerHTML = "";
+    const ship = this.currentShip();
+    if (!ship) {
+      this.stageAction.style.display = "none";
+      return;
+    }
+    this.stageAction.style.display = "";
+
+    if (!this.canFly(ship.id)) {
+      this.stageAction.append(el("span", "hangar-badge locked", "LOCKED"));
+      const buy = document.createElement("button");
+      buy.className = "hangar-btn hangar-btn-primary hangar-stage-btn sa-button sa-button--primary";
+      // Free for now (testing) — the purchase still has to happen, so the flow
+      // is the real one and only the price is provisional.
+      buy.type = "button";
+      buy.textContent = `Buy · ${priceLabel(0)}`;
+      buy.disabled = this.busy || !(this.ownership || this.offlineFitting);
+      buy.addEventListener("click", () => void this.buyShip(ship.id));
+      this.stageAction.append(buy);
+      return;
+    }
+
+    if (this.isMainShip(ship.id)) {
+      const badge = el("span", "hangar-badge main hangar-stage-badge", "★ MAIN");
+      badge.title = "This ship and fitting is what you fly.";
+      this.stageAction.append(badge);
+      return;
+    }
+
+    const main = document.createElement("button");
+    main.className = "hangar-btn hangar-btn-primary hangar-stage-btn sa-button sa-button--primary";
+    main.type = "button";
+    main.textContent = "★ Set as main";
+    main.disabled = this.busy;
+    main.addEventListener("click", () => this.setAsMain());
+    this.stageAction.append(main);
+  }
+
   // --- rendering ---------------------------------------------------------
 
   private render(): void {
@@ -1251,6 +1355,7 @@ export class Hangar {
     this.previewPinned = false;
     this.panel.innerHTML = "";
     this.renderGauges();
+    this.renderStageAction();
     if (!ship) return;
 
     // Fitting is always available (offline test mode); only the parts that
@@ -1278,15 +1383,13 @@ export class Hangar {
     }
     if (this.error) content.append(el("div", "hangar-error", this.error));
 
-    // A hull you have not bought shows its stats and the unlock, nothing else:
-    // there is no fitting to edit and no fitting to save until it is yours.
+    // A hull you have not bought shows its stats and nothing else: there is no
+    // fitting to edit and no fitting to save until it is yours. The unlock
+    // itself lives on the stage, in the corner slot the main badge occupies for
+    // a hull you do own.
     if (!owned) {
-      content.append(this.buildShipCarousel());
+      content.append(el("div", "hangar-hint", "You do not own this hull yet — buy it on the stage to fit and fly it."));
       content.append(this.buildStatPanel(ship));
-    } else if (this.category === "ship") {
-      content.append(this.buildShipCarousel());
-      content.append(this.buildStatPanel(ship));
-      content.append(this.buildUpgrades(ship, storeLocked, credits));
     } else if (this.category === "fitting") {
       content.append(this.buildFittingControls(ship));
       content.append(this.buildStatPanel(ship));
@@ -1295,6 +1398,10 @@ export class Hangar {
       if (this.pickerHardpoint !== null) {
         content.append(this.buildModulePicker(ship, this.pickerHardpoint, credits, level));
       }
+      // The upgrade tracks ARE the hull's internal systems — hull plating,
+      // engine, capacitor, heat sink — so they moved into the internals bay
+      // with the SHIP page (owner 2026-08-08) rather than being dropped.
+      if (this.category === "internals") content.append(this.buildUpgrades(ship, storeLocked, credits));
     }
     body.append(content);
     this.panel.append(body);
@@ -1311,17 +1418,16 @@ export class Hangar {
     const rail = el("div", "hangar-rail");
     const entries: { key: HangarCategory; label: string; hint: string }[] = [
       { key: "hardpoints", label: "Hardpoints", hint: "Weapons and shields" },
-      { key: "internals", label: "Core internal", hint: "Engine, reactor, bus, sink, sensors" },
-      { key: "ship", label: "Ship", hint: "Hull, stats and upgrades" },
+      { key: "internals", label: "Core internal", hint: "Engine, reactor, sink · upgrades" },
       { key: "fitting", label: "Fitting", hint: "Save and load loadouts" },
     ];
     for (const entry of entries) {
       const btn = document.createElement("button");
       btn.className = "hangar-rail-btn" + (this.category === entry.key ? " active" : "");
       btn.dataset["category"] = entry.key;
-      // An unowned hull has no bays to open — only the SHIP page, which carries
-      // the unlock.
-      btn.disabled = this.busy || (!owned && entry.key !== "ship");
+      // An unowned hull has no bays to open at all: the only thing you can do
+      // with it is buy it, and that lives on the stage.
+      btn.disabled = this.busy || !owned;
       btn.append(el("span", "hangar-rail-label", entry.label), el("span", "hangar-rail-hint", entry.hint));
       btn.addEventListener("click", () => this.selectCategory(entry.key));
       rail.append(btn);
@@ -1394,75 +1500,6 @@ export class Hangar {
     close.addEventListener("click", () => this.onClose());
     header.append(close);
     return header;
-  }
-
-  /**
-   * The ship bay: arrows either side of the hull on screen, the full list under
-   * it, and — for a hull the player has not bought — the unlock. Swiping the 3D
-   * stage steps the same index (see {@link stepShip}), so the arrows are the
-   * pointer/keyboard equivalent of the gesture rather than a separate mode.
-   */
-  private buildShipCarousel(): HTMLDivElement {
-    const wrap = el("div", "hangar-ships");
-
-    const current = this.currentShip();
-    if (current) {
-      const owned = this.canFly(current.id);
-      const nav = el("div", "hangar-ship-nav");
-      const centre = el("div", "hangar-ship-current");
-      const title = el("div", "hangar-ship-title");
-      title.append(el("span", "hangar-ship-name", current.name));
-      if (this.isMainShip(current.id)) title.append(el("span", "hangar-badge main", "★ MAIN"));
-      else if (!owned) title.append(el("span", "hangar-badge locked", "LOCKED"));
-      centre.append(title);
-      centre.append(el("div", "hangar-ship-class", `${current.class} hull · swipe to change ship`));
-      nav.append(centre);
-      wrap.append(nav);
-      wrap.append(this.buildShipActions(current, owned));
-    }
-
-    const list = el("div", "hangar-ship-list");
-    this.ships.forEach((ship, i) => {
-      const btn = document.createElement("button");
-      const owned = this.canFly(ship.id);
-      btn.className =
-        "hangar-ship-btn" + (i === this.shipIndex ? " active" : "") + (owned ? "" : " locked");
-      btn.innerHTML = "";
-      btn.append(el("span", "hangar-ship-name", owned ? ship.name : `🔒 ${ship.name}`), el("span", "hangar-ship-class", ship.class));
-      btn.disabled = this.busy;
-      btn.addEventListener("click", () => this.selectShip(i));
-      list.append(btn);
-    });
-    wrap.append(list);
-    return wrap;
-  }
-
-  /** Unlock / set-as-main for the hull on screen. */
-  private buildShipActions(ship: ShipConfig, owned: boolean): HTMLDivElement {
-    const row = el("div", "hangar-ship-actions");
-    if (!owned) {
-      row.append(el("div", "hangar-hint", "You do not own this hull yet."));
-      const buy = document.createElement("button");
-      buy.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
-      // Free for now (testing) — the purchase still has to happen, so the flow
-      // is the real one and only the price is provisional.
-      buy.textContent = `Buy · ${priceLabel(0)}`;
-      buy.disabled = this.busy || !(this.ownership || this.offlineFitting);
-      buy.addEventListener("click", () => void this.buyShip(ship.id));
-      row.append(buy);
-      return row;
-    }
-    if (this.isMainShip(ship.id)) {
-      row.append(el("div", "hangar-hint", "This ship and fitting is what you fly."));
-      return row;
-    }
-    const main = document.createElement("button");
-    main.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
-    main.textContent = "★ Set as main";
-    main.disabled = this.busy;
-    main.addEventListener("click", () => this.setAsMain());
-    row.append(main);
-    return row;
   }
 
   private buildStatPanel(ship: ShipConfig): HTMLDivElement {
@@ -1963,7 +2000,9 @@ const HANGAR_CSS = `
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 8px);
   left: calc(env(safe-area-inset-left, 0px) + 8px);
-  width: min(258px, 62%);
+  /* 54%, not 62%: the opposite corner now carries the hull action, and the two
+     must not meet on the narrowest stage the game ships (a portrait phone). */
+  width: min(258px, 54%);
   box-sizing: border-box;
   pointer-events: none;
   display: flex;
@@ -2025,10 +2064,48 @@ const HANGAR_CSS = `
 .hangar-gauges-warn { font-size: 9.5px; line-height: 1.2; color: var(--hg-danger); }
 /* Phones: the stage half is small, so the block gives the hull more room. */
 @media (max-width: 520px), (orientation: landscape) and (max-height: 480px) {
-  .hangar-gauges { width: min(216px, 68%); padding: 5px 7px 6px; gap: 3px; }
+  .hangar-gauges { width: min(216px, 54%); padding: 5px 7px 6px; gap: 3px; }
   .hangar-gauge { grid-template-columns: 64px 1fr auto; column-gap: 5px; }
   .hangar-gauge-read { min-width: 66px; }
 }
+/*
+ * ---- the hull action, over the 3D stage (owner 2026-08-08) ----
+ *
+ * The opposite corner to the gauges, and the only DECISION on this half of the
+ * screen: buy this hull, or make it the one you fly. Anchored top-right so it
+ * clears the vertically-centred stage arrows in both orientations and never
+ * shares a corner with the panel's Back button (which lives in the other half
+ * of the split, whichever way round that is).
+ *
+ * The corner itself is click-through like the rest of the stage; only the
+ * control inside it takes pointer events.
+ */
+.hangar-stage-action {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  right: calc(env(safe-area-inset-right, 0px) + 8px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 42%;
+  pointer-events: none;
+}
+.hangar-stage-action > * { pointer-events: auto; }
+/*
+ * 44px minimum touch target — this is a phone-first screen. Written with the
+ * container in the selector so it beats the 34px on ".hangar-btn", which is
+ * declared further down the sheet.
+ */
+.hangar-stage-action .hangar-stage-btn {
+  min-height: 44px;
+  padding: 10px 14px;
+  box-shadow: 0 0 0 1px rgba(10, 12, 15, .55), 0 2px 10px rgba(0, 0, 0, .45);
+}
+/* Badges here sit on the 3D scene, so both states get their own plate. */
+.hangar-stage-action .hangar-badge { line-height: 1.7; backdrop-filter: blur(2px); }
+.hangar-stage-action .hangar-badge.main { border: 1px solid var(--hg-accent); }
+.hangar-stage-action .hangar-badge.locked { background: rgba(10, 12, 15, .72); }
 .hangar-panel {
   pointer-events: auto;
   flex: 1 1 50%;
@@ -2101,22 +2178,12 @@ const HANGAR_CSS = `
 .hangar-hint { font-size: 11px; color: var(--hg-dim); border-left: 2px solid var(--hg-line); padding: 4px 8px; }
 .hangar-error { font-size: 11px; color: var(--hg-danger); border-left: 2px solid var(--hg-danger); padding: 4px 8px; }
 .hangar-section-title { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--hg-dim); margin-bottom: 4px; }
-.hangar-ships { display: flex; flex-direction: column; gap: 8px; }
-.hangar-ship-nav { display: flex; align-items: center; gap: 8px; }
-.hangar-ship-current { flex: 1 1 auto; min-width: 0; text-align: center; }
-.hangar-ship-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
-.hangar-ship-title .hangar-ship-name { font-size: 15px; letter-spacing: .1em; text-transform: uppercase; }
 .hangar-badge { font-size: 9.5px; font-weight: 700; letter-spacing: .1em; padding: 2px 6px; }
 .hangar-badge.main { background: var(--hg-accent); color: var(--sa-n-900); }
 .hangar-badge.locked { background: transparent; color: var(--hg-danger); border: 1px solid var(--hg-danger); }
-.hangar-ship-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.hangar-ship-actions .hangar-hint { flex: 1 1 140px; margin: 0; }
-.hangar-ship-list { display: flex; flex-wrap: wrap; gap: 4px; }
-.hangar-ship-btn { flex: 1 1 96px; min-height: 42px; touch-action: manipulation; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--hg-panel-2); color: var(--sa-white); border: 1px solid var(--hg-line); border-left: 3px solid transparent; cursor: pointer; }
-.hangar-ship-btn.active { border-left-color: var(--hg-accent); background: var(--sa-n-700); }
-.hangar-ship-btn.locked { opacity: 0.55; border-style: dashed; }
+/* The staged hull's identity, folded into the characteristics block's head. */
 .hangar-ship-name { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; }
-.hangar-ship-class { font-size: 9.5px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .1em; }
+.hangar-ship-class { font-size: 9px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .1em; line-height: 1.25; }
 .hangar-stats { display: flex; flex-direction: column; gap: 2px; }
 .hangar-stat-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; border-bottom: 1px solid rgba(58, 63, 69, .5); padding: 2px 0; }
 .hangar-stat-label { color: var(--hg-dim); text-transform: uppercase; letter-spacing: .06em; }

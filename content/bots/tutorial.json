@@ -1,0 +1,65 @@
+{
+  "id": "bot.tutorial",
+  "type": "botprofile",
+  "version": 1,
+  "name": "Training Drone",
+  "decisionIntervalMs": 1400,
+  "orderJitterMs": 400,
+  "preferredRange": [
+    34,
+    70
+  ],
+  "fittingArchetype": "cautious",
+  "flight": {
+    "turnHorizonMult": 0.7,
+    "aimToleranceRad": 0.3,
+    "turnEpsilon": 0.2,
+    "pitchEpsilon": 0.2,
+    "throttleEpsilon": 0.2
+  },
+  "behaviors": {
+    "engage": {
+      "baseWeight": 1.0,
+      "throttleApproach": 0.7,
+      "throttleBand": 0.4,
+      "throttleClose": 0.25,
+      "hardTurnRad": 1.4,
+      "throttleTurn": 0.4,
+      "targetPreference": "nearest",
+      "holdLockTarget": true,
+      "aimErrorRad": 0.95,
+      "velocityErrorSec": 0.8,
+      "aimErrorHoldMs": 2600,
+      "boostChance": 0
+    },
+    "kite": {
+      "baseWeight": 0.35,
+      "urgencyGain": 0.2,
+      "breakRange": 10,
+      "standoffFrac": 0.6,
+      "slipRad": 0.25,
+      "throttleRun": 0.6
+    },
+    "avoidRocks": {
+      "baseWeight": 0,
+      "lookahead": 40,
+      "clearance": 2,
+      "turnBias": 0.8,
+      "throttleFactor": 0.55
+    }
+  },
+  "moduleDiscipline": {
+    "heatShutdownAt": 0.6,
+    "reactivateBelow": 0.2,
+    "energyReserve": 0.4,
+    "shieldOnlyWhenEngaged": true
+  },
+  "fireDiscipline": {
+    "engageRangeMult": 0.55,
+    "heatHeadroom": 0.5,
+    "rearmHeatBelow": 0.15,
+    "minEnergyFraction": 0.3,
+    "burstSec": 0.6,
+    "pauseSec": 2.4
+  }
+}

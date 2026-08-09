@@ -13,12 +13,14 @@ import {
   type ConfigEvents,
   type GamemodeConfig,
   type ShipConfig,
+  type TutorialConfig,
   type TuningConfig,
   type ShipSnapshot,
   type EntityId,
   type ThemeConfig,
   type FrameAttitude,
   interpolateFrame,
+  BASICS_TUTORIAL_ID,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { recoverFromStaleContentPack } from "./core/contentRecovery.js";
@@ -46,6 +48,9 @@ import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { ShopScreen } from "./game/screens/ShopScreen.js";
 import { createSessionOwnership } from "./game/sessionOwnership.js";
+import { TutorialDirector, type TutorialHost } from "./game/tutorial/TutorialDirector.js";
+import { TutorialOverlay, showTutorialToast } from "./game/tutorial/TutorialOverlay.js";
+import { markTutorialCompleted } from "./game/tutorial/tutorialProgress.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
 import { MatchmakingScreen } from "./game/screens/MatchmakingScreen.js";
 import { FullscreenPrompt } from "./game/screens/FullscreenPrompt.js";
@@ -597,6 +602,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    * the Lobby header updates through `AuthService.onChange` when it resolves.
    */
   function endMatch(): void {
+    tutorial?.attachMatch(null);
     if (pausedBySettings) {
       pausedBySettings = false;
       setSimPaused(false);
@@ -640,6 +646,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         context === "match"
           ? () => {
               log.info("quit to main menu from settings");
+              // Walking out of the match walks out of the lesson: a director
+              // still waiting on a throttle nobody can push is a dead end.
+              tutorial?.skip();
               endMatch();
               lobby.show();
             }
@@ -683,10 +692,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       onHangarRequested: () => {
         lobby.hide();
         hangar.show();
+        tutorial?.noteScreen("hangar");
       },
       onShopRequested: () => {
         lobby.hide();
         shop.show();
+        tutorial?.noteScreen("shop");
       },
       // The settings overlay stacks ON TOP of the lobby (z-index 40 vs 20), so
       // there is nothing to restore when it closes.
@@ -750,6 +761,147 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     },
     bus,
   );
+
+  // --- Tutorial (owner 2026-08-08) ------------------------------------------
+  //
+  // Flight school is a CONTENT config walked by a {@link TutorialDirector}. This
+  // file owns only the four things a director cannot do for itself: move the
+  // player between screens, stand up (and tear down) its offline match, draw the
+  // coach mark, and remember the run happened. WHICH lessons exist, in what
+  // order, and what counts as done all live in `content/tutorials/*.json`.
+  let tutorial: TutorialDirector | null = null;
+  let tutorialOverlay: TutorialOverlay | null = null;
+  /** Ledger size at the last change, so only GROWTH counts as a purchase. */
+  let ownedCount = ownedItemCount();
+  function ownedItemCount(): number {
+    return ownership.ownedShips().size + ownership.ownedModules().size + ownership.ownedCosmetics().size;
+  }
+  ownership.onChange(() => {
+    const owned = ownedItemCount();
+    if (owned > ownedCount) tutorial?.notePurchase();
+    ownedCount = owned;
+  });
+
+  const tutorialHost: TutorialHost = {
+    navigate(stage) {
+      switch (stage) {
+        case "flight":
+          if (!runtime) void startTutorialMatch();
+          break;
+        case "lobby":
+          leaveTutorialMatch();
+          hangar.hide();
+          shop.hide();
+          lobby.show();
+          tutorial?.noteScreen("lobby");
+          break;
+        case "hangar":
+          leaveTutorialMatch();
+          lobby.hide();
+          shop.hide();
+          // Re-showing an open screen would rebuild its preview under the
+          // player's hands; the step that sent them here already opened it.
+          if (!hangar.isOpen) hangar.show();
+          tutorial?.noteScreen("hangar");
+          break;
+        case "shop":
+          leaveTutorialMatch();
+          lobby.hide();
+          hangar.hide();
+          if (!shop.isOpen) shop.show();
+          tutorial?.noteScreen("shop");
+          break;
+      }
+    },
+    present(view) {
+      tutorialOverlay?.present(view);
+    },
+    finish(outcome, config) {
+      log.info("tutorial finished", { outcome });
+      // A SKIP counts as completion: the player made a decision, and asking
+      // again would be the game arguing with them.
+      markTutorialCompleted();
+      tutorial = null;
+      tutorialOverlay?.dispose();
+      tutorialOverlay = null;
+      hangar.onLoadoutChanged = null;
+      if (outcome === "completed") {
+        showTutorialToast(config.completeToast);
+        return;
+      }
+      // Skipped: put them back somewhere they can play from.
+      if (runtime) endMatch();
+      hangar.hide();
+      shop.hide();
+      lobby.show();
+    },
+  };
+
+  /** End the tutorial's match, if one is running, and unbind it from the director. */
+  function leaveTutorialMatch(): void {
+    if (runtime) endMatch();
+    tutorial?.attachMatch(null);
+  }
+
+  /** Launch flight school from the menu button. */
+  function startTutorial(): void {
+    const config =
+      configService.get<TutorialConfig>("tutorial", BASICS_TUTORIAL_ID) ??
+      configService.getAll<TutorialConfig>("tutorial")[0];
+    if (!config) {
+      lobby.showError("This content pack ships no tutorial.");
+      return;
+    }
+    tutorial?.dispose();
+    tutorialOverlay?.dispose();
+    tutorialOverlay = new TutorialOverlay(document.body, {
+      onSkip: () => tutorial?.skip(),
+      onConfirm: () => tutorial?.acknowledge(),
+    });
+    tutorial = new TutorialDirector(config, configService, tutorialHost);
+    // The fitting lesson is the one thing the director cannot observe from the
+    // sim: the Hangar has to say when a slot changed.
+    hangar.onLoadoutChanged = () => tutorial?.noteLoadoutChanged();
+    tutorial.begin();
+  }
+
+  /**
+   * The tutorial's own offline match. Deliberately NOT `startMatch`: it flies an
+   * authored loadout rather than the Hangar's (the lessons name a specific heat
+   * ring and a specific energy ring), and its gamemode carries no rewards, no
+   * clock and no roster — every ship in it is spawned by a step.
+   */
+  async function startTutorialMatch(): Promise<void> {
+    const config = tutorial?.config;
+    if (!config) return;
+    lobby.hide();
+    hangar.hide();
+    shop.hide();
+    matchLoading.showPending("Building flight school");
+    try {
+      const authState = authService.getState();
+      const session = new GameSession(
+        configService,
+        config.arena ?? practiceArena(config.gamemode) ?? FALLBACK_ARENA_ID,
+        config.gamemode,
+        1,
+        {
+          playerShipId: config.pilot.ship,
+          playerFitting: config.pilot.fitting,
+          playerDisplayName: authState.status === "authed" ? authState.profile.displayName : "Cadet",
+        },
+      );
+      await prepareSessionArena(session);
+      await matchLoading.dismiss();
+      activateSession(session, { kind: "tutorial" });
+      tutorial?.attachMatch(session);
+    } catch (err) {
+      matchLoading.hide();
+      log.error("failed to start the tutorial match", err);
+      lobby.showError(err instanceof Error ? err.message : "Could not start the tutorial");
+      tutorial?.skip();
+    }
+  }
 
   const authScreen = new AuthScreen(
     document.body,
@@ -823,6 +975,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   }
 
   async function launchChoice(choice: LobbyChoice): Promise<void> {
+    if (choice.kind === "tutorial") {
+      startTutorial();
+      return;
+    }
     if (choice.kind !== "practice" && !serverHealth.current.online) {
       lobby.setBusy(true, "Checking server…");
       const health = await serverHealth.refresh();
@@ -923,7 +1079,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     return configService.get<GamemodeConfig>("gamemode", gamemodeId)?.defaultArena;
   }
 
-  async function startMatch(choice: Exclude<LobbyChoice, { kind: "matchmaking" }>): Promise<void> {
+  async function startMatch(choice: Extract<LobbyChoice, { kind: "practice" } | { kind: "online" }>): Promise<void> {
     lobby.hide();
     hangar.hide();
     matchLoading.showPending(choice.kind === "practice" ? "Building practice arena" : "Joining arena");
@@ -1073,6 +1229,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       }
       runtime.viewManager.consumeEvents(events, cur);
       runtime.hud.consumeEvents(events);
+      tutorial?.consumeEvents(events);
       runtime.audioFeedback.consumeEvents(events);
       runtime.screenShake.consumeEvents(events);
       runtime.session.clearFrameEvents();
@@ -1089,6 +1246,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       quality.sampleFrame(engine.getFps(), dtMs);
       telemetry.sampleFrame(dtMs);
     }
+    // The tutorial ticks on every frame, in or out of a match: its menu-stage
+    // steps (open the hangar, fit a module, read the shop) have no sim to read.
+    // After the HUD, because a step that spawns a ship replaces the session's
+    // current snapshot and every widget above has already read this frame's.
+    tutorial?.update(dtMs, runtime?.session.curSnapshot, runtime?.session.prevSnapshot);
     tacticalCamera.update(dtMs / 1000);
     scene.render();
   }
@@ -1228,6 +1390,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   tacticalCamera.setLandscapeOrientation(canvas.clientWidth > canvas.clientHeight);
 
   window.addEventListener("beforeunload", () => {
+    tutorialOverlay?.dispose();
     runtime?.dispose();
     audio.dispose();
     settingsScreen.dispose();

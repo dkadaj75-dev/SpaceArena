@@ -1,0 +1,28 @@
+{
+  "id": "gamemode.tutorial",
+  "type": "gamemode",
+  "version": 1,
+  "name": "Flight School",
+  "teams": "1v1",
+  "menuSection": "none",
+  "defaultArena": "arena.ring-nebula",
+  "winCondition": {
+    "type": "destroyTargets",
+    "count": 99
+  },
+  "eliminationEndsMatch": false,
+  "respawn": {
+    "enabled": false,
+    "delay": 0
+  },
+  "boundaryRule": {
+    "type": "damageAndBounce",
+    "damagePerSec": 0,
+    "restitution": 0.82
+  },
+  "rewards": {
+    "win": 0,
+    "loss": 0,
+    "perKill": 0
+  }
+}

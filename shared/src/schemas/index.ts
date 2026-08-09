@@ -16,6 +16,7 @@ import { progressionSchema, type ProgressionConfig } from "./progression.js";
 import { qualitySchema, type QualityConfig } from "./quality.js";
 import { hardpointsOf, shipSchema, type ShipConfig } from "./ship.js";
 import { themeSchema, type ThemeConfig } from "./theme.js";
+import { tutorialSchema, type TutorialConfig } from "./tutorial.js";
 import { tuningSchema, type TuningConfig } from "./tuning.js";
 import { upgradeSchema, type UpgradeConfig } from "./upgrade.js";
 
@@ -39,6 +40,7 @@ export * from "./progression.js";
 export * from "./quality.js";
 export * from "./botprofile.js";
 export * from "./cosmetic.js";
+export * from "./tutorial.js";
 export * from "./manifest.js";
 
 /**
@@ -64,6 +66,7 @@ export const CONFIG_SCHEMAS = {
   botprofile: botprofileSchema,
   quality: qualitySchema,
   cosmetic: cosmeticSchema,
+  tutorial: tutorialSchema,
 } as const;
 
 export type ConfigType = keyof typeof CONFIG_SCHEMAS;
@@ -86,7 +89,8 @@ export type AnyConfig =
   | ProgressionConfig
   | BotprofileConfig
   | QualityConfig
-  | CosmeticConfig;
+  | CosmeticConfig
+  | TutorialConfig;
 
 export type { ManifestConfig };
 
@@ -254,6 +258,30 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
           if (slot.ship) refs.push({ path: `bots.roster[${i}].ship`, id: slot.ship, expects: "ship" });
         });
       }
+      break;
+    }
+    case "tutorial": {
+      // The onboarding flow points at half the pack — the mode it plays in, the
+      // hull it puts the student in, every module it promises is fitted, and the
+      // hulk and the drone it spawns. All of it resolved, because a tutorial
+      // that dies at step 5 on a renamed module is worse than no tutorial.
+      refs.push({ path: "gamemode", id: config.gamemode, expects: "gamemode" });
+      if (config.arena) refs.push({ path: "arena", id: config.arena, expects: "arena" });
+      refs.push({ path: "pilot.ship", id: config.pilot.ship, expects: "ship" });
+      config.pilot.fitting.forEach((id, i) => {
+        if (id) refs.push({ path: `pilot.fitting[${i}]`, id, expects: "module" });
+      });
+      config.steps.forEach((step, i) => {
+        const spawn = step.spawn;
+        if (!spawn) return;
+        refs.push({ path: `steps[${i}].spawn.ship`, id: spawn.ship, expects: "ship" });
+        if (spawn.profile) {
+          refs.push({ path: `steps[${i}].spawn.profile`, id: spawn.profile, expects: "botprofile" });
+        }
+        (spawn.fitting ?? []).forEach((id, j) => {
+          if (id) refs.push({ path: `steps[${i}].spawn.fitting[${j}]`, id, expects: "module" });
+        });
+      });
       break;
     }
     case "cosmetic": {
