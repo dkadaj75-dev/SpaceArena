@@ -12,14 +12,12 @@ export function cosmeticById(configs: Pick<ConfigService, "getAll">, id: string)
 
 /** Applicability line under a swatch. Names the hulls rather than their ids. */
 export function applicabilityLabel(cosmetic: CosmeticConfig, shipName: (id: string) => string): string {
-  if (cosmetic.appliesTo === "any") return "Fits every hull";
-  if (cosmetic.appliesTo.length === 0) return "Fits no hull";
-  return `Fits ${cosmetic.appliesTo.map(shipName).join(", ")}`;
+  return cosmetic.target.startsWith("ship.") ? `Fits ${shipName(cosmetic.target)}` : `Fits module ${cosmetic.target}`;
 }
 
 /** The three authored colours of a paint. */
 export type CosmeticPaint = CosmeticConfig["paint"];
 
 export { allCosmetics, cosmeticAppliesTo as appliesToShip };
-export { STANDARD_COSMETIC_ID } from "@space-arena/shared";
+export { baseCosmeticIdFor } from "@space-arena/shared";
 export type { CosmeticConfig } from "@space-arena/shared";

@@ -1,4 +1,4 @@
-import { STANDARD_COSMETIC_ID, type ConfigService, type ShipConfig } from "@space-arena/shared";
+import { baseCosmeticIdFor, resolveCosmeticFor, type ConfigService, type ShipConfig } from "@space-arena/shared";
 
 /**
  * Local ownership ledger (owner 2026-07-31) — which hulls, modules and paints
@@ -136,9 +136,12 @@ export function ownedModules(configs: Pick<ConfigService, "get">): Set<string> {
  * is the ship as authored, so refusing to "own" it would make the default
  * unequippable.
  */
-export function ownedCosmetics(): Set<string> {
+export function ownedCosmetics(configs: Pick<ConfigService, "get">): Set<string> {
   const owned = readStored().cosmetics;
-  owned.add(STANDARD_COSMETIC_ID);
+  for (const shipId of ownedShips()) {
+    const baseId = baseCosmeticIdFor(shipId);
+    if (configs.get("cosmetic", baseId)) owned.add(baseId);
+  }
   return owned;
 }
 
@@ -150,8 +153,8 @@ export function ownsModule(configs: Pick<ConfigService, "get">, moduleId: string
   return ownedModules(configs).has(moduleId);
 }
 
-export function ownsCosmetic(cosmeticId: string): boolean {
-  return cosmeticId === STANDARD_COSMETIC_ID || readStored().cosmetics.has(cosmeticId);
+export function ownsCosmetic(configs: Pick<ConfigService, "get">, cosmeticId: string): boolean {
+  return ownedCosmetics(configs).has(cosmeticId);
 }
 
 /** Record a hull purchase. Idempotent — buying twice is not an error. */
@@ -180,11 +183,11 @@ export function buyCosmeticLocal(cosmeticId: string): void {
  * selection reads as null rather than being trusted: ownership is the gate, and
  * it is re-derived on every read exactly like the starter set is.
  */
-export function selectedCosmetic(shipId: string): string | null {
+export function selectedCosmetic(configs: Pick<ConfigService, "get">, shipId: string): string {
   const stored = readStored();
   const selected = stored.selections.get(shipId);
-  if (!selected || selected === STANDARD_COSMETIC_ID) return null;
-  return stored.cosmetics.has(selected) ? selected : null;
+  const resolved = resolveCosmeticFor(configs, shipId, selected);
+  return ownedCosmetics(configs).has(resolved) ? resolved : baseCosmeticIdFor(shipId);
 }
 
 /**
@@ -194,12 +197,12 @@ export function selectedCosmetic(shipId: string): string | null {
  * Applicability (does this paint fit this hull) is the caller's check — only it
  * holds the content.
  */
-export function selectCosmeticLocal(shipId: string, cosmeticId: string | null): void {
+export function selectCosmeticLocal(configs: Pick<ConfigService, "get">, shipId: string, cosmeticId: string | null): void {
   const owned = readStored();
-  if (cosmeticId === null || cosmeticId === STANDARD_COSMETIC_ID) {
+  if (cosmeticId === null || cosmeticId === baseCosmeticIdFor(shipId)) {
     owned.selections.delete(shipId);
   } else {
-    if (!owned.cosmetics.has(cosmeticId)) return;
+    if (!owned.cosmetics.has(cosmeticId) || resolveCosmeticFor(configs, shipId, cosmeticId) !== cosmeticId) return;
     owned.selections.set(shipId, cosmeticId);
   }
   writeStored(owned);

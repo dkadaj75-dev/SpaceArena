@@ -17,7 +17,6 @@ import {
   upFromAttitude,
   pitchTuningOf,
   resolveShipStats,
-  STANDARD_COSMETIC_ID,
   MSG_ORDER,
   createLogger,
   type ArenaConfig,
@@ -904,7 +903,7 @@ export function boostMult(configs: ConfigService, fittedModuleIds: readonly stri
  * one case to handle, identically online and offline.
  */
 export function decodeCosmeticId(raw: unknown): string | undefined {
-  if (typeof raw !== "string" || raw.length === 0 || raw === STANDARD_COSMETIC_ID) return undefined;
+  if (typeof raw !== "string" || raw.length === 0) return undefined;
   return raw;
 }
 

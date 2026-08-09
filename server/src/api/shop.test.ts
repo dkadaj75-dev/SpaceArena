@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
-import { setGlobalLogLevel, STANDARD_COSMETIC_ID, type ApiInventory, type ShipConfig } from "@space-arena/shared";
+import { setGlobalLogLevel, type ApiInventory, type ShipConfig } from "@space-arena/shared";
 import { loadContent, setConfigService } from "../configService.js";
 import { openDatabase, runMigrations, setDb, getDb } from "../db/index.js";
 import { ownedShipsRepo, profilesRepo, selectedCosmeticsRepo } from "../db/repos.js";
@@ -50,14 +50,20 @@ describe("inventory read (GET /api/auth/me)", () => {
 
     expect(inv.ships).toEqual(["ship.interceptor"]);
     expect(ownedShipsRepo.byUser(userId)).toHaveLength(0); // derived, never a row
-    expect(inv.cosmetics).toEqual([STANDARD_COSMETIC_ID]);
+    expect(inv.cosmetics).toEqual(["cosmetic.paint-interceptor-standard"]);
     expect(inv.modules).toContain("module.laser-mk1");
     expect(inv.modules).not.toContain("module.laser-mk2"); // priced: must be bought
-    expect(inv.selections).toEqual({});
+    expect(inv.selections).toEqual({ "ship.interceptor": "cosmetic.paint-interceptor-standard" });
   });
 
   it("requires auth", async () => {
     expect((await request(app).get("/api/auth/me")).status).toBe(401);
+  });
+
+  it("sanitizes a stored retired cosmetic id to the owned hull's base paint", async () => {
+    const { auth, userId } = await newUser("retiredpaint@example.com");
+    selectedCosmeticsRepo.set(userId, "ship.interceptor", "cosmetic.paint-standard");
+    expect((await inventory(auth)).selections["ship.interceptor"]).toBe("cosmetic.paint-interceptor-standard");
   });
 });
 
@@ -70,6 +76,7 @@ describe("POST /api/ships/buy", () => {
     expect(buy.status).toBe(200);
     expect(buy.body).toEqual({ shipId: "ship.brawler", credits: before }); // every hull ships free today
     expect((await inventory(auth)).ships).toContain("ship.brawler");
+    expect((await inventory(auth)).cosmetics).toContain("cosmetic.paint-brawler-standard");
 
     const again = await request(app).post("/api/ships/buy").set("Authorization", auth).send({ shipId: "ship.brawler" });
     expect(again.status).toBe(200);
@@ -110,15 +117,15 @@ describe("POST /api/cosmetics/buy", () => {
     const buy = await request(app)
       .post("/api/cosmetics/buy")
       .set("Authorization", auth)
-      .send({ cosmeticId: "cosmetic.paint-crimson" });
+      .send({ cosmeticId: "cosmetic.paint-interceptor-crimson" });
     expect(buy.status).toBe(200);
-    expect(buy.body).toEqual({ cosmeticId: "cosmetic.paint-crimson", credits: before });
-    expect((await inventory(auth)).cosmetics).toContain("cosmetic.paint-crimson");
+    expect(buy.body).toEqual({ cosmeticId: "cosmetic.paint-interceptor-crimson", credits: before });
+    expect((await inventory(auth)).cosmetics).toContain("cosmetic.paint-interceptor-crimson");
 
     const again = await request(app)
       .post("/api/cosmetics/buy")
       .set("Authorization", auth)
-      .send({ cosmeticId: "cosmetic.paint-crimson" });
+      .send({ cosmeticId: "cosmetic.paint-interceptor-crimson" });
     expect(again.status).toBe(200);
     expect(profilesRepo.byUser(userId)!.credits).toBe(before);
   });
@@ -137,15 +144,15 @@ describe("POST /api/cosmetics/buy", () => {
 describe("POST /api/cosmetics/select", () => {
   it("equips an owned, applicable paint and reports it in the one inventory read", async () => {
     const { auth } = await newUser("equip@example.com");
-    await request(app).post("/api/cosmetics/buy").set("Authorization", auth).send({ cosmeticId: "cosmetic.paint-jade" });
+    await request(app).post("/api/cosmetics/buy").set("Authorization", auth).send({ cosmeticId: "cosmetic.paint-interceptor-crimson" });
 
     const res = await request(app)
       .post("/api/cosmetics/select")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-jade" });
+      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-interceptor-crimson" });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-jade" });
-    expect((await inventory(auth)).selections).toEqual({ "ship.interceptor": "cosmetic.paint-jade" });
+    expect(res.body).toEqual({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-interceptor-crimson" });
+    expect((await inventory(auth)).selections).toEqual({ "ship.interceptor": "cosmetic.paint-interceptor-crimson" });
   });
 
   it("rejects a paint the pilot does not own", async () => {
@@ -153,7 +160,7 @@ describe("POST /api/cosmetics/select", () => {
     const res = await request(app)
       .post("/api/cosmetics/select")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-violet" });
+      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-interceptor-violet" });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe("not-owned");
     expect(selectedCosmeticsRepo.get(userId, "ship.interceptor")).toBeUndefined();
@@ -164,33 +171,33 @@ describe("POST /api/cosmetics/select", () => {
     await request(app)
       .post("/api/cosmetics/buy")
       .set("Authorization", auth)
-      .send({ cosmeticId: "cosmetic.paint-ironclad" }); // authored for ship.brawler
+      .send({ cosmeticId: "cosmetic.paint-brawler-ironclad" });
     const res = await request(app)
       .post("/api/cosmetics/select")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-ironclad" });
+      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-brawler-ironclad" });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("not-applicable");
   });
 
   it("rejects equipping onto a hull the pilot does not own", async () => {
     const { auth } = await newUser("equipunownedship@example.com");
-    await request(app).post("/api/cosmetics/buy").set("Authorization", auth).send({ cosmeticId: "cosmetic.paint-solar" });
+    await request(app).post("/api/cosmetics/buy").set("Authorization", auth).send({ cosmeticId: "cosmetic.paint-support-jade" });
     const res = await request(app)
       .post("/api/cosmetics/select")
       .set("Authorization", auth)
-      .send({ shipId: "ship.support", cosmeticId: "cosmetic.paint-solar" });
+      .send({ shipId: "ship.support", cosmeticId: "cosmetic.paint-support-jade" });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe("not-owned");
   });
 
-  it("clears back to the authored look — null and the standard id both delete the row", async () => {
+  it("clears back to the hull's derived base paint", async () => {
     const { auth, userId } = await newUser("unequip@example.com");
-    await request(app).post("/api/cosmetics/buy").set("Authorization", auth).send({ cosmeticId: "cosmetic.paint-arctic" });
+    await request(app).post("/api/cosmetics/buy").set("Authorization", auth).send({ cosmeticId: "cosmetic.paint-interceptor-arctic" });
     await request(app)
       .post("/api/cosmetics/select")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-arctic" });
+      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-interceptor-arctic" });
 
     const cleared = await request(app)
       .post("/api/cosmetics/select")
@@ -200,16 +207,7 @@ describe("POST /api/cosmetics/select", () => {
     expect(cleared.body.cosmeticId).toBeNull();
     expect(selectedCosmeticsRepo.get(userId, "ship.interceptor")).toBeUndefined();
 
-    await request(app)
-      .post("/api/cosmetics/select")
-      .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-arctic" });
-    const standard = await request(app)
-      .post("/api/cosmetics/select")
-      .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", cosmeticId: STANDARD_COSMETIC_ID });
-    expect(standard.status).toBe(200);
-    expect(selectedCosmeticsRepo.get(userId, "ship.interceptor")).toBeUndefined();
+    expect((await inventory(auth)).selections["ship.interceptor"]).toBe("cosmetic.paint-interceptor-standard");
   });
 
   it("requires auth", async () => {

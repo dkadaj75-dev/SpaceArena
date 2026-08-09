@@ -54,8 +54,8 @@ export class FakeOwnershipStore implements OwnershipStore {
   ownedCosmetics(): ReadonlySet<string> {
     return this.cosmetics;
   }
-  selectedCosmetic(shipId: string): string | null {
-    return this.selections.get(shipId) ?? null;
+  selectedCosmetic(shipId: string): string {
+    return this.selections.get(shipId) ?? `cosmetic.paint-${shipId.split(".").pop()}-standard`;
   }
   credits(): number {
     return this.creditBalance;

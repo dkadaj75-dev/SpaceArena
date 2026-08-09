@@ -49,7 +49,7 @@ function balancePreview(target: HTMLElement, service: ConfigService, config: Any
 
 function cosmeticPreview(target: HTMLElement, cosmetic: CosmeticConfig): () => void {
   const hull = document.createElement("div"); hull.className = "constellation-painted-hull"; hull.style.setProperty("--paint-primary", cosmetic.paint.primary); hull.style.setProperty("--paint-accent", cosmetic.paint.accent); hull.setAttribute("aria-label", `Painted hull swatch ${cosmetic.paint.primary} and ${cosmetic.paint.accent}`);
-  target.append(title("Painted hull preview"), hull, note(cosmetic.appliesTo === "any" ? "Applies to every hull." : `Applies to ${cosmetic.appliesTo.join(", ")}.`)); return () => {};
+  target.append(title("Painted item preview"), hull, note(`Applies to ${cosmetic.target}.`)); return () => {};
 }
 
 function arenaPreview(target: HTMLElement, config: AnyConfig): () => void {

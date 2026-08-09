@@ -43,7 +43,7 @@ All auth responses (except `/me`) return a **token pair + profile**:
 | `POST /login` | — | `{ email, password }` | 200 + pair. `401 invalid-credentials` otherwise. |
 | `POST /guest` | — | `{ displayName?, guestToken? }` | 201 creates a guest (returns `guestToken`). A known `guestToken` restores that guest → 200. A supplied-but-**unknown** `guestToken` → `401 invalid-guest-token` (does not mint a new guest). |
 | `POST /refresh` | — | `{ refreshToken }` | 200 + a fresh pair (old refresh token is invalidated). `401 invalid-refresh`. |
-| `GET /me` | **required** | — | `{ profile, inventory }`. `inventory` is `{ ships, modules, cosmetics, selections }` — the WHOLE inventory in one read (the Shop and the Hangar need all four together). Ownership is **derived**: the starter hull, every `price: 0` module and `cosmetic.paint-standard` are computed from content on each read, never seeded rows, so re-authoring the starter set repairs existing accounts. `selections` maps ship id → equipped cosmetic id; an absent key is the hull's authored look. |
+| `GET /me` | **required** | — | `{ profile, inventory }`. `inventory` is `{ ships, modules, cosmetics, selections }` — the WHOLE inventory in one read (the Shop and the Hangar need all four together). Ownership is **derived**: the starter hull, every `price: 0` module, and each owned hull's target-scoped base skin are computed from content on every read, never seeded rows. `selections` maps each owned ship id to its equipped cosmetic id, defaulting to that hull's base skin. |
 
 Passwords: 8–200 chars, hashed with **argon2id**. `JWT_SECRET` is **required** in
 production — a missing secret when `NODE_ENV=production` is a hard startup failure
@@ -98,7 +98,7 @@ per-hull selection are server state.
 | Method & path | Body | Notes |
 |---|---|---|
 | `POST /buy` | `{ cosmeticId }` | Spends `price` credits. 200 `{ cosmeticId, credits }`. **Idempotent**. `404 unknown-cosmetic`, `409 insufficient-credits`. |
-| `POST /select` | `{ shipId, cosmeticId }` | Equips a paint on a hull. 200 `{ shipId, cosmeticId }`. `cosmeticId: null` (or the standard id) clears back to the authored look and returns `cosmeticId: null`. `404 unknown-ship`/`unknown-cosmetic`, `403 not-owned` (the hull **or** the paint), `400 not-applicable` when the cosmetic's `appliesTo` excludes the hull. |
+| `POST /select` | `{ shipId, cosmeticId }` | Equips a paint on its target hull. 200 `{ shipId, cosmeticId }`. `cosmeticId: null` clears the explicit row; the next inventory read derives that hull's base skin. `404 unknown-ship`/`unknown-cosmetic`, `403 not-owned` (the hull **or** the paint), `400 not-applicable` when the cosmetic targets another item. |
 
 The equipped paint also travels into a match: `ArenaRoom` accepts a `cosmeticId`
 join option, falls back to the saved selection for the spawned hull, and

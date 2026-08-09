@@ -519,10 +519,10 @@ export class ArenaRoom extends Room<ArenaState> {
         const botFitting = randomize
           ? randomBotFitting(configs, botShipId, rosterRng, botProfile, referenceFitting)
           : botShip.defaultFitting;
-        // Bots wear a free universal paint, keyed off the room seed + entity id
+        // Bots wear a paint authored for their hull, keyed off the room seed + entity id
         // rather than drawn from `rosterRng`: dressing them must not shift the
         // stream that picks their hulls and fittings.
-        const botCosmetic = resolveCosmeticFor(configs, botShipId, botCosmeticFor(configs, this.seed, spawned));
+        const botCosmetic = resolveCosmeticFor(configs, botShipId, botCosmeticFor(configs, botShipId, this.seed, spawned));
         const entityId = this.sim.spawnPlayer(botShipId, botFitting, team, undefined, botCosmetic);
         const key = `bot-${entityId}`;
         const ps = new PlayerState();

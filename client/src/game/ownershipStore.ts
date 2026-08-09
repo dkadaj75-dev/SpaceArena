@@ -1,7 +1,8 @@
 import {
   cosmeticAppliesTo,
   createLogger,
-  STANDARD_COSMETIC_ID,
+  baseCosmeticIdFor,
+  resolveCosmeticFor,
   type ConfigService,
   type CosmeticConfig,
 } from "@space-arena/shared";
@@ -36,7 +37,7 @@ export interface OwnershipStore {
   ownedShips(): ReadonlySet<string>;
   ownedModules(): ReadonlySet<string>;
   ownedCosmetics(): ReadonlySet<string>;
-  selectedCosmetic(shipId: string): string | null; // null = standard look
+  selectedCosmetic(shipId: string): string;
   credits(): number; // for the header readout
   buyShip(id: string): Promise<void>;
   buyModule(id: string): Promise<void>;
@@ -91,14 +92,10 @@ abstract class BaseOwnershipStore implements OwnershipStore {
     return this.snapshot.cosmetics;
   }
 
-  selectedCosmetic(shipId: string): string | null {
+  selectedCosmetic(shipId: string): string {
     const selected = this.snapshot.selections.get(shipId);
-    if (!selected || selected === STANDARD_COSMETIC_ID) return null;
-    // Re-gated on read: a paint whose `appliesTo` was re-authored, or one the
-    // pilot no longer owns, is the authored look — not a render the rest of the
-    // room would disagree with.
-    if (!this.snapshot.cosmetics.has(selected)) return null;
-    return appliesTo(this.configs, selected, shipId) ? selected : null;
+    const resolved = resolveCosmeticFor(this.configs, shipId, selected);
+    return this.snapshot.cosmetics.has(resolved) ? resolved : baseCosmeticIdFor(shipId);
   }
 
   credits(): number {
@@ -124,7 +121,7 @@ abstract class BaseOwnershipStore implements OwnershipStore {
   }
 
   async selectCosmetic(shipId: string, cosmeticId: string | null): Promise<void> {
-    if (cosmeticId !== null && cosmeticId !== STANDARD_COSMETIC_ID && !appliesTo(this.configs, cosmeticId, shipId)) {
+    if (cosmeticId !== null && !appliesTo(this.configs, cosmeticId, shipId)) {
       throw new Error(`${cosmeticId} cannot be equipped on ${shipId}`);
     }
     await this.commitSelect(shipId, cosmeticId);
@@ -200,13 +197,12 @@ class LocalOwnershipStore extends BaseOwnershipStore {
     const ships = localShips();
     const selections = new Map<string, string>();
     for (const shipId of ships) {
-      const selected = localSelectedCosmetic(shipId);
-      if (selected) selections.set(shipId, selected);
+      selections.set(shipId, localSelectedCosmetic(this.configs, shipId));
     }
     this.snapshot = {
       ships,
       modules: localModules(this.configs),
-      cosmetics: localCosmetics(),
+      cosmetics: localCosmetics(this.configs),
       selections,
       credits: 0,
     };
@@ -225,7 +221,7 @@ class LocalOwnershipStore extends BaseOwnershipStore {
   }
 
   protected async commitSelect(shipId: string, cosmeticId: string | null): Promise<void> {
-    selectCosmeticLocal(shipId, cosmeticId);
+    selectCosmeticLocal(this.configs, shipId, cosmeticId);
   }
 }
 

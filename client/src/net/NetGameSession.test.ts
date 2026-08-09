@@ -493,9 +493,9 @@ describe("decodeCosmeticId", () => {
     expect(decodeCosmeticId("cosmetic.paint-crimson")).toBe("cosmetic.paint-crimson");
   });
 
-  it("maps the empty wire value, the standard id and junk alike to absent", () => {
+  it("maps the empty wire value and junk to absent but preserves retired ids for trust-boundary migration", () => {
     expect(decodeCosmeticId("")).toBeUndefined();
-    expect(decodeCosmeticId("cosmetic.paint-standard")).toBeUndefined();
+    expect(decodeCosmeticId("cosmetic.paint-standard")).toBe("cosmetic.paint-standard");
     expect(decodeCosmeticId(undefined)).toBeUndefined();
     expect(decodeCosmeticId(null)).toBeUndefined();
     expect(decodeCosmeticId(7)).toBeUndefined();

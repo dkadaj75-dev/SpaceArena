@@ -217,7 +217,7 @@ export class GameSession {
       const botFitting = slot.fitting ?? (randomize
         ? randomBotFitting(configs, shipId, rosterRng, slot.profile, fitting)
         : botShip.defaultFitting);
-      // Bots wear a free universal paint, keyed off the session seed + roster
+      // Bots wear a paint authored for their hull, keyed off the session seed + roster
       // slot rather than drawn from `rosterRng`: dressing them must not shift
       // the stream that picks their hulls and fittings.
       const id = this.sim.spawnPlayer(
@@ -225,7 +225,7 @@ export class GameSession {
         botFitting,
         slot.team,
         undefined,
-        botCosmeticFor(configs, seed, rosterIndex),
+        botCosmeticFor(configs, shipId, seed, rosterIndex),
       );
       this.shipConfigIds.set(id, shipId);
       this.botNames.set(id, names[rosterIndex] ?? `Bot ${rosterIndex + 1}`);

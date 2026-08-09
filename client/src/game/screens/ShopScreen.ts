@@ -6,7 +6,6 @@ import {
   type ThemeConfig,
 } from "@space-arena/shared";
 import type { OwnershipStore } from "../ownershipStore.js";
-import { cosmeticById } from "../cosmetics.js";
 import {
   equipHint,
   moduleGroups,
@@ -245,12 +244,28 @@ export class ShopScreen {
     for (const entry of entries) {
       const card = this.card(entry, swatch(entry));
       if (entry.state === "buy") {
-        card.append(this.actions(entry, "cosmetic", () => this.store.buyCosmetic(entry.id), "In locker"));
+        card.append(
+          this.equipRow(entry),
+          this.actions(
+            entry,
+            "cosmetic",
+            async () => {
+              await this.store.buyCosmetic(entry.id);
+              if (entry.target.kind === "ship" && entry.target.owned) {
+                await this.store.selectCosmetic(entry.target.shipId, entry.id);
+              }
+            },
+            "In locker",
+          ),
+        );
       } else {
         // Both rows: the badge answers "is this on a hull", the row answers
         // "on which one" — a bought paint sitting in the locker looks nothing
         // like a worn one.
-        card.append(this.equipRow(entry), this.actions(entry, "cosmetic", () => this.store.buyCosmetic(entry.id), "In locker"));
+        card.append(
+          this.equipRow(entry),
+          this.actions(entry, "cosmetic", () => this.store.buyCosmetic(entry.id), "In locker"),
+        );
       }
       grid.append(card);
     }
@@ -328,25 +343,23 @@ export class ShopScreen {
     const row = document.createElement("div");
     row.className = "shop-card-actions shop-equip";
     row.append(hint("shop-equip-label", "Equip on"));
-    const cosmetic = cosmeticById(this.configs, entry.id);
-    if (entry.targets.length === 0) {
-      row.append(hint("shop-hint", equipHint(entry, cosmetic)));
+    const target = entry.target;
+    if (target.kind === "module" || !target.owned || entry.state === "buy") {
+      row.append(hint("shop-hint", equipHint(entry)));
       return row;
     }
-    for (const target of entry.targets) {
-      const key = `equip:${entry.id}:${target.shipId}`;
-      const btn = document.createElement("button");
-      btn.className = `sa-button ${target.equipped ? "sa-button--primary" : "sa-button--secondary"} shop-equip-btn`;
-      btn.type = "button";
-      btn.textContent = this.pending === key ? "…" : target.shipName;
-      btn.dataset["ship"] = target.shipId;
-      btn.setAttribute("aria-pressed", String(target.equipped));
-      btn.disabled = this.pending !== null || target.equipped;
-      btn.addEventListener("click", () =>
-        void this.run(key, () => this.store.selectCosmetic(target.shipId, selectionValueFor(entry.id)), "Could not equip that paint"),
-      );
-      row.append(btn);
-    }
+    const key = `equip:${entry.id}:${target.shipId}`;
+    const btn = document.createElement("button");
+    btn.className = `sa-button ${target.equipped ? "sa-button--primary" : "sa-button--secondary"} shop-equip-btn`;
+    btn.type = "button";
+    btn.textContent = this.pending === key ? "…" : target.equipped ? "Equipped" : `Equip · ${target.shipName}`;
+    btn.dataset["ship"] = target.shipId;
+    btn.setAttribute("aria-pressed", String(target.equipped));
+    btn.disabled = this.pending !== null || target.equipped;
+    btn.addEventListener("click", () =>
+      void this.run(key, () => this.store.selectCosmetic(target.shipId, selectionValueFor(entry.id)), "Could not equip that paint"),
+    );
+    row.append(btn);
     return row;
   }
 

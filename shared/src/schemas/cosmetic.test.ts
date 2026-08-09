@@ -4,7 +4,7 @@ import {
   cosmeticAppliesTo,
   cosmeticDisplayName,
   cosmeticSchema,
-  STANDARD_COSMETIC_ID,
+  baseCosmeticIdFor,
   type CosmeticConfig,
 } from "./cosmetic.js";
 
@@ -15,7 +15,7 @@ const VALID = {
   name: "Fixture Paint",
   kind: "paint",
   price: 0,
-  appliesTo: "any",
+  target: "ship.interceptor",
   paint: { primary: "#112233", accent: "#445566", emissive: "#778899" },
 };
 
@@ -43,10 +43,9 @@ describe("cosmetic schema", () => {
     expect(parses((d) => (d.price = 250))).toBe(true); // the economy is off, not absent
   });
 
-  it("rejects an unknown kind and an empty hull list", () => {
+  it("rejects an unknown kind and a missing target", () => {
     expect(parses((d) => (d.kind = "decal"))).toBe(false);
-    expect(parses((d) => (d.appliesTo = []))).toBe(false);
-    expect(parses((d) => (d.appliesTo = ["ship.interceptor"]))).toBe(true);
+    expect(parses((d) => delete d.target)).toBe(false);
   });
 
   it("falls back to the id slug when no name is authored", () => {
@@ -57,31 +56,31 @@ describe("cosmetic schema", () => {
 });
 
 describe("cosmeticAppliesTo", () => {
-  const universal = cosmeticSchema.parse(VALID) as CosmeticConfig;
-  const signature = cosmeticSchema.parse({ ...VALID, appliesTo: ["ship.brawler"] }) as CosmeticConfig;
+  const interceptor = cosmeticSchema.parse(VALID) as CosmeticConfig;
+  const brawler = cosmeticSchema.parse({ ...VALID, target: "ship.brawler" }) as CosmeticConfig;
 
-  it("lets a universal paint on any hull and pins a signature paint to its own", () => {
-    expect(cosmeticAppliesTo(universal, "ship.interceptor")).toBe(true);
-    expect(cosmeticAppliesTo(signature, "ship.brawler")).toBe(true);
-    expect(cosmeticAppliesTo(signature, "ship.interceptor")).toBe(false);
+  it("accepts only the single target hull", () => {
+    expect(cosmeticAppliesTo(interceptor, "ship.interceptor")).toBe(true);
+    expect(cosmeticAppliesTo(brawler, "ship.brawler")).toBe(true);
+    expect(cosmeticAppliesTo(brawler, "ship.interceptor")).toBe(false);
   });
 });
 
 describe("cosmetic references", () => {
-  it("fails the pack load when appliesTo names a hull that does not exist", async () => {
+  it("fails the pack load when target names an item that does not exist", async () => {
     const files: Record<string, unknown> = {
       "manifest.json": { id: "manifest.t", type: "manifest", version: 1, files: ["cosmetics/bad.json"] },
-      "cosmetics/bad.json": { ...VALID, id: "cosmetic.paint-bad", appliesTo: ["ship.does-not-exist"] },
+      "cosmetics/bad.json": { ...VALID, id: "cosmetic.paint-bad", target: "ship.does-not-exist" },
     };
     const service = new ConfigService((rel) => Promise.resolve(files[rel]));
     const result = await service.load("manifest.json");
     expect(result.ok).toBe(false);
-    expect(result.errors.some((e) => e.path === "appliesTo[0]")).toBe(true);
+    expect(result.errors.some((e) => e.path === "target")).toBe(true);
   });
 });
 
-describe("the standard paint", () => {
-  it("is a real id, so a selection is never undefined semantics", () => {
-    expect(STANDARD_COSMETIC_ID).toBe("cosmetic.paint-standard");
+describe("base paint ids", () => {
+  it("derive the canonical hull-scoped standard id", () => {
+    expect(baseCosmeticIdFor("ship.interceptor")).toBe("cosmetic.paint-interceptor-standard");
   });
 });

@@ -273,7 +273,7 @@ const cosmetic = {
   name: "Fixture Paint",
   kind: "paint",
   price: 0,
-  appliesTo: "any",
+  target: "ship.fixture-hull",
   paint: { primary: "#112233", accent: "#445566" },
 };
 

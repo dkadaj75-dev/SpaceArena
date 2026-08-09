@@ -63,7 +63,7 @@ export class PlayerState extends Schema {
   @type("string") displayName = "";
   /**
    * Equipped paint (`cosmetic.*`), or "" for the hull's authored look (protocol
-   * 5). Validated server-side at join — ownership AND `appliesTo` — so a client
+   * 5). Validated server-side at join — ownership AND target — so a client
    * can only ever make its OWN ship look like something it bought, and an
    * invalid request replicates as standard rather than as a rejection.
    */

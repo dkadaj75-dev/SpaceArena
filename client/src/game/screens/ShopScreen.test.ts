@@ -28,9 +28,10 @@ describe("shop tabs", () => {
     document.querySelector<HTMLButtonElement>('.sa-tab[data-tab="paints"]')!.click();
     expect(document.querySelector(".shop-grid")!.getAttribute("data-tab")).toBe("paints");
     expect(cards().map((c) => c.dataset["entry"])).toEqual([
-      "cosmetic.paint-crimson",
-      "cosmetic.paint-lance",
-      "cosmetic.paint-standard",
+      "cosmetic.paint-brawler-standard",
+      "cosmetic.paint-interceptor-crimson",
+      "cosmetic.paint-interceptor-lance",
+      "cosmetic.paint-interceptor-standard",
     ]);
     expect(document.querySelectorAll('.sa-tab[aria-selected="true"]')).toHaveLength(1);
 
@@ -62,12 +63,12 @@ describe("shop states", () => {
   it("draws a diagonal split swatch carrying the paint's own colours", () => {
     const shop = mount(new FakeOwnershipStore({ ships: ["ship.interceptor"] }));
     shop.selectTab("paints");
-    const swatch = card("cosmetic.paint-crimson").querySelector<HTMLElement>(".shop-swatch")!;
+    const swatch = card("cosmetic.paint-interceptor-crimson").querySelector<HTMLElement>(".shop-swatch")!;
     expect(swatch.style.getPropertyValue("--shop-primary")).toBe("#7a1f2b");
     expect(swatch.style.getPropertyValue("--shop-accent")).toBe("#e0546a");
     expect(swatch.dataset["glow"]).toBe("true");
     // No emissive authored: no glow corner rather than an invented colour.
-    expect(card("cosmetic.paint-lance").querySelector<HTMLElement>(".shop-swatch")!.dataset["glow"]).toBe("false");
+    expect(card("cosmetic.paint-interceptor-lance").querySelector<HTMLElement>(".shop-swatch")!.dataset["glow"]).toBe("false");
     shop.dispose();
   });
 });
@@ -107,36 +108,49 @@ describe("shop purchases", () => {
 });
 
 describe("shop equip flow", () => {
+  it("buys and immediately equips a paint when its target hull is owned", async () => {
+    const store = new FakeOwnershipStore({ ships: ["ship.interceptor"] });
+    const shop = mount(store);
+    shop.selectTab("paints");
+    buyButton("cosmetic.paint-interceptor-crimson").click();
+    await vi.waitFor(() => expect(card("cosmetic.paint-interceptor-crimson").dataset["state"]).toBe("equipped"));
+    expect(store.calls).toEqual([
+      "buyCosmetic:cosmetic.paint-interceptor-crimson",
+      "selectCosmetic:ship.interceptor:cosmetic.paint-interceptor-crimson",
+    ]);
+    shop.dispose();
+  });
+
   it("equips a bought paint on an owned hull and marks the card EQUIPPED", async () => {
     const store = new FakeOwnershipStore({
       ships: ["ship.interceptor", "ship.brawler"],
-      cosmetics: ["cosmetic.paint-lance"],
+      cosmetics: ["cosmetic.paint-interceptor-lance"],
     });
     const shop = mount(store);
     shop.selectTab("paints");
     // The signature paint fits one hull only, so only that hull is offered.
-    const row = card("cosmetic.paint-lance").querySelectorAll<HTMLButtonElement>(".shop-equip-btn");
+    const row = card("cosmetic.paint-interceptor-lance").querySelectorAll<HTMLButtonElement>(".shop-equip-btn");
     expect([...row].map((b) => b.dataset["ship"])).toEqual(["ship.interceptor"]);
     row[0]!.click();
-    await vi.waitFor(() => expect(card("cosmetic.paint-lance").dataset["state"]).toBe("equipped"));
-    expect(store.calls).toEqual(["selectCosmetic:ship.interceptor:cosmetic.paint-lance"]);
-    const equipped = card("cosmetic.paint-lance").querySelector<HTMLButtonElement>(".shop-equip-btn")!;
+    await vi.waitFor(() => expect(card("cosmetic.paint-interceptor-lance").dataset["state"]).toBe("equipped"));
+    expect(store.calls).toEqual(["selectCosmetic:ship.interceptor:cosmetic.paint-interceptor-lance"]);
+    const equipped = card("cosmetic.paint-interceptor-lance").querySelector<HTMLButtonElement>(".shop-equip-btn")!;
     expect(equipped.getAttribute("aria-pressed")).toBe("true");
     expect(equipped.disabled).toBe(true);
     shop.dispose();
   });
 
-  it("stores the standard paint as ABSENT rather than as its id", async () => {
+  it("equips the hull-scoped base paint by id", async () => {
     const store = new FakeOwnershipStore({
       ships: ["ship.interceptor"],
-      selections: { "ship.interceptor": "cosmetic.paint-crimson" },
-      cosmetics: ["cosmetic.paint-crimson"],
+      selections: { "ship.interceptor": "cosmetic.paint-interceptor-crimson" },
+      cosmetics: ["cosmetic.paint-interceptor-standard", "cosmetic.paint-interceptor-crimson"],
     });
     const shop = mount(store);
     shop.selectTab("paints");
-    card("cosmetic.paint-standard").querySelector<HTMLButtonElement>(".shop-equip-btn")!.click();
-    await vi.waitFor(() => expect(store.calls).toEqual(["selectCosmetic:ship.interceptor:null"]));
-    expect(store.selectedCosmetic("ship.interceptor")).toBeNull();
+    card("cosmetic.paint-interceptor-standard").querySelector<HTMLButtonElement>(".shop-equip-btn")!.click();
+    await vi.waitFor(() => expect(store.calls).toEqual(["selectCosmetic:ship.interceptor:cosmetic.paint-interceptor-standard"]));
+    expect(store.selectedCosmetic("ship.interceptor")).toBe("cosmetic.paint-interceptor-standard");
     shop.dispose();
   });
 
@@ -144,8 +158,8 @@ describe("shop equip flow", () => {
     const store = new FakeOwnershipStore({ ships: ["ship.interceptor"] });
     const shop = mount(store);
     shop.selectTab("paints");
-    expect(card("cosmetic.paint-crimson").dataset["state"]).toBe("buy");
-    expect(card("cosmetic.paint-crimson").querySelectorAll(".shop-equip-btn")).toHaveLength(0);
+    expect(card("cosmetic.paint-interceptor-crimson").dataset["state"]).toBe("buy");
+    expect(card("cosmetic.paint-interceptor-crimson").querySelectorAll(".shop-equip-btn")).toHaveLength(0);
     shop.dispose();
   });
 });

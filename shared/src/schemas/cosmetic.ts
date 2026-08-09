@@ -21,12 +21,8 @@ export const cosmeticSchema = z.object({
   ...baseShape("cosmetic"),
   kind: z.enum(["paint"]),
   price: z.number().int().nonnegative(),
-  /**
-   * `"any"` = every hull, or an explicit ship-id list. The list entries are
-   * resolved as `ship` references at pack load, so a typo is a content error
-   * rather than a paint nobody can equip.
-   */
-  appliesTo: z.union([z.literal("any"), z.array(configId).min(1)]),
+  /** The single ship or module config this skin belongs to. */
+  target: configId,
   paint: z.object({
     /** Hull base albedo tint. */
     primary: hexColor,
@@ -45,7 +41,9 @@ export type CosmeticConfig = z.infer<typeof cosmeticSchema>;
  * on the UI side; the RENDERER still treats an ABSENT selection as standard, so
  * this id and `null` mean the same pixels.
  */
-export const STANDARD_COSMETIC_ID = "cosmetic.paint-standard";
+export function baseCosmeticIdFor(shipId: string): string {
+  return `cosmetic.paint-${shipId.split(".").pop() ?? shipId}-standard`;
+}
 
 /**
  * What a shop card shows. `name` follows the base-shape law and is optional, so
@@ -58,5 +56,5 @@ export function cosmeticDisplayName(cosmetic: Pick<CosmeticConfig, "id" | "name"
 
 /** Whether `cosmetic` may be equipped on `shipId`. */
 export function cosmeticAppliesTo(cosmetic: CosmeticConfig, shipId: string): boolean {
-  return cosmetic.appliesTo === "any" || cosmetic.appliesTo.includes(shipId);
+  return cosmetic.target === shipId;
 }
