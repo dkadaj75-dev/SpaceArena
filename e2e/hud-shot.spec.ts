@@ -50,9 +50,22 @@ test("hud screenshot rig @hudshot", async ({ page }) => {
     await lobby.getByRole("button", { name: "Hangar", exact: true }).click();
     const hangar = page.locator(".hangar-panel");
     await expect(hangar).toBeVisible();
-    await hangar.locator('.hangar-rail-btn[data-category="ship"]').click();
-    await hangar.locator(".hangar-ship-btn").filter({ hasText: process.env["HUD_SHOT_SHIP"]! }).click();
-    await hangar.getByRole("button", { name: "★ Set as main" }).click();
+    // Hull choice lives on the 3D stage (2026-08-08): walk the bay with the
+    // arrows, then take the hull in the viewer's top-right action slot — which
+    // offers the purchase first for a hull this account has not bought.
+    const stage = page.locator(".hangar-overlay > .hangar-stage");
+    const shipName = stage.locator(".hangar-ship-name");
+    const wanted = process.env["HUD_SHOT_SHIP"]!;
+    for (let step = 0; step < 8; step++) {
+      const seen = (await shipName.textContent()) ?? "";
+      if (seen.includes(wanted)) break;
+      await stage.locator(".hangar-stage-arrow.next").click();
+      await expect(shipName).not.toHaveText(seen);
+    }
+    const buy = stage.getByRole("button", { name: /Buy/ });
+    if (await buy.count()) await buy.click();
+    const setMain = stage.getByRole("button", { name: "★ Set as main" });
+    if (await setMain.count()) await setMain.click();
     await page.locator(".hangar-close").click();
     await expect(lobby).toBeVisible();
   }

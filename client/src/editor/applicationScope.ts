@@ -38,6 +38,10 @@ export const APPLICATION_POLICY: Record<ConfigType, ApplicationPolicy> = {
     message: "Applies next match. The editor preview updates now; spawned ships keep their resolved stats and rig.",
   },
   upgrade: { scope: "next-match", message: "Applies next match when ship stats are resolved." },
+  tutorial: {
+    scope: "next-match",
+    message: "Applies the next time the tutorial is launched; a running one keeps the steps it started with.",
+  },
   gamemode: { scope: "next-match", message: "Applies next match; win conditions and rosters are pinned at match start." },
   progression: {
     scope: "next-match",

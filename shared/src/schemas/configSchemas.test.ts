@@ -277,6 +277,24 @@ const cosmetic = {
   paint: { primary: "#112233", accent: "#445566" },
 };
 
+const tutorial = {
+  id: "tutorial.fixture",
+  type: "tutorial",
+  version: 1,
+  gamemode: "gamemode.fixture-mode",
+  pilot: { ship: "ship.fixture-hull", fitting: ["module.fixture-laser"] },
+  completeToast: "Done.",
+  steps: [
+    {
+      id: "throttle",
+      stage: "flight",
+      title: "THROTTLE",
+      text: "Push the lever up.",
+      condition: { kind: "throttle-above", value: 0.5 },
+    },
+  ],
+};
+
 /** One canonical valid fixture per content type. Keys MUST cover CONFIG_TYPES. */
 const VALID: Record<ConfigType, Record<string, unknown>> = {
   ship,
@@ -296,6 +314,7 @@ const VALID: Record<ConfigType, Record<string, unknown>> = {
   botprofile,
   quality,
   cosmetic,
+  tutorial,
 };
 
 /** Parse `fixture` with the schema registered for `type`. */

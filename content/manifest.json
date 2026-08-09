@@ -29,10 +29,12 @@
     "gamemodes/practice-bots.json",
     "gamemodes/practice-bots-5v5.json",
     "gamemodes/practice-ctf-10v10.json",
+    "gamemodes/tutorial.json",
     "bots/rookie.json",
     "bots/aggressive.json",
     "bots/cautious.json",
     "bots/flagrunner.json",
+    "bots/tutorial.json",
     "upgrades/hull-std.json",
     "upgrades/engine-std.json",
     "upgrades/energy-std.json",
@@ -127,6 +129,7 @@
     "cosmetics/paint-carbon.json",
     "cosmetics/paint-vanguard.json",
     "cosmetics/paint-ironclad.json",
-    "cosmetics/paint-fieldmedic.json"
+    "cosmetics/paint-fieldmedic.json",
+    "tutorials/basics.json"
   ]
 }

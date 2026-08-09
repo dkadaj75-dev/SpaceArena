@@ -19,6 +19,7 @@ const CONTENT_FOLDERS: Record<ConfigType, string> = {
   botprofile: "bots",
   quality: "quality",
   cosmetic: "cosmetics",
+  tutorial: "tutorials",
 };
 
 /** Canonical manifest-relative path for a config. */

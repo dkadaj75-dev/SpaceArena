@@ -1,10 +1,12 @@
 import {
   createLogger,
+  menuSectionOf,
   type ConfigEvents,
   type ConfigService,
   type EventBus,
   type GamemodeConfig,
   type ThemeConfig,
+  type TutorialConfig,
 } from "@space-arena/shared";
 import type { AuthService, AuthState } from "../../core/AuthService.js";
 import {
@@ -23,6 +25,8 @@ export const OFFLINE_HEALTH_REFRESH_MS = 10_000;
 export type LobbyChoice =
   /** Offline bot practice. Every choice names its concrete gamemode. */
   | { kind: "practice"; gamemode: string }
+  /** Flight school (offline, no rewards) — its own entry, not a practice row. */
+  | { kind: "tutorial" }
   | { kind: "online"; gamemode: string; options?: { minPlayers?: number } }
   | { kind: "matchmaking"; mode: "duel-1v1"; gamemode: "gamemode.duel-1v1" };
 
@@ -42,6 +46,13 @@ export interface LobbyCallbacks {
   /** Gear button — opens the 5.8 settings screen over the lobby. */
   onSettingsRequested: () => void;
 }
+
+/**
+ * The tutorial's own menu entry (owner 2026-08-08). It heads the Practice
+ * section rather than living in a section of its own: onboarding IS practice,
+ * and a first-time pilot reads down from the top.
+ */
+const TUTORIAL_LABEL = "Tutorial";
 
 /**
  * Main menu (ROADMAP §7 2.8 client, restyled by §10 5.8).
@@ -152,9 +163,15 @@ export class Lobby {
     const gamemodes = this.configs.getAll<GamemodeConfig>("gamemode");
 
     const practice = this.section("Practice", "primary");
-    // Any gamemode declaring a bot roster (5.1) is an offline practice mode.
+    // Onboarding first, and only when the pack actually ships one: the tutorial
+    // is a content config, so a pack without it simply has no button.
+    if (this.hasTutorial()) {
+      this.addButton(practice, TUTORIAL_LABEL, () => this.choose({ kind: "tutorial" }), false, undefined, "tutorial");
+    }
+    // Any gamemode the pack files under Practice (by default: one declaring a
+    // bot roster) is an offline mode.
     for (const gm of gamemodes) {
-      if (!gm.bots?.roster?.length) continue;
+      if (menuSectionOf(gm) !== "practice") continue;
       // The gamemode's own name is the label — a pack that adds an offline mode
       // gets a menu entry with no code change (and no invented suffix).
       this.addButton(practice, gm.name ?? gm.id, () => this.choose({ kind: "practice", gamemode: gm.id }), false);
@@ -163,7 +180,7 @@ export class Lobby {
     const online = this.section("Online", "primary");
     online.append(this.offlineBadge);
     for (const gm of gamemodes) {
-      if (gm.bots?.roster?.length) continue;
+      if (menuSectionOf(gm) !== "online") continue;
       const choice: LobbyChoice =
         gm.id === "gamemode.duel-1v1"
           ? { kind: "matchmaking", mode: "duel-1v1", gamemode: "gamemode.duel-1v1" }
@@ -172,10 +189,10 @@ export class Lobby {
     }
 
     const fleet = this.section("Fleet", "accent");
-    this.addButton(fleet, "Hangar", () => this.callbacks.onHangarRequested(), false, "accent");
+    this.addButton(fleet, "Hangar", () => this.callbacks.onHangarRequested(), false, "accent", "hangar");
     // Offline-capable like the Hangar: the ledger is local without an account,
     // so a pilot with no login can still buy (contract §3).
-    this.addButton(fleet, "Shop", () => this.callbacks.onShopRequested(), false, "accent");
+    this.addButton(fleet, "Shop", () => this.callbacks.onShopRequested(), false, "accent", "shop");
   }
 
   private section(title: string, accent: "primary" | "accent"): HTMLDivElement {
@@ -191,16 +208,24 @@ export class Lobby {
     return box;
   }
 
+  /** Whether this pack ships a tutorial for the button to launch. */
+  private hasTutorial(): boolean {
+    return this.configs.getAll<TutorialConfig>("tutorial").length > 0;
+  }
+
   private addButton(
     parent: HTMLElement,
     label: string,
     onClick: () => void,
     online: boolean,
     variant?: "primary" | "accent",
+    /** Stable hook for the tutorial's coach mark (and for tests) to find a destination. */
+    action?: string,
   ): void {
     const b = document.createElement("button");
     b.textContent = label;
     b.className = `sa-screen-btn sa-button sa-button--${variant === "primary" ? "primary" : "secondary"}${variant ? ` sa-screen-btn--${variant}` : ""}`;
+    if (action) b.dataset["lobbyAction"] = action;
     b.addEventListener("click", onClick);
     this.buttons.push({ el: b, online });
     parent.append(b);

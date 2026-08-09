@@ -111,30 +111,45 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // panel shows. Hardpoints is where it opens.
   const rail = (name: string) => hangar.locator(`.hangar-rail-btn[data-category="${name}"]`);
   await expect(rail("hardpoints")).toHaveClass(/\bactive\b/);
-  await rail("ship").click();
-
-  const shipButtons = hangar.locator(".hangar-ship-btn");
-  await expect(shipButtons.first()).toBeVisible();
-  expect(await shipButtons.count()).toBeGreaterThan(0);
+  // The rail is OUTFITTING only since 2026-08-08: there is no SHIP bay, because
+  // choosing a hull is something you do on the 3D stage.
+  await expect(rail("ship")).toHaveCount(0);
 
   // Arrows over the 3D stage step the bay the same way a swipe does — browsing
   // only, so the hull on screen changes and nothing else. Stepping runs a slide
   // transition first, so this waits for the name rather than expecting it on the
-  // next frame.
-  const currentShipName = hangar.locator(".hangar-ship-current .hangar-ship-name");
+  // next frame; the arrow is disabled for the duration, so Playwright's own
+  // actionability wait is what keeps the steps from overlapping.
+  const stage = page.locator(".hangar-overlay > .hangar-stage");
+  const nextShip = stage.locator(".hangar-stage-arrow.next");
+  const currentShipName = stage.locator(".hangar-ship-name");
+  const stepShip = async (): Promise<void> => {
+    const seen = (await currentShipName.textContent()) ?? "";
+    await nextShip.click();
+    await expect(currentShipName).not.toHaveText(seen);
+  };
   const before = await currentShipName.textContent();
-  await page.locator(".hangar-stage-arrow.next").click();
+  await nextShip.click();
   await expect(currentShipName).not.toHaveText(before ?? "");
 
+  // The arrows (and the swipe they mirror) are now the ONLY way to change hull,
+  // so walk the bay round to the heavy one — its stock fit carries the shield
+  // the match phase below toggles.
+  for (let step = 0; step < 6; step++) {
+    if (((await currentShipName.textContent()) ?? "").includes("Brawler")) break;
+    await stepShip();
+  }
+  await expect(currentShipName).toHaveText("Brawler");
+
   // Browsing is not choosing: making this hull the one you fly is a separate,
-  // explicit act. Pick the heavy hull, since its stock fit carries the shield
-  // the match phase below toggles. A fresh guest owns only the starter light
-  // hull (2026-08-08 shop), so the heavy must be BOUGHT first — the buy step
-  // is real, only the cost is not.
-  await shipButtons.filter({ hasText: "Brawler" }).click();
-  await hangar.getByRole("button", { name: /Buy/ }).click();
-  await hangar.getByRole("button", { name: "★ Set as main" }).click();
-  await expect(hangar.locator(".hangar-badge.main")).toBeVisible();
+  // explicit act, and it happens in ONE slot in the viewer's top-right corner.
+  // A fresh guest owns only the starter light hull (2026-08-08 shop), so that
+  // slot reads LOCKED and offers the purchase first — the buy step is real,
+  // only the cost is not. Buying it turns the same slot into "set as main".
+  await expect(stage.locator(".hangar-badge.locked")).toBeVisible();
+  await stage.getByRole("button", { name: /Buy/ }).click();
+  await stage.getByRole("button", { name: "★ Set as main" }).click();
+  await expect(stage.locator(".hangar-badge.main")).toBeVisible();
 
   // ----------------------------------------------------------- 3. fit a slot
   await rail("hardpoints").click();

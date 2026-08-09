@@ -1,0 +1,146 @@
+{
+  "id": "tutorial.basics",
+  "type": "tutorial",
+  "version": 1,
+  "name": "Flight School",
+  "gamemode": "gamemode.tutorial",
+  "arena": "arena.ring-nebula",
+  "instructor": "ARENA COMMAND",
+  "completeToast": "Flight school complete. Try not to embarrass us.",
+  "pilot": {
+    "ship": "ship.interceptor",
+    "fitting": [
+      "module.laser-mk1",
+      "module.shield-mk1",
+      "module.engine-civ",
+      "module.generator-compact",
+      "module.transformer-stock",
+      "module.heatsink-basic",
+      "module.sensors-basic",
+      null
+    ]
+  },
+  "steps": [
+    {
+      "id": "throttle",
+      "stage": "flight",
+      "title": "THROTTLE",
+      "text": "Arena Command here. Your engines are idle and it is embarrassing. Push the lever up.",
+      "hint": "Drag the throttle on the right — or hold W.",
+      "highlight": "throttle",
+      "condition": { "kind": "throttle-above", "value": 0.5 }
+    },
+    {
+      "id": "steer",
+      "stage": "flight",
+      "title": "STEERING",
+      "text": "Better. Now fly it. Swing that nose around and look at some space.",
+      "hint": "Drag with the RIGHT mouse button — or one finger anywhere on the view.",
+      "highlight": "steer",
+      "condition": { "kind": "heading-changed", "radians": 2.2 }
+    },
+    {
+      "id": "guns",
+      "stage": "flight",
+      "title": "GUNS",
+      "text": "Hold FIRE. Watch the ring around the trigger: that is HEAT. Fill it and the rack cuts out until it cools.",
+      "hint": "Hold FIRE (or SPACE) until the ring is nearly full, then let it breathe.",
+      "highlight": "fire",
+      "condition": { "kind": "heat-above-then-cooled", "peak": 0.8, "cooled": 0.35 }
+    },
+    {
+      "id": "shields",
+      "stage": "flight",
+      "title": "ENERGY",
+      "text": "Tap the SHIELD. Its ring is ENERGY — it drains while the shield is up and refills while it is down. Nothing out here is free.",
+      "highlight": "modules",
+      "condition": { "kind": "module-toggled", "family": "shield" }
+    },
+    {
+      "id": "lock",
+      "stage": "flight",
+      "title": "TARGET LOCK",
+      "text": "Salvage hulk on your nose. Keep it inside the reticle until the ring closes: LOCKED.",
+      "hint": "Missiles will not launch without a lock — they flash NO LOCK at you instead.",
+      "highlight": "reticle",
+      "spawn": {
+        "role": "dummy",
+        "ship": "ship.support",
+        "aheadDistance": 48,
+        "hull": 10,
+        "team": 1,
+        "callsign": "DERELICT"
+      },
+      "condition": { "kind": "lock-acquired" }
+    },
+    {
+      "id": "kill-dummy",
+      "stage": "flight",
+      "title": "WEAPONS FREE",
+      "text": "It is a hulk, not a friend. Take it apart — and mind the heat while you do it.",
+      "condition": { "kind": "kill", "target": "dummy" },
+      "holdMs": 900
+    },
+    {
+      "id": "kill-bot",
+      "stage": "flight",
+      "title": "CONTACT",
+      "text": "Training drone inbound, live guns. Ours, so it is a bad shot. Same drill: lock it, close it, kill it.",
+      "highlight": "reticle",
+      "spawn": {
+        "role": "bot",
+        "ship": "ship.interceptor",
+        "profile": "bot.tutorial",
+        "fitting": [
+          "module.laser-mk1",
+          null,
+          "module.engine-civ",
+          "module.generator-compact",
+          "module.transformer-stock",
+          "module.heatsink-basic",
+          "module.sensors-basic"
+        ],
+        "aheadDistance": 62,
+        "hull": 14,
+        "team": 1,
+        "callsign": "DRONE-7"
+      },
+      "condition": { "kind": "kill", "target": "bot" },
+      "holdMs": 1200
+    },
+    {
+      "id": "victory",
+      "stage": "flight",
+      "title": "SPLASH",
+      "text": "Confirmed kill. You are now officially dangerous. Bring it home.",
+      "condition": { "kind": "dwell", "seconds": 3 }
+    },
+    {
+      "id": "to-hangar",
+      "stage": "lobby",
+      "title": "THE HANGAR",
+      "text": "That ship is a rental until you touch it. Open the HANGAR.",
+      "highlight": "lobby-hangar",
+      "condition": { "kind": "screen-visited", "screen": "hangar" }
+    },
+    {
+      "id": "fit-a-module",
+      "stage": "hangar",
+      "title": "FITTING",
+      "text": "Every socket is a decision. Pick a slot and put something in it — buy it if you have to. The first one is on us.",
+      "hint": "Tap a slot, then EQUIP. Watch the power and heat bars move.",
+      "highlight": "hangar-slots",
+      "condition": { "kind": "loadout-changed" },
+      "holdMs": 700
+    },
+    {
+      "id": "the-shop",
+      "stage": "shop",
+      "title": "THE SHOP",
+      "text": "Last stop. HULLS change how you fly. MODULES change what you do. PAINTS change absolutely nothing, and you will buy one anyway.",
+      "hint": "Dismissed, pilot. The arena is that way.",
+      "highlight": "shop-tabs",
+      "condition": { "kind": "acknowledged" }
+    }
+  ]
+}

@@ -104,6 +104,14 @@ export const gamemodeSchema = z.object({
   bots: gamemodeBots.optional(),
   /** Optional default arena id this mode is played on when the room gets none. */
   defaultArena: z.string().optional(),
+  /**
+   * Which main-menu list this mode belongs to. Omitted ⇒ INFERRED, exactly as
+   * the menu always did it: a mode with a pre-placed `bots.roster` is offline
+   * practice, anything else is online. `"none"` keeps it out of both generated
+   * lists — for a mode that is reached by its own dedicated entry (the tutorial)
+   * rather than by being one more row of a section.
+   */
+  menuSection: z.enum(["practice", "online", "none"]).optional(),
   winCondition,
   /** Capture-the-flag rules; omitted ⇒ no flags, no bases, no captures. */
   ctf: gamemodeCtf.optional(),
@@ -147,3 +155,12 @@ export const gamemodeSchema = z.object({
 });
 
 export type GamemodeConfig = z.infer<typeof gamemodeSchema>;
+
+/**
+ * Which generated menu list a mode belongs in. The rule predates the field: a
+ * mode carrying a pre-placed bot roster is offline practice, everything else is
+ * online — `menuSection` only lets a pack say so explicitly, or opt out of both.
+ */
+export function menuSectionOf(mode: Pick<GamemodeConfig, "bots" | "menuSection">): "practice" | "online" | "none" {
+  return mode.menuSection ?? (mode.bots?.roster?.length ? "practice" : "online");
+}
