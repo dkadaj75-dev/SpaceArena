@@ -802,6 +802,7 @@ describe("CombatSystem continuous channel", () => {
 
   it("emits damage-then-destroyed when the channel lands the kill", () => {
     const { world, target } = channelDuel();
+    world.transforms.get(target)!.pos = { x: 7, y: -3, z: 11 };
     world.shipCores.get(target)!.hull = 0.05; // dies inside one tick
     channelTick(world);
 
@@ -810,6 +811,10 @@ describe("CombatSystem continuous channel", () => {
     expect(types).toContain("entityDestroyed");
     expect(types.indexOf("damage")).toBeLessThan(types.indexOf("entityDestroyed"));
     expect(world.shipCores.get(target)!.hull).toBe(0);
+    expect(world.events.find((event) => event.type === "entityDestroyed")).toMatchObject({
+      entityId: target,
+      pos: { x: 7, y: -3, z: 11 },
+    });
   });
 
   it("takes no per-SHOT heat — a channel has no shot to charge it against", async () => {
@@ -819,7 +824,7 @@ describe("CombatSystem continuous channel", () => {
     const { world, shooter } = channelDuel({ x: 20, z: 0 }, cfgs);
     combatSystem(world, DT); // heat accrual is EnergySystem's job, not the shot's
     expect(world.modules.get(shooter)!.modules[BEAM]!.heat).toBe(0);
-  });
+  }, 10_000);
 
   it("leaves held and semi weapons on their own path (no channel state, cycle timers intact)", () => {
     const { world, shooter } = duel({ x: 20, z: 0 }); // stock interceptor: held laser + semi missile

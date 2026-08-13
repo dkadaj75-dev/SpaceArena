@@ -321,12 +321,14 @@ function applyRaw(world: World, sid: number, core: ShipCore, amount: number): vo
   world.emit({ type: "damage", targetId: sid, sourceId: null, amount, damageType: "kinetic", isAsteroid: false });
   if (wasAlive && core.hull <= 0) {
     core.hull = 0;
+    const pos = world.transforms.get(sid)!.pos;
     world.emit({
       type: "entityDestroyed",
       entityId: sid,
       killerId: null,
       isAsteroid: false,
       team: world.teams.get(sid)?.team,
+      pos: { x: pos.x, y: pos.y, z: pos.z },
     });
   }
 }

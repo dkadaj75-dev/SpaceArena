@@ -1,5 +1,6 @@
 import {
   Color3,
+  Matrix,
   Mesh,
   MeshBuilder,
   MultiMaterial,
@@ -11,6 +12,7 @@ import {
   type AbstractMesh,
   type BaseTexture,
   type Material,
+  type Node,
   type Scene,
 } from "@babylonjs/core";
 import { createLogger, type ModuleConfig, type Palette, type RenderRecipe } from "@space-arena/shared";
@@ -712,6 +714,25 @@ export class AssetRegistry {
     if (parts.length === 0) throw new Error("no meshes with geometry in model");
     for (const p of parts) p.computeWorldMatrix(true);
     if (!mergeParts) {
+      // The glTF loader wraps every import in a `__root__` node carrying its
+      // right-handed -> left-handed conversion (180 deg Y rotation + Z mirror,
+      // net X flip). Blender-authored hulls are authored right-handed and need
+      // it. Authored arena props do not: `tools/lunar-rift/*` writes a prop's
+      // geometry, its collision block and its placement in one engine space
+      // (docs/MAPS-AND-SKYBOXES.md — map content is left-handed, Y up), so
+      // applying the conversion mirrors each prop about its own placement
+      // origin while the placement itself stays put. Chunked terrain then tiles
+      // mirrored content: craters straddling a chunk seam turn inside out and
+      // the rift floor lands ~70u above the collision surface ships fly
+      // against, leaving the player under the map. Bake each part relative to
+      // that root so authored geometry reaches the scene unhanded.
+      let loaderRoot: TransformNode | null = null;
+      for (let node: Node | null = parts[0]!.parent; node; node = node.parent) {
+        if (node instanceof TransformNode) loaderRoot = node;
+      }
+      const toAuthoredSpace = loaderRoot
+        ? Matrix.Invert(loaderRoot.computeWorldMatrix(true))
+        : Matrix.Identity();
       const master = new TransformNode(`master.model.${path}`, this.scene);
       for (const part of parts) {
         // glTF winding is primitive-local. Snapshot the loader's mesh-owned
@@ -722,13 +743,14 @@ export class AssetRegistry {
         // which would mutate every primitive using that shared material.
         const loaderSideOrientation = part.sideOrientation;
         // Flatten the imported hierarchy while retaining each visual mesh as a
-        // direct child. Its complete glTF transform (including RH -> LH root)
-        // is baked first, so independent frustum culling remains correct.
-        // Babylon reverses indices while baking a negative determinant. Keep
-        // that reversal: once the mirrored glTF root is removed below, the
-        // loader's per-primitive CW side orientation needs those baked indices
-        // to preserve the same front face it had before flattening.
-        part.bakeTransformIntoVertices(part.getWorldMatrix());
+        // direct child. The part's authored glTF transform is baked first, so
+        // independent frustum culling remains correct. Stripping the root's
+        // mirror leaves a positive determinant, so Babylon no longer reverses
+        // indices — and it no longer needs to: winding and geometry are mirrored
+        // together or not at all, so each primitive keeps the same front face
+        // relative to its own surface and the loader's side orientation below
+        // stays authoritative.
+        part.bakeTransformIntoVertices(part.getWorldMatrix().multiply(toAuthoredSpace));
         part.setParent(null);
         part.position.setAll(0);
         part.scaling.setAll(render.modelScale ?? 1);
@@ -736,6 +758,13 @@ export class AssetRegistry {
         part.rotationQuaternion = null;
         part.rotation.y = render.modelRotationY ?? 0;
         part.bakeCurrentTransformIntoVertices();
+        // bakeCurrentTransformIntoVertices() resets the local matrix but can
+        // leave Babylon's cached world determinant stale until a later forced
+        // recompute. Instances created in that window can inherit the removed
+        // glTF root mirror: asymmetric terrain is then rendered from -x instead
+        // of x (the blue spawn floor becomes an overhead plateau). Establish
+        // the identity master matrix before it can seed an instance batch.
+        part.computeWorldMatrix(true);
         part.sideOrientation = loaderSideOrientation;
         part.refreshBoundingInfo();
         part.parent = master;

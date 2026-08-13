@@ -148,6 +148,11 @@ export class SceneBuilder {
   private root: TransformNode | null = null;
   private visible = true;
   private glowLayer: GlowLayer | null = null;
+  /** Authored knobs the current glow layer was built with; a change forces a rebuild. */
+  private glowOptions: { blurKernelSize?: number; textureRatio?: number } | null = null;
+  /** Engine size at the last degenerate-glow-target rebuild attempt (one try per size). */
+  private glowRebuildTriedAt: string | null = null;
+  private removeGlowResizeGuard: (() => void) | null = null;
   private skybox: Mesh | null = null;
   private unsubscribers: Array<() => void> = [];
   private generation = 0;
@@ -850,6 +855,13 @@ export class SceneBuilder {
           editorKind: "prop",
           editorIndex: index,
         };
+        // GlowLayer otherwise submits every non-emissive terrain primitive to
+        // its RTT. The regenerated lunar-rift chunks are texture-rich PBR but
+        // intentionally have no emissive contribution, so those draws are
+        // pure overdraw on integrated GPUs.
+        // Babylon's public signature is narrower than its implementation,
+        // which keys any AbstractMesh (including an InstancedMesh) by uniqueId.
+        this.glowLayer?.addExcludedMesh(mesh as Mesh);
       });
       instance.setEnabled(this.visible);
       if (this.frozen) {
@@ -933,21 +945,98 @@ export class SceneBuilder {
   private applyGlowQuality(): void {
     const glow = this.quality.glow;
     if (!glow.enabled) {
-      this.glowLayer?.dispose();
-      this.glowLayer = null;
+      this.disposeGlowLayer();
       return;
     }
+    // Kernel and ratio are baked into the layer's render targets at
+    // construction, so a tier swap that changes them (the ultra→high
+    // auto-demote) must rebuild the layer rather than keep the old targets.
+    if (
+      this.glowLayer &&
+      this.glowOptions &&
+      (this.glowOptions.blurKernelSize !== glow.blurKernelSize ||
+        this.glowOptions.textureRatio !== glow.textureRatio)
+    ) {
+      this.disposeGlowLayer();
+    }
     if (!this.glowLayer) {
-      this.glowLayer = new GlowLayer(
-        "arenaGlow",
-        this.scene,
-        glow.blurKernelSize === undefined && glow.textureRatio === undefined
-          ? undefined
-          : { blurKernelSize: glow.blurKernelSize, mainTextureRatio: glow.textureRatio },
-      );
+      // Forward only authored knobs: a key holding an explicit `undefined`
+      // survives Babylon's `{ ...defaults, ...options }` merge, and an
+      // undefined mainTextureRatio sizes the RTT to NaN → a 0×0 target that
+      // raises GL_INVALID_FRAMEBUFFER_OPERATION on every glow draw (ultra
+      // authors blurKernelSize without textureRatio).
+      const options: { blurKernelSize?: number; mainTextureRatio?: number } = {};
+      if (glow.blurKernelSize !== undefined) options.blurKernelSize = glow.blurKernelSize;
+      if (glow.textureRatio !== undefined) options.mainTextureRatio = glow.textureRatio;
+      this.glowLayer = new GlowLayer("arenaGlow", this.scene, options);
+      this.glowOptions = { blurKernelSize: glow.blurKernelSize, textureRatio: glow.textureRatio };
+      if (!this.removeGlowResizeGuard) {
+        const engine = this.scene.getEngine();
+        const observer = engine.onResizeObservable.add(() => this.guardGlowTarget());
+        this.removeGlowResizeGuard = () => engine.onResizeObservable.remove(observer);
+      }
     }
     this.glowLayer.intensity = glow.intensity;
     if (this.skybox) this.glowLayer.addExcludedMesh(this.skybox);
+    // A tier swap recreates the layer after async props may already exist.
+    // Restore their visual-only exclusion on the fresh layer as well.
+    if (this.root) {
+      forEachMesh(this.root, (mesh) => {
+        if ((mesh.metadata as { editorKind?: string } | null)?.editorKind === "prop") {
+          this.glowLayer?.addExcludedMesh(mesh as Mesh);
+        }
+      });
+    }
+    this.guardGlowTarget();
+  }
+
+  /**
+   * Babylon renders an effect layer's main RTT every frame with no sanity check
+   * on its size: a degenerate (0×0) target — the engine had no layout size when
+   * the layer was created, or a pathological ratio floored to zero — raises
+   * GL_INVALID_FRAMEBUFFER_OPERATION per draw and composes nothing. Skip the
+   * pass while the target is degenerate (`isEnabled` gates both the RTT fill
+   * and the merge via `shouldRender()`), and rebuild at most once per engine
+   * size — Babylon's own size self-heal lives in the compose this guard skips,
+   * so it can never run for a disabled layer.
+   */
+  private guardGlowTarget(): void {
+    const layer = this.glowLayer;
+    if (!layer) return;
+    const size = layer.mainTexture.getSize();
+    if (
+      Number.isFinite(size.width) &&
+      Number.isFinite(size.height) &&
+      size.width > 0 &&
+      size.height > 0
+    ) {
+      layer.isEnabled = true;
+      return;
+    }
+    const engine = this.scene.getEngine();
+    const engineSize = `${engine.getRenderWidth()}x${engine.getRenderHeight()}`;
+    if (
+      engine.getRenderWidth() > 0 &&
+      engine.getRenderHeight() > 0 &&
+      this.glowRebuildTriedAt !== engineSize
+    ) {
+      this.glowRebuildTriedAt = engineSize;
+      this.disposeGlowLayer();
+      this.applyGlowQuality();
+      return;
+    }
+    if (layer.isEnabled) {
+      layer.isEnabled = false;
+      log.warn(
+        `arenaGlow target is ${size.width}x${size.height} at engine ${engineSize} — glow pass skipped until a resize yields a real target`,
+      );
+    }
+  }
+
+  private disposeGlowLayer(): void {
+    this.glowLayer?.dispose();
+    this.glowLayer = null;
+    this.glowOptions = null;
   }
 
   /**
@@ -1021,8 +1110,9 @@ export class SceneBuilder {
     this.generation++;
     this.clearSubscriptions();
     this.disposeSceneNodes();
-    this.glowLayer?.dispose();
-    this.glowLayer = null;
+    this.removeGlowResizeGuard?.();
+    this.removeGlowResizeGuard = null;
+    this.disposeGlowLayer();
     this.assets.dispose();
   }
 }

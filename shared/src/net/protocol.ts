@@ -150,7 +150,15 @@ export type SimEventMessage =
       amount: number;
       damageType: string;
     }
-  | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
+  | {
+      type: "entityDestroyed";
+      entityId: EntityId;
+      killerId: EntityId | null;
+      isAsteroid: boolean;
+      team?: number;
+      /** World-space death point; effects must not depend on a still-live entity. */
+      pos?: { x: number; y: number; z: number };
+    }
   | { type: "flagTaken"; flagId: EntityId; flagTeam: number; carrierId: EntityId; carrierTeam: number }
   | { type: "flagDropped"; flagId: EntityId; flagTeam: number; carrierId: EntityId | null; returnSec: number }
   | { type: "flagReturned"; flagId: EntityId; flagTeam: number; byId: EntityId | null; timedOut: boolean }

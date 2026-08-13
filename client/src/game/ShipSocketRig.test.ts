@@ -1,5 +1,5 @@
 import { FreeCamera, MeshBuilder, NullEngine, Scene, TransformNode, Vector3 } from "@babylonjs/core";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ConfigService, EffectConfig, ModuleConfig, ShipConfig, ShipSnapshot } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
 import { ShipSocketRig, shouldBuildShipEmitter } from "./ShipSocketRig.js";
@@ -142,7 +142,9 @@ describe("ship effect budget decisions", () => {
     expect(scene.particleSystems).toHaveLength(1);
     expect(scene.particleSystems[0]!.emitRate).toBe(0);
     expect(scene.particleSystems[0]!.isStarted()).toBe(false);
+    const dispose = vi.spyOn(scene.particleSystems[0]!, "dispose");
     rig.dispose();
+    expect(dispose).toHaveBeenCalledWith(false);
     scene.dispose();
   });
 

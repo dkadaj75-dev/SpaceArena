@@ -8,6 +8,7 @@ import {
   Mesh,
   MeshBuilder,
   NullEngine,
+  NullEngineOptions,
   PBRMaterial,
   RawTexture,
   Scene,
@@ -268,6 +269,90 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     const size = (scene.effectLayers[0] as GlowLayer).mainTexture.getSize();
     expect(size.width).toBe(Math.round(engine.getRenderWidth() * 0.25));
     builder.dispose();
+  });
+
+  it("keeps Babylon's default glow target ratio when a tier authors only blurKernelSize (ultra)", () => {
+    const builder = new SceneBuilder(
+      scene,
+      configs,
+      bus,
+      quality({ glow: { enabled: true, intensity: 0.7, blurKernelSize: 48 } }),
+    );
+    builder.buildArena("arena.test");
+    const layer = scene.effectLayers[0] as GlowLayer;
+    // Passing `mainTextureRatio: undefined` used to override the 0.5 default in
+    // Babylon's option spread, sizing the RTT to NaN → a degenerate target that
+    // raised GL_INVALID_FRAMEBUFFER_OPERATION on every glow draw.
+    const size = layer.mainTexture.getSize();
+    expect(size.width).toBe(engine.getRenderWidth() * 0.5);
+    expect(size.height).toBe(engine.getRenderHeight() * 0.5);
+    expect(layer.isEnabled).toBe(true);
+    builder.dispose();
+  });
+
+  it("rebuilds the glow layer when a tier swap changes its baked target knobs", () => {
+    const builder = new SceneBuilder(
+      scene,
+      configs,
+      bus,
+      quality({ glow: { enabled: true, intensity: 0.7, blurKernelSize: 48 } }),
+    );
+    builder.buildArena("arena.test");
+    const ultraLayer = scene.effectLayers[0] as GlowLayer;
+
+    // Intensity is a cheap in-place knob: same layer.
+    builder.setQuality(quality({ glow: { enabled: true, intensity: 0.3, blurKernelSize: 48 } }));
+    expect(scene.effectLayers[0]).toBe(ultraLayer);
+    expect(ultraLayer.intensity).toBe(0.3);
+
+    // The ultra→high auto-demote changes kernel and ratio, which are baked into
+    // the layer's render targets at construction — the layer must be rebuilt.
+    builder.setQuality(
+      quality({ glow: { enabled: true, intensity: 0.5, blurKernelSize: 32, textureRatio: 0.25 } }),
+    );
+    const highLayer = scene.effectLayers[0] as GlowLayer;
+    expect(highLayer).not.toBe(ultraLayer);
+    expect(highLayer.mainTexture.getSize().width).toBe(engine.getRenderWidth() * 0.25);
+    expect(highLayer.hasMesh(scene.getMeshByName("skybox")!)).toBe(false);
+    builder.dispose();
+  });
+
+  it("skips the glow pass while the target is degenerate and rebuilds on resize", () => {
+    // The real-world shape of the 0×0 case: the layer is created while the
+    // canvas has no layout size yet, so the RTT allocates at 0×0 and every draw
+    // into it raises GL_INVALID_FRAMEBUFFER_OPERATION. NullEngine reads its
+    // render size off the options bag it keeps by reference, so mutating it and
+    // notifying onResizeObservable is an honest engine resize.
+    const options = new NullEngineOptions();
+    options.renderWidth = 0;
+    options.renderHeight = 0;
+    const zeroEngine = new NullEngine(options);
+    const zeroScene = new Scene(zeroEngine);
+    const builder = new SceneBuilder(zeroScene, configs, bus, quality());
+    builder.buildArena("arena.test");
+
+    const degenerate = zeroScene.effectLayers[0] as GlowLayer;
+    // NullEngine's 0-size RTT reports a junk width (`size.width || size` falsy
+    // quirk); the guard only trusts finite positive numbers, so behavioral
+    // assertions are the honest check here.
+    const width: unknown = degenerate.mainTexture.getSize().width;
+    expect(typeof width === "number" && Number.isFinite(width) && width > 0).toBe(false);
+    expect(degenerate.isEnabled).toBe(false);
+    expect(degenerate.shouldRender()).toBe(false);
+
+    options.renderWidth = 512;
+    options.renderHeight = 256;
+    zeroEngine.onResizeObservable.notifyObservers(zeroEngine);
+
+    const healed = zeroScene.effectLayers[0] as GlowLayer;
+    expect(healed).not.toBe(degenerate);
+    expect(healed.isEnabled).toBe(true);
+    expect(healed.mainTexture.getSize().width).toBe(256);
+    expect(healed.mainTexture.getSize().height).toBe(128);
+    expect(healed.hasMesh(zeroScene.getMeshByName("skybox")!)).toBe(false);
+    builder.dispose();
+    zeroScene.dispose();
+    zeroEngine.dispose();
   });
 
   it("keeps every rebuilt skybox excluded across glow-layer recreation", () => {
@@ -708,6 +793,7 @@ describe("SceneBuilder props and authored box bounds", () => {
     expect(instance.rotation.asArray()).toEqual([0.2, 0.3, 0.4]);
     expect(instance.scaling.asArray()).toEqual([2, 2, 2]);
     expect(instance.getChildMeshes().every((mesh) => mesh.isPickable === false)).toBe(true);
+    expect(instance.getChildMeshes().every((mesh) => !(scene.effectLayers[0] as GlowLayer).hasMesh(mesh))).toBe(true);
     expect(scene.transformNodes.filter((node) => node.name.startsWith("prop.")).length).toBe(1);
     builder.setVisible(false);
     expect(builder.staticsFrozen).toBe(false);

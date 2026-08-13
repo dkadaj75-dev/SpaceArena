@@ -63,6 +63,8 @@ export class PlayerState extends Schema {
   @type("string") displayName = "";
   /** Explicit bot disclosure; disconnected humans are not bots. */
   @type("boolean") isBot = false;
+  /** False during the authoritative death-to-respawn gap. */
+  @type("boolean") alive = true;
   /**
    * Equipped paint (`cosmetic.*`), or "" for the hull's authored look (protocol
    * 5). Validated server-side at join — ownership AND target — so a client

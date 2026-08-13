@@ -56,7 +56,15 @@ export type SimEvent =
       amount: number;
       damageType: DamageType;
     }
-  | { type: "entityDestroyed"; entityId: EntityId; killerId: EntityId | null; isAsteroid: boolean; team?: number }
+  | {
+      type: "entityDestroyed";
+      entityId: EntityId;
+      killerId: EntityId | null;
+      isAsteroid: boolean;
+      team?: number;
+      /** World-space death point captured before cleanup removes the entity. */
+      pos?: { x: number; y: number; z: number };
+    }
   | { type: "boundaryHit"; entityId: EntityId; rule: "bounce" | "damage" | "damageAndBounce" | "warning" }
   /**
    * Capture-the-flag beats (owner 2026-07-31). `flagTeam` is always the team the

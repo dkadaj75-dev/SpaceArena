@@ -11,7 +11,9 @@ import {
   mirrorAttitude,
   pickBotShip,
   randomBotFitting,
+  resolveBackfillBot,
   resolveBotRoster,
+  teamSizeOf,
   type BotprofileConfig,
   type ConfigService,
   type EntityId,
@@ -91,6 +93,13 @@ export interface GameSessionOptions {
    * deterministic — this exists so a test can pin a specific sequence.
    */
   botRng?: () => number;
+  /**
+   * Fill every open team slot with local bots after applying the authored
+   * roster. Used by the no-server fallback so an online mode keeps the same
+   * team size and rules on a static host. Omitted for normal authored practice;
+   * `bots: null` still disables every bot.
+   */
+  fillBotTeams?: boolean;
   /**
    * The hull the PLAYER flies (owner 2026-07-31 — the Hangar's choice reaches
    * offline practice too). Unknown or unfittable ids fall back to the default
@@ -201,6 +210,26 @@ export class GameSession {
     // caller opts out.
     const gamemode = this.sim.world.gamemode;
     const roster = options.bots === null ? [] : resolveBotRoster(gamemode, configs);
+    if (options.bots !== null && options.fillBotTeams) {
+      const fallback = resolveBackfillBot(gamemode, configs);
+      if (fallback) {
+        const teamSize = teamSizeOf(gamemode);
+        const occupied = new Map<number, number>([[0, 1]]); // the local player is team 0
+        for (const slot of roster) occupied.set(slot.team, (occupied.get(slot.team) ?? 0) + 1);
+        for (let team = 0; team < 2; team++) {
+          const authoredForTeam = roster.filter((slot) => slot.team === team);
+          for (let i = occupied.get(team) ?? 0; i < teamSize; i++) {
+            const template = authoredForTeam.length > 0 ? authoredForTeam[i % authoredForTeam.length] : undefined;
+            roster.push({
+              profile: template?.profile ?? fallback.profile,
+              shipId: template?.shipId ?? fallback.shipId,
+              team,
+              ...(template?.fitting ? { fitting: template.fitting } : {}),
+            });
+          }
+        }
+      }
+    }
     // One stream for every roster decision, derived from the session seed: same
     // seed ⇒ same hulls, same fittings, same names.
     const rosterRng = deriveRng(seed, 0xb0715);

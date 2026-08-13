@@ -55,9 +55,9 @@ function practiceConfigs(): ConfigService {
   } as unknown as ConfigService;
 }
 
-function auth(): AuthService {
+function auth(state: AuthState = authed): AuthService {
   return {
-    getState: () => authed,
+    getState: () => state,
     onChange: () => () => undefined,
   } as unknown as AuthService;
 }
@@ -204,7 +204,7 @@ describe("Lobby fleet section", () => {
 });
 
 describe("Lobby server health", () => {
-  it("refreshes while visible and offline, then clears the badge and enables online play", async () => {
+  it("keeps modes playable locally while offline, then clears the badge when the server returns", async () => {
     vi.useFakeTimers();
     const probe = vi
       .fn()
@@ -235,11 +235,38 @@ describe("Lobby server health", () => {
       (button) => button.textContent === "Duel",
     )!;
     expect(badge.classList.contains("visible")).toBe(true);
-    expect(duel.disabled).toBe(true);
+    expect(duel.disabled).toBe(false);
+    expect(duel.title).toContain("locally against bots");
 
     await vi.advanceTimersByTimeAsync(OFFLINE_HEALTH_REFRESH_MS);
     expect(probe).toHaveBeenCalledTimes(2);
     expect(badge.classList.contains("visible")).toBe(false);
     expect(duel.disabled).toBe(false);
+  });
+
+  it("lets an anonymous pilot launch a mode when no server is available", () => {
+    const health = new ServerHealthState(vi.fn());
+    health.set({ online: false, detail: "static host" });
+    const onChoose = vi.fn();
+    new Lobby(
+      document.body,
+      configs(),
+      auth({ status: "anonymous" } as AuthState),
+      health,
+      {
+        onChoose,
+        onLogout: vi.fn(),
+        onAccountRequested: vi.fn(),
+        onHangarRequested: vi.fn(),
+        onShopRequested: vi.fn(),
+        onSettingsRequested: vi.fn(),
+      },
+    );
+    const duel = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "Duel",
+    )!;
+    expect(duel.disabled).toBe(false);
+    duel.click();
+    expect(onChoose).toHaveBeenCalledWith({ kind: "online", gamemode: "gamemode.duel-1v1" });
   });
 });

@@ -101,12 +101,14 @@ export function applyDamageToShip(
 
   if (wasAlive && core.hull <= 0) {
     core.hull = 0;
+    const pos = world.transforms.get(targetId)?.pos;
     world.emit({
       type: "entityDestroyed",
       entityId: targetId,
       killerId: sourceId,
       isAsteroid: false,
       team: world.teams.get(targetId)?.team,
+      pos: pos ? { x: pos.x, y: pos.y, z: pos.z } : undefined,
     });
   }
 }
@@ -127,6 +129,13 @@ export function applyDamageToAsteroid(
   if (ast.hp <= 0) {
     ast.hp = 0;
     ast.state = "destroyed";
-    world.emit({ type: "entityDestroyed", entityId: asteroidId, killerId: sourceId, isAsteroid: true });
+    const pos = world.transforms.get(asteroidId)?.pos;
+    world.emit({
+      type: "entityDestroyed",
+      entityId: asteroidId,
+      killerId: sourceId,
+      isAsteroid: true,
+      pos: pos ? { x: pos.x, y: pos.y, z: pos.z } : undefined,
+    });
   }
 }

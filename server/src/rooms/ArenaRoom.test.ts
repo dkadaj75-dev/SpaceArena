@@ -1097,6 +1097,36 @@ describe("ArenaRoom", () => {
     await human.leave();
   });
 
+  it("marks a destroyed CTF player dead in the persistent roster, then alive on respawn", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.practice-ctf-5v5",
+      botBackfillMs: 0,
+    });
+    const human = await colyseus.connectTo(room);
+    const simEvents: Array<{ type: string; entityId?: number; pos?: { x: number; y: number; z: number } }> = [];
+    human.onMessage("simEvent", (event) => simEvents.push(event));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await advance(room, 1);
+
+    const player = room.state.players.get(human.sessionId)!;
+    const internal = colyseus.getRoomById(room.roomId) as unknown as {
+      sim: { world: { shipCores: Map<number, { hull: number }>; transforms: Map<number, { pos: { x: number; y: number; z: number } }> } };
+    };
+    internal.sim.world.shipCores.get(player.entityId)!.hull = 0.01;
+    internal.sim.world.transforms.get(player.entityId)!.pos.x = 30_000;
+    await advance(room, 1);
+    expect(player.alive).toBe(false);
+    for (let attempt = 0; attempt < 20 && !simEvents.some((event) => event.type === "entityDestroyed"); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(simEvents.find((event) => event.type === "entityDestroyed" && event.entityId === player.entityId)?.pos)
+      .toEqual(expect.objectContaining({ x: expect.any(Number), y: expect.any(Number), z: expect.any(Number) }));
+
+    for (let tick = 0; tick < 180 && !player.alive; tick++) await advance(room, 1);
+    expect(player.alive).toBe(true);
+    await human.leave();
+  });
+
   it("starts immediately when humans fill the room, without backfill", async () => {
     const room = await colyseus.createRoom<ArenaState>("arena", {
       gamemode: "gamemode.duel-1v1",

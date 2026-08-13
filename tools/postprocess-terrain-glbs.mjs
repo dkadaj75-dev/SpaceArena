@@ -8,7 +8,7 @@
 //     ourselves: extract each unique image once to content/props/textures/game/,
 //     point json.images[].uri at it, drop the image bufferViews and repack the BIN
 //     (remapping every accessor/bufferView index).
-// Run: node tools/postprocess-terrain-glbs.mjs
+// Run: node tools/postprocess-terrain-glbs.mjs [--props-dir path]
 /* global Buffer, process, console */
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
@@ -17,7 +17,11 @@ import path from "node:path";
 const req = createRequire(import.meta.url);
 const { NodeIO } = req("@gltf-transform/core");
 
-const PROPS = path.resolve(process.cwd(), "content/props");
+const propsArg = process.argv.indexOf("--props-dir");
+if (propsArg !== -1 && !process.argv[propsArg + 1]) {
+  throw new Error("--props-dir requires a path");
+}
+const PROPS = path.resolve(process.cwd(), propsArg === -1 ? "content/props" : process.argv[propsArg + 1]);
 const GAME_TEX = path.join(PROPS, "textures", "game");
 mkdirSync(GAME_TEX, { recursive: true });
 const io = new NodeIO();

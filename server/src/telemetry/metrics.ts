@@ -172,6 +172,12 @@ export interface MemorySnapshot {
   heapUsed: number;
   heapTotal: number;
   external: number;
+  /**
+   * Bytes in live `ArrayBuffer` backing stores (a subset of {@link external}).
+   * The load test's teardown audit reads this to tell a real native retention
+   * (buffers still alive) from allocator page-caching, which inflates only RSS.
+   */
+  arrayBuffers: number;
 }
 
 export interface MetricsSnapshot {
@@ -317,7 +323,13 @@ export class MetricsRegistry {
       patchBytes: this.lifetimePatchBytes,
       patches: this.lifetimePatches,
       bytesOut: this.lifetimeBytesOut,
-      memory: { rss: mem.rss, heapUsed: mem.heapUsed, heapTotal: mem.heapTotal, external: mem.external },
+      memory: {
+        rss: mem.rss,
+        heapUsed: mem.heapUsed,
+        heapTotal: mem.heapTotal,
+        external: mem.external,
+        arrayBuffers: mem.arrayBuffers,
+      },
       lifetime: { roomsCreated: this.roomsCreated, roomsDisposed: this.roomsDisposed },
     };
   }

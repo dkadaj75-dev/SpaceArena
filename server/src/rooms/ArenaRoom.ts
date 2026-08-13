@@ -829,6 +829,11 @@ export class ArenaRoom extends Room<ArenaState> {
         // missiles are schema entities — no fire event needed.
         continue;
       }
+      if (ev.type === "entityDestroyed" && !ev.isAsteroid) {
+        const key = this.entityToKey.get(ev.entityId);
+        const player = key ? this.state.players.get(key) : undefined;
+        if (player) player.alive = false;
+      }
       const passthrough = toSimEventMessage(ev);
       if (passthrough) this.broadcast(MSG_SIM_EVENT, passthrough);
     }
@@ -931,6 +936,7 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   private applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
+    if (!ps.alive) ps.alive = true;
     const qx = encodeCenti(ship.pos.x);
     const qy = encodeCenti(ship.pos.y);
     const qz = encodeCenti(ship.pos.z);
@@ -1181,7 +1187,14 @@ function toSimEventMessage(ev: SimEvent): SimEventMessage | null {
     case "lockLost":
       return { type: "lockLost", entityId: ev.entityId };
     case "entityDestroyed":
-      return { type: "entityDestroyed", entityId: ev.entityId, killerId: ev.killerId, isAsteroid: ev.isAsteroid, team: ev.team };
+      return {
+        type: "entityDestroyed",
+        entityId: ev.entityId,
+        killerId: ev.killerId,
+        isAsteroid: ev.isAsteroid,
+        team: ev.team,
+        pos: ev.pos,
+      };
     case "flagTaken":
       return ev;
     case "flagDropped":

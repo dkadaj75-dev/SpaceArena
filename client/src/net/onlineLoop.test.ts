@@ -303,7 +303,8 @@ describe("a loop flown through the ONLINE path (wire + latency + reconciliation)
       up: { x: 0, y: 1, z: 0 },
     };
     const far = { pos: { x: 60, y: 0, z: 0 }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
-    correctPrediction(pred, far, { x: 0, y: 0, z: 0 }, { steering: true, dt: DT, correctionRate: 8 });
+    const correction = correctPrediction(pred, far, { x: 0, y: 0, z: 0 }, { steering: true, dt: DT, correctionRate: 8 });
+    expect(correction.snapped).toBe(true);
     expect(pred.pos.x).toBe(60); // snapped outright, not blended
     expect(pred.vel.x).toBe(0); // and adopted the server's velocity with it
   });

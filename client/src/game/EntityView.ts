@@ -539,7 +539,7 @@ export class ViewManager {
             v.dyingMs = ASTEROID_DEATH_MS;
           }
         }
-        this.explode(ev.entityId, ev.isAsteroid, cur);
+        this.explode(ev, cur);
       }
     }
   }
@@ -560,10 +560,11 @@ export class ViewManager {
    * budget from the active quality tier, and the SOUND from that same effect
    * config's `sound` field — so a new variant is one content file, not code.
    *
-   * The position comes from the live view node, not the snapshot: a destroyed
-   * ship is already gone from `cur.ships` by the time the event is drained.
+   * The authoritative position rides on the event because a destroyed ship may
+   * already be gone from both `cur.ships` and the Babylon view when it drains.
    */
-  private explode(entityId: EntityId, isAsteroid: boolean, cur: Snapshot): void {
+  private explode(ev: Extract<SimEvent, { type: "entityDestroyed" }>, cur: Snapshot): void {
+    const { entityId, isAsteroid } = ev;
     const shipClass = isAsteroid ? null : (this.shipConfigFor(entityId)?.class ?? null);
     const effectId = explosionEffectIdFor({ isAsteroid, shipClass }, this.juice.explosions);
     if (!effectId) return;
@@ -572,7 +573,10 @@ export class ViewManager {
       log.warn(`explosion effect not found: ${effectId}`);
       return;
     }
-    const pos = this.deathPosition(entityId, isAsteroid, cur);
+    // The event owns the authoritative death point. Entity/view lookup is only a
+    // compatibility fallback for old/offline producers: network messages and
+    // state patches are independent streams, so either may remove a view first.
+    const pos = ev.pos ?? this.deathPosition(entityId, isAsteroid, cur);
     if (!pos) return;
     const shipVelocity = !isAsteroid ? this.ships.get(entityId)?.velocity : undefined;
     this.explosions.burst(effect, pos.x, pos.z, pos.y, shipVelocity);

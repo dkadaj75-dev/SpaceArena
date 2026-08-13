@@ -152,8 +152,8 @@ export class ExplosionFx {
 
   dispose(): void {
     for (const slot of this.slots) {
-      slot.fire?.dispose();
-      slot.sparks?.dispose();
+      slot.fire?.dispose(false);
+      slot.sparks?.dispose(false);
       slot.flashMaterial.dispose();
       slot.shockwaveMaterial.dispose();
       slot.root.dispose(false, true);
@@ -191,7 +191,10 @@ export class ExplosionFx {
 
   private rebuildParticles(): void {
     for (const slot of this.slots) {
-      slot.fire?.dispose(); slot.sparks?.dispose(); slot.fire = null; slot.sparks = null;
+      // Particle systems borrow the scene-shared radial sprite. The default
+      // `dispose(true)` would invalidate ship thrusters whenever a quality
+      // change rebuilds this pool (notably the automatic Ultra -> High step).
+      slot.fire?.dispose(false); slot.sparks?.dispose(false); slot.fire = null; slot.sparks = null;
       if (!this.particlesEnabled) continue;
       const capacity = Math.max(1, Math.round(this.quality.maxEmitterCapacity * this.quality.budgetMultiplier));
       slot.fire = this.particleSystem(`fx.explosion.fire`, capacity, slot.emitter);

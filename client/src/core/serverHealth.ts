@@ -170,8 +170,8 @@ export function looksLikeServerUnreachable(err: unknown): boolean {
 }
 
 /** The one sentence every "server is not there" path shows the player. */
-export const SERVER_OFFLINE_MESSAGE = "SERVER OFFLINE — online play unavailable";
+export const SERVER_OFFLINE_MESSAGE = "SERVER OFFLINE — playing locally against bots";
 
 /** Tooltip/label for a control that online play has taken away. */
 export const SERVER_OFFLINE_HINT =
-  "The game server could not be reached. Offline practice still works.";
+  "The game server could not be reached. This mode will run locally against bots.";

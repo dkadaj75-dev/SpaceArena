@@ -1,5 +1,5 @@
-import { NullEngine, Scene, TransformNode } from "@babylonjs/core";
-import { afterEach, describe, expect, it } from "vitest";
+import { NullEngine, ParticleSystem, Scene, TransformNode } from "@babylonjs/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EffectConfig } from "@space-arena/shared";
 import { ExplosionFx } from "./ExplosionFx.js";
 import { DEFAULT_JUICE_SETTINGS } from "./juiceSettings.js";
@@ -50,5 +50,15 @@ describe("ExplosionFx lifecycle pool", () => {
     expect(off.burst(effect, 0, 0)).toBe(false);
     expect(off.activeCount).toBe(1); // flash + cheap hull shards still communicate the kill.
     off.dispose();
+  });
+
+  it("never disposes the scene-shared particle sprite while rebuilding or releasing the pool", () => {
+    const dispose = vi.spyOn(ParticleSystem.prototype, "dispose");
+    const fx = makeFx();
+    fx.setQuality({ enabled: true, budgetMultiplier: 0.6, maxEmitterCapacity: 60 });
+    fx.dispose();
+    expect(dispose).toHaveBeenCalled();
+    expect(dispose.mock.calls.every(([disposeTexture]) => disposeTexture === false)).toBe(true);
+    dispose.mockRestore();
   });
 });

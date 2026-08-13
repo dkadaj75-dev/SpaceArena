@@ -238,6 +238,9 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     host: true, // expose on LAN for phone testing (--host)
+    // Honors a harness-assigned port (Claude Code preview autoPort); vite's own
+    // busy-port auto-increment otherwise applies from the 5173 default.
+    port: process.env.PORT ? Number(process.env.PORT) : undefined,
   },
   plugins: [
     contentPipelinePlugin(),

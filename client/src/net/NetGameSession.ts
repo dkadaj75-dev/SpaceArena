@@ -116,9 +116,9 @@ export class FlightReconciler {
    * Fold in an ack. Safe to call for every ack: a seq that was not a flight
    * order is a no-op.
    */
-  acked(seq: number, accepted: boolean): void {
+  acked(seq: number, accepted: boolean): boolean {
     const flight = this.inFlight.get(seq);
-    if (flight === undefined) return;
+    if (flight === undefined) return false;
     this.inFlight.delete(seq);
     if (accepted) {
       // Newest accepted wins: a straggling ack for an older seq must not
@@ -127,12 +127,16 @@ export class FlightReconciler {
         this.accepted = flight;
         this.acceptedSeq = seq;
       }
-      return;
+      return false;
     }
     // Rejected: the server never stored this state, so it is still integrating
     // the last accepted one — unless we have since sent something newer, which
     // is what it is really flying. Rolling back then would be the bug.
-    if (seq === this.newestSeq) this.predicted = this.accepted;
+    if (seq === this.newestSeq) {
+      this.predicted = this.accepted;
+      return true;
+    }
+    return false;
   }
 
   clear(): void {
@@ -179,6 +183,7 @@ export interface CorrectionError {
   x: number;
   y: number;
   z: number;
+  snapped: boolean;
 }
 
 /** Knobs {@link correctPrediction} needs from the session. */
@@ -245,7 +250,7 @@ export function correctPrediction(
     // NOT cleared: the server is still integrating it, so dropping it would leave
     // the predictor inert while the real ship keeps flying.
     snapPrediction(pred, sample.pos, sample.heading, sample.pitch, serverVel, sample.up);
-    return { x: 0, y: 0, z: 0 };
+    return { x: 0, y: 0, z: 0, snapped: true };
   }
   const pull = 1 - Math.exp(-params.correctionRate * params.dt);
   pred.pos.x += errX * pull;
@@ -288,7 +293,7 @@ export function correctPrediction(
   pred.up.y += (sample.up.y - pred.up.y) * attitudePull;
   pred.up.z += (sample.up.z - pred.up.z) * attitudePull;
   orthonormalizeUp(pred.heading, pred.pitch, pred.up);
-  return { x: errX, y: errY, z: errZ };
+  return { x: errX, y: errY, z: errZ, snapped: false };
 }
 
 
@@ -433,6 +438,10 @@ export class NetGameSession extends GameSession {
   rttMs = 0; // exponentially smoothed via order acks
   patchesReceived = 0;
   patchesPerSec = 0;
+  /** Debug counters: authoritative corrections that teleported prediction. */
+  predictionSnaps = 0;
+  /** Debug counters: rejected newest flight orders that restored accepted input. */
+  predictionRollbacks = 0;
   private patchWindowStart = performance.now();
   private patchWindowCount = 0;
   onOrderRejected: ((reason: string) => void) | null = null;
@@ -488,7 +497,7 @@ export class NetGameSession extends GameSession {
         // A rejected FLIGHT order never reached the sim's FlightState — the
         // reconciler decides, by sequence, whether that means rolling the
         // predictor back (see FlightReconciler).
-        session.flight.acked(ack.seq, ack.accepted);
+        if (session.flight.acked(ack.seq, ack.accepted)) session.predictionRollbacks++;
         if (ack.accepted) {
           session.ordersAcked++;
         } else {
@@ -734,6 +743,7 @@ export class NetGameSession extends GameSession {
     this.errX = err.x;
     this.errY = err.y;
     this.errZ = err.z;
+    if (err.snapped) this.predictionSnaps++;
 
     // Render the local player from the predictor — frame included.
     player.pos.x = this.pred.pos.x;
@@ -830,7 +840,7 @@ export class NetGameSession extends GameSession {
   }
 
   private decode(state: any): Snapshot {
-    const ships = mapValues(state.players).map((p: any) => {
+    const ships = mapValues(state.players).filter(isReplicatedPlayerAlive).map((p: any) => {
       const id = Number(p.entityId);
       const shipId = String(p.shipId);
       this.shipIds.set(id, shipId);
@@ -909,6 +919,11 @@ export class NetGameSession extends GameSession {
       flags,
     };
   }
+}
+
+/** A roster entry persists across respawn, but only live entries are render/sim snapshots. */
+export function isReplicatedPlayerAlive(player: { alive?: unknown }): boolean {
+  return player.alive !== false;
 }
 
 /**

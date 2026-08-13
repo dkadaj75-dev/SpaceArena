@@ -111,4 +111,20 @@ describe("GameSession bot determinism (Finding 2)", () => {
     expect(session.botNames.size).toBeGreaterThan(0);
     for (const [id, name] of session.botNames) expect(session.displayNameFor(id)).toBe(name);
   });
+
+  it("fills server-backed modes to their authored team size for local fallback play", () => {
+    const duel = new GameSession(configs, "arena.deep-field", "gamemode.duel-1v1", 7, {
+      fillBotTeams: true,
+    });
+    expect(duel.bots.size).toBe(1);
+    expect([...duel.bots.keys()].map((id) => duel.sim.teamOf(id))).toEqual([1]);
+
+    const battle = new GameSession(configs, "arena.ring-nebula", "gamemode.practice-bots-5v5", 7, {
+      fillBotTeams: true,
+    });
+    expect(battle.bots.size).toBe(9);
+    const teams = [...battle.bots.keys()].map((id) => battle.sim.teamOf(id));
+    expect(teams.filter((team) => team === 0)).toHaveLength(4);
+    expect(teams.filter((team) => team === 1)).toHaveLength(5);
+  });
 });

@@ -16,3 +16,9 @@ test-results/
 blob-report/
 .playwright/
 debug.log
+
+# Local agent/browser/art-pass evidence (never shipped)
+.artpass/
+.gfxpass/
+.netpass/
+.tmp/

@@ -94,6 +94,14 @@ interface Options {
   endpoint: string | null;
   keepDb: boolean;
   jsonOut: string | null;
+  /**
+   * Drive → teardown → audit cycles against the same server process. One cycle
+   * is the normal gate. More cycles answer the question a single teardown
+   * cannot: RSS that jumps once and then plateaus is the allocator keeping
+   * freed pages (a high-water mark), RSS that climbs by the same amount every
+   * cycle is a genuine native leak.
+   */
+  cycles: number;
 }
 
 function parseArgs(argv: readonly string[]): Options {
@@ -126,6 +134,7 @@ function parseArgs(argv: readonly string[]): Options {
     endpoint: flags.get("endpoint") ?? null,
     keepDb: flags.get("keep-db") === "1",
     jsonOut: flags.get("json") ?? null,
+    cycles: Math.floor(num("cycles", 1)),
   };
 }
 
@@ -320,7 +329,7 @@ interface MetricsJson {
   patchBytes: number;
   patches: number;
   bytesOut: number;
-  memory: { rss: number; heapUsed: number; heapTotal: number; external: number };
+  memory: { rss: number; heapUsed: number; heapTotal: number; external: number; arrayBuffers: number };
   lifetime: { roomsCreated: number; roomsDisposed: number };
 }
 
@@ -480,7 +489,12 @@ interface Window {
   bytesOut: number;
   rss: number;
   heapUsed: number;
+  heapTotal: number;
+  external: number;
+  arrayBuffers: number;
   elapsedMs: number;
+  /** 1-based drive cycle this window belongs to (always 1 unless `--cycles`). */
+  cycle: number;
 }
 
 async function main(): Promise<void> {
@@ -510,74 +524,91 @@ async function main(): Promise<void> {
     console.log(`baseline: rss ${mb(baseline.memory.rss)}, heapUsed ${mb(baseline.memory.heapUsed)}, rooms ${baseline.roomCount}\n`);
 
     const client = new Client(server.wsBase);
-    const drivers = Array.from({ length: options.rooms }, (_, i) => new RoomDriver(client, options.gamemode, i));
-
-    // Ramp in rather than stampede: twenty simultaneous room creations would
-    // measure the matchmaker's cold start, not the steady state we care about.
-    for (const driver of drivers) {
-      await driver.start();
-      await delay(50);
-    }
-
-    const startedAt = Date.now();
-    const deadline = startedAt + options.durationS * 1000;
-    const scheduler = setInterval(() => {
-      const now = Date.now();
-      for (const driver of drivers) driver.pump(now);
-    }, SCHEDULER_TICK_MS);
-
+    const runStartedAt = Date.now();
     const windows: Window[] = [];
-    let previous = await pollMetrics(server.httpBase);
-    let previousAt = Date.now();
+    const drivers: RoomDriver[] = [];
+    const cycleFinals: MetricsJson[] = [];
+    let roomsGone = true;
 
-    while (Date.now() < deadline) {
-      await delay(Math.min(options.sampleIntervalS * 1000, Math.max(0, deadline - Date.now())));
-      const current = await pollMetrics(server.httpBase);
-      const now = Date.now();
-      const previousTicks = new Map(previous.rooms.map((r) => [r.roomId, r.tick.count]));
-      const window: Window = {
-        atMs: now,
-        elapsedMs: now - startedAt,
-        roomCount: current.roomCount,
-        liveRooms: current.rooms.filter((r) => r.tick.count > (previousTicks.get(r.roomId) ?? 0)).length,
-        clientCount: current.clientCount,
-        tick: diffHistogram(current.tick, previous.tick),
-        // Byte counters are per-room and rooms churn, so a naive diff of the
-        // process total goes negative whenever a room disposes. Clamp at zero
-        // and note that bytes from a room that died mid-window are lost with it
-        // — an under-count of at most one match's tail.
-        patchBytes: Math.max(0, current.patchBytes - previous.patchBytes),
-        patches: Math.max(0, current.patches - previous.patches),
-        bytesOut: Math.max(0, current.bytesOut - previous.bytesOut),
-        rss: current.memory.rss,
-        heapUsed: current.memory.heapUsed,
-      };
-      windows.push(window);
-      printWindow(window, now - previousAt);
-      previous = current;
-      previousAt = now;
+    for (let cycle = 1; cycle <= options.cycles; cycle++) {
+      if (options.cycles > 1) console.log(`— cycle ${cycle}/${options.cycles} —`);
+      const cycleDrivers = Array.from(
+        { length: options.rooms },
+        (_, i) => new RoomDriver(client, options.gamemode, i),
+      );
+      drivers.push(...cycleDrivers);
+
+      // Ramp in rather than stampede: twenty simultaneous room creations would
+      // measure the matchmaker's cold start, not the steady state we care about.
+      for (const driver of cycleDrivers) {
+        await driver.start();
+        await delay(50);
+      }
+
+      const deadline = Date.now() + options.durationS * 1000;
+      const scheduler = setInterval(() => {
+        const now = Date.now();
+        for (const driver of cycleDrivers) driver.pump(now);
+      }, SCHEDULER_TICK_MS);
+
+      let previous = await pollMetrics(server.httpBase);
+      let previousAt = Date.now();
+
+      while (Date.now() < deadline) {
+        await delay(Math.min(options.sampleIntervalS * 1000, Math.max(0, deadline - Date.now())));
+        const current = await pollMetrics(server.httpBase);
+        const now = Date.now();
+        const previousTicks = new Map(previous.rooms.map((r) => [r.roomId, r.tick.count]));
+        const window: Window = {
+          atMs: now,
+          elapsedMs: now - runStartedAt,
+          cycle,
+          roomCount: current.roomCount,
+          liveRooms: current.rooms.filter((r) => r.tick.count > (previousTicks.get(r.roomId) ?? 0)).length,
+          clientCount: current.clientCount,
+          tick: diffHistogram(current.tick, previous.tick),
+          // Byte counters are per-room and rooms churn, so a naive diff of the
+          // process total goes negative whenever a room disposes. Clamp at zero
+          // and note that bytes from a room that died mid-window are lost with it
+          // — an under-count of at most one match's tail.
+          patchBytes: Math.max(0, current.patchBytes - previous.patchBytes),
+          patches: Math.max(0, current.patches - previous.patches),
+          bytesOut: Math.max(0, current.bytesOut - previous.bytesOut),
+          rss: current.memory.rss,
+          heapUsed: current.memory.heapUsed,
+          heapTotal: current.memory.heapTotal,
+          external: current.memory.external,
+          arrayBuffers: current.memory.arrayBuffers,
+        };
+        windows.push(window);
+        printWindow(window, now - previousAt);
+        previous = current;
+        previousAt = now;
+      }
+
+      clearInterval(scheduler);
+      console.log(`\ntearing down clients${options.cycles > 1 ? ` (cycle ${cycle})` : ""}…`);
+      await Promise.all(cycleDrivers.map((d) => d.stop()));
+
+      roomsGone = (await waitForRoomCount(server.httpBase, 0, 45_000)) && roomsGone;
+      // Two collections with a pause between: the first frees the rooms, the
+      // second frees whatever the first made unreachable.
+      await pollMetrics(server.httpBase, { gc: true });
+      await delay(1500);
+      cycleFinals.push(await pollMetrics(server.httpBase, { gc: true }));
     }
 
-    clearInterval(scheduler);
-    console.log("\ntearing down clients…");
-    await Promise.all(drivers.map((d) => d.stop()));
-
-    const roomsGone = await waitForRoomCount(server.httpBase, 0, 45_000);
-    // Two collections with a pause between: the first frees the rooms, the
-    // second frees whatever the first made unreachable.
-    await pollMetrics(server.httpBase, { gc: true });
-    await delay(1500);
-    const final = await pollMetrics(server.httpBase, { gc: true });
-
+    const final = cycleFinals[cycleFinals.length - 1]!;
     exitCode = report({
       options,
       soakLength,
       windows,
       baseline,
+      cycleFinals,
       final,
       roomsGone,
       drivers,
-      startedAt,
+      startedAt: runStartedAt,
     });
 
     if (options.jsonOut) {
@@ -634,6 +665,8 @@ interface ReportInput {
   soakLength: boolean;
   windows: Window[];
   baseline: MetricsJson;
+  /** Post-GC teardown snapshot for each churn cycle (retained for JSON/report extensions). */
+  cycleFinals: MetricsJson[];
   final: MetricsJson;
   roomsGone: boolean;
   drivers: RoomDriver[];

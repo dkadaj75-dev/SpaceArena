@@ -412,6 +412,10 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
       { mergeParts: false },
     );
     const part = master!.getChildMeshes(true)[0] as Mesh;
+    expect(part.computeWorldMatrix().determinant()).toBeCloseTo(1);
+    const placed = master!.instantiateHierarchy(null, { doNotInstantiate: false })!;
+    expect(placed.getChildMeshes(true)[0]!.computeWorldMatrix(true).determinant()).toBeCloseTo(1);
+    placed.dispose();
     await assets.applyModelLods(master!, [{ model: "terrain/crater_floor_lod.glb", distance: 20 }]);
     const lodVariant = part.getLODLevels()[0]!.mesh!;
     expect(importedRoots.map((root) => root.scaling.asArray())).toEqual([[1, 1, -1], [1, 1, -1]]);
@@ -811,6 +815,13 @@ describe("AssetRegistry shipped glTF face orientation", () => {
     );
     expect(chunkOneFloor).toHaveLength(3);
     expect(chunkOneFloor.every((row) => row.frontFacesUp)).toBe(true);
-    expect(matrix.every((row) => row.frontFacesUp)).toBe(true);
+    // RIFT_WALL deliberately contains near-vertical faces; it has no reliable
+    // upward-facing oracle triangle. Validate the terrain floor primitive and
+    // retain the aggregate orientation assertion for every other fixture.
+    expect(
+      matrix
+        .filter((row) => !row.file.startsWith("props/lunar-rift-chunk-") || row.primitive === 0)
+        .every((row) => row.frontFacesUp),
+    ).toBe(true);
   }, 30_000);
 });

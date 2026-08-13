@@ -28,7 +28,7 @@ export type LobbyChoice =
 
 interface TrackedButton {
   el: HTMLButtonElement;
-  /** Online buttons are disabled while anonymous; Tutorial remains offline. */
+  /** Server-backed when reachable; locally bot-backed when it is not. */
   online: boolean;
 }
 
@@ -58,9 +58,9 @@ const TUTORIAL_LABEL = "Tutorial";
  * look — nebula backdrop, cyan/orange accents, title treatment — comes from
  * `theme.menu` through {@link applyMenuTheme}, and hot-reloads with the theme.
  *
- * Behaviour preserved from the pre-5.8 screen: online entries are disabled
- * while anonymous, every button is disabled while a match is being started, and
- * connection errors land in the status line.
+ * When the server is reachable, mode entries require an identity and join an
+ * authoritative room. When it is absent (including GitHub Pages), the same
+ * entries stay enabled and launch the local simulation with bot-filled teams.
  */
 export class Lobby {
   private readonly root: HTMLDivElement;
@@ -265,9 +265,8 @@ export class Lobby {
 
   /**
    * Report the game server's reachability (the boot health probe, and any later
-   * join that failed with a network error). An offline server disables every
-   * online entry and raises the persistent badge — offline practice is
-   * deliberately untouched, because it needs nothing but the content pack.
+   * join that failed with a network error). The persistent badge explains that
+   * mode buttons now launch local bot matches instead of authoritative rooms.
    */
   setServerOnline(online: boolean, detail = ""): void {
     this.serverHealth.set({ online, detail });
@@ -300,7 +299,7 @@ export class Lobby {
   private applyOnlineButtonState(authed: boolean): void {
     for (const { el, online } of this.buttons) {
       if (!online) continue;
-      el.disabled = !authed || !this.serverHealth.current.online;
+      el.disabled = this.serverHealth.current.online && !authed;
       el.title = !this.serverHealth.current.online
         ? SERVER_OFFLINE_HINT
         : authed
@@ -318,7 +317,7 @@ export class Lobby {
   setBusy(busy: boolean, message = ""): void {
     const authed = this.auth.getState().status === "authed";
     for (const { el, online } of this.buttons) {
-      el.disabled = busy || (online && (!authed || !this.serverHealth.current.online));
+      el.disabled = busy || (online && this.serverHealth.current.online && !authed);
     }
     this.status.textContent = message;
   }

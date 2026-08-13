@@ -401,7 +401,11 @@ export class ShipSocketRig {
     this.disposed = true;
     for (const hp of this.hardpoints) hp.instance?.dispose();
     this.hardpoints.length = 0;
-    for (const em of this.emitters) em.system.dispose();
+    // The radial sprite is scene-shared (ships, dust and explosion pools all
+    // receive the same DynamicTexture). Babylon disposes a ParticleSystem's
+    // texture by default; disposing one rig would therefore poison every live
+    // system and the WeakMap cache with a permanently unready texture.
+    for (const em of this.emitters) em.system.dispose(false);
     this.emitters.length = 0;
     this.shieldBubble.dispose();
     this.root.dispose();

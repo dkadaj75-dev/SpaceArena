@@ -1,6 +1,7 @@
 import type { AbstractEngine } from "@babylonjs/core";
 import {
   createLogger,
+  qualityTierRank,
   type ConfigEvents,
   type ConfigService,
   type EventBus,
@@ -204,15 +205,17 @@ export class QualityManager {
    */
   sampleFrame(fps: number, dtMs: number): void {
     if (this.fromOverride || this.auto.adjusted) return;
-    const result = sampleAutoTier(this.auto, this.current, this.tiers, fps, dtMs);
+    const tiers = this.tiers;
+    const result = sampleAutoTier(this.auto, this.current, tiers, fps, dtMs);
     if (result.tier) {
+      const target = resolveAutoTierTarget(this.tier, result.tier, this.probe.renderer, tiers);
       log.info("auto-tier adjustment", {
         from: this.tier,
-        to: result.tier,
+        to: target,
         averageFps: Math.round(result.averageFps ?? 0),
       });
-      this.setTier(result.tier);
-      this.persistLearnedTier(result.tier);
+      this.setTier(target);
+      this.persistLearnedTier(target);
     }
   }
 
@@ -276,6 +279,36 @@ export function readWebglRenderer(): string | null {
 
 /** `Engine` satisfies {@link QualityEngine}; this alias documents the intent. */
 export type BabylonQualityEngine = AbstractEngine & QualityEngine;
+
+/**
+ * The auto sampler deliberately adjusts once per match. On legacy Intel UHD
+ * 6xx, Ultra's measured demotion to High used to spend that one adjustment on
+ * another glow-enabled tier even though the glow pass alone costs ~17 ms in a
+ * 5v5 lunar-rift match. Skip to the first shipped non-glow rung so the one-shot
+ * decision actually removes the feature that breached the frame budget.
+ * Explicit settings overrides never reach this path.
+ */
+export function resolveAutoTierTarget(
+  from: QualityTier,
+  proposed: QualityTier,
+  renderer: string | null | undefined,
+  tiers: readonly QualityConfig[],
+): QualityTier {
+  if (
+    from === "ultra" &&
+    proposed === "high" &&
+    renderer !== null &&
+    renderer !== undefined &&
+    /intel(?:\(r\))?.*uhd graphics 6\d\d/i.test(renderer)
+  ) {
+    const nonGlow = sortTiers(tiers)
+      .filter((tier) => qualityTierRank(tier.tier) < qualityTierRank(proposed))
+      .reverse()
+      .find((tier) => !tier.glow.enabled);
+    if (nonGlow) return nonGlow.tier;
+  }
+  return proposed;
+}
 
 function safeStorage(): Pick<Storage, "getItem" | "setItem"> | null {
   try {

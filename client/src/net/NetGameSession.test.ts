@@ -24,8 +24,17 @@ import {
   sampledVelocity,
   snapPrediction,
   FlightReconciler,
+  isReplicatedPlayerAlive,
   type PredictedFlight,
 } from "./NetGameSession.js";
+
+describe("replicated respawn roster", () => {
+  it("excludes a dead roster entry from render snapshots until the server revives it", () => {
+    expect(isReplicatedPlayerAlive({ alive: false })).toBe(false);
+    expect(isReplicatedPlayerAlive({ alive: true })).toBe(true);
+    expect(isReplicatedPlayerAlive({})).toBe(true); // protocol compatibility
+  });
+});
 
 describe("online room phase", () => {
   it("keeps the lobby distinct from the authoritative 3-2-1 countdown", () => {
@@ -169,14 +178,14 @@ describe("FlightReconciler (Finding 4)", () => {
     r.sent(1, A);
     r.acked(1, true);
     r.sent(2, B);
-    r.acked(2, false);
+    expect(r.acked(2, false)).toBe(true);
     expect(r.current).toBe(A);
   });
 
   it("rolls back to null when the very first order is rejected", () => {
     const r = new FlightReconciler();
     r.sent(1, A);
-    r.acked(1, false);
+    expect(r.acked(1, false)).toBe(true);
     expect(r.current).toBeNull();
   });
 

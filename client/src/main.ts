@@ -990,14 +990,14 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   } else {
     log.warn(`game server unreachable: ${health.detail}`);
     boot?.settle("server", "warn", health.detail);
-    boot?.note(`${SERVER_OFFLINE_MESSAGE} — the Tutorial is still available.`, "warn");
+    boot?.note(`${SERVER_OFFLINE_MESSAGE} — every mode is available locally.`, "warn");
   }
 
   if (authService.getState().status === "authed" || !health.online) {
     // No reachable server means the auth gate has exactly one working control
     // (the "Skip" link) — a static host (GitHub Pages) or a dead server should
-    // land the player straight in the Lobby, where the Tutorial works anonymously,
-    // the SERVER OFFLINE badge explains the disabled online modes, and the
+    // land the player straight in the Lobby, where every mode works anonymously
+    // against local bots, the SERVER OFFLINE badge explains the fallback, and the
     // "Log in / Sign up" link reopens the gate if the server comes back.
     music.setScreen("menu");
     lobby.show();
@@ -1034,14 +1034,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       return;
     }
     if (!serverHealth.current.online) {
-      lobby.setBusy(true, "Checking server…");
-      const health = await serverHealth.refresh();
-      if (!health.online) {
-        lobby.showServerOffline(health.detail);
-        return;
-      }
+      await startBotMatch(choice);
+      return;
     }
-    await startMatch(choice);
+    await startOnlineMatch(choice);
   }
 
   /**
@@ -1058,7 +1054,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     return configService.get<GamemodeConfig>("gamemode", gamemodeId)?.defaultArena;
   }
 
-  async function startMatch(choice: Extract<LobbyChoice, { kind: "online" }>): Promise<void> {
+  async function startOnlineMatch(choice: Extract<LobbyChoice, { kind: "online" }>): Promise<void> {
     lobby.hide();
     hangar.hide();
     music.setScreen("match");
@@ -1089,9 +1085,45 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       if (looksLikeServerUnreachable(err)) {
         lobby.showServerOffline("join attempt got no answer");
         reprobeServerHealth();
+        await startBotMatch(choice);
       } else {
         lobby.showError(err instanceof Error ? err.message : "Connection failed");
       }
+    }
+  }
+
+  /** Static-host/dead-server fallback: identical mode and arena, bot-filled teams. */
+  async function startBotMatch(choice: Extract<LobbyChoice, { kind: "online" }>): Promise<void> {
+    lobby.hide();
+    hangar.hide();
+    music.setScreen("match");
+    matchLoading.showPending("Preparing local bot match");
+    try {
+      const selection = loadHangarSelection();
+      const authState = authService.getState();
+      const session = new GameSession(
+        configService,
+        gamemodeArena(choice.gamemode) ?? FALLBACK_ARENA_ID,
+        choice.gamemode,
+        Date.now() >>> 0,
+        {
+          fillBotTeams: true,
+          playerDisplayName: authState.status === "authed" ? authState.profile.displayName : "Pilot",
+          playerShipId: selection.shipId,
+          playerFitting: selection.moduleIds,
+          playerCosmeticId: selection.shipId ? ownership.selectedCosmetic(selection.shipId) : null,
+        },
+      );
+      await prepareSessionArena(session);
+      await matchLoading.dismiss();
+      activateSession(session, choice);
+    } catch (err) {
+      matchAssetsActive = false;
+      matchLoading.hide();
+      music.setScreen("menu");
+      log.error("failed to start local bot match", err);
+      lobby.showError(err instanceof Error ? err.message : "Local match failed");
+      lobby.show();
     }
   }
 
@@ -1343,7 +1375,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       get screenShake() {
         return runtime?.screenShake;
       },
-      startMatch,
+      startMatch: startOnlineMatch,
       meshCount: () => scene.meshes.length,
       /**
        * Manually drive one render frame (sim tick + HUD/view sync) without

@@ -1,8 +1,8 @@
 name: Deploy to GitHub Pages
 
-# Static client deploy (offline-practice demo). GitHub Pages cannot run the
-# Colyseus server, so the page boots into "READY — OFFLINE" and multiplayer
-# stays disabled — the client's server-health probe handles that on its own.
+# Static client deploy. GitHub Pages cannot run the Colyseus server, so the page
+# boots into "READY — OFFLINE" and every game mode runs in the local simulation
+# with bot-filled teams. The client's server-health probe selects that fallback.
 # The full game (client + server in one container) still deploys via the
 # Dockerfile; this workflow never touches server/.
 #
