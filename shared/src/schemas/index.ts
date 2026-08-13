@@ -13,6 +13,7 @@ import { type ManifestConfig } from "./manifest.js";
 import { moduleSchema, type ModuleConfig } from "./module.js";
 import { notificationSchema, type NotificationConfig } from "./notification.js";
 import { progressionSchema, type ProgressionConfig } from "./progression.js";
+import { propSchema, type PropConfig } from "./prop.js";
 import { qualitySchema, type QualityConfig } from "./quality.js";
 import { hardpointsOf, shipSchema, type ShipConfig } from "./ship.js";
 import { themeSchema, type ThemeConfig } from "./theme.js";
@@ -37,6 +38,7 @@ export * from "./event.js";
 export * from "./notification.js";
 export * from "./theme.js";
 export * from "./progression.js";
+export * from "./prop.js";
 export * from "./quality.js";
 export * from "./botprofile.js";
 export * from "./cosmetic.js";
@@ -63,6 +65,7 @@ export const CONFIG_SCHEMAS = {
   notification: notificationSchema,
   theme: themeSchema,
   progression: progressionSchema,
+  prop: propSchema,
   botprofile: botprofileSchema,
   quality: qualitySchema,
   cosmetic: cosmeticSchema,
@@ -87,6 +90,7 @@ export type AnyConfig =
   | NotificationConfig
   | ThemeConfig
   | ProgressionConfig
+  | PropConfig
   | BotprofileConfig
   | QualityConfig
   | CosmeticConfig
@@ -223,6 +227,9 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
     case "arena": {
       config.asteroidPlacements.forEach((p, i) =>
         refs.push({ path: `asteroidPlacements[${i}].asteroidId`, id: p.asteroidId, expects: "asteroid" }),
+      );
+      (config.propPlacements ?? []).forEach((p, i) =>
+        refs.push({ path: `propPlacements[${i}].propId`, id: p.propId, expects: "prop" }),
       );
       const warning = config.render?.boundaryShield.warningNotification;
       if (warning) {

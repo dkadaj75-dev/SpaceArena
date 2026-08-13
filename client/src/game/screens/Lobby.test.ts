@@ -23,21 +23,23 @@ function configs(): ConfigService {
   } as unknown as ConfigService;
 }
 
-/** Config service shaped like the shipped pack's offline bot modes. */
+/** Config service shaped like shipped online modes, including authored bot rosters. */
 function practiceConfigs(): ConfigService {
   const modes = [
     {
       id: "gamemode.practice-bots-1v1",
       type: "gamemode",
       version: 1,
-      name: "Practice — 1v1 vs Bot",
+      name: "Skirmish 1v1",
+      launch: "online",
       bots: { defaultProfile: "bot.rookie", roster: [{ profile: "bot.rookie", team: 1, count: 1 }] },
     },
     {
       id: "gamemode.practice-bots",
       type: "gamemode",
       version: 1,
-      name: "Practice — 2v2 vs Bots",
+      name: "Skirmish 2v2",
+      launch: "online",
       bots: {
         defaultProfile: "bot.rookie",
         roster: [
@@ -66,7 +68,7 @@ afterEach(() => {
   document.head.replaceChildren();
 });
 
-describe("Lobby practice section", () => {
+describe("Lobby mode list", () => {
   function mount(onChoose: () => void): Lobby {
     return new Lobby(document.body, practiceConfigs(), auth(), new ServerHealthState(vi.fn()), {
       onChoose,
@@ -78,17 +80,16 @@ describe("Lobby practice section", () => {
     });
   }
 
-  it("offers bot practice modes", () => {
+  it("offers every non-tutorial mode in one online-gated list", () => {
     const lobby = mount(vi.fn());
-    const practice = document.querySelector<HTMLElement>('[data-section="practice"]')!;
-    const labels = [...practice.querySelectorAll("button")].map((b) => b.textContent);
-    expect(labels).toEqual(["Practice — 1v1 vs Bot", "Practice — 2v2 vs Bots"]);
-    // Practice is offline-capable: none of them gate on the game server.
-    expect([...practice.querySelectorAll("button")].every((b) => !b.disabled)).toBe(true);
+    const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
+    const labels = [...play.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).toEqual(["Skirmish 1v1", "Skirmish 2v2"]);
+    expect([...play.querySelectorAll("button")].every((b) => !b.disabled)).toBe(true);
     lobby.hide();
   });
 
-  it("each bot mode launches practice with its OWN gamemode id", () => {
+  it("routes every mode through the same online join path", () => {
     // One lobby per click: choosing sets the busy guard that disables the whole
     // row, so a second click on the same instance is correctly a no-op.
     for (const [index, gamemode] of [
@@ -97,9 +98,9 @@ describe("Lobby practice section", () => {
     ] as const) {
       const onChoose = vi.fn();
       const lobby = mount(onChoose);
-      const practice = document.querySelector<HTMLElement>('[data-section="practice"]')!;
-      practice.querySelectorAll<HTMLButtonElement>("button")[index]!.click();
-      expect(onChoose).toHaveBeenCalledWith({ kind: "practice", gamemode });
+      const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
+      play.querySelectorAll<HTMLButtonElement>("button")[index]!.click();
+      expect(onChoose).toHaveBeenCalledWith({ kind: "online", gamemode });
       lobby.hide();
       document.body.replaceChildren();
     }
@@ -129,10 +130,10 @@ describe("Lobby tutorial entry", () => {
     });
   }
 
-  it("heads the Practice section — a first-time pilot reads down from the top", () => {
+  it("heads the single Play section — a first-time pilot reads down from the top", () => {
     const lobby = mount(tutorialConfigs(), vi.fn());
-    const practice = document.querySelector<HTMLElement>('[data-section="practice"]')!;
-    const labels = [...practice.querySelectorAll("button")].map((b) => b.textContent);
+    const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
+    const labels = [...play.querySelectorAll("button")].map((b) => b.textContent);
     expect(labels[0]).toBe("Tutorial");
     lobby.hide();
   });
@@ -153,16 +154,17 @@ describe("Lobby tutorial entry", () => {
     lobby.hide();
   });
 
-  it("keeps a menuSection:'none' mode out of BOTH generated lists", () => {
+  it("excludes the offline tutorial gamemode from the online rows", () => {
     const modes = [
       {
         id: "gamemode.practice-bots-1v1",
         type: "gamemode",
         version: 1,
-        name: "Practice — 1v1 vs Bot",
+        name: "Skirmish 1v1",
+        launch: "online",
         bots: { defaultProfile: "bot.rookie", roster: [{ profile: "bot.rookie", team: 1, count: 1 }] },
       },
-      { id: "gamemode.tutorial", type: "gamemode", version: 1, name: "Flight School", menuSection: "none" },
+      { id: "gamemode.tutorial", type: "gamemode", version: 1, name: "Flight School", launch: "offline" },
     ] as unknown as GamemodeConfig[];
     const lobby = mount(
       {
@@ -173,7 +175,7 @@ describe("Lobby tutorial entry", () => {
     );
     const labels = [...document.querySelectorAll("button")].map((b) => b.textContent);
     expect(labels).not.toContain("Flight School");
-    expect(labels).toContain("Practice — 1v1 vs Bot");
+    expect(labels).toContain("Skirmish 1v1");
     lobby.hide();
   });
 });

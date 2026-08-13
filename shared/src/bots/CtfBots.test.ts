@@ -8,9 +8,10 @@ import { angleDelta } from "../sim/math.js";
 import { deriveRng } from "../sim/rng.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { BotDriver } from "./BotDriver.js";
+import { botBehaviors } from "./behaviors.js";
 
 const DT = 1 / 30;
-const CTF = "gamemode.practice-ctf-10v10";
+const CTF = "gamemode.practice-ctf-5v5";
 
 let configs: ConfigService;
 beforeAll(async () => {
@@ -18,7 +19,7 @@ beforeAll(async () => {
 });
 
 /**
- * A full 10v10 capture match driven entirely by bots. This is the proof that the
+ * A full 5v5 capture match driven entirely by bots. This is the proof that the
  * `objective` behaviour actually plays the mode rather than merely existing: no
  * assertion here inspects a bot's internals, only what the match produced.
  */
@@ -355,6 +356,116 @@ function playLooseFlags(seed: number) {
   return events;
 }
 
+function playLunarCtf(seed: number, seconds: number) {
+  const sim = new ArenaSimulation(configs, "arena.lunar-rift", CTF, seed);
+  const mode = configs.get<GamemodeConfig>("gamemode", CTF)!;
+  const profiles = ["bot.flagrunner", "bot.aggressive", "bot.cautious", "bot.rookie"]
+    .map((id) => configs.get<BotprofileConfig>("botprofile", id)!);
+  const ship = configs.get<ShipConfig>("ship", mode.bots!.defaultShip!)!;
+  const drivers: Array<{ id: EntityId; driver: BotDriver }> = [];
+  for (let team = 0; team < 2; team++) for (let slot = 0; slot < 5; slot++) {
+    const id = sim.spawnPlayer(ship.id, ship.defaultFitting, team);
+    const profile = profiles[(team * 5 + slot) % profiles.length]!;
+    drivers.push({ id, driver: new BotDriver({
+      entityId: id,
+      profile,
+      configs,
+      rng: deriveRng(seed, id),
+      arenaBounds: sim.world.arena.bounds,
+      staticWorld: sim.world.staticWorld,
+      navRoute: sim.world.navRoute,
+      visualRadius: Math.max(ship.collider.radius, (ship.render.modelScale ?? ship.collider.radius * 2) / 2),
+    }) });
+  }
+  const events: SimEvent[] = [];
+  let nowMs = 0;
+  for (let tick = 0; tick < seconds / DT && !sim.isEnded; tick++) {
+    nowMs += DT * 1000;
+    const snapshot = sim.snapshot();
+    for (const entry of drivers) if (sim.hasShip(entry.id)) {
+      for (const order of entry.driver.update(snapshot, nowMs)) sim.applyOrder(entry.id, order);
+    }
+    sim.tick(DT);
+    events.push(...sim.getEvents());
+  }
+  return { sim, events };
+}
+
+function transitLunarTunnel() {
+  const sim = new ArenaSimulation(configs, "arena.lunar-rift", CTF, 11);
+  const graph = sim.world.arena.navGraph!;
+  const authoredStart = graph.nodes.find((node) => node.id === "nav-tunnel0-0")!.position as Required<typeof graph.nodes[number]["position"]>;
+  const authoredGoal = graph.nodes.find((node) => node.id === "nav-tunnel0-1")!.position as Required<typeof graph.nodes[number]["position"]>;
+  const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+  const clearance = Math.max(ship.collider.radius * 4, ship.collider.radius + 3);
+  const startFloor = sim.world.staticWorld.heightBelow(authoredStart, 60);
+  const goalFloor = sim.world.staticWorld.heightBelow(authoredGoal, 60);
+  const start = { ...authoredStart, y: Math.max(authoredStart.y, (startFloor?.y ?? authoredStart.y) + clearance) };
+  const goal = { ...authoredGoal, y: Math.max(authoredGoal.y, (goalFloor?.y ?? authoredGoal.y) + clearance) };
+  const shipped = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
+  const profile = {
+    ...shipped,
+    id: "bot.tunnel-transit",
+    behaviors: {
+      tunnelTransit: { baseWeight: 1 },
+      avoidRocks: { baseWeight: 0, lookahead: 16, clearance: 2, turnBias: 1, throttleFactor: 0.35 },
+    },
+  } as BotprofileConfig;
+  const behaviors = new Map(botBehaviors());
+  behaviors.set("tunnelTransit", {
+    score: () => 1,
+    plan: () => ({ aim: goal, aimPriority: true, throttle: 1, boost: false, engaged: false }),
+  });
+  const heading = Math.atan2(goal.z - start.z, goal.x - start.x);
+  const spawn = {
+    x: start.x + (goal.x - start.x) * 0.1,
+    y: start.y + (goal.y - start.y) * 0.1,
+    z: start.z + (goal.z - start.z) * 0.1,
+  };
+  const id = sim.spawnPlayerAt(ship.id, ship.defaultFitting, 0, spawn, heading);
+  const driver = new BotDriver({
+    entityId: id,
+    profile,
+    configs,
+    rng: deriveRng(11, id),
+    behaviors,
+    arenaBounds: sim.world.arena.bounds,
+    staticWorld: sim.world.staticWorld,
+    navRoute: sim.world.navRoute,
+    visualRadius: ship.collider.radius,
+  });
+  const initialDistance = Math.hypot(goal.x - spawn.x, goal.y - spawn.y, goal.z - spawn.z);
+  const axis = { x: (goal.x - spawn.x) / initialDistance, y: (goal.y - spawn.y) / initialDistance, z: (goal.z - spawn.z) / initialDistance };
+  let impactDamage = 0;
+  const impactPositions: Array<{ x: number; y: number; z: number }> = [];
+  let maxProgress = 0;
+  let nowMs = 0;
+  for (let tick = 0; tick < 8 / DT && sim.hasShip(id); tick++) {
+    nowMs += DT * 1000;
+    const snapshot = sim.snapshot();
+    for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
+    sim.tick(DT);
+    for (const event of sim.getEvents()) {
+      if (event.type === "damage" && event.targetId === id && event.sourceId === null) {
+        impactDamage += event.amount;
+        impactPositions.push({ ...sim.world.transforms.get(id)!.pos });
+      }
+    }
+    const at = sim.world.transforms.get(id)?.pos;
+    if (at) maxProgress = Math.max(maxProgress,
+      (at.x - spawn.x) * axis.x + (at.y - spawn.y) * axis.y + (at.z - spawn.z) * axis.z);
+    if (maxProgress >= initialDistance - 5) break;
+  }
+  const at = sim.world.transforms.get(id)?.pos ?? spawn;
+  return {
+    initialDistance,
+    finalDistance: Math.hypot(goal.x - at.x, goal.y - at.y, goal.z - at.z),
+    maxProgress,
+    impactDamage,
+    impactPositions,
+  };
+}
+
 describe("bots play capture the flag (owner 2026-07-31)", () => {
   it("get the flag off its stand and run with it", () => {
     const { events } = playCtf(42, 120);
@@ -375,6 +486,17 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
     const scores = sim.snapshot().teamScores;
     expect(scores.reduce((n, s) => n + s.captures, 0)).toBeGreaterThan(0);
     expect(stuck, `carriers pinned to asteroid colliders: ${JSON.stringify(stuck)}`).toEqual([]);
+  });
+
+  it("scores a bots-only capture on lunar rift within the fixed match bound", () => {
+    const { events } = playLunarCtf(11, 180);
+    expect(events.some((event) => event.type === "flagCaptured")).toBe(true);
+  });
+
+  it("threads a lunar-rift tunnel at cruise without wall impact damage", () => {
+    const result = transitLunarTunnel();
+    expect(result.maxProgress).toBeGreaterThan(result.initialDistance - 5.1);
+    expect(result.impactDamage, JSON.stringify(result.impactPositions)).toBe(0);
   });
 
   it("delivers a carried flag from a broadside approach", () => {

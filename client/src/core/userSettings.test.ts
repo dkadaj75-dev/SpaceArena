@@ -24,6 +24,7 @@ import {
   TOUCH_STEER_SENS_KEY,
   UserSettingsStore,
   VOLUME_MASTER_KEY,
+  VOLUME_MUSIC_KEY,
   VOLUME_SFX_KEY,
   writeUserSettings,
   type SettingsStorage,
@@ -46,16 +47,18 @@ describe("readUserSettings", () => {
   });
 
   it("falls back to theme-supplied volume defaults", () => {
-    const settings = readUserSettings(fakeStorage(), { masterVolume: 0.3, sfxVolume: 0.4 });
+    const settings = readUserSettings(fakeStorage(), { masterVolume: 0.3, sfxVolume: 0.4, musicVolume: 0.45 });
     expect(settings.masterVolume).toBe(0.3);
     expect(settings.sfxVolume).toBe(0.4);
+    expect(settings.musicVolume).toBe(0.45);
   });
 
   it("stored volumes win over the theme defaults and are clamped to 0..1", () => {
-    const storage = fakeStorage({ [VOLUME_MASTER_KEY]: "0.25", [VOLUME_SFX_KEY]: "5" });
-    const settings = readUserSettings(storage, { masterVolume: 0.9, sfxVolume: 0.9 });
+    const storage = fakeStorage({ [VOLUME_MASTER_KEY]: "0.25", [VOLUME_SFX_KEY]: "5", [VOLUME_MUSIC_KEY]: "0.3" });
+    const settings = readUserSettings(storage, { masterVolume: 0.9, sfxVolume: 0.9, musicVolume: 0.9 });
     expect(settings.masterVolume).toBe(0.25);
     expect(settings.sfxVolume).toBe(1);
+    expect(settings.musicVolume).toBe(0.3);
   });
 
   it("reads a quality override and ignores an unknown tier", () => {
@@ -125,6 +128,7 @@ describe("settingsToStorage", () => {
     expect(settingsToStorage({ quality: "ultra" })).toEqual([[QUALITY_STORAGE_KEY, "ultra"]]);
     expect(settingsToStorage({ masterVolume: 0.5 })).toEqual([[VOLUME_MASTER_KEY, "0.5"]]);
     expect(settingsToStorage({ sfxVolume: 0.5 })).toEqual([[VOLUME_SFX_KEY, "0.5"]]);
+    expect(settingsToStorage({ musicVolume: 0.5 })).toEqual([[VOLUME_MUSIC_KEY, "0.5"]]);
     expect(settingsToStorage({ renderer: "webgpu" })).toEqual([[RENDERER_KEY, "webgpu"]]);
     expect(settingsToStorage({ cameraDistanceScale: 1.25 })).toEqual([[CAMERA_DISTANCE_KEY, "1.25"]]);
     expect(settingsToStorage({ mouseSteerSens: 1.5 })).toEqual([[MOUSE_STEER_SENS_KEY, "1.5"]]);

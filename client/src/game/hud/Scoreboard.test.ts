@@ -13,6 +13,7 @@ function session(playerId = 1): GameSession {
     playerId,
     sim: { world: { gamemode: {} } },
     displayNameFor: (id: number) => (id === 1 ? "YOU" : "RIVAL"),
+    isBotFor: (id: number) => id === 2,
     matchStats: { forEach: (visit: (line: (typeof lines extends Map<number, infer T> ? T : never)) => void) => lines.forEach(visit), line: (id: number) => lines.get(id)! },
   } as unknown as GameSession;
 }
@@ -28,6 +29,14 @@ describe("Scoreboard", () => {
     expect(document.querySelector("tr[data-entity-id='2']")?.classList.contains("hud-scoreboard-local-player")).toBe(false);
     board.showFinal();
     expect(document.querySelector(".hud-scoreboard.final tr[data-entity-id='1']")?.classList.contains("hud-scoreboard-local-player")).toBe(true);
+    board.dispose();
+  });
+
+  it("discloses bots beside their replicated player-like name", () => {
+    const board = new Scoreboard(document.body, session(), { onPlayAgain: vi.fn(), onMenu: vi.fn() });
+    board.update({ ships: [{ id: 1, team: 0 }, { id: 2, team: 1 }] } as never);
+    expect(document.querySelector("tr[data-entity-id='1'] td")?.textContent).toBe("YOU");
+    expect(document.querySelector("tr[data-entity-id='2'] td")?.textContent).toBe("RIVAL [BOT]");
     board.dispose();
   });
 

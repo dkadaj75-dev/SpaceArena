@@ -285,7 +285,7 @@ export class TacticalCamera {
       this.camera.lowerBetaLimit = 0.05;
       this.camera.upperBetaLimit = Math.PI / 2 - 0.02;
       this.camera.lowerRadiusLimit = 5;
-      this.camera.upperRadiusLimit = 300;
+      this.camera.upperRadiusLimit = 700;
       return;
     }
     if (this.pointersInput) this.pointersInput.buttons = [];

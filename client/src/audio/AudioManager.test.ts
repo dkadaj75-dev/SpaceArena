@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { AudioManager, VOLUME_MASTER_KEY, VOLUME_SFX_KEY } from "./AudioManager.js";
+import { AudioManager, VOLUME_MASTER_KEY, VOLUME_MUSIC_KEY, VOLUME_SFX_KEY } from "./AudioManager.js";
 import { DEFAULT_AUDIO_SETTINGS, type AudioSettings } from "./soundIds.js";
 import { SOUND_IDS, SOUND_SYNTHS } from "./synths.js";
 
@@ -121,13 +121,23 @@ describe("AudioManager", () => {
 
   it("wires every voice through a per-voice gain into the sfx→master→destination bus", () => {
     h.audio.unlock();
-    // Unlock alone builds the two bus gains; the voice adds its own.
+    // Unlock alone builds the master, SFX, and music bus gains; the voice adds its own.
     const busGains = h.ctx.count("gain");
-    expect(busGains).toBe(2);
+    expect(busGains).toBe(3);
     expect(h.audio.play("kinetic_fire")).toBe(true);
     expect(h.ctx.count("gain")).toBeGreaterThan(busGains);
     expect(h.ctx.count("bufferSource")).toBe(1); // noise burst
     expect(h.ctx.started.length).toBeGreaterThan(0);
+  });
+
+  it("owns an independently adjustable music bus under the shared master", () => {
+    h.audio.unlock();
+    const bus = h.audio.musicDestination as unknown as { gain: FakeParam };
+    expect(bus).not.toBeNull();
+    expect(bus.gain.value).toBe(0.5);
+    h.audio.setMusicVolume(0.2, { persist: false });
+    expect(bus.gain.value).toBe(0.2);
+    expect(h.audio.effectiveVolume).toBeCloseTo(0.64); // SFX remains unchanged.
   });
 
   it("does zero work at zero volume — no context, no nodes", () => {
@@ -183,6 +193,11 @@ describe("AudioManager", () => {
     restored.audio.setSfxVolume(0.5);
     expect(storage.getItem(VOLUME_SFX_KEY)).toBe("0.5");
     expect(restored.audio.effectiveVolume).toBeCloseTo(0.125);
+
+    restored.audio.setMusicVolume(0.35);
+    expect(storage.getItem(VOLUME_MUSIC_KEY)).toBe("0.35");
+    expect(restored.audio.musicVolume).toBe(0.35);
+    expect(restored.audio.effectiveMusicVolume).toBeCloseTo(0.0875);
   });
 
   it("builds a working node graph for every registered sound id", () => {

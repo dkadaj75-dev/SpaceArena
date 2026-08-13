@@ -87,7 +87,7 @@ describe("floored-arena bot avoidance", () => {
   it.each(["terrain", "rock"] as const)(
     "separates a zero-throttle bot parked nose-first against shipped lunar %s, then releases recovery",
     (surface) => {
-      const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-ctf-10v10", 31);
+      const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-ctf-5v5", 31);
       const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
       const radius = 1.4;
       let position = { x: -120, y: radius, z: -120 };

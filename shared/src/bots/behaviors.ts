@@ -27,6 +27,8 @@ export interface BotPlan {
   arrive?: boolean;
   /** Radius that counts as arrival; steering manages the distance left to its edge. */
   arriveRadius?: number;
+  /** This aim is an authored nav waypoint; terrain avoidance must not veto it. */
+  aimPriority?: boolean;
   /** Request afterburner (resolves in the sim exactly as a human's boost does). */
   boost: boolean;
   /**
@@ -44,6 +46,8 @@ export interface FlightCommand {
   pitchStick: number;
   throttle: number;
   boost: boolean;
+  /** Propagated from the winning plan for avoidance-overlay authority. */
+  aimPriority?: boolean;
 }
 
 /**
@@ -285,7 +289,7 @@ function bestCoverPoint(ctx: BotContext, params: BehaviorParams): Required<Vec3>
   for (const c of coverCandidates(ctx, threat.pos, offset)) {
     const d = dist3(ctx.self.pos, c);
     if (d > searchRadius) continue;
-    if (hasLineOfSightAmong(c, threat.pos, ctx.blockers)) continue; // does not actually break LoS
+    if (hasLineOfSightAmong(c, threat.pos, ctx.blockers, ctx.staticWorld)) continue; // does not actually break LoS
     if (d < bestCost) {
       bestCost = d;
       best = c;
@@ -538,12 +542,15 @@ const avoidRocks: BotBehavior = {
     // turn down at the far edge of the corridor delays the response by most of
     // a decision interval at cruise speed, which is enough to pin a carrier to
     // ring-nebula's enlarged centre collider before the next command arrives.
-    const bias = numParam(params, "turnBias", 0.8) * hit.side;
+    // A nav waypoint at/behind a bore entrance is authoritative: the probe may
+    // see the portal lip while the routed centreline is still safe to fly.
+    const authority = cmd.aimPriority ? 0 : 1;
+    const bias = numParam(params, "turnBias", 0.8) * hit.side * authority;
     const slow = numParam(params, "throttleFactor", 1);
     return {
       ...cmd,
       turn: clamp(cmd.turn + bias, -1, 1),
-      throttle: clamp(cmd.throttle * slow, 0, 1),
+      throttle: clamp(cmd.throttle * (1 - (1 - slow) * authority), 0, 1),
     };
   },
 };
@@ -562,6 +569,8 @@ function threat(ctx: BotContext, params: BehaviorParams) {
     ctx.blockers,
     numParam(params, "lookahead", 16),
     (ctx.self.colliderRadius ?? 0) + numParam(params, "clearance", 2),
+    ctx.staticWorld,
+    16,
   );
 }
 

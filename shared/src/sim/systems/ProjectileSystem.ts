@@ -1,7 +1,7 @@
 import type { EntityId } from "../components.js";
 import { DEFAULT_PROJECTILE_BOUNDS_MARGIN } from "../../schemas/arena.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
-import { clamp, headingOf, len3, pitchOf, segmentIntersectsSphere } from "../math.js";
+import { clamp, headingOf, len3, pitchOf, segmentIntersectsSphere, sphereEntryAlong } from "../math.js";
 import type { World } from "../World.js";
 
 /**
@@ -77,7 +77,9 @@ export function projectileSystem(world: World, dt: number): void {
     }
 
     if (hit) {
-      if (hit.isAsteroid) {
+      if (hit.isStatic) {
+        // Static props absorb ordnance but are not damageable entities.
+      } else if (hit.isAsteroid) {
         applyDamageToAsteroid(world, hit.id, proj.ownerId, proj.damage, proj.damageType);
       } else {
         applyDamageToShip(world, hit.id, proj.ownerId, proj.damage, proj.damageType);
@@ -173,6 +175,9 @@ function outsideBounds(world: World, pos: { x: number; y: number; z: number }, m
       (bounds.floorY !== undefined && pos.y < bounds.floorY - margin)
     );
   }
+  if (bounds.shape === "box") {
+    return Math.abs(pos.x) > bounds.width / 2 + margin || Math.abs(pos.z) > bounds.height / 2 + margin || pos.y < bounds.floorY - margin || pos.y > bounds.ceilingY + margin;
+  }
   return (
     Math.abs(pos.x) > bounds.width / 2 + margin ||
     Math.abs(pos.y) > bounds.verticalExtent / 2 + margin ||
@@ -183,6 +188,7 @@ function outsideBounds(world: World, pos: { x: number; y: number; z: number }, m
 interface Hit {
   id: EntityId;
   isAsteroid: boolean;
+  isStatic?: boolean;
   along: number;
 }
 
@@ -210,6 +216,8 @@ function findHit(
   const maxY = Math.max(from.y, to.y);
 
   let best: Hit | null = null;
+  const staticHit = world.staticWorld.raycast(from, to);
+  if (staticHit) best = { id: -1, isAsteroid: false, isStatic: true, along: staticHit.t * segLen };
   for (const cid of candidates) {
     const col = world.colliders.get(cid);
     const ct = world.transforms.get(cid);
@@ -229,7 +237,8 @@ function findHit(
     const reach = col.radius + proj.radius;
     if (ct.pos.y + reach < minY || ct.pos.y - reach > maxY) continue;
     if (!segmentIntersectsSphere(from, to, ct.pos, reach)) continue;
-    const along = (ct.pos.x - from.x) * dirX + (ct.pos.y - from.y) * dirY + (ct.pos.z - from.z) * dirZ;
+    const centerAlong = (ct.pos.x - from.x) * dirX + (ct.pos.y - from.y) * dirY + (ct.pos.z - from.z) * dirZ;
+    const along = sphereEntryAlong(from, ct.pos, centerAlong, reach);
     if (!best || along < best.along) {
       best = { id: cid, isAsteroid, along };
     }

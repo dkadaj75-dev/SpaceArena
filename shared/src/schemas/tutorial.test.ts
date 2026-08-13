@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { collectReferences, validateConfig, type ConfigRef } from "./index.js";
-import { gamemodeSchema, menuSectionOf } from "./gamemode.js";
+import { gamemodeSchema } from "./gamemode.js";
 import { hardpointsOf, shipSchema } from "./ship.js";
 import { moduleSchema, type ModuleConfig } from "./module.js";
 import { BASICS_TUTORIAL_ID, tutorialSchema, type TutorialConfig } from "./tutorial.js";
@@ -130,9 +130,9 @@ describe("shipped tutorial — flight school", () => {
     expect(tutorial.id).toBe(BASICS_TUTORIAL_ID);
   });
 
-  it("keeps its gamemode out of the generated menu lists", () => {
+  it("is the shipped offline gamemode", () => {
     const mode = gamemodeSchema.parse(load("gamemodes/tutorial.json"));
-    expect(menuSectionOf(mode)).toBe("none");
+    expect(mode.launch).toBe("offline");
     // No roster: every ship in flight school is spawned by the step that needs it.
     expect(mode.bots?.roster ?? []).toHaveLength(0);
     // No rewards, no clock, and nothing that can end the match under the

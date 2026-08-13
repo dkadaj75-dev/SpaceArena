@@ -182,6 +182,14 @@ export const qualitySchema = z.object({
         boxSize: z.number().positive(),
       })
       .optional(),
+    /** Static terrain-prop density/LOD budget. Omitted keeps full terrain. */
+    terrain: z
+      .object({
+        enabled: z.boolean().default(true),
+        /** Positive multiplier on authored world-space LOD distances. */
+        lodBias: z.number().positive().default(1),
+      })
+      .optional(),
   }),
 });
 

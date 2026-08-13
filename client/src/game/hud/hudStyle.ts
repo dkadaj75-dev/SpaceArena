@@ -1687,6 +1687,36 @@ const CSS = `
   display: flex;
   animation: hud-countdown-beat 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+.hud-lobby-waiting {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  pointer-events: none;
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 58%, transparent), transparent 52%);
+}
+.hud-lobby-waiting.visible { display: grid; }
+.hud-lobby-waiting-panel {
+  min-width: min(420px, 84vw);
+  padding: 24px 30px;
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 72%, transparent);
+  background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 82%, transparent);
+  box-shadow: 0 0 calc(28px * var(--hud-glow)) color-mix(in srgb, var(--hud-primary, var(--sa-blue-500)) 35%, transparent);
+}
+.hud-lobby-waiting-title {
+  color: var(--hud-primary, var(--sa-blue-500));
+  font-family: var(--hud-font-display, var(--hud-font-body, system-ui, sans-serif));
+  font-size: clamp(18px, 4vw, 28px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hud-lobby-waiting-flavor {
+  margin-top: 10px;
+  color: var(--hud-text-muted, var(--sa-white));
+  font-family: var(--hud-font-body, system-ui, sans-serif);
+  font-size: clamp(13px, 2.5vw, 16px);
+}
 /* GO reads as a release, not a fourth beat: accent tint, wider, snappier. */
 .hud-countdown.go {
   color: var(--hud-accent, var(--sa-white));

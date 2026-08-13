@@ -61,6 +61,8 @@ export class MatchStatus {
     let meta: string;
     if (cur.phase === "ended") {
       meta = "MATCH OVER";
+    } else if (cur.phase === "waiting") {
+      meta = "ASSEMBLING TEAMS";
     } else if (cur.phase === "countdown") {
       meta = "STANDBY";
     } else {

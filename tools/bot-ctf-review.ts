@@ -1,5 +1,6 @@
 import type { BotprofileConfig, GamemodeConfig, ModuleConfig, ShipConfig } from "../shared/src/schemas/index.js";
 import { BotDriver } from "../shared/src/bots/BotDriver.js";
+import { clearRoleAllocationCache } from "../shared/src/bots/roleAllocator.js";
 import { ArenaSimulation } from "../shared/src/sim/ArenaSimulation.js";
 import type { EntityId } from "../shared/src/sim/components.js";
 import { dist3 } from "../shared/src/sim/math.js";
@@ -7,10 +8,16 @@ import { deriveRng } from "../shared/src/sim/rng.js";
 import { loadTestConfigs } from "../shared/src/sim/testutil.js";
 
 const DT = 1 / 30;
-const SEEDS = [11, 42, 73];
-const DURATION_SEC = 180;
-const ARENA = "arena.lunar-crater";
-const MODE = "gamemode.practice-ctf-10v10";
+const seedArg = process.argv.find((arg) => arg.startsWith("--seeds="))?.slice("--seeds=".length);
+const SEEDS = seedArg
+  ? seedArg.split(",").map(Number).filter(Number.isFinite)
+  : [11, 42, 73];
+const durationArg = process.argv.find((arg) => arg.startsWith("--duration="))?.slice("--duration=".length);
+const DURATION_SEC = durationArg === undefined ? 180 : Number(durationArg);
+if (SEEDS.length === 0 || !Number.isFinite(DURATION_SEC) || DURATION_SEC <= 0) {
+  throw new Error("usage: bot-ctf-review.ts [--seeds=11,42,73] [--duration=180]");
+}
+const MODE = "gamemode.practice-ctf-5v5";
 const NEAR_ZERO_SPEED = 0.5;
 const STUCK_RADIUS = 2;
 const STUCK_SEC = 5;
@@ -22,9 +29,31 @@ interface RunMetrics {
   nearZeroFraction: number[];
   shotsPerMinute: number[];
   rackLockoutFraction: number[];
-  carrierRuns: Array<{ carrierId: EntityId; startHomeDistance: number; endHomeDistance: number; durationSec: number; outcome: string }>;
+  carrierRuns: Array<{
+    carrierId: EntityId;
+    team: number;
+    profile: string;
+    startHomeDistance: number;
+    endHomeDistance: number;
+    minHomeDistance: number;
+    durationSec: number;
+    outcome: string;
+    escortTickFraction: number;
+    meanClosestEscortDistance: number | null;
+    meanEnemiesWithin140: number;
+    firstTripleThreatHomeDistance: number | null;
+    firstTripleThreatHull: number | null;
+    death?: {
+      killerId: EntityId | null;
+      killerDistance: number | null;
+      carrierHull: number;
+      escorts: Array<{ id: EntityId; distance: number; plannedDistanceFromCarrier: number | null }>;
+      enemiesWithin140: Array<{ id: EntityId; distance: number; role: string; homeDistance: number | null }>;
+    };
+  }>;
   stuckWindows: number;
   captures: number;
+  outOfBoundsDeaths: number;
   objectiveIntentFraction: number[];
   pickupsByTeam: number[];
   returnsByTeam: number[];
@@ -42,6 +71,9 @@ interface RunMetrics {
 }
 
 const configs = await loadTestConfigs();
+const mode = configs.get<GamemodeConfig>("gamemode", MODE);
+if (!mode?.defaultArena) throw new Error(`${MODE} needs a defaultArena`);
+const ARENA = mode.defaultArena;
 const results = SEEDS.map(run);
 const all = <K extends keyof RunMetrics>(key: K): number[] => results.flatMap((r) => r[key] as number[]);
 const mean = (xs: number[]): number => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
@@ -74,6 +106,7 @@ console.log(JSON.stringify({
     carrierTimeToHomeSec: { mean: mean(completed.map((r) => r.durationSec)), count: completed.length },
     stuckWindows: results.reduce((n, r) => n + r.stuckWindows, 0),
     captures: results.reduce((n, r) => n + r.captures, 0),
+    outOfBoundsDeaths: results.reduce((n, r) => n + r.outOfBoundsDeaths, 0),
     objectiveIntentFraction: mean(all("objectiveIntentFraction")),
     pickupsByTeam: [0, 1].map((team) => results.reduce((n, r) => n + (r.pickupsByTeam[team] ?? 0), 0)),
     returnsByTeam: [0, 1].map((team) => results.reduce((n, r) => n + (r.returnsByTeam[team] ?? 0), 0)),
@@ -87,6 +120,7 @@ console.log(JSON.stringify({
 }, null, 2));
 
 function run(seed: number): RunMetrics {
+  clearRoleAllocationCache();
   const sim = new ArenaSimulation(configs, ARENA, MODE, seed);
   const mode = configs.get<GamemodeConfig>("gamemode", MODE)!;
   const profiles = ["bot.flagrunner", "bot.aggressive", "bot.cautious", "bot.rookie"]
@@ -94,10 +128,19 @@ function run(seed: number): RunMetrics {
   const ship = configs.get<ShipConfig>("ship", mode.bots!.defaultShip!)!;
   const drivers = new Map<EntityId, BotDriver>();
   for (let team = 0; team < 2; team++) {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 5; i++) {
       const id = sim.spawnPlayer(ship.id, ship.defaultFitting, team);
-      const profile = profiles[(team * 10 + i) % profiles.length]!;
-      drivers.set(id, new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id), arenaBounds: sim.world.arena.bounds, floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined, visualRadius: ship.render.modelScale }));
+      const profile = profiles[(team * 5 + i) % profiles.length]!;
+      drivers.set(id, new BotDriver({
+        entityId: id, profile, configs, rng: deriveRng(seed, id),
+        arenaBounds: sim.world.arena.bounds,
+        floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined,
+        staticWorld: sim.world.staticWorld,
+        navRoute: sim.world.navRoute,
+        // modelScale approximates authored hull length, while the collider is
+        // the minimum truthful world-space recovery extent.
+        visualRadius: Math.max(ship.collider.radius, (ship.render.modelScale ?? ship.collider.radius * 2) / 2),
+      }));
     }
   }
   const ids = [...drivers.keys()];
@@ -122,9 +165,25 @@ function run(seed: number): RunMetrics {
   const recoveryActive = new Map(ids.map((id) => [id, false]));
   const pickupsByTeam = [0, 0];
   const returnsByTeam = [0, 0];
-  const activeRuns = new Map<EntityId, { startAt: number; startHomeDistance: number; lastHomeDistance: number }>();
+  const activeRuns = new Map<EntityId, {
+    startAt: number;
+    team: number;
+    profile: string;
+    startHomeDistance: number;
+    lastHomeDistance: number;
+    minHomeDistance: number;
+    ticks: number;
+    escortedTicks: number;
+    closestEscortDistanceSum: number;
+    closestEscortSamples: number;
+    enemiesWithin140Sum: number;
+    firstTripleThreatHomeDistance: number | null;
+    firstTripleThreatHull: number | null;
+    death?: RunMetrics["carrierRuns"][number]["death"];
+  }>();
   const carrierRuns: RunMetrics["carrierRuns"] = [];
   let captures = 0;
+  let outOfBoundsDeaths = 0;
   let stuckWindows = 0;
   let floorCuts = 0;
   let decisions = 0;
@@ -181,12 +240,44 @@ function run(seed: number): RunMetrics {
       carriers.add(self.id);
       const ownHome = snapshot.flags.find((f) => f.team === self.team)!.home;
       const homeDistance = dist3(self.pos, ownHome);
-      if (!activeRuns.has(self.id)) activeRuns.set(self.id, { startAt: elapsed, startHomeDistance: homeDistance, lastHomeDistance: homeDistance });
-      activeRuns.get(self.id)!.lastHomeDistance = homeDistance;
+      if (!activeRuns.has(self.id)) activeRuns.set(self.id, {
+        startAt: elapsed,
+        team: self.team,
+        profile: profileIds.get(self.id) ?? "unknown",
+        startHomeDistance: homeDistance,
+        lastHomeDistance: homeDistance,
+        minHomeDistance: homeDistance,
+        ticks: 0,
+        escortedTicks: 0,
+        closestEscortDistanceSum: 0,
+        closestEscortSamples: 0,
+        enemiesWithin140Sum: 0,
+        firstTripleThreatHomeDistance: null,
+        firstTripleThreatHull: null,
+      });
+      const run = activeRuns.get(self.id)!;
+      run.lastHomeDistance = homeDistance;
+      run.minHomeDistance = Math.min(run.minHomeDistance, homeDistance);
+      run.ticks++;
+      const escortDistances = snapshot.ships
+        .filter((candidate) => candidate.team === self.team && candidate.id !== self.id && drivers.get(candidate.id)?.lastDecision?.role === "escort")
+        .map((escort) => dist3(escort.pos, self.pos));
+      if (escortDistances.length > 0) {
+        const closest = Math.min(...escortDistances);
+        run.closestEscortDistanceSum += closest;
+        run.closestEscortSamples++;
+        if (closest <= 35) run.escortedTicks++;
+      }
+      const nearbyEnemies = snapshot.ships.filter((candidate) => candidate.team !== self.team && candidate.hull > 0 && dist3(candidate.pos, self.pos) <= 140).length;
+      run.enemiesWithin140Sum += nearbyEnemies;
+      if (nearbyEnemies >= 3 && run.firstTripleThreatHomeDistance === null) {
+        run.firstTripleThreatHomeDistance = homeDistance;
+        run.firstTripleThreatHull = self.hull;
+      }
     }
     for (const [id, run] of activeRuns) {
       if (carriers.has(id)) continue;
-      carrierRuns.push({ carrierId: id, startHomeDistance: run.startHomeDistance, endHomeDistance: run.lastHomeDistance, durationSec: elapsed - run.startAt, outcome: live.has(id) ? "dropped/captured" : "died" });
+      carrierRuns.push(finishRun(id, run, elapsed, live.has(id) ? "dropped/captured" : "died"));
       activeRuns.delete(id);
       stuck.delete(id);
     }
@@ -217,7 +308,9 @@ function run(seed: number): RunMetrics {
       }
     }
     sim.tick(DT);
-    for (const event of sim.getEvents()) {
+    const events = sim.getEvents();
+    const boundaryHits = new Set(events.flatMap((event) => event.type === "boundaryHit" ? [event.entityId] : []));
+    for (const event of events) {
       if (event.type === "boundaryHit") {
         const body = sim.world.transforms.get(event.entityId);
         const collider = sim.world.colliders.get(event.entityId);
@@ -230,7 +323,7 @@ function run(seed: number): RunMetrics {
         if (capturesByBot.has(event.carrierId)) capturesByBot.set(event.carrierId, capturesByBot.get(event.carrierId)! + 1);
         const run = activeRuns.get(event.carrierId);
         if (run) {
-          carrierRuns.push({ carrierId: event.carrierId, startHomeDistance: run.startHomeDistance, endHomeDistance: 0, durationSec: elapsed - run.startAt, outcome: "captured" });
+          carrierRuns.push({ ...finishRun(event.carrierId, run, elapsed, "captured"), endHomeDistance: 0, minHomeDistance: 0 });
           activeRuns.delete(event.carrierId);
         }
       }
@@ -244,15 +337,53 @@ function run(seed: number): RunMetrics {
         const wasCarrier = snapshot.flags.some((flag) => flag.state === "carried" && flag.carrierId === event.entityId);
         if (wasCarrier && carrierKills.has(event.killerId)) carrierKills.set(event.killerId, carrierKills.get(event.killerId)! + 1);
       }
+      if (event.type === "entityDestroyed") {
+        const run = activeRuns.get(event.entityId);
+        const carrier = snapshot.ships.find((candidate) => candidate.id === event.entityId);
+        if (run && carrier) {
+          const killer = event.killerId === null ? null : snapshot.ships.find((candidate) => candidate.id === event.killerId) ?? null;
+          run.death = {
+            killerId: event.killerId,
+            killerDistance: killer ? dist3(killer.pos, carrier.pos) : null,
+            carrierHull: carrier.hull,
+            escorts: snapshot.ships
+              .filter((candidate) => candidate.team === carrier.team && candidate.id !== carrier.id && drivers.get(candidate.id)?.lastDecision?.role === "escort")
+              .map((escort) => ({
+                id: escort.id,
+                distance: dist3(escort.pos, carrier.pos),
+                plannedDistanceFromCarrier: drivers.get(escort.id)?.lastDecision?.plannedMove
+                  ? dist3({
+                      x: drivers.get(escort.id)!.lastDecision!.plannedMove!.x,
+                      y: drivers.get(escort.id)!.lastDecision!.plannedMove!.y ?? carrier.pos.y,
+                      z: drivers.get(escort.id)!.lastDecision!.plannedMove!.z,
+                    }, carrier.pos)
+                  : null,
+              })),
+            enemiesWithin140: snapshot.ships
+              .filter((candidate) => candidate.team !== carrier.team && candidate.hull > 0 && dist3(candidate.pos, carrier.pos) <= 140)
+              .map((enemy) => {
+                const home = snapshot.flags.find((flag) => flag.team === enemy.team)?.home;
+                return {
+                  id: enemy.id,
+                  distance: dist3(enemy.pos, carrier.pos),
+                  role: drivers.get(enemy.id)?.lastDecision?.role ?? "free",
+                  homeDistance: home ? dist3(enemy.pos, home) : null,
+                };
+              })
+              .sort((a, b) => a.distance - b.distance || a.id - b.id),
+          };
+        }
+      }
+      if (event.type === "entityDestroyed" && event.killerId === null && boundaryHits.has(event.entityId)) outOfBoundsDeaths++;
     }
   }
-  for (const [id, run] of activeRuns) carrierRuns.push({ carrierId: id, startHomeDistance: run.startHomeDistance, endHomeDistance: run.lastHomeDistance, durationSec: elapsed - run.startAt, outcome: "still-carrying" });
+  for (const [id, run] of activeRuns) carrierRuns.push(finishRun(id, run, elapsed, "still-carrying"));
   return {
     seed, durationSec: elapsed, distancePer10Sec,
     nearZeroFraction: ids.map((id) => nearZero.get(id)! / Math.max(1, liveTicks.get(id)!)),
     shotsPerMinute: ids.map((id) => shots.get(id)! / Math.max(elapsed / 60, 1e-9)),
     rackLockoutFraction: ids.map((id) => lockoutTicks.get(id)! / Math.max(1, rackTicks.get(id)!)),
-    carrierRuns, stuckWindows, captures,
+    carrierRuns, stuckWindows, captures, outOfBoundsDeaths,
     objectiveIntentFraction: ids.map((id) => objectiveTicks.get(id)! / Math.max(1, liveTicks.get(id)!)),
     pickupsByTeam, returnsByTeam,
     floorCutFraction: floorCuts / Math.max(1, decisions),
@@ -278,5 +409,47 @@ function colliderSurface(sim: ArenaSimulation, shipId: EntityId): number {
     const at = sim.world.transforms.get(id)!.pos;
     surface = Math.min(surface, dist3(from, at) - radius - sim.world.colliders.get(id)!.radius);
   }
+  const staticContact = sim.world.staticWorld.sphereContact(from, radius + 0.05);
+  if (staticContact) surface = Math.min(surface, 0.05 - staticContact.depth);
+  const bounds = sim.world.arena.bounds;
+  if (bounds.shape === "box") {
+    surface = Math.min(surface,
+      from.x + bounds.width / 2 - radius,
+      bounds.width / 2 - from.x - radius,
+      from.z + bounds.height / 2 - radius,
+      bounds.height / 2 - from.z - radius,
+      from.y - bounds.floorY - radius,
+      bounds.ceilingY - from.y - radius,
+    );
+  }
   return surface;
+}
+
+function finishRun(
+  carrierId: EntityId,
+  run: {
+    startAt: number; team: number; profile: string; startHomeDistance: number; lastHomeDistance: number;
+    minHomeDistance: number; ticks: number; escortedTicks: number; closestEscortDistanceSum: number;
+    closestEscortSamples: number; enemiesWithin140Sum: number; firstTripleThreatHomeDistance: number | null;
+    firstTripleThreatHull: number | null; death?: RunMetrics["carrierRuns"][number]["death"];
+  },
+  elapsed: number,
+  outcome: string,
+): RunMetrics["carrierRuns"][number] {
+  return {
+    carrierId,
+    team: run.team,
+    profile: run.profile,
+    startHomeDistance: run.startHomeDistance,
+    endHomeDistance: run.lastHomeDistance,
+    minHomeDistance: run.minHomeDistance,
+    durationSec: elapsed - run.startAt,
+    outcome,
+    escortTickFraction: run.escortedTicks / Math.max(1, run.ticks),
+    meanClosestEscortDistance: run.closestEscortSamples > 0 ? run.closestEscortDistanceSum / run.closestEscortSamples : null,
+    meanEnemiesWithin140: run.enemiesWithin140Sum / Math.max(1, run.ticks),
+    firstTripleThreatHomeDistance: run.firstTripleThreatHomeDistance,
+    firstTripleThreatHull: run.firstTripleThreatHull,
+    ...(run.death ? { death: run.death } : {}),
+  };
 }

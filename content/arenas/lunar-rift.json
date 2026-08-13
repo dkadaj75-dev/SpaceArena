@@ -1,0 +1,2101 @@
+{
+  "id": "arena.lunar-rift",
+  "type": "arena",
+  "version": 1,
+  "name": "Lunar Rift",
+  "bounds": {
+    "shape": "box",
+    "width": 640,
+    "height": 640,
+    "floorY": -20,
+    "ceilingY": 74
+  },
+  "asteroidPlacements": [],
+  "propPlacements": [
+    {
+      "propId": "prop.lunar-rift-chunk-0",
+      "position": {
+        "x": -240,
+        "y": 0,
+        "z": -240
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-1",
+      "position": {
+        "x": -80,
+        "y": 0,
+        "z": -240
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-2",
+      "position": {
+        "x": 80,
+        "y": 0,
+        "z": -240
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-3",
+      "position": {
+        "x": 240,
+        "y": 0,
+        "z": -240
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-4",
+      "position": {
+        "x": -240,
+        "y": 0,
+        "z": -80
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-5",
+      "position": {
+        "x": -80,
+        "y": 0,
+        "z": -80
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-6",
+      "position": {
+        "x": 80,
+        "y": 0,
+        "z": -80
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-7",
+      "position": {
+        "x": 240,
+        "y": 0,
+        "z": -80
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-8",
+      "position": {
+        "x": -240,
+        "y": 0,
+        "z": 80
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-9",
+      "position": {
+        "x": -80,
+        "y": 0,
+        "z": 80
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-10",
+      "position": {
+        "x": 80,
+        "y": 0,
+        "z": 80
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-11",
+      "position": {
+        "x": 240,
+        "y": 0,
+        "z": 80
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-12",
+      "position": {
+        "x": -240,
+        "y": 0,
+        "z": 240
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-13",
+      "position": {
+        "x": -80,
+        "y": 0,
+        "z": 240
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-14",
+      "position": {
+        "x": 80,
+        "y": 0,
+        "z": 240
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-chunk-15",
+      "position": {
+        "x": 240,
+        "y": 0,
+        "z": 240
+      },
+      "locked": true
+    },
+    {
+      "propId": "prop.lunar-rift-flagpad",
+      "position": {
+        "x": 0,
+        "y": 3.566185,
+        "z": -225
+      },
+      "rotation": {
+        "y": 0
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-beacon-blue",
+      "position": {
+        "x": -39.40968,
+        "y": -1.320831,
+        "z": -212.684475
+      },
+      "rotation": {
+        "y": 5.9803
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-beacon-blue",
+      "position": {
+        "x": 39.40968,
+        "y": 0.11568,
+        "z": -212.684475
+      },
+      "rotation": {
+        "y": 3.444478
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -161.975657,
+        "y": 18.95,
+        "z": -91.066752
+      },
+      "rotation": {
+        "y": 1.3301
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -147.408073,
+        "y": 18.95,
+        "z": -87.491072
+      },
+      "rotation": {
+        "y": 1.3301
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -132.840488,
+        "y": 18.95,
+        "z": -83.915393
+      },
+      "rotation": {
+        "y": 1.3301
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -118.272904,
+        "y": 18.95,
+        "z": -80.339713
+      },
+      "rotation": {
+        "y": 1.3301
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -103.70532,
+        "y": 18.95,
+        "z": -76.764033
+      },
+      "rotation": {
+        "y": 1.3301
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -89.137735,
+        "y": 18.95,
+        "z": -73.188353
+      },
+      "rotation": {
+        "y": 1.3301
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -74.570151,
+        "y": 18.95,
+        "z": -69.612673
+      },
+      "rotation": {
+        "y": 1.3301
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -161.975657,
+        "y": 18.95,
+        "z": 91.066752
+      },
+      "rotation": {
+        "y": 1.811492
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -147.327142,
+        "y": 18.95,
+        "z": 87.471208
+      },
+      "rotation": {
+        "y": 1.811492
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -132.678626,
+        "y": 18.95,
+        "z": 83.875663
+      },
+      "rotation": {
+        "y": 1.811492
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -118.030111,
+        "y": 18.95,
+        "z": 80.280118
+      },
+      "rotation": {
+        "y": 1.811492
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -103.381596,
+        "y": 18.95,
+        "z": 76.684573
+      },
+      "rotation": {
+        "y": 1.811492
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -88.73308,
+        "y": 18.95,
+        "z": 73.089029
+      },
+      "rotation": {
+        "y": 1.811492
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": -74.084565,
+        "y": 18.95,
+        "z": 69.493484
+      },
+      "rotation": {
+        "y": 1.811492
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -9.241188,
+        "y": -2.777621,
+        "z": -110.425347
+      },
+      "rotation": {
+        "y": 1.513333
+      },
+      "scale": 2.464891
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -51.167212,
+        "y": 1.086865,
+        "z": -178.37317
+      },
+      "rotation": {
+        "y": 5.230555
+      },
+      "scale": 1.369703
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -185.512757,
+        "y": 1.73958,
+        "z": -58.553501
+      },
+      "rotation": {
+        "y": 0.652287
+      },
+      "scale": 3.972815
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -225.138278,
+        "y": 1.598932,
+        "z": -46.38513
+      },
+      "rotation": {
+        "y": 4.571046
+      },
+      "scale": 4.200266
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": -194.89446,
+        "y": 1.039964,
+        "z": -35.364078
+      },
+      "rotation": {
+        "y": 3.778603
+      },
+      "scale": 2.677941
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 48.570924,
+        "y": 1.972257,
+        "z": -223.273964
+      },
+      "rotation": {
+        "y": 4.391295
+      },
+      "scale": 1.363391
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 44.110452,
+        "y": -1.147229,
+        "z": -202.533137
+      },
+      "rotation": {
+        "y": 0.059437
+      },
+      "scale": 2.308788
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -52.207643,
+        "y": 4.951596,
+        "z": -227.835636
+      },
+      "rotation": {
+        "y": 1.045081
+      },
+      "scale": 2.625199
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": -46.591235,
+        "y": 5.653561,
+        "z": -249.79467
+      },
+      "rotation": {
+        "y": 0.661044
+      },
+      "scale": 3.673766
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -34.053992,
+        "y": 4.615259,
+        "z": -262.546749
+      },
+      "rotation": {
+        "y": 5.966562
+      },
+      "scale": 1.391148
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 16.12394,
+        "y": 4.545391,
+        "z": -274.8549
+      },
+      "rotation": {
+        "y": 2.208143
+      },
+      "scale": 1.598327
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 29.377146,
+        "y": 4.656214,
+        "z": -264.598845
+      },
+      "rotation": {
+        "y": 0.753066
+      },
+      "scale": 1.264994
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": 46.43821,
+        "y": 5.269846,
+        "z": -240.47299
+      },
+      "rotation": {
+        "y": 6.204368
+      },
+      "scale": 3.424199
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": -72.946272,
+        "y": -6.229636,
+        "z": -39.124346
+      },
+      "rotation": {
+        "y": 2.703478
+      },
+      "scale": 4.09578
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": -30.919277,
+        "y": -6.835741,
+        "z": -76.76058
+      },
+      "rotation": {
+        "y": 0.78319
+      },
+      "scale": 2.621861
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 27.754849,
+        "y": -7.066087,
+        "z": -82.533418
+      },
+      "rotation": {
+        "y": 0.358753
+      },
+      "scale": 2.607315
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 72.972583,
+        "y": -7.538326,
+        "z": -46.67485
+      },
+      "rotation": {
+        "y": 1.398605
+      },
+      "scale": 1.32981
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": 15.872402,
+        "y": 4.455069,
+        "z": -196.675637
+      },
+      "rotation": {
+        "y": 5.839146
+      },
+      "scale": 1.385693
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": 2.688688,
+        "y": 4.315103,
+        "z": -204.177877
+      },
+      "rotation": {
+        "y": 2.975715
+      },
+      "scale": 1.634419
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -34.587849,
+        "y": 74.878348,
+        "z": -141.406719
+      },
+      "rotation": {
+        "y": 2.096851
+      },
+      "scale": 2.795426
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 15.023897,
+        "y": 0.663112,
+        "z": -150.365035
+      },
+      "rotation": {
+        "y": 3.019401
+      },
+      "scale": 4.280861
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 29.662345,
+        "y": 0.545676,
+        "z": -145.00303
+      },
+      "rotation": {
+        "y": 0.763289
+      },
+      "scale": 2.52083
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -51.697547,
+        "y": -7.477304,
+        "z": -59.339165
+      },
+      "rotation": {
+        "y": 2.431947
+      },
+      "scale": 1.305946
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -44.015892,
+        "y": -6.066685,
+        "z": -40.017168
+      },
+      "rotation": {
+        "y": 2.021166
+      },
+      "scale": 4.206913
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -39.483311,
+        "y": -6.468807,
+        "z": -58.819119
+      },
+      "rotation": {
+        "y": 5.616709
+      },
+      "scale": 2.994658
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 49.045779,
+        "y": -6.067372,
+        "z": -47.056555
+      },
+      "rotation": {
+        "y": 1.8614
+      },
+      "scale": 4.211918
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 53.538149,
+        "y": -6.024755,
+        "z": -69.785984
+      },
+      "rotation": {
+        "y": 5.348383
+      },
+      "scale": 4.292867
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": 49.676984,
+        "y": -7.007328,
+        "z": -65.695018
+      },
+      "rotation": {
+        "y": 2.034873
+      },
+      "scale": 1.877056
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -149.601651,
+        "y": -0.158342,
+        "z": -124.842621
+      },
+      "rotation": {
+        "y": 1.398836
+      },
+      "scale": 1.203536
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -156.873355,
+        "y": 0.347748,
+        "z": -122.215074
+      },
+      "rotation": {
+        "y": 5.69052
+      },
+      "scale": 1.713151
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -143.16427,
+        "y": 74.109811,
+        "z": -98.967176
+      },
+      "rotation": {
+        "y": 1.428889
+      },
+      "scale": 1.718522
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 138.272729,
+        "y": 73.665986,
+        "z": -104.573704
+      },
+      "rotation": {
+        "y": 4.067779
+      },
+      "scale": 1.254097
+    },
+    {
+      "propId": "prop.lunar-rift-flagpad",
+      "position": {
+        "x": 0,
+        "y": 3.566185,
+        "z": 225
+      },
+      "rotation": {
+        "y": 3.141593
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-beacon-red",
+      "position": {
+        "x": 39.40968,
+        "y": -1.320831,
+        "z": 212.684475
+      },
+      "rotation": {
+        "y": 2.838707
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-beacon-red",
+      "position": {
+        "x": -39.40968,
+        "y": 0.11568,
+        "z": 212.684475
+      },
+      "rotation": {
+        "y": 0.302885
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 161.975657,
+        "y": 18.95,
+        "z": 91.066752
+      },
+      "rotation": {
+        "y": 4.471693
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 147.408073,
+        "y": 18.95,
+        "z": 87.491072
+      },
+      "rotation": {
+        "y": 4.471693
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 132.840488,
+        "y": 18.95,
+        "z": 83.915393
+      },
+      "rotation": {
+        "y": 4.471693
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 118.272904,
+        "y": 18.95,
+        "z": 80.339713
+      },
+      "rotation": {
+        "y": 4.471693
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 103.70532,
+        "y": 18.95,
+        "z": 76.764033
+      },
+      "rotation": {
+        "y": 4.471693
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 89.137735,
+        "y": 18.95,
+        "z": 73.188353
+      },
+      "rotation": {
+        "y": 4.471693
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 74.570151,
+        "y": 18.95,
+        "z": 69.612673
+      },
+      "rotation": {
+        "y": 4.471693
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 161.975657,
+        "y": 18.95,
+        "z": -91.066752
+      },
+      "rotation": {
+        "y": 4.953085
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 147.327142,
+        "y": 18.95,
+        "z": -87.471208
+      },
+      "rotation": {
+        "y": 4.953085
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 132.678626,
+        "y": 18.95,
+        "z": -83.875663
+      },
+      "rotation": {
+        "y": 4.953085
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 118.030111,
+        "y": 18.95,
+        "z": -80.280118
+      },
+      "rotation": {
+        "y": 4.953085
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 103.381596,
+        "y": 18.95,
+        "z": -76.684573
+      },
+      "rotation": {
+        "y": 4.953085
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 88.73308,
+        "y": 18.95,
+        "z": -73.089029
+      },
+      "rotation": {
+        "y": 4.953085
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-guidelight",
+      "position": {
+        "x": 74.084565,
+        "y": 18.95,
+        "z": -69.493484
+      },
+      "rotation": {
+        "y": 4.953085
+      }
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 9.241188,
+        "y": -2.777621,
+        "z": 110.425347
+      },
+      "rotation": {
+        "y": 4.654926
+      },
+      "scale": 2.464891
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 51.167212,
+        "y": 1.086865,
+        "z": 178.37317
+      },
+      "rotation": {
+        "y": 2.088962
+      },
+      "scale": 1.369703
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 185.512757,
+        "y": 1.73958,
+        "z": 58.553501
+      },
+      "rotation": {
+        "y": 3.79388
+      },
+      "scale": 3.972815
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 225.138278,
+        "y": 1.598932,
+        "z": 46.38513
+      },
+      "rotation": {
+        "y": 1.429453
+      },
+      "scale": 4.200266
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": 194.89446,
+        "y": 1.039964,
+        "z": 35.364078
+      },
+      "rotation": {
+        "y": 0.63701
+      },
+      "scale": 2.677941
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -48.570924,
+        "y": 1.972257,
+        "z": 223.273964
+      },
+      "rotation": {
+        "y": 1.249702
+      },
+      "scale": 1.363391
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -44.110452,
+        "y": -1.147229,
+        "z": 202.533137
+      },
+      "rotation": {
+        "y": 3.20103
+      },
+      "scale": 2.308788
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 52.207643,
+        "y": 4.951596,
+        "z": 227.835636
+      },
+      "rotation": {
+        "y": 4.186674
+      },
+      "scale": 2.625199
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": 46.591235,
+        "y": 5.653561,
+        "z": 249.79467
+      },
+      "rotation": {
+        "y": 3.802637
+      },
+      "scale": 3.673766
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 34.053992,
+        "y": 4.615259,
+        "z": 262.546749
+      },
+      "rotation": {
+        "y": 2.824969
+      },
+      "scale": 1.391148
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -16.12394,
+        "y": 4.545391,
+        "z": 274.8549
+      },
+      "rotation": {
+        "y": 5.349736
+      },
+      "scale": 1.598327
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -29.377146,
+        "y": 4.656214,
+        "z": 264.598845
+      },
+      "rotation": {
+        "y": 3.894659
+      },
+      "scale": 1.264994
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": -46.43821,
+        "y": 5.269846,
+        "z": 240.47299
+      },
+      "rotation": {
+        "y": 3.062775
+      },
+      "scale": 3.424199
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": 72.946272,
+        "y": -6.229636,
+        "z": 39.124346
+      },
+      "rotation": {
+        "y": 5.845071
+      },
+      "scale": 4.09578
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": 30.919277,
+        "y": -6.835741,
+        "z": 76.76058
+      },
+      "rotation": {
+        "y": 3.924783
+      },
+      "scale": 2.621861
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -27.754849,
+        "y": -7.066087,
+        "z": 82.533418
+      },
+      "rotation": {
+        "y": 3.500346
+      },
+      "scale": 2.607315
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -72.972583,
+        "y": -7.538326,
+        "z": 46.67485
+      },
+      "rotation": {
+        "y": 4.540198
+      },
+      "scale": 1.32981
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": -15.872402,
+        "y": 4.455069,
+        "z": 196.675637
+      },
+      "rotation": {
+        "y": 2.697553
+      },
+      "scale": 1.385693
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": -2.688688,
+        "y": 4.315103,
+        "z": 204.177877
+      },
+      "rotation": {
+        "y": 6.117308
+      },
+      "scale": 1.634419
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 34.587849,
+        "y": 74.878348,
+        "z": 141.406719
+      },
+      "rotation": {
+        "y": 5.238444
+      },
+      "scale": 2.795426
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": -15.023897,
+        "y": 0.663112,
+        "z": 150.365035
+      },
+      "rotation": {
+        "y": 6.160994
+      },
+      "scale": 4.280861
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -29.662345,
+        "y": 0.545676,
+        "z": 145.00303
+      },
+      "rotation": {
+        "y": 3.904882
+      },
+      "scale": 2.52083
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 51.697547,
+        "y": -7.477304,
+        "z": 59.339165
+      },
+      "rotation": {
+        "y": 5.57354
+      },
+      "scale": 1.305946
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 44.015892,
+        "y": -6.066685,
+        "z": 40.017168
+      },
+      "rotation": {
+        "y": 5.162759
+      },
+      "scale": 4.206913
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 39.483311,
+        "y": -6.468807,
+        "z": 58.819119
+      },
+      "rotation": {
+        "y": 2.475116
+      },
+      "scale": 2.994658
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -49.045779,
+        "y": -6.067372,
+        "z": 47.056555
+      },
+      "rotation": {
+        "y": 5.002993
+      },
+      "scale": 4.211918
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -53.538149,
+        "y": -6.024755,
+        "z": 69.785984
+      },
+      "rotation": {
+        "y": 2.20679
+      },
+      "scale": 4.292867
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-c",
+      "position": {
+        "x": -49.676984,
+        "y": -7.007328,
+        "z": 65.695018
+      },
+      "rotation": {
+        "y": 5.176466
+      },
+      "scale": 1.877056
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": 149.601651,
+        "y": -0.158342,
+        "z": 124.842621
+      },
+      "rotation": {
+        "y": 4.540429
+      },
+      "scale": 1.203536
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 156.873355,
+        "y": 0.347748,
+        "z": 122.215074
+      },
+      "rotation": {
+        "y": 2.548927
+      },
+      "scale": 1.713151
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-b",
+      "position": {
+        "x": 143.16427,
+        "y": 74.109811,
+        "z": 98.967176
+      },
+      "rotation": {
+        "y": 4.570482
+      },
+      "scale": 1.718522
+    },
+    {
+      "propId": "prop.lunar-rift-boulder-a",
+      "position": {
+        "x": -138.272729,
+        "y": 73.665986,
+        "z": 104.573704
+      },
+      "rotation": {
+        "y": 0.926186
+      },
+      "scale": 1.254097
+    }
+  ],
+  "navGraph": {
+    "nodes": [
+      {
+        "id": "nav-crater-blue",
+        "position": {
+          "x": 0,
+          "y": 5.643811,
+          "z": -225
+        },
+        "hub": true
+      },
+      {
+        "id": "nav-crater-blue-t",
+        "position": {
+          "x": 0,
+          "y": 5.643811,
+          "z": 225
+        },
+        "hub": true
+      },
+      {
+        "id": "nav-crater-mid",
+        "position": {
+          "x": 0,
+          "y": -6.995038,
+          "z": 0
+        },
+        "hub": true
+      },
+      {
+        "id": "nav-mouth-0",
+        "position": {
+          "x": 0,
+          "y": -0.004337,
+          "z": -166
+        }
+      },
+      {
+        "id": "nav-mouth-0-t",
+        "position": {
+          "x": 0,
+          "y": -0.004337,
+          "z": 166
+        }
+      },
+      {
+        "id": "nav-mouth-1",
+        "position": {
+          "x": -57,
+          "y": 0.324346,
+          "z": -201
+        }
+      },
+      {
+        "id": "nav-mouth-1-t",
+        "position": {
+          "x": 57,
+          "y": 0.324346,
+          "z": 201
+        }
+      },
+      {
+        "id": "nav-mouth-2",
+        "position": {
+          "x": 57,
+          "y": 0.385548,
+          "z": -201
+        }
+      },
+      {
+        "id": "nav-mouth-2-t",
+        "position": {
+          "x": -57,
+          "y": 0.385548,
+          "z": 201
+        }
+      },
+      {
+        "id": "nav-mouth-3",
+        "position": {
+          "x": 0,
+          "y": -3.943623,
+          "z": -95
+        }
+      },
+      {
+        "id": "nav-mouth-3-t",
+        "position": {
+          "x": 0,
+          "y": -3.943623,
+          "z": 95
+        }
+      },
+      {
+        "id": "nav-lane0-0",
+        "position": {
+          "x": 0,
+          "y": -0.035063,
+          "z": -168
+        }
+      },
+      {
+        "id": "nav-lane0-0-t",
+        "position": {
+          "x": 0,
+          "y": -0.035063,
+          "z": 168
+        }
+      },
+      {
+        "id": "nav-lane0-1",
+        "position": {
+          "x": 25.084764,
+          "y": 1.689866,
+          "z": -131.337653
+        }
+      },
+      {
+        "id": "nav-lane0-1-t",
+        "position": {
+          "x": -25.084764,
+          "y": 1.689866,
+          "z": 131.337653
+        }
+      },
+      {
+        "id": "nav-lane0-2",
+        "position": {
+          "x": 0,
+          "y": -3.417512,
+          "z": -96
+        }
+      },
+      {
+        "id": "nav-lane0-2-t",
+        "position": {
+          "x": 0,
+          "y": -3.417512,
+          "z": 96
+        }
+      },
+      {
+        "id": "nav-lane1-0",
+        "position": {
+          "x": -54,
+          "y": -0.078912,
+          "z": -198
+        }
+      },
+      {
+        "id": "nav-lane1-0-t",
+        "position": {
+          "x": 54,
+          "y": -0.078912,
+          "z": 198
+        }
+      },
+      {
+        "id": "nav-lane1-1",
+        "position": {
+          "x": -93.083437,
+          "y": 1.423348,
+          "z": -173.572852
+        }
+      },
+      {
+        "id": "nav-lane1-1-t",
+        "position": {
+          "x": 93.083437,
+          "y": 1.423348,
+          "z": 173.572852
+        }
+      },
+      {
+        "id": "nav-lane1-2",
+        "position": {
+          "x": -132.166873,
+          "y": 1.157522,
+          "z": -149.145704
+        }
+      },
+      {
+        "id": "nav-lane1-2-t",
+        "position": {
+          "x": 132.166873,
+          "y": 1.157522,
+          "z": 149.145704
+        }
+      },
+      {
+        "id": "nav-lane1-3",
+        "position": {
+          "x": -171.25031,
+          "y": 0.987204,
+          "z": -124.718556
+        }
+      },
+      {
+        "id": "nav-lane1-3-t",
+        "position": {
+          "x": 171.25031,
+          "y": 0.987204,
+          "z": 124.718556
+        }
+      },
+      {
+        "id": "nav-lane1-4",
+        "position": {
+          "x": -193.43985,
+          "y": 1.65419,
+          "z": -86.606924
+        }
+      },
+      {
+        "id": "nav-lane1-4-t",
+        "position": {
+          "x": 193.43985,
+          "y": 1.65419,
+          "z": 86.606924
+        }
+      },
+      {
+        "id": "nav-lane1-5",
+        "position": {
+          "x": -209.219925,
+          "y": 0.976179,
+          "z": -43.303462
+        }
+      },
+      {
+        "id": "nav-lane1-5-t",
+        "position": {
+          "x": 209.219925,
+          "y": 0.976179,
+          "z": 43.303462
+        }
+      },
+      {
+        "id": "nav-lane1-6",
+        "position": {
+          "x": -225,
+          "y": 1.28828,
+          "z": 0
+        }
+      },
+      {
+        "id": "nav-lane1-6-t",
+        "position": {
+          "x": 225,
+          "y": 1.28828,
+          "z": 0
+        }
+      },
+      {
+        "id": "nav-lane1-7",
+        "position": {
+          "x": -209.219925,
+          "y": 1.490626,
+          "z": 43.303462
+        }
+      },
+      {
+        "id": "nav-lane1-7-t",
+        "position": {
+          "x": 209.219925,
+          "y": 1.490626,
+          "z": -43.303462
+        }
+      },
+      {
+        "id": "nav-lane1-8",
+        "position": {
+          "x": -193.43985,
+          "y": 1.098407,
+          "z": 86.606924
+        }
+      },
+      {
+        "id": "nav-lane1-8-t",
+        "position": {
+          "x": 193.43985,
+          "y": 1.098407,
+          "z": -86.606924
+        }
+      },
+      {
+        "id": "nav-lane1-9",
+        "position": {
+          "x": -171.25031,
+          "y": 1.667777,
+          "z": 124.718556
+        }
+      },
+      {
+        "id": "nav-lane1-9-t",
+        "position": {
+          "x": 171.25031,
+          "y": 1.667777,
+          "z": -124.718556
+        }
+      },
+      {
+        "id": "nav-lane1-10",
+        "position": {
+          "x": -132.166873,
+          "y": 1.654934,
+          "z": 149.145704
+        }
+      },
+      {
+        "id": "nav-lane1-10-t",
+        "position": {
+          "x": 132.166873,
+          "y": 1.654934,
+          "z": -149.145704
+        }
+      },
+      {
+        "id": "nav-lane1-11",
+        "position": {
+          "x": -93.083437,
+          "y": 0.778724,
+          "z": 173.572852
+        }
+      },
+      {
+        "id": "nav-lane1-11-t",
+        "position": {
+          "x": 93.083437,
+          "y": 0.778724,
+          "z": -173.572852
+        }
+      },
+      {
+        "id": "nav-lane1-12",
+        "position": {
+          "x": -54,
+          "y": 0.397283,
+          "z": 198
+        }
+      },
+      {
+        "id": "nav-lane1-12-t",
+        "position": {
+          "x": 54,
+          "y": 0.397283,
+          "z": -198
+        }
+      },
+      {
+        "id": "nav-tunnel0-0",
+        "position": {
+          "x": -161.004485,
+          "y": 6.7,
+          "z": -90.828374
+        }
+      },
+      {
+        "id": "nav-tunnel0-0-t",
+        "position": {
+          "x": 161.004485,
+          "y": 6.7,
+          "z": 90.828374
+        }
+      },
+      {
+        "id": "nav-tunnel0-1",
+        "position": {
+          "x": -75.541323,
+          "y": 6.7,
+          "z": -69.851052
+        }
+      },
+      {
+        "id": "nav-tunnel0-1-t",
+        "position": {
+          "x": 75.541323,
+          "y": 6.7,
+          "z": 69.851052
+        }
+      },
+      {
+        "id": "nav-tunnel1-0",
+        "position": {
+          "x": -161.004485,
+          "y": 6.7,
+          "z": 90.828374
+        }
+      },
+      {
+        "id": "nav-tunnel1-0-t",
+        "position": {
+          "x": 161.004485,
+          "y": 6.7,
+          "z": -90.828374
+        }
+      },
+      {
+        "id": "nav-tunnel1-1",
+        "position": {
+          "x": -75.055737,
+          "y": 6.7,
+          "z": 69.731863
+        }
+      },
+      {
+        "id": "nav-tunnel1-1-t",
+        "position": {
+          "x": 75.055737,
+          "y": 6.7,
+          "z": -69.731863
+        }
+      }
+    ],
+    "links": [
+      [
+        "nav-lane0-0",
+        "nav-lane0-1"
+      ],
+      [
+        "nav-lane0-0-t",
+        "nav-lane0-1-t"
+      ],
+      [
+        "nav-lane0-1",
+        "nav-lane0-2"
+      ],
+      [
+        "nav-lane0-1-t",
+        "nav-lane0-2-t"
+      ],
+      [
+        "nav-lane1-0",
+        "nav-lane1-1"
+      ],
+      [
+        "nav-lane1-0-t",
+        "nav-lane1-1-t"
+      ],
+      [
+        "nav-lane1-1",
+        "nav-lane1-2"
+      ],
+      [
+        "nav-lane1-1-t",
+        "nav-lane1-2-t"
+      ],
+      [
+        "nav-lane1-2",
+        "nav-lane1-3"
+      ],
+      [
+        "nav-lane1-2-t",
+        "nav-lane1-3-t"
+      ],
+      [
+        "nav-lane1-3",
+        "nav-lane1-4"
+      ],
+      [
+        "nav-lane1-3-t",
+        "nav-lane1-4-t"
+      ],
+      [
+        "nav-lane1-4",
+        "nav-lane1-5"
+      ],
+      [
+        "nav-lane1-4-t",
+        "nav-lane1-5-t"
+      ],
+      [
+        "nav-lane1-5",
+        "nav-lane1-6"
+      ],
+      [
+        "nav-lane1-5-t",
+        "nav-lane1-6-t"
+      ],
+      [
+        "nav-lane1-6",
+        "nav-lane1-7"
+      ],
+      [
+        "nav-lane1-6-t",
+        "nav-lane1-7-t"
+      ],
+      [
+        "nav-lane1-7",
+        "nav-lane1-8"
+      ],
+      [
+        "nav-lane1-7-t",
+        "nav-lane1-8-t"
+      ],
+      [
+        "nav-lane1-8",
+        "nav-lane1-9"
+      ],
+      [
+        "nav-lane1-8-t",
+        "nav-lane1-9-t"
+      ],
+      [
+        "nav-lane1-9",
+        "nav-lane1-10"
+      ],
+      [
+        "nav-lane1-9-t",
+        "nav-lane1-10-t"
+      ],
+      [
+        "nav-lane1-10",
+        "nav-lane1-11"
+      ],
+      [
+        "nav-lane1-10-t",
+        "nav-lane1-11-t"
+      ],
+      [
+        "nav-lane1-11",
+        "nav-lane1-12"
+      ],
+      [
+        "nav-lane1-11-t",
+        "nav-lane1-12-t"
+      ],
+      [
+        "nav-crater-blue",
+        "nav-mouth-0"
+      ],
+      [
+        "nav-crater-blue-t",
+        "nav-mouth-0-t"
+      ],
+      [
+        "nav-crater-blue",
+        "nav-mouth-1"
+      ],
+      [
+        "nav-crater-blue-t",
+        "nav-mouth-1-t"
+      ],
+      [
+        "nav-crater-blue",
+        "nav-mouth-2"
+      ],
+      [
+        "nav-crater-blue-t",
+        "nav-mouth-2-t"
+      ],
+      [
+        "nav-mouth-0",
+        "nav-lane0-0"
+      ],
+      [
+        "nav-mouth-0-t",
+        "nav-lane0-0-t"
+      ],
+      [
+        "nav-lane0-2",
+        "nav-mouth-3"
+      ],
+      [
+        "nav-lane0-2-t",
+        "nav-mouth-3-t"
+      ],
+      [
+        "nav-mouth-3",
+        "nav-crater-mid"
+      ],
+      [
+        "nav-mouth-3-t",
+        "nav-crater-mid"
+      ],
+      [
+        "nav-mouth-1",
+        "nav-lane1-0"
+      ],
+      [
+        "nav-mouth-1-t",
+        "nav-lane1-0-t"
+      ],
+      [
+        "nav-mouth-2",
+        "nav-lane1-12-t"
+      ],
+      [
+        "nav-mouth-2-t",
+        "nav-lane1-12"
+      ],
+      [
+        "nav-tunnel0-0",
+        "nav-tunnel0-1"
+      ],
+      [
+        "nav-tunnel0-0-t",
+        "nav-tunnel0-1-t"
+      ],
+      [
+        "nav-tunnel0-0",
+        "nav-lane1-4"
+      ],
+      [
+        "nav-tunnel0-0-t",
+        "nav-lane1-4-t"
+      ],
+      [
+        "nav-tunnel0-1",
+        "nav-crater-mid"
+      ],
+      [
+        "nav-tunnel0-1-t",
+        "nav-crater-mid"
+      ],
+      [
+        "nav-tunnel1-0",
+        "nav-tunnel1-1"
+      ],
+      [
+        "nav-tunnel1-0-t",
+        "nav-tunnel1-1-t"
+      ],
+      [
+        "nav-tunnel1-0",
+        "nav-lane1-8"
+      ],
+      [
+        "nav-tunnel1-0-t",
+        "nav-lane1-8-t"
+      ],
+      [
+        "nav-tunnel1-1",
+        "nav-crater-mid"
+      ],
+      [
+        "nav-tunnel1-1-t",
+        "nav-crater-mid"
+      ]
+    ]
+  },
+  "spawnPoints": [
+    {
+      "id": "sp-blue-1",
+      "team": 0,
+      "position": {
+        "x": -24,
+        "y": 8,
+        "z": -247
+      },
+      "heading": 1.570796
+    },
+    {
+      "id": "sp-red-1",
+      "team": 1,
+      "position": {
+        "x": 24,
+        "y": 8,
+        "z": 247
+      },
+      "heading": -1.570796
+    },
+    {
+      "id": "sp-blue-2",
+      "team": 0,
+      "position": {
+        "x": -12,
+        "y": 8,
+        "z": -247
+      },
+      "heading": 1.570796
+    },
+    {
+      "id": "sp-red-2",
+      "team": 1,
+      "position": {
+        "x": 12,
+        "y": 8,
+        "z": 247
+      },
+      "heading": -1.570796
+    },
+    {
+      "id": "sp-blue-3",
+      "team": 0,
+      "position": {
+        "x": 0,
+        "y": 8,
+        "z": -247
+      },
+      "heading": 1.570796
+    },
+    {
+      "id": "sp-red-3",
+      "team": 1,
+      "position": {
+        "x": 0,
+        "y": 8,
+        "z": 247
+      },
+      "heading": -1.570796
+    },
+    {
+      "id": "sp-blue-4",
+      "team": 0,
+      "position": {
+        "x": 12,
+        "y": 8,
+        "z": -247
+      },
+      "heading": 1.570796
+    },
+    {
+      "id": "sp-red-4",
+      "team": 1,
+      "position": {
+        "x": -12,
+        "y": 8,
+        "z": 247
+      },
+      "heading": -1.570796
+    },
+    {
+      "id": "sp-blue-5",
+      "team": 0,
+      "position": {
+        "x": 24,
+        "y": 8,
+        "z": -247
+      },
+      "heading": 1.570796
+    },
+    {
+      "id": "sp-red-5",
+      "team": 1,
+      "position": {
+        "x": -24,
+        "y": 8,
+        "z": 247
+      },
+      "heading": -1.570796
+    }
+  ],
+  "flagBases": [
+    {
+      "id": "flag-base-blue",
+      "team": 0,
+      "position": {
+        "x": 0,
+        "y": 6,
+        "z": -225
+      },
+      "radius": 16
+    },
+    {
+      "id": "flag-base-red",
+      "team": 1,
+      "position": {
+        "x": 0,
+        "y": 6,
+        "z": 225
+      },
+      "radius": 16
+    }
+  ],
+  "lighting": {
+    "ambientColor": "#b8b4ac",
+    "ambientIntensity": 0.26,
+    "groundBounceColor": "#4a453d",
+    "directionalIntensity": 1.45
+  },
+  "render": {
+    "skybox": {
+      "texture": "skyboxes/lunar-crater.webp",
+      "intensity": 0.9,
+      "tint": "#f2f4f7",
+      "sun": {
+        "dir": [
+          -0.707,
+          0.5,
+          -0.5
+        ],
+        "color": "#ffffff",
+        "intensity": 1.45
+      }
+    },
+    "boundaryShield": {
+      "baseOpacity": 1,
+      "glowStartDistance": 14,
+      "redTransitionDistance": 5,
+      "warnDistance": 8,
+      "blueColor": "#45c8ff",
+      "redColor": "#ff405c",
+      "hexDensity": 42,
+      "hexLineWidth": 0.012,
+      "warningNotification": "notification.boundary-warning"
+    }
+  },
+  "zones": []
+}

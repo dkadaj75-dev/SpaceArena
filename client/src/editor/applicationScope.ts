@@ -33,6 +33,10 @@ export const APPLICATION_POLICY: Record<ConfigType, ApplicationPolicy> = {
     scope: "next-match",
     message: "Applies next match. Existing asteroid physics and render instances are not rebuilt mid-match.",
   },
+  prop: {
+    scope: "next-match",
+    message: "Applies next match. Existing static collision and render instances are not rebuilt mid-match.",
+  },
   ship: {
     scope: "next-match",
     message: "Applies next match. The editor preview updates now; spawned ships keep their resolved stats and rig.",

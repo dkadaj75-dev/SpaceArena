@@ -6,6 +6,7 @@ import {
   type ModuleDecision,
   type ShipSnapshot,
   type Snapshot,
+  type StaticLosWorld,
 } from "@space-arena/shared";
 
 /** localStorage key holding the live bot overlay's on/off state. */
@@ -144,6 +145,7 @@ export function updateBotOverlayRows(
   bots: Iterable<BotOverlaySource>,
   snapshot: Snapshot,
   blockers: readonly LosCircle[],
+  staticWorld?: StaticLosWorld,
 ): number {
   let n = 0;
   for (const bot of bots) {
@@ -189,7 +191,7 @@ export function updateBotOverlayRows(
       row.hasTarget = true;
       row.targetX = target.pos.x;
       row.targetZ = target.pos.z;
-      row.losClear = hasLineOfSightAmong(self.pos, target.pos, blockers);
+      row.losClear = hasLineOfSightAmong(self.pos, target.pos, blockers, staticWorld);
     } else {
       row.hasTarget = false;
     }

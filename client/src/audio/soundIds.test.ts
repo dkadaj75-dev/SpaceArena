@@ -126,6 +126,8 @@ describe("audioSettingsOf", () => {
     expect(settings.enabled).toBe(true);
     expect(settings.defaultMasterVolume).toBe(0.8);
     expect(settings.defaultSfxVolume).toBe(0.8);
+    expect(settings.music.defaultVolume).toBe(0.5);
+    expect(settings.music.screens.match).toBeNull();
     expect(settings.cues.playerDamaged).toBeNull();
   });
 
@@ -144,6 +146,23 @@ describe("audioSettingsOf", () => {
     expect(settings.cues.overheat).toBeNull();
     expect(settings.maxVoices).toBe(4);
     expect(settings.retriggerGapMs).toBe(10);
+  });
+
+  it("fully defaults the authored music library and screen routing", () => {
+    const theme = {
+      audio: {
+        music: {
+          fadeInSec: 0.25,
+          tracks: { menu: { src: "custom/menu.wav", license: "internal" } },
+          screens: { boot: "menu", menu: "menu", shop: null },
+        },
+      },
+    } as unknown as ThemeConfig;
+    const music = audioSettingsOf(theme).music;
+    expect(music.fadeInSec).toBe(0.25);
+    expect(music.fadeOutSec).toBe(1);
+    expect(music.tracks.menu).toEqual({ src: "custom/menu.wav", volume: 1, loop: true, license: "internal" });
+    expect(music.screens).toEqual({ boot: "menu", menu: "menu", hangar: null, shop: null, match: null });
   });
 });
 

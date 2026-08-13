@@ -8,3 +8,4 @@ export * from "./BotDriver.js";
 export * from "./roster.js";
 export * from "./botNames.js";
 export * from "./botLoadout.js";
+export * from "./navRoute.js";

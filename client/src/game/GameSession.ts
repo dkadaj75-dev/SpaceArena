@@ -160,6 +160,8 @@ export class GameSession {
    * `driver.lastDecision` — behaviour, utility scores, chosen move point.
    */
   readonly bots = new Map<EntityId, BotDriver>();
+  /** Shared terrain query object used by sim, bots, prediction, and debug LoS. */
+  get botStaticWorld() { return this.sim.world.staticWorld; }
   private readonly playerDisplayName: string;
   /**
    * Player-like display name per bot entity (owner 2026-07-31). Deterministic
@@ -242,7 +244,11 @@ export class GameSession {
           rng: options.botRng ?? deriveRng(seed, id),
           arenaBounds: this.sim.world.arena.bounds,
           floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
-          visualRadius: botShip.render.modelScale,
+          staticWorld: this.sim.world.staticWorld,
+          navRoute: this.sim.world.navRoute,
+          // modelScale is approximately the authored forward length for a
+          // unit-normalized hull; the gameplay collider is the honest floor.
+          visualRadius: Math.max(botShip.collider.radius, (botShip.render.modelScale ?? botShip.collider.radius * 2) / 2),
         }),
       );
     }
@@ -376,7 +382,11 @@ export class GameSession {
           rng: deriveRng(this.seed, id),
           arenaBounds: this.sim.world.arena.bounds,
           floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
-          visualRadius: ship.render.modelScale,
+          staticWorld: this.sim.world.staticWorld,
+          navRoute: this.sim.world.navRoute,
+          // modelScale is approximately the authored forward length for a
+          // unit-normalized hull; the gameplay collider is the honest floor.
+          visualRadius: Math.max(ship.collider.radius, (ship.render.modelScale ?? ship.collider.radius * 2) / 2),
         }),
       );
     }
@@ -402,6 +412,11 @@ export class GameSession {
   /** Online sessions override this with names replicated by ArenaState. */
   displayNameFor(id: EntityId): string | undefined {
     return id === this.playerId ? this.playerDisplayName : this.botNames.get(id);
+  }
+
+  /** Whether an entity is server/local AI; online sessions override from schema. */
+  isBotFor(id: EntityId): boolean {
+    return this.bots.has(id);
   }
 
   /** Team of a sim ship in the latest snapshot (for enemy checks). */

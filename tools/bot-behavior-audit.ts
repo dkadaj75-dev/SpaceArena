@@ -110,13 +110,15 @@ interface MatchAudit {
 }
 
 const configs = await loadTestConfigs();
+const ctfMode = configs.get<GamemodeConfig>("gamemode", "gamemode.practice-ctf-5v5");
+if (!ctfMode?.defaultArena) throw new Error("gamemode.practice-ctf-5v5 needs a defaultArena");
 const duelSeedArg = process.env.BOT_AUDIT_DUEL_SEEDS ?? "7,17,42";
 const range = duelSeedArg.match(/^(\d+)-(\d+)$/);
 const duelSeeds = range
   ? Array.from({ length: Number(range[2]) - Number(range[1]) + 1 }, (_, index) => Number(range[1]) + index)
   : duelSeedArg.split(",").map(Number);
 const baselineMatches = [
-  ...CTF_SEEDS.map((seed) => runMatch("ctf", seed, "arena.lunar-crater", "gamemode.practice-ctf-10v10", CTF_LIMIT_SEC)),
+  ...CTF_SEEDS.map((seed) => runMatch("ctf", seed, ctfMode.defaultArena!, "gamemode.practice-ctf-5v5", CTF_LIMIT_SEC)),
   runMatch("deathmatch", 42, "arena.ring-nebula", "gamemode.practice-bots-5v5", DM_LIMIT_SEC),
 ];
 const duelMatches = [
@@ -164,7 +166,7 @@ function runMatch(
   const sim = new ArenaSimulation(configs, arenaId, modeId, seed);
   const mode = configs.get<GamemodeConfig>("gamemode", modeId)!;
   const slots = resolveBotRoster(mode, configs);
-  const wantedPerTeam = label === "ctf" ? 10 : Math.max(1, ...slots.map((slot) => slot.team + 1));
+  const wantedPerTeam = label === "ctf" ? 5 : Math.max(1, ...slots.map((slot) => slot.team + 1));
   const drivers = new Map<EntityId, BotDriver>();
   const audits = new Map<EntityId, BotAudit>();
   const teamCounts = new Map<number, number>();

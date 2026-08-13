@@ -553,10 +553,45 @@ export const audioCuesSchema = z.object({
 });
 export type AudioCuesConfig = z.infer<typeof audioCuesSchema>;
 
+/** One streamed/decode-on-demand music asset authored by the theme designer. */
+export const musicTrackSchema = z.object({
+  /** Pack-relative/public content path, for example `content/sounds/menu.mp3`. */
+  src: z.string().min(1),
+  /** Per-track trim, multiplied by the player's music volume. */
+  volume: z.number().min(0).max(1).optional(),
+  loop: z.boolean().optional(),
+  /** Attribution, clearance status, or other usage restrictions. */
+  license: z.string().optional(),
+});
+export type MusicTrackConfig = z.infer<typeof musicTrackSchema>;
+
+export const musicScreenSchema = z.enum(["boot", "menu", "hangar", "shop", "match"]);
+export type MusicScreen = z.infer<typeof musicScreenSchema>;
+
+/** Theme-owned music library and screen routing. Null explicitly means silence. */
+export const musicSchema = z.object({
+  enabled: z.boolean().optional(),
+  defaultVolume: z.number().min(0).max(1).optional(),
+  fadeInSec: z.number().nonnegative().optional(),
+  fadeOutSec: z.number().nonnegative().optional(),
+  tracks: z.record(z.string().min(1), musicTrackSchema).optional(),
+  screens: z
+    .object({
+      boot: z.string().min(1).nullable().optional(),
+      menu: z.string().min(1).nullable().optional(),
+      hangar: z.string().min(1).nullable().optional(),
+      shop: z.string().min(1).nullable().optional(),
+      match: z.string().min(1).nullable().optional(),
+    })
+    .optional(),
+});
+export type MusicConfig = z.infer<typeof musicSchema>;
+
 /**
  * Web Audio settings (5.7). Volumes here are only the *defaults* used until the
  * player sets their own — the live values live in localStorage under
- * `sa.volume.master` / `sa.volume.sfx`, which the 5.8 settings screen owns.
+ * `sa.volume.master` / `sa.volume.sfx` / `sa.volume.music`, which the 5.8
+ * settings screen owns.
  */
 export const audioSchema = z.object({
   /** Master switch — false means no AudioContext is ever created. */
@@ -568,6 +603,7 @@ export const audioSchema = z.object({
   /** Minimum gap between two plays of the SAME sound id (anti machine-gun). */
   retriggerGapMs: z.number().nonnegative().optional(),
   cues: audioCuesSchema.optional(),
+  music: musicSchema.optional(),
 });
 export type AudioConfig = z.infer<typeof audioSchema>;
 

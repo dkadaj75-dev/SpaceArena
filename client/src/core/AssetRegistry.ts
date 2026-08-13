@@ -6,6 +6,7 @@ import {
   PBRMaterial,
   SceneLoader,
   StandardMaterial,
+  TransformNode,
   VertexBuffer,
   type AbstractMesh,
   type Material,
@@ -447,9 +448,16 @@ interface ModelLodTarget {
   unitRadius: number;
 }
 
-/** Cache key for a GLB master: one entry per (path, baked scale, baked yaw). */
-function modelKey(render: RenderRecipe): string {
-  return `${render.model}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}`;
+export type ModelMaster = Mesh | TransformNode;
+
+export interface EnsureModelOptions {
+  /** Keep imported visual parts as independently-cullable children. */
+  mergeParts?: boolean;
+}
+
+/** Cache key for a GLB master: one entry per path, baked transform, and hierarchy mode. */
+function modelKey(render: RenderRecipe, mergeParts = true): string {
+  return `${render.model}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}::${mergeParts ? "merged" : "parts"}`;
 }
 
 /** Resolve old modules to their established per-family procedural master. */
@@ -497,6 +505,8 @@ export class AssetRegistry {
    * on dispose (a dangling LOD level would outlive us on a mesh we don't own).
    */
   private readonly modelLodTargets = new Map<string, ModelLodTarget>();
+  /** Generic authored LOD clones attached per independently-cullable base part. */
+  private readonly authoredLodMeshes = new Map<Mesh, Mesh[]>();
   private asteroidLod: AsteroidLod | null = null;
   /** True only while this registry is staging a hull in an IBL-lit hangar. */
   private hangarMaterialMode = false;
@@ -507,8 +517,9 @@ export class AssetRegistry {
    * a model must load once, not once per consumer). `null` marks a failed
    * load so we don't retry every frame.
    */
-  private static readonly modelMasters = new WeakMap<Scene, Map<string, Mesh | null>>();
-  private static readonly modelLoads = new WeakMap<Scene, Map<string, Promise<Mesh | null>>>();
+  private static readonly modelMasters = new WeakMap<Scene, Map<string, ModelMaster | null>>();
+  private static readonly modelLoads = new WeakMap<Scene, Map<string, Promise<ModelMaster | null>>>();
+  private static readonly modelRenderMeta = new WeakMap<ModelMaster, RenderRecipe>();
   /** The authored PBR values survive the match-safe fallback applied below. */
   private static readonly pbrAuthoring = new WeakMap<Scene, Map<PBRMaterial, { metallic: number; roughness: number }>>();
 
@@ -548,10 +559,13 @@ export class AssetRegistry {
     }
   }
 
-  private applyPbrModeToMaster(master: Mesh): void {
-    const flat = master.material;
-    const materials = flat instanceof MultiMaterial ? flat.subMaterials : [flat];
-    for (const material of materials) if (material instanceof PBRMaterial) this.applyPbrMode(material);
+  private applyPbrModeToMaster(master: ModelMaster): void {
+    const meshes = master instanceof Mesh ? [master] : master.getChildMeshes(false).filter((mesh): mesh is Mesh => mesh instanceof Mesh);
+    for (const mesh of meshes) {
+      const flat = mesh.material;
+      const materials = flat instanceof MultiMaterial ? flat.subMaterials : [flat];
+      for (const material of materials) if (material instanceof PBRMaterial) this.applyPbrMode(material);
+    }
   }
 
   /**
@@ -572,10 +586,15 @@ export class AssetRegistry {
    * baked into the vertices so instances need no per-node correction.
    * Resolves null on failure — callers fall back to the procedural recipe.
    */
-  ensureModel(render: RenderRecipe): Promise<Mesh | null> {
+  ensureModel(render: RenderRecipe): Promise<Mesh | null>;
+  ensureModel(render: RenderRecipe, options: { mergeParts?: true }): Promise<Mesh | null>;
+  ensureModel(render: RenderRecipe, options: { mergeParts: false }): Promise<ModelMaster | null>;
+  ensureModel(render: RenderRecipe, options: EnsureModelOptions): Promise<ModelMaster | null>;
+  ensureModel(render: RenderRecipe, options: EnsureModelOptions = {}): Promise<ModelMaster | null> {
     const path = render.model;
     if (!path) return Promise.resolve(null);
-    const key = modelKey(render);
+    const mergeParts = options.mergeParts !== false;
+    const key = modelKey(render, mergeParts);
     const masters = AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene);
     const existing = masters.get(key);
     if (existing !== undefined) return Promise.resolve(existing);
@@ -589,7 +608,7 @@ export class AssetRegistry {
       .then(() => SceneLoader.ImportMeshAsync("", `${import.meta.env.BASE_URL}content/${dir}`, file, this.scene))
       .then((result) => {
         try {
-          return this.finalizeModel(result.meshes, render, path, masters, loads, key);
+          return this.finalizeModel(result.meshes, render, path, masters, loads, key, mergeParts);
         } catch (error) {
           // A failed finalize must not strand half-imported meshes in the scene.
           for (const m of result.meshes) if (!m.isDisposed()) m.dispose(false, true);
@@ -615,21 +634,47 @@ export class AssetRegistry {
    */
   private static readonly COLLIDER_MESH = /(^|_)COL_/;
 
-  /** Merge, orient and cache a freshly imported model's meshes into one disabled master. */
+  /** Orient and cache a freshly imported model as one mesh or an unmerged part hierarchy. */
   private finalizeModel(
     meshes: readonly AbstractMesh[],
     render: RenderRecipe,
     path: string,
-    masters: Map<string, Mesh | null>,
-    loads: Map<string, Promise<Mesh | null>>,
+    masters: Map<string, ModelMaster | null>,
+    loads: Map<string, Promise<ModelMaster | null>>,
     key: string,
-  ): Mesh {
+    mergeParts: boolean,
+  ): ModelMaster {
     const geometric = meshes.filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
     const visual = geometric.filter((m) => !AssetRegistry.COLLIDER_MESH.test(m.name));
-    // A model that is ONLY collision hulls is still shown rather than dropped.
-    const parts = visual.length > 0 ? visual : geometric;
+    const parts = visual;
     if (parts.length === 0) throw new Error("no meshes with geometry in model");
     for (const p of parts) p.computeWorldMatrix(true);
+    if (!mergeParts) {
+      const master = new TransformNode(`master.model.${path}`, this.scene);
+      for (const part of parts) {
+        // Flatten the imported hierarchy while retaining each visual mesh as a
+        // direct child. Its complete glTF transform (including RH -> LH root)
+        // is baked first, so independent frustum culling remains correct.
+        part.bakeTransformIntoVertices(part.getWorldMatrix());
+        part.setParent(null);
+        part.position.setAll(0);
+        part.scaling.setAll(render.modelScale ?? 1);
+        part.rotation.setAll(0);
+        part.rotationQuaternion = null;
+        part.rotation.y = render.modelRotationY ?? 0;
+        part.bakeCurrentTransformIntoVertices();
+        part.refreshBoundingInfo();
+        part.parent = master;
+      }
+      // Imported roots and COL_* authoring meshes are never rendered at runtime.
+      for (const mesh of meshes) if (!parts.includes(mesh as Mesh) && !mesh.isDisposed()) mesh.dispose(false, false);
+      this.applyPbrModeToMaster(master);
+      master.setEnabled(false);
+      AssetRegistry.modelRenderMeta.set(master, render);
+      masters.set(key, master);
+      loads.delete(key);
+      return master;
+    }
     let merged: Mesh;
     if (parts.length === 1) {
       // Bake the full world matrix (includes the glTF root's RH→LH flip)
@@ -662,9 +707,71 @@ export class AssetRegistry {
     this.applyPbrModeToMaster(merged);
     merged.name = `master.model.${path}`;
     merged.setEnabled(false);
+    AssetRegistry.modelRenderMeta.set(merged, render);
     masters.set(key, merged);
     loads.delete(key);
     return merged;
+  }
+
+  /**
+   * Attach authored GLB LODs to every visual part of a model master. LOD meshes
+   * are clones of separately cached masters, so using an LOD does not consume or
+   * reparent the cache entry. No implicit null/cull level is added: authored
+   * terrain therefore never disappears at distance.
+   */
+  async applyModelLods(
+    master: ModelMaster,
+    lods: readonly { model: string; distance: number }[],
+    distScale = 1,
+  ): Promise<void> {
+    const baseParts = modelParts(master);
+    for (const part of baseParts) this.clearAuthoredLods(part);
+    if (lods.length === 0 || baseParts.length === 0) return;
+
+    const mergeParts = master instanceof Mesh;
+    const sourceRender = AssetRegistry.modelRenderMeta.get(master);
+    for (let levelIndex = 0; levelIndex < lods.length; levelIndex++) {
+      const lod = lods[levelIndex]!;
+      const lodMaster = await this.ensureModel(
+        {
+          recipe: "model.static",
+          model: lod.model,
+          modelScale: sourceRender?.modelScale,
+          modelRotationY: sourceRender?.modelRotationY,
+        },
+        { mergeParts },
+      );
+      if (!lodMaster) continue;
+      const lodParts = modelParts(lodMaster);
+      for (let partIndex = 0; partIndex < Math.min(baseParts.length, lodParts.length); partIndex++) {
+        const base = baseParts[partIndex]!;
+        const source = lodParts[partIndex]!;
+        const variant = source.clone(`${source.name}.lod.${levelIndex}.${partIndex}`, null, true);
+        if (!variant) continue;
+        // Babylon renders an LOD substitute through the source instance's
+        // batch. The substitute must therefore be enabled, but must not be a
+        // scene candidate itself: otherwise this cached master draws at the
+        // origin. This is the same enabled-but-hidden arrangement the
+        // asteroid stand-ins rely on once addLODLevel marks them
+        // `onlyForInstances` during LOD activation.
+        variant.setEnabled(true);
+        variant.isVisible = false;
+        base.addLODLevel(lod.distance * distScale, variant);
+        const tracked = this.authoredLodMeshes.get(base) ?? [];
+        tracked.push(variant);
+        this.authoredLodMeshes.set(base, tracked);
+      }
+    }
+  }
+
+  private clearAuthoredLods(master: Mesh): void {
+    const levels = this.authoredLodMeshes.get(master);
+    if (!levels) return;
+    for (const level of levels) {
+      master.removeLODLevel(level);
+      level.dispose(false, false);
+    }
+    this.authoredLodMeshes.delete(master);
   }
 
   /**
@@ -723,7 +830,8 @@ export class AssetRegistry {
   /** The already-loaded GLB master for a render config, if it has one and it landed. */
   private loadedModel(render: RenderRecipe): Mesh | null {
     if (!render.model) return null;
-    return AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene).get(modelKey(render)) ?? null;
+    const master = AssetRegistry.sceneMap(AssetRegistry.modelMasters, this.scene).get(modelKey(render, true)) ?? null;
+    return master instanceof Mesh ? master : null;
   }
 
   /** Returns the cached master mesh for a recipe+palette, building it on first use. */
@@ -852,6 +960,7 @@ export class AssetRegistry {
 
   /** Disposes every cached master mesh, its LOD variants, and its material. */
   dispose(): void {
+    for (const master of [...this.authoredLodMeshes.keys()]) this.clearAuthoredLods(master);
     // Model masters are shared per-scene and outlive this registry — detach the
     // LOD levels we hung on them before dropping the variant meshes.
     for (const [key, target] of this.modelLodTargets) this.clearLod(key, target.master);
@@ -876,4 +985,11 @@ function paletteFromKey(key: string): Palette {
     if (eq > 0) palette[pair.slice(0, eq)] = pair.slice(eq + 1);
   }
   return palette;
+}
+
+/** Stable direct visual-part order for merged and unmerged cached masters. */
+function modelParts(master: ModelMaster): Mesh[] {
+  return master instanceof Mesh
+    ? [master]
+    : master.getChildMeshes(true).filter((mesh): mesh is Mesh => mesh instanceof Mesh);
 }

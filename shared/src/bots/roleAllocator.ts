@@ -31,7 +31,6 @@ const STRIKERS = 3;
 const RALLY_STRIKERS = 4;
 const WARDENS = 2;
 const INTERCEPTORS = 2;
-const ESCORTS = 2;
 /** Ships allowed to claim the same dropped flag; more is a queue, not a rescue. */
 const RECOVER_CAP = 2;
 /** Distance at which a claim's utility has fallen to half. */
@@ -138,8 +137,20 @@ function allocate(
   // small team, where every quota rounds to one.
   const claims: { role: Exclude<BotRole, "free">; slots: number; target: { x: number; y: number; z: number }; fighter: boolean }[] = [];
   if (recovering) claims.push({ role: "warden", slots: Math.min(RECOVER_CAP, quota(WARDENS)), target: own.pos, fighter: false });
+  if (ourCarrier) {
+    const nearbyThreats = snapshot.ships.filter((ship) =>
+      ship.team !== ourCarrier.team && ship.hull > 0 && dist3(ship.pos, ourCarrier.pos) <= 140
+    ).length;
+    const overwhelmed = nearbyThreats >= 4
+      || (nearbyThreats >= 3 && ourCarrier.hullMax > 0 && ourCarrier.hull / ourCarrier.hullMax <= 0.6);
+    claims.push({
+      role: "escort",
+      slots: Math.min(members.length - 1, overwhelmed ? 3 : 2),
+      target: ourCarrier.pos,
+      fighter: true,
+    });
+  }
   if (thief) claims.push({ role: "interceptor", slots: quota(INTERCEPTORS), target: thief.pos, fighter: true });
-  if (ourCarrier) claims.push({ role: "escort", slots: quota(ESCORTS), target: ourCarrier.pos, fighter: true });
   if (flagTakeable) {
     const press = own.state === "home" && enemy.state === "home";
     claims.push({ role: "striker", slots: quota(press ? RALLY_STRIKERS : STRIKERS), target: enemy.pos, fighter: true });

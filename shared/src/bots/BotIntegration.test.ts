@@ -637,7 +637,7 @@ describe("bots in a live ArenaSimulation", () => {
   });
 
   it("separates a nose-in BRAWLER from the shipped colossal CTF rock and resumes movement", () => {
-    const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-ctf-10v10", 17);
+    const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-ctf-5v5", 17);
     const hull = configs.get<ShipConfig>("ship", "ship.brawler")!;
     const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
     const botId = sim.spawnPlayerAt(hull.id, hull.defaultFitting, 0, { x: 0, y: 12, z: 0 }, -Math.PI / 2);

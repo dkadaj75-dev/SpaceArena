@@ -54,6 +54,15 @@ const HIGH = tier("high", { probe: { minCores: 8, minMemoryGb: 8, allowMobile: f
 const ULTRA = tier("ultra", { probe: { minCores: 8, minMemoryGb: 8, allowMobile: true } });
 const TIERS = [ULTRA, HIGH, LOW, MED]; // deliberately unsorted
 
+describe("quality terrain defaults", () => {
+  it("keeps the block optional and defaults fields when it is authored", () => {
+    expect(LOW.scene.terrain).toBeUndefined();
+    const parsed = qualitySchema.parse({ ...LOW, scene: { ...LOW.scene, terrain: {} } });
+    expect(parsed.scene.terrain).toEqual({ enabled: true, lodBias: 1 });
+    expect(() => qualitySchema.parse({ ...LOW, scene: { ...LOW.scene, terrain: { lodBias: 0 } } })).toThrow();
+  });
+});
+
 describe("probeDevice", () => {
   it("reads cores, memory and the Chromium mobile hint", () => {
     expect(

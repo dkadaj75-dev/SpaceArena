@@ -3,6 +3,7 @@
   "type": "gamemode",
   "version": 1,
   "name": "Duel 1v1",
+  "launch": "online",
   "teams": "1v1",
   "defaultArena": "arena.deep-field",
   "winCondition": {
@@ -26,6 +27,8 @@
   "bots": {
     "defaultProfile": "bot.rookie",
     "defaultShip": "ship.interceptor",
-    "backfillWaitMs": 20000
+    "backfillWaitMs": 10000,
+    "randomizeLoadouts": true,
+    "shipPool": ["ship.interceptor", "ship.brawler", "ship.support"]
   }
 }

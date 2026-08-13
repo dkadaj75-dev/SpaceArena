@@ -107,6 +107,25 @@ describe("team role allocator (D2, owner 2026-08-08)", () => {
     expect(allocation.counts.striker).toBe(1);
   });
 
+  it("adds a third escort when a damaged 5v5 carrier is overwhelmed", () => {
+    const members = Array.from({ length: 5 }, (_, index) => ship(10 + index, 0, 0, -80 + index * 35));
+    members[4] = ship(14, 0, 0, 60, { hull: 50 });
+    const carried = flag(2, 1, 0, 200, { state: "carried", carrierId: 14, pos: { x: 0, y: 0, z: 60 } });
+
+    clearRoleAllocationCache();
+    const calm = allocateTeamRoles(snap([...members, ship(90, 1, 300, 300)], [HOME_FLAGS[0]!, carried]), 0);
+    expect(calm.counts.escort).toBe(2);
+
+    clearRoleAllocationCache();
+    const pressured = allocateTeamRoles(snap([
+      ...members,
+      ship(90, 1, 20, 60),
+      ship(91, 1, -20, 60),
+      ship(92, 1, 0, 90),
+    ], [HOME_FLAGS[0]!, carried]), 0);
+    expect(pressured.counts.escort).toBe(3);
+  });
+
   it("hands every driver on the team the same board, from the shared snapshot alone", () => {
     clearRoleAllocationCache();
     const snapshot = snap(tenVersusOne(), HOME_FLAGS);

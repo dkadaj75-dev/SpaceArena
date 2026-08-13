@@ -2,6 +2,7 @@ import type {
   ArenaConfig,
   AsteroidConfig,
   ConfigService,
+  PropConfig,
   RenderRecipe,
   ShipConfig,
 } from "@space-arena/shared";
@@ -22,23 +23,31 @@ import type { AssetRegistry } from "./AssetRegistry.js";
  * (path, scale, yaw) identity the registry caches masters by, so an arena that
  * places the same rock 30 times still asks for one load.
  */
-export function arenaModelRenders(configs: ConfigService, arenaId: string): RenderRecipe[] {
+export type ArenaModelRender = RenderRecipe & { mergeParts?: boolean };
+
+export function arenaModelRenders(configs: ConfigService, arenaId: string): ArenaModelRender[] {
   const arena = configs.get<ArenaConfig>("arena", arenaId);
   if (!arena) return [];
   const seen = new Set<string>();
-  const out: RenderRecipe[] = [];
-  const add = (render: RenderRecipe | undefined): void => {
+  const out: ArenaModelRender[] = [];
+  const add = (render: RenderRecipe | undefined, mergeParts = true): void => {
     if (!render?.model) return;
-    const key = `${render.model}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}`;
+    const key = `${render.model}::s${render.modelScale ?? 1}::r${render.modelRotationY ?? 0}::${mergeParts ? "merged" : "parts"}`;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push(render);
+    out.push(mergeParts ? render : { ...render, mergeParts: false });
   };
   for (const placement of arena.asteroidPlacements) {
     const asteroid = configs.get<AsteroidConfig>("asteroid", placement.asteroidId);
     if (!asteroid) continue;
     add(asteroid.render);
     for (const state of asteroid.states ?? []) add(state.render);
+  }
+  for (const placement of arena.propPlacements ?? []) {
+    const prop = configs.get<PropConfig>("prop", placement.propId);
+    if (!prop) continue;
+    add(prop.render, false);
+    for (const lod of prop.render.lods ?? []) add({ ...prop.render, model: lod.model }, false);
   }
   return out;
 }
@@ -55,7 +64,11 @@ export async function preloadArenaModels(
   configs: ConfigService,
   arenaId: string,
 ): Promise<void> {
-  await Promise.all(arenaModelRenders(configs, arenaId).map((render) => assets.ensureModel(render)));
+  await Promise.all(
+    arenaModelRenders(configs, arenaId).map((render) =>
+      assets.ensureModel(render, { mergeParts: render.mergeParts !== false }),
+    ),
+  );
 }
 
 /** Every authored ship GLB, independent of the active quality tier. */

@@ -16,7 +16,7 @@ export async function reserveArenaPair(first: WaitingEntry, second: WaitingEntry
   const gamemode = GAMEMODE_BY_QUEUE_MODE[first.mode];
   if (!gamemode || second.mode !== first.mode) throw new Error(`unsupported matchmaking mode: ${first.mode}`);
 
-  const room = await matchMaker.createRoom("arena", { gamemode, minPlayers: 2, matchmaking: true });
+  const room = await matchMaker.createRoom("arena", { gamemode });
   // Remove it from public matchmaking before the first seat is reserved. Direct
   // reservations still work on a locked room, while join/joinOrCreate cannot
   // admit a third party during the small gap between the two calls.

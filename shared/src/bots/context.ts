@@ -4,6 +4,8 @@ import type { EntityId } from "../sim/components.js";
 import { hasLineOfSightAmong, type LosCircle } from "../sim/los.js";
 import { dist3 } from "../sim/math.js";
 import type { BotRole } from "./roleAllocator.js";
+import type { StaticWorld } from "../collision/staticWorld.js";
+import type { NavRoute } from "./navRoute.js";
 
 /** Per-behaviour tunables straight out of the botprofile config (`baseWeight` + catchall). */
 export type BehaviorParams = BotprofileConfig["behaviors"][string];
@@ -78,6 +80,10 @@ export interface BotContext {
   readonly turnHorizonSec: number;
   /** Live asteroid colliders usable as cover / LoS blockers. */
   readonly blockers: readonly LosCircle[];
+  /** Static terrain used by sensing and objective route visibility checks. */
+  readonly staticWorld?: StaticWorld;
+  /** Session-shared precomputed arena route graph. */
+  readonly navRoute?: NavRoute;
   /** Enemy missiles currently closing on this bot, nearest first. */
   readonly incomingMissiles: readonly IncomingMissile[];
   /**
@@ -118,6 +124,8 @@ export interface BuildContextInput {
   turnHorizonSec?: number;
   /** BotDriver-owned update tick; defaults to the snapshot tick for standalone contexts. */
   driverTick?: number;
+  staticWorld?: StaticWorld;
+  navRoute?: NavRoute;
 }
 
 /** Build the read-only decision context for one bot from a snapshot. */
@@ -139,7 +147,7 @@ export function buildBotContext(input: BuildContextInput): BotContext {
 
   const target = input.targetId !== null ? (enemies.find((e) => e.id === input.targetId) ?? null) : null;
   const distance = target ? dist3(self.pos, target.pos) : Infinity;
-  const hasLoS = target ? hasLineOfSightAmong(self.pos, target.pos, blockers) : false;
+  const hasLoS = target ? hasLineOfSightAmong(self.pos, target.pos, blockers, input.staticWorld) : false;
 
   const [rawMin, rawMax] = profile.preferredRange;
   const preferredMin = Math.min(rawMin, rawMax);
@@ -198,6 +206,8 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     pitchRate: input.pitchRate ?? 0,
     turnHorizonSec: input.turnHorizonSec ?? profile.decisionIntervalMs / 1000,
     blockers,
+    staticWorld: input.staticWorld,
+    navRoute: input.navRoute,
     incomingMissiles,
     role: input.role ?? "free",
     orbitSign: input.orbitSign,

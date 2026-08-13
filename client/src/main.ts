@@ -21,6 +21,7 @@ import {
   type FrameAttitude,
   interpolateFrame,
   BASICS_TUTORIAL_ID,
+  arenaSchema,
 } from "@space-arena/shared";
 import { wireContentHotReload } from "./core/contentHotReload.js";
 import { recoverFromStaleContentPack } from "./core/contentRecovery.js";
@@ -52,7 +53,6 @@ import { TutorialDirector, type TutorialHost } from "./game/tutorial/TutorialDir
 import { TutorialOverlay, showTutorialToast } from "./game/tutorial/TutorialOverlay.js";
 import { markTutorialCompleted } from "./game/tutorial/tutorialProgress.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
-import { MatchmakingScreen } from "./game/screens/MatchmakingScreen.js";
 import { FullscreenPrompt } from "./game/screens/FullscreenPrompt.js";
 import { MatchLoadingScreen } from "./game/screens/MatchLoadingScreen.js";
 import {
@@ -62,14 +62,10 @@ import {
   type UserSettings,
 } from "./core/userSettings.js";
 import { NetGameSession } from "./net/NetGameSession.js";
-import { MatchmakingClient } from "./net/MatchmakingClient.js";
-import {
-  MatchmakingInterruptedError,
-  searchForMatch,
-} from "./net/MatchmakingSearch.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 import { BotDebugOverlay } from "./game/BotDebugOverlay.js";
 import { AudioManager } from "./audio/AudioManager.js";
+import { MusicController } from "./audio/MusicController.js";
 import { AudioFeedback } from "./audio/AudioFeedback.js";
 import { audioSettingsOf } from "./audio/soundIds.js";
 import { ScreenShake } from "./game/juice/ScreenShake.js";
@@ -119,7 +115,7 @@ function redirectToOfflinePageIfNeeded(): boolean {
 }
 
 /**
- * Everything that lives for exactly one practice match: the authoritative
+ * Everything that lives for exactly one match: the authoritative
  * session, its dynamic views/input, and the HUD. Rebuilt from scratch on
  * "Play again" (§6 1.9) so there's no cross-match state to reset by hand —
  * `dispose()` tears every piece down and the render loop picks up the freshly
@@ -279,10 +275,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // even constructs an AudioContext) until the first user gesture, and does no
   // work at all while muted. Volumes come from localStorage
   // (`sa.volume.master`/`sa.volume.sfx`) with the theme supplying the defaults.
-  const audio = new AudioManager({
-    settings: audioSettingsOf(configService.get<ThemeConfig>("theme", "theme.default")),
-  });
+  const initialAudioSettings = audioSettingsOf(configService.get<ThemeConfig>("theme", "theme.default"));
+  const audio = new AudioManager({ settings: initialAudioSettings });
+  const music = new MusicController(audio, initialAudioSettings.music);
   audio.attachUnlock();
+  music.setScreen("boot");
 
   // Player settings (§10 5.8). One store owns the localStorage overrides; the
   // apply pass below is the ONLY place that turns a setting into behaviour, so
@@ -292,6 +289,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   const userSettings = new UserSettingsStore(undefined, {
     masterVolume: audio.masterVolume,
     sfxVolume: audio.sfxVolume,
+    musicVolume: audio.musicVolume,
   });
 
   // Preload GLB hulls for every ship that configures one (render.model), so
@@ -462,13 +460,14 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         // "Play again" rebuilds the same kind of match from scratch (§6 1.9):
         // no cross-match state survives, so a rematch is a fresh runtime.
         onPlayAgain: () => {
-          const again = lastChoice ?? { kind: "practice" as const, gamemode: "gamemode.practice-bots-1v1" };
+          const again = lastChoice ?? { kind: "online" as const, gamemode: "gamemode.practice-bots-1v1" };
           endMatch();
           void launchChoice(again);
         },
         onMenu: () => {
           log.info("match over — returning to lobby");
           endMatch();
+          music.setScreen("menu");
           lobby.show();
         },
         onMvp: (entityId) => {
@@ -500,7 +499,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       if (import.meta.env.DEV) netOverlay = new NetDebugOverlay(session);
     }
 
-    // Offline practice with bots: DEV-only Behavior Editor overlay (5.3) —
+    // Offline Tutorial bots: DEV-only Behavior Editor overlay (5.3) —
     // per-bot utility/behaviour cards plus move-point and LoS lines (F8).
     const botOverlay =
       import.meta.env.DEV && session.bots.size > 0 ? new BotDebugOverlay(scene, session) : null;
@@ -574,6 +573,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     quality.applyOverride(values.quality);
     audio.setMasterVolume(values.masterVolume, { persist: false });
     audio.setSfxVolume(values.sfxVolume, { persist: false });
+    audio.setMusicVolume(values.musicVolume, { persist: false });
     tacticalCamera.setPanSensitivityScale(values.cameraPanSens);
     tacticalCamera.setChaseDistanceScale(values.cameraDistanceScale);
     runtime?.screenShake.setUserEnabled(values.cameraShake);
@@ -627,6 +627,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    * which is why the pause is conditional rather than unconditional.
    */
   function openSettings(context: "menu" | "match"): void {
+    music.setScreen(context === "match" ? "match" : "menu");
     const pauseable = context === "match" && runtime !== null && !(runtime.session instanceof NetGameSession);
     if (pauseable) {
       pausedBySettings = true;
@@ -650,6 +651,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
               // still waiting on a throttle nobody can push is a dead end.
               tutorial?.skip();
               endMatch();
+              music.setScreen("menu");
               lobby.show();
             }
           : undefined,
@@ -663,7 +665,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // its own colors/layout/haptics; camera shake listens for `camera.*` itself).
   bus.on("config:changed", (evt) => {
     if (evt.type !== "theme") return;
-    audio.applySettings(audioSettingsOf(configService.get<ThemeConfig>("theme", "theme.default")));
+    const settings = audioSettingsOf(configService.get<ThemeConfig>("theme", "theme.default"));
+    audio.applySettings(settings);
+    music.applySettings(settings.music);
     runtime?.viewManager.refreshJuice();
     runtime?.audioFeedback.refresh();
   });
@@ -681,21 +685,25 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         // Log out: drop the session and fall back to the auth gate.
         authService.logout();
         lobby.hide();
+        music.setScreen("menu");
         authScreen.show();
       },
       onAccountRequested: (tab) => {
         lobby.hide();
+        music.setScreen("menu");
         authScreen.show();
         if (tab === "register") authScreen.showRegisterTab();
         else authScreen.showLoginTab();
       },
       onHangarRequested: () => {
         lobby.hide();
+        music.setScreen("hangar");
         hangar.show();
         tutorial?.noteScreen("hangar");
       },
       onShopRequested: () => {
         lobby.hide();
+        music.setScreen("shop");
         shop.show();
         tutorial?.noteScreen("shop");
       },
@@ -707,21 +715,6 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   );
   lobby.hide();
 
-  const matchmakingClient = new MatchmakingClient(authService);
-  let matchmakingRun = 0;
-  let retryMatchmakingChoice: Extract<LobbyChoice, { kind: "matchmaking" }> | null = null;
-  const matchmakingScreen = new MatchmakingScreen(
-    document.body,
-    configService,
-    {
-      onCancel: () => void leaveMatchmaking(),
-      onBack: () => leaveMatchmaking(false),
-      onRetry: () => {
-        if (retryMatchmakingChoice) void startMatchmaking(retryMatchmakingChoice);
-      },
-    },
-    bus,
-  );
   const matchLoading = new MatchLoadingScreen(document.body, configService, bus);
 
   const settingsScreen = new SettingsScreen(document.body, {
@@ -743,6 +736,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     tacticalCamera,
     () => {
       hangar.hide();
+      music.setScreen("menu");
       lobby.show();
     },
     quality.current.particles,
@@ -756,6 +750,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     {
       onClose: () => {
         shop.hide();
+        music.setScreen("menu");
         lobby.show();
       },
     },
@@ -792,6 +787,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           leaveTutorialMatch();
           hangar.hide();
           shop.hide();
+          music.setScreen("menu");
           lobby.show();
           tutorial?.noteScreen("lobby");
           break;
@@ -799,6 +795,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           leaveTutorialMatch();
           lobby.hide();
           shop.hide();
+          music.setScreen("hangar");
           // Re-showing an open screen would rebuild its preview under the
           // player's hands; the step that sent them here already opened it.
           if (!hangar.isOpen) hangar.show();
@@ -808,6 +805,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           leaveTutorialMatch();
           lobby.hide();
           hangar.hide();
+          music.setScreen("shop");
           if (!shop.isOpen) shop.show();
           tutorial?.noteScreen("shop");
           break;
@@ -833,6 +831,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       if (runtime) endMatch();
       hangar.hide();
       shop.hide();
+      music.setScreen("menu");
       lobby.show();
     },
   };
@@ -877,12 +876,13 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     lobby.hide();
     hangar.hide();
     shop.hide();
+    music.setScreen("match");
     matchLoading.showPending("Building flight school");
     try {
       const authState = authService.getState();
       const session = new GameSession(
         configService,
-        config.arena ?? practiceArena(config.gamemode) ?? FALLBACK_ARENA_ID,
+        config.arena ?? gamemodeArena(config.gamemode) ?? FALLBACK_ARENA_ID,
         config.gamemode,
         1,
         {
@@ -897,6 +897,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       tutorial?.attachMatch(session);
     } catch (err) {
       matchLoading.hide();
+      music.setScreen("menu");
       log.error("failed to start the tutorial match", err);
       lobby.showError(err instanceof Error ? err.message : "Could not start the tutorial");
       tutorial?.skip();
@@ -909,12 +910,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     () => {
       authScreen.hide();
       if (new URLSearchParams(window.location.search).has("editor")) void openConstellation();
-      else lobby.show();
+      else {
+        music.setScreen("menu");
+        lobby.show();
+      }
     },
     () => {
-      // "Skip (offline practice)": go straight to the Lobby, still anonymous
-      // (its online buttons stay disabled — practice works without auth).
+      // Skip goes to the Lobby anonymously; online modes remain disabled, while
+      // the offline Tutorial is still available.
       authScreen.hide();
+      music.setScreen("menu");
       lobby.show();
     },
     configService,
@@ -928,13 +933,17 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       const [{ ConstellationApp }, { AdminContentRepository }] = await Promise.all([
         import("./editor/ConstellationApp.js"), import("./editor/repository/AdminContentRepository.js"),
       ]);
-      lobby.hide(); authScreen.hide();
-      constellation = new ConstellationApp(new AdminContentRepository(authService), () => { constellation = null; lobby.show(); });
+      lobby.hide(); authScreen.hide(); music.setScreen("shop");
+      constellation = new ConstellationApp(new AdminContentRepository(authService), () => {
+        constellation = null;
+        music.setScreen("menu");
+        lobby.show();
+      });
       await constellation.open();
     } catch (error) {
       log.warn("Constellation access denied or unavailable", error);
-      if (authService.getState().status !== "authed") { lobby.hide(); authScreen.show(); return; }
-      lobby.showError(error instanceof Error ? error.message : "Admin access required"); lobby.show();
+      if (authService.getState().status !== "authed") { lobby.hide(); music.setScreen("menu"); authScreen.show(); return; }
+      music.setScreen("menu"); lobby.showError(error instanceof Error ? error.message : "Admin access required"); lobby.show();
     }
   }
   async function installDesignToolsEntry(): Promise<void> {
@@ -977,17 +986,19 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   } else {
     log.warn(`game server unreachable: ${health.detail}`);
     boot?.settle("server", "warn", health.detail);
-    boot?.note(`${SERVER_OFFLINE_MESSAGE} — offline practice still works.`, "warn");
+    boot?.note(`${SERVER_OFFLINE_MESSAGE} — the Tutorial is still available.`, "warn");
   }
 
   if (authService.getState().status === "authed" || !health.online) {
     // No reachable server means the auth gate has exactly one working control
     // (the "Skip" link) — a static host (GitHub Pages) or a dead server should
-    // land the player straight in the Lobby, where practice works anonymously,
+    // land the player straight in the Lobby, where the Tutorial works anonymously,
     // the SERVER OFFLINE badge explains the disabled online modes, and the
     // "Log in / Sign up" link reopens the gate if the server comes back.
+    music.setScreen("menu");
     lobby.show();
   } else {
+    music.setScreen("menu");
     authScreen.show();
   }
   // Hold the boot screen a beat longer when it has bad news, so the player reads
@@ -1018,7 +1029,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       startTutorial();
       return;
     }
-    if (choice.kind !== "practice" && !serverHealth.current.online) {
+    if (!serverHealth.current.online) {
       lobby.setBusy(true, "Checking server…");
       const health = await serverHealth.refresh();
       if (!health.online) {
@@ -1026,80 +1037,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         return;
       }
     }
-    if (choice.kind === "matchmaking") await startMatchmaking(choice);
-    else await startMatch(choice);
-  }
-
-  function matchmakingTiming(): { pollMs: number; foundBeatMs: number } {
-    const authored = configService.get<ThemeConfig>("theme", "theme.default")?.menu?.matchmaking;
-    return {
-      pollMs: authored?.pollIntervalMs ?? 2000,
-      foundBeatMs: authored?.foundBeatMs ?? 900,
-    };
-  }
-
-  function leaveMatchmaking(cancelServer = true): void {
-    matchmakingRun++;
-    retryMatchmakingChoice = null;
-    matchmakingScreen.hide();
-    lobby.show();
-    if (cancelServer) void matchmakingClient.cancel().catch(() => undefined);
-  }
-
-  async function startMatchmaking(choice: Extract<LobbyChoice, { kind: "matchmaking" }>): Promise<void> {
-    const run = ++matchmakingRun;
-    retryMatchmakingChoice = choice;
-    lobby.hide();
-    matchmakingScreen.begin();
-    try {
-      const joinOptions = hangarJoinOptions();
-      const status = await searchForMatch(matchmakingClient, {
-        mode: choice.mode,
-        joinOptions,
-        pollMs: () => matchmakingTiming().pollMs,
-        isActive: () => run === matchmakingRun,
-      });
-      if (run !== matchmakingRun || !status) return;
-
-      matchmakingScreen.found(status.opponentName);
-      await waitMs(matchmakingTiming().foundBeatMs);
-      if (run !== matchmakingRun) return;
-      matchmakingScreen.joining();
-      matchLoading.showPending("Joining arena");
-
-      const session = await NetGameSession.join(
-        configService,
-        { gamemode: choice.gamemode, ...joinOptions },
-        { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
-        status.reservation,
-      );
-      if (run !== matchmakingRun) {
-        session.dispose();
-        return;
-      }
-      await prepareSessionArena(session);
-      if (run !== matchmakingRun) {
-        session.dispose();
-        return;
-      }
-      await matchLoading.dismiss();
-      if (run !== matchmakingRun) {
-        session.dispose();
-        return;
-      }
-      activateSession(session, choice);
-    } catch (err) {
-      if (run !== matchmakingRun) return;
-      log.error("matchmaking failed", err);
-      matchLoading.hide();
-      if (err instanceof MatchmakingInterruptedError) {
-        matchmakingScreen.interrupted();
-        return;
-      }
-      matchmakingScreen.serverLost();
-      lobby.setServerOnline(false, "matchmaking connection failed");
-      reprobeServerHealth();
-    }
+    await startMatch(choice);
   }
 
   /**
@@ -1112,54 +1050,31 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     void serverHealth.refresh();
   }
 
-  /** Arena a practice gamemode wants (its `defaultArena`), if it names one. */
-  function practiceArena(gamemodeId?: string): string | undefined {
-    if (!gamemodeId) return undefined;
+  function gamemodeArena(gamemodeId: string): string | undefined {
     return configService.get<GamemodeConfig>("gamemode", gamemodeId)?.defaultArena;
   }
 
-  async function startMatch(choice: Extract<LobbyChoice, { kind: "practice" } | { kind: "online" }>): Promise<void> {
+  async function startMatch(choice: Extract<LobbyChoice, { kind: "online" }>): Promise<void> {
     lobby.hide();
     hangar.hide();
-    matchLoading.showPending(choice.kind === "practice" ? "Building practice arena" : "Joining arena");
+    music.setScreen("match");
+    matchLoading.showPending("Joining arena");
     try {
-      // Resolve the gamemode FIRST so the arena lookup sees the same id the
-      // session runs.
-      const practiceMode = choice.gamemode;
-      const hangar = loadHangarSelection();
-      const authState = authService.getState();
-      const session =
-        choice.kind === "practice"
-          ? new GameSession(configService, practiceArena(practiceMode) ?? FALLBACK_ARENA_ID, practiceMode, 1, {
-              // Offline practice flies the Hangar's loadout too (owner
-              // 2026-07-31) — including edits that were never saved to a named
-              // fitting, which an online room cannot accept on trust.
-              playerShipId: hangar.shipId,
-              playerFitting: hangar.moduleIds,
-              // The paint equipped on the hull being flown; the sim gates it.
-              playerCosmeticId: hangar.shipId ? ownership.selectedCosmetic(hangar.shipId) : null,
-              playerDisplayName: authState.status === "authed"
-                ? authState.profile.displayName
-                : "Pilot",
-            })
-          : await NetGameSession.join(
-              configService,
-              {
-                gamemode: choice.gamemode,
-                ...hangarJoinOptions(),
-                ...choice.options,
-                token: authService.getAccessToken() ?? undefined,
-              },
-              // Client-only prediction hint — deliberately NOT part of the join
-              // options (those go over the wire); the server resolves its own
-              // upgrade levels from the DB. See LocalPredictionHints.
-              { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
-            );
+      const session = await NetGameSession.join(
+        configService,
+        {
+          gamemode: choice.gamemode,
+          ...hangarJoinOptions(),
+          token: authService.getAccessToken() ?? undefined,
+        },
+        { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
+      );
       await prepareSessionArena(session);
       await matchLoading.dismiss();
       activateSession(session, choice);
     } catch (err) {
       matchLoading.hide();
+      music.setScreen("menu");
       log.error("failed to start match", err);
       // "Nothing answered" is a different fact from "the server said no", and
       // only the second one has a message worth showing. The first used to reach
@@ -1187,6 +1102,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   /** Activate a session whose arena assets have already been prepared. */
   function activateSession(session: GameSession, choice: LobbyChoice): void {
+    music.setScreen("match");
     runtime = createMatchRuntime(session);
     lastChoice = choice;
     applyUserSettings();
@@ -1194,7 +1110,6 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     telemetry.beginMatch();
     lobby.hide();
     hangar.hide();
-    matchmakingScreen.hide();
   }
 
   // --- Fixed-timestep sim loop (30 Hz), driven by render delta ---
@@ -1348,6 +1263,27 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       setSpawnMarkersForced: (forced: boolean) => {
         sceneBuilder.setSpawnMarkerOverride(forced ? true : null);
       },
+      setPropPickingForced: (forced: boolean) => {
+        sceneBuilder.setPropPickingOverride(forced);
+      },
+      launchPlaytest: async (arenaId: string, gamemodeId: string) => {
+        const arena = configService.get("arena", arenaId);
+        const mode = configService.get<GamemodeConfig>("gamemode", gamemodeId);
+        if (!arena || !mode) throw new Error("Playtest arena or gamemode is missing");
+        const validation = arenaSchema.safeParse(arena);
+        if (!validation.success) throw new Error(validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+        editorShell?.close();
+        matchLoading.showPending("Building editor playtest");
+        try {
+          const session = new GameSession(configService, arenaId, gamemodeId, 1);
+          await prepareSessionArena(session);
+          await matchLoading.dismiss();
+          activateSession(session, { kind: "tutorial" });
+        } catch (error) {
+          matchLoading.hide();
+          throw error;
+        }
+      },
       suspendCameraGestures: (suspended: boolean) => {
         tacticalCamera.setGesturesSuspended(suspended);
       },
@@ -1431,11 +1367,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   window.addEventListener("beforeunload", () => {
     tutorialOverlay?.dispose();
     runtime?.dispose();
+    music.dispose();
     audio.dispose();
     settingsScreen.dispose();
     userSettings.dispose();
     hangar.dispose();
-    matchmakingScreen.dispose();
     matchLoading.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();
@@ -1443,9 +1379,6 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   });
 }
 
-function waitMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** Linear scan (no per-frame closure allocation) for a ship by id. */
 function playerShip(ships: readonly ShipSnapshot[], id: EntityId): ShipSnapshot | undefined {

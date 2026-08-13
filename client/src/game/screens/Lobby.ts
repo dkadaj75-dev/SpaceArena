@@ -1,6 +1,5 @@
 import {
   createLogger,
-  menuSectionOf,
   type ConfigEvents,
   type ConfigService,
   type EventBus,
@@ -23,16 +22,13 @@ const THEME_ID = "theme.default";
 export const OFFLINE_HEALTH_REFRESH_MS = 10_000;
 
 export type LobbyChoice =
-  /** Offline bot practice. Every choice names its concrete gamemode. */
-  | { kind: "practice"; gamemode: string }
   /** Flight school (offline, no rewards) — its own entry, not a practice row. */
   | { kind: "tutorial" }
-  | { kind: "online"; gamemode: string; options?: { minPlayers?: number } }
-  | { kind: "matchmaking"; mode: "duel-1v1"; gamemode: "gamemode.duel-1v1" };
+  | { kind: "online"; gamemode: string };
 
 interface TrackedButton {
   el: HTMLButtonElement;
-  /** Online buttons are disabled while anonymous (§8 3.3: practice always works offline). */
+  /** Online buttons are disabled while anonymous; Tutorial remains offline. */
   online: boolean;
 }
 
@@ -48,9 +44,8 @@ export interface LobbyCallbacks {
 }
 
 /**
- * The tutorial's own menu entry (owner 2026-08-08). It heads the Practice
- * section rather than living in a section of its own: onboarding IS practice,
- * and a first-time pilot reads down from the top.
+ * The tutorial's own menu entry heads the single Play list; all following mode
+ * rows are online and share one launch path.
  */
 const TUTORIAL_LABEL = "Tutorial";
 
@@ -154,38 +149,22 @@ export class Lobby {
   }
 
   /**
-   * Play sections. Practice modes (anything offline-capable) come first because
-   * they work without an account; online modes are grouped under their own
-   * heading, and the Hangar sits in its own accent-marked section since it is a
-   * destination rather than a match.
+   * One Play list: offline Tutorial first, followed by every online gamemode.
+   * Fleet destinations keep their own accent-marked section.
    */
   private buildSections(): void {
     const gamemodes = this.configs.getAll<GamemodeConfig>("gamemode");
 
-    const practice = this.section("Practice", "primary");
+    const play = this.section("Play", "primary");
     // Onboarding first, and only when the pack actually ships one: the tutorial
     // is a content config, so a pack without it simply has no button.
     if (this.hasTutorial()) {
-      this.addButton(practice, TUTORIAL_LABEL, () => this.choose({ kind: "tutorial" }), false, undefined, "tutorial");
+      this.addButton(play, TUTORIAL_LABEL, () => this.choose({ kind: "tutorial" }), false, undefined, "tutorial");
     }
-    // Any gamemode the pack files under Practice (by default: one declaring a
-    // bot roster) is an offline mode.
+    play.append(this.offlineBadge);
     for (const gm of gamemodes) {
-      if (menuSectionOf(gm) !== "practice") continue;
-      // The gamemode's own name is the label — a pack that adds an offline mode
-      // gets a menu entry with no code change (and no invented suffix).
-      this.addButton(practice, gm.name ?? gm.id, () => this.choose({ kind: "practice", gamemode: gm.id }), false);
-    }
-
-    const online = this.section("Online", "primary");
-    online.append(this.offlineBadge);
-    for (const gm of gamemodes) {
-      if (menuSectionOf(gm) !== "online") continue;
-      const choice: LobbyChoice =
-        gm.id === "gamemode.duel-1v1"
-          ? { kind: "matchmaking", mode: "duel-1v1", gamemode: "gamemode.duel-1v1" }
-          : { kind: "online", gamemode: gm.id };
-      this.addButton(online, `${gm.name ?? gm.id}`, () => this.choose(choice), true);
+      if (gm.launch === "offline") continue;
+      this.addButton(play, gm.name ?? gm.id, () => this.choose({ kind: "online", gamemode: gm.id }), true);
     }
 
     const fleet = this.section("Fleet", "accent");

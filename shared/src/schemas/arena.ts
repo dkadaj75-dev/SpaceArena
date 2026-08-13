@@ -16,7 +16,8 @@ export interface ArenaWireIssue {
 export function arenaWireBoundsIssues(
   bounds:
     | { shape: "sphere"; radius: number; floorY?: number }
-    | { shape: "rect"; width: number; height: number; verticalExtent: number },
+    | { shape: "rect"; width: number; height: number; verticalExtent: number }
+    | { shape: "box"; width: number; height: number; floorY: number; ceilingY: number },
 ): ArenaWireIssue[] {
   if (bounds.shape === "sphere") {
     return bounds.radius > WIRE_POSITION_LIMIT
@@ -27,15 +28,14 @@ export function arenaWireBoundsIssues(
       : [];
   }
   const issues: ArenaWireIssue[] = [];
-  for (const [key, extent] of [
-    ["width", bounds.width],
-    ["height", bounds.height],
-    ["verticalExtent", bounds.verticalExtent],
-  ] as const) {
-    if (extent / 2 > WIRE_POSITION_LIMIT) {
+  const extents = bounds.shape === "box"
+    ? [["width", bounds.width / 2], ["height", bounds.height / 2], ["floorY", Math.abs(bounds.floorY)], ["ceilingY", Math.abs(bounds.ceilingY)]] as const
+    : [["width", bounds.width / 2], ["height", bounds.height / 2], ["verticalExtent", bounds.verticalExtent / 2]] as const;
+  for (const [key, extent] of extents) {
+    if (extent > WIRE_POSITION_LIMIT) {
       issues.push({
         path: ["bounds", key],
-        message: `half extent must not exceed the wire limit ${WIRE_POSITION_LIMIT}`,
+        message: `extent must not exceed the wire limit ${WIRE_POSITION_LIMIT}`,
       });
     }
   }
@@ -50,7 +50,8 @@ export function arenaWireBoundsIssues(
 export function arenaWireEnvelopeIssues(
   bounds:
     | { shape: "sphere"; radius: number; floorY?: number }
-    | { shape: "rect"; width: number; height: number; verticalExtent: number },
+    | { shape: "rect"; width: number; height: number; verticalExtent: number }
+    | { shape: "box"; width: number; height: number; floorY: number; ceilingY: number },
   margin: number,
 ): ArenaWireIssue[] {
   const issues: ArenaWireIssue[] = [];
@@ -62,12 +63,11 @@ export function arenaWireEnvelopeIssues(
       });
     }
   } else {
-    for (const [key, extent] of [
-      ["width", bounds.width],
-      ["height", bounds.height],
-      ["verticalExtent", bounds.verticalExtent],
-    ] as const) {
-      if (extent / 2 + margin > WIRE_POSITION_LIMIT) {
+    const extents = bounds.shape === "box"
+      ? [["width", bounds.width / 2], ["height", bounds.height / 2], ["floorY", Math.abs(bounds.floorY)], ["ceilingY", Math.abs(bounds.ceilingY)]] as const
+      : [["width", bounds.width / 2], ["height", bounds.height / 2], ["verticalExtent", bounds.verticalExtent / 2]] as const;
+    for (const [key, extent] of extents) {
+      if (extent + margin > WIRE_POSITION_LIMIT) {
         issues.push({
           path: ["bounds", key],
           message: `half extent plus projectile margin (${margin}) must not exceed the wire limit ${WIRE_POSITION_LIMIT}`,
@@ -96,6 +96,13 @@ export const arenaBounds = z
       height: z.number().positive(),
       verticalExtent: z.number().positive(),
     }),
+    z.object({
+      shape: z.literal("box"),
+      width: z.number().positive(),
+      height: z.number().positive(),
+      floorY: z.number(),
+      ceilingY: z.number(),
+    }),
   ])
   .superRefine((bounds, ctx) => {
     if (bounds.shape === "sphere" && bounds.floorY !== undefined && (bounds.floorY <= -bounds.radius || bounds.floorY > 0)) {
@@ -104,6 +111,9 @@ export const arenaBounds = z
         path: ["floorY"],
         message: "floorY must be greater than -radius and at most 0",
       });
+    }
+    if (bounds.shape === "box" && bounds.ceilingY <= bounds.floorY) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ceilingY"], message: "ceilingY must be greater than floorY" });
     }
   });
 export type ArenaBounds = z.infer<typeof arenaBounds>;
@@ -115,6 +125,19 @@ const asteroidPlacement = z.object({
   position: vec3,
   rotation: z.number().optional(),
   scale: z.number().positive().optional(),
+});
+
+const propPlacement = z.object({
+  propId: z.string(),
+  position: vec3,
+  rotation: z.object({ y: z.number().optional(), x: z.number().optional(), z: z.number().optional() }).optional(),
+  scale: z.number().positive().optional(),
+  locked: z.boolean().optional(),
+});
+
+const navGraph = z.object({
+  nodes: z.array(z.object({ id: z.string(), position: vec3, hub: z.boolean().optional() })),
+  links: z.array(z.tuple([z.string(), z.string()])),
 });
 
 const spawnPoint = z.object({
@@ -229,6 +252,8 @@ export const arenaSchema = z
     ...baseShape("arena"),
     bounds: arenaBounds,
     asteroidPlacements: z.array(asteroidPlacement),
+    propPlacements: z.array(propPlacement).optional(),
+    navGraph: navGraph.optional(),
     spawnPoints: z.array(spawnPoint).min(1),
     /** Per-team flag bases; required only by capture-the-flag gamemodes. */
     flagBases: z.array(flagBase).optional(),
@@ -257,11 +282,12 @@ export const arenaSchema = z
 
     arena.spawnPoints.forEach((spawn, index) => {
       const y = spawn.position.y ?? 0;
-      const inside =
-        arena.bounds.shape === "sphere"
+      const inside = arena.bounds.shape === "sphere"
           ? Math.hypot(spawn.position.x, y, spawn.position.z) <= arena.bounds.radius &&
             (arena.bounds.floorY === undefined || y >= arena.bounds.floorY)
-          : Math.abs(spawn.position.x) <= arena.bounds.width / 2 &&
+          : arena.bounds.shape === "box"
+            ? Math.abs(spawn.position.x) <= arena.bounds.width / 2 && Math.abs(spawn.position.z) <= arena.bounds.height / 2 && y >= arena.bounds.floorY && y <= arena.bounds.ceilingY
+            : Math.abs(spawn.position.x) <= arena.bounds.width / 2 &&
             Math.abs(spawn.position.z) <= arena.bounds.height / 2 &&
             Math.abs(y) <= arena.bounds.verticalExtent / 2;
       if (!inside) {
@@ -272,6 +298,20 @@ export const arenaSchema = z
         });
       }
     });
+
+    if (arena.navGraph) {
+      const ids = new Set<string>();
+      arena.navGraph.nodes.forEach((node, index) => {
+        if (ids.has(node.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["navGraph", "nodes", index, "id"], message: "nav node ids must be unique" });
+        ids.add(node.id);
+      });
+      arena.navGraph.links.forEach((link, index) => {
+        if (link[0] === link[1]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["navGraph", "links", index], message: "nav links must not be self-links" });
+        for (let endpoint = 0; endpoint < 2; endpoint++) if (!ids.has(link[endpoint]!)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["navGraph", "links", index, endpoint], message: "nav link must reference an existing node id" });
+        }
+      });
+    }
 
     const sun = arena.render?.skybox.sun;
     if (sun && Math.abs(sunDirLength(sun.dir) - 1) > SUN_DIR_UNIT_TOLERANCE) {

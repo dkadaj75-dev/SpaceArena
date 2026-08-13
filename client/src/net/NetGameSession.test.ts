@@ -20,11 +20,20 @@ import {
   boostMult,
   decodeCosmeticId,
   decodeModules,
+  decodeRoomPhase,
   sampledVelocity,
   snapPrediction,
   FlightReconciler,
   type PredictedFlight,
 } from "./NetGameSession.js";
+
+describe("online room phase", () => {
+  it("keeps the lobby distinct from the authoritative 3-2-1 countdown", () => {
+    expect(decodeRoomPhase("waiting", 3)).toBe("waiting");
+    expect(decodeRoomPhase("live", 3)).toBe("countdown");
+    expect(decodeRoomPhase("live", 0)).toBe("live");
+  });
+});
 
 /**
  * Sol review Finding 2 (HIGH) regression coverage: the replicated

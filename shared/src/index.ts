@@ -5,5 +5,8 @@ export * from "./constants.js";
 export * from "./content/index.js";
 export * from "./schemas/index.js";
 export * from "./sim/index.js";
+export * from "./collision/base64.js";
+export * from "./collision/bvh.js";
+export * from "./collision/staticWorld.js";
 export * from "./bots/index.js";
 export * from "./net/index.js";

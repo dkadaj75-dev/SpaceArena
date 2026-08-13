@@ -5,7 +5,11 @@ import { describe, expect, it } from "vitest";
 import { arenaSchema, type ArenaConfig } from "./arena.js";
 import { asteroidSchema, type AsteroidConfig } from "./asteroid.js";
 import { gamemodeSchema } from "./gamemode.js";
+import { propSchema, type PropConfig } from "./prop.js";
 import { shipSchema } from "./ship.js";
+import { tuningSchema } from "./tuning.js";
+import { ConfigService } from "../core/ConfigService.js";
+import { DEFAULT_PROJECTILE_BOUNDS_MARGIN, WIRE_POSITION_LIMIT } from "./arena.js";
 
 type Vec3 = { x: number; y?: number; z: number };
 type ShippedArena = {
@@ -204,4 +208,150 @@ describe("shipped CTF spawn capacity and clearance", () => {
       }
     });
   }
+});
+
+describe("shipped canyon arena geometry", () => {
+  const arena = arenaSchema.parse(loadJson(`${CONTENT_ROOT}arenas/lunar-rift.json`));
+  const props = new Map<string, PropConfig>(
+    readdirSync(`${CONTENT_ROOT}props/`, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => {
+        const prop = propSchema.parse(loadJson(`${CONTENT_ROOT}props/${entry.name}`));
+        return [prop.id, prop] as const;
+      }),
+  );
+  const propPlacements = arena.propPlacements ?? [];
+  const tolerance = 1e-3;
+  const twinOf = (position: Required<Vec3>) => ({ x: -position.x, y: position.y, z: -position.z });
+  const hasTwin = (positions: readonly Required<Vec3>[], position: Required<Vec3>) =>
+    positions.some((candidate) => distance(candidate, twinOf(position)) <= tolerance);
+
+  it("pins the generated placement count and preserves 180-degree placement symmetry", () => {
+    expect(arena.bounds.shape).toBe("box");
+    expect(propPlacements).toHaveLength(114);
+    const placements = propPlacements.map((placement) => ({
+      propId: placement.propId,
+      position: positionOf(placement.position),
+      category: props.get(placement.propId)?.category,
+    }));
+
+    for (const placement of placements) {
+      // Terrain chunks tile the grid one cell at a time. They intentionally do
+      // not use paired placement records; all authored gameplay props do.
+      if (placement.category === "terrain") continue;
+      expect(
+        placements.some((candidate) => distance(candidate.position, twinOf(placement.position)) <= tolerance),
+        `${placement.propId} at ${JSON.stringify(placement.position)} needs its 180-degree twin`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps spawns, flags, and nav nodes point-symmetric", () => {
+    const spawns = arena.spawnPoints;
+    for (const spawn of spawns) {
+      const twin = spawns.find((candidate) =>
+        candidate.team !== spawn.team && distance(positionOf(candidate.position), twinOf(positionOf(spawn.position))) <= tolerance,
+      );
+      expect(twin, `${spawn.id} needs a team-swapped twin`).toBeDefined();
+      if (!twin) continue;
+      const headingDelta = ((twin.heading - spawn.heading - Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+      expect(Math.min(headingDelta, Math.PI * 2 - headingDelta), `${spawn.id} twin heading`).toBeLessThanOrEqual(tolerance);
+    }
+
+    for (const flag of arena.flagBases ?? []) {
+      expect(
+        (arena.flagBases ?? []).some((candidate) => candidate.team !== flag.team && distance(positionOf(candidate.position), twinOf(positionOf(flag.position))) <= tolerance),
+        `${flag.id} needs a team-swapped twin`,
+      ).toBe(true);
+    }
+
+    const nodes = arena.navGraph?.nodes ?? [];
+    for (const node of nodes) {
+      expect(hasTwin(nodes.map((candidate) => positionOf(candidate.position)), positionOf(node.position)), `${node.id} needs a 180-degree twin`).toBe(true);
+    }
+  });
+
+  it("has CTF spawn capacity, collider clearance, and strictly in-bounds objectives", () => {
+    if (arena.bounds.shape !== "box") throw new Error("lunar-rift must remain a box arena");
+    const ctfModes = readdirSync(`${CONTENT_ROOT}gamemodes/`, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => gamemodeSchema.parse(loadJson(`${CONTENT_ROOT}gamemodes/${entry.name}`)))
+      .filter((mode) => mode.ctf !== undefined && mode.defaultArena === arena.id);
+    expect(ctfModes.length).toBeGreaterThan(0);
+    for (const mode of ctfModes) {
+      const teamSize = Number.parseInt(mode.teams, 10);
+      for (const team of [0, 1]) {
+        expect(arena.spawnPoints.filter((spawn) => spawn.team === team).length, `${mode.id} team ${team} capacity`).toBeGreaterThanOrEqual(teamSize);
+      }
+    }
+    for (let index = 0; index < arena.spawnPoints.length; index++) {
+      const point = positionOf(arena.spawnPoints[index]!.position);
+      for (let other = 0; other < index; other++) {
+        expect(distance(point, positionOf(arena.spawnPoints[other]!.position)), `spawns ${other}/${index} clearance`).toBeGreaterThanOrEqual(maxShipDiameter);
+      }
+    }
+    for (const point of [...arena.spawnPoints.map((spawn) => positionOf(spawn.position)), ...(arena.flagBases ?? []).map((flag) => positionOf(flag.position))]) {
+      expect(Math.abs(point.x)).toBeLessThan(arena.bounds.width / 2);
+      expect(Math.abs(point.z)).toBeLessThan(arena.bounds.height / 2);
+      expect(point.y).toBeGreaterThan(arena.bounds.floorY);
+      expect(point.y).toBeLessThan(arena.bounds.ceilingY);
+    }
+  });
+
+  it("connects the flag-base nearest nav nodes", () => {
+    const graph = arena.navGraph;
+    const flags = arena.flagBases;
+    expect(graph).toBeDefined();
+    expect(flags).toHaveLength(2);
+    if (!graph || !flags || flags.length !== 2) return;
+    const nearest = (point: Required<Vec3>) => graph.nodes.reduce((best, node) =>
+      distance(positionOf(node.position), point) < distance(positionOf(best.position), point) ? node : best,
+    );
+    const adjacency = new Map(graph.nodes.map((node) => [node.id, new Set<string>()]));
+    for (const [from, to] of graph.links) {
+      adjacency.get(from)!.add(to);
+      adjacency.get(to)!.add(from);
+    }
+    const start = nearest(positionOf(flags[0]!.position)).id;
+    const goal = nearest(positionOf(flags[1]!.position)).id;
+    const visited = new Set([start]);
+    const queue = [start];
+    for (const current of queue) {
+      for (const next of adjacency.get(current) ?? []) {
+        if (!visited.has(next)) { visited.add(next); queue.push(next); }
+      }
+    }
+    expect(visited.has(goal), `${start} must reach ${goal}`).toBe(true);
+  });
+
+  it("keeps authored box coordinates inside the projectile wire envelope", () => {
+    const tuning = tuningSchema.parse(loadJson(`${CONTENT_ROOT}tuning/default.json`));
+    const limit = WIRE_POSITION_LIMIT - (tuning.projectileBoundsMargin ?? DEFAULT_PROJECTILE_BOUNDS_MARGIN);
+    if (arena.bounds.shape !== "box") throw new Error("lunar-rift must remain a box arena");
+    for (const extent of [arena.bounds.width / 2, arena.bounds.height / 2, Math.abs(arena.bounds.floorY), Math.abs(arena.bounds.ceilingY)]) {
+      expect(extent).toBeLessThanOrEqual(limit);
+    }
+    const points = [
+      ...propPlacements.map((placement) => positionOf(placement.position)),
+      ...arena.spawnPoints.map((spawn) => positionOf(spawn.position)),
+      ...(arena.flagBases ?? []).map((flag) => positionOf(flag.position)),
+      ...(arena.navGraph?.nodes ?? []).map((node) => positionOf(node.position)),
+    ];
+    for (const point of points) {
+      expect(Math.abs(point.x)).toBeLessThanOrEqual(limit);
+      expect(Math.abs(point.y)).toBeLessThanOrEqual(limit);
+      expect(Math.abs(point.z)).toBeLessThanOrEqual(limit);
+    }
+  });
+
+  it("loads every referenced collision prop through ConfigService", async () => {
+    const configs = new ConfigService((rel) => Promise.resolve(loadJson(`${CONTENT_ROOT}${rel}`)));
+    const result = await configs.load("manifest.json");
+    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
+    for (const placement of propPlacements) {
+      const prop = configs.get<PropConfig>("prop", placement.propId);
+      expect(prop, `${placement.propId} must be registered`).toBeDefined();
+      if (prop?.collision) expect(prop.collision.bounds).toBeDefined();
+    }
+  });
 });

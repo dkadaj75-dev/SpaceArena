@@ -58,6 +58,7 @@ export function resolveBackfillBot(
 export function teamSizeOf(gamemode: GamemodeConfig): number {
   switch (gamemode.teams) {
     case "10v10": return 10;
+    case "5v5": return 5;
     case "2v2": return 2;
     default: return 1;
   }

@@ -2,6 +2,7 @@ import type {
   ActionConfig,
   AudioConfig,
   EntityId,
+  MusicScreen,
   ModuleConfig,
   SimEvent,
   ThemeConfig,
@@ -124,7 +125,33 @@ export interface AudioSettings {
   maxVoices: number;
   retriggerGapMs: number;
   cues: AudioCueMap;
+  music: MusicSettings;
 }
+
+export interface MusicTrackSettings {
+  src: string;
+  volume: number;
+  loop: boolean;
+  license?: string;
+}
+
+export interface MusicSettings {
+  enabled: boolean;
+  defaultVolume: number;
+  fadeInSec: number;
+  fadeOutSec: number;
+  tracks: Record<string, MusicTrackSettings>;
+  screens: Record<MusicScreen, string | null>;
+}
+
+export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
+  enabled: true,
+  defaultVolume: 0.5,
+  fadeInSec: 1,
+  fadeOutSec: 1,
+  tracks: {},
+  screens: { boot: null, menu: null, hangar: null, shop: null, match: null },
+};
 
 export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   enabled: true,
@@ -132,6 +159,7 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   defaultSfxVolume: 0.8,
   maxVoices: 16,
   retriggerGapMs: 45,
+  music: DEFAULT_MUSIC_SETTINGS,
   cues: {
     playerDamaged: null,
     shieldAbsorb: null,
@@ -151,12 +179,36 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
 export function audioSettingsOf(theme: ThemeConfig | undefined): AudioSettings {
   const a: AudioConfig | undefined = theme?.audio;
   const cues = a?.cues;
+  const music = a?.music;
+  const tracks: Record<string, MusicTrackSettings> = {};
+  for (const [id, track] of Object.entries(music?.tracks ?? {})) {
+    tracks[id] = {
+      src: track.src,
+      volume: track.volume ?? 1,
+      loop: track.loop ?? true,
+      ...(track.license === undefined ? {} : { license: track.license }),
+    };
+  }
   return {
     enabled: a?.enabled ?? DEFAULT_AUDIO_SETTINGS.enabled,
     defaultMasterVolume: a?.defaultMasterVolume ?? DEFAULT_AUDIO_SETTINGS.defaultMasterVolume,
     defaultSfxVolume: a?.defaultSfxVolume ?? DEFAULT_AUDIO_SETTINGS.defaultSfxVolume,
     maxVoices: a?.maxVoices ?? DEFAULT_AUDIO_SETTINGS.maxVoices,
     retriggerGapMs: a?.retriggerGapMs ?? DEFAULT_AUDIO_SETTINGS.retriggerGapMs,
+    music: {
+      enabled: music?.enabled ?? DEFAULT_MUSIC_SETTINGS.enabled,
+      defaultVolume: music?.defaultVolume ?? DEFAULT_MUSIC_SETTINGS.defaultVolume,
+      fadeInSec: music?.fadeInSec ?? DEFAULT_MUSIC_SETTINGS.fadeInSec,
+      fadeOutSec: music?.fadeOutSec ?? DEFAULT_MUSIC_SETTINGS.fadeOutSec,
+      tracks,
+      screens: {
+        boot: music?.screens?.boot ?? null,
+        menu: music?.screens?.menu ?? null,
+        hangar: music?.screens?.hangar ?? null,
+        shop: music?.screens?.shop ?? null,
+        match: music?.screens?.match ?? null,
+      },
+    },
     cues: {
       playerDamaged: resolveSoundId(cues?.playerDamaged),
       shieldAbsorb: resolveSoundId(cues?.shieldAbsorb),

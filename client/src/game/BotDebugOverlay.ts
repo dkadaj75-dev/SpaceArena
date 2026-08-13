@@ -1,5 +1,5 @@
 import { Color3, MeshBuilder, Vector3, type LinesMesh, type Scene } from "@babylonjs/core";
-import type { BotDriver, EntityId, LosCircle, Snapshot } from "@space-arena/shared";
+import type { BotDriver, EntityId, LosCircle, Snapshot, StaticLosWorld } from "@space-arena/shared";
 import {
   BOT_OVERLAY_EVENT,
   BOT_OVERLAY_KEY,
@@ -92,7 +92,7 @@ export class BotDebugOverlay {
 
   constructor(
     private readonly scene: Scene,
-    private readonly session: { bots: ReadonlyMap<EntityId, BotDriver>; curSnapshot: Snapshot },
+    private readonly session: { bots: ReadonlyMap<EntityId, BotDriver>; curSnapshot: Snapshot; botStaticWorld?: StaticLosWorld },
   ) {
     if (!document.getElementById(STYLE_ID)) {
       const style = document.createElement("style");
@@ -143,7 +143,7 @@ export class BotDebugOverlay {
     if (!this.visible) return;
     const snapshot = this.session.curSnapshot;
     collectBlockers(snapshot, this.blockers);
-    const count = updateBotOverlayRows(this.rows, this.session.bots.values(), snapshot, this.blockers);
+    const count = updateBotOverlayRows(this.rows, this.session.bots.values(), snapshot, this.blockers, this.session.botStaticWorld);
     for (let i = 0; i < count; i++) this.drawRow(i, this.rows[i]!);
     for (let i = count; i < this.cards.length; i++) this.cards[i]!.root.hidden = true;
     for (let i = count; i < this.lines.length; i++) this.disableLines(this.lines[i]!);

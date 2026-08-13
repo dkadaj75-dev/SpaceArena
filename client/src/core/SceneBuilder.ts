@@ -1,4 +1,5 @@
 import {
+  AbstractMesh,
   Color3,
   Color4,
   DirectionalLight,
@@ -29,6 +30,7 @@ import {
   type EventBus,
   type ConfigEvents,
   type QualityConfig,
+  type PropConfig,
 } from "@space-arena/shared";
 import {
   BOUNDARY_HEX_DENSITY_MAX,
@@ -38,6 +40,7 @@ import {
   boundaryShieldRenderParams,
 } from "./boundaryProximity.js";
 import { DustField, resolveDustParams } from "./dustField.js";
+import { AssetRegistry, type ModelMaster } from "./AssetRegistry.js";
 
 const log = createLogger("SceneBuilder");
 
@@ -49,7 +52,9 @@ const log = createLogger("SceneBuilder");
  */
 function boundsRadiusOf(arena: ArenaConfig): number {
   const b = arena.bounds;
-  return b.shape === "sphere" ? b.radius : Math.hypot(b.width, b.verticalExtent, b.height) / 2;
+  if (b.shape === "sphere") return b.radius;
+  if (b.shape === "box") return Math.max(b.width, b.height) / 2;
+  return Math.hypot(b.width, b.verticalExtent, b.height) / 2;
 }
 
 function colorFromHex(hex: string | undefined, fallback: Color3): Color3 {
@@ -110,12 +115,16 @@ export class SceneBuilder {
   private boundaryMaterial: StandardMaterial | ShaderMaterial | null = null;
   private skyboxMaterialReadyToFreeze: StandardMaterial | null = null;
   private dust: DustField | null = null;
+  private readonly assets: AssetRegistry;
+  private readonly missingPropsLogged = new Set<string>();
   /**
    * Editor override for `quality.scene.spawnMarkers`. `null` = follow the tier
    * (which is `false` in every shipped pack); `true` = the dev editor is open and
    * designers must still see where teams spawn. See {@link setSpawnMarkerOverride}.
    */
   private spawnMarkerOverride: boolean | null = null;
+  /** Editor-only override; match props remain excluded from pointer picking. */
+  private propPickingOverride = false;
   private readonly boundaryBlue = new Color3();
   private readonly boundaryRed = new Color3();
   private readonly boundaryColor = new Color3();
@@ -127,6 +136,7 @@ export class SceneBuilder {
     quality: SceneQuality = DEFAULT_QUALITY,
   ) {
     this.quality = quality;
+    this.assets = new AssetRegistry(scene);
   }
 
   /**
@@ -145,7 +155,8 @@ export class SceneBuilder {
       previous.scene.boundaryShieldShader !== quality.scene.boundaryShieldShader ||
       // Dust capacity, sizes and lifetimes are all baked into the ParticleSystem
       // at construction, so a tier swap rebuilds rather than mutating it.
-      !sameDust(previous.scene.dust, quality.scene.dust);
+      !sameDust(previous.scene.dust, quality.scene.dust) ||
+      !sameTerrain(previous.scene.terrain, quality.scene.terrain);
     if (needsRebuild && this.arenaId) {
       const arena = this.configService.get<ArenaConfig>("arena", this.arenaId);
       if (arena) {
@@ -176,7 +187,7 @@ export class SceneBuilder {
     this.clearSubscriptions();
     this.unsubscribers.push(
       this.bus.on("config:changed", (evt) => {
-        if (evt.type === "arena") {
+        if (evt.type === "arena" || evt.type === "prop") {
           log.info(`rebuilding arena after ${evt.type} change: ${evt.id}`);
           const fresh = this.configService.get<ArenaConfig>("arena", arenaId);
           if (fresh) this.rebuild(fresh);
@@ -200,6 +211,7 @@ export class SceneBuilder {
     this.buildLighting(arena, root);
     this.buildSkybox(arena, root, generation);
     this.buildBounds(arena, root);
+    void this.buildProps(arena, root, generation);
     this.buildPickPlane(arena, root);
     if (this.spawnMarkersVisible) this.buildSpawnMarkers(arena, root);
     this.buildDust();
@@ -244,7 +256,10 @@ export class SceneBuilder {
     this.dust = null;
     const params = resolveDustParams(this.quality.scene.dust);
     if (!params) return;
-    const floorY = this.arena?.bounds.shape === "sphere" ? this.arena.bounds.floorY : undefined;
+    const floorY =
+      this.arena?.bounds.shape === "sphere" || this.arena?.bounds.shape === "box"
+        ? this.arena.bounds.floorY
+        : undefined;
     this.dust = new DustField(this.scene, params, floorY);
     this.dust.setEnabled(this.visible);
   }
@@ -286,7 +301,7 @@ export class SceneBuilder {
       mesh.freezeWorldMatrix();
       // Its world matrix is static, but opacity/color are driven every frame by
       // player proximity, so the boundary material must stay mutable.
-      if (mesh.name === "boundsShell") return;
+      if (mesh.material === this.boundaryMaterial) return;
       if (mesh.material) materials.add(mesh.material);
     });
     if (this.skyboxMaterialReadyToFreeze) materials.add(this.skyboxMaterialReadyToFreeze);
@@ -531,14 +546,13 @@ export class SceneBuilder {
           this.boundaryMaterial = shellMat;
         }
         shell.parent = root;
-
       }
 
       // A floor is physical terrain, not another face of the energy shield.
       // Build it even when an arena elects not to render a boundary shield.
-      if (arena.bounds.floorY !== undefined) this.buildTerrain(arena.bounds.radius, arena.bounds.floorY, root);
-
-    } else {
+      if (arena.bounds.floorY !== undefined)
+        this.buildTerrain(arena.bounds.radius, arena.bounds.floorY, root);
+    } else if (arena.bounds.shape === "rect") {
       // Box arena: six translucent walls matching the sim's finite y bounds.
       const { width, height, verticalExtent } = arena.bounds;
       const mat = new StandardMaterial("mat.boundsRect", this.scene);
@@ -555,13 +569,81 @@ export class SceneBuilder {
         [0, -verticalExtent / 2, 0, width, thickness, height],
       ];
       for (const [x, y, z, w, h, d] of walls) {
-        const seg = MeshBuilder.CreateBox("boundsRectSeg", { width: w, height: h, depth: d }, this.scene);
+        const seg = MeshBuilder.CreateBox(
+          "boundsRectSeg",
+          { width: w, height: h, depth: d },
+          this.scene,
+        );
         seg.position.set(x, y, z);
         seg.material = mat;
         seg.isPickable = false;
         seg.parent = root;
       }
+    } else {
+      const shield = arena.render?.boundaryShield;
+      if (!shield) return;
+      this.boundaryBlue.copyFrom(colorFromHex(shield.blueColor, Color3.Blue()));
+      this.boundaryRed.copyFrom(colorFromHex(shield.redColor, Color3.Red()));
+      clampColorInPlace(this.boundaryBlue);
+      clampColorInPlace(this.boundaryRed);
+      this.boundaryColor.copyFrom(this.boundaryBlue);
+      const renderParams = boundaryShieldRenderParams(shield.hexDensity, 0);
+      let material: StandardMaterial | ShaderMaterial;
+      if (this.quality.scene.boundaryShieldShader) {
+        const shader = createBoundaryShader(this.scene);
+        shader.setFloat("hexDensity", renderParams.hexDensity);
+        shader.setFloat("hexLineWidth", shield.hexLineWidth);
+        shader.setFloat("opacity", renderParams.opacity);
+        shader.setColor3("shieldColor", this.boundaryBlue);
+        material = shader;
+      } else {
+        const fallback = new StandardMaterial("mat.boundsBox", this.scene);
+        fallback.diffuseColor = Color3.Black();
+        fallback.specularColor = Color3.Black();
+        fallback.emissiveColor.copyFrom(this.boundaryBlue);
+        fallback.disableLighting = true;
+        fallback.alpha = renderParams.opacity;
+        fallback.backFaceCulling = false;
+        material = fallback;
+      }
+      this.boundaryMaterial = material;
+      const { width, height, floorY, ceilingY } = arena.bounds;
+      const vertical = ceilingY - floorY;
+      const midY = (ceilingY + floorY) / 2;
+      const ceiling = MeshBuilder.CreateGround("boundsBoxCeiling", { width, height }, this.scene);
+      ceiling.flipFaces(true);
+      ceiling.position.y = ceilingY;
+      ceiling.material = material;
+      ceiling.isPickable = false;
+      ceiling.parent = root;
+
+      const walls = [
+        { name: "boundsBoxWallNorth", width, x: 0, z: height / 2, yaw: 0 },
+        { name: "boundsBoxWallSouth", width, x: 0, z: -height / 2, yaw: Math.PI },
+        { name: "boundsBoxWallEast", width: height, x: width / 2, z: 0, yaw: Math.PI / 2 },
+        { name: "boundsBoxWallWest", width: height, x: -width / 2, z: 0, yaw: -Math.PI / 2 },
+      ];
+      for (const wall of walls) {
+        const mesh = MeshBuilder.CreatePlane(
+          wall.name,
+          { width: wall.width, height: vertical, sideOrientation: Mesh.DOUBLESIDE },
+          this.scene,
+        );
+        mesh.position.set(wall.x, midY, wall.z);
+        mesh.rotation.y = wall.yaw;
+        mesh.material = material;
+        mesh.isPickable = false;
+        mesh.parent = root;
+      }
     }
+  }
+
+  /** Make authored prop instances pickable while the Map editor owns the scene. */
+  setPropPickingOverride(enabled: boolean): void {
+    if (enabled === this.propPickingOverride) return;
+    this.propPickingOverride = enabled;
+    const arena = this.arena;
+    if (arena) this.rebuild(arena);
   }
 
   /**
@@ -582,11 +664,17 @@ export class SceneBuilder {
     const distance =
       bounds.shape === "sphere"
         ? bounds.radius - Math.hypot(x, y, z)
-        : Math.min(
-            bounds.width / 2 - Math.abs(x),
-            bounds.verticalExtent / 2 - Math.abs(y),
-            bounds.height / 2 - Math.abs(z),
-          );
+        : bounds.shape === "rect"
+          ? Math.min(
+              bounds.width / 2 - Math.abs(x),
+              bounds.verticalExtent / 2 - Math.abs(y),
+              bounds.height / 2 - Math.abs(z),
+            )
+          : Math.min(
+              bounds.ceilingY - y,
+              bounds.width / 2 - Math.abs(x),
+              bounds.height / 2 - Math.abs(z),
+            );
     const shield = arena.render?.boundaryShield;
     const material = this.boundaryMaterial;
     if (!shield || !material) return distance;
@@ -630,7 +718,11 @@ export class SceneBuilder {
     material.specularColor = new Color3(0.015, 0.015, 0.015);
     material.specularPower = 4;
     const textureSize = lowTier ? 256 : 1024;
-    const textures = createRegolithTextures(this.scene, textureSize, !lowTier && this.quality.scene.skyboxEnabled);
+    const textures = createRegolithTextures(
+      this.scene,
+      textureSize,
+      !lowTier && this.quality.scene.skyboxEnabled,
+    );
     if (textures) {
       material.diffuseTexture = textures.albedo;
       material.diffuseTexture.hasAlpha = true;
@@ -642,6 +734,103 @@ export class SceneBuilder {
     }
     material.backFaceCulling = false;
     floor.material = material;
+  }
+
+  /** Resolve, load and instantiate authored static prop placements. */
+  private async buildProps(
+    arena: ArenaConfig,
+    root: TransformNode,
+    generation: number,
+  ): Promise<void> {
+    for (let index = 0; index < (arena.propPlacements?.length ?? 0); index++) {
+      const placement = arena.propPlacements![index]!;
+      const prop = this.configService.get<PropConfig>("prop", placement.propId);
+      if (!prop) {
+        if (!this.missingPropsLogged.has(placement.propId)) {
+          this.missingPropsLogged.add(placement.propId);
+          log.warn(`prop config not found: ${placement.propId} — skipping placement`);
+        }
+        continue;
+      }
+      if (prop.category === "terrain" && this.quality.scene.terrain?.enabled === false) continue;
+      const master = await this.assets.ensureModel(prop.render, { mergeParts: false });
+      if (!master || generation !== this.generation || root !== this.root) continue;
+      await this.assets.applyModelLods(
+        master,
+        prop.render.lods ?? [],
+        (placement.scale ?? 1) * (this.quality.scene.terrain?.lodBias ?? 1),
+      );
+      if (generation !== this.generation || root !== this.root) continue;
+      const instance = instantiateModelHierarchy(master, `prop.${index}`, root);
+      if (!instance) continue;
+      instance.metadata = {
+        ...(instance.metadata as object | null),
+        editorKind: "prop",
+        editorIndex: index,
+      };
+      instance.position.set(placement.position.x, placement.position.y ?? 0, placement.position.z);
+      instance.rotationQuaternion = null;
+      instance.rotation.set(
+        placement.rotation?.x ?? 0,
+        placement.rotation?.y ?? 0,
+        placement.rotation?.z ?? 0,
+      );
+      instance.scaling.setAll(placement.scale ?? 1);
+      forEachMesh(instance, (mesh) => {
+        mesh.isPickable = this.propPickingOverride;
+        mesh.metadata = {
+          ...(mesh.metadata as object | null),
+          editorKind: "prop",
+          editorIndex: index,
+        };
+      });
+      instance.setEnabled(this.visible);
+      if (this.frozen) {
+        const materialMeshes = new Map<Material, AbstractMesh>();
+        forEachMesh(instance, (mesh) => {
+          mesh.freezeWorldMatrix();
+          if (mesh.material) {
+            const current = materialMeshes.get(mesh.material);
+            // A shared glTF material needs the most feature-rich representative
+            // mesh. Otherwise a non-colored sibling can warm and freeze the
+            // material before a COLOR_0 sibling gets its shader variant.
+            if (
+              !current ||
+              (!current.isVerticesDataPresent(VertexBuffer.ColorKind) &&
+                mesh.isVerticesDataPresent(VertexBuffer.ColorKind))
+            ) {
+              materialMeshes.set(mesh.material, mesh);
+            }
+          }
+        });
+        // rebuild() starts this async prop load before freezeStatics(), but even
+        // a preloaded ensureModel() crosses an `await`: the arena is therefore
+        // already frozen when its first enabled prop mesh enters the scene. A
+        // glTF material frozen here has never seen that mesh's COLOR_0 stream,
+        // so PBR locks an effect without VERTEXCOLOR and the baked surface
+        // detail disappears. Compile against the actual placement (including
+        // its instance defines) before freezing. A hide/rebuild while the
+        // compilation is pending deliberately leaves the material thawed.
+        for (const [material, mesh] of materialMeshes) {
+          material.unfreeze();
+          try {
+            await material.forceCompilationAsync(mesh, { useInstances: true });
+          } catch (error) {
+            log.warn(`prop material compilation failed for "${material.name}": ${String(error)}`);
+            continue;
+          }
+          if (
+            generation === this.generation &&
+            root === this.root &&
+            this.frozen &&
+            !mesh.isDisposed() &&
+            mesh.isEnabled()
+          ) {
+            material.freeze();
+          }
+        }
+      }
+    }
   }
 
   /** Stable authored warning knobs for the active arena; no per-frame object. */
@@ -687,7 +876,11 @@ export class SceneBuilder {
    */
   private buildPickPlane(arena: ArenaConfig, root: TransformNode): void {
     const size = boundsRadiusOf(arena) * 2.1;
-    const ground = MeshBuilder.CreateGround("groundPlane", { width: size, height: size }, this.scene);
+    const ground = MeshBuilder.CreateGround(
+      "groundPlane",
+      { width: size, height: size },
+      this.scene,
+    );
     ground.isVisible = false;
     ground.isPickable = true;
     ground.parent = root;
@@ -702,7 +895,11 @@ export class SceneBuilder {
     material1.diffuseColor = Color3.Black();
 
     for (const sp of arena.spawnPoints) {
-      const disc = MeshBuilder.CreateDisc(`spawnMarker.${sp.id}`, { radius: 2, tessellation: 24 }, this.scene);
+      const disc = MeshBuilder.CreateDisc(
+        `spawnMarker.${sp.id}`,
+        { radius: 2, tessellation: 24 },
+        this.scene,
+      );
       disc.rotation.x = Math.PI / 2;
       // Authored altitude (BUBBLE.md §E gives spawns a `y`), nudged clear of the
       // exact spawn point so the marker never z-fights the hull sitting on it.
@@ -738,7 +935,30 @@ export class SceneBuilder {
     this.disposeSceneNodes();
     this.glowLayer?.dispose();
     this.glowLayer = null;
+    this.assets.dispose();
   }
+}
+
+function instantiateModelHierarchy(
+  master: ModelMaster,
+  name: string,
+  parent: TransformNode,
+): TransformNode | Mesh | null {
+  if (master instanceof Mesh) {
+    const instance = master.createInstance(name);
+    instance.parent = parent;
+    instance.isPickable = false;
+    return instance;
+  }
+  const instance = master.instantiateHierarchy(
+    parent,
+    { doNotInstantiate: false },
+    (source, clone) => {
+      clone.name = `${name}.${source.name}`;
+      if (clone instanceof AbstractMesh) clone.isPickable = false;
+    },
+  );
+  return instance;
 }
 
 /** Concentric-ring mesh gives the terrain real interior vertices (unlike CreateDisc's fan). */
@@ -765,7 +985,14 @@ function createTerrainDisc(scene: Scene, radius: number, rings: number, segments
     const outer = 1 + (ring - 1) * segments;
     for (let segment = 0; segment < segments; segment++) {
       const next = (segment + 1) % segments;
-      indices.push(inner + segment, outer + segment, outer + next, inner + segment, outer + next, inner + next);
+      indices.push(
+        inner + segment,
+        outer + segment,
+        outer + next,
+        inner + segment,
+        outer + next,
+        inner + next,
+      );
     }
   }
   const normals = new Array<number>(positions.length).fill(0);
@@ -792,9 +1019,18 @@ interface RegolithTextures {
 }
 
 /** Canvas textures: layered grain/mottling plus crater floors and raised rims. */
-function createRegolithTextures(scene: Scene, size: number, includeNormal: boolean): RegolithTextures | null {
+function createRegolithTextures(
+  scene: Scene,
+  size: number,
+  includeNormal: boolean,
+): RegolithTextures | null {
   try {
-    const albedo = new DynamicTexture("terrain.regolith.albedo", { width: size, height: size }, scene, false);
+    const albedo = new DynamicTexture(
+      "terrain.regolith.albedo",
+      { width: size, height: size },
+      scene,
+      false,
+    );
     const albedoContext = albedo.getContext();
     const albedoImage = albedoContext.getImageData(0, 0, size, size);
     const normal = includeNormal
@@ -844,7 +1080,8 @@ function createRegolithTextures(scene: Scene, size: number, includeNormal: boole
     albedoContext.putImageData(albedoImage, 0, 0);
     albedo.update(false);
     if (normal && normalContext && normalImage && heights) {
-      const sample = (x: number, y: number): number => heights[Math.max(0, Math.min(size - 1, y)) * size + Math.max(0, Math.min(size - 1, x))]!;
+      const sample = (x: number, y: number): number =>
+        heights[Math.max(0, Math.min(size - 1, y)) * size + Math.max(0, Math.min(size - 1, x))]!;
       for (let py = 0; py < size; py++) {
         for (let px = 0; px < size; px++) {
           const sx = (sample(px + 1, py) - sample(px - 1, py)) * 5.5;
@@ -867,7 +1104,10 @@ function createRegolithTextures(scene: Scene, size: number, includeNormal: boole
   }
 }
 
-function makeCraters(seed: number, count: number): Array<{ x: number; y: number; radius: number; depth: number }> {
+function makeCraters(
+  seed: number,
+  count: number,
+): Array<{ x: number; y: number; radius: number; depth: number }> {
   let state = seed >>> 0;
   const random = (): number => {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
@@ -890,7 +1130,7 @@ function valueNoise(x: number, y: number, seed: number): number {
   const hash = (ix: number, iy: number): number => {
     let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ seed;
     h = Math.imul(h ^ (h >>> 13), 1274126177);
-    return ((h ^ (h >>> 16)) >>> 0) / 0xffff_ffff * 2 - 1;
+    return (((h ^ (h >>> 16)) >>> 0) / 0xffff_ffff) * 2 - 1;
   };
   const a = hash(x0, y0) * (1 - tx) + hash(x0 + 1, y0) * tx;
   const b = hash(x0, y0 + 1) * (1 - tx) + hash(x0 + 1, y0 + 1) * tx;
@@ -901,9 +1141,9 @@ function disposeRecursive(node: Node): void {
   for (const child of [...node.getChildren()]) {
     disposeRecursive(child);
   }
+  if (node instanceof AbstractMesh) node.material?.unfreeze();
   if (node instanceof Mesh) {
     // A frozen material refuses to dispose its effect cleanly — thaw first.
-    node.material?.unfreeze();
     node.material?.dispose(false, true);
   }
   node.dispose();
@@ -994,8 +1234,16 @@ function sameDust(a: SceneQuality["scene"]["dust"], b: SceneQuality["scene"]["du
   );
 }
 
-/** Depth-first walk over every `Mesh` under `node` (inclusive). */
-function forEachMesh(node: Node, visit: (mesh: Mesh) => void): void {
-  if (node instanceof Mesh) visit(node);
+/** Whether two tiers resolve to the same terrain prop policy. */
+function sameTerrain(
+  a: SceneQuality["scene"]["terrain"],
+  b: SceneQuality["scene"]["terrain"],
+): boolean {
+  return (a?.enabled ?? true) === (b?.enabled ?? true) && (a?.lodBias ?? 1) === (b?.lodBias ?? 1);
+}
+
+/** Depth-first walk over every renderable mesh/instance under `node` (inclusive). */
+function forEachMesh(node: Node, visit: (mesh: AbstractMesh) => void): void {
+  if (node instanceof AbstractMesh) visit(node);
   for (const child of node.getChildren()) forEachMesh(child, visit);
 }

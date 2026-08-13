@@ -17,6 +17,7 @@ import { DamageFeedback } from "./DamageFeedback.js";
 import { FloatingDamageText } from "./FloatingDamageText.js";
 import { MatchStatus } from "./MatchStatus.js";
 import { CountdownOverlay } from "./CountdownOverlay.js";
+import { LobbyWaitingOverlay } from "./LobbyWaitingOverlay.js";
 import { KillAnnouncements } from "./KillAnnouncements.js";
 import { ResultsOverlay, type MatchRewards, type ResultsCallbacks } from "./ResultsOverlay.js";
 import { injectHudStyle } from "./hudStyle.js";
@@ -73,7 +74,7 @@ export interface HudCallbacks extends ResultsCallbacks {
 }
 
 export interface HudOptions {
-  /** Offline practice: the results screen shows no reward animation (5.8). */
+  /** Offline Tutorial: the results screen shows no reward animation (5.8). */
   offline?: boolean;
   /**
    * Flight controls (FLIGHT.md §4). Present ⇒ the HUD mounts the joystick,
@@ -103,6 +104,7 @@ export class Hud {
   private readonly matchStatus: MatchStatus;
   /** Match-start 3-2-1-GO numerals, driven by the sim-authoritative countdown. */
   private readonly countdown: CountdownOverlay;
+  private readonly lobbyWaiting: LobbyWaitingOverlay;
   private readonly killAnnouncements: KillAnnouncements;
   private readonly killFeed: KillFeed;
   private readonly scoreboard: Scoreboard;
@@ -155,6 +157,7 @@ export class Hud {
     this.floatingDamage = new FloatingDamageText(this.root, playerId, options.flight ?? null);
     this.matchStatus = new MatchStatus(this.root, session);
     this.countdown = new CountdownOverlay(this.root);
+    this.lobbyWaiting = new LobbyWaitingOverlay(this.root, configs);
     this.killAnnouncements = new KillAnnouncements(this.root, playerId);
     this.killFeed = new KillFeed(this.root, session, playerId);
     this.scoreboard = new Scoreboard(this.root, session, callbacks);
@@ -304,6 +307,7 @@ export class Hud {
     // know which team that is; it can change across a match (respawn, rejoin).
     this.killAnnouncements.setPlayerTeam(cur.ships.find((s) => s.id === this.playerId)?.team ?? null);
     this.countdown.update(cur, dtMs);
+    this.lobbyWaiting.update(cur);
     this.notifications.update(dtMs);
     this.damageFx.update(dtMs);
     this.floatingDamage.update(cur, prev, alpha, dtMs);
@@ -395,6 +399,7 @@ export class Hud {
     this.floatingDamage.dispose();
     this.matchStatus.dispose();
     this.countdown.dispose();
+    this.lobbyWaiting.dispose();
     this.resultsOverlay.dispose();
     this.root.innerHTML = "";
   }

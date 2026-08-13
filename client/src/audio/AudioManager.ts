@@ -11,6 +11,7 @@ const log = createLogger("Audio");
  */
 export const VOLUME_MASTER_KEY = "sa.volume.master";
 export const VOLUME_SFX_KEY = "sa.volume.sfx";
+export const VOLUME_MUSIC_KEY = "sa.volume.music";
 /** Volume used when the player has never set one and the theme names no default. */
 export const DEFAULT_VOLUME = 0.8;
 
@@ -57,16 +58,19 @@ export class AudioManager {
   private ctx: BaseAudioContext | null = null;
   private masterGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
+  private musicGain: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
   private master: number;
   private sfx: number;
+  private music: number;
   private gestureSeen = false;
   private detachUnlock: (() => void) | null = null;
 
   private readonly voices: Voice[] = [];
   private readonly lastPlayedMs = new Map<string, number>();
   private readonly warnedIds = new Set<string>();
+  private readonly stateListeners = new Set<() => void>();
 
   constructor(options: AudioManagerOptions = {}) {
     this.settings = options.settings ?? DEFAULT_AUDIO_SETTINGS;
@@ -75,6 +79,7 @@ export class AudioManager {
     this.now = options.now ?? (() => performance.now());
     this.master = this.readVolume(VOLUME_MASTER_KEY, this.settings.defaultMasterVolume);
     this.sfx = this.readVolume(VOLUME_SFX_KEY, this.settings.defaultSfxVolume);
+    this.music = this.readVolume(VOLUME_MUSIC_KEY, this.settings.music.defaultVolume);
   }
 
   get masterVolume(): number {
@@ -85,9 +90,26 @@ export class AudioManager {
     return this.sfx;
   }
 
+  get musicVolume(): number {
+    return this.music;
+  }
+
+  /** Shared context and music bus used by MusicController; null before unlock. */
+  get musicContext(): BaseAudioContext | null {
+    return this.ctx;
+  }
+
+  get musicDestination(): GainNode | null {
+    return this.musicGain;
+  }
+
   /** Master × sfx, or 0 when the theme disables audio outright. */
   get effectiveVolume(): number {
     return this.settings.enabled ? this.master * this.sfx : 0;
+  }
+
+  get effectiveMusicVolume(): number {
+    return this.settings.enabled && this.settings.music.enabled ? this.master * this.music : 0;
   }
 
   /** True once a context exists and is running — i.e. sounds can actually be heard. */
@@ -106,18 +128,38 @@ export class AudioManager {
     this.settings = settings;
     if (!settings.enabled) this.suspendAll();
     this.applyGains();
+    this.emitStateChange();
   }
 
   setMasterVolume(value: number, options: { persist?: boolean } = {}): void {
     this.master = clamp01(value);
     if (options.persist !== false) this.writeVolume(VOLUME_MASTER_KEY, this.master);
     this.applyGains();
+    this.emitStateChange();
   }
 
   setSfxVolume(value: number, options: { persist?: boolean } = {}): void {
     this.sfx = clamp01(value);
     if (options.persist !== false) this.writeVolume(VOLUME_SFX_KEY, this.sfx);
     this.applyGains();
+  }
+
+  setMusicVolume(value: number, options: { persist?: boolean } = {}): void {
+    this.music = clamp01(value);
+    if (options.persist !== false) this.writeVolume(VOLUME_MUSIC_KEY, this.music);
+    this.applyGains();
+    this.emitStateChange();
+  }
+
+  /** Music listens here for unlock, mute/unmute, and live theme changes. */
+  onStateChange(listener: () => void): () => void {
+    this.stateListeners.add(listener);
+    return () => this.stateListeners.delete(listener);
+  }
+
+  /** Lazily acquire the shared context while preserving autoplay/mute rules. */
+  acquireContext(): BaseAudioContext | null {
+    return this.ensureContext();
   }
 
   /**
@@ -153,6 +195,7 @@ export class AudioManager {
         // A rejected resume just means we stay silent until the next gesture.
       });
     }
+    this.emitStateChange();
   }
 
   /**
@@ -218,6 +261,7 @@ export class AudioManager {
     this.ctx = null;
     this.masterGain = null;
     this.sfxGain = null;
+    this.musicGain = null;
     this.noiseBuffer = null;
     if (ctx && "close" in ctx) {
       void (ctx as AudioContext).close().catch(() => {
@@ -229,23 +273,34 @@ export class AudioManager {
   /** Build the context + gain bus on first real need. Null while muted/locked. */
   private ensureContext(): BaseAudioContext | null {
     if (this.ctx) return this.ctx;
-    if (!this.gestureSeen || !this.settings.enabled || this.effectiveVolume <= 0) return null;
+    if (!this.gestureSeen || !this.settings.enabled || !this.hasAudibleBus) return null;
     const ctx = this.contextFactory();
     if (!ctx) return null;
     this.ctx = ctx;
     this.masterGain = ctx.createGain();
     this.sfxGain = ctx.createGain();
+    this.musicGain = ctx.createGain();
     this.sfxGain.connect(this.masterGain);
+    this.musicGain.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
     this.noiseBuffer = buildNoiseBuffer(ctx);
     this.applyGains();
-    log.info("audio context created", { master: this.master, sfx: this.sfx });
+    log.info("audio context created", { master: this.master, sfx: this.sfx, music: this.music });
     return ctx;
   }
 
   private applyGains(): void {
     if (this.masterGain) this.masterGain.gain.value = this.settings.enabled ? this.master : 0;
     if (this.sfxGain) this.sfxGain.gain.value = this.sfx;
+    if (this.musicGain) this.musicGain.gain.value = this.settings.music.enabled ? this.music : 0;
+  }
+
+  private get hasAudibleBus(): boolean {
+    return this.master > 0 && (this.sfx > 0 || (this.settings.music.enabled && this.music > 0));
+  }
+
+  private emitStateChange(): void {
+    for (const listener of this.stateListeners) listener();
   }
 
   private suspendAll(): void {

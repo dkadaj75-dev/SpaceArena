@@ -106,7 +106,8 @@ export class Scoreboard {
 
   private paint(line: Readonly<MatchStatLine>): void {
     const row = this.rows.get(line.entityId); if (!row) return;
-    const name = this.session.displayNameFor(line.entityId) ?? `Pilot ${line.entityId}`;
+    const displayName = this.session.displayNameFor(line.entityId) ?? `Pilot ${line.entityId}`;
+    const name = this.session.isBotFor(line.entityId) ? `${displayName} [BOT]` : displayName;
     const sig = `${name}|${line.kills}|${line.deaths}|${line.assists}|${line.flagsTaken}|${line.flagsReturned}|${line.flagsCaptured}`;
     if (sig === row.signature) return;
     row.signature = sig;

@@ -2,7 +2,8 @@
   "id": "gamemode.practice-duel-titans-1v1",
   "type": "gamemode",
   "version": 1,
-  "name": "Duel — Twin Titans",
+  "name": "Titan Duel",
+  "launch": "online",
   "teams": "1v1",
   "defaultArena": "arena.twin-titans",
   "winCondition": {
@@ -27,7 +28,7 @@
   "bots": {
     "defaultProfile": "bot.rookie",
     "defaultShip": "ship.interceptor",
-    "backfillWaitMs": 15000,
+    "backfillWaitMs": 10000,
     "roster": [
       {
         "profile": "bot.rookie",

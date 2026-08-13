@@ -19,6 +19,9 @@ import type { SimEvent } from "./events.js";
 import type { Order, QueuedOrder } from "./orders.js";
 import { Rng } from "./rng.js";
 import { SpatialHash } from "./spatialHash.js";
+import { StaticWorld } from "../collision/staticWorld.js";
+import type { PropConfig } from "../schemas/prop.js";
+import { NavRoute } from "../bots/navRoute.js";
 
 /**
  * ECS-lite container: an id allocator, plain-map component stores, an outgoing
@@ -58,6 +61,8 @@ export class World {
 
   readonly rng: Rng;
   readonly spatial: SpatialHash;
+  readonly staticWorld: StaticWorld;
+  readonly navRoute: NavRoute;
   private readonly initialTuning: TuningConfig;
 
   /** Per-tick LoS cache keyed by ordered entity-pair. Cleared each tick. */
@@ -79,6 +84,8 @@ export class World {
     this.initialTuning = tuning;
     this.rng = new Rng(seed);
     this.spatial = new SpatialHash(tuning.spatialCellSize ?? 16);
+    this.staticWorld = new StaticWorld(arena.propPlacements ?? [], (id) => configs.get<PropConfig>("prop", id));
+    this.navRoute = new NavRoute(arena.navGraph);
   }
 
   /**

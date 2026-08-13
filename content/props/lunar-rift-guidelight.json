@@ -1,0 +1,12 @@
+{
+  "id": "prop.lunar-rift-guidelight",
+  "type": "prop",
+  "version": 1,
+  "name": "Lunar Rift Guide Light",
+  "category": "decor",
+  "impactDamage": 0,
+  "render": {
+    "recipe": "model.static",
+    "model": "props/lunar-rift-guidelight.glb"
+  }
+}

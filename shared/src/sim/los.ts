@@ -35,6 +35,7 @@ function load(out: { x: number; y: number; z: number }, p: LosPoint): { x: numbe
  * segment-vs-sphere. Identical on client + server (no engine raycasts).
  */
 export function hasLineOfSight(world: World, a: LosPoint, b: LosPoint): boolean {
+  if (world.staticWorld.raycast(load(losA, a), load(losB, b))) return false;
   const minX = Math.min(a.x, b.x);
   const maxX = Math.max(a.x, b.x);
   const minZ = Math.min(a.z, b.z);
@@ -62,6 +63,11 @@ export interface LosCircle {
   radius: number;
 }
 
+/** Minimal terrain-query surface needed by World-free LoS consumers. */
+export interface StaticLosWorld {
+  raycast(from: Required<LosPoint>, to: Required<LosPoint>): unknown | null;
+}
+
 /**
  * World-free variant of {@link hasLineOfSight}: segment `a`→`b` vs an explicit
  * list of spherical blockers. Same narrow-phase math (segment-vs-sphere), no
@@ -69,9 +75,10 @@ export interface LosCircle {
  * import("./ArenaSimulation.js").Snapshot} (bots, debug overlays) rather than a
  * live World. Keeping it here means there is exactly one LoS implementation.
  */
-export function hasLineOfSightAmong(a: LosPoint, b: LosPoint, blockers: readonly LosCircle[]): boolean {
+export function hasLineOfSightAmong(a: LosPoint, b: LosPoint, blockers: readonly LosCircle[], staticWorld?: StaticLosWorld): boolean {
   load(losA, a);
   load(losB, b);
+  if (staticWorld?.raycast(losA, losB)) return false;
   for (let i = 0; i < blockers.length; i++) {
     const c = blockers[i]!;
     if (segmentIntersectsSphere(losA, losB, load(losC, c.pos), c.radius)) return false;

@@ -246,6 +246,10 @@ export class SettingsScreen {
         this.host.audio.setSfxVolume(v, { persist: false });
         this.host.settings.set({ sfxVolume: v });
       }, (values) => values.sfxVolume),
+      this.volumeRow("Music volume", "music", (v) => {
+        this.host.audio.setMusicVolume(v, { persist: false });
+        this.host.settings.set({ musicVolume: v });
+      }, (values) => values.musicVolume),
     );
     return group;
   }

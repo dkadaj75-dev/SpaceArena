@@ -2,8 +2,9 @@
   "id": "gamemode.practice-bots-5v5",
   "type": "gamemode",
   "version": 1,
-  "name": "Practice \u2014 5v5 vs Bots",
-  "teams": "2v2",
+  "name": "Battle 5v5",
+  "launch": "online",
+  "teams": "5v5",
   "defaultArena": "arena.ring-nebula",
   "winCondition": {
     "type": "fragLimit",
@@ -27,7 +28,7 @@
   "bots": {
     "defaultProfile": "bot.rookie",
     "defaultShip": "ship.interceptor",
-    "backfillWaitMs": 15000,
+    "backfillWaitMs": 10000,
     "randomizeLoadouts": true,
     "roster": [
       {

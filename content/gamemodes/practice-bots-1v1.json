@@ -2,7 +2,8 @@
   "id": "gamemode.practice-bots-1v1",
   "type": "gamemode",
   "version": 1,
-  "name": "Practice — 1v1 vs Bot",
+  "name": "Skirmish 1v1",
+  "launch": "online",
   "teams": "1v1",
   "defaultArena": "arena.ring-nebula",
   "winCondition": {
@@ -27,7 +28,7 @@
   "bots": {
     "defaultProfile": "bot.rookie",
     "defaultShip": "ship.interceptor",
-    "backfillWaitMs": 15000,
+    "backfillWaitMs": 10000,
     "roster": [
       {
         "profile": "bot.rookie",

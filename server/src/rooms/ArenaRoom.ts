@@ -1,4 +1,5 @@
 import { Room, type Client } from "@colyseus/core";
+import { randomInt, randomUUID } from "node:crypto";
 import {
   ArenaSimulation,
   BotDriver,
@@ -62,24 +63,34 @@ const MATCH_END_GRACE_MS = 8000;
 /** Reconnection window (seconds) offered on an unconsented leave. */
 const RECONNECT_WINDOW_S = 30;
 /** Fallback wait before bot backfill when the gamemode omits `bots.backfillWaitMs`. */
-const DEFAULT_BOT_BACKFILL_MS = 15000;
+const DEFAULT_BOT_BACKFILL_MS = 10000;
 /** Default order rate cap (orders/sec) if tuning omits `maxOrdersPerSec`. */
 const DEFAULT_MAX_ORDERS_PER_SEC = 20;
 /** Sustained-abuse threshold: kick a client after this many rate-limited orders. */
 const ABUSE_KICK_THRESHOLD = 40;
 
+interface InternalCreateOverrides {
+  minPlayers?: number;
+  botProfile?: string;
+  botBackfillMs?: number;
+  seed?: number;
+}
+
 interface CreateOptions {
   gamemode: string;
   arena?: string;
-  /** MVP testing: start once this many humans have joined (default = maxClients). */
-  minPlayers?: number;
-  /** `botprofile` id used for empty-slot backfill (overrides `gamemode.bots.defaultProfile`). */
-  botProfile?: string;
-  /** Override the gamemode's `bots.backfillWaitMs`. 0 backfills as soon as someone joins. */
-  botBackfillMs?: number;
-  seed?: number;
-  /** Created by the authenticated queue and immediately locked for its reservations. */
-  matchmaking?: boolean;
+  __internalArenaToken?: string;
+  __internal?: InternalCreateOverrides;
+}
+
+const INTERNAL_ARENA_TOKEN = randomUUID();
+
+/** Process-local server seam; browser lookalikes cannot forge the random token. */
+export function internalArenaCreateOptions(
+  gamemode: string,
+  overrides: InternalCreateOverrides = {},
+): CreateOptions {
+  return { gamemode, __internalArenaToken: INTERNAL_ARENA_TOKEN, __internal: overrides };
 }
 
 interface JoinOptions {
@@ -126,18 +137,14 @@ export class ArenaRoom extends Room<ArenaState> {
   private gamemode!: GamemodeConfig;
   private arena!: ArenaConfig;
   private maxOrdersPerSec = DEFAULT_MAX_ORDERS_PER_SEC;
-  private minPlayers = 2;
+  private humanStartThreshold = 2;
   /**
    * The match seed, kept because the sim is not its only consumer: every bot
    * driver derives its own RNG stream from it (see {@link backfillBots}), so a
    * room re-created with the same seed replays the same bot behaviour.
    */
   private seed = 1;
-  /**
-   * Whether this match grants progression. Client-supplied `minPlayers`
-   * overrides (which enable trivially-winnable solo rooms) mark the
-   * match ineligible — results are still recorded, but no credits/XP are granted.
-   */
+  /** Rewards come only from the gamemode config; bot backfill stays eligible. */
   private rewardsEligible = true;
 
   /** session id / bot key → sim entity id, for every ship this room owns. */
@@ -157,8 +164,7 @@ export class ArenaRoom extends Room<ArenaState> {
   private botBackfillTimer: ReturnType<typeof setTimeout> | null = null;
   private botBackfillMs = DEFAULT_BOT_BACKFILL_MS;
   private botProfileOverride: string | undefined;
-  /** Created by the matchmaking queue: both seats reserved for real players. */
-  private matchmade = false;
+  private lobbyDeadlineMs: number | null = null;
   /** Sim-clock milliseconds fed to the bot drivers (their decision cadence). */
   private botClockMs = 0;
 
@@ -218,11 +224,11 @@ export class ArenaRoom extends Room<ArenaState> {
     this.maxOrdersPerSec = tuning?.maxOrdersPerSec ?? DEFAULT_MAX_ORDERS_PER_SEC;
 
     this.maxClients = teamSizeOf(gamemode) * 2;
-    this.minPlayers = Math.max(1, options.minPlayers ?? this.maxClients);
-    // Anti-farming: overrides that enable trivial solo wins forfeit rewards.
-    this.rewardsEligible = options.minPlayers === undefined;
+    const internal = options.__internalArenaToken === INTERNAL_ARENA_TOKEN ? options.__internal : undefined;
+    this.humanStartThreshold = Math.min(this.maxClients, Math.max(1, internal?.minPlayers ?? this.maxClients));
+    this.rewardsEligible = true;
 
-    this.seed = options.seed ?? 1;
+    this.seed = internal?.seed ?? randomInt(1, 0x7fffffff);
     this.sim = new ArenaSimulation(configs, arenaId, options.gamemode, this.seed);
     this.matchStats = new MatchStatsAccumulator((id) => this.sim.teamOf(id));
 
@@ -243,9 +249,8 @@ export class ArenaRoom extends Room<ArenaState> {
       state.asteroids.set(String(i), a);
     });
 
-    this.botProfileOverride = options.botProfile;
-    this.botBackfillMs = options.botBackfillMs ?? gamemode.bots?.backfillWaitMs ?? DEFAULT_BOT_BACKFILL_MS;
-    this.matchmade = options.matchmaking === true;
+    this.botProfileOverride = internal?.botProfile;
+    this.botBackfillMs = internal?.botBackfillMs ?? gamemode.bots?.backfillWaitMs ?? DEFAULT_BOT_BACKFILL_MS;
 
     this.setSimulationInterval(() => this.update(), 1000 / SIM_TICK_RATE);
     this.setPatchRate(PATCH_RATE_MS);
@@ -258,7 +263,7 @@ export class ArenaRoom extends Room<ArenaState> {
       gamemode: gamemode.id,
       arena: arenaId,
       maxClients: this.maxClients,
-      minPlayers: this.minPlayers,
+      fullAt: this.maxClients,
     });
   }
 
@@ -294,6 +299,7 @@ export class ArenaRoom extends Room<ArenaState> {
     ps.shipId = shipId;
     ps.cosmeticId = cosmeticId ?? "";
     ps.displayName = this.resolveDisplayName(userId, options);
+    ps.isBot = false;
     ps.connected = true;
     // One ModuleState per fitted (non-empty) module; empty hardpoints get none.
     const fittedCount = fitting.filter((m) => m !== null).length;
@@ -437,9 +443,10 @@ export class ArenaRoom extends Room<ArenaState> {
 
   private maybeStart(): void {
     if (this.state.matchPhase !== "waiting") return;
-    if (this.humanSessions.size >= this.minPlayers) {
+    if (this.humanSessions.size >= this.humanStartThreshold) {
       this.clearBotBackfillTimer();
       this.state.matchPhase = "live";
+      this.lock();
       log.info("match live", { players: this.humanSessions.size });
       return;
     }
@@ -454,28 +461,35 @@ export class ArenaRoom extends Room<ArenaState> {
    * Arm the backfill timer once the first human is in and the room is still
    * short of players. When it fires, every empty team slot is filled with a
    * {@link BotDriver}-driven ship and the match starts. Off entirely for a
-   * gamemode that declares no `bots` block and no `botProfile` room option.
+   * gamemode that declares no usable `bots` block.
    */
   private scheduleBotBackfill(): void {
     if (this.botBackfillTimer !== null) return;
-    // A matchmade room's second seat belongs to a real reserved player — a bot
-    // must never take it (a slow-connecting opponent would arrive mid-fight
-    // against a bot in their own chair). No-shows end via the reservation
-    // expiry + min-player flow instead.
-    if (this.matchmade) return;
     if (this.humanSessions.size === 0) return;
     if (!resolveBackfillBot(this.gamemode, this.configs, this.botProfileOverride)) return;
+    this.lobbyDeadlineMs = Date.now() + this.botBackfillMs;
+    this.syncLobbyRemaining();
     this.botBackfillTimer = setTimeout(() => {
       this.botBackfillTimer = null;
+      this.lobbyDeadlineMs = null;
+      this.state.lobbyRemainingSec = 0;
       this.backfillBots();
     }, this.botBackfillMs);
     log.info("bot backfill armed", { waitMs: this.botBackfillMs });
   }
 
   private clearBotBackfillTimer(): void {
-    if (this.botBackfillTimer === null) return;
-    clearTimeout(this.botBackfillTimer);
+    if (this.botBackfillTimer !== null) clearTimeout(this.botBackfillTimer);
     this.botBackfillTimer = null;
+    this.lobbyDeadlineMs = null;
+    this.state.lobbyRemainingSec = 0;
+  }
+
+  private syncLobbyRemaining(): void {
+    const remaining = this.lobbyDeadlineMs === null
+      ? 0
+      : Math.max(0, Math.ceil((this.lobbyDeadlineMs - Date.now()) / 1000));
+    if (this.state.lobbyRemainingSec !== remaining) this.state.lobbyRemainingSec = remaining;
   }
 
   /**
@@ -533,6 +547,7 @@ export class ArenaRoom extends Room<ArenaState> {
         // A player-like handle, not the profile id: "Rookie" reads as furniture
         // on a scoreboard, "Vortexrunner_77" reads as an opponent.
         ps.displayName = generateBotName(rosterRng);
+        ps.isBot = true;
         ps.connected = false;
         for (let m = 0; m < botFitting.filter((x) => x !== null).length; m++) ps.modules.push(new ModuleState());
         this.state.players.set(key, ps);
@@ -552,7 +567,11 @@ export class ArenaRoom extends Room<ArenaState> {
             rng: deriveRng(this.seed, entityId),
             arenaBounds: this.sim.world.arena.bounds,
             floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
-            visualRadius: botShip.render.modelScale,
+            staticWorld: this.sim.world.staticWorld,
+            navRoute: this.sim.world.navRoute,
+            // modelScale is approximately the authored forward length for a
+            // unit-normalized hull; the gameplay collider is the honest floor.
+            visualRadius: Math.max(botShip.collider.radius, (botShip.render.modelScale ?? botShip.collider.radius * 2) / 2),
           }),
         );
         this.syncShipState(entityId, ps);
@@ -563,6 +582,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.botsSpawned += spawned;
     log.info("bot backfill complete", { spawned, profile: backfill.profile.id });
     this.state.matchPhase = "live";
+    this.lock();
   }
 
   /**
@@ -725,6 +745,10 @@ export class ArenaRoom extends Room<ArenaState> {
    * this is measured always, not behind a dev flag.
    */
   private update(): void {
+    if (this.state.matchPhase === "waiting") {
+      this.syncLobbyRemaining();
+      return;
+    }
     if (this.state.matchPhase !== "live") return;
     const startedAt = performance.now();
 

@@ -28,6 +28,8 @@ import { allocateTeamRoles, type BotRole } from "./roleAllocator.js";
 import { RecoveryController } from "./recovery.js";
 import { decideFire, type FireDecisionReason, type FireDisciplineState } from "./fireDiscipline.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";
+import type { StaticWorld } from "../collision/staticWorld.js";
+import type { NavRoute } from "./navRoute.js";
 
 /**
  * Read-only record of one decision tick — the substrate for the Phase 5.3
@@ -123,6 +125,10 @@ export interface BotDriverOptions {
   arenaBounds?: ArenaBounds;
   /** Maximum rendered hull extent, when larger than the gameplay collider. */
   visualRadius?: number;
+  /** Session-shared static terrain queries. */
+  staticWorld?: StaticWorld;
+  /** Session-shared precomputed arena navigation. */
+  navRoute?: NavRoute;
 }
 
 /**
@@ -227,6 +233,8 @@ export class BotDriver {
   private readonly floorY: number | undefined;
   private readonly arenaBounds: ArenaBounds | undefined;
   private readonly visualRadius: number | undefined;
+  private readonly staticWorld: StaticWorld | undefined;
+  private readonly navRoute: NavRoute | undefined;
 
   private nextDecisionMs = 0;
   private started = false;
@@ -278,10 +286,14 @@ export class BotDriver {
     this.floorY = options.floorY;
     this.arenaBounds = options.arenaBounds;
     this.visualRadius = options.visualRadius;
+    this.staticWorld = options.staticWorld;
+    this.navRoute = options.navRoute;
     this.recovery = new RecoveryController({
       floorY: options.floorY,
       arenaBounds: options.arenaBounds,
       visualRadius: options.visualRadius,
+      staticWorld: options.staticWorld,
+      navRoute: options.navRoute,
       orbitSign: this.orbitSign,
     });
   }
@@ -535,6 +547,8 @@ export class BotDriver {
       missileScanRadius: Math.max(profile.preferredRange[1], 1) * MISSILE_SCAN_MULT,
       orbitSign: this.orbitSign,
       rng: this.rng,
+      staticWorld: this.staticWorld,
+      navRoute: this.navRoute,
     }).incomingMissiles.length > 0;
     if (tookDamage || inboundMissile) this.underThreatUntilMs = nowMs + THREAT_LATCH_MS;
   }
@@ -567,6 +581,8 @@ export class BotDriver {
         pitchRate: this.pitchRateEst,
         turnHorizonSec: horizonSec,
         driverTick: this.driverTick,
+        staticWorld: this.staticWorld,
+        navRoute: this.navRoute,
       });
     const preliminary = build(self.targetId);
     const targetId = this.pickTarget(preliminary);
@@ -615,7 +631,12 @@ export class BotDriver {
       }
     }
     const roleHoldMs = profile.ctfWeights?.roleHoldMs ?? 2500;
-    if (this.heldBehavior && nowMs < this.heldBehavior.untilMs && (scores[this.heldBehavior.key] ?? 0) > 0) {
+    // A warden claim is the team's promise that somebody remains able to return
+    // the flag and unblock a capture. It may still fire opportunistically, but
+    // ordinary combat utility must not pull it into a distant personal duel.
+    if (this.lastRole === "warden" && (scores.objective ?? 0) > 0) {
+      bestKey = "objective";
+    } else if (this.heldBehavior && nowMs < this.heldBehavior.untilMs && (scores[this.heldBehavior.key] ?? 0) > 0) {
       bestKey = this.heldBehavior.key;
     } else if (bestKey !== null && (bestKey === "objective" || this.heldBehavior?.key === "objective")) {
       this.heldBehavior = { key: bestKey, untilMs: nowMs + roleHoldMs };
@@ -670,6 +691,7 @@ export class BotDriver {
       pitchStick: steer?.pitchStick ?? 0,
       throttle: clamp(bestPlan?.throttle ?? 0, 0, 1),
       boost: bestPlan?.boost ?? false,
+      aimPriority: bestPlan?.aimPriority,
     };
     if (aim && bestPlan?.arrive) {
       const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : 0;
@@ -875,6 +897,8 @@ export class BotDriver {
       pitchRate: this.pitchRateEst,
       turnHorizonSec: horizonSec,
       driverTick: this.driverTick,
+      staticWorld: this.staticWorld,
+      navRoute: this.navRoute,
     });
     const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, this.lastEngaged);
     if (!carrying && fireDecision.fire === this.lastFire) return NO_ORDERS;
@@ -944,7 +968,7 @@ export class BotDriver {
     const sensedCarrier = ctx.enemies.some((enemy) =>
       enemyCarrierIds.has(enemy.id)
       && dist3(ctx.self.pos, enemy.pos) <= (ctx.self.sensorRange ?? Math.max(ctx.weaponRange, ctx.preferredMax))
-      && hasLineOfSightAmong(ctx.self.pos, enemy.pos, ctx.blockers));
+      && hasLineOfSightAmong(ctx.self.pos, enemy.pos, ctx.blockers, this.staticWorld));
     if (!sensedCarrier && hold && ctx.self.lockProgress > 0 && ctx.self.targetId !== null) {
       const held = ctx.self.targetId;
       if (ctx.enemies.some((e) => e.id === held)) return held;
@@ -958,7 +982,7 @@ export class BotDriver {
       // at once altitude is in play (BUBBLE.md §D).
       const base =
         preference === "lowestHull" ? (e.hullMax > 0 ? e.hull / e.hullMax : 0) : dist3(ctx.self.pos, e.pos);
-      const visible = hasLineOfSightAmong(ctx.self.pos, e.pos, ctx.blockers);
+      const visible = hasLineOfSightAmong(ctx.self.pos, e.pos, ctx.blockers, this.staticWorld);
       const inSensorRange = dist3(ctx.self.pos, e.pos) <= (ctx.self.sensorRange ?? Math.max(ctx.weaponRange, ctx.preferredMax));
       // A carrier is the team's main target, but only after ordinary sensors
       // can see it. Dividing cost preserves the authored nearest/lowest-hull
@@ -995,7 +1019,10 @@ export class BotDriver {
     }
     this.carrierProgress = progress;
     if (nowMs >= progress.commitUntilMs) return plan;
-    const clear = hasLineOfSightAmong(self.pos, home, snapshot.asteroids.map((a) => ({ pos: a.pos, radius: a.colliderRadius ?? a.radius })));
+    // A routed carrier already owns a safe authored waypoint. The old vertical
+    // fudge aimed through canyon walls; recommitting means holding that waypoint.
+    if (plan.aimPriority) return { ...plan, throttle: 1, boost: false };
+    const clear = hasLineOfSightAmong(self.pos, home, snapshot.asteroids.map((a) => ({ pos: a.pos, radius: a.colliderRadius ?? a.radius })), this.staticWorld);
     return {
       ...plan,
       aim: clear ? home : { x: home.x, y: Math.max(home.y, self.pos.y + 24), z: home.z + this.orbitSign * 8 },

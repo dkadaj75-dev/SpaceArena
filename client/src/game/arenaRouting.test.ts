@@ -6,6 +6,7 @@ import {
   EventBus,
   type ArenaConfig,
   type ConfigEvents,
+  type GamemodeConfig,
   type Snapshot,
   type ThemeConfig,
 } from "@space-arena/shared";
@@ -74,6 +75,14 @@ describe("GameSession.arenaId", () => {
     const session = new GameSession(configs, SECOND_ARENA_ID, "gamemode.practice-bots-1v1");
     expect(session.arenaId).toBe(SECOND_ARENA_ID);
     expect(session.sim.world.arena.bounds).toEqual({ shape: "sphere", radius: SECOND_ARENA_RADIUS });
+  });
+});
+
+describe("shipped CTF arena routing", () => {
+  it("resolves Practice CTF through its authored Lunar Rift default", () => {
+    const mode = configs.get<GamemodeConfig>("gamemode", "gamemode.practice-ctf-5v5");
+    expect(mode?.defaultArena).toBe("arena.lunar-rift");
+    expect(configs.get<ArenaConfig>("arena", mode!.defaultArena!)?.bounds.shape).toBe("box");
   });
 });
 

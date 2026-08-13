@@ -61,6 +61,8 @@ export class PlayerState extends Schema {
   @type("string") shipId = "";
   /** Player display name (from profile), or a generated guest/anon label. */
   @type("string") displayName = "";
+  /** Explicit bot disclosure; disconnected humans are not bots. */
+  @type("boolean") isBot = false;
   /**
    * Equipped paint (`cosmetic.*`), or "" for the hull's authored look (protocol
    * 5). Validated server-side at join — ownership AND target — so a client
@@ -189,11 +191,12 @@ export class ArenaState extends Schema {
    * would drift by exactly the two players' clock/latency difference, which is
    * the one thing "everyone starts at the same time" cannot tolerate.
    *
-   * While `matchPhase` is still `"waiting"` this holds the full countdown: the
-   * sim is not being ticked at all yet, so nothing can move or fire, which is
-   * the same guarantee the countdown itself gives.
+   * The room lobby has its own `lobbyRemainingSec`; this value is only displayed
+   * after `matchPhase` becomes `"live"` and the sim countdown begins.
    */
   @type("float32") countdownRemaining = 0;
+  /** Server-authored lobby wait remaining before empty seats are backfilled. */
+  @type("float32") lobbyRemainingSec = 0;
   /** Winning team, or -1 for none/draw. */
   @type("int8") winnerTeam = -1;
   /**

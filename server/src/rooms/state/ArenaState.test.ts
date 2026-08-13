@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ArenaState, DecoyState, FlagState, TeamScoreState } from "./ArenaState.js";
+import { ArenaState, DecoyState, FlagState, PlayerState, TeamScoreState } from "./ArenaState.js";
 
 describe("ArenaState online objectives", () => {
   it("stores flags, heatsink decoys, and capture scores as schema entities", () => {
@@ -18,5 +18,6 @@ describe("ArenaState online objectives", () => {
     expect(state.decoys.get("9")?.entityId).toBe(9);
     expect(state.flags.get("17")?.carrierEntityId).toBe(42);
     expect(state.teamScores.get("0")?.captures).toBe(2);
+    expect(new PlayerState().isBot).toBe(false);
   });
 });

@@ -241,6 +241,13 @@ export function segmentIntersectsSphere(a: Vec3, b: Vec3, c: Vec3, radius: numbe
   return pointSegmentDistSq3(c, a, b) <= radius * radius;
 }
 
+/** Distance along a ray to the first surface of a swept sphere. */
+export function sphereEntryAlong(from: Vec3, center: Vec3, centerAlong: number, radius: number): number {
+  const ox = center.x - from.x, oy = center.y - from.y, oz = center.z - from.z;
+  const perpendicularSq = Math.max(0, ox * ox + oy * oy + oz * oz - centerAlong * centerAlong);
+  return Math.max(0, centerAlong - Math.sqrt(Math.max(0, radius * radius - perpendicularSq)));
+}
+
 export function clamp(v: number, min: number, max: number): number {
   return v < min ? min : v > max ? max : v;
 }

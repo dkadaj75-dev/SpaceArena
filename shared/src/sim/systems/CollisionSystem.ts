@@ -2,6 +2,7 @@ import type { ShipCore } from "../components.js";
 import { len3, type Attitude } from "../math.js";
 import { orthonormalizeUp, spellAttitude, transportUp } from "../frame.js";
 import type { World } from "../World.js";
+import { resolveStaticStep } from "../staticStep.js";
 
 /** Scratch attitude for the boundary nose reflection — no per-contact allocation. */
 const reflectedAttitude: Attitude = { heading: 0, pitch: 0 };
@@ -93,6 +94,45 @@ export function collisionSystem(world: World, dt: number): void {
     }
   }
 
+  const boundaryContactsThisTick = new Set<number>();
+
+  // Shared static pass: prop mesh contacts followed by all authored box faces.
+  // Prop cooldown keys are NEGATIVE, while asteroid pair keys are
+  // positive (`sid * 0x100000 + aid`, with positive entity ids), so the two key
+  // spaces provably cannot collide regardless of entity or placement counts.
+  if (!world.staticWorld.isEmpty || world.arena.bounds.shape === "box") for (const sid of ships) {
+    const core = world.shipCores.get(sid)!;
+    if (core.hull <= 0) continue;
+    const tf = world.transforms.get(sid)!;
+    const vel = world.velocities.get(sid)!;
+    const radius = world.colliders.get(sid)!.radius;
+    const state = {
+      position: tf.pos, velocity: vel, heading: tf.heading, pitch: tf.pitch, up: tf.up,
+    };
+    const result = resolveStaticStep(world, state, radius, dt, {
+      onPropContact: ({ contact, closingSpeed }) => {
+        const damage = world.staticWorld.configAt(contact.placementIndex)?.impactDamage ?? 0;
+        const pairKey = -(sid * 0x100000 + contact.placementIndex + 1);
+        if (core.hull > 0 && damage > 0 && closingSpeed > impactThreshold && !world.impactCooldowns.has(pairKey)) {
+          applyRaw(world, sid, core, damage);
+          world.impactCooldowns.set(pairKey, impactCooldown);
+        }
+      },
+    });
+    tf.heading = state.heading;
+    tf.pitch = state.pitch;
+    if (result.boxFaceCount > 0) {
+      const rule = world.gamemode.boundaryRule;
+      if (core.hull > 0 && (rule.type === "damage" || rule.type === "damageAndBounce")) {
+        applyRaw(world, sid, core, rule.damagePerSec * dt);
+      }
+      boundaryContactsThisTick.add(sid);
+      if (!world.boundaryContacts.has(sid)) {
+        world.emit({ type: "boundaryHit", entityId: sid, rule: world.gamemode.boundaryRule.type });
+      }
+    }
+  }
+
   // Ship vs ship (each unordered pair once).
   for (let i = 0; i < ships.length; i++) {
     const a = ships[i]!;
@@ -135,11 +175,10 @@ export function collisionSystem(world: World, dt: number): void {
   }
 
   // Ship vs boundary.
-  const boundaryContactsThisTick = new Set<number>();
   for (const sid of ships) {
     const core = world.shipCores.get(sid)!;
     if (core.hull <= 0) continue;
-    resolveBoundary(world, sid, core, dt, boundaryContactsThisTick);
+    if (world.arena.bounds.shape !== "box") resolveBoundary(world, sid, core, dt, boundaryContactsThisTick);
   }
   world.boundaryContacts.clear();
   for (const sid of boundaryContactsThisTick) world.boundaryContacts.add(sid);
@@ -179,7 +218,7 @@ function resolveBoundary(
         penetration = d - limit;
       }
     }
-  } else {
+  } else if (bounds.shape === "rect") {
     // Rect arenas are boxes: x walls, z walls, plus a real ceiling/floor.
     const halfW = bounds.width / 2 - col.radius;
     const halfH = bounds.height / 2 - col.radius;

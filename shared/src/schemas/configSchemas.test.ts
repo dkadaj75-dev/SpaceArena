@@ -11,6 +11,7 @@ import {
   type ConfigType,
 } from "./index.js";
 import { QUALITY_TIERS } from "./quality.js";
+import { encodeFloat32Array, encodeUint32Array } from "../collision/base64.js";
 
 /**
  * ROADMAP §11 6.1 — "all schemas (valid/invalid/edge fixtures)".
@@ -159,6 +160,20 @@ const asteroid = {
   destructible: true,
   impactDamage: 6,
   render: { recipe: "procedural.rock" },
+};
+
+const prop = {
+  id: "prop.fixture",
+  type: "prop",
+  version: 1,
+  category: "structure",
+  impactDamage: 5,
+  render: { recipe: "model.static", model: "props/fixture.glb" },
+  collision: {
+    positions: encodeFloat32Array(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0])),
+    indices: encodeUint32Array(new Uint32Array([0, 1, 2])),
+    bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 0 } },
+  },
 };
 
 const gamemode = {
@@ -311,6 +326,7 @@ const VALID: Record<ConfigType, Record<string, unknown>> = {
   notification,
   theme,
   progression,
+  prop,
   botprofile,
   quality,
   cosmetic,

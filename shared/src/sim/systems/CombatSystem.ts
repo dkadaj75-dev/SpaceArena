@@ -1,7 +1,7 @@
 import type { ModuleConfig } from "../../schemas/index.js";
 import type { EntityId, ModuleRuntime, TargetRef, Transform3D } from "../components.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
-import { headingOf, len3, pitchOf, segmentIntersectsSphere } from "../math.js";
+import { headingOf, len3, pitchOf, segmentIntersectsSphere, sphereEntryAlong } from "../math.js";
 import { hasLineOfSightBetween } from "../los.js";
 import { spawnProjectile } from "../spawn.js";
 import type { World } from "../World.js";
@@ -93,7 +93,9 @@ export function combatSystem(world: World, dt: number): void {
         if (cfg.fire.projectile === null) {
           const hit = raycastNose(world, id, myTeam, myTf, cfg.fire.range);
           if (hit !== null) {
-            if (hit.isAsteroid) applyDamageToAsteroid(world, hit.id, id, cfg.fire.damage, cfg.fire.damageType);
+            if (hit.isStatic) {
+              // Props block beams but are not damageable entities.
+            } else if (hit.isAsteroid) applyDamageToAsteroid(world, hit.id, id, cfg.fire.damage, cfg.fire.damageType);
             else applyDamageToShip(world, hit.id, id, cfg.fire.damage, cfg.fire.damageType);
           }
           world.emit({
@@ -101,7 +103,7 @@ export function combatSystem(world: World, dt: number): void {
             ownerId: id,
             moduleId: m.moduleId,
             kind: "beam",
-            targetId: hit?.id ?? null,
+            targetId: hit?.isStatic ? null : hit?.id ?? null,
             actions: cfg.onFire,
           });
         } else {
@@ -214,6 +216,8 @@ const NOSE_RAY_RADIUS = 0.4;
 interface NoseHit {
   id: EntityId;
   isAsteroid: boolean;
+  /** Present only for a prop hit; existing entity-hit consumers remain compatible. */
+  isStatic?: boolean;
 }
 
 /**
@@ -247,6 +251,11 @@ export function raycastNose(
 
   let best: NoseHit | null = null;
   let bestAlong = Infinity;
+  const staticHit = world.staticWorld.raycast(from, to);
+  if (staticHit) {
+    bestAlong = staticHit.t * range;
+    best = { id: -1, isAsteroid: false, isStatic: true };
+  }
   for (const cid of candidates) {
     if (cid === shooterId) continue;
     const col = world.colliders.get(cid);
@@ -265,7 +274,8 @@ export function raycastNose(
     const reach = col.radius + NOSE_RAY_RADIUS;
     if (ct.pos.y + reach < minY || ct.pos.y - reach > maxY) continue;
     if (!segmentIntersectsSphere(from, to, ct.pos, reach)) continue;
-    const along = (ct.pos.x - from.x) * dirX + (ct.pos.y - from.y) * dirY + (ct.pos.z - from.z) * dirZ;
+    const centerAlong = (ct.pos.x - from.x) * dirX + (ct.pos.y - from.y) * dirY + (ct.pos.z - from.z) * dirZ;
+    const along = sphereEntryAlong(from, ct.pos, centerAlong, reach);
     if (along < bestAlong) {
       bestAlong = along;
       best = { id: cid, isAsteroid };
@@ -273,6 +283,7 @@ export function raycastNose(
   }
   return best;
 }
+
 
 interface ChannelCtx {
   id: EntityId;
@@ -361,7 +372,7 @@ function channelTarget(world: World, ctx: ChannelCtx): EntityId | null {
   if (targetId === null) {
     const myTeam = world.teams.get(id)!.team;
     const hit = raycastNose(world, id, myTeam, myTf, fire.range);
-    return hit !== null && !hit.isAsteroid ? hit.id : null;
+    return hit !== null && !hit.isAsteroid && !hit.isStatic ? hit.id : null;
   }
   const tgtTf = world.transforms.get(targetId)!;
   const dist = len3(tgtTf.pos.x - myTf.pos.x, tgtTf.pos.y - myTf.pos.y, tgtTf.pos.z - myTf.pos.z);

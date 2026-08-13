@@ -17,6 +17,8 @@ import {
   upFromAttitude,
   pitchTuningOf,
   resolveShipStats,
+  resolveStaticStep,
+  StaticWorld,
   MSG_ORDER,
   createLogger,
   type ArenaConfig,
@@ -46,6 +48,12 @@ const log = createLogger("NetGameSession");
 const MAX_SNAPSHOTS = 32;
 const SNAP_DISTANCE = 3; // world units: larger prediction error snaps instead of blending
 const PENDING_TOGGLE_MS = 800; // optimistic module-state overlay lifetime
+
+export function decodeRoomPhase(matchPhase: unknown, countdownRemaining: number): Snapshot["phase"] {
+  if (matchPhase === "waiting") return "waiting";
+  if (matchPhase === "ended") return "ended";
+  return countdownRemaining > 0 ? "countdown" : "live";
+}
 
 interface TimedSnapshot { time: number; snapshot: Snapshot }
 interface PendingToggle { sentAt: number; fromState: string; optimistic: "deploying" | "retracting" }
@@ -364,10 +372,15 @@ export class NetGameSession extends GameSession {
   private readonly correctionRate: number;
   private readonly shipIds = new Map<EntityId, string>();
   private readonly displayNames = new Map<EntityId, string>();
+  private readonly botEntities = new Set<EntityId>();
   private readonly arena: ArenaConfig;
   private readonly netConfigs: ConfigService;
   /** Pitch knobs for the predictor, read from the same tuning pack as the sim. */
   private readonly pitchTuning: { pitchRateMult: number; maxPitchRad: number | null };
+  /** Immutable static collision data shared with the authoritative simulation. */
+  private readonly staticWorld: StaticWorld;
+  private readonly staticRule: GamemodeConfig["boundaryRule"];
+  private readonly tuning: TuningConfig | undefined;
 
   // --- local-player prediction ---
   private readonly pred: SteerState = {
@@ -438,8 +451,14 @@ export class NetGameSession extends GameSession {
     this.current = this.previous;
     this.arena = configs.get<ArenaConfig>("arena", arenaId)!;
     this.netConfigs = configs;
+    // GameSession's construction already built the immutable world from this
+    // arena/config snapshot. Reuse it so an online session owns exactly one BVH
+    // set rather than decoding the same collision config twice.
+    this.staticWorld = this.sim.world.staticWorld;
+    this.staticRule = configs.get<GamemodeConfig>("gamemode", gamemodeId)!.boundaryRule;
     this.flagTrailLength = configs.get<GamemodeConfig>("gamemode", gamemodeId)?.ctf?.trailLength ?? 0;
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
+    this.tuning = tuning;
     this.pitchTuning = pitchTuningOf(tuning ?? ({} as TuningConfig));
     this.renderDelay = tuning?.netRenderDelayMs ?? 100;
     this.correctionRate = tuning?.netCorrectionRate ?? 12;
@@ -537,6 +556,7 @@ export class NetGameSession extends GameSession {
   override get playerTeam(): number { return this.teamOf(this.playerId) ?? 0; }
   override shipConfigIdFor(id: EntityId): string | undefined { return this.shipIds.get(id); }
   override displayNameFor(id: EntityId): string | undefined { return this.displayNames.get(id); }
+  override isBotFor(id: EntityId): boolean { return this.botEntities.has(id); }
 
   override order(order: Order): void {
     const seq = this.seq++;
@@ -702,6 +722,7 @@ export class NetGameSession extends GameSession {
         engine,
         dt,
       );
+      this.resolvePredictedStatics(cfg.collider.radius, dt);
     }
 
     // Blend server error into the prediction; snap when badly wrong.
@@ -723,6 +744,30 @@ export class NetGameSession extends GameSession {
     player.up.x = this.pred.up.x;
     player.up.y = this.pred.up.y;
     player.up.z = this.pred.up.z;
+  }
+
+  /** Static mesh then box-boundary resolution, in the server helper's order. */
+  private resolvePredictedStatics(radius: number, dt: number): void {
+    if (this.staticWorld.isEmpty && this.arena.bounds.shape !== "box") return;
+    const state = {
+      position: this.pred.pos,
+      velocity: this.pred.vel,
+      heading: this.pred.heading,
+      pitch: this.pred.pitch,
+      up: this.pred.up,
+    };
+    resolveStaticStep(
+      {
+        staticWorld: this.staticWorld,
+        bounds: this.arena.bounds,
+        rule: this.staticRule,
+      },
+      state,
+      radius,
+      dt,
+    );
+    this.pred.heading = state.heading;
+    this.pred.pitch = state.pitch;
   }
 
   /**
@@ -790,6 +835,8 @@ export class NetGameSession extends GameSession {
       const shipId = String(p.shipId);
       this.shipIds.set(id, shipId);
       this.displayNames.set(id, String(p.displayName ?? "Pilot"));
+      if (p.isBot === true) this.botEntities.add(id);
+      else this.botEntities.delete(id);
       if (this.playerId !== id && this.net.room?.sessionId && findKey(state.players, p) === this.net.room.sessionId)
         (this as { playerId: number }).playerId = id;
       const heading = decodeHeading(p.heading);
@@ -846,18 +893,14 @@ export class NetGameSession extends GameSession {
     // still ahead" describes it exactly, and every consumer (HUD overlay,
     // predictor, bots) then needs only ONE rule instead of a waiting special case.
     const countdownRemaining = Math.max(0, Number(state.countdownRemaining ?? 0));
-    const phase: Snapshot["phase"] =
-      state.matchPhase === "ended"
-        ? "ended"
-        : state.matchPhase !== "live" || countdownRemaining > 0
-          ? "countdown"
-          : "live";
+    const phase = decodeRoomPhase(state.matchPhase, countdownRemaining);
     return {
       tick: Math.round((state.matchTimer ?? 0) * 30),
       elapsed: state.matchTimer ?? 0,
       phase,
       teamScores: decodeTeamScores(state.teamScores),
       countdownRemaining,
+      lobbyRemainingSec: Math.max(0, Number(state.lobbyRemainingSec ?? 0)),
       winnerTeam: state.winnerTeam === -1 ? null : state.winnerTeam,
       ships,
       asteroids,

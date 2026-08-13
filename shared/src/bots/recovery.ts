@@ -3,8 +3,11 @@ import type { Vec3 } from "../schemas/common.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
 import { clamp, dist3, segmentIntersectsSphere } from "../sim/math.js";
+import { hasLineOfSightAmong } from "../sim/los.js";
+import type { StaticWorld } from "../collision/staticWorld.js";
 import type { BotPlan, FlightCommand } from "./behaviors.js";
 import { steerForPoint } from "./flight.js";
+import type { NavRoute } from "./navRoute.js";
 
 /** Commanded throttle below which a motionless hull is holding, not stalled. */
 const COMMANDED_STALL_THROTTLE = 0.2;
@@ -56,6 +59,8 @@ export interface RecoveryEnv {
   arenaBounds?: ArenaBounds;
   /** Maximum rendered hull extent, when larger than the gameplay collider. */
   visualRadius?: number;
+  staticWorld?: StaticWorld;
+  navRoute?: NavRoute;
   /** Seeded per-bot side, used as the deterministic tangent tie-break. */
   orbitSign: 1 | -1;
 }
@@ -108,7 +113,10 @@ export class RecoveryController {
   private stall: { key: string; sinceMs: number; anchor: Required<Vec3> } | null = null;
   private commandedStall: { sinceMs: number; anchor: Required<Vec3> } | null = null;
   private floorRecovering = false;
+  private ceilingRecovering = false;
   private floorStrength = 0;
+  /** Box terrain sample refreshed once per decision in plan(), never per sim tick. */
+  private terrainFloor: { y: number; normal: Required<Vec3> } | null = null;
 
   constructor(env: RecoveryEnv) {
     this.env = env;
@@ -119,6 +127,7 @@ export class RecoveryController {
     this.stall = null;
     this.commandedStall = null;
     this.floorRecovering = false;
+    this.ceilingRecovering = false;
     this.floorStrength = 0;
   }
 
@@ -129,7 +138,7 @@ export class RecoveryController {
 
   /** True while the LATCHED floor climb is commanding a recovery. */
   get climbing(): boolean {
-    return this.floorRecovering;
+    return this.floorRecovering || this.ceilingRecovering;
   }
 
   /** How much of the last command the predictive floor branch owned, 0..1. */
@@ -152,11 +161,14 @@ export class RecoveryController {
     nowMs: number,
     commandedThrottle: number,
   ): BotPlan | null {
+    this.terrainFloor = this.env.arenaBounds?.shape === "box"
+      ? (this.env.staticWorld?.heightBelow(point(self.pos), 60) ?? null)
+      : null;
     const contacts = this.activeContacts(snapshot, self);
     const stalled = this.commandedProgressFailed(self, nowMs, commandedThrottle);
 
     if (this.escape) {
-      const surface = surfaceByKey(snapshot, self, this.env.floorY, this.env.arenaBounds, this.escape.key);
+      const surface = surfaceByKey(snapshot, self, this.env, this.escape.key);
       const separated = !surface || surface.clearance >= this.exitClearance(self);
       if (separated || nowMs - this.escape.sinceMs >= ESCAPE_MAX_MS) {
         this.escape = null;
@@ -213,13 +225,15 @@ export class RecoveryController {
    */
   avoidFloor(self: ShipSnapshot, cmd: FlightCommand, steering: RecoverySteering): FlightCommand {
     this.floorStrength = 0;
-    if (this.env.floorY === undefined) return cmd;
     const radius = self.colliderRadius ?? 0;
     // The terrain mesh has visual relief, but collision is the authored floor
     // plane. Keep a small hull clearance without treating normal lunar spawn/
     // base altitude (y=8..10) as an emergency band.
     const clearance = Math.max(radius * FLOOR_RECOVERY_CLEARANCE_MULT, radius + 3);
-    const safeY = this.env.floorY + clearance;
+    const floorY = this.env.arenaBounds?.shape === "box" ? this.terrainFloor?.y : this.env.floorY;
+    let guarded = cmd;
+    if (floorY !== undefined) {
+    const safeY = floorY + clearance;
     const noseY = Math.sin(self.pitch);
     const observedVy = self.velocity?.y ?? 0;
     const projectedVy = Math.min(observedVy, noseY * FLOOR_NOMINAL_SPEED * cmd.throttle);
@@ -227,7 +241,9 @@ export class RecoveryController {
     const recoveryExitY = safeY + Math.max(radius, 2);
     if (self.pos.y <= safeY) this.floorRecovering = true;
     else if (self.pos.y >= recoveryExitY && predictedY >= safeY) this.floorRecovering = false;
-    if (!this.floorRecovering && predictedY >= safeY) return cmd;
+    if (!this.floorRecovering && predictedY >= safeY) {
+      // Continue into the independent ceiling guard below.
+    } else {
 
     const strength = this.floorRecovering ? 1 : clamp((safeY - predictedY) / FLOOR_BAND, 0, 1);
     this.floorStrength = strength;
@@ -251,7 +267,7 @@ export class RecoveryController {
       self.up,
     );
     const speed = self.velocity ? Math.hypot(self.velocity.x, self.velocity.y, self.velocity.z) : Infinity;
-    return {
+    guarded = {
       turn: cmd.turn + (lift.turn - cmd.turn) * strength,
       pitchStick: cmd.pitchStick + (lift.pitchStick - cmd.pitchStick) * strength,
       // Rotation is speed-independent; retain enough thrust to turn the new
@@ -263,6 +279,44 @@ export class RecoveryController {
             speed < FLOOR_STALL_SPEED ? Math.min(cmd.throttle, FLOOR_STALL_THROTTLE) : 0,
           ),
       boost: strength < 0.15 && cmd.boost,
+      aimPriority: cmd.aimPriority,
+    };
+    }
+    }
+
+    const bounds = this.env.arenaBounds;
+    if (bounds?.shape !== "box") return guarded;
+    const safeCeilingY = bounds.ceilingY - clearance;
+    const noseY = Math.sin(self.pitch);
+    const observedVy = self.velocity?.y ?? 0;
+    const projectedVy = Math.max(observedVy, noseY * FLOOR_NOMINAL_SPEED * guarded.throttle);
+    const predictedY = self.pos.y + projectedVy * FLOOR_LOOKAHEAD_SEC;
+    const recoveryExitY = safeCeilingY - Math.max(radius, 2);
+    if (self.pos.y >= safeCeilingY) this.ceilingRecovering = true;
+    else if (self.pos.y <= recoveryExitY && predictedY <= safeCeilingY) this.ceilingRecovering = false;
+    if (!this.ceilingRecovering && predictedY <= safeCeilingY) return guarded;
+    const strength = this.ceilingRecovering ? 1 : clamp((predictedY - safeCeilingY) / FLOOR_BAND, 0, 1);
+    this.floorStrength = Math.max(this.floorStrength, strength);
+    const drop = self.pos.y - Math.min(safeCeilingY, self.pos.y) + FLOOR_BAND;
+    const dive = steerForPoint(self.pos, self.heading, self.pitch, {
+      x: self.pos.x + Math.cos(self.heading) * drop,
+      y: self.pos.y - drop,
+      z: self.pos.z + Math.sin(self.heading) * drop,
+    }, {
+      turnRate: steering.turnRate,
+      pitchRate: steering.pitchRate,
+      horizonSec: steering.horizonSec,
+      toleranceRad: steering.toleranceRad,
+      maxPitchRad: steering.maxPitchRad,
+    }, self.up);
+    return {
+      turn: guarded.turn + (dive.turn - guarded.turn) * strength,
+      pitchStick: guarded.pitchStick + (dive.pitchStick - guarded.pitchStick) * strength,
+      throttle: this.ceilingRecovering
+        ? (self.pitch < -0.12 ? Math.max(guarded.throttle, 0.7) : Math.max(guarded.throttle * 0.5, 0.25))
+        : guarded.throttle * (1 - strength),
+      boost: strength < 0.15 && guarded.boost,
+      aimPriority: guarded.aimPriority,
     };
   }
 
@@ -289,7 +343,7 @@ export class RecoveryController {
   private activeContacts(snapshot: Snapshot, self: ShipSnapshot): RestSurface[] {
     const own = this.ownOverhang(self);
     const found: RestSurface[] = [];
-    for (const surface of restSurfaces(snapshot, self, this.env.floorY, this.env.arenaBounds)) {
+    for (const surface of restSurfaces(snapshot, self, this.env)) {
       // The band is the OWN hull's rendered overhang, not the obstacle's. A
       // colossal whose rendered shell laps over the hull while both colliders
       // still report clearance is a ROUTE problem (rung 1) — calling it contact
@@ -334,6 +388,15 @@ export class RecoveryController {
     const touching = new Set(contacts.map((contact) => contact.key));
     const ownVisual = this.env.visualRadius ?? self.colliderRadius ?? 0;
     const aim = point(plan.aim);
+    const terrainHit = this.env.staticWorld?.raycast(point(self.pos), aim) ?? null;
+    if (terrainHit) {
+      const blockers = snapshot.asteroids
+        .filter((asteroid) => asteroid.state !== "destroyed")
+        .map((asteroid) => ({ pos: asteroid.pos, radius: asteroid.colliderRadius ?? asteroid.radius }));
+      const waypoint = this.env.navRoute?.route(self.pos, aim, (a, b) =>
+        hasLineOfSightAmong(a, b, blockers, this.env.staticWorld));
+      return waypoint ? { ...plan, aim: waypoint, aimPriority: true, arrive: false, boost: false } : null;
+    }
     let blocker: Snapshot["asteroids"][number] | null = null;
     let distance = Infinity;
     for (const asteroid of snapshot.asteroids) {
@@ -439,19 +502,27 @@ function composeNormal(contacts: readonly RestSurface[], fallback: Required<Vec3
 function restSurfaces(
   snapshot: Snapshot,
   self: ShipSnapshot,
-  floorY: number | undefined,
-  arenaBounds: ArenaBounds | undefined,
+  env: RecoveryEnv,
 ): RestSurface[] {
   const out: RestSurface[] = [];
-  if (floorY !== undefined) {
+  // Legacy sphere/floor arenas keep their independent floor plane. Box arenas
+  // get the kill-floor as one of the six shell faces below.
+  if (env.floorY !== undefined && env.arenaBounds?.shape !== "box") {
     out.push({
       key: "floor",
-      clearance: self.pos.y - floorY - (self.colliderRadius ?? 0),
+      clearance: self.pos.y - env.floorY - (self.colliderRadius ?? 0),
       normal: { x: 0, y: 1, z: 0 },
     });
   }
-  const shell = arenaShellSurface(self, arenaBounds);
-  if (shell) out.push(shell);
+  out.push(...arenaShellSurfaces(self, env.arenaBounds));
+  const radius = self.colliderRadius ?? 0;
+  const staticContact = env.staticWorld?.sphereContact(point(self.pos), radius + VISUAL_MARGIN);
+  if (staticContact) out.push({
+    key: `static:${staticContact.placementIndex}`,
+    // sphereContact depth is measured against the expanded query sphere.
+    clearance: VISUAL_MARGIN - staticContact.depth,
+    normal: staticContact.normal,
+  });
   for (const asteroid of snapshot.asteroids) {
     if (asteroid.state === "destroyed") continue;
     out.push(colliderRestSurface(self, {
@@ -470,32 +541,51 @@ function restSurfaces(
 function surfaceByKey(
   snapshot: Snapshot,
   self: ShipSnapshot,
-  floorY: number | undefined,
-  arenaBounds: ArenaBounds | undefined,
+  env: RecoveryEnv,
   key: string,
 ): RestSurface | null {
   if (key === "floor") {
-    return floorY === undefined ? null : {
+    return env.floorY === undefined ? null : {
       key,
-      clearance: self.pos.y - floorY - (self.colliderRadius ?? 0),
+      clearance: self.pos.y - env.floorY - (self.colliderRadius ?? 0),
       normal: { x: 0, y: 1, z: 0 },
     };
   }
-  if (key === "arena:shell") return arenaShellSurface(self, arenaBounds);
+  if (key.startsWith("arena:")) return arenaShellSurfaces(self, env.arenaBounds).find((surface) => surface.key === key) ?? null;
+  if (key.startsWith("static:")) {
+    const radius = self.colliderRadius ?? 0;
+    const contact = env.staticWorld?.sphereContact(point(self.pos), radius + VISUAL_MARGIN);
+    if (!contact || `static:${contact.placementIndex}` !== key) return null;
+    return { key, clearance: VISUAL_MARGIN - contact.depth, normal: contact.normal };
+  }
   const id = Number(key.slice("collider:".length));
   const collider = colliderById(snapshot, self, id);
   return collider ? colliderRestSurface(self, collider) : null;
 }
 
-function arenaShellSurface(self: ShipSnapshot, bounds: ArenaBounds | undefined): RestSurface | null {
-  if (!bounds || bounds.shape !== "sphere") return null;
-  const length = Math.hypot(self.pos.x, self.pos.y, self.pos.z) || 1;
-  return {
-    key: "arena:shell",
-    clearance: bounds.radius - (self.colliderRadius ?? 0) - length,
-    // The playable volume is inside the shell, so its escape normal is inward.
-    normal: { x: -self.pos.x / length, y: -self.pos.y / length, z: -self.pos.z / length },
-  };
+function arenaShellSurfaces(self: ShipSnapshot, bounds: ArenaBounds | undefined): RestSurface[] {
+  if (!bounds) return [];
+  const radius = self.colliderRadius ?? 0;
+  if (bounds.shape === "sphere") {
+    const length = Math.hypot(self.pos.x, self.pos.y, self.pos.z) || 1;
+    return [{
+      key: "arena:shell",
+      clearance: bounds.radius - radius - length,
+      // The playable volume is inside the shell, so its escape normal is inward.
+      normal: { x: -self.pos.x / length, y: -self.pos.y / length, z: -self.pos.z / length },
+    }];
+  }
+  if (bounds.shape !== "box") return [];
+  const halfX = bounds.width / 2;
+  const halfZ = bounds.height / 2;
+  return [
+    { key: "arena:x-min", clearance: self.pos.x + halfX - radius, normal: { x: 1, y: 0, z: 0 } },
+    { key: "arena:x-max", clearance: halfX - self.pos.x - radius, normal: { x: -1, y: 0, z: 0 } },
+    { key: "arena:z-min", clearance: self.pos.z + halfZ - radius, normal: { x: 0, y: 0, z: 1 } },
+    { key: "arena:z-max", clearance: halfZ - self.pos.z - radius, normal: { x: 0, y: 0, z: -1 } },
+    { key: "arena:floor", clearance: self.pos.y - bounds.floorY - radius, normal: { x: 0, y: 1, z: 0 } },
+    { key: "arena:ceiling", clearance: bounds.ceilingY - self.pos.y - radius, normal: { x: 0, y: -1, z: 0 } },
+  ];
 }
 
 function colliderRestSurface(self: ShipSnapshot, collider: ContactCollider): RestSurface {

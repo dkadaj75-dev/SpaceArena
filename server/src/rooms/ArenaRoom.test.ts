@@ -26,7 +26,7 @@ import {
   usersRepo,
 } from "../db/repos.js";
 import { signAccessToken } from "../auth/tokens.js";
-import { ArenaRoom } from "./ArenaRoom.js";
+import { ArenaRoom, internalArenaCreateOptions } from "./ArenaRoom.js";
 import type { ArenaState } from "./state/ArenaState.js";
 import { MatchmakingQueue } from "../matchmaking/MatchmakingQueue.js";
 import { reserveArenaPair } from "../matchmaking/roomReservations.js";
@@ -61,6 +61,15 @@ beforeAll(async () => {
   const server = new Server({ transport: new WebSocketTransport() });
   server.define("arena", ArenaRoom).filterBy(["gamemode"]);
   colyseus = await boot(server);
+  // Direct room construction in this suite is an internal server operation.
+  // Route its compact timing/seed knobs through the unforgeable internal seam;
+  // browser matchmaking calls below still exercise the public trust boundary.
+  const createRoom = colyseus.createRoom.bind(colyseus);
+  colyseus.createRoom = ((roomName: string, options: Record<string, unknown> = {}) =>
+    createRoom(roomName, {
+      ...internalArenaCreateOptions(String(options["gamemode"]), options),
+      ...(typeof options["arena"] === "string" ? { arena: options["arena"] } : {}),
+    })) as typeof colyseus.createRoom;
 });
 
 afterAll(async () => {
@@ -988,6 +997,8 @@ describe("ArenaRoom", () => {
     const botKeys = [...room.state.players.keys()].filter((k) => k.startsWith("bot-"));
     expect(botKeys.length).toBe(1); // 1v1: one empty slot filled
     const bot = room.state.players.get(botKeys[0]!)!;
+    expect(room.state.players.get(c1.sessionId)!.isBot).toBe(false);
+    expect(bot.isBot).toBe(true);
     expect(bot.team).not.toBe(room.state.players.get(c1.sessionId)!.team);
     // Bots wear player-like handles rather than their profile id (2026-07-31):
     // "Aggressive" reads as furniture on a scoreboard. The exact name is a
@@ -1045,7 +1056,7 @@ describe("ArenaRoom", () => {
     await client.leave();
   });
 
-  it("never bot-backfills a matchmade room — the second seat belongs to a reserved player", async () => {
+  it("bot-backfills a matchmade room when a reservation is never consumed", async () => {
     // Identical setup to the backfill test above, but created the way the
     // matchmaking queue creates rooms (matchmaking: true). A slow-connecting
     // opponent must find their chair empty, not occupied by a bot.
@@ -1062,10 +1073,86 @@ describe("ArenaRoom", () => {
     await advance(room, 40);
 
     const botKeys = [...room.state.players.keys()].filter((k) => k.startsWith("bot-"));
-    expect(botKeys.length).toBe(0);
-    expect(room.state.matchPhase).not.toBe("live"); // still waiting for the real opponent
+    expect(botKeys.length).toBe(1);
+    expect(room.state.matchPhase).toBe("live");
 
     await c1.leave();
+  });
+
+  it("fills every empty seat on both 5v5 teams when the lobby timer fires", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.practice-bots-5v5",
+      botBackfillMs: 0,
+    });
+    const human = await colyseus.connectTo(room);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await advance(room, 1);
+
+    const players = [...room.state.players.values()];
+    expect(players).toHaveLength(10);
+    expect(players.filter((player) => player.isBot)).toHaveLength(9);
+    expect(players.filter((player) => player.team === 0)).toHaveLength(5);
+    expect(players.filter((player) => player.team === 1)).toHaveLength(5);
+    expect(room.state.matchPhase).toBe("live");
+    await human.leave();
+  });
+
+  it("starts immediately when humans fill the room, without backfill", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.duel-1v1",
+      botBackfillMs: 500,
+    });
+    const first = await colyseus.connectTo(room);
+    expect(room.state.matchPhase).toBe("waiting");
+    const second = await colyseus.connectTo(room);
+    expect(room.state.matchPhase).toBe("live");
+    expect([...room.state.players.values()].some((player) => player.isBot)).toBe(false);
+    await first.leave();
+    await second.leave();
+  });
+
+  it("does not reset the lobby deadline when a human joins mid-wait", async () => {
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.practice-bots",
+      botBackfillMs: 120,
+    });
+    const first = await colyseus.connectTo(room);
+    const internal = colyseus.getRoomById(room.roomId) as unknown as { lobbyDeadlineMs: number };
+    const deadline = internal.lobbyDeadlineMs;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const second = await colyseus.connectTo(room);
+    expect(internal.lobbyDeadlineMs).toBe(deadline);
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    await advance(room, 1);
+    expect(room.state.players.size).toBe(4);
+    expect([...room.state.players.values()].filter((player) => player.isBot)).toHaveLength(2);
+    await first.leave();
+    await second.leave();
+  });
+
+  it("ignores public room-creation overrides for wait, profile, seed, and minimum humans", async () => {
+    const client = await colyseus.sdk.joinOrCreate<ArenaState>("arena", {
+      gamemode: "gamemode.duel-1v1",
+      botBackfillMs: 0,
+      botProfile: "bot.aggressive",
+      seed: 42,
+      minPlayers: 1,
+    });
+    const room = colyseus.getRoomById(client.roomId) as unknown as {
+      state: ArenaState;
+      botBackfillMs: number;
+      botProfileOverride?: string;
+      seed: number;
+      humanStartThreshold: number;
+    };
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(room.state.matchPhase).toBe("waiting");
+    expect([...room.state.players.values()].some((player) => player.isBot)).toBe(false);
+    expect(room.botBackfillMs).toBe(10_000);
+    expect(room.botProfileOverride).toBeUndefined();
+    expect(room.seed).not.toBe(42);
+    expect(room.humanStartThreshold).toBe(2);
+    await client.leave();
   });
 
   it("holds a content-edited hot-rod bot to the same order budget as a human (review Finding 3)", async () => {

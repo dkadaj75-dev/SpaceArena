@@ -12,7 +12,7 @@ const DT = 1 / 30;
  */
 const OPEN = { x: 0, y: 0, z: 90 };
 const OPEN_2 = { x: 0, y: -90, z: 0 };
-const CTF = "gamemode.practice-ctf-10v10";
+const CTF = "gamemode.practice-ctf-5v5";
 const ARENA = "arena.ring-nebula";
 
 let configs: ConfigService;

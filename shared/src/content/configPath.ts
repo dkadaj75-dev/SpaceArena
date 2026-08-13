@@ -16,6 +16,7 @@ const CONTENT_FOLDERS: Record<ConfigType, string> = {
   notification: "notifications",
   theme: "themes",
   progression: "progression",
+  prop: "props",
   botprofile: "bots",
   quality: "quality",
   cosmetic: "cosmetics",

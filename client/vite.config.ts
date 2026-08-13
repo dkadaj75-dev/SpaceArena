@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { persistEditorConfig } from "../shared/src/content/editorPersistence.js";
+import { MAX_UPLOAD_BYTES, uploadEditorModel } from "./src/editor/editorUploadModel.js";
 
 // Repo-root content/ directory (client/ is one level down).
 const CONTENT_DIR = fileURLToPath(new URL("../content/", import.meta.url));
@@ -45,6 +46,31 @@ function contentPipelinePlugin(): Plugin {
               res.end(JSON.stringify({ ok: false, error: String(error) }));
             }
           })();
+        });
+      });
+      server.middlewares.use("/__editor/upload-model", (req, res, next) => {
+        if (req.method !== "POST") return next();
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let rejected = false;
+        req.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > MAX_UPLOAD_BYTES) rejected = true;
+          else chunks.push(chunk);
+        });
+        req.on("end", () => {
+          void (async () => {
+            const requestedPath = new URL(req.url ?? "", "http://editor.local").searchParams.get("path") ?? "";
+            const result = rejected
+              ? { status: 413, body: { ok: false, reason: "model exceeds the 32 MB upload limit" } }
+              : await uploadEditorModel(CONTENT_DIR, requestedPath, Buffer.concat(chunks));
+            res.statusCode = result.status;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify(result.body));
+          })().catch((error) => {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, reason: String(error) }));
+          });
         });
       });
       // Dev-only: list binary model assets under content/ for the Ship tool's picker.
@@ -91,6 +117,9 @@ function contentPipelinePlugin(): Plugin {
           ".jpg": "image/jpeg",
           ".jpeg": "image/jpeg",
           ".ktx2": "image/ktx2",
+          ".mp3": "audio/mpeg",
+          ".ogg": "audio/ogg",
+          ".wav": "audio/wav",
         };
         const ext = (/\.[a-z0-9]+$/i.exec(rel)?.[0] ?? "").toLowerCase();
         const mime = binaryMime[ext];
@@ -275,7 +304,7 @@ export default defineConfig(({ command }) => ({
           {
             // Binary pack assets (GLB hulls) are large and effectively immutable
             // within a pack version: serve from cache, refresh in the background.
-            urlPattern: /\/content\/.*\.(glb|gltf|bin|png|jpe?g|webp|ktx2)(\?.*)?$/,
+            urlPattern: /\/content\/.*\.(glb|gltf|bin|png|jpe?g|webp|ktx2|mp3|ogg|wav)(\?.*)?$/,
             handler: "StaleWhileRevalidate",
             options: {
               cacheName: "space-arena-content-assets",

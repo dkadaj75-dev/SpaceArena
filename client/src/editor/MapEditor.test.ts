@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { authorAsteroidPosition } from "./MapEditor.js";
+// @vitest-environment happy-dom
+import { NullEngine, Scene, Vector3 } from "@babylonjs/core";
+import { ConfigService, EventBus, type ArenaConfig, type ConfigEvents } from "@space-arena/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { authorAsteroidPosition, MapEditor, mapEditorOps, playtestArenaProblems } from "./MapEditor.js";
 
 describe("MapEditor asteroid placement", () => {
   it("authors the selected y altitude while snapping only the picked plane axes", () => {
@@ -8,5 +11,75 @@ describe("MapEditor asteroid placement", () => {
       y: 125,
       z: -7,
     });
+  });
+});
+
+const notification = { id: "notification.boundary-warning", type: "notification", version: 1, text: "Boundary", style: "critical", durationMs: 1000 };
+const asteroid = { id: "asteroid.rock", type: "asteroid", version: 1, name: "Rock", radius: 3, colliderScale: 1, destructible: false, impactDamage: 0, render: { recipe: "procedural.rock" } };
+const prop = { id: "prop.block", type: "prop", version: 1, name: "Block", category: "structure", impactDamage: 0, render: { recipe: "model.static", model: "props/block.glb", modelScale: 1 } };
+const arena = {
+  id: "arena.editor-test", type: "arena", version: 1, name: "Editor test", bounds: { shape: "box", width: 100, height: 100, floorY: -20, ceilingY: 30 },
+  asteroidPlacements: [], propPlacements: [], navGraph: { nodes: [], links: [] },
+  spawnPoints: [{ id: "spawn-a", team: 0, position: { x: -10, y: 0, z: 0 }, heading: 0 }, { id: "spawn-b", team: 1, position: { x: 10, y: 0, z: 0 }, heading: Math.PI }],
+  flagBases: [{ id: "flag-a", team: 0, position: { x: -20, y: 0, z: 0 }, radius: 5 }, { id: "flag-b", team: 1, position: { x: 20, y: 0, z: 0 }, radius: 5 }],
+  lighting: { ambientColor: "#111111", ambientIntensity: .4, directionalIntensity: .8 },
+  render: { skybox: { texture: "sky.webp", intensity: 1, tint: "#ffffff" }, boundaryShield: { baseOpacity: .2, glowStartDistance: 10, redTransitionDistance: 5, warnDistance: 8, blueColor: "#00aaff", redColor: "#ff0000", hexDensity: 20, hexLineWidth: .01, warningNotification: "notification.boundary-warning" } }, zones: [],
+} satisfies ArenaConfig;
+
+interface MapEditorTestDriver {
+  armed: { kind: "asteroid" | "prop"; id: string } | "nav" | null;
+  navSelection: number[];
+  layers: Map<string, { visible: boolean; locked: boolean }>;
+  place(point: Vector3): void;
+  select(kind: "asteroid" | "prop" | "spawn" | "flag" | "nav", index: number, mesh: import("@babylonjs/core").AbstractMesh): void;
+  commitTransform(): void;
+  duplicateSelected(): void;
+  removeSelected(): void;
+  toggleNavLink(): void;
+  canSelect(kind: string, index: number): boolean;
+  save(): Promise<void>;
+}
+function driver(editor: MapEditor): MapEditorTestDriver { return editor as unknown as MapEditorTestDriver; }
+
+describe("MapEditor placement session", () => {
+  let engine: NullEngine; let scene: Scene; let configs: ConfigService; let editor: MapEditor;
+  beforeEach(() => {
+    engine = new NullEngine(); scene = new Scene(engine); configs = new ConfigService(() => Promise.resolve(null), new EventBus<ConfigEvents>());
+    for (const config of [notification, asteroid, prop, arena]) expect(configs.replace(config).ok).toBe(true);
+    editor = new MapEditor({ scene, configService: configs, bus: new EventBus(), pauseSim() {}, resumeSim() {}, rebuildArena() {}, setGameVisible() {}, setArenaVisible() {}, setSpawnMarkersForced() {}, setPropPickingForced() {}, suspendCameraGestures() {}, launchPlaytest: vi.fn() }, vi.fn());
+  });
+  afterEach(() => { editor.dispose(); scene.dispose(); engine.dispose(); });
+
+  it("adds, moves, duplicates and deletes mirrored prop placements in the config draft", () => {
+    const subject = driver(editor); subject.armed = { kind: "prop", id: "prop.block" }; subject.place(new Vector3(4.4, 2.2, -7.6));
+    let draft = configs.get<ArenaConfig>("arena", arena.id)!; expect(draft.propPlacements).toHaveLength(2); expect(draft.propPlacements![1]!.position).toEqual({ x: -4, y: 2, z: 8 });
+    const mesh = scene.getMeshByName("editor.prop.0")!; subject.select("prop", 0, mesh); mesh.position.set(6, 3, -9); mesh.rotation.y = .5; mesh.scaling.setAll(2); subject.commitTransform();
+    draft = configs.get("arena", arena.id)!; expect(draft.propPlacements![0]!.scale).toBe(2); expect(draft.propPlacements![1]!.position.x).toBe(-6);
+    subject.select("prop", 0, scene.getMeshByName("editor.prop.0")!); subject.duplicateSelected(); expect(configs.get<ArenaConfig>("arena", arena.id)!.propPlacements).toHaveLength(4);
+    subject.select("prop", 0, scene.getMeshByName("editor.prop.0")!); subject.removeSelected(); expect(configs.get<ArenaConfig>("arena", arena.id)!.propPlacements).toHaveLength(2);
+  });
+
+  it("writes spawn heading radians and links/unlinks selected nav nodes", () => {
+    const subject = driver(editor); const spawn = scene.getMeshByName("editor.spawn.0")!; subject.select("spawn", 0, spawn); spawn.rotation.y = Math.PI / 3; subject.commitTransform();
+    expect(configs.get<ArenaConfig>("arena", arena.id)!.spawnPoints[0]!.heading).toBeCloseTo(Math.PI / 3);
+    subject.armed = "nav"; subject.place(new Vector3(0, 0, 0)); subject.place(new Vector3(10, 0, 0)); subject.navSelection = [0, 2]; subject.toggleNavLink();
+    expect(configs.get<ArenaConfig>("arena", arena.id)!.navGraph!.links).toHaveLength(2); subject.toggleNavLink(); expect(configs.get<ArenaConfig>("arena", arena.id)!.navGraph!.links).toHaveLength(0);
+  });
+
+  it("filters layer and terrain locks before selection", () => {
+    const subject = driver(editor); subject.layers.get("prop")!.locked = true; expect(subject.canSelect("prop", 0)).toBe(false); subject.layers.get("prop")!.locked = false;
+    const terrainTwin = mapEditorOps.twinOf("spawn", arena.spawnPoints[0]!, structuredClone(arena)); expect(terrainTwin.team).toBe(1); expect(terrainTwin.heading).toBeCloseTo(Math.PI);
+  });
+
+  it("saves the current placement draft as the arena payload", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => "" }); vi.stubGlobal("fetch", fetch);
+    const subject = driver(editor); subject.armed = { kind: "asteroid", id: "asteroid.rock" }; subject.place(new Vector3(3, 4, 5)); await subject.save();
+    const request = fetch.mock.calls[0]![1] as RequestInit; const payload = JSON.parse(String(request.body));
+    expect(payload.path).toBe("arenas/editor-test.json"); expect(payload.json.asteroidPlacements).toHaveLength(2);
+    vi.unstubAllGlobals();
+  });
+
+  it("blocks playtest launch when the arena schema is invalid", () => {
+    expect(playtestArenaProblems({ ...arena, bounds: { shape: "box", width: 100, height: 100, floorY: 30, ceilingY: 20 } })).toContain("bounds.ceilingY: ceilingY must be greater than floorY");
   });
 });

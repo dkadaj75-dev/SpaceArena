@@ -1,16 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Color3,
   DirectionalLight,
   FreeCamera,
   GlowLayer,
   HemisphericLight,
+  Mesh,
+  MeshBuilder,
   NullEngine,
+  PBRMaterial,
   Scene,
+  SceneLoader,
   ShaderMaterial,
   StandardMaterial,
   Vector3,
-  type Mesh,
+  VertexBuffer,
+  VertexData,
+  type ISceneLoaderAsyncResult,
 } from "@babylonjs/core";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
 import { BOUNDARY_FRAGMENT, SceneBuilder, type SceneQuality } from "./SceneBuilder.js";
@@ -187,7 +193,9 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
       scene,
       configs,
       bus,
-      quality({ render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: false } }),
+      quality({
+        render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: false },
+      }),
     );
     builder.buildArena("arena.test");
 
@@ -320,9 +328,13 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
   });
 
   it("adds diffuse-lit terrain at the sphere-intersection floor without coupling it to shield proximity", () => {
-    expect(configs.replace({ ...ARENA, version: 2, bounds: { shape: "sphere", radius: 90, floorY: -30 } }).ok).toBe(
-      true,
-    );
+    expect(
+      configs.replace({
+        ...ARENA,
+        version: 2,
+        bounds: { shape: "sphere", radius: 90, floorY: -30 },
+      }).ok,
+    ).toBe(true);
     const builder = new SceneBuilder(scene, configs, bus, quality());
     builder.buildArena("arena.test");
 
@@ -337,7 +349,10 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(terrainMaterial.emissiveColor.equals(Color3.Black())).toBe(true);
     expect(terrainMaterial.specularColor.r).toBeLessThan(0.02);
     const floorExtent = floor.getBoundingInfo().boundingBox.extendSize;
-    expect(Math.max(floorExtent.x, floorExtent.z)).toBeCloseTo(Math.sqrt(90 ** 2 - 30 ** 2) * 1.005, 4);
+    expect(Math.max(floorExtent.x, floorExtent.z)).toBeCloseTo(
+      Math.sqrt(90 ** 2 - 30 ** 2) * 1.005,
+      4,
+    );
 
     expect(builder.updatePlayerPosition(0, -29, 0)).toBeCloseTo(61);
     // One unit above the floor is still far from the spherical shell: neither
@@ -353,17 +368,19 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(scene.getMeshByName("boundsShell")!.material).toBeInstanceOf(ShaderMaterial);
     shaderBuilder.dispose();
 
-    expect(configs.replace({
-      ...ARENA,
-      version: 2,
-      render: {
-        ...ARENA.render,
-        boundaryShield: {
-          ...ARENA.render.boundaryShield,
-          redTransitionDistance: 18,
+    expect(
+      configs.replace({
+        ...ARENA,
+        version: 2,
+        render: {
+          ...ARENA.render,
+          boundaryShield: {
+            ...ARENA.render.boundaryShield,
+            redTransitionDistance: 18,
+          },
         },
-      },
-    }).ok).toBe(true);
+      }).ok,
+    ).toBe(true);
     const lowBuilder = new SceneBuilder(
       scene,
       configs,
@@ -419,7 +436,11 @@ describe("SceneBuilder sun key light", () => {
     engine.dispose();
   });
 
-  function build(sun: unknown): { dir: DirectionalLight; hemi: HemisphericLight; builder: SceneBuilder } {
+  function build(sun: unknown): {
+    dir: DirectionalLight;
+    hemi: HemisphericLight;
+    builder: SceneBuilder;
+  } {
     expect(
       configs.replace({
         ...ARENA,
@@ -456,7 +477,11 @@ describe("SceneBuilder sun key light", () => {
   });
 
   it("keeps a soft ambient fill, leaning toward the star, so shadows are not black", () => {
-    const { hemi, builder } = build({ dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1 });
+    const { hemi, builder } = build({
+      dir: [-0.677, -0.208, -0.706],
+      color: "#dce4ff",
+      intensity: 1,
+    });
     expect(hemi).toBeInstanceOf(HemisphericLight);
     expect(hemi.intensity).toBeCloseTo(ARENA.lighting.ambientIntensity, 6);
     expect(hemi.intensity).toBeGreaterThan(0);
@@ -500,7 +525,12 @@ describe("SceneBuilder spawn markers + editor override", () => {
   /** The shipped tiers all set `spawnMarkers: false` (players must not see them). */
   function shippedQuality(): SceneQuality {
     return quality({
-      scene: { skyboxEnabled: true, boundaryShieldShader: true, starfieldPoints: 0, spawnMarkers: false },
+      scene: {
+        skyboxEnabled: true,
+        boundaryShieldShader: true,
+        starfieldPoints: 0,
+        spawnMarkers: false,
+      },
     });
   }
 
@@ -533,7 +563,12 @@ describe("SceneBuilder spawn markers + editor override", () => {
     // the Quality panel would silently blind the Map editor.
     builder.setQuality(
       quality({
-        scene: { skyboxEnabled: false, boundaryShieldShader: false, starfieldPoints: 0, spawnMarkers: false },
+        scene: {
+          skyboxEnabled: false,
+          boundaryShieldShader: false,
+          starfieldPoints: 0,
+          spawnMarkers: false,
+        },
       }),
     );
     expect(scene.getMeshByName("spawnMarker.sp-a")).not.toBeNull();
@@ -551,5 +586,176 @@ describe("boundary shader float32 safety contract", () => {
     expect(BOUNDARY_FRAGMENT).toContain("float safePattern = clamp(line, 0.0, 1.0)");
     expect(BOUNDARY_FRAGMENT).toContain("float safeOpacity = clamp(opacity, 0.0, 1.0)");
     expect(BOUNDARY_FRAGMENT).toContain("safePattern * safeOpacity");
+  });
+});
+
+describe("SceneBuilder props and authored box bounds", () => {
+  let engine: NullEngine;
+  let scene: Scene;
+  let configs: ConfigService;
+  let bus: EventBus<ConfigEvents>;
+
+  beforeEach(() => {
+    engine = new NullEngine();
+    scene = new Scene(engine);
+    bus = new EventBus<ConfigEvents>();
+    configs = new ConfigService(() => Promise.resolve(null), bus);
+    expect(configs.replace(BOUNDARY_NOTIFICATION).ok).toBe(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("builds one ceiling plus four hex-shader walls and ignores floorY for proximity", () => {
+    expect(
+      configs.replace({
+        ...ARENA,
+        bounds: { shape: "box", width: 100, height: 80, floorY: -25, ceilingY: 30 },
+      }).ok,
+    ).toBe(true);
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+
+    const ceiling = scene.getMeshByName("boundsBoxCeiling")!;
+    const walls = scene.meshes.filter((mesh) => mesh.name.startsWith("boundsBoxWall"));
+    expect(ceiling.position.y).toBe(30);
+    expect(walls).toHaveLength(4);
+    expect(ceiling.material).toBeInstanceOf(ShaderMaterial);
+    expect(walls.every((wall) => wall.material === ceiling.material)).toBe(true);
+    expect(builder.updatePlayerPosition(0, -24, 0)).toBe(40); // nearest wall, not the one-unit floor gap
+    expect(builder.updatePlayerPosition(0, 28, 0)).toBe(2);
+    expect(builder.updatePlayerPosition(49, 0, 0)).toBe(1);
+    builder.dispose();
+  });
+
+  it("instantiates transformed non-pickable prop hierarchies and skips a missing config", async () => {
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation(() => {
+      const part = MeshBuilder.CreateBox("propPart", { size: 1 }, scene);
+      return Promise.resolve({ meshes: [part] } as unknown as ISceneLoaderAsyncResult);
+    });
+    expect(
+      configs.replace({
+        id: "prop.wall",
+        type: "prop",
+        version: 1,
+        name: "Wall",
+        category: "structure",
+        impactDamage: 0,
+        render: { recipe: "model.static", model: "props/wall.glb" },
+      }).ok,
+    ).toBe(true);
+    expect(
+      configs.replace({
+        id: "prop.missing",
+        type: "prop",
+        version: 1,
+        name: "Temporarily present",
+        category: "decor",
+        impactDamage: 0,
+        render: { recipe: "model.static", model: "props/missing.glb" },
+      }).ok,
+    ).toBe(true);
+    expect(
+      configs.replace({
+        ...ARENA,
+        propPlacements: [
+          {
+            propId: "prop.wall",
+            position: { x: 4, y: 5, z: 6 },
+            rotation: { x: 0.2, y: 0.3, z: 0.4 },
+            scale: 2,
+          },
+          { propId: "prop.missing", position: { x: 0, z: 0 } },
+        ],
+      }).ok,
+    ).toBe(true);
+    const originalGet = configs.get.bind(configs);
+    vi.spyOn(configs, "get").mockImplementation(((type: string, id: string) =>
+      type === "prop" && id === "prop.missing"
+        ? undefined
+        : originalGet(type as never, id)) as typeof configs.get);
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    expect(() => builder.buildArena("arena.test")).not.toThrow();
+    await vi.waitFor(() =>
+      expect(scene.transformNodes.some((node) => node.name.startsWith("prop.0"))).toBe(true),
+    );
+
+    const instance = scene.transformNodes.find((node) => node.name.startsWith("prop.0"))!;
+    expect(instance.position.asArray()).toEqual([4, 5, 6]);
+    expect(instance.rotation.asArray()).toEqual([0.2, 0.3, 0.4]);
+    expect(instance.scaling.asArray()).toEqual([2, 2, 2]);
+    expect(instance.getChildMeshes().every((mesh) => mesh.isPickable === false)).toBe(true);
+    expect(scene.transformNodes.filter((node) => node.name.startsWith("prop.")).length).toBe(1);
+    builder.setVisible(false);
+    expect(builder.staticsFrozen).toBe(false);
+    builder.dispose();
+  });
+
+  it("compiles vertex-colored PBR props with VERTEXCOLOR before freezing", async () => {
+    const positions = [-1, 0, 0, 1, 0, 0, 0, 1, 0];
+    const indices = [0, 1, 2];
+    const normals = new Array<number>(positions.length).fill(0);
+    VertexData.ComputeNormals(positions, indices, normals);
+    const material = new PBRMaterial("RIFT_ROCK", scene);
+    material.albedoColor = Color3.White();
+    material.metallic = 0;
+    material.roughness = 0.96;
+    material.backFaceCulling = false;
+
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation(async () => {
+      const part = new Mesh("riftChunk", scene);
+      part.setVerticesData(VertexBuffer.PositionKind, positions);
+      part.setVerticesData(VertexBuffer.NormalKind, normals);
+      part.setIndices(indices);
+      part.material = material;
+      // Reproduce the stale-effect half of the live ordering: the material has
+      // previously become ready for this mesh without COLOR_0, then the glTF
+      // vertex stream is present by the time SceneBuilder receives the model.
+      scene.render();
+      expect(String(part.subMeshes[0]?.effect?.defines)).not.toContain("#define VERTEXCOLOR");
+      part.setVerticesData(
+        VertexBuffer.ColorKind,
+        [0.03, 0.03, 0.03, 0.57, 0.57, 0.57, 0.3, 0.3, 0.3],
+        false,
+        3,
+      );
+      material.freeze();
+      return { meshes: [part] } as unknown as ISceneLoaderAsyncResult;
+    });
+    expect(
+      configs.replace({
+        id: "prop.rift-chunk",
+        type: "prop",
+        version: 1,
+        name: "Rift chunk",
+        category: "terrain",
+        impactDamage: 0,
+        render: { recipe: "model.static", model: "props/rift-chunk.glb" },
+      }).ok,
+    ).toBe(true);
+    expect(
+      configs.replace({
+        ...ARENA,
+        propPlacements: [{ propId: "prop.rift-chunk", position: { x: 0, z: 0 } }],
+      }).ok,
+    ).toBe(true);
+    scene.activeCamera = new FreeCamera("camera", new Vector3(0, 0, -5), scene);
+
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+
+    await vi.waitFor(() => expect(material.isFrozen).toBe(true));
+    const propMesh = scene.meshes.find((mesh) => mesh.name.includes("prop.0.riftChunk"));
+    expect(propMesh?.isVerticesDataPresent(VertexBuffer.ColorKind)).toBe(true);
+    expect(propMesh?.useVertexColors).toBe(true);
+    scene.render();
+    expect(scene.getActiveMeshes().data).toContain(propMesh);
+    expect(propMesh?.subMeshes?.length).toBeGreaterThan(0);
+    const compiledDefines = scene.getMeshByName("riftChunk")?.subMeshes?.[0]?.effect?.defines;
+    expect(String(compiledDefines)).toContain("#define VERTEXCOLOR");
+    builder.dispose();
   });
 });

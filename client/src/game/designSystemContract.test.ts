@@ -66,7 +66,8 @@ describe("design tokens are document-scoped", () => {
     // `var(--sa-n-800)ee` is not a colour; it silently voids the declaration.
     const { readFile } = await import("node:fs/promises");
     const path = await import("node:path");
-    const dir = path.dirname(new URL(import.meta.url).pathname);
+    const { fileURLToPath } = await import("node:url");
+    const dir = path.dirname(fileURLToPath(import.meta.url));
     for (const file of ["screens/FullscreenPrompt.ts", "screens/screenStyle.ts", "hud/hudStyle.ts"]) {
       const css = await readFile(path.join(dir, file), "utf8");
       expect(css, `${file} appends a raw alpha suffix to var()`).not.toMatch(/var\(--[\w-]+\)[0-9a-f]{2}\b/i);

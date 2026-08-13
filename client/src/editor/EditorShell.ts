@@ -39,6 +39,10 @@ export interface EditorHost {
    * place spawns against this scene and designers must see them.
    */
   setSpawnMarkersForced(forced: boolean): void;
+  /** Make arena prop instances selectable only for the editor session. */
+  setPropPickingForced(forced: boolean): void;
+  /** Close the editor and start an offline session on the edited arena. */
+  launchPlaytest(arenaId: string, gamemodeId: string): Promise<void>;
   /** Freeze the editor camera's pointer gestures (used during gizmo drags). */
   suspendCameraGestures(suspended: boolean): void;
 }
@@ -126,6 +130,7 @@ export class EditorShell {
     // needs them back. Held for the whole editor session rather than per tab, so
     // switching Map → Inspector → Map never costs an extra arena rebuild.
     this.host.setSpawnMarkersForced(true);
+    this.host.setPropPickingForced(true);
     this.stage = new EditorStage(this.host.scene);
     this.validateAll();
 
@@ -313,13 +318,14 @@ export class EditorShell {
     if (this.statusButton) this.statusButton.title = count > 0 ? `${count} validation problem(s) — click to open Problems` : "No validation problems";
   }
 
-  private close(): void {
+  close(): void {
     this.active?.dispose(); this.active = null; this.unsubscribe?.(); this.unsubscribe = null;
     this.renderProblems = null;
     this.tabsBar = null; this.body = null; this.title = null; this.statusButton = null; this.statusCount = null;
     this.stage?.dispose(); this.stage = null;
     this.host.suspendCameraGestures(false);
     this.host.setSpawnMarkersForced(false);
+    this.host.setPropPickingForced(false);
     this.host.setArenaVisible(true);
     this.host.setGameVisible(true);
     this.root?.remove(); this.root = null; this.host.resumeSim();

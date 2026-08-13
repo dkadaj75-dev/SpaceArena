@@ -66,6 +66,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 let datalistSeq = 0;
 
 const REFERENCE_TYPES: Record<string, ConfigType> = {
+  propId: "prop",
   asteroidId: "asteroid",
   defaultFitting: "module",
   onFire: "action",

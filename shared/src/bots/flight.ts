@@ -4,6 +4,7 @@
 import type { Vec3 } from "../schemas/common.js";
 import { angleDelta, clamp, facingVec, headingOf, len, pitchOf } from "../sim/math.js";
 import type { LosCircle } from "../sim/los.js";
+import type { StaticWorld } from "../collision/staticWorld.js";
 
 /**
  * A 3D bearing decomposed the way the sim's orientation model is (BUBBLE.md §A):
@@ -360,6 +361,8 @@ export function noseBlocker(
   blockers: readonly LosCircle[],
   lookahead: number,
   clearance: number,
+  staticWorld?: StaticWorld,
+  staticLookahead = lookahead,
 ): NoseBlocker | null {
   if (lookahead <= 0) return null;
   const dir = facingVec(heading, pitch, noseDir);
@@ -382,6 +385,26 @@ export function noseBlocker(
     if (best !== null && along >= best.along) continue;
     const cross = yawX * relZ - yawZ * relX; // signed lateral offset in the yaw plane
     best = { along, offset, side: cross >= 0 ? -1 : 1 };
+  }
+  if (staticWorld && staticLookahead > 0) {
+    const lateral = { x: -yawZ, y: 0, z: yawX };
+    const offsets = [
+      { x: 0, y: 0, z: 0 },
+      { x: lateral.x * clearance, y: 0, z: lateral.z * clearance },
+      { x: -lateral.x * clearance, y: 0, z: -lateral.z * clearance },
+      { x: 0, y: clearance, z: 0 },
+      { x: 0, y: -clearance, z: 0 },
+    ];
+    for (const offset of offsets) {
+      const from = { x: pos.x + offset.x, y: posY + offset.y, z: pos.z + offset.z };
+      const to = { x: from.x + dirX * staticLookahead, y: from.y + dirY * staticLookahead, z: from.z + dirZ * staticLookahead };
+      const hit = staticWorld.raycast(from, to);
+      if (!hit) continue;
+      const along = hit.t * staticLookahead;
+      if (best !== null && along >= best.along) continue;
+      const lateralNormal = hit.normal.x * lateral.x + hit.normal.z * lateral.z;
+      best = { along, offset: 0, side: lateralNormal >= 0 ? 1 : -1 };
+    }
   }
   return best;
 }

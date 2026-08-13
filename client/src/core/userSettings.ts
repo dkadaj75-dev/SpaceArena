@@ -1,7 +1,7 @@
 import { createLogger, type QualityTier } from "@space-arena/shared";
 import { QUALITY_STORAGE_KEY, parseStoredTier } from "./qualityTier.js";
 import { isSafari, type PlatformSource } from "./platform.js";
-import { DEFAULT_VOLUME, VOLUME_MASTER_KEY, VOLUME_SFX_KEY } from "../audio/AudioManager.js";
+import { DEFAULT_VOLUME, VOLUME_MASTER_KEY, VOLUME_MUSIC_KEY, VOLUME_SFX_KEY } from "../audio/AudioManager.js";
 
 const log = createLogger("Settings");
 
@@ -49,7 +49,7 @@ export const INVERT_PITCH_KEY = "sa.controls.invertPitch";
 export const MOUSE_STEER_SENS_KEY = "sa.controls.mouseSteerSens";
 export const TOUCH_STEER_SENS_KEY = "sa.controls.touchSteerSens";
 
-export { QUALITY_STORAGE_KEY, VOLUME_MASTER_KEY, VOLUME_SFX_KEY };
+export { QUALITY_STORAGE_KEY, VOLUME_MASTER_KEY, VOLUME_MUSIC_KEY, VOLUME_SFX_KEY };
 
 /** The value written to a boolean key when the player turns a feature OFF. */
 export const OFF_VALUE = "off";
@@ -70,6 +70,7 @@ export interface UserSettings {
   quality: QualityTier | null;
   masterVolume: number;
   sfxVolume: number;
+  musicVolume: number;
   /** False only when the player disabled them locally; the theme still has a master switch. */
   haptics: boolean;
   /** Multiplier applied on top of `camera.pan.sensitivity`. */
@@ -92,6 +93,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   quality: null,
   masterVolume: DEFAULT_VOLUME,
   sfxVolume: DEFAULT_VOLUME,
+  musicVolume: 0.5,
   haptics: true,
   cameraPanSens: 1,
   cameraDistanceScale: 1,
@@ -106,6 +108,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 export interface UserSettingsDefaults {
   masterVolume?: number;
   sfxVolume?: number;
+  musicVolume?: number;
 }
 
 export function clampPanSens(value: number): number {
@@ -165,10 +168,12 @@ export function readUserSettings(
 ): UserSettings {
   const masterDefault = clamp01(defaults.masterVolume ?? DEFAULT_USER_SETTINGS.masterVolume);
   const sfxDefault = clamp01(defaults.sfxVolume ?? DEFAULT_USER_SETTINGS.sfxVolume);
+  const musicDefault = clamp01(defaults.musicVolume ?? DEFAULT_USER_SETTINGS.musicVolume);
   return {
     quality: parseStoredTier(storage?.getItem(QUALITY_STORAGE_KEY)),
     masterVolume: clamp01(readNumber(storage, VOLUME_MASTER_KEY, masterDefault)),
     sfxVolume: clamp01(readNumber(storage, VOLUME_SFX_KEY, sfxDefault)),
+    musicVolume: clamp01(readNumber(storage, VOLUME_MUSIC_KEY, musicDefault)),
     haptics: readFlag(storage, HAPTICS_KEY),
     cameraPanSens: clampPanSens(readNumber(storage, CAMERA_PAN_SENS_KEY, DEFAULT_USER_SETTINGS.cameraPanSens)),
     cameraDistanceScale: clampCameraDistance(
@@ -192,6 +197,7 @@ export function settingsToStorage(patch: Partial<UserSettings>): [string, string
   if ("quality" in patch) out.push([QUALITY_STORAGE_KEY, patch.quality ?? null]);
   if (patch.masterVolume !== undefined) out.push([VOLUME_MASTER_KEY, String(clamp01(patch.masterVolume))]);
   if (patch.sfxVolume !== undefined) out.push([VOLUME_SFX_KEY, String(clamp01(patch.sfxVolume))]);
+  if (patch.musicVolume !== undefined) out.push([VOLUME_MUSIC_KEY, String(clamp01(patch.musicVolume))]);
   if (patch.haptics !== undefined) out.push([HAPTICS_KEY, patch.haptics ? null : OFF_VALUE]);
   if (patch.cameraPanSens !== undefined) {
     const sens = clampPanSens(patch.cameraPanSens);
@@ -289,6 +295,7 @@ function shallowEqual(a: UserSettings, b: UserSettings): boolean {
     a.quality === b.quality &&
     a.masterVolume === b.masterVolume &&
     a.sfxVolume === b.sfxVolume &&
+    a.musicVolume === b.musicVolume &&
     a.haptics === b.haptics &&
     a.cameraPanSens === b.cameraPanSens &&
     a.cameraDistanceScale === b.cameraDistanceScale &&

@@ -47,6 +47,23 @@ const PROCEDURAL_ROCK = {
   states: undefined,
 } satisfies Record<string, unknown>;
 
+const TERRAIN_PROP = {
+  id: "prop.terrain",
+  type: "prop",
+  version: 1,
+  name: "Terrain",
+  category: "terrain",
+  impactDamage: 0,
+  render: {
+    recipe: "model.static",
+    model: "props/terrain.glb",
+    lods: [
+      { model: "props/terrain-lod1.glb", distance: 100 },
+      { model: "props/terrain-lod2.glb", distance: 240 },
+    ],
+  },
+} satisfies Record<string, unknown>;
+
 function arena(asteroidIds: readonly string[]): Record<string, unknown> {
   return {
     id: "arena.test",
@@ -58,6 +75,7 @@ function arena(asteroidIds: readonly string[]): Record<string, unknown> {
       asteroidId,
       position: { x: i * 10, z: 0 },
     })),
+    propPlacements: [],
     spawnPoints: [{ id: "sp-a", team: 0, position: { x: -20, z: 0 }, heading: 0 }],
     zones: [],
   };
@@ -69,7 +87,7 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
   beforeEach(() => {
     const bus = new EventBus<ConfigEvents>();
     configs = new ConfigService(() => Promise.resolve(null), bus);
-    for (const cfg of [SMALL_ROCK, SMALL_ROCK_B, PROCEDURAL_ROCK]) {
+    for (const cfg of [SMALL_ROCK, SMALL_ROCK_B, PROCEDURAL_ROCK, TERRAIN_PROP]) {
       expect(configs.replace(cfg).ok).toBe(true);
     }
   });
@@ -96,6 +114,17 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
 
   it("returns nothing for an arena the pack does not have", () => {
     expect(arenaModelRenders(configs, "arena.missing")).toEqual([]);
+  });
+
+  it("walks prop base and authored LOD models as unmerged preload variants", () => {
+    expect(configs.replace({ ...arena([]), propPlacements: [{ propId: TERRAIN_PROP.id, position: { x: 0, z: 0 } }] }).ok).toBe(true);
+    const renders = arenaModelRenders(configs, "arena.test");
+    expect(renders.map((render) => render.model)).toEqual([
+      "props/terrain.glb",
+      "props/terrain-lod1.glb",
+      "props/terrain-lod2.glb",
+    ]);
+    expect(renders.every((render) => render.mergeParts === false)).toBe(true);
   });
 
   it("waits for every distinct arena model before resolving", async () => {

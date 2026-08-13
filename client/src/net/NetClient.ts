@@ -33,7 +33,6 @@ export interface ArenaJoinOptions {
    * request, never an instruction.
    */
   cosmeticId?: string;
-  minPlayers?: number;
   /** Access token for authenticated join; omitted for DEV_ALLOW_ANON solo testing. */
   token?: string;
 }

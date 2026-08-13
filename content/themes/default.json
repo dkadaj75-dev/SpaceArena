@@ -287,6 +287,33 @@
     "defaultSfxVolume": 0.8,
     "maxVoices": 16,
     "retriggerGapMs": 45,
+    "music": {
+      "enabled": true,
+      "defaultVolume": 0.5,
+      "fadeInSec": 1,
+      "fadeOutSec": 1,
+      "tracks": {
+        "main-menu": {
+          "src": "content/sounds/MainMenu.mp3",
+          "volume": 1,
+          "loop": true,
+          "license": "Placeholder — NOT cleared for commercial use; replace/upgrade before commercial release"
+        },
+        "arenas": {
+          "src": "content/sounds/Arenas.mp3",
+          "volume": 1,
+          "loop": true,
+          "license": "Placeholder — NOT cleared for commercial use; replace/upgrade before commercial release"
+        }
+      },
+      "screens": {
+        "boot": "main-menu",
+        "menu": "main-menu",
+        "hangar": "main-menu",
+        "shop": "main-menu",
+        "match": "arenas"
+      }
+    },
     "cues": {
       "playerDamaged": "[SOUND: hit_thud]",
       "shieldAbsorb": "[SOUND: shield_hit]",

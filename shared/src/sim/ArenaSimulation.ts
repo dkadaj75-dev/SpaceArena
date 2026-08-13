@@ -172,7 +172,7 @@ export interface ProjectileSnapshot {
  * Match phase. `countdown` is the frozen 3-2-1 lead-in every match opens with
  * (`tuning.matchCountdownSec`); `elapsed` only starts moving at `live`.
  */
-export type MatchPhase = "countdown" | "live" | "ended";
+export type MatchPhase = "waiting" | "countdown" | "live" | "ended";
 
 /**
  * Slack on the countdown's zero test, in seconds. The fixed step is `1/30`, which
@@ -214,6 +214,8 @@ export interface Snapshot {
    * boundary so a HUD never has to detect the edge itself.
    */
   countdownRemaining: number;
+  /** Online room lobby wait; absent from the standalone simulation. */
+  lobbyRemainingSec?: number;
   winnerTeam: number | null;
   ships: ShipSnapshot[];
   asteroids: AsteroidSnapshot[];

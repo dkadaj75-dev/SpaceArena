@@ -11,13 +11,19 @@ import {
   encodeCenti,
   encodeHeading,
   encodePitch,
+  encodeFloat32Array,
+  encodeUint32Array,
   flightStep,
   interpolateFrame,
   pitchTuningOf,
   resolveShipStats,
+  resolveStaticStep,
   seedUp,
   wrapAngle,
   type ConfigService,
+  type ArenaConfig,
+  type GamemodeConfig,
+  type PropConfig,
   type ShipConfig,
   type SteerState,
   type TuningConfig,
@@ -123,19 +129,30 @@ interface RunOptions {
   turn: number;
   ticks: number;
   latency?: number;
+  arenaId?: string;
+  gamemodeId?: string;
+  start?: { x: number; y: number; z: number; heading: number; pitch: number };
 }
 
-function flyOnline({ pitchStick, turn, ticks, latency = LATENCY_TICKS }: RunOptions) {
-  const sim = new ArenaSimulation(configs, "arena.deep-field", "gamemode.practice-bots-1v1", 3);
+function flyOnline({
+  pitchStick,
+  turn,
+  ticks,
+  latency = LATENCY_TICKS,
+  arenaId = "arena.deep-field",
+  gamemodeId = "gamemode.practice-bots-1v1",
+  start = { x: 0, y: 0, z: 0, heading: 0.4, pitch: 0 },
+}: RunOptions) {
+  const sim = new ArenaSimulation(configs, arenaId, gamemodeId, 3);
   const cfg = configs.get<ShipConfig>("ship", SHIP_ID)!;
   const id = sim.spawnPlayer(SHIP_ID, [...cfg.defaultFitting], 0);
   const tf = sim.world.transforms.get(id)!;
-  tf.pos.x = 0;
-  tf.pos.y = 0;
-  tf.pos.z = 0;
-  tf.heading = 0.4;
-  tf.pitch = 0;
-  Object.assign(tf.up, seedUp(0.4, 0));
+  tf.pos.x = start.x;
+  tf.pos.y = start.y;
+  tf.pos.z = start.z;
+  tf.heading = start.heading;
+  tf.pitch = start.pitch;
+  Object.assign(tf.up, seedUp(start.heading, start.pitch));
 
   const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
   const core = resolveShipStats(cfg, configs, { fittedModuleIds: cfg.defaultFitting.filter((m): m is string => m !== null) });
@@ -146,7 +163,13 @@ function flyOnline({ pitchStick, turn, ticks, latency = LATENCY_TICKS }: RunOpti
     ...pitchTuningOf(tuning),
   };
 
-  const pred: SteerState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, heading: 0.4, pitch: 0, up: seedUp(0.4, 0) };
+  const pred: SteerState = {
+    pos: { x: start.x, y: start.y, z: start.z },
+    vel: { x: 0, y: 0, z: 0 },
+    heading: start.heading,
+    pitch: start.pitch,
+    up: seedUp(start.heading, start.pitch),
+  };
   const serverVel = { x: 0, y: 0, z: 0 };
   const buffer: WireSample[] = [];
   const held = { throttle: 1, turn, pitchStick, boostMult: 1 };
@@ -175,6 +198,16 @@ function flyOnline({ pitchStick, turn, ticks, latency = LATENCY_TICKS }: RunOpti
     // The predictor integrates the held input, then is corrected — the session's
     // order of operations exactly.
     flightStep(pred, held, params, DT);
+    const staticState = {
+      position: pred.pos,
+      velocity: pred.vel,
+      heading: pred.heading,
+      pitch: pred.pitch,
+      up: pred.up,
+    };
+    resolveStaticStep(sim.world, staticState, cfg.collider.radius, DT);
+    pred.heading = staticState.heading;
+    pred.pitch = staticState.pitch;
     // A snap is the correction moving the predictor bodily. The blend moves it by
     // a fraction of the residual, so anything approaching the full residual is a
     // teleport — which is what the player feels as a bump.
@@ -344,5 +377,88 @@ describe("a loop flown through the ONLINE path (wire + latency + reconciliation)
       expect(snaps).toBe(0);
       expect(maxResidual).toBeLessThan(1);
     }
+  });
+});
+
+describe("online prediction through sustained canyon static contacts", () => {
+  const arenaId = "arena.online-canyon";
+  const gamemodeId = "gamemode.online-canyon";
+
+  beforeAll(() => {
+    const prop: PropConfig = {
+      id: "prop.online-wall",
+      type: "prop",
+      version: 1,
+      name: "Online wall",
+      category: "structure",
+      impactDamage: 0,
+      render: { recipe: "model.static", model: "props/test-wall.glb" },
+      collision: {
+        positions: encodeFloat32Array(new Float32Array([
+          18, -25, -120,
+          18, 45, -120,
+          18, 45, 120,
+          18, -25, 120,
+        ])),
+        // Wound toward the approaching ship (negative X), matching an authored
+        // canyon wall's playable face rather than its buried back face.
+        indices: encodeUint32Array(new Uint32Array([0, 2, 1, 0, 3, 2])),
+        bounds: { min: { x: 18, y: -25, z: -120 }, max: { x: 18, y: 45, z: 120 } },
+      },
+    };
+    expect(configs.replace(prop).ok).toBe(true);
+    const arena: ArenaConfig = {
+      id: arenaId,
+      type: "arena",
+      version: 1,
+      name: "Online canyon",
+      bounds: { shape: "box", width: 200, height: 300, floorY: -30, ceilingY: 30 },
+      asteroidPlacements: [],
+      propPlacements: [{ propId: prop.id, position: { x: 0, z: 0 } }],
+      spawnPoints: [
+        { id: "a", team: 0, position: { x: 0, y: 0, z: -20 }, heading: 0 },
+        { id: "b", team: 1, position: { x: 0, y: 0, z: 20 }, heading: Math.PI },
+      ],
+      zones: [],
+    };
+    expect(configs.replace(arena).ok).toBe(true);
+    const source = configs.get<GamemodeConfig>("gamemode", "gamemode.practice-bots-1v1")!;
+    expect(configs.replace({
+      ...source,
+      id: gamemodeId,
+      version: source.version + 1,
+      name: "Online canyon",
+      defaultArena: arenaId,
+      boundaryRule: { type: "damageAndBounce", damagePerSec: 0.1, restitution: 0.2 },
+    }).ok).toBe(true);
+  });
+
+  it("grinds along a prop wall for three seconds with zero snaps and sub-unit residual", () => {
+    const result = flyOnline({
+      pitchStick: 0,
+      turn: 0,
+      ticks: 240,
+      arenaId,
+      gamemodeId,
+      start: { x: 0, y: 0, z: -45, heading: 0.45, pitch: 0 },
+    });
+    expect(result.snaps).toBe(0);
+    expect(result.maxResidual).toBeLessThan(1);
+    expect(result.truth.pos.x).toBeLessThan(18);
+    expect(result.truth.pos.z).toBeGreaterThan(-40);
+  });
+
+  it("climbs into and grinds the damageAndBounce ceiling without prediction snaps", () => {
+    const result = flyOnline({
+      pitchStick: 0.6,
+      turn: 0,
+      ticks: 240,
+      arenaId,
+      gamemodeId,
+      start: { x: -40, y: 0, z: 0, heading: Math.PI / 2, pitch: Math.PI / 3 },
+    });
+    expect(result.snaps).toBe(0);
+    expect(result.maxResidual).toBeLessThan(1);
+    expect(result.truth.pos.y).toBeLessThanOrEqual(30);
   });
 });

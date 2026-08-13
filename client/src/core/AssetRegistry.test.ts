@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MeshBuilder,
+  Mesh,
+  FreeCamera,
   NullEngine,
   PBRMaterial,
   Scene,
   SceneLoader,
   StandardMaterial,
+  TransformNode,
+  Vector3,
   type ISceneLoaderAsyncResult,
 } from "@babylonjs/core";
 import type { RenderRecipe } from "@space-arena/shared";
@@ -236,5 +240,82 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     expect(second.getAsteroidMaster(MODEL_RENDER).mesh).toBe(mesh);
     expect(mesh.getLODLevels()).toHaveLength(3);
     second.dispose();
+  });
+
+  it("keeps no-merge visual parts separate, drops COL_ meshes, and separates the cache variant", async () => {
+    const importSpy = vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation(() => {
+      const root = new Mesh("__root__", scene);
+      const left = MeshBuilder.CreateBox("left", { size: 1 }, scene);
+      const right = MeshBuilder.CreateBox("right", { size: 1 }, scene);
+      const collider = MeshBuilder.CreateBox("COL_wall", { size: 1 }, scene);
+      left.parent = root;
+      right.parent = root;
+      collider.parent = root;
+      return Promise.resolve({ meshes: [root, left, right, collider] } as unknown as ISceneLoaderAsyncResult);
+    });
+    const assets = new AssetRegistry(scene);
+    const merged = await assets.ensureModel(MODEL_RENDER);
+    const unmerged = await assets.ensureModel(MODEL_RENDER, { mergeParts: false });
+
+    expect(merged).not.toBe(unmerged);
+    expect(unmerged).toBeInstanceOf(TransformNode);
+    expect(unmerged!.getChildMeshes(true).map((mesh) => mesh.name)).toEqual(["left", "right"]);
+    expect(scene.getMeshByName("COL_wall")).toBeNull();
+    expect(importSpy).toHaveBeenCalledTimes(2);
+    expect(await assets.ensureModel(MODEL_RENDER, { mergeParts: false })).toBe(unmerged);
+    expect(importSpy).toHaveBeenCalledTimes(2);
+    assets.dispose();
+  });
+
+  it("adds authored LOD levels per unmerged part with placement distance scaling", async () => {
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation((_names, _rootUrl, fileName) => {
+      const suffix = String(fileName).includes("lod") ? "lod" : "base";
+      const root = new Mesh(`root.${suffix}`, scene);
+      const a = MeshBuilder.CreateBox(`a.${suffix}`, { size: 1 }, scene);
+      const b = MeshBuilder.CreateBox(`b.${suffix}`, { size: 1 }, scene);
+      a.parent = root;
+      b.parent = root;
+      return Promise.resolve({ meshes: [root, a, b] } as unknown as ISceneLoaderAsyncResult);
+    });
+    const assets = new AssetRegistry(scene);
+    const master = await assets.ensureModel(MODEL_RENDER, { mergeParts: false });
+    await assets.applyModelLods(master!, [{ model: "asteroids/rock_lod.glb", distance: 80 }], 0.5);
+
+    const parts = master!.getChildMeshes(true);
+    expect(parts).toHaveLength(2);
+    for (const part of parts) {
+      expect((part as Mesh).getLODLevels().map((level) => level.distanceOrScreenCoverage)).toEqual([40]);
+    }
+    assets.dispose();
+  });
+
+  it("renders an authored LOD through a distant instance without rendering its hidden master", async () => {
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation((_names, _rootUrl, fileName) => {
+      const suffix = String(fileName).includes("lod") ? "lod" : "base";
+      const mesh = MeshBuilder.CreateBox(`terrain.${suffix}`, { size: 1 }, scene);
+      mesh.material = new StandardMaterial(`terrain.${suffix}.mat`, scene);
+      return Promise.resolve({ meshes: [mesh] } as unknown as ISceneLoaderAsyncResult);
+    });
+    const camera = new FreeCamera("lod.camera", new Vector3(0, 0, -100), scene);
+    camera.setTarget(Vector3.Zero());
+    scene.activeCamera = camera;
+    const assets = new AssetRegistry(scene);
+    const master = await assets.ensureModel(MODEL_RENDER);
+    await assets.applyModelLods(master!, [{ model: "asteroids/rock_lod.glb", distance: 40 }]);
+    const variant = master!.getLODLevels()[0]!.mesh!;
+    const placement = master!.createInstance("terrain-placement");
+
+    scene.render();
+
+    expect(placement.getLOD(camera)).toBe(variant);
+    const activeMeshes = scene.getActiveMeshes().data;
+    expect(activeMeshes.includes(placement)).toBe(true);
+    expect(variant.isEnabled()).toBe(true);
+    expect(variant.isVisible).toBe(false);
+    // The substitute is not an independently-rendered origin mesh; it only
+    // enters rendering through the instance selected above.
+    expect(activeMeshes.includes(variant)).toBe(false);
+    placement.dispose();
+    assets.dispose();
   });
 });

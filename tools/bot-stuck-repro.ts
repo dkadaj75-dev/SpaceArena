@@ -10,8 +10,7 @@ const MAX_SEC = Number(process.env.BOT_REPRO_SECONDS ?? 12);
 const SEED_COUNT = Number(process.env.BOT_REPRO_SEEDS ?? 5);
 const SLOW_SPEED = 0.5;
 const STUCK_SEC = 5;
-const MODE_ID = process.env.BOT_REPRO_MODE ?? "gamemode.practice-ctf-10v10";
-const ARENA_ID = "arena.lunar-crater";
+const MODE_ID = process.env.BOT_REPRO_MODE ?? "gamemode.practice-ctf-5v5";
 const ROCK_CONFIG_ID = "asteroid.colossal-a";
 
 type RosterKind = "heavy-only" | "mixed" | "light-only";
@@ -40,6 +39,8 @@ interface BotRow {
 const configs = await loadTestConfigs();
 const baseMode = configs.get<GamemodeConfig>("gamemode", MODE_ID);
 if (!baseMode) throw new Error(`missing shipped CTF mode ${MODE_ID}`);
+const ARENA_ID = process.env.BOT_REPRO_ARENA ?? baseMode.defaultArena;
+if (!ARENA_ID) throw new Error(`${MODE_ID} needs a defaultArena`);
 const layouts: Record<RosterKind, readonly string[]> = {
   "heavy-only": Array(8).fill("ship.brawler"),
   mixed: ["ship.brawler", "ship.interceptor", "ship.support", "ship.brawler", "ship.interceptor", "ship.support", "ship.brawler", "ship.interceptor"],
@@ -83,9 +84,14 @@ console.table([...grouped].map(([group, value]) => ({ group, ...value, maxStill:
 function run(roster: RosterKind, hulls: readonly string[], seed: number): void {
   const session = new GameSession(configs, ARENA_ID, MODE_ID, seed);
   const rockId = [...session.sim.world.asteroidIds()].find((id) => session.sim.world.asteroids.get(id)?.configId === ROCK_CONFIG_ID);
-  if (rockId === undefined) throw new Error("shipped colossal centre rock was not spawned");
-  const rockPos = session.sim.world.transforms.get(rockId)!.pos;
-  const rockRadius = session.sim.world.colliders.get(rockId)!.radius;
+  // Canyon arenas use authored static terrain rather than a centre asteroid.
+  // Keep this diagnostic runnable there: it still reports recovery/stall data,
+  // merely without manufacturing an obstacle the shipped map does not contain.
+  const obstacle = rockId === undefined
+    ? { pos: { x: 0, y: 0, z: 0 }, radius: 0 }
+    : { pos: session.sim.world.transforms.get(rockId)!.pos, radius: session.sim.world.colliders.get(rockId)!.radius };
+  const rockPos = obstacle.pos;
+  const rockRadius = obstacle.radius;
   const states = new Map<EntityId, { hull: ShipConfig; anchor: { x: number; y: number; z: number }; still: number; maxStill: number; entries: number; exits: number; recovering: boolean; decision: BotDecisionSnapshot | null }>();
 
   [...session.bots.keys()].forEach((id, index) => {

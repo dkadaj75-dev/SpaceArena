@@ -11,6 +11,7 @@ import { loadTestConfigs } from "../sim/testutil.js";
 import { DEFAULT_PITCH_RATE_MULT } from "../sim/tuningDefaults.js";
 import type { BotBehavior } from "./behaviors.js";
 import { BotDriver } from "./BotDriver.js";
+import { clearRoleAllocationCache } from "./roleAllocator.js";
 
 // ---------------------------------------------------------------------------
 // Snapshot fixtures — bots only ever see this shape.
@@ -945,7 +946,7 @@ describe("BotDriver team roles (D2-D4, owner 2026-08-08)", () => {
     expect(driver.lastDecision?.underThreat).toBe(true);
   });
 
-  it("peels an escort onto the enemy closing on our carrier instead of holding formation", async () => {
+  it("positions an escort between its carrier and a closing pursuer", async () => {
     const { configs, p } = await flagrunner();
     const driver = new BotDriver({ entityId: 1, profile: p, configs, rng: zeroRng, orbitSign: 1 });
     const carrier = ship(3, 0, 0, 0, { velocity: { x: 0, y: 0, z: -18 } });
@@ -965,10 +966,25 @@ describe("BotDriver team roles (D2-D4, owner 2026-08-08)", () => {
     // shield and lets the driver apply combat aim.
     expect(driver.lastDecision?.engaged).toBe(true);
     const aim = driver.lastDecision!.plannedMove!;
-    // Formation is the point 20% of the way from the carrier to home — (0, 0, -40).
-    // The peel has to be somewhere else entirely: out on the pursuer's side.
+    // The screen stays on the pursuer's side of the carrier without flying all
+    // the way to the pursuer's intercept point and detaching from the run.
     expect(aim.x, JSON.stringify(aim)).toBeGreaterThan(10);
+    expect(Math.hypot(aim.x - carrier.pos.x, (aim.y ?? 0) - carrier.pos.y, aim.z - carrier.pos.z)).toBeLessThanOrEqual(35);
     expect(driver.lastDecision?.role).toBe("escort");
+  });
+
+  it("keeps an aggressive warden on the stand instead of chasing its own fight", async () => {
+    clearRoleAllocationCache();
+    const configs = await loadTestConfigs();
+    const p = configs.get<BotprofileConfig>("botprofile", "bot.aggressive")!;
+    const driver = new BotDriver({ entityId: 1, profile: p, configs, rng: zeroRng, orbitSign: 1 });
+    const allies = [ship(1, 0, 0, -195), ...Array.from({ length: 4 }, (_, index) => ship(10 + index, 0, 0, 120 + index * 10))];
+    const frame = snap([...allies, ship(2, 1, 12, -195)], [], [], 1, homeFlags());
+
+    decide(driver, frame);
+
+    expect(driver.lastDecision?.role).toBe("warden");
+    expect(driver.lastDecision?.behavior).toBe("objective");
   });
 
   it("leaves a free agent fighting on its authored weights, roles or no roles", async () => {

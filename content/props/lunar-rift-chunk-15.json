@@ -1,0 +1,34 @@
+{
+  "id": "prop.lunar-rift-chunk-15",
+  "type": "prop",
+  "version": 1,
+  "name": "Lunar Rift Terrain 15",
+  "category": "terrain",
+  "impactDamage": 10,
+  "render": {
+    "recipe": "model.static",
+    "model": "props/lunar-rift-chunk-15.glb",
+    "lods": [
+      {
+        "model": "props/lunar-rift-chunk-15_lod1.glb",
+        "distance": 190
+      }
+    ]
+  },
+  "collision": {
+    "positions": "8FKgwkgq8kE0XaDCSPKfwrsvVUIc8JfClo+Ywu0OiELMnpjCKGOYwtR0MkKmd6DCXuiPwq+2e0Lm2J/CAACQwqeIkkIAAJjCAACIwmq9kkIAAJjC+v+HwsobkkL0/5/CAACAwkXEkkIAAKDCAACAwmy9kkIAAJjCAABwwvm9kkIAAJjCAABwwum+kkIAAKDCAABgwi6/kkIAAKDCRL6fwpOykULmaY/CAACYwm/BkkIAAJDCAACQwre7kkIAAJDCAACIwgh1kkIAAJDCAACAwiy8kkIAAJDCAACgwlm6kkIAAIjCAACYwuy6kkIAAIjCAACQwuu6kkIAAIjCAACIwri7kkIAAIjCAACgwgS5kkIAAIDCAACYwli5kkIAAIDCAACQwjG5kkIAAIDC",
+    "indices": "AAAAAAEAAAACAAAAAAAAAAIAAAADAAAAAwAAAAIAAAAEAAAABAAAAAIAAAAFAAAABAAAAAUAAAAGAAAABAAAAAYAAAAHAAAABwAAAAYAAAAIAAAACAAAAAYAAAAJAAAACAAAAAkAAAAKAAAACAAAAAoAAAALAAAACwAAAAoAAAAMAAAAAQAAAA0AAAACAAAAAgAAAA0AAAAOAAAAAgAAAA4AAAAPAAAAAgAAAA8AAAAFAAAABQAAAA8AAAAGAAAABgAAAA8AAAAQAAAABgAAABAAAAARAAAABgAAABEAAAAJAAAADQAAABIAAAATAAAADQAAABMAAAAOAAAADgAAABMAAAAPAAAADwAAABMAAAAUAAAADwAAABQAAAAVAAAADwAAABUAAAAQAAAAEgAAABYAAAATAAAAEwAAABYAAAAXAAAAEwAAABcAAAAYAAAAEwAAABgAAAAUAAAA",
+    "bounds": {
+      "min": {
+        "x": -80.162,
+        "y": 30.2706,
+        "z": -80.2337
+      },
+      "max": {
+        "x": -56,
+        "y": 73.3834,
+        "z": -64
+      }
+    }
+  }
+}
