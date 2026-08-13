@@ -657,8 +657,23 @@ export class AssetRegistry {
         try {
           return this.finalizeModel(result.meshes, render, path, masters, loads, key, mergeParts);
         } catch (error) {
-          // A failed finalize must not strand half-imported meshes in the scene.
-          for (const m of result.meshes) if (!m.isDisposed()) m.dispose(false, true);
+          // A failed finalize must not strand half-imported meshes in the
+          // scene, and its private materials/textures must not leak — but
+          // canonicalizePbrMaterials may have pointed these meshes at
+          // scene-wide canonicals other loads own, which must survive.
+          const canonicals = new Set<Material>(AssetRegistry.canonicalPbr(this.scene).values());
+          const doomed = new Set<Material>();
+          for (const m of result.meshes) {
+            const material = m.material;
+            if (material instanceof MultiMaterial) {
+              for (const sub of material.subMaterials) if (sub && !canonicals.has(sub)) doomed.add(sub);
+              doomed.add(material);
+            } else if (material && !canonicals.has(material)) {
+              doomed.add(material);
+            }
+          }
+          for (const m of result.meshes) if (!m.isDisposed()) m.dispose(false, false);
+          for (const material of doomed) material.dispose(true, true);
           throw error;
         }
       })
@@ -695,7 +710,6 @@ export class AssetRegistry {
     const visual = geometric.filter((m) => !AssetRegistry.COLLIDER_MESH.test(m.name));
     const parts = visual;
     if (parts.length === 0) throw new Error("no meshes with geometry in model");
-    this.canonicalizePbrMaterials(parts);
     for (const p of parts) p.computeWorldMatrix(true);
     if (!mergeParts) {
       const master = new TransformNode(`master.model.${path}`, this.scene);
@@ -728,6 +742,9 @@ export class AssetRegistry {
       }
       // Imported roots and COL_* authoring meshes are never rendered at runtime.
       for (const mesh of meshes) if (!parts.includes(mesh as Mesh) && !mesh.isDisposed()) mesh.dispose(false, false);
+      // Canonicalize only once nothing above can throw: a failed finalize must
+      // never leave scene-wide canonicals referenced by half-imported meshes.
+      this.canonicalizePbrMaterials(parts);
       this.applyPbrModeToMaster(master);
       master.setEnabled(false);
       AssetRegistry.modelRenderMeta.set(master, render);
@@ -761,6 +778,9 @@ export class AssetRegistry {
     // does NOT refresh bounding info — instances would inherit the raw import
     // bounds and get frustum-culled while partly on screen.
     merged.refreshBoundingInfo();
+    // Canonicalize only once nothing above can throw: a failed finalize must
+    // never leave scene-wide canonicals referenced by half-imported meshes.
+    this.canonicalizePbrMaterials([merged]);
     // Match scenes intentionally have no IBL, so retain their old safe PBR
     // fallback. Hangar switches this registry to authored values while its
     // scoped procedural environment is active.

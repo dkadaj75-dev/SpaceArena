@@ -302,14 +302,22 @@ export default defineConfig(({ command }) => ({
             },
           },
           {
-            // Binary pack assets (GLB hulls) are large and effectively immutable
-            // within a pack version: serve from cache, refresh in the background.
+            // Binary pack assets keep their URLs when a pack regenerates (the
+            // lunar-rift chunk GLBs were rewritten in place), so cache-first
+            // showed players old geometry inside a world whose server collision
+            // had moved on. Network first; the cache is the offline fallback.
+            // maxEntries must fit a full arena: 32 terrain chunks + textures +
+            // props + ship hulls + audio blew past the old 60-entry LRU.
             urlPattern: /\/content\/.*\.(glb|gltf|bin|png|jpe?g|webp|ktx2|mp3|ogg|wav)(\?.*)?$/,
-            handler: "StaleWhileRevalidate",
+            handler: "NetworkFirst",
             options: {
               cacheName: "space-arena-content-assets",
+              // Generous: the match loading screen absorbs the wait, and a
+              // slow-but-alive server falling back to cache would re-create
+              // exactly the stale-geometry mismatch this rule exists to stop.
+              networkTimeoutSeconds: 10,
               cacheableResponse: { statuses: [200] },
-              expiration: { maxEntries: 60, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              expiration: { maxEntries: 160, maxAgeSeconds: 30 * 24 * 60 * 60 },
             },
           },
         ],

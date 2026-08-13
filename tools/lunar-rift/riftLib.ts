@@ -64,6 +64,13 @@ export function vnoise3(x: number, y: number, z: number, seed: number): number {
 }
 
 // ---------- layout (authored south side; twin = 180° rotation) ----------
+// CEILING is load-bearing for collision correctness, not just a gameplay cap:
+// buildChunkCollision culls highland faces "a ship cannot enter", which is only
+// true while ship centers (<= CEILING - radius) stay below the lowest culled
+// highland surface (~73.3). Raising CEILING lets hulls descend inside culled
+// rock. KILL_FLOOR sits far below the deepest reachable carve (~-10.7); the
+// -26 seen in collision bounds is the unreachable CSG basement (SOLID_BOTTOM),
+// not terrain a ship can touch.
 export const H_TOP = 80, CEILING = 74, KILL_FLOOR = -20;
 export const TEAM = { c: [0, -255] as Pt, r: 112, floor: 4, rim: 3.5 };
 export const MID = { c: [0, 0] as Pt, r: 98, floor: -8, rim: 4.5 };

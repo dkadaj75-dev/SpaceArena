@@ -111,6 +111,35 @@ describe("AssetRegistry imported PBR material canonicalization", () => {
     expect(scene.materials.filter((material) => /^RIFT_(FLOOR|WALL)$/.test(material.name))).toHaveLength(2);
     assets.dispose();
   });
+
+  it("keeps canonical materials alive when a later load's finalize fails", async () => {
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation((_names, _root, file) => {
+      const left = MeshBuilder.CreateBox(`left.${file}`, { size: 1 }, scene);
+      const right = MeshBuilder.CreateBox(`right.${file}`, { size: 1 }, scene);
+      const material = new PBRMaterial("RIFT_FLOOR", scene);
+      material.albedoTexture = new Texture("textures/rift.webp", scene);
+      left.material = material;
+      right.material = material;
+      return Promise.resolve({ meshes: [left, right] } as unknown as ISceneLoaderAsyncResult);
+    });
+    const assets = new AssetRegistry(scene);
+    const render = (model: string): RenderRecipe => ({ recipe: "model.static", model });
+    const first = await assets.ensureModel(render("props/one.glb"), { mergeParts: false });
+    const canonical = first!.getChildMeshes(false)[0]!.material!;
+
+    vi.spyOn(Mesh, "MergeMeshes").mockReturnValueOnce(null);
+    const failed = await assets.ensureModel(render("props/two.glb"), { mergeParts: true });
+
+    expect(failed).toBeNull();
+    // The failed load's cleanup must not dispose the shared canonical (or its
+    // textures) out from under every mesh already rendering with it — but the
+    // failing load's own private duplicate must not leak into the scene either.
+    expect(scene.materials).toContain(canonical);
+    expect(scene.materials.filter((material) => material.name === "RIFT_FLOOR")).toHaveLength(1);
+    const third = await assets.ensureModel(render("props/three.glb"), { mergeParts: false });
+    expect(third!.getChildMeshes(false)[0]!.material).toBe(canonical);
+    assets.dispose();
+  });
 });
 
 describe("AssetRegistry asteroid masters (§10 5.6)", () => {
@@ -448,10 +477,24 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     const preview = master!.createInstance("hangar-preview");
     pinInstanceLod0(preview);
 
+    const distantVariant = master!.getLODLevels()[1]!.mesh! as Mesh;
+    const variantRegisters = vi.spyOn(
+      distantVariant as unknown as { _registerInstanceForRenderId(instance: unknown, renderId: number): void },
+      "_registerInstanceForRenderId",
+    );
+    const masterRegisters = vi.spyOn(
+      master as unknown as { _registerInstanceForRenderId(instance: unknown, renderId: number): void },
+      "_registerInstanceForRenderId",
+    );
     scene.render();
 
     expect(placement.getLOD(camera)).toBe(master!.getLODLevels()[1]!.mesh);
     expect(preview.getLOD(camera)).toBe(master);
+    // getLOD's return value alone is not proof of drawing: _activate only
+    // registers an instance into a render batch through _currentLOD, so a pin
+    // that skips that assignment passes the getLOD checks yet draws nothing.
+    expect(variantRegisters).toHaveBeenCalledWith(placement, expect.any(Number));
+    expect(masterRegisters).toHaveBeenCalledWith(preview, expect.any(Number));
     const activeMeshes = scene.getActiveMeshes().data;
     expect(activeMeshes.includes(placement)).toBe(true);
     expect(variant.isEnabled()).toBe(true);
