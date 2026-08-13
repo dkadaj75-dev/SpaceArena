@@ -34,6 +34,8 @@ export interface DeviceProbe {
   memoryGb: number | null;
   /** UA hint that this is a phone/tablet. */
   mobile: boolean;
+  renderer?: string | null;
+  mobileClassGpu?: boolean;
 }
 
 /** The subset of `navigator` the probe reads — keeps the function testable. */
@@ -43,6 +45,7 @@ export interface ProbeSource {
   userAgent?: string;
   userAgentData?: { mobile?: boolean };
   maxTouchPoints?: number;
+  webglRenderer?: string | null;
 }
 
 export { isSafari, type PlatformSource };
@@ -70,7 +73,9 @@ export function probeDevice(source: ProbeSource | undefined): DeviceProbe {
       ? uaMobile
       : /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|Opera Mini|IEMobile/i.test(ua) ||
         (ua !== "" && /Macintosh/.test(ua) && numberOr(source?.maxTouchPoints, 0) > 1); // iPadOS desktop UA
-  return { cores, memoryGb, mobile };
+  const renderer = source?.webglRenderer?.trim() || null;
+  const mobileClassGpu = renderer !== null && /\b(?:adreno|mali|powervr|apple[ _-]?gpu)\b/i.test(renderer);
+  return { cores, memoryGb, mobile: mobile || mobileClassGpu, renderer, mobileClassGpu };
 }
 
 function numberOr(value: number | undefined, fallback: number): number {
@@ -98,8 +103,7 @@ export function probePasses(config: QualityConfig, probe: DeviceProbe): boolean 
   // not "not enough" — only a real reading can fail the floor.
   if (
     config.probe.minMemoryGb > 0 &&
-    probe.memoryGb !== null &&
-    probe.memoryGb < config.probe.minMemoryGb
+    (probe.memoryGb === null ? probe.mobileClassGpu === true : probe.memoryGb < config.probe.minMemoryGb)
   ) {
     return false;
   }
@@ -116,6 +120,7 @@ export function selectInitialTier(
   probe: DeviceProbe,
 ): QualityTier {
   const sorted = sortTiers(tiers);
+  if (probe.mobile) return sorted[0]?.tier ?? "low";
   for (let i = sorted.length - 1; i >= 0; i--) {
     const cfg = sorted[i]!;
     if (probePasses(cfg, probe)) return cfg.tier;
@@ -139,13 +144,17 @@ export function resolveStartTier(
   probe: DeviceProbe,
   stored: string | null | undefined,
   preferUltra = false,
+  learned: QualityTier | null = null,
 ): { tier: QualityTier; fromOverride: boolean } {
   const override = parseStoredTier(stored);
   if (override && tierConfig(tiers, override)) return { tier: override, fromOverride: true };
   // Safari is deliberately presentation-first when the player has no saved
   // choice. Its WebGPU-capable Macs and modern iPads are the target platform
   // for Ultra; the normal FPS sampler can still step it down in-match.
-  if (preferUltra && tierConfig(tiers, "ultra")) return { tier: "ultra", fromOverride: false };
+  if (probe.mobile && isDesktopClassRenderer(probe.renderer ?? null) && learned && tierConfig(tiers, learned)) {
+    return { tier: learned, fromOverride: false };
+  }
+  if (preferUltra && !probe.mobile && tierConfig(tiers, "ultra")) return { tier: "ultra", fromOverride: false };
   return { tier: selectInitialTier(tiers, probe), fromOverride: false };
 }
 
@@ -170,12 +179,16 @@ export interface AutoTierState {
   sampleFrames: number;
   /** Sum of per-frame FPS readings inside the window. */
   sampleFpsSum: number;
+  /** Frame durations used for the emergency p90 calculation. */
+  sampleFrameTimes: number[];
   /** Set once the single allowed adjustment has been spent. */
   adjusted: boolean;
+  stableMs: number;
+  promotionReady: boolean;
 }
 
 export function newAutoTierState(): AutoTierState {
-  return { elapsedMs: 0, sampleFrames: 0, sampleFpsSum: 0, adjusted: false };
+  return { elapsedMs: 0, sampleFrames: 0, sampleFpsSum: 0, sampleFrameTimes: [], adjusted: false, stableMs: 0, promotionReady: false };
 }
 
 export interface AutoTierResult {
@@ -210,29 +223,41 @@ export function sampleAutoTier(
   fps: number,
   dtMs: number,
 ): AutoTierResult {
-  if (state.adjusted) return NO_CHANGE;
   state.elapsedMs += dtMs;
+  if (!state.adjusted && config.autoTier.promoteAboveFps > 0 && fps >= config.autoTier.promoteAboveFps) {
+    state.stableMs += dtMs;
+    if (state.stableMs >= 30_000) state.promotionReady = true;
+  } else if (fps < config.autoTier.promoteAboveFps) state.stableMs = 0;
+  if (state.adjusted) return NO_CHANGE;
   if (state.elapsedMs < config.autoTier.sampleAfterMs) return NO_CHANGE;
   if (Number.isFinite(fps) && fps > 0) {
     state.sampleFrames += 1;
     state.sampleFpsSum += fps;
+    state.sampleFrameTimes.push(dtMs);
   }
   if (state.elapsedMs < config.autoTier.sampleAfterMs + config.autoTier.sampleWindowMs) {
     return NO_CHANGE;
   }
 
-  state.adjusted = true;
   if (state.sampleFrames === 0) return NO_CHANGE; // never saw a usable reading
   const averageFps = state.sampleFpsSum / state.sampleFrames;
+  const times = [...state.sampleFrameTimes].sort((a, b) => a - b);
+  const p90Ms = times[Math.min(times.length - 1, Math.floor(times.length * 0.9))] ?? 0;
 
-  const { demoteBelowFps, promoteAboveFps } = config.autoTier;
+  const { demoteBelowFps } = config.autoTier;
   if (demoteBelowFps > 0 && averageFps < demoteBelowFps) {
-    const next = stepTier(tiers, config.tier, -1);
-    return { tier: next === config.tier ? null : next, averageFps };
-  }
-  if (promoteAboveFps > 0 && averageFps > promoteAboveFps) {
-    const next = stepTier(tiers, config.tier, 1);
+    state.adjusted = true;
+    const next = p90Ms >= 50 ? sortTiers(tiers)[0]?.tier ?? "low" : stepTier(tiers, config.tier, -1);
     return { tier: next === config.tier ? null : next, averageFps };
   }
   return { tier: null, averageFps };
+}
+
+/** Preserve desktop MSAA; mobile-class probes use the cheaper non-MSAA engine path. */
+export function engineAntialiasForProbe(probe: Pick<DeviceProbe, "mobile">): boolean {
+  return !probe.mobile;
+}
+
+export function isDesktopClassRenderer(renderer: string | null): boolean {
+  return renderer !== null && /(?:nvidia|geforce|radeon|amd|intel\(r\).*(?:iris|uhd|arc)|apple m[1-9])/i.test(renderer);
 }

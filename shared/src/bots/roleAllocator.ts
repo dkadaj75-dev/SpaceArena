@@ -153,7 +153,11 @@ function allocate(
   if (thief) claims.push({ role: "interceptor", slots: quota(INTERCEPTORS), target: thief.pos, fighter: true });
   if (flagTakeable) {
     const press = own.state === "home" && enemy.state === "home";
-    claims.push({ role: "striker", slots: quota(press ? RALLY_STRIKERS : STRIKERS), target: enemy.pos, fighter: true });
+    // A 5v5 needs four ships arriving together across the enlarged lunar-rift
+    // lanes. Scaling the ten-ship rally quota down to two left each pickup in
+    // the enemy crater with no nearby screen to inherit the escort claims.
+    const strikeSlots = press ? Math.min(members.length, Math.max(4, quota(RALLY_STRIKERS))) : quota(STRIKERS);
+    claims.push({ role: "striker", slots: strikeSlots, target: enemy.pos, fighter: true });
   }
   if (!recovering) claims.push({ role: "warden", slots: quota(WARDENS), target: own.home, fighter: false });
 

@@ -187,6 +187,8 @@ const CLAMP_PINNED_EPSILON = 1e-9;
 const CALIBRATION_MAX_ROTATION = Math.PI / 2;
 const CARRIER_STUCK_MS = 5_000;
 const CARRIER_COMMIT_MS = 3_000;
+/** A carrier-vs-carrier home standoff needs a prompt break on the larger CTF map. */
+const CARRIER_STANDOFF_MS = 500;
 const CARRIER_PROGRESS_EPSILON = 0.75;
 
 // Scratch nose vectors — calibration runs every tick for every bot, so the two
@@ -269,7 +271,7 @@ export class BotDriver {
   private marksmanship = { yaw: 0, pitch: 0, velocitySec: 0, untilMs: 0 };
   private targetMotion: { id: EntityId; pos: Required<Vec3>; atMs: number } | null = null;
   private fireState: FireDisciplineState = { heatHeld: false };
-  private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number } | null = null;
+  private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number; standoff: boolean } | null = null;
   /** L0: the single owner of every "not making progress against a surface" rule. */
   private readonly recovery: RecoveryController;
   private heldBehavior: { key: string; untilMs: number } | null = null;
@@ -654,7 +656,11 @@ export class BotDriver {
     // Objective travel owns steering, but it must not make nearby enemies
     // invulnerable. Fire opportunistically without replacing the route home.
     const opportunisticRange = weaponRange * (profile.ctfWeights?.opportunisticCombat ?? 1);
-    const triggerEngaged = engaged || (
+    // Carrying the flag is itself a defensive threat state. Keep objective
+    // steering, but arm shields and opportunistic fire immediately instead of
+    // waiting for the first close target or hull-damage latch.
+    const carryingFlag = snapshot.flags.some((flag) => flag.carrierId === self.id);
+    const triggerEngaged = engaged || carryingFlag || (
       bestKey === "objective" && ctx.target !== null && ctx.hasLoS && ctx.distance <= opportunisticRange
     );
     this.lastEngaged = triggerEngaged;
@@ -1007,17 +1013,35 @@ export class BotDriver {
     const own = snapshot.flags.find((flag) => flag.team === self.team);
     const home = own?.home ?? carried.home;
     const distance = dist3(self.pos, home);
-    const progress = this.carrierProgress ?? { homeDistance: distance, progressedAtMs: nowMs, commitUntilMs: 0 };
+    const progress = this.carrierProgress ?? { homeDistance: distance, progressedAtMs: nowMs, commitUntilMs: 0, standoff: false };
     if (distance <= progress.homeDistance - CARRIER_PROGRESS_EPSILON) {
       progress.homeDistance = distance;
       progress.progressedAtMs = nowMs;
+    }
+    const blockedByCarrier = own?.state === "carried"
+      && distance <= own.baseRadius + (self.colliderRadius ?? 0) + 2;
+    if (blockedByCarrier && nowMs - progress.progressedAtMs >= CARRIER_STANDOFF_MS) {
+      progress.standoff = true;
     }
     if (nowMs - progress.progressedAtMs >= CARRIER_STUCK_MS) {
       progress.commitUntilMs = nowMs + CARRIER_COMMIT_MS;
       progress.progressedAtMs = nowMs;
       progress.homeDistance = distance;
+      progress.standoff = blockedByCarrier;
     }
     this.carrierProgress = progress;
+    if (progress.standoff) {
+      const thief = own?.carrierId === null || own?.carrierId === undefined
+        ? undefined
+        : findShipSnapshot(snapshot, own.carrierId);
+      if (thief) {
+        const blockers = snapshot.asteroids.map((a) => ({ pos: a.pos, radius: a.colliderRadius ?? a.radius }));
+        const canSee = (a: Required<Vec3>, b: Required<Vec3>) => hasLineOfSightAmong(a, b, blockers, this.staticWorld);
+        const waypoint = this.navRoute?.route(self.pos, thief.pos, canSee);
+        return { ...plan, aim: waypoint ?? thief.pos, aimPriority: waypoint !== null && waypoint !== undefined, throttle: 1, boost: false };
+      }
+      progress.standoff = false;
+    }
     if (nowMs >= progress.commitUntilMs) return plan;
     // A routed carrier already owns a safe authored waypoint. The old vertical
     // fudge aimed through canyon walls; recommitting means holding that waypoint.

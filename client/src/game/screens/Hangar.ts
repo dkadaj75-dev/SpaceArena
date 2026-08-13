@@ -22,6 +22,7 @@ import {
   type UpgradeTrackName,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../../core/AssetRegistry.js";
+import { ModelLoadQueue } from "../../core/modelLoadQueue.js";
 import type { AuthService } from "../../core/AuthService.js";
 import { HangarApi, HangarApiError, HangarRefreshScope, type ApiFitting, type ApiModule, type ApiShip } from "../HangarApi.js";
 import {
@@ -55,7 +56,9 @@ import { juiceSettingsOf } from "../juice/juiceSettings.js";
 import { moduleIconId, moduleIconSvg } from "../hud/moduleIcons.js";
 import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
+import { pinInstanceLod0 } from "../../core/modelLod.js";
 import type { TacticalCamera } from "../TacticalCamera.js";
+import { allHangarShipJobs, hangarPriorityJobs } from "../hangarAssetPreload.js";
 
 const log = createLogger("Hangar");
 
@@ -205,6 +208,8 @@ export class Hangar {
   private readonly panel: HTMLDivElement;
   private readonly api: HangarApi;
   private readonly assets: AssetRegistry;
+  private readonly modelQueue: ModelLoadQueue;
+  private readonly awaitOwnership: () => Promise<void>;
   private readonly stageRoot: TransformNode;
   private readonly unsubscribeAuth: () => void;
   private readonly refreshScope = new HangarRefreshScope();
@@ -256,6 +261,8 @@ export class Hangar {
    * reason {@link gauges} is — `render()` owns the info panel, not this half.
    */
   private readonly stageAction: HTMLDivElement;
+  private readonly previewLoader: HTMLDivElement;
+  private loadingOverlay: HTMLDivElement | null = null;
   /**
    * The module the player is CONSIDERING but has not equipped — the hover /
    * keyboard focus / tapped row in the picker, or the "remove" affordance
@@ -307,10 +314,15 @@ export class Hangar {
      * the screen keeps its pre-shop answers (see `hangarGating.ts`).
      */
     private readonly ownership: OwnershipStore | null = null,
+    assets?: AssetRegistry,
+    modelQueue?: ModelLoadQueue,
+    awaitOwnership?: () => Promise<void>,
   ) {
     this.api = new HangarApi(auth);
     this.paint = new ShipPaintBank(scene, configs);
-    this.assets = new AssetRegistry(scene);
+    this.assets = assets ?? new AssetRegistry(scene);
+    this.modelQueue = modelQueue ?? new ModelLoadQueue(this.assets);
+    this.awaitOwnership = awaitOwnership ?? (() => this.ownership?.refresh() ?? Promise.resolve());
     this.stageRoot = new TransformNode("hangarStage", scene);
     this.stageRoot.position.copyFrom(STAGE_POS);
     this.shipPivot = new TransformNode("hangarShipPivot", scene);
@@ -349,7 +361,10 @@ export class Hangar {
     // that changes what the player flies. Only the control inside it takes
     // pointer events; the corner around it stays click-through.
     this.stageAction = el("div", "hangar-stage-action");
-    this.stage.append(this.gauges, this.stageAction, ...this.stageArrows);
+    this.previewLoader = el("div", "hangar-preview-loading", "LOADING HULL");
+    this.previewLoader.setAttribute("role", "status");
+    this.previewLoader.style.display = "none";
+    this.stage.append(this.gauges, this.stageAction, this.previewLoader, ...this.stageArrows);
     parent.append(this.root);
 
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
@@ -492,6 +507,7 @@ export class Hangar {
     this.slots = ship ? this.slotsForShip(ship) : [];
 
     this.root.style.display = "flex";
+    this.mountLoadingOverlay();
     // The bay installs its own IBL for this visit. Let authored GLB PBR values
     // participate while staged, then restore the match-safe fallback in hide().
     this.assets.setHangarMaterialMode(true);
@@ -516,9 +532,9 @@ export class Hangar {
       shouldTrack: (ev) => !(ev.target instanceof Node) || !this.panel.contains(ev.target),
     });
 
-    this.rebuildPreview();
     this.render();
     this.applyStageViewport();
+    void this.revealAfterPriorityLoad(visitToken);
 
     const storedShipId = ship?.id;
     void this.refreshFromServer().then((applied) => {
@@ -548,6 +564,9 @@ export class Hangar {
     this.refreshScope.invalidate();
     this.visitToken++;
     this.root.style.display = "none";
+    this.loadingOverlay?.remove();
+    this.loadingOverlay = null;
+    this.previewLoader.style.display = "none";
     this.releaseVisitBindings();
     // Hand the whole canvas back — a match must never render into half of it.
     this.camera.setStageViewport(null);
@@ -569,6 +588,42 @@ export class Hangar {
     this.bay = null;
     this.bayRadius = 0;
     this.assets.setHangarMaterialMode(false);
+  }
+
+  private mountLoadingOverlay(): void {
+    this.loadingOverlay?.remove();
+    const overlay = el("div", "hangar-loading-overlay");
+    overlay.setAttribute("role", "status");
+    overlay.setAttribute("aria-label", "Loading owned ships and fitted modules");
+    overlay.innerHTML = '<div class="hangar-loading-panel"><i aria-hidden="true"></i><strong>PREPARING YOUR HANGAR</strong><span>Loading owned ships and fitted systems</span></div>';
+    this.loadingOverlay = overlay;
+    this.root.append(overlay);
+  }
+
+  private async revealAfterPriorityLoad(visitToken: number): Promise<void> {
+    try {
+      await this.awaitOwnership();
+      if (!this.isVisible || this.visitToken !== visitToken) return;
+      const owned = new Set(this.ownership?.ownedShips() ?? []);
+      const current = this.currentShip();
+      if (current && this.canFly(current.id)) owned.add(current.id);
+      const selection = loadHangarSelection();
+      await this.modelQueue.loadBlocking(hangarPriorityJobs(this.configs, owned, selection));
+      if (!this.isVisible || this.visitToken !== visitToken) return;
+      this.loadingOverlay?.remove();
+      this.loadingOverlay = null;
+      this.rebuildPreview();
+      this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+      this.render();
+      for (const job of allHangarShipJobs(this.configs)) void this.modelQueue.enqueue(job);
+    } catch (error) {
+      if (!this.isVisible || this.visitToken !== visitToken) return;
+      log.warn("priority hangar asset load failed", error);
+      this.loadingOverlay?.remove();
+      this.loadingOverlay = null;
+      this.rebuildPreview();
+      this.render();
+    }
   }
 
   private async refreshFromServer(): Promise<boolean> {
@@ -634,18 +689,19 @@ export class Hangar {
     // Requested ONCE per hull: `ensureModel` resolves immediately once the model
     // is cached, so re-requesting on every rebuild would loop forever.
     const loadingFor = ship.id;
-    if (!this.modelsRequested.has(loadingFor)) {
+    if (ship.render.model && !this.modelQueue.hasLoaded(loadingFor) && !this.modelsRequested.has(loadingFor)) {
       this.modelsRequested.add(loadingFor);
-      void this.assets.ensureModel(ship.render).then((loaded) => {
-        if (!loaded) {
-          this.modelsRequested.delete(loadingFor);
-          return; // no model authored, or the fetch failed: keep the stand-in
-        }
+      this.previewLoader.style.display = "flex";
+      void this.modelQueue.prioritize({ id: loadingFor, render: ship.render }).then(() => {
+        this.modelsRequested.delete(loadingFor);
         if (this.currentShip()?.id !== loadingFor) return;
         if (this.root.style.display === "none") return;
+        this.previewLoader.style.display = "none";
         this.rebuildPreview();
         this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
       });
+    } else if (this.modelQueue.hasLoaded(loadingFor)) {
+      this.previewLoader.style.display = "none";
     }
 
     // The hull wears whatever paint the pilot has equipped on it; an absent
@@ -675,6 +731,7 @@ export class Hangar {
     }
 
     const instance = master.createInstance(`hangarPreview.${ship.id}`);
+    pinInstanceLod0(instance);
     instance.isPickable = false;
     instance.parent = this.shipPivot;
     instance.position.setAll(0);
@@ -696,6 +753,7 @@ export class Hangar {
       // boxes on the hull. The match path has always passed this; this screen
       // was the one place that did not.
       juiceSettingsOf(this.configs.get<ThemeConfig>("theme", THEME_ID)),
+      { isLocal: true },
     );
     this.idleModules = this.slots
       .filter((s): s is HangarSlot & { moduleId: string } => s.moduleId !== null)
@@ -1999,6 +2057,18 @@ const HANGAR_CSS = `
   --hg-dim: var(--sa-n-400);
   --hg-danger: var(--sa-red-500);
 }
+.hangar-loading-overlay {
+  position: absolute; inset: 0; z-index: 20; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 42%, rgba(24, 64, 86, .3), rgba(3, 7, 17, .96) 66%);
+  pointer-events: auto;
+}
+.hangar-loading-panel { display: flex; flex-direction: column; align-items: center; gap: 9px; color: var(--sa-white); letter-spacing: .13em; text-align: center; }
+.hangar-loading-panel i, .hangar-preview-loading::before { width: 24px; height: 24px; border: 2px solid var(--hg-accent); border-right-color: transparent; border-radius: 50%; animation: hangar-load-spin .8s linear infinite; }
+.hangar-loading-panel strong { color: var(--hg-accent); font-size: 13px; letter-spacing: .22em; }
+.hangar-loading-panel span { color: var(--hg-dim); font-size: 10px; }
+.hangar-preview-loading { position: absolute; inset: 0; z-index: 5; align-items: center; justify-content: center; gap: 9px; color: var(--hg-accent); font-size: 10px; letter-spacing: .16em; pointer-events: none; }
+.hangar-preview-loading::before { content: ""; width: 16px; height: 16px; }
+@keyframes hangar-load-spin { to { transform: rotate(360deg); } }
 /* The stage takes its half of the flex box but never any pointer events —
    orbit and zoom drags belong to the canvas underneath it. */
 .hangar-stage {

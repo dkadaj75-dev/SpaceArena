@@ -39,6 +39,7 @@ import {
   type FrameAttitude,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
+import { pinInstanceLod0 } from "../core/modelLod.js";
 import { cosmeticIdOf, ShipPaintBank } from "./shipPaint.js";
 import { ShipSocketRig } from "./ShipSocketRig.js";
 import { resampleTrail, trailAlphas, TRAIL_POINTS, type TrailPoint } from "./flagTrail.js";
@@ -72,6 +73,21 @@ const FLAG_BANNER_BASE_Y = 0.2;
 const FLAG_BANNER_WAVE_MS = 34;
 const FLAG_TRANSITION_MS = 130;
 
+/** Distance plus projected-size gate for expensive transparent shells. */
+export function transparentShellVisible(
+  distance: number,
+  radius: number,
+  cullDistance: number,
+  verticalFov = 1.05,
+  viewportHeight = 720,
+  minDiameterPixels = 3,
+): boolean {
+  if (distance > cullDistance) return false;
+  if (distance <= radius) return true;
+  const diameterPixels = (radius * 2 / (2 * distance * Math.tan(verticalFov / 2))) * viewportHeight;
+  return diameterPixels >= minDiameterPixels;
+}
+
 /** Resolves a sim ship entity to its ship-config id (owned by GameSession). */
 export type ShipConfigResolver = (id: EntityId) => string | undefined;
 
@@ -86,6 +102,8 @@ export interface ViewManagerOptions {
   juice?: JuiceSettings;
   /** Where explosion sounds go. Omitted = silent (editor/hangar previews). */
   playSound?: PlaySound;
+  /** Local entity keeps full ship effects and LOD0. */
+  playerId?: EntityId;
 }
 
 interface ShipView {
@@ -176,7 +194,9 @@ interface BeamSlot {
 }
 
 /** Everything ViewManager reads off the active quality tier (§10 5.6). */
-export type ViewQuality = Pick<QualityConfig, "projectiles" | "particles" | "asteroids">;
+export type ViewQuality = Pick<QualityConfig, "projectiles" | "particles" | "asteroids"> & {
+  scene?: QualityConfig["scene"];
+};
 
 const DEFAULT_VIEW_QUALITY: ViewQuality = {
   projectiles: { useInstances: true },
@@ -268,6 +288,7 @@ export class ViewManager {
   private readonly hitFlash: HitFlashPool;
   private readonly explosions: ExplosionFx;
   private readonly playSound: PlaySound | null;
+  private readonly localPlayerId: EntityId | null;
 
   // Reused scratch — no per-frame allocation.
   private readonly sFrom = new Vector3();
@@ -297,6 +318,7 @@ export class ViewManager {
 
     this.juice = options.juice ?? juiceSettingsOf(configs.get<ThemeConfig>("theme", THEME_ID));
     this.playSound = options.playSound ?? null;
+    this.localPlayerId = options.playerId ?? null;
     this.hitFlash = new HitFlashPool(scene, this.root, this.juice.hitFlash);
     this.explosions = new ExplosionFx(scene, this.juice.explosions, quality.particles, this.root);
 
@@ -726,8 +748,8 @@ export class ViewManager {
       Quaternion.FromLookDirectionRHToRef(this.sForward, this.sBankedUp, view.quat);
 
       view.rig?.updateModules(s.modules);
-      view.rig?.updateShield(s, frameDtMs);
       view.rig?.updateEmitters(s, prevShip, nowMs);
+      view.rig?.updateShield(s, frameDtMs);
     }
   }
 
@@ -743,6 +765,7 @@ export class ViewManager {
     const cosmeticId = cosmeticIdOf(s);
     const master = this.paint.masterFor(this.assets.getShipMaster(ship.render), cosmeticId);
     const node = master.createInstance(`ship.${s.id}`);
+    if (s.id === this.localPlayerId) pinInstanceLod0(node);
     // Frame-based pose: the quaternion owns the rotation from here on (once
     // assigned, Babylon ignores `node.rotation`). Updated in place per frame.
     const quat = Quaternion.Identity();
@@ -765,6 +788,7 @@ export class ViewManager {
       fittedModuleIds,
       this.quality.particles,
       this.juice,
+      { isLocal: s.id === this.localPlayerId },
     );
 
     return { node, rig, roll: 0, rollTarget: 0, quat, velocity: new Vector3(), cosmeticId };
@@ -910,6 +934,21 @@ export class ViewManager {
       const pulse = beaconPulse(this.beaconClockMs, view.beaconPhase);
       view.beacon.scaling.setAll(pulse.scale);
       view.beaconMaterial.alpha = pulse.alpha;
+      const camera = this.scene.activeCamera;
+      const shellCull = this.quality.scene?.transparentShellCullDistance;
+      if (camera && shellCull) {
+        camera.computeWorldMatrix();
+        const distance = Vector3.Distance(camera.globalPosition, view.beacon.getAbsolutePosition());
+        view.beacon.setEnabled(transparentShellVisible(
+          distance,
+          view.beacon.getBoundingInfo().boundingSphere.radius * pulse.scale,
+          shellCull,
+          camera.fov,
+          this.scene.getEngine().getRenderHeight(),
+        ));
+      } else {
+        view.beacon.setEnabled(true);
+      }
 
       view.root.position.set(flag.pos.x, flag.pos.y, flag.pos.z);
       // The replicated flag position follows the carrier. Put the mast above
@@ -1043,7 +1082,7 @@ export class ViewManager {
 
     const beacon = MeshBuilder.CreateSphere(
       `flagBeacon.${id}`,
-      { diameter: radius * 2, segments: 20 },
+      { diameter: radius * 2, segments: 10 },
       this.scene,
     );
     beacon.material = beaconMat;

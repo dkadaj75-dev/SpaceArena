@@ -108,7 +108,7 @@ export class ShieldBubble {
     fresnel.power = 2.2;
     material.opacityFresnelParameters = fresnel;
 
-    const mesh = MeshBuilder.CreateSphere(`shieldbubble.${this.name}`, { diameter: 2, segments: 24 }, this.scene);
+    const mesh = MeshBuilder.CreateSphere(`shieldbubble.${this.name}`, { diameter: 2, segments: 12 }, this.scene);
     mesh.material = material;
     mesh.isPickable = false;
     mesh.parent = this.parent;

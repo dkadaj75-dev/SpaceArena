@@ -32,6 +32,7 @@ import {
   type SocketConfig,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
+import { pinCloneHierarchyLod0 } from "../core/modelLod.js";
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
@@ -741,6 +742,7 @@ export class ShipManager implements EditorPanel {
     const master = this.assets.getShipMaster(ship.render);
     this.hullIsPlaceholder = master.name.includes("placeholder");
     const hull = master.clone(`shipPreviewHull.${ship.id}`);
+    pinCloneHierarchyLod0(hull);
     hull.setEnabled(true);
     hull.parent = this.previewRoot;
     hull.isPickable = false;

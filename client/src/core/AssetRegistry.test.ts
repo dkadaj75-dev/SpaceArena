@@ -1,19 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import {
+  AbstractMesh,
+  Material,
   MeshBuilder,
   Mesh,
   FreeCamera,
   NullEngine,
   PBRMaterial,
+  Quaternion,
   Scene,
   SceneLoader,
+  ImportMeshAsync,
   StandardMaterial,
+  Texture,
   TransformNode,
   Vector3,
+  VertexBuffer,
   type ISceneLoaderAsyncResult,
 } from "@babylonjs/core";
+import "@babylonjs/loaders/glTF";
 import type { RenderRecipe } from "@space-arena/shared";
 import { AssetRegistry, type AsteroidLod } from "./AssetRegistry.js";
+import { pinInstanceLod0 } from "./modelLod.js";
+
+const CONTENT_DIR = path.resolve(import.meta.dirname, "../../../content");
 
 const LOD: AsteroidLod = { lodMediumDistance: 85, lodLowDistance: 200, lodCullDistance: 620 };
 
@@ -29,6 +41,77 @@ const PROCEDURAL_RENDER: RenderRecipe = {
   recipe: "procedural.rock-small",
   palette: { primary: "#5b5148", accent: "#7d7266" },
 };
+
+describe("AssetRegistry imported PBR material canonicalization", () => {
+  let engine: NullEngine;
+  let scene: Scene;
+
+  beforeEach(() => {
+    engine = new NullEngine();
+    scene = new Scene(engine);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("shares same-named same-albedo slots but keeps a different albedo distinct", async () => {
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation((_names, _root, file) => {
+      const filename = typeof file === "string" ? file : "";
+      const mesh = MeshBuilder.CreateBox(`part.${filename}`, { size: 1 }, scene);
+      const material = new PBRMaterial("RIFT_FLOOR", scene);
+      material.albedoTexture = new Texture(
+        filename.includes("other") ? "textures/other.webp" : "textures/rift.webp",
+        scene,
+      );
+      mesh.material = material;
+      return Promise.resolve({ meshes: [mesh] } as unknown as ISceneLoaderAsyncResult);
+    });
+    const assets = new AssetRegistry(scene);
+    const render = (model: string): RenderRecipe => ({ recipe: "model.static", model });
+    const first = await assets.ensureModel(render("props/one.glb"), { mergeParts: false });
+    const same = await assets.ensureModel(render("props/two.glb"), { mergeParts: false });
+    const different = await assets.ensureModel(render("props/other.glb"), { mergeParts: false });
+
+    const firstMaterial = first!.getChildMeshes(false)[0]!.material;
+    expect(same!.getChildMeshes(false)[0]!.material).toBe(firstMaterial);
+    expect(different!.getChildMeshes(false)[0]!.material).not.toBe(firstMaterial);
+    expect(scene.materials.filter((material) => material.name === "RIFT_FLOOR")).toHaveLength(2);
+    assets.dispose();
+  });
+
+  it("reduces all 16 lunar-rift chunks and LOD variants to two RIFT materials", async () => {
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation((_names, _root, file) => {
+      const floor = MeshBuilder.CreateBox(`floor.${file}`, { size: 1 }, scene);
+      const wall = MeshBuilder.CreateBox(`wall.${file}`, { size: 1 }, scene);
+      const floorMaterial = new PBRMaterial("RIFT_FLOOR", scene);
+      floorMaterial.albedoTexture = new Texture("textures/rift-floor.webp", scene);
+      const wallMaterial = new PBRMaterial("RIFT_WALL", scene);
+      wallMaterial.albedoTexture = new Texture("textures/rift-wall.webp", scene);
+      floor.material = floorMaterial;
+      wall.material = wallMaterial;
+      return Promise.resolve({ meshes: [floor, wall] } as unknown as ISceneLoaderAsyncResult);
+    });
+    const assets = new AssetRegistry(scene);
+    await Promise.all(
+      Array.from({ length: 16 }, (_, index) =>
+        Promise.all(
+          ["", "_lod1"].map((suffix) =>
+            assets.ensureModel(
+              { recipe: "model.static", model: `props/lunar-rift-chunk-${index}${suffix}.glb` },
+              { mergeParts: false },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(scene.materials.filter((material) => /^RIFT_(FLOOR|WALL)$/.test(material.name))).toHaveLength(2);
+    assets.dispose();
+  });
+});
 
 describe("AssetRegistry asteroid masters (§10 5.6)", () => {
   let engine: NullEngine;
@@ -267,6 +350,60 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     assets.dispose();
   });
 
+  it("preserves upward-facing geometry and lighting through the no-merge glTF root bake", async () => {
+    const importedRoots: Mesh[] = [];
+    const bakedDeterminants: number[] = [];
+    const upwardReferences: UpwardTriangleReference[] = [];
+    const authoredUvs: number[][] = [];
+    const authoredColors: number[][] = [];
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation(() => {
+      const root = new Mesh("__root__", scene);
+      root.rotationQuaternion = new Quaternion(0, 1, 0, 0);
+      root.scaling.set(1, 1, -1);
+      importedRoots.push(root);
+
+      const floor = MeshBuilder.CreateGround("crater.floor", { width: 4, height: 4 }, scene);
+      const colors = Array.from({ length: floor.getTotalVertices() }, () => [0.2, 0.4, 0.6, 1]).flat();
+      floor.setVerticesData(
+        VertexBuffer.ColorKind,
+        colors,
+      );
+      floor.material = new StandardMaterial("crater.floor.mat", scene);
+      floor.sideOrientation = Material.ClockWiseSideOrientation;
+      floor.parent = root;
+      bakedDeterminants.push(floor.computeWorldMatrix(true).determinant());
+      upwardReferences.push(upwardTriangleReference(floor));
+      authoredUvs.push(Array.from(floor.getVerticesData(VertexBuffer.UVKind)!));
+      authoredColors.push(colors);
+      return Promise.resolve({ meshes: [root, floor] } as unknown as ISceneLoaderAsyncResult);
+    });
+    const assets = new AssetRegistry(scene);
+    const master = await assets.ensureModel(
+      { ...MODEL_RENDER, modelScale: 1 },
+      { mergeParts: false },
+    );
+    const part = master!.getChildMeshes(true)[0] as Mesh;
+    await assets.applyModelLods(master!, [{ model: "terrain/crater_floor_lod.glb", distance: 20 }]);
+    const lodVariant = part.getLODLevels()[0]!.mesh!;
+    expect(importedRoots.map((root) => root.scaling.asArray())).toEqual([[1, 1, -1], [1, 1, -1]]);
+    expect(importedRoots.map((root) => root.rotationQuaternion!.asArray())).toEqual([
+      [0, 1, 0, 0],
+      [0, 1, 0, 0],
+    ]);
+    expect(bakedDeterminants).toEqual([-1, -1]);
+    expect(upwardFaceOracle(part, part, upwardReferences[0]!).frontFacesUp).toBe(true);
+    expect(upwardFaceOracle(lodVariant, lodVariant, upwardReferences[1]!).frontFacesUp).toBe(true);
+    const normals = part.getVerticesData(VertexBuffer.NormalKind)!;
+    expect(Vector3.Dot(Vector3.FromArray(normals), Vector3.Up())).toBeGreaterThan(0);
+    const lodNormals = lodVariant.getVerticesData(VertexBuffer.NormalKind)!;
+    expect(Vector3.Dot(Vector3.FromArray(lodNormals), Vector3.Up())).toBeGreaterThan(0);
+    expect(Array.from(part.getVerticesData(VertexBuffer.UVKind)!)).toEqual(authoredUvs[0]);
+    expect(Array.from(part.getVerticesData(VertexBuffer.ColorKind)!)).toEqual(authoredColors[0]);
+    expect(Array.from(lodVariant.getVerticesData(VertexBuffer.UVKind)!)).toEqual(authoredUvs[1]);
+    expect(Array.from(lodVariant.getVerticesData(VertexBuffer.ColorKind)!)).toEqual(authoredColors[1]);
+    assets.dispose();
+  });
+
   it("adds authored LOD levels per unmerged part with placement distance scaling", async () => {
     vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation((_names, _rootUrl, fileName) => {
       const suffix = String(fileName).includes("lod") ? "lod" : "base";
@@ -301,13 +438,20 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     scene.activeCamera = camera;
     const assets = new AssetRegistry(scene);
     const master = await assets.ensureModel(MODEL_RENDER);
-    await assets.applyModelLods(master!, [{ model: "asteroids/rock_lod.glb", distance: 40 }]);
+    await assets.applyModelLods(master!, [
+      { model: "ships/ship_lod1.glb", distance: 40 },
+      { model: "ships/ship_lod2.glb", distance: 90 },
+      { model: "ships/ship_lod3.glb", distance: 180 },
+    ]);
     const variant = master!.getLODLevels()[0]!.mesh!;
     const placement = master!.createInstance("terrain-placement");
+    const preview = master!.createInstance("hangar-preview");
+    pinInstanceLod0(preview);
 
     scene.render();
 
-    expect(placement.getLOD(camera)).toBe(variant);
+    expect(placement.getLOD(camera)).toBe(master!.getLODLevels()[1]!.mesh);
+    expect(preview.getLOD(camera)).toBe(master);
     const activeMeshes = scene.getActiveMeshes().data;
     expect(activeMeshes.includes(placement)).toBe(true);
     expect(variant.isEnabled()).toBe(true);
@@ -316,6 +460,314 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     // enters rendering through the instance selected above.
     expect(activeMeshes.includes(variant)).toBe(false);
     placement.dispose();
+    preview.dispose();
     assets.dispose();
   });
+
+  it("renders enabled hidden authored LOD parts through a distant no-merge prop hierarchy", async () => {
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation((_names, _rootUrl, fileName) => {
+      const suffix = String(fileName).includes("lod") ? "lod" : "base";
+      const root = new Mesh(`root.${suffix}`, scene);
+      const left = MeshBuilder.CreateBox(`left.${suffix}`, { size: 1 }, scene);
+      const right = MeshBuilder.CreateBox(`right.${suffix}`, { size: 1 }, scene);
+      left.material = new StandardMaterial(`left.${suffix}.mat`, scene);
+      right.material = new StandardMaterial(`right.${suffix}.mat`, scene);
+      left.parent = root;
+      right.parent = root;
+      return Promise.resolve({ meshes: [root, left, right] } as unknown as ISceneLoaderAsyncResult);
+    });
+    const camera = new FreeCamera("prop.lod.camera", new Vector3(0, 0, -228), scene);
+    camera.setTarget(Vector3.Zero());
+    scene.activeCamera = camera;
+    const assets = new AssetRegistry(scene);
+    const master = await assets.ensureModel(MODEL_RENDER, { mergeParts: false });
+    await assets.applyModelLods(master!, [{ model: "terrain/prop_lod1.glb", distance: 190 }]);
+    const root = new TransformNode("prop.root", scene);
+    const placement = master!.instantiateHierarchy(root, { doNotInstantiate: false });
+    const baseParts = master!.getChildMeshes(true).filter((mesh): mesh is Mesh => mesh instanceof Mesh);
+    const instanceParts = placement!.getChildMeshes(true).filter((mesh): mesh is Mesh => mesh instanceof Mesh);
+    const variants = baseParts.map((part) => part.getLODLevels()[0]!.mesh!);
+    const renderSpies = variants.map((variant) =>
+      vi.spyOn(variant as unknown as { _renderWithInstances: () => void }, "_renderWithInstances"),
+    );
+
+    for (const variant of variants) expect(variant.isEnabled()).toBe(true);
+
+    scene.render();
+
+    for (let index = 0; index < instanceParts.length; index++) {
+      const variant = variants[index]!;
+      expect(instanceParts[index]!.getLOD(camera)).toBe(variant);
+      expect(variant.isEnabled()).toBe(true);
+      expect(variant.isVisible).toBe(false);
+      expect(variant.getTotalVertices()).toBeGreaterThan(0);
+      expect(renderSpies[index]).toHaveBeenCalled();
+    }
+    // Variants only render as substitutes. Without a selected instance they
+    // must stay out of the scene's active-mesh list at the cached origin.
+    root.dispose(false, true);
+    scene.render();
+    for (const variant of variants) expect(scene.getActiveMeshes().data.includes(variant)).toBe(false);
+    assets.dispose();
+  });
+});
+
+interface OrientationOracleResult {
+  diskCrossY: number;
+  bakedDeterminant: number;
+  worldDeterminant: number;
+  effectiveSideOrientation: number;
+  overrideMaterialSideOrientation: number | null | undefined;
+  materialSideOrientation: number | null | undefined;
+  frontFacesUp: boolean;
+}
+
+interface UpwardTriangleReference {
+  triangleOffset: number;
+  diskCrossY: number;
+  diskNormal: Vector3;
+  bakedDeterminant: number;
+}
+
+/** Select an indexed triangle whose unbaked, primitive-local winding faces +Y. */
+function upwardTriangleReference(geometry: Mesh): UpwardTriangleReference {
+  const positions = geometry.getVerticesData(VertexBuffer.PositionKind)!;
+  const indices = geometry.getIndices()!;
+  const diskToBabylon = geometry.computeWorldMatrix(true);
+  const handedness = Math.sign(diskToBabylon.determinant()) || 1;
+  let triangleOffset = -1;
+  let diskCrossY = -Infinity;
+  let diskNormal = Vector3.Zero();
+  for (let offset = 0; offset < indices.length; offset += 3) {
+    const points = [0, 1, 2].map((corner) =>
+      Vector3.TransformCoordinates(
+        Vector3.FromArray(positions, indices[offset + corner]! * 3),
+        diskToBabylon,
+      ),
+    );
+    const candidateNormal = Vector3.Cross(
+      points[1]!.subtract(points[0]!),
+      points[2]!.subtract(points[0]!),
+    ).normalize().scale(handedness);
+    const candidateY = candidateNormal.y;
+    if (candidateY > diskCrossY) {
+      triangleOffset = offset;
+      diskCrossY = candidateY;
+      diskNormal = candidateNormal;
+    }
+  }
+  expect(triangleOffset).toBeGreaterThanOrEqual(0);
+  return {
+    triangleOffset,
+    diskCrossY,
+    diskNormal,
+    bakedDeterminant: diskToBabylon.determinant(),
+  };
+}
+
+/** Model Babylon's culling decision for one specific upward-authored triangle. */
+function upwardFaceOracle(
+  mesh: AbstractMesh,
+  geometry: Mesh,
+  reference: UpwardTriangleReference,
+): OrientationOracleResult {
+  const positions = geometry.getVerticesData(VertexBuffer.PositionKind)!;
+  const indices = geometry.getIndices()!;
+  const world = mesh.computeWorldMatrix(true);
+  const worldDeterminant = world.determinant();
+  const points = [0, 1, 2].map((corner) =>
+    Vector3.TransformCoordinates(
+      Vector3.FromArray(positions, indices[reference.triangleOffset + corner]! * 3),
+      world,
+    ),
+  );
+  const indexedNormal = Vector3.Cross(points[1]!.subtract(points[0]!), points[2]!.subtract(points[0]!)).normalize();
+  const override = geometry.overrideMaterialSideOrientation;
+  const materialOrientation = geometry.material?.sideOrientation;
+  let effectiveSideOrientation = override ?? materialOrientation ?? Material.CounterClockWiseSideOrientation;
+  if (worldDeterminant < 0) {
+    effectiveSideOrientation =
+      effectiveSideOrientation === Material.ClockWiseSideOrientation
+        ? Material.CounterClockWiseSideOrientation
+        : Material.ClockWiseSideOrientation;
+  }
+  // Babylon's LH CW front uses the indexed cross-normal. CCW uses its opposite.
+  const frontNormal = indexedNormal.scale(
+    effectiveSideOrientation === Material.ClockWiseSideOrientation ? 1 : -1,
+  );
+  return {
+    diskCrossY: reference.diskCrossY,
+    bakedDeterminant: reference.bakedDeterminant,
+    worldDeterminant,
+    effectiveSideOrientation,
+    overrideMaterialSideOrientation: override,
+    materialSideOrientation: materialOrientation,
+    frontFacesUp: Vector3.Dot(frontNormal, reference.diskNormal) > 0.25,
+  };
+}
+
+const ORIENTATION_FIXTURES = [
+  ...Array.from({ length: 16 }, (_, index) => `props/lunar-rift-chunk-${index}.glb`),
+  "props/lunar-rift-flagpad.glb",
+  "props/lunar-rift-boulder-a.glb",
+  "ships/human_medium_lod0.glb",
+];
+
+describe("AssetRegistry shipped glTF face orientation", () => {
+  let engine: NullEngine;
+  let scene: Scene;
+
+  beforeEach(() => {
+    engine = new NullEngine();
+    scene = new Scene(engine);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  async function importRealGlb(relativePath: string, targetScene = scene): Promise<ISceneLoaderAsyncResult> {
+    const bytes = await readFile(path.join(CONTENT_DIR, relativePath));
+    return ImportMeshAsync(bytes, targetScene, {
+      meshNames: "",
+      pluginExtension: ".glb",
+      // The Blender terrain references shipped external JPEGs. Its culling
+      // state lives on the primitive override, so omit only those textures;
+      // the other fixtures load their real glTF materials as well.
+      pluginOptions: {
+        gltf: {
+          skipMaterials: false,
+          // Preserve the authored/shared material objects (including their
+          // culling state) without making the Node test fetch external JPEGs.
+          preprocessUrlAsync: async () =>
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mNk+M/wHwAF/gL+Xw4mAAAAAElFTkSuQmCC",
+        },
+      },
+    });
+  }
+
+  function geometricMeshes(result: ISceneLoaderAsyncResult): Mesh[] {
+    return result.meshes.filter(
+      (mesh): mesh is Mesh =>
+        mesh instanceof Mesh && mesh.getTotalVertices() > 0 && !/(^|_)COL_/.test(mesh.name),
+    );
+  }
+
+  it("validates the culling oracle on the plain known-good shipped ship glTF", async () => {
+    const result = await importRealGlb("ships/human_medium_lod0.glb");
+    const meshes = geometricMeshes(result);
+    const rows = meshes.map((mesh, primitive) => ({
+      primitive,
+      mesh: mesh.name,
+      ...upwardFaceOracle(mesh, mesh, upwardTriangleReference(mesh)),
+    }));
+    console.log("ORIENTATION ORACLE VALIDATION (plain Babylon glTF, no finalize)");
+    console.table(rows);
+    expect(meshes.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.frontFacesUp)).toBe(true);
+  });
+
+  it("keeps every shipped fixture primitive front-facing through every no-merge rendering path", async () => {
+    const matrix: Array<
+      OrientationOracleResult & { file: string; path: string; primitive: number; mesh: string }
+    > = [];
+    const referencesByFile = new Map<string, UpwardTriangleReference[]>();
+    for (const relativePath of ORIENTATION_FIXTURES) {
+      const raw = await importRealGlb(relativePath);
+      const rawParts = geometricMeshes(raw);
+      referencesByFile.set(relativePath, rawParts.map(upwardTriangleReference));
+      for (const mesh of raw.meshes) mesh.dispose(false, true);
+    }
+
+    const importedMaterialOrientations = new Map<Material, number | null>();
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation(
+      async (_meshNames, rootUrl, fileName, targetScene) => {
+        const requested = `${rootUrl}${String(fileName)}`;
+        const contentRelative = requested.slice(requested.indexOf("content/") + "content/".length);
+        const result = await importRealGlb(contentRelative, targetScene ?? scene);
+        for (const mesh of geometricMeshes(result)) {
+          if (mesh.material && !importedMaterialOrientations.has(mesh.material)) {
+            importedMaterialOrientations.set(mesh.material, mesh.material.sideOrientation);
+          }
+        }
+        return result;
+      },
+    );
+    const assets = new AssetRegistry(scene);
+    const masters = new Map<string, TransformNode>();
+    for (const relativePath of ORIENTATION_FIXTURES) {
+      const recipe: RenderRecipe = { recipe: "model.static", model: relativePath };
+      masters.set(relativePath, (await assets.ensureModel(recipe, { mergeParts: false }))!);
+    }
+    for (const [material, importedOrientation] of importedMaterialOrientations) {
+      expect(material.sideOrientation, material.name).toBe(importedOrientation);
+    }
+
+    for (const relativePath of ORIENTATION_FIXTURES) {
+      const references = referencesByFile.get(relativePath)!;
+      const partsMaster = masters.get(relativePath)!;
+      const parts = partsMaster.getChildMeshes(true).filter((mesh): mesh is Mesh => mesh instanceof Mesh);
+      expect(parts).toHaveLength(references.length);
+      for (let primitive = 0; primitive < parts.length; primitive++) {
+        const part = parts[primitive]!;
+        matrix.push({
+          file: relativePath,
+          path: "no-merge",
+          primitive,
+          mesh: part.name,
+          ...upwardFaceOracle(part, part, references[primitive]!),
+        });
+      }
+
+      const placementRoot = new TransformNode(`placement.${relativePath}`, scene);
+      const placement = partsMaster.instantiateHierarchy(placementRoot, { doNotInstantiate: false })!;
+      const instances = placement.getChildMeshes(true);
+      expect(instances).toHaveLength(parts.length);
+      for (let primitive = 0; primitive < instances.length; primitive++) {
+        matrix.push({
+          file: relativePath,
+          path: "no-merge instance",
+          primitive,
+          mesh: instances[primitive]!.name,
+          ...upwardFaceOracle(instances[primitive]!, parts[primitive]!, references[primitive]!),
+        });
+      }
+
+      await assets.applyModelLods(partsMaster, [{ model: relativePath, distance: 10 }]);
+      for (let primitive = 0; primitive < parts.length; primitive++) {
+        const variant = parts[primitive]!.getLODLevels()[0]!.mesh!;
+        matrix.push({
+          file: relativePath,
+          path: "authored-LOD variant clone",
+          primitive,
+          mesh: variant.name,
+          ...upwardFaceOracle(variant, variant, references[primitive]!),
+        });
+      }
+    }
+    assets.dispose();
+    console.log("SHIPPED PRIMITIVE ORIENTATION SUMMARY");
+    console.table(
+      ORIENTATION_FIXTURES.map((file) => {
+        const rows = matrix.filter((row) => row.file === file);
+        return {
+          file,
+          primitives: referencesByFile.get(file)!.length,
+          paths: new Set(rows.map((row) => row.path)).size,
+          passed: rows.filter((row) => row.frontFacesUp).length,
+          rows: rows.length,
+        };
+      }),
+    );
+    console.log("SHIPPED PROP ORIENTATION MATRIX");
+    console.table(matrix);
+    const chunkOneFloor = matrix.filter(
+      (row) => row.file === "props/lunar-rift-chunk-1.glb" && row.primitive === 0,
+    );
+    expect(chunkOneFloor).toHaveLength(3);
+    expect(chunkOneFloor.every((row) => row.frontFacesUp)).toBe(true);
+    expect(matrix.every((row) => row.frontFacesUp)).toBe(true);
+  }, 30_000);
 });

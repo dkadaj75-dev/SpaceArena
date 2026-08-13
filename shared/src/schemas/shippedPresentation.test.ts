@@ -43,7 +43,7 @@ describe("shipped quality tiers — spawn markers and ambient dust", () => {
     }
   });
 
-  it("authors ambient dust on every tier, and disables it on low", () => {
+  it("authors ambient dust on every tier, and disables it below high", () => {
     for (const { tier, config } of tiers) {
       const dust = config.scene.dust;
       expect(dust, `${tier} should author a dust block`).toBeDefined();
@@ -52,7 +52,7 @@ describe("shipped quality tiers — spawn markers and ambient dust", () => {
       expect(dust.alpha).toBeLessThanOrEqual(0.5);
       expect(dust.size).toBeLessThanOrEqual(1);
       expect(dust.boxSize).toBeGreaterThan(0);
-      if (tier === "low") {
+      if (tier === "low" || tier === "med") {
         // Alpha-blended sprites are pure overdraw — the one budget a budget phone
         // has least of, and the tier that already drops glow and the hex shader.
         expect(dust.count).toBe(0);

@@ -9,6 +9,7 @@ import {
   TransformNode,
   VertexBuffer,
   type AbstractMesh,
+  type BaseTexture,
   type Material,
   type Scene,
 } from "@babylonjs/core";
@@ -522,6 +523,8 @@ export class AssetRegistry {
   private static readonly modelRenderMeta = new WeakMap<ModelMaster, RenderRecipe>();
   /** The authored PBR values survive the match-safe fallback applied below. */
   private static readonly pbrAuthoring = new WeakMap<Scene, Map<PBRMaterial, { metallic: number; roughness: number }>>();
+  /** Canonical imported PBR slots, shared across separately-authored GLBs. */
+  private static readonly canonicalPbrMaterials = new WeakMap<Scene, Map<string, PBRMaterial>>();
 
   constructor(private readonly scene: Scene) {}
 
@@ -541,6 +544,50 @@ export class AssetRegistry {
       AssetRegistry.pbrAuthoring.set(scene, materials);
     }
     return materials;
+  }
+
+  private static canonicalPbr(scene: Scene): Map<string, PBRMaterial> {
+    let materials = AssetRegistry.canonicalPbrMaterials.get(scene);
+    if (!materials) {
+      materials = new Map();
+      AssetRegistry.canonicalPbrMaterials.set(scene, materials);
+    }
+    return materials;
+  }
+
+  /** A URL is required: same-name untextured or painted materials stay distinct. */
+  private static pbrMaterialKey(material: PBRMaterial): string | null {
+    const url = (material.albedoTexture as BaseTexture & { url?: string | null } | null)?.url;
+    return typeof url === "string" && url.length > 0 ? `${material.name}\u0000${url}` : null;
+  }
+
+  /** Replace imported duplicate PBR slots before caching the model hierarchy. */
+  private canonicalizePbrMaterials(parts: readonly Mesh[]): void {
+    const canonical = AssetRegistry.canonicalPbr(this.scene);
+    const duplicates = new Set<PBRMaterial>();
+    const resolve = (material: Material | null): Material | null => {
+      if (!(material instanceof PBRMaterial)) return material;
+      const key = AssetRegistry.pbrMaterialKey(material);
+      if (!key) return material;
+      const existing = canonical.get(key);
+      if (!existing) {
+        canonical.set(key, material);
+        return material;
+      }
+      if (existing === material) return material;
+      duplicates.add(material);
+      return existing;
+    };
+    for (const part of parts) {
+      if (part.material instanceof MultiMaterial) {
+        part.material.subMaterials = part.material.subMaterials.map((material) => resolve(material));
+      } else {
+        part.material = resolve(part.material);
+      }
+    }
+    // glTF allocates a texture wrapper with every imported material. Once no
+    // mesh references a duplicate, free both it and its private wrappers.
+    for (const duplicate of duplicates) duplicate.dispose(false, true);
   }
 
   private applyPbrMode(material: PBRMaterial): void {
@@ -648,13 +695,25 @@ export class AssetRegistry {
     const visual = geometric.filter((m) => !AssetRegistry.COLLIDER_MESH.test(m.name));
     const parts = visual;
     if (parts.length === 0) throw new Error("no meshes with geometry in model");
+    this.canonicalizePbrMaterials(parts);
     for (const p of parts) p.computeWorldMatrix(true);
     if (!mergeParts) {
       const master = new TransformNode(`master.model.${path}`, this.scene);
       for (const part of parts) {
+        // glTF winding is primitive-local. Snapshot the loader's mesh-owned
+        // orientation before flattening so neither bake order nor a sibling
+        // that shares this material can become the orientation authority.
+        // Use sideOrientation directly: Babylon's deprecated
+        // overrideMaterialSideOrientation setter clears Material.sideOrientation,
+        // which would mutate every primitive using that shared material.
+        const loaderSideOrientation = part.sideOrientation;
         // Flatten the imported hierarchy while retaining each visual mesh as a
         // direct child. Its complete glTF transform (including RH -> LH root)
         // is baked first, so independent frustum culling remains correct.
+        // Babylon reverses indices while baking a negative determinant. Keep
+        // that reversal: once the mirrored glTF root is removed below, the
+        // loader's per-primitive CW side orientation needs those baked indices
+        // to preserve the same front face it had before flattening.
         part.bakeTransformIntoVertices(part.getWorldMatrix());
         part.setParent(null);
         part.position.setAll(0);
@@ -663,6 +722,7 @@ export class AssetRegistry {
         part.rotationQuaternion = null;
         part.rotation.y = render.modelRotationY ?? 0;
         part.bakeCurrentTransformIntoVertices();
+        part.sideOrientation = loaderSideOrientation;
         part.refreshBoundingInfo();
         part.parent = master;
       }
@@ -748,12 +808,18 @@ export class AssetRegistry {
         const source = lodParts[partIndex]!;
         const variant = source.clone(`${source.name}.lod.${levelIndex}.${partIndex}`, null, true);
         if (!variant) continue;
+        // Imported no-merge sources live under their disabled cache root. Keep
+        // a substitute out of that hierarchy before enabling it; otherwise an
+        // inherited disabled state makes Babylon skip the LOD batch.
+        variant.setParent(null);
         // Babylon renders an LOD substitute through the source instance's
         // batch. The substitute must therefore be enabled, but must not be a
         // scene candidate itself: otherwise this cached master draws at the
         // origin. This is the same enabled-but-hidden arrangement the
         // asteroid stand-ins rely on once addLODLevel marks them
         // `onlyForInstances` during LOD activation.
+        // Do not change this to false: Babylon selects this mesh to render an
+        // instance at range, including for unmerged terrain-prop hierarchies.
         variant.setEnabled(true);
         variant.isVisible = false;
         base.addLODLevel(lod.distance * distScale, variant);
@@ -776,8 +842,8 @@ export class AssetRegistry {
 
   /**
    * Master mesh for a ship render config: the GLB model when configured AND
-   * already loaded (kick loads off early via {@link ensureModel} — bootstrap
-   * preloads every ship model), otherwise the procedural recipe.
+   * already loaded (match launch or the hangar queue calls {@link ensureModel}
+   * first), otherwise the procedural recipe.
    */
   getShipMaster(render: RenderRecipe): Mesh {
     const master = this.loadedModel(render);

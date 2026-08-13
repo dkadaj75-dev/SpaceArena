@@ -85,6 +85,8 @@ export const qualitySchema = z.object({
     intensity: z.number().nonnegative(),
     /** Optional blur kernel override; Babylon's default is used when omitted. */
     blurKernelSize: z.number().positive().optional(),
+    /** Main glow render-target scale; omitted keeps Babylon's default (0.5). */
+    textureRatio: z.number().positive().max(1).optional(),
   }),
 
   particles: z.object({
@@ -94,6 +96,10 @@ export const qualitySchema = z.object({
     budgetMultiplier: z.number().min(0).max(1.25),
     /** Hard ceiling on one emitter's Babylon capacity, before the multiplier. */
     maxEmitterCapacity: z.number().int().nonnegative(),
+    /** Maximum systems built for a remote ship; omitted/zero keeps every authored socket. */
+    maxRemoteShipSystems: z.number().int().nonnegative().optional(),
+    /** Camera distance beyond which ship particles and shield shells are stopped. */
+    shipEffectCullDistance: z.number().positive().optional(),
   }),
 
   asteroids: z.object({
@@ -152,6 +158,8 @@ export const qualitySchema = z.object({
      * so designers keep seeing spawns without the flag lying to players.
      */
     spawnMarkers: z.boolean(),
+    /** Low-cost tiers may hide large transparent landmarks past this world distance. */
+    transparentShellCullDistance: z.number().positive().optional(),
     /**
      * Ambient dust motes drifting through the arena volume, so a 300-radius
      * bubble does not read as an empty room and so the player's own speed is

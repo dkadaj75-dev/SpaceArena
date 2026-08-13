@@ -2,6 +2,7 @@ import type {
   ArenaConfig,
   AsteroidConfig,
   ConfigService,
+  ModuleConfig,
   PropConfig,
   RenderRecipe,
   ShipConfig,
@@ -11,11 +12,9 @@ import type { AssetRegistry } from "./AssetRegistry.js";
 /**
  * Which GLB models an arena needs (§11 6.3 preloading).
  *
- * Ships preload at bootstrap because there are only a handful of hulls and any
- * of them can turn up in any match. Asteroids are the other way round: the
- * models are ~1 MB each and WHICH ones a match needs is a property of the
- * arena, so they are preloaded per-arena instead — see
- * {@link preloadArenaModels}.
+ * Boot performs no model work. Hulls are loaded at match launch and hangar
+ * previews are split into blocking owned assets plus a throttled background
+ * queue. Arena models are resolved per match by {@link preloadArenaModels}.
  *
  * Nothing here knows an asteroid id or a file name: it walks the arena's
  * placements, resolves each asteroid config, and takes whatever `render.model`
@@ -71,40 +70,48 @@ export async function preloadArenaModels(
   );
 }
 
-/** Every authored ship GLB, independent of the active quality tier. */
+/** Every authored ship base and LOD GLB, independent of the active quality tier. */
 export function shipModelRenders(configs: ConfigService): RenderRecipe[] {
+  const renders: RenderRecipe[] = [];
+  for (const ship of configs.getAll<ShipConfig>("ship")) {
+    const render = ship.render;
+    if (typeof render.model !== "string") continue;
+    renders.push(render);
+    for (const lod of render.lods ?? []) renders.push({ ...render, model: lod.model, lods: undefined });
+  }
+  return renders;
+}
+
+/** Every authored hardpoint/module model that can be mounted on a match ship. */
+export function moduleModelRenders(configs: ConfigService): RenderRecipe[] {
   return configs
-    .getAll<ShipConfig>("ship")
-    .map((ship) => ship.render)
-    .filter((render) => typeof render.model === "string");
+    .getAll<ModuleConfig>("module")
+    .map((module) => module.render)
+    .filter((render): render is RenderRecipe => typeof render?.model === "string");
 }
 
 /**
  * Ship views choose their master synchronously and keep it for their lifetime,
- * so bootstrap must await these loads. Arena asteroid loads are likewise
- * awaited when a match resolves its arena; ships are loaded once up front.
+ * so match launch awaits these loads before creating views.
  */
 export async function preloadShipModels(assets: AssetRegistry, configs: ConfigService): Promise<void> {
+  const ships = configs.getAll<ShipConfig>("ship").filter((ship) => typeof ship.render.model === "string");
   await Promise.all(shipModelRenders(configs).map((render) => assets.ensureModel(render)));
+  await Promise.all(ships.map(async (ship) => {
+    const master = await assets.ensureModel(ship.render);
+    if (master) await assets.applyModelLods(master, ship.render.lods ?? []);
+  }));
 }
 
-/**
- * Await the correctness-critical ship preload without allowing one stalled
- * fetch/decode to hang boot forever. The underlying loads may still settle into
- * the cache later; callers proceed with the synchronous procedural fallback.
- */
-export async function preloadShipModelsBeforeTimeout(
+/** Everything a match can render, awaited behind the match loading screen. */
+export async function preloadMatchModels(
   assets: AssetRegistry,
   configs: ConfigService,
-  timeoutMs: number,
-): Promise<boolean> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const completed = await Promise.race([
-    preloadShipModels(assets, configs).then(() => true),
-    new Promise<false>((resolve) => {
-      timeout = setTimeout(() => resolve(false), timeoutMs);
-    }),
+  arenaId: string,
+): Promise<void> {
+  await Promise.all([
+    preloadArenaModels(assets, configs, arenaId),
+    preloadShipModels(assets, configs),
+    ...moduleModelRenders(configs).map((render) => assets.ensureModel(render)),
   ]);
-  if (timeout !== undefined) clearTimeout(timeout);
-  return completed;
 }

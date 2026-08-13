@@ -228,7 +228,7 @@ describe("shipped canyon arena geometry", () => {
 
   it("pins the generated placement count and preserves 180-degree placement symmetry", () => {
     expect(arena.bounds.shape).toBe("box");
-    expect(propPlacements).toHaveLength(114);
+    expect(propPlacements).toHaveLength(128);
     const placements = propPlacements.map((placement) => ({
       propId: placement.propId,
       position: positionOf(placement.position),

@@ -7,6 +7,7 @@ import {
   Vector3,
   type InstancedMesh,
   type Scene,
+  type AbstractMesh,
 } from "@babylonjs/core";
 import {
   createLogger,
@@ -89,6 +90,25 @@ interface EmitterAttachment {
   system: ParticleSystem;
   effect: EffectConfig;
   bindings: ReturnType<typeof emittersOf>[number]["bindings"];
+  running: boolean;
+}
+
+export interface ShipEffectPolicyInput {
+  isLocal: boolean;
+  emitterIndex: number;
+  primaryEmitterIndex: number;
+  maxRemoteShipSystems?: number;
+  distance: number;
+  cullDistance?: number;
+  inFrustum: boolean;
+}
+
+/** Pure policy shared by runtime and unit tests: local ships retain every socket. */
+export function shouldBuildShipEmitter(input: ShipEffectPolicyInput): boolean {
+  if (!input.inFrustum) return false;
+  if (input.cullDistance && input.distance > input.cullDistance) return false;
+  if (input.isLocal || !input.maxRemoteShipSystems) return true;
+  return input.maxRemoteShipSystems > 0 && input.emitterIndex === input.primaryEmitterIndex;
 }
 
 /**
@@ -109,6 +129,8 @@ export class ShipSocketRig {
   private juice: JuiceSettings;
   private readonly shieldBubble: ShieldBubble;
   private nextEmitterUpdateMs = 0;
+  private emittersBuilt = false;
+  private effectsVisible = false;
   private disposed = false;
 
   constructor(
@@ -121,13 +143,13 @@ export class ShipSocketRig {
     particleQuality: ParticleQuality | undefined = DEFAULT_PARTICLE_QUALITY,
     /** Deploy-sweep + shield-ripple knobs (theme `juice` block, §10 5.7). */
     juice: JuiceSettings = DEFAULT_JUICE_SETTINGS,
+    private readonly effectOptions: { isLocal?: boolean } = {},
   ) {
     this.particleQuality = particleQuality ?? DEFAULT_PARTICLE_QUALITY;
     this.juice = juice;
     this.root = new TransformNode(`socketRig.${ship.id}`, scene);
     this.root.parent = parent;
     this.buildHardpoints(fittedModuleIds);
-    if (this.particleQuality.enabled && this.particleQuality.budgetMultiplier > 0) this.buildEmitters();
     // Lazy inside: no mesh exists until this ship actually raises a shield.
     this.shieldBubble = new ShieldBubble(
       scene,
@@ -199,7 +221,19 @@ export class ShipSocketRig {
   }
 
   private buildEmitters(): void {
-    for (const socket of emittersOf(this.ship)) {
+    const sockets = emittersOf(this.ship);
+    let primaryEmitterIndex = sockets.findIndex((socket) => /engine|thruster/i.test(`${socket.id} ${socket.effect}`));
+    if (primaryEmitterIndex < 0) primaryEmitterIndex = 0;
+    for (let socketIndex = 0; socketIndex < sockets.length; socketIndex++) {
+      const socket = sockets[socketIndex]!;
+      if (!shouldBuildShipEmitter({
+        isLocal: this.effectOptions.isLocal === true,
+        emitterIndex: socketIndex,
+        primaryEmitterIndex,
+        maxRemoteShipSystems: this.particleQuality.maxRemoteShipSystems,
+        distance: 0,
+        inFrustum: true,
+      })) continue;
       const effect = this.configs.get<EffectConfig>("effect", socket.effect);
       if (!effect) {
         log.warn(`emitter socket "${socket.id}" on ${this.ship.id} references unknown effect ${socket.effect}`);
@@ -242,10 +276,12 @@ export class ShipSocketRig {
       system.direction2 = new Vector3(dir[0], dir[1], dir[2]);
       system.blendMode = ParticleSystem.BLENDMODE_ADD;
       system.disposeOnStop = false;
-      system.start();
 
-      this.emitters.push({ system, effect, bindings: socket.bindings });
+      // Dormant by construction. A live signal starts it on the first 15 Hz
+      // update; zero-rate systems never enter Babylon's per-frame animation.
+      this.emitters.push({ system, effect, bindings: socket.bindings, running: false });
     }
+    this.emittersBuilt = true;
   }
 
   /**
@@ -296,7 +332,7 @@ export class ShipSocketRig {
         break;
       }
     }
-    this.shieldBubble.update(shieldUp, dtMs);
+    this.shieldBubble.update(shieldUp && this.effectsVisible, dtMs);
   }
 
   /** Whether this ship's shield bubble is currently drawn (dev probe / tests). */
@@ -306,9 +342,18 @@ export class ShipSocketRig {
 
   /** Throttled (~15 Hz) signal → curve → particle-param update for every emitter socket. */
   updateEmitters(cur: ShipSnapshot, prev: ShipSnapshot | undefined, nowMs: number): void {
-    if (this.emitters.length === 0) return;
     if (nowMs < this.nextEmitterUpdateMs) return;
     this.nextEmitterUpdateMs = nowMs + EMITTER_UPDATE_INTERVAL_MS;
+
+    const visible = this.effectVisibility();
+    this.effectsVisible = visible;
+    if (!visible) {
+      for (const em of this.emitters) this.setEmitterRunning(em, false);
+      return;
+    }
+    if (!this.emittersBuilt && this.particleQuality.enabled && this.particleQuality.budgetMultiplier > 0) {
+      this.buildEmitters();
+    }
 
     for (const em of this.emitters) {
       for (const binding of em.bindings) {
@@ -322,7 +367,34 @@ export class ShipSocketRig {
           log.warn(`${em.system.name}: ${msg}`),
         );
       }
+      this.setEmitterRunning(em, em.system.emitRate > 0);
     }
+  }
+
+  private effectVisibility(): boolean {
+    const camera = this.scene.activeCamera;
+    if (!camera) return true;
+    const parent = this.root.parent as AbstractMesh | null;
+    if (!parent || typeof parent.isInFrustum !== "function") return true;
+    parent.computeWorldMatrix(true);
+    camera.computeWorldMatrix();
+    const distance = Vector3.Distance(camera.globalPosition, parent.getAbsolutePosition());
+    return shouldBuildShipEmitter({
+      isLocal: this.effectOptions.isLocal === true,
+      emitterIndex: 0,
+      primaryEmitterIndex: 0,
+      maxRemoteShipSystems: undefined,
+      distance,
+      cullDistance: this.particleQuality.shipEffectCullDistance,
+      inFrustum: camera.isInFrustum(parent),
+    });
+  }
+
+  private setEmitterRunning(em: EmitterAttachment, running: boolean): void {
+    if (em.running === running) return;
+    em.running = running;
+    if (running) em.system.start();
+    else em.system.stop();
   }
 
   dispose(): void {

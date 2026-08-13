@@ -436,7 +436,11 @@
     },
     "model": "ships/human_heavy_lod0.glb",
     "modelScale": 0.154,
-    "modelRotationY": 0
+    "modelRotationY": 0,
+    "lods": [
+      { "model": "ships/human_heavy_lod1.glb", "distance": 40 },
+      { "model": "ships/human_heavy_lod2.glb", "distance": 90 }
+    ]
   },
   "collider": {
     "shape": "circle",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { qualitySchema, type QualityConfig, type QualityTier } from "@space-arena/shared";
 import {
   newAutoTierState,
+  engineAntialiasForProbe,
   isSafari,
   parseStoredTier,
   probeDevice,
@@ -67,7 +68,7 @@ describe("probeDevice", () => {
   it("reads cores, memory and the Chromium mobile hint", () => {
     expect(
       probeDevice({ hardwareConcurrency: 8, deviceMemory: 8, userAgentData: { mobile: true } }),
-    ).toEqual({ cores: 8, memoryGb: 8, mobile: true });
+    ).toMatchObject({ cores: 8, memoryGb: 8, mobile: true, renderer: null, mobileClassGpu: false });
   });
 
   it("falls back to the UA string when userAgentData is absent", () => {
@@ -85,12 +86,22 @@ describe("probeDevice", () => {
   });
 
   it("zeroes cores and nulls memory for missing/absurd values instead of guessing", () => {
-    expect(probeDevice(undefined)).toEqual({ cores: 0, memoryGb: null, mobile: false });
-    expect(probeDevice({ hardwareConcurrency: 0, deviceMemory: Number.NaN })).toEqual({
+    expect(probeDevice(undefined)).toMatchObject({ cores: 0, memoryGb: null, mobile: false, renderer: null, mobileClassGpu: false });
+    expect(probeDevice({ hardwareConcurrency: 0, deviceMemory: Number.NaN })).toMatchObject({
       cores: 0,
       memoryGb: null,
       mobile: false,
+      renderer: null,
+      mobileClassGpu: false,
     });
+  });
+
+  it("treats an Adreno renderer as mobile even without a UA hint", () => {
+    const probe = probeDevice({ hardwareConcurrency: 8, webglRenderer: "ANGLE (Qualcomm, Adreno (TM) 740)" });
+    expect(probe.mobile).toBe(true);
+    expect(probe.mobileClassGpu).toBe(true);
+    expect(engineAntialiasForProbe(probe)).toBe(false);
+    expect(engineAntialiasForProbe({ mobile: false })).toBe(true);
   });
 });
 
@@ -151,16 +162,16 @@ describe("selectInitialTier", () => {
     expect(selectInitialTier(TIERS, { cores: 12, memoryGb: 16, mobile: false })).toBe("ultra");
   });
 
-  it("allows a flagship phone to reach ultra", () => {
-    expect(selectInitialTier(TIERS, { cores: 8, memoryGb: 8, mobile: true })).toBe("ultra");
+  it("starts every mobile-hinted phone at low", () => {
+    expect(selectInitialTier(TIERS, { cores: 8, memoryGb: 8, mobile: true })).toBe("low");
   });
 
   it("picks med on a mid-range phone", () => {
-    expect(selectInitialTier(TIERS, { cores: 6, memoryGb: 4, mobile: true })).toBe("med");
+    expect(selectInitialTier(TIERS, { cores: 6, memoryGb: 4, mobile: true })).toBe("low");
   });
 
   it("picks med on an iPhone that reports cores but no deviceMemory", () => {
-    expect(selectInitialTier(TIERS, { cores: 6, memoryGb: null, mobile: true })).toBe("med");
+    expect(selectInitialTier(TIERS, { cores: 6, memoryGb: null, mobile: true })).toBe("low");
   });
 
   it("falls back to low on a budget phone and on an unknown device", () => {
@@ -191,7 +202,7 @@ describe("parseStoredTier / resolveStartTier", () => {
 
   it("ignores an override the pack has no config for", () => {
     expect(resolveStartTier([LOW, MED], { cores: 6, memoryGb: 4, mobile: true }, "high")).toEqual({
-      tier: "med",
+      tier: "low",
       fromOverride: false,
     });
   });
@@ -203,9 +214,9 @@ describe("parseStoredTier / resolveStartTier", () => {
     });
   });
 
-  it("uses Safari's ultra default only with no stored choice", () => {
+  it("keeps Safari mobile at low without a measured desktop renderer", () => {
     expect(resolveStartTier(TIERS, { cores: 0, memoryGb: 0, mobile: true }, null, true)).toEqual({
-      tier: "ultra",
+      tier: "low",
       fromOverride: false,
     });
     expect(resolveStartTier(TIERS, { cores: 0, memoryGb: 0, mobile: true }, "low", true)).toEqual({
@@ -242,15 +253,29 @@ describe("sampleAutoTier", () => {
     expect(result.averageFps).toBeCloseTo(18, 5);
   });
 
-  it("promotes after the window when the average is above the ceiling", () => {
-    const { result } = run(MED, 60);
-    expect(result.tier).toBe("high");
+  it("emergency-demotes directly to low within 2.5 seconds at 20 FPS", () => {
+    for (const config of [MED, HIGH, ULTRA]) {
+      const emergency = { ...config, autoTier: { ...config.autoTier, sampleAfterMs: 1500, sampleWindowMs: 1000 } };
+      const state = newAutoTierState();
+      let result = null as ReturnType<typeof sampleAutoTier> | null;
+      for (let elapsed = 0; elapsed < 3000; elapsed += 50) {
+        const sample = sampleAutoTier(state, emergency, TIERS, 20, 50);
+        if (sample.tier) result = sample;
+      }
+      expect(result?.tier).toBe("low");
+    }
+  });
+
+  it("only schedules promotion after a long stable match", () => {
+    const { result, state } = run(MED, 60, 2000);
+    expect(result.tier).toBeNull();
+    expect(state.promotionReady).toBe(true);
   });
 
   it("stays put inside the hysteresis band", () => {
     const { result, state } = run(MED, 40);
     expect(result.tier).toBeNull();
-    expect(state.adjusted).toBe(true);
+    expect(state.adjusted).toBe(false);
   });
 
   it("adjusts at most once per match", () => {

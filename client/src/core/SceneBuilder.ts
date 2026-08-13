@@ -9,6 +9,7 @@ import {
   HemisphericLight,
   Mesh,
   MeshBuilder,
+  PBRMaterial,
   PointsCloudSystem,
   ShaderMaterial,
   StandardMaterial,
@@ -17,6 +18,7 @@ import {
   Vector3,
   VertexBuffer,
   VertexData,
+  type BaseTexture,
   type CloudPoint,
   type Material,
   type Node,
@@ -68,6 +70,47 @@ function colorFromHex(hex: string | undefined, fallback: Color3): Color3 {
 
 const TEAM_COLORS = [new Color3(0.2, 0.55, 1.0), new Color3(1.0, 0.35, 0.25)];
 
+type TextureReadinessSource = {
+  isReady(): boolean;
+  onLoadObservable?: {
+    addOnce(callback: () => void): unknown;
+    remove(observer: unknown): void;
+  };
+  getInternalTexture?: () => {
+    onErrorObservable?: {
+      addOnce(callback: () => void): unknown;
+      remove(observer: unknown): void;
+    };
+  } | null;
+};
+
+/** Wait for an imported texture to settle; a load error must never be frozen. */
+function waitForTexture(texture: BaseTexture): Promise<boolean> {
+  const source = texture as unknown as TextureReadinessSource;
+  if (source.isReady()) return Promise.resolve(true);
+  const errors = source.getInternalTexture?.()?.onErrorObservable;
+  if (!source.onLoadObservable && !errors) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ready: boolean) => {
+      if (done) return;
+      done = true;
+      if (loadObserver !== undefined) source.onLoadObservable?.remove(loadObserver);
+      if (errorObserver !== undefined) errors?.remove(errorObserver);
+      resolve(ready);
+    };
+    const loadObserver = source.onLoadObservable?.addOnce(() => finish(source.isReady()));
+    const errorObserver = errors?.addOnce(() => finish(false));
+  });
+}
+
+function propTextures(material: Material): BaseTexture[] {
+  if (!(material instanceof PBRMaterial)) return [];
+  return [material.albedoTexture, material.bumpTexture, material.metallicTexture].filter(
+    (texture): texture is BaseTexture => texture !== null,
+  );
+}
+
 /** Everything SceneBuilder reads off the active quality tier (§10 5.6). */
 export type SceneQuality = Pick<QualityConfig, "glow" | "scene" | "render">;
 
@@ -113,10 +156,14 @@ export class SceneBuilder {
   private arenaId: string | null = null;
   private arena: ArenaConfig | null = null;
   private boundaryMaterial: StandardMaterial | ShaderMaterial | null = null;
+  /** Render-only boundary faces; disabled outside their proximity band. */
+  private boundaryMeshes: AbstractMesh[] = [];
+  private boundaryMeshesEnabled = false;
   private skyboxMaterialReadyToFreeze: StandardMaterial | null = null;
   private dust: DustField | null = null;
   private readonly assets: AssetRegistry;
   private readonly missingPropsLogged = new Set<string>();
+  private readonly propTextureFailuresLogged = new WeakSet<Material>();
   /**
    * Editor override for `quality.scene.spawnMarkers`. `null` = follow the tier
    * (which is `false` in every shipped pack); `true` = the dev editor is open and
@@ -203,6 +250,8 @@ export class SceneBuilder {
     const generation = ++this.generation;
     this.arena = arena;
     this.boundaryMaterial = null;
+    this.boundaryMeshes = [];
+    this.boundaryMeshesEnabled = false;
 
     const root = new TransformNode("arenaRoot", this.scene);
     this.root = root;
@@ -546,6 +595,7 @@ export class SceneBuilder {
           this.boundaryMaterial = shellMat;
         }
         shell.parent = root;
+        this.boundaryMeshes.push(shell);
       }
 
       // A floor is physical terrain, not another face of the energy shield.
@@ -578,6 +628,7 @@ export class SceneBuilder {
         seg.material = mat;
         seg.isPickable = false;
         seg.parent = root;
+        this.boundaryMeshes.push(seg);
       }
     } else {
       const shield = arena.render?.boundaryShield;
@@ -616,6 +667,7 @@ export class SceneBuilder {
       ceiling.material = material;
       ceiling.isPickable = false;
       ceiling.parent = root;
+      this.boundaryMeshes.push(ceiling);
 
       const walls = [
         { name: "boundsBoxWallNorth", width, x: 0, z: height / 2, yaw: 0 },
@@ -634,8 +686,13 @@ export class SceneBuilder {
         mesh.material = material;
         mesh.isPickable = false;
         mesh.parent = root;
+        this.boundaryMeshes.push(mesh);
       }
     }
+    // No player position exists during construction. Start with every blended
+    // boundary face out of the active list; updatePlayerPosition enables it on
+    // the first actual proximity sample.
+    for (const mesh of this.boundaryMeshes) mesh.setEnabled(false);
   }
 
   /** Make authored prop instances pickable while the Map editor owns the scene. */
@@ -683,6 +740,16 @@ export class SceneBuilder {
       shield.hexDensity,
       boundaryShieldOpacity(distance, shield.glowStartDistance, shield.baseOpacity),
     );
+    // At zero opacity the shell is pure blended overdraw. Keep a small 2-unit
+    // hysteresis around the authored proximity band so flight at its edge does
+    // not churn Babylon's active-mesh list every frame.
+    const enableAt = shield.glowStartDistance;
+    const disableAt = enableAt + 2;
+    const shouldEnable = this.boundaryMeshesEnabled ? distance < disableAt : distance < enableAt;
+    if (shouldEnable !== this.boundaryMeshesEnabled) {
+      this.boundaryMeshesEnabled = shouldEnable;
+      for (const mesh of this.boundaryMeshes) mesh.setEnabled(shouldEnable);
+    }
     const redMix = boundaryShieldRedMix(distance, shield.redTransitionDistance);
     Color3.LerpToRef(this.boundaryBlue, this.boundaryRed, redMix, this.boundaryColor);
     clampColorInPlace(this.boundaryColor);
@@ -813,6 +880,25 @@ export class SceneBuilder {
         // compilation is pending deliberately leaves the material thawed.
         for (const [material, mesh] of materialMeshes) {
           material.unfreeze();
+          // Do not compile/freeze a partial PBR variant before its GLB
+          // samplers arrive: a frozen effect cannot acquire them later.
+          const texturesReady = await Promise.all(propTextures(material).map(waitForTexture));
+          if (
+            generation !== this.generation ||
+            root !== this.root ||
+            !this.frozen ||
+            mesh.isDisposed() ||
+            !mesh.isEnabled()
+          ) {
+            continue;
+          }
+          if (texturesReady.some((ready) => !ready)) {
+            if (!this.propTextureFailuresLogged.has(material)) {
+              this.propTextureFailuresLogged.add(material);
+              log.warn(`prop material texture load failed for "${material.name}"; leaving it unfrozen`);
+            }
+            continue;
+          }
           try {
             await material.forceCompilationAsync(mesh, { useInstances: true });
           } catch (error) {
@@ -855,7 +941,9 @@ export class SceneBuilder {
       this.glowLayer = new GlowLayer(
         "arenaGlow",
         this.scene,
-        glow.blurKernelSize === undefined ? undefined : { blurKernelSize: glow.blurKernelSize },
+        glow.blurKernelSize === undefined && glow.textureRatio === undefined
+          ? undefined
+          : { blurKernelSize: glow.blurKernelSize, mainTextureRatio: glow.textureRatio },
       );
     }
     this.glowLayer.intensity = glow.intensity;

@@ -102,6 +102,7 @@ function slotsOf(material: Material | null): Material[] {
 interface PaintVariant {
   master: Mesh;
   materials: Material[];
+  lodMeshes: Mesh[];
 }
 
 /**
@@ -142,7 +143,26 @@ export class ShipPaintBank {
       child.material = this.paintedMaterial(child.material, cosmetic.id, cosmetic.paint, materials);
     }
 
-    this.variants.set(key, { master: clone, materials });
+    // Mesh.clone intentionally drops Babylon LOD levels. Rebuild the authored
+    // ladder with painted clones so a cosmetic does not silently force LOD0.
+    const lodMeshes: Mesh[] = [];
+    for (const level of base.getLODLevels()) {
+      if (!level.mesh) continue;
+      const lod = level.mesh.clone(`${level.mesh.name}.paint.${cosmetic.id}`, null, true);
+      if (!lod) continue;
+      lod.setParent(null);
+      lod.material = this.paintedMaterial(level.mesh.material, cosmetic.id, cosmetic.paint, materials);
+      for (const child of lod.getChildMeshes(false)) {
+        const source = level.mesh.getChildMeshes(false).find((candidate) => candidate.name === child.name);
+        child.material = this.paintedMaterial(source?.material ?? child.material, cosmetic.id, cosmetic.paint, materials);
+      }
+      lod.setEnabled(true);
+      lod.isVisible = false;
+      clone.addLODLevel(level.distanceOrScreenCoverage, lod);
+      lodMeshes.push(lod);
+    }
+
+    this.variants.set(key, { master: clone, materials, lodMeshes });
     return clone;
   }
 
@@ -178,6 +198,7 @@ export class ShipPaintBank {
   dispose(): void {
     for (const variant of this.variants.values()) {
       for (const material of variant.materials) material.dispose();
+      for (const lod of variant.lodMeshes) if (!lod.isDisposed()) lod.dispose(false, false);
       if (!variant.master.isDisposed()) variant.master.dispose(false, false);
     }
     this.variants.clear();

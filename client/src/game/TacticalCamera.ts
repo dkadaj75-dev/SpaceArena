@@ -16,6 +16,8 @@ import {
   type ConfigService,
   type EventBus,
   type ConfigEvents,
+  type ArenaBounds,
+  type StaticWorld,
 } from "@space-arena/shared";
 import {
   approachDirection,
@@ -46,6 +48,11 @@ const EDITOR_ORBIT_SPEED = 0.008;
 const EDITOR_DRAG_SLOP_PX = 4;
 /** Sanity bound on how far the editor camera target can be panned (world units). */
 const EDITOR_TARGET_LIMIT = 300;
+/** Chase collision shell, in world units. */
+const CHASE_COLLISION_MARGIN = 0.6;
+const CHASE_COLLISION_RADIUS = 0.5;
+/** How quickly an unobstructed chase camera regains its authored distance. */
+const CHASE_COLLISION_RECOVER_PER_SEC = 6;
 
 /**
  * The CANONICAL hangar framing — the orbit a fresh Hangar boot uses, and the
@@ -112,6 +119,13 @@ export class TacticalCamera {
   private readonly chaseUp = new Vector3(0, 1, 0);
   private readonly chaseOffset = new Vector3();
   private readonly chaseLocalOffset = new Vector3();
+  private readonly chaseAnchor = new Vector3();
+  private readonly chaseDesiredPosition = new Vector3();
+  private readonly chaseFinalPosition = new Vector3();
+  /** The collision-limited distance; null until the first obstructed pose. */
+  private chaseCollisionRadius: number | null = null;
+  private staticWorld: StaticWorld | null = null;
+  private arenaBounds: ArenaBounds | null = null;
   private readonly yToUp = new Matrix();
   private readonly upToY = new Matrix();
   /** Engine default FOV, captured at construction so leaving chase mode restores it. */
@@ -238,6 +252,17 @@ export class TacticalCamera {
   setLandscapeOrientation(landscape: boolean): void {
     if (this.landscapeOrientation === landscape) return;
     this.landscapeOrientation = landscape;
+    if (this.chaseMode) this.applyChaseLimits();
+  }
+
+  /**
+   * Attach the immutable match collision world. Supplying null returns the rig
+   * to its menu/editor behaviour; an empty world is deliberately a no-op.
+   */
+  setStaticWorld(world: StaticWorld | null, bounds: ArenaBounds | null = null): void {
+    this.staticWorld = world;
+    this.arenaBounds = bounds;
+    this.chaseCollisionRadius = null;
     if (this.chaseMode) this.applyChaseLimits();
   }
 
@@ -374,6 +399,7 @@ export class TacticalCamera {
     this.chaseMode = enabled;
     this.activeTouches.clear();
     this.chaseSeeded = false;
+    this.chaseCollisionRadius = null;
     if (enabled) {
       this.applyChaseLimits();
       return;
@@ -428,7 +454,9 @@ export class TacticalCamera {
     this.camera.lowerBetaLimit = 0;
     this.camera.upperBetaLimit = Math.PI;
     const radius = this.effectiveChaseRadius;
-    this.camera.lowerRadiusLimit = radius;
+    // Collision may pull the actual orbit radius inward. Input still cannot
+    // win: applyChasePose/avoidance resets it every render frame.
+    this.camera.lowerRadiusLimit = this.hasChaseCollision ? 0.1 : radius;
     this.camera.upperRadiusLimit = radius;
     this.camera.radius = radius;
     this.camera.fov = this.chase.fov ?? this.defaultFov;
@@ -465,6 +493,70 @@ export class TacticalCamera {
     Matrix.RotationAlignToRef(Vector3.UpReadOnly, this.camera.upVector, this.yToUp);
     this.yToUp.transposeToRef(this.upToY);
     Vector3.TransformCoordinatesToRef(this.chaseOffset, this.upToY, this.chaseLocalOffset);
+    this.camera.radius = radius;
+    this.camera.beta = Math.acos(clamp(this.chaseLocalOffset.y / radius, -1, 1));
+    this.camera.alpha = Math.atan2(this.chaseLocalOffset.z, this.chaseLocalOffset.x);
+  }
+
+  private get hasChaseCollision(): boolean {
+    return !!this.staticWorld && (!this.staticWorld.isEmpty || this.arenaBounds?.shape === "box");
+  }
+
+  /**
+   * Keep the camera shell outside static terrain. The anchor is the actual
+   * chase target (the smoothed ship position lifted by chase.height), so the
+   * ray cannot be blocked by the player's own hull and exactly follows the
+   * sight line the camera needs to preserve.
+   */
+  private avoidChaseTerrain(dt: number): void {
+    if (!this.hasChaseCollision || !this.staticWorld) return;
+
+    const radius = this.effectiveChaseRadius;
+    this.chaseAnchor.copyFrom(this.camera.target);
+    this.chaseDesiredPosition.copyFrom(this.chaseAnchor).addInPlace(this.chaseOffset);
+    this.chaseFinalPosition.copyFrom(this.chaseDesiredPosition);
+
+    const hit = this.staticWorld.raycast(this.chaseAnchor, this.chaseDesiredPosition);
+    if (hit) {
+      const allowed = Math.max(0.1, radius * hit.t - CHASE_COLLISION_MARGIN);
+      // Entering terrain is immediate. Leaving it is deliberately not.
+      this.chaseCollisionRadius = this.chaseCollisionRadius === null
+        ? allowed
+        : Math.min(this.chaseCollisionRadius, allowed);
+    } else if (this.chaseCollisionRadius !== null) {
+      this.chaseCollisionRadius += (radius - this.chaseCollisionRadius)
+        * Math.min(1, Math.max(0, dt) * CHASE_COLLISION_RECOVER_PER_SEC);
+      if (radius - this.chaseCollisionRadius < 1e-4) this.chaseCollisionRadius = null;
+    }
+
+    const finalRadius = this.chaseCollisionRadius === null ? radius : this.chaseCollisionRadius;
+    this.chaseFinalPosition.copyFrom(this.chaseAnchor).addInPlaceFromFloats(
+      this.chaseOffset.x * finalRadius / radius,
+      this.chaseOffset.y * finalRadius / radius,
+      this.chaseOffset.z * finalRadius / radius,
+    );
+    if (this.arenaBounds?.shape === "box") {
+      this.chaseFinalPosition.y = Math.min(this.chaseFinalPosition.y, this.arenaBounds.ceilingY - 1);
+    }
+
+    const contact = this.staticWorld.sphereContact(this.chaseFinalPosition, CHASE_COLLISION_RADIUS);
+    if (contact?.depth) {
+      this.chaseFinalPosition.x += contact.normal.x * contact.depth;
+      this.chaseFinalPosition.y += contact.normal.y * contact.depth;
+      this.chaseFinalPosition.z += contact.normal.z * contact.depth;
+      if (this.arenaBounds?.shape === "box") {
+        this.chaseFinalPosition.y = Math.min(this.chaseFinalPosition.y, this.arenaBounds.ceilingY - 1);
+      }
+    }
+    this.applyChasePosition(this.chaseAnchor, this.chaseFinalPosition);
+  }
+
+  /** Solve ArcRotate's aligned orbit parameters for a collision-adjusted pose. */
+  private applyChasePosition(anchor: Vector3, position: Vector3): void {
+    this.chaseLocalOffset.copyFrom(position).subtractInPlace(anchor);
+    const radius = this.chaseLocalOffset.length();
+    if (!(radius > 1e-8)) return;
+    Vector3.TransformCoordinatesToRef(this.chaseLocalOffset, this.upToY, this.chaseLocalOffset);
     this.camera.radius = radius;
     this.camera.beta = Math.acos(clamp(this.chaseLocalOffset.y / radius, -1, 1));
     this.camera.alpha = Math.atan2(this.chaseLocalOffset.z, this.chaseLocalOffset.x);
@@ -716,6 +808,7 @@ export class TacticalCamera {
       this.applyChasePose(this.chaseSmoothNose, this.chaseSmoothUp);
       this.camera.target.copyFrom(this.followPoint);
       this.camera.target.y += this.chase.height;
+      this.avoidChaseTerrain(dt);
       // No arena-bounds clamp: the target IS the ship, so it is inside the
       // bounds by construction.
     } else {

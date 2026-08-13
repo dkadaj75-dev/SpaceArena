@@ -16,17 +16,16 @@
  */
 
 /** The three things that must happen before the menu can be trusted. */
-export type BootStageId = "content" | "assets" | "server";
+export type BootStageId = "content" | "interface" | "server";
 
 /**
  * `warn` is the state that matters: a stage that did NOT succeed but must not
- * stop the boot — a ship-model preload that timed out, or a server that never
- * answered. The player still reaches the menu; the mark and the note say what
- * they lost.
+ * stop the boot, such as a server that never answered. The player still reaches
+ * the menu; the mark and the note say what they lost.
  */
 export type BootStageState = "pending" | "active" | "ok" | "warn" | "fail";
 
-const STAGE_IDS: readonly BootStageId[] = ["content", "assets", "server"];
+const STAGE_IDS: readonly BootStageId[] = ["content", "interface", "server"];
 
 /** How long the fade-out lasts. Must match `.sa-boot` transition in index.html. */
 const FADE_MS = 320;

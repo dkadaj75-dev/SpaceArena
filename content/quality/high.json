@@ -10,8 +10,8 @@
     "allowMobile": false
   },
   "autoTier": {
-    "sampleAfterMs": 5000,
-    "sampleWindowMs": 3000,
+    "sampleAfterMs": 1500,
+    "sampleWindowMs": 1000,
     "demoteBelowFps": 40,
     "promoteAboveFps": 0
   },
@@ -23,12 +23,14 @@
   "glow": {
     "enabled": true,
     "intensity": 0.5,
-    "blurKernelSize": 32
+    "blurKernelSize": 32,
+    "textureRatio": 0.25
   },
   "particles": {
     "enabled": true,
     "budgetMultiplier": 1,
-    "maxEmitterCapacity": 80
+    "maxEmitterCapacity": 80,
+    "shipEffectCullDistance": 240
   },
   "asteroids": {
     "lodMediumDistance": 0,

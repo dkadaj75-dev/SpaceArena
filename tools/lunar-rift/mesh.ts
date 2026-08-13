@@ -23,8 +23,8 @@ export const SKIRT_DROP = 1.5;
 
 /**
  * Per-chunk grid pitch. The spec asks for 1.6u on playable chunks and 4.0u on
- * pure highland, but 1.6u everywhere lands at ~320k triangles — over the hard
- * 260k LOD0 budget, because only the four corner chunks are pure highland. The
+ * pure highland, but 1.6u everywhere is needlessly expensive because only the
+ * core chunks are predominantly playable. The
  * middle tier keeps the flank lanes dense while fitting the budget with room
  * for the CSG bores. See the deviation note in the tool header.
  */
@@ -33,7 +33,7 @@ const CELL_FLANK = 2;
 const CELL_HIGHLAND = 4;
 const CORE_FRACTION = 0.62;
 const FLANK_FRACTION = 0.08;
-/** Collision pitch (spec says ~2.6u; 2.5u divides the 160u chunk exactly). */
+/** Existing collision pitch retained for its tested terrain fidelity. */
 const COLLISION_CELL = 2.5;
 const COLLISION_CELL_HIGHLAND = 4;
 

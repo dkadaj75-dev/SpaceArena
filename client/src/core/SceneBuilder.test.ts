@@ -9,6 +9,7 @@ import {
   MeshBuilder,
   NullEngine,
   PBRMaterial,
+  RawTexture,
   Scene,
   SceneLoader,
   ShaderMaterial,
@@ -18,7 +19,11 @@ import {
   VertexData,
   type ISceneLoaderAsyncResult,
 } from "@babylonjs/core";
-import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
+import {
+  ConfigService,
+  EventBus,
+  type ConfigEvents,
+} from "@space-arena/shared";
 import { BOUNDARY_FRAGMENT, SceneBuilder, type SceneQuality } from "./SceneBuilder.js";
 
 const ARENA = {
@@ -254,6 +259,14 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     builder.setQuality(quality({ glow: { enabled: true, intensity: 0.2 } }));
     expect(scene.effectLayers.length).toBe(1);
 
+    builder.dispose();
+  });
+
+  it("uses High's cheaper quarter-resolution glow target", () => {
+    const builder = new SceneBuilder(scene, configs, bus, quality({ glow: { enabled: true, intensity: 0.5, textureRatio: 0.25 } }));
+    builder.buildArena("arena.test");
+    const size = (scene.effectLayers[0] as GlowLayer).mainTexture.getSize();
+    expect(size.width).toBe(Math.round(engine.getRenderWidth() * 0.25));
     builder.dispose();
   });
 
@@ -625,6 +638,13 @@ describe("SceneBuilder props and authored box bounds", () => {
     expect(walls).toHaveLength(4);
     expect(ceiling.material).toBeInstanceOf(ShaderMaterial);
     expect(walls.every((wall) => wall.material === ceiling.material)).toBe(true);
+    // Centered box faces are not submitted; re-entry has a 2u hysteresis band.
+    builder.updatePlayerPosition(0, 0, 0);
+    expect([ceiling, ...walls].every((mesh) => !mesh.isEnabled())).toBe(true);
+    builder.updatePlayerPosition(49, 0, 0);
+    expect([ceiling, ...walls].every((mesh) => mesh.isEnabled())).toBe(true);
+    builder.updatePlayerPosition(19, 0, 0); // 31u: outside 30u band, inside 32u release threshold
+    expect([ceiling, ...walls].every((mesh) => mesh.isEnabled())).toBe(true);
     expect(builder.updatePlayerPosition(0, -24, 0)).toBe(40); // nearest wall, not the one-unit floor gap
     expect(builder.updatePlayerPosition(0, 28, 0)).toBe(2);
     expect(builder.updatePlayerPosition(49, 0, 0)).toBe(1);
@@ -758,4 +778,52 @@ describe("SceneBuilder props and authored box bounds", () => {
     expect(String(compiledDefines)).toContain("#define VERTEXCOLOR");
     builder.dispose();
   });
+
+  it("waits for prop textures before freezing the sampler-enabled PBR effect", async () => {
+    const material = new PBRMaterial("RIFT_FLOOR", scene);
+    const texture = RawTexture.CreateRGBTexture(new Uint8Array([120, 100, 80]), 1, 1, scene, false, false);
+    let textureReady = false;
+    vi.spyOn(texture, "isReady").mockImplementation(() => textureReady);
+    material.albedoTexture = texture;
+    material.metallic = 0;
+    material.roughness = 1;
+
+    vi.spyOn(SceneLoader, "ImportMeshAsync").mockImplementation(async () => {
+      const part = MeshBuilder.CreateBox("gatedRiftChunk", { size: 1 }, scene);
+      part.material = material;
+      return { meshes: [part] } as unknown as ISceneLoaderAsyncResult;
+    });
+    expect(
+      configs.replace({
+        id: "prop.gated-rift-chunk",
+        type: "prop",
+        version: 1,
+        name: "Gated rift chunk",
+        category: "terrain",
+        impactDamage: 0,
+        render: { recipe: "model.static", model: "props/gated-rift-chunk.glb" },
+      }).ok,
+    ).toBe(true);
+    expect(
+      configs.replace({
+        ...ARENA,
+        propPlacements: [{ propId: "prop.gated-rift-chunk", position: { x: 0, z: 0 } }],
+      }).ok,
+    ).toBe(true);
+    scene.activeCamera = new FreeCamera("camera", new Vector3(0, 0, -5), scene);
+
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+    await vi.waitFor(() => expect(scene.getMeshByName("gatedRiftChunk")).not.toBeNull());
+    expect(material.isFrozen).toBe(false);
+
+    textureReady = true;
+    texture.onLoadObservable.notifyObservers(texture);
+    await vi.waitFor(() => expect(material.isFrozen).toBe(true));
+    scene.render();
+    const defines = scene.getMeshByName("gatedRiftChunk")?.subMeshes[0]?.effect?.defines;
+    expect(String(defines)).toContain("#define ALBEDO");
+    builder.dispose();
+  });
+
 });

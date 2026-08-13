@@ -12,7 +12,6 @@ import {
   EventBus,
   type ConfigEvents,
   type GamemodeConfig,
-  type ShipConfig,
   type TutorialConfig,
   type TuningConfig,
   type ShipSnapshot,
@@ -28,9 +27,11 @@ import { recoverFromStaleContentPack } from "./core/contentRecovery.js";
 import { designTokenCssVars } from "./game/themeTokens.js";
 import { createUpdateGate } from "./core/swUpdate.js";
 import { installTouchGuards } from "./core/touchGuards.js";
-import { AssetRegistry } from "./core/AssetRegistry.js";
-import { preloadArenaModels, preloadShipModelsBeforeTimeout } from "./core/assetPreload.js";
-import { QualityManager } from "./core/QualityManager.js";
+import { preloadArenaModels, preloadMatchModels } from "./core/assetPreload.js";
+import { createBootAssetRegistry } from "./core/bootAssets.js";
+import { ModelLoadQueue } from "./core/modelLoadQueue.js";
+import { QualityManager, readWebglRenderer } from "./core/QualityManager.js";
+import { engineAntialiasForProbe, probeDevice } from "./core/qualityTier.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
 import {
@@ -47,6 +48,7 @@ import { Lobby, type LobbyChoice } from "./game/screens/Lobby.js";
 import { BootScreen } from "./game/screens/BootScreen.js";
 import { AuthScreen } from "./game/screens/AuthScreen.js";
 import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
+import { allHangarShipJobs } from "./game/hangarAssetPreload.js";
 import { ShopScreen } from "./game/screens/ShopScreen.js";
 import { createSessionOwnership } from "./game/sessionOwnership.js";
 import { TutorialDirector, type TutorialHost } from "./game/tutorial/TutorialDirector.js";
@@ -181,12 +183,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   };
   publishDesignTokens();
   bus.on("configChanged", publishDesignTokens);
+  boot?.begin("interface");
 
-  // Reachability probe starts NOW and is awaited at its own boot stage below.
-  // Concurrent on purpose: the ship-model preload takes seconds and the probe
-  // needs nothing from it, so the boot pays max(preload, probe) rather than the
-  // sum — and every auth call between here and there already has its answer
-  // waiting when it fails.
+  // Reachability starts now and is awaited at its own boot stage below, while
+  // the engine and menu interface are prepared independently.
   const serverHealth = new ServerHealthState();
   const healthProbe = serverHealth.refresh();
 
@@ -231,24 +231,40 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     parseRenderer(new URLSearchParams(window.location.search).get("renderer")) ??
     parseRenderer(localStorage.getItem("spacearena.renderer")) ??
     defaultRendererPreference(window.navigator);
+  const startupWebglRenderer = readWebglRenderer();
+  const startupNavigator = window.navigator as Navigator & {
+    deviceMemory?: number;
+    userAgentData?: { mobile?: boolean };
+  };
+  const startupProbe = probeDevice({
+    hardwareConcurrency: startupNavigator.hardwareConcurrency,
+    deviceMemory: startupNavigator.deviceMemory,
+    userAgent: startupNavigator.userAgent,
+    userAgentData: startupNavigator.userAgentData,
+    maxTouchPoints: startupNavigator.maxTouchPoints,
+    webglRenderer: startupWebglRenderer,
+  });
+  // Tile/mobile-class GPUs avoid the extra multisampled color/depth bandwidth.
+  // Desktop keeps the existing antialiasing path unchanged.
+  const webglAntialias = engineAntialiasForProbe(startupProbe);
   let actualRenderer = rendererPref;
   let engine: Engine;
   if (rendererPref === "webgpu") {
     if (!("gpu" in navigator)) {
       log.warn("WebGPU requested but unavailable; falling back to WebGL");
       actualRenderer = "webgl";
-      engine = new Engine(canvas, true);
+      engine = new Engine(canvas, webglAntialias);
     } else {
       try {
         engine = (await EngineFactory.CreateAsync(canvas, {})) as Engine;
       } catch (error) {
         log.warn("WebGPU engine creation failed; falling back to WebGL", { error });
         actualRenderer = "webgl";
-        engine = new Engine(canvas, true);
+        engine = new Engine(canvas, webglAntialias);
       }
     }
   } else {
-    engine = new Engine(canvas, true);
+    engine = new Engine(canvas, webglAntialias);
   }
   log.info("engine created", { requestedRenderer: rendererPref, renderer: actualRenderer, cls: engine.getClassName() });
 
@@ -261,6 +277,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     bus,
     navigator: window.navigator,
     devicePixelRatio: window.devicePixelRatio || 1,
+    webglRenderer: startupWebglRenderer,
   });
 
   // Anonymous per-match perf telemetry (§11 6.8). Constructed once per page
@@ -292,35 +309,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     musicVolume: audio.musicVolume,
   });
 
-  // Preload GLB hulls for every ship that configures one (render.model), so
-  // the sync view/hangar/editor paths can pick them up from the shared cache.
-  // Awaited because a ship view synchronously selects and retains one master;
-  // letting the first frame race this load can lock in the procedural fallback.
-  //
-  // This wait used to raise its own ad-hoc "LOADING SHIP SYSTEMS…" label in the
-  // middle of a black page. It is now a STAGE of the boot screen, which was
-  // already up before this module even loaded — one loading affordance for the
-  // whole boot instead of two that never met.
-  const preloadAssets = new AssetRegistry(scene);
-  const SHIP_PRELOAD_TIMEOUT_MS = 10_000;
-  boot?.begin("assets");
-  const shipModelsReady = await preloadShipModelsBeforeTimeout(
-    preloadAssets,
-    configService,
-    SHIP_PRELOAD_TIMEOUT_MS,
-  );
-  if (shipModelsReady) {
-    boot?.settle("assets", "ok");
-  } else {
-    log.warn("ship model preload timed out after 10s — booting with procedural fallbacks");
-    boot?.settle("assets", "warn", "timed out — using procedural hulls");
-  }
-  bus.on("config:changed", (evt) => {
-    if (evt.id.startsWith("ship.")) {
-      const ship = configService.get<ShipConfig>("ship", evt.id);
-      if (ship?.render.model) void preloadAssets.ensureModel(ship.render);
-    }
-  });
+  // One registry is shared by matches and menu previews, but cold boot only
+  // creates the cache. No ensureModel call (and therefore no GLB fetch) occurs.
+  const preloadAssets = createBootAssetRegistry(scene);
 
   // --- Static arena (0.6/0.7/0.8): bounds/skybox/ground/lighting/spawns only ---
   //
@@ -329,18 +320,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // `session.arenaId` through `setArena` once a match starts (FLIGHT.md §6) —
   // hardcoding an id in either split the client's view of the arena from the sim's.
   const sceneBuilder = new SceneBuilder(scene, configService, bus, quality.current);
-  let currentArenaId = FALLBACK_ARENA_ID;
-  sceneBuilder.buildArena(currentArenaId);
-  // Asteroid hulls are preloaded per-ARENA (unlike ship hulls, which are all
-  // preloaded up front): which rocks a match needs is a property of its arena,
-  // and they are ~1 MB each. Kicked off here for the fallback arena and again
-  // in `setArena` as soon as a match resolves the real one. Match activation
-  // also awaits that resolved arena below before creating any asteroid view.
-  void preloadArenaModels(preloadAssets, configService, currentArenaId);
+  let currentArenaId: string | null = null;
   bus.on("config:changed", (evt) => {
     // Authoring a rock model in the dev editor should not need a page reload.
     if (evt.type === "arena" || evt.type === "asteroid") {
-      void preloadArenaModels(preloadAssets, configService, currentArenaId);
+      if (currentArenaId) void preloadArenaModels(preloadAssets, configService, currentArenaId);
     }
   });
 
@@ -447,7 +431,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       quality.current,
       // Explosion sounds are picked from the effect config the view layer
       // already resolved per ship class — one variant lookup, visual + audio.
-      { playSound: (id, volume) => audio.play(id, volume) },
+      { playSound: (id, volume) => audio.play(id, volume), playerId: session.playerId },
     );
     const offline = !(session instanceof NetGameSession);
     const hud = new Hud(
@@ -519,6 +503,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // looking the way its nose points (BUBBLE.md §C).
     if (initial) tacticalCamera.setChaseFrame(initial.heading, initial.pitch, initial.up);
     else tacticalCamera.setChaseFrame(0, 0, { x: 0, y: 1, z: 0 });
+    // Both offline and online sessions inherit the same ArenaSimulation world,
+    // so this hands the chase rig the exact static BVH and arena ceiling used by
+    // flight collision without building a client-only copy.
+    tacticalCamera.setStaticWorld(session.sim.world.staticWorld, session.sim.world.arena.bounds);
     tacticalCamera.setChaseMode(true);
 
     const audioFeedback = new AudioFeedback(configService, session.playerId, audio);
@@ -544,6 +532,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   }
 
   let runtime: MatchRuntime | null = null;
+  let matchAssetsActive = false;
   let simPaused = false;
   /** True while the sim is frozen *because the settings screen is open* (5.8). */
   let pausedBySettings = false;
@@ -602,6 +591,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    * the Lobby header updates through `AuthService.onChange` when it resolves.
    */
   function endMatch(): void {
+    matchAssetsActive = false;
     tutorial?.attachMatch(null);
     if (pausedBySettings) {
       pausedBySettings = false;
@@ -614,6 +604,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // flying (FLIGHT.md §3), and leaving it restores the tactical orbit limits.
     mvpStaged = false;
     tacticalCamera.clearStageScreenOffset();
+    tacticalCamera.setStaticWorld(null);
     tacticalCamera.setChaseMode(false);
     tacticalCamera.setHangarMode(false);
     void authService.refreshProfile();
@@ -704,6 +695,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       onShopRequested: () => {
         lobby.hide();
         music.setScreen("shop");
+        for (const job of allHangarShipJobs(configService)) void hangarModelQueue.enqueue(job);
         shop.show();
         tutorial?.noteScreen("shop");
       },
@@ -726,7 +718,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // One ownership ledger for the whole session: the Shop buys through it and
   // the Hangar gates on it, so the two can never disagree about what is owned.
   const ownership = createSessionOwnership(authService, configService);
-  void ownership.refresh().catch((err: unknown) => log.warn("initial ownership read failed", err));
+  const ensureOwnershipReady = () => ownership.refresh().catch((err: unknown) => log.warn("ownership read failed", err));
+  void ensureOwnershipReady();
+  const hangarModelQueue = new ModelLoadQueue(preloadAssets, {
+    gapMs: 250,
+    isPaused: () => matchAssetsActive || runtime !== null,
+  });
 
   const hangar = new Hangar(
     document.body,
@@ -741,6 +738,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     },
     quality.current.particles,
     ownership,
+    preloadAssets,
+    hangarModelQueue,
+    ensureOwnershipReady,
   );
 
   const shop = new ShopScreen(
@@ -806,6 +806,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           lobby.hide();
           hangar.hide();
           music.setScreen("shop");
+          for (const job of allHangarShipJobs(configService)) void hangarModelQueue.enqueue(job);
           if (!shop.isOpen) shop.show();
           tutorial?.noteScreen("shop");
           break;
@@ -896,6 +897,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       activateSession(session, { kind: "tutorial" });
       tutorial?.attachMatch(session);
     } catch (err) {
+      matchAssetsActive = false;
       matchLoading.hide();
       music.setScreen("menu");
       log.error("failed to start the tutorial match", err);
@@ -967,6 +969,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   void installDesignToolsEntry();
   authService.onChange(() => void installDesignToolsEntry());
   if (new URLSearchParams(window.location.search).has("editor") && authService.getState().status === "authed") void openConstellation();
+
+  boot?.settle("interface", "ok", "theme · fonts · menu");
 
   // --- Boot stage 3: is the game server actually there? ---
   //
@@ -1073,6 +1077,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       await matchLoading.dismiss();
       activateSession(session, choice);
     } catch (err) {
+      matchAssetsActive = false;
       matchLoading.hide();
       music.setScreen("menu");
       log.error("failed to start match", err);
@@ -1095,13 +1100,15 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    * choose (and retain) a procedural fallback master for its asteroid.
    */
   async function prepareSessionArena(session: GameSession): Promise<void> {
+    matchAssetsActive = true;
     setArena(session.arenaId);
     matchLoading.showSession(session, import.meta.env.BASE_URL);
-    await preloadArenaModels(preloadAssets, configService, session.arenaId);
+    await preloadMatchModels(preloadAssets, configService, session.arenaId);
   }
 
   /** Activate a session whose arena assets have already been prepared. */
   function activateSession(session: GameSession, choice: LobbyChoice): void {
+    matchAssetsActive = false;
     music.setScreen("match");
     runtime = createMatchRuntime(session);
     lastChoice = choice;
@@ -1244,7 +1251,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         userSettings.refresh();
       },
       rebuildArena: () => {
-        sceneBuilder.buildArena(currentArenaId);
+        sceneBuilder.buildArena(currentArenaId ?? FALLBACK_ARENA_ID);
       },
       // The editor takes over the canvas: the live match (HUD, entity views) is
       // hidden so nothing of the running game shows through behind the editor's
@@ -1280,6 +1287,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           await matchLoading.dismiss();
           activateSession(session, { kind: "tutorial" });
         } catch (error) {
+          matchAssetsActive = false;
           matchLoading.hide();
           throw error;
         }
@@ -1372,6 +1380,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     settingsScreen.dispose();
     userSettings.dispose();
     hangar.dispose();
+    hangarModelQueue.dispose();
     matchLoading.dispose();
     sceneBuilder.dispose();
     tacticalCamera.dispose();

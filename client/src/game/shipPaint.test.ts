@@ -108,6 +108,19 @@ describe("painted masters", () => {
     expect(paint.size).toBe(2);
   });
 
+  it("preserves the authored LOD ladder on painted masters", () => {
+    const { bank: paint, master, scene } = bank();
+    const lod = MeshBuilder.CreateBox("ship.lod2", { size: 0.5 }, scene);
+    lod.material = master.material;
+    lod.setEnabled(true);
+    lod.isVisible = false;
+    master.addLODLevel(90, lod);
+    const painted = paint.masterFor(master, "cosmetic.paint-interceptor-crimson");
+    expect(painted.getLODLevels().map((level) => level.distanceOrScreenCoverage)).toEqual([90]);
+    expect(painted.getLODLevels()[0]!.mesh).not.toBe(lod);
+    paint.dispose();
+  });
+
   it("disposes every clone and leaves the base master alive", () => {
     const { bank: paint, master, scene } = bank();
     const painted = paint.masterFor(master, "cosmetic.paint-interceptor-crimson");

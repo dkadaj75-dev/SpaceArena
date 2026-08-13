@@ -10,8 +10,8 @@
     "allowMobile": true
   },
   "autoTier": {
-    "sampleAfterMs": 5000,
-    "sampleWindowMs": 3000,
+    "sampleAfterMs": 1500,
+    "sampleWindowMs": 1000,
     "demoteBelowFps": 50,
     "promoteAboveFps": 0
   },
@@ -28,7 +28,8 @@
   "particles": {
     "enabled": true,
     "budgetMultiplier": 1.2,
-    "maxEmitterCapacity": 120
+    "maxEmitterCapacity": 120,
+    "shipEffectCullDistance": 300
   },
   "asteroids": {
     "lodMediumDistance": 0,

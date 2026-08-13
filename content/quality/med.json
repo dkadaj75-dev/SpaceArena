@@ -10,8 +10,8 @@
     "allowMobile": true
   },
   "autoTier": {
-    "sampleAfterMs": 5000,
-    "sampleWindowMs": 3000,
+    "sampleAfterMs": 1500,
+    "sampleWindowMs": 1000,
     "demoteBelowFps": 26,
     "promoteAboveFps": 56
   },
@@ -20,15 +20,13 @@
     "maxDevicePixelRatio": 2,
     "freezeStatics": true
   },
-  "glow": {
-    "enabled": true,
-    "intensity": 0.35,
-    "blurKernelSize": 16
-  },
+  "glow": { "enabled": false, "intensity": 0 },
   "particles": {
     "enabled": true,
     "budgetMultiplier": 0.6,
-    "maxEmitterCapacity": 60
+    "maxEmitterCapacity": 60,
+    "maxRemoteShipSystems": 1,
+    "shipEffectCullDistance": 180
   },
   "asteroids": {
     "lodMediumDistance": 0,
@@ -41,11 +39,13 @@
   },
   "scene": {
     "skyboxEnabled": true,
-    "boundaryShieldShader": true,
+    "boundaryShieldShader": false,
     "starfieldPoints": 320,
     "spawnMarkers": false,
+    "transparentShellCullDistance": 180,
+    "terrain": { "lodBias": 0.6 },
     "dust": {
-      "count": 180,
+      "count": 0,
       "size": 0.35,
       "alpha": 0.3,
       "driftSpeed": 0.8,

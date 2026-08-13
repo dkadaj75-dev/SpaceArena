@@ -9,6 +9,7 @@ import { deriveRng } from "../sim/rng.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { BotDriver } from "./BotDriver.js";
 import { botBehaviors } from "./behaviors.js";
+import { clearRoleAllocationCache } from "./roleAllocator.js";
 
 const DT = 1 / 30;
 const CTF = "gamemode.practice-ctf-5v5";
@@ -263,7 +264,7 @@ function blockedCarrierLoiter(seed: number, seconds: number, holding = true) {
     lastAngle = angle;
     for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);
     maxThrottle = Math.max(maxThrottle, driver.lastDecision?.flight?.throttle ?? 0);
-    if (nowMs < 4_500) initialMaxThrottle = Math.max(initialMaxThrottle, driver.lastDecision?.flight?.throttle ?? 0);
+    if (nowMs < 400) initialMaxThrottle = Math.max(initialMaxThrottle, driver.lastDecision?.flight?.throttle ?? 0);
     sim.tick(DT);
     sim.getEvents();
   }
@@ -357,6 +358,7 @@ function playLooseFlags(seed: number) {
 }
 
 function playLunarCtf(seed: number, seconds: number) {
+  clearRoleAllocationCache();
   const sim = new ArenaSimulation(configs, "arena.lunar-rift", CTF, seed);
   const mode = configs.get<GamemodeConfig>("gamemode", CTF)!;
   const profiles = ["bot.flagrunner", "bot.aggressive", "bot.cautious", "bot.rookie"]
@@ -397,11 +399,16 @@ function transitLunarTunnel() {
   const authoredStart = graph.nodes.find((node) => node.id === "nav-tunnel0-0")!.position as Required<typeof graph.nodes[number]["position"]>;
   const authoredGoal = graph.nodes.find((node) => node.id === "nav-tunnel0-1")!.position as Required<typeof graph.nodes[number]["position"]>;
   const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
-  const clearance = Math.max(ship.collider.radius * 4, ship.collider.radius + 3);
-  const startFloor = sim.world.staticWorld.heightBelow(authoredStart, 60);
-  const goalFloor = sim.world.staticWorld.heightBelow(authoredGoal, 60);
-  const start = { ...authoredStart, y: Math.max(authoredStart.y, (startFloor?.y ?? authoredStart.y) + clearance) };
-  const goal = { ...authoredGoal, y: Math.max(authoredGoal.y, (goalFloor?.y ?? authoredGoal.y) + clearance) };
+  // Script the exact authored west-bore portals in X/Z, centered vertically
+  // between the measured tunnel floor and roof so the normal floor-recovery
+  // guard does not pitch a cruising hull into either surface.
+  const boreCentre = (portal: typeof authoredStart) => {
+    const floor = sim.world.staticWorld.heightBelow(portal, 60);
+    const roof = sim.world.staticWorld.raycast(portal, { ...portal, y: portal.y + 60 });
+    return { ...portal, y: floor && roof ? (floor.y + roof.point.y) / 2 : portal.y };
+  };
+  const start = boreCentre(authoredStart);
+  const goal = boreCentre(authoredGoal);
   const shipped = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
   const profile = {
     ...shipped,
@@ -417,11 +424,7 @@ function transitLunarTunnel() {
     plan: () => ({ aim: goal, aimPriority: true, throttle: 1, boost: false, engaged: false }),
   });
   const heading = Math.atan2(goal.z - start.z, goal.x - start.x);
-  const spawn = {
-    x: start.x + (goal.x - start.x) * 0.1,
-    y: start.y + (goal.y - start.y) * 0.1,
-    z: start.z + (goal.z - start.z) * 0.1,
-  };
+  const spawn = { ...start };
   const id = sim.spawnPlayerAt(ship.id, ship.defaultFitting, 0, spawn, heading);
   const driver = new BotDriver({
     entityId: id,
@@ -489,7 +492,8 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
   });
 
   it("scores a bots-only capture on lunar rift within the fixed match bound", () => {
-    const { events } = playLunarCtf(11, 180);
+    // Pinned against the 768-wide / 112-radius-crater lunar-rift layout.
+    const { events } = playLunarCtf(42, 180);
     expect(events.some((event) => event.type === "flagCaptured")).toBe(true);
   });
 

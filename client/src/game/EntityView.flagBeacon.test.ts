@@ -1,4 +1,4 @@
-import { NullEngine, Scene, StandardMaterial, VertexBuffer } from "@babylonjs/core";
+import { FreeCamera, NullEngine, Scene, StandardMaterial, Vector3, VertexBuffer } from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 import type { ConfigService, FlagSnapshot, Snapshot } from "@space-arena/shared";
 import { ViewManager } from "./EntityView.js";
@@ -126,7 +126,35 @@ describe("flag base beacons (owner 2026-08-01)", () => {
     // Radius 16 ⇒ a 32-wide shell, and the pulse only nudges it.
     expect(beacon.getBoundingInfo().boundingBox.extendSize.x).toBeCloseTo(16, 3);
     expect(Math.abs(beacon.scaling.x - 1)).toBeLessThan(0.1);
+    expect(beacon.getTotalIndices() / 3).toBeLessThanOrEqual(576);
 
+    view.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("culls the Medium beacon shell beyond 180 units but preserves the near landmark", () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const camera = new FreeCamera("beacon.camera", new Vector3(-72, 3, 260), scene);
+    camera.setTarget(new Vector3(-72, 3, 40));
+    camera.computeWorldMatrix();
+    scene.activeCamera = camera;
+    const view = new ViewManager(scene, configs, () => undefined, {
+      projectiles: { useInstances: true },
+      particles: { enabled: false, budgetMultiplier: 0, maxEmitterCapacity: 0 },
+      asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
+      scene: { skyboxEnabled: true, boundaryShieldShader: false, starfieldPoints: 0, spawnMarkers: false, transparentShellCullDistance: 180 },
+    });
+    const snap = snapshot([flag(21)]);
+    view.render(snap, snap, 1, 16);
+    const beacon = beaconsIn(scene)[0]!;
+    expect(beacon.isEnabled()).toBe(false);
+
+    camera.position.set(-72, 3, 100);
+    camera.computeWorldMatrix();
+    view.render(snap, snap, 1, 16);
+    expect(beacon.isEnabled()).toBe(true);
     view.dispose();
     scene.dispose();
     engine.dispose();

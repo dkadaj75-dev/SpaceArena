@@ -22,7 +22,7 @@ import {
   type Tunnel,
 } from "./riftLib.js";
 
-export const WORLD_EXT = 320;
+export const WORLD_EXT = 384;
 /** Height/minOver lattice pitch. 1u resolves everything `heightAt` carries. */
 export const GRID_CELL = 1;
 export const GRID_N = (WORLD_EXT * 2) / GRID_CELL + 1;

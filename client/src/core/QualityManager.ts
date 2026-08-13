@@ -21,6 +21,7 @@ import {
 } from "./qualityTier.js";
 
 const log = createLogger("Quality");
+const LEARNED_TIER_PREFIX = "sa.quality.learned.";
 
 /** Minimal engine surface the manager drives — keeps it constructible in tests. */
 export interface QualityEngine {
@@ -52,6 +53,7 @@ export class QualityManager {
   private unsubscribe: (() => void) | null = null;
   /** Device pixel ratio ceiling comes from the tier; this is the raw device value. */
   private devicePixelRatio: number;
+  private promotedThisSession = false;
 
   constructor(
     private readonly configs: ConfigService,
@@ -61,17 +63,30 @@ export class QualityManager {
       storage?: Pick<Storage, "getItem" | "setItem"> | null;
       navigator?: Navigator | undefined;
       devicePixelRatio?: number;
+      webglRenderer?: string | null;
     } = {},
   ) {
     this.storage = options.storage === undefined ? safeStorage() : options.storage;
     this.devicePixelRatio = options.devicePixelRatio ?? 1;
-    this.probe = probeDevice(options.navigator as never);
+    const nav = options.navigator as (Navigator & {
+      deviceMemory?: number;
+      userAgentData?: { mobile?: boolean };
+    }) | undefined;
+    this.probe = probeDevice({
+      hardwareConcurrency: nav?.hardwareConcurrency,
+      deviceMemory: nav?.deviceMemory,
+      userAgent: nav?.userAgent,
+      userAgentData: nav?.userAgentData,
+      maxTouchPoints: nav?.maxTouchPoints,
+      webglRenderer: options.webglRenderer ?? readWebglRenderer(),
+    });
 
     const start = resolveStartTier(
       this.tiers,
       this.probe,
       this.storage?.getItem(QUALITY_STORAGE_KEY),
       isSafari(options.navigator),
+      this.learnedTier(),
     );
     this.tier = start.tier;
     this.fromOverride = start.fromOverride;
@@ -170,6 +185,16 @@ export class QualityManager {
 
   /** Reset the once-per-match auto-tier sampler. Call when a match starts. */
   beginMatch(): void {
+    if (!this.fromOverride && !this.promotedThisSession && this.auto.promotionReady) {
+      const tiers = this.tiers;
+      const index = tiers.findIndex((config) => config.tier === this.tier);
+      const next = index >= 0 ? tiers[index + 1]?.tier : undefined;
+      if (next) {
+        this.promotedThisSession = true;
+        this.setTier(next);
+        this.persistLearnedTier(next);
+      }
+    }
     this.auto = newAutoTierState();
   }
 
@@ -187,6 +212,7 @@ export class QualityManager {
         averageFps: Math.round(result.averageFps ?? 0),
       });
       this.setTier(result.tier);
+      this.persistLearnedTier(result.tier);
     }
   }
 
@@ -215,11 +241,37 @@ export class QualityManager {
     for (const listener of this.listeners) listener(cfg);
   }
 
+  private learnedTier(): QualityTier | null {
+    const renderer = this.probe.renderer;
+    if (!renderer) return null;
+    const raw = this.storage?.getItem(`${LEARNED_TIER_PREFIX}${deviceBucket(renderer)}`);
+    return raw === "low" || raw === "med" || raw === "high" || raw === "ultra" ? raw : null;
+  }
+
+  private persistLearnedTier(tier: QualityTier): void {
+    const renderer = this.probe.renderer;
+    if (!renderer) return;
+    try { this.storage?.setItem(`${LEARNED_TIER_PREFIX}${deviceBucket(renderer)}`, tier); } catch { /* storage unavailable */ }
+  }
+
   dispose(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.listeners.clear();
   }
+}
+
+function deviceBucket(renderer: string): string {
+  return renderer.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 96);
+}
+
+export function readWebglRenderer(): string | null {
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+    const info = gl?.getExtension("WEBGL_debug_renderer_info");
+    return info && gl ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : null;
+  } catch { return null; }
 }
 
 /** `Engine` satisfies {@link QualityEngine}; this alias documents the intent. */
@@ -244,7 +296,7 @@ const FALLBACK_TIER: QualityConfig = {
   name: "Medium (built-in fallback)",
   tier: "med",
   probe: { minCores: 0, minMemoryGb: 0, allowMobile: true },
-  autoTier: { sampleAfterMs: 5000, sampleWindowMs: 3000, demoteBelowFps: 26, promoteAboveFps: 56 },
+  autoTier: { sampleAfterMs: 1500, sampleWindowMs: 1000, demoteBelowFps: 26, promoteAboveFps: 56 },
   render: { hardwareScalingMultiplier: 1.15, maxDevicePixelRatio: 2, freezeStatics: true },
   glow: { enabled: true, intensity: 0.35 },
   particles: { enabled: true, budgetMultiplier: 0.6, maxEmitterCapacity: 60 },

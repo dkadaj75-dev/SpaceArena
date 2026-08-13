@@ -65,7 +65,7 @@ export function vnoise3(x: number, y: number, z: number, seed: number): number {
 
 // ---------- layout (authored south side; twin = 180° rotation) ----------
 export const H_TOP = 80, CEILING = 74, KILL_FLOOR = -20;
-export const TEAM = { c: [0, -225] as Pt, r: 64, floor: 4, rim: 3.5 };
+export const TEAM = { c: [0, -255] as Pt, r: 112, floor: 4, rim: 3.5 };
 export const MID = { c: [0, 0] as Pt, r: 98, floor: -8, rim: 4.5 };
 
 export interface Lane { readonly pts: readonly Pt[]; readonly width: number; readonly floor: number }
@@ -73,18 +73,18 @@ export interface Tunnel { readonly a: Pt; readonly b: Pt; readonly r: number; re
 export interface Crater { readonly c: Pt; readonly r: number; readonly floor: number; readonly rim: number }
 
 export const LANES_SOUTH: readonly Lane[] = [
-  { pts: [[0, -168], [26, -130], [0, -96]], width: 34, floor: 0 },
-  { pts: [[-54, -198], [-182, -118], [-225, 0], [-182, 118], [-54, 198]], width: 36, floor: 0 },
+  { pts: [[0, -143], [22, -120], [0, -98]], width: 34, floor: 0 },
+  { pts: [[-108, -225], [-210, -145], [-252, 0], [-210, 145], [-108, 225]], width: 36, floor: 0 },
 ];
 export const MOUTHS_SOUTH: readonly Lane[] = [
-  { pts: [[0, -176], [0, -156]], width: 30, floor: 2 },
-  { pts: [[-48, -210], [-66, -192]], width: 30, floor: 2 },
-  { pts: [[48, -210], [66, -192]], width: 30, floor: 2 },
-  { pts: [[0, -104], [0, -86]], width: 32, floor: -4 },
+  { pts: [[0, -166], [0, -143]], width: 30, floor: 2 },
+  { pts: [[-88, -247], [-108, -225]], width: 30, floor: 2 },
+  { pts: [[88, -247], [108, -225]], width: 30, floor: 2 },
+  { pts: [[0, -98], [0, -80]], width: 32, floor: -4 },
 ];
 export const TUNNELS_SOUTH: readonly Tunnel[] = [
-  { a: [-178, -95], b: [-68, -68], r: 7.5, portalY: 12 },
-  { a: [-178, 95], b: [-68, 68], r: 7.5, portalY: 12 },
+  { a: [-205, -95], b: [-68, -68], r: 7.5, portalY: 12 },
+  { a: [-205, 95], b: [-68, 68], r: 7.5, portalY: 12 },
 ];
 
 export const rot180 = (p: Pt): Pt => [-p[0], -p[1]];
@@ -101,17 +101,17 @@ export const CRATERS: readonly Crater[] = [{ ...TEAM }, { ...TEAM, c: rot180(TEA
 export interface SpawnPoint { id: string; team: number; position: { x: number; y: number; z: number }; heading: number }
 export const SPAWNS: readonly SpawnPoint[] = (() => {
   const out: SpawnPoint[] = [];
-  [-24, -12, 0, 12, 24].forEach((x, i) => {
-    out.push({ id: `sp-blue-${i + 1}`, team: 0, position: { x, y: 8, z: -247 }, heading: Math.PI / 2 });
-    out.push({ id: `sp-red-${i + 1}`, team: 1, position: { x: -x, y: 8, z: 247 }, heading: -Math.PI / 2 });
+  [-28, -14, 0, 14, 28].forEach((x, i) => {
+    out.push({ id: `sp-blue-${i + 1}`, team: 0, position: { x, y: 8, z: -278 }, heading: Math.PI / 2 });
+    out.push({ id: `sp-red-${i + 1}`, team: 1, position: { x: -x, y: 8, z: 278 }, heading: -Math.PI / 2 });
   });
   return out;
 })();
 
 export interface FlagBase { id: string; team: number; position: { x: number; y: number; z: number }; radius: number }
 export const FLAGS: readonly FlagBase[] = [
-  { id: "flag-base-blue", team: 0, position: { x: 0, y: 6, z: -225 }, radius: 16 },
-  { id: "flag-base-red", team: 1, position: { x: 0, y: 6, z: 225 }, radius: 16 },
+  { id: "flag-base-blue", team: 0, position: { x: 0, y: 6, z: -255 }, radius: 16 },
+  { id: "flag-base-red", team: 1, position: { x: 0, y: 6, z: 255 }, radius: 16 },
 ];
 
 // ---------- height ----------

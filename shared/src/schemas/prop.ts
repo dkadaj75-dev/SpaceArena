@@ -14,9 +14,7 @@ function decodedByteLength(value: string): number | null {
   return value.length / 4 * 3 - padding;
 }
 
-export const propRenderRecipe = renderRecipe.extend({
-  lods: z.array(z.object({ model: z.string().min(1), distance: z.number().positive() })).optional(),
-});
+export const propRenderRecipe = renderRecipe;
 
 export const propSchema = z
   .object({

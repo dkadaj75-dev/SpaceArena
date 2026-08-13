@@ -1,4 +1,4 @@
-import { NullEngine, Scene, Vector3 } from "@babylonjs/core";
+import { NullEngine, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import {
   EventBus,
   type CameraConfig,
@@ -12,6 +12,16 @@ import {
   HANGAR_STAGE_RADIUS,
   TacticalCamera,
 } from "./TacticalCamera.js";
+
+type SyntheticStaticWorld = {
+  isEmpty: boolean;
+  raycast: (from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }) => {
+    t: number; point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; placementIndex: number;
+  } | null;
+  sphereContact: () => {
+    depth: number; point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; placementIndex: number;
+  } | null;
+};
 
 const CAMERA: CameraConfig = {
   id: "camera.default",
@@ -152,6 +162,101 @@ describe("TacticalCamera chase distance", () => {
 
     rigCamera.setLandscapeOrientation(false);
     expect(rigCamera.camera.radius).toBeCloseTo(18, 9);
+  });
+});
+
+describe("TacticalCamera chase terrain avoidance", () => {
+  function chase(rigCamera: TacticalCamera): void {
+    const ship = new TransformNode("ship", rigCamera.camera.getScene());
+    ship.position.set(0, 0, 0);
+    rigCamera.follow(ship);
+    rigCamera.setChaseFrame(0, 0, { x: 0, y: 1, z: 0 });
+    rigCamera.setChaseMode(true);
+  }
+
+  function wallWorld(enabled: () => boolean): SyntheticStaticWorld {
+    return {
+      isEmpty: false,
+      raycast(from, to) {
+        // Plane x=-5, facing the chase anchor. The level-flight chase pose
+        // goes from x=0 toward negative X, so this is a minimal terrain wall.
+        if (!enabled() || !(from.x > -5 && to.x < -5)) return null;
+        const t = (-5 - from.x) / (to.x - from.x);
+        return {
+          t,
+          point: { x: -5, y: from.y + (to.y - from.y) * t, z: 0 },
+          normal: { x: 1, y: 0, z: 0 },
+          placementIndex: 0,
+        };
+      },
+      sphereContact: () => null,
+    };
+  }
+
+  it("pulls in before a wall and below a box arena ceiling", () => {
+    const rigCamera = rig();
+    rigCamera.setStaticWorld(wallWorld(() => true) as never, {
+      shape: "box", width: 100, height: 100, floorY: -20, ceilingY: 3,
+    });
+    chase(rigCamera);
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+
+    // The ray hits x=-5 and preserves a 0.6u shell; ceiling is ceilingY - 1.
+    expect(rigCamera.camera.position.x).toBeGreaterThan(-5);
+    expect(rigCamera.camera.position.x).toBeCloseTo(-4.4, 1);
+    expect(rigCamera.camera.position.y).toBeCloseTo(2, 6);
+  });
+
+  it("recovers chase distance smoothly after the ray clears", () => {
+    const rigCamera = rig();
+    let wall = true;
+    rigCamera.setStaticWorld(wallWorld(() => wall) as never);
+    chase(rigCamera);
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+    const pulledRadius = rigCamera.camera.position.subtract(rigCamera.camera.target).length();
+
+    wall = false;
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+    const recoveredRadius = rigCamera.camera.position.subtract(rigCamera.camera.target).length();
+
+    expect(pulledRadius).toBeLessThan(12);
+    expect(recoveredRadius).toBeGreaterThan(pulledRadius);
+    expect(recoveredRadius).toBeLessThan(12);
+  });
+
+  it("pushes the final camera shell out of a corner contact", () => {
+    const rigCamera = rig();
+    rigCamera.setStaticWorld({
+      isEmpty: false,
+      raycast: () => null,
+      sphereContact: () => ({
+        depth: 0.5, point: { x: 0, y: 0, z: 0 }, normal: { x: 1, y: 0, z: 0 }, placementIndex: 0,
+      }),
+    } as never);
+    chase(rigCamera);
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+
+    expect(rigCamera.camera.position.x).toBeCloseTo(-11.181815, 5);
+  });
+
+  it("keeps the pre-collision chase pose exactly for an empty static world", () => {
+    const rigCamera = rig();
+    rigCamera.setStaticWorld({ isEmpty: true, raycast: () => null, sphereContact: () => null } as never, {
+      shape: "sphere", radius: 80, floorY: -10,
+    });
+    chase(rigCamera);
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+
+    // Pinned from the unmodified chase pose: target (0, 1.4, 0) +
+    // 12 * (up*cos(1.34) - nose*sin(1.34)).
+    expect(rigCamera.camera.position.x).toBeCloseTo(-11.681815, 5);
+    expect(rigCamera.camera.position.y).toBeCloseTo(4.145034, 5);
+    expect(rigCamera.camera.position.z).toBeCloseTo(0, 6);
   });
 });
 

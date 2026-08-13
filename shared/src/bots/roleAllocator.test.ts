@@ -59,7 +59,7 @@ describe("team role allocator (D2, owner 2026-08-08)", () => {
     expect(roleOf(allocation, 10)).toBe("warden");
   });
 
-  it("scales the counts by alive strength, and a lone survivor still attacks", () => {
+  it("commits a full 5v5 press while a lone survivor still attacks", () => {
     clearRoleAllocationCache();
     const solo = allocateTeamRoles(snap([ship(10, 0, 0, 0), ship(90, 1, 0, 400)], HOME_FLAGS), 0);
     expect(solo.counts.striker).toBe(1);
@@ -70,7 +70,7 @@ describe("team role allocator (D2, owner 2026-08-08)", () => {
       ...Array.from({ length: 5 }, (_, index) => ship(10 + index, 0, 0, -100 + index * 44)),
       ship(90, 1, 0, 400),
     ], HOME_FLAGS), 0);
-    expect(half.counts.striker).toBe(2);
+    expect(half.counts.striker).toBe(4);
     expect(half.counts.warden).toBe(1);
   });
 

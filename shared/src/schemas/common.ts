@@ -83,6 +83,8 @@ export const renderRecipe = z.object({
   model: z.string().optional(),
   modelScale: z.number().positive().optional(),
   modelRotationY: z.number().optional(),
+  /** Authored lower-detail models, selected at monotonically increasing world distances. */
+  lods: z.array(z.object({ model: z.string().min(1), distance: z.number().positive() })).optional(),
 });
 export type RenderRecipe = z.infer<typeof renderRecipe>;
 

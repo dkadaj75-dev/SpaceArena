@@ -2,9 +2,10 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { ConfigService, EventBus, type ConfigEvents } from "@space-arena/shared";
 import {
   arenaModelRenders,
+  moduleModelRenders,
   preloadArenaModels,
+  preloadMatchModels,
   preloadShipModels,
-  preloadShipModelsBeforeTimeout,
   shipModelRenders,
 } from "./assetPreload.js";
 import type { AssetRegistry } from "./AssetRegistry.js";
@@ -157,7 +158,10 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
 describe("ship model preloading", () => {
   it("collects and awaits every ship model without consulting quality", async () => {
     const renders = [
-      { recipe: "procedural.arrowhead", model: "ships/a.glb" },
+      { recipe: "procedural.arrowhead", model: "ships/a.glb", lods: [
+        { model: "ships/a-lod1.glb", distance: 40 },
+        { model: "ships/a-lod2.glb", distance: 90 },
+      ] },
       { recipe: "procedural.brawler" },
       { recipe: "procedural.support", model: "ships/c.glb" },
     ];
@@ -167,30 +171,45 @@ describe("ship model preloading", () => {
     const ensureModel = vi.fn(async () => null);
     const assets = { ensureModel } as unknown as AssetRegistry;
 
-    expect(shipModelRenders(configs).map((render) => render.model)).toEqual(["ships/a.glb", "ships/c.glb"]);
+    expect(shipModelRenders(configs).map((render) => render.model)).toEqual([
+      "ships/a.glb", "ships/a-lod1.glb", "ships/a-lod2.glb", "ships/c.glb",
+    ]);
     await preloadShipModels(assets, configs);
-    expect(ensureModel).toHaveBeenCalledTimes(2);
+    expect(ensureModel).toHaveBeenCalledTimes(6);
     expect(ensureModel.mock.results.every((result) => result.type === "return")).toBe(true);
   });
 
-  it("times out a stalled ship fetch so boot can use procedural fallbacks", async () => {
-    vi.useFakeTimers();
-    try {
-      const configs = {
-        getAll: vi.fn(() => [{
-          id: "ship.stalled",
-          render: { recipe: "procedural.arrowhead", model: "ships/stalled.glb" },
-        }]),
-      } as unknown as ConfigService;
-      const assets = {
-        ensureModel: vi.fn(() => new Promise(() => undefined)),
-      } as unknown as AssetRegistry;
+  it("preloads match hulls, module cosmetics, asteroids, and arena prop LODs", async () => {
+    const arenaConfig = {
+      ...arena([SMALL_ROCK.id]),
+      propPlacements: [{ propId: TERRAIN_PROP.id, position: { x: 0, z: 0 } }],
+    };
+    const ships = [{ id: "ship.one", render: { recipe: "ship", model: "ships/one.glb" } }];
+    const modules = [{ id: "module.gun", render: { recipe: "module", model: "modules/gun.glb" } }];
+    const configs = {
+      get: vi.fn((type: string, id: string) => {
+        if (type === "arena" && id === "arena.test") return arenaConfig;
+        if (type === "asteroid" && id === SMALL_ROCK.id) return SMALL_ROCK;
+        if (type === "prop" && id === TERRAIN_PROP.id) return TERRAIN_PROP;
+        return undefined;
+      }),
+      getAll: vi.fn((type: string) => type === "ship" ? ships : type === "module" ? modules : []),
+    } as unknown as ConfigService;
+    const ensureModel = vi.fn(async (_render: { model?: string }) => null);
+    const assets = { ensureModel } as unknown as AssetRegistry;
 
-      const result = preloadShipModelsBeforeTimeout(assets, configs, 10_000);
-      await vi.advanceTimersByTimeAsync(10_000);
-      await expect(result).resolves.toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(moduleModelRenders(configs).map((render) => render.model)).toEqual(["modules/gun.glb"]);
+    await preloadMatchModels(assets, configs, "arena.test");
+
+    expect(ensureModel.mock.calls.map(([render]) => render.model)).toEqual(expect.arrayContaining([
+      "asteroids/small_a.glb",
+      "asteroids/debris.glb",
+      "props/terrain.glb",
+      "props/terrain-lod1.glb",
+      "props/terrain-lod2.glb",
+      "ships/one.glb",
+      "modules/gun.glb",
+    ]));
   });
+
 });

@@ -1,8 +1,8 @@
-import { NullEngine, Scene, TransformNode } from "@babylonjs/core";
+import { FreeCamera, MeshBuilder, NullEngine, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ConfigService, ModuleConfig, ShipConfig } from "@space-arena/shared";
+import type { ConfigService, EffectConfig, ModuleConfig, ShipConfig, ShipSnapshot } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
-import { ShipSocketRig } from "./ShipSocketRig.js";
+import { ShipSocketRig, shouldBuildShipEmitter } from "./ShipSocketRig.js";
 
 const MODULES: ModuleConfig[] = [
   moduleConfig("module.laser", "laser"),
@@ -117,5 +117,60 @@ describe("ShipSocketRig fitted module mounts", () => {
     expect(moduleMeshes.every((mesh) => mesh.isDisposed())).toBe(true);
     assets.dispose();
     scene.dispose();
+  });
+});
+
+describe("ship effect budget decisions", () => {
+  it("builds dormant zero-rate systems in the stopped state", () => {
+    const engine = new NullEngine();
+    engines.push(engine);
+    const scene = new Scene(engine);
+    const camera = new FreeCamera("camera", new Vector3(0, 0, -10), scene);
+    camera.setTarget(Vector3.Zero());
+    scene.activeCamera = camera;
+    const parent = MeshBuilder.CreateBox("ship", { size: 1 }, scene);
+    const effect = {
+      id: "fx.none", type: "effect", version: 1, name: "None",
+      base: { capacity: 10, emitRate: 0, lifeMin: 0.1, lifeMax: 0.2, sizeMin: 0.1, sizeMax: 0.2, speedMin: 1, speedMax: 2, color1: "#ffffff", color2: "#ffffff" },
+      params: ["emitRate"],
+    } satisfies EffectConfig;
+    const configs = { get: (type: string) => type === "effect" ? effect : undefined } as unknown as ConfigService;
+    const rig = new ShipSocketRig(scene, configs, new AssetRegistry(scene), SHIP, parent, [], {
+      enabled: true, budgetMultiplier: 0.35, maxEmitterCapacity: 40, shipEffectCullDistance: 180,
+    });
+    rig.updateEmitters({ modules: [] } as unknown as ShipSnapshot, undefined, 100);
+    expect(scene.particleSystems).toHaveLength(1);
+    expect(scene.particleSystems[0]!.emitRate).toBe(0);
+    expect(scene.particleSystems[0]!.isStarted()).toBe(false);
+    rig.dispose();
+    scene.dispose();
+  });
+
+  it("keeps all local systems but caps each Low/Medium remote ship to its primary thruster", () => {
+    const kept = (isLocal: boolean, emitterIndex: number) => shouldBuildShipEmitter({
+      isLocal,
+      emitterIndex,
+      primaryEmitterIndex: 0,
+      maxRemoteShipSystems: 1,
+      distance: 80,
+      cullDistance: 180,
+      inFrustum: true,
+    });
+    expect([0, 1, 2, 3].filter((i) => kept(true, i))).toHaveLength(4);
+    expect([0, 1, 2, 3].filter((i) => kept(false, i))).toEqual([0]);
+    // One four-socket local hull plus nine capped remotes.
+    expect(4 + 9 * 1).toBe(13);
+  });
+
+  it("rejects offscreen and beyond-threshold systems", () => {
+    const base = {
+      isLocal: false,
+      emitterIndex: 0,
+      primaryEmitterIndex: 0,
+      maxRemoteShipSystems: 1,
+      cullDistance: 180,
+    };
+    expect(shouldBuildShipEmitter({ ...base, distance: 181, inFrustum: true })).toBe(false);
+    expect(shouldBuildShipEmitter({ ...base, distance: 20, inFrustum: false })).toBe(false);
   });
 });

@@ -136,7 +136,7 @@ export function scatterBouldersSouth(field: RiftField): PropPlacement[] {
    * height difference would leave one of the pair buried or floating.
    */
   const accept = (x: number, z: number): boolean => {
-    if (z >= -0.5 || Math.abs(x) > 300 || Math.abs(z) > 300) return false;
+    if (z >= -0.5 || Math.abs(x) > 364 || Math.abs(z) > 364) return false;
     if (field.baseNormal(x, z)[1] < 0.74 || field.baseNormal(-x, -z)[1] < 0.74) return false;
     return Math.abs(field.heightAt(x, z) - field.heightAt(-x, -z)) < 3;
   };
@@ -173,7 +173,7 @@ export function scatterBouldersSouth(field: RiftField): PropPlacement[] {
   });
 
   // Loose floor clusters: something to weave through in the open bowls.
-  const clusters: Pt[] = [[0, -196], [-30, -150], [30, -150], [-52, -52], [46, -60], [-150, -110], [150, -110]];
+  const clusters: Pt[] = [[0, -226], [-40, -176], [40, -176], [-52, -52], [46, -60], [-176, -128], [176, -128]];
   clusters.forEach((centre, index) => {
     for (let k = 0; k < 3; k++) {
       const angle = hash2(index, k, 4201) * TWO_PI;

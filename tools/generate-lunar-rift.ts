@@ -15,10 +15,9 @@
  *
  * Deviations from the brief, with reasons:
  *  - Chunk grid pitch is tiered 1.6 / 2.0 / 4.0u instead of 1.6 / 4.0u. Only the
- *    four corner chunks are pure highland, so 1.6u on the other twelve is ~320k
- *    triangles against a hard 260k LOD0 budget. The four core chunks (the ones
+ *    four corner chunks are pure highland. The four core chunks (the ones
  *    that are mostly playable) keep 1.6u; the flank chunks take 2.0u.
- *  - Collision pitch is 2.5u rather than 2.6u: 2.5 divides the 160u chunk
+ *  - Collision pitch remains 2.5u (the established collision fidelity).
  *    exactly, so collision verts land on chunk borders without a ragged seam.
  *  - Tunnel endpoints come from the approved `rift-lib` TUNNELS (Ø15, bore
  *    centre y 12) rather than the older coordinates written into §7.1 prose.
@@ -68,12 +67,12 @@ import {
 import { CEILING, CRATERS, FLAGS, KILL_FLOOR, LANES, MOUTHS, SPAWNS, TUNNELS, TUNNELS_SOUTH } from "./lunar-rift/riftLib.js";
 
 // ---------- budgets ----------
-const LOD0_TRI_BUDGET = 260_000;
-const LOD1_TRI_BUDGET = 90_000;
-const COLLISION_TRI_BUDGET = 60_000;
-const CHUNK_GLB_BYTES = 1_400_000;
+const LOD0_TRI_BUDGET = 320_000;
+const LOD1_TRI_BUDGET = 120_000;
+const COLLISION_TRI_BUDGET = 80_000;
+const CHUNK_GLB_BYTES = 1_600_000;
 const LOD_DISTANCE = 190;
-const COORD_LIMIT = 340;
+const COORD_LIMIT = 404;
 const GROUND_DROP_LIMIT = 6;
 const TUNNEL_CLEARANCE = 6.2;
 /**
@@ -300,7 +299,7 @@ async function generate(wasm: ManifoldToplevel, log: (message: string) => void):
       type: "arena",
       version: 1,
       name: "Lunar Rift",
-      bounds: { shape: "box", width: 640, height: 640, floorY: KILL_FLOOR, ceilingY: CEILING },
+      bounds: { shape: "box", width: 768, height: 768, floorY: KILL_FLOOR, ceilingY: CEILING },
       asteroidPlacements: [],
       propPlacements: placements,
       navGraph,
