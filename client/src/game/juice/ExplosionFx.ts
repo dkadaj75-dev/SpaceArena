@@ -88,12 +88,32 @@ export class ExplosionFx {
     return Math.min(this.capacityFor(effect), Math.max(1, Math.round(this.settings.burstCount * this.quality.budgetMultiplier)));
   }
 
-  /** Start (or immediately recycle) an effect. Velocity is inherited by shards only. */
-  burst(effect: EffectConfig, x: number, z: number, y = 0.3, velocity?: { x: number; y: number; z: number }): boolean {
+  /**
+   * Start (or immediately recycle) an effect. Velocity is inherited by shards only.
+   *
+   * `scale` shrinks (or grows) the PHYSICAL half of the burst — flash, shockwave
+   * and debris, all of which hang off the slot root — so the same pool can serve
+   * both a hull coming apart and a missile warhead going off on one. The
+   * particle half is not scaled here on purpose: its sizes and speeds are
+   * authored per effect config, and the emitter is a world-space point that the
+   * root's scaling does not (and must not) touch.
+   */
+  burst(
+    effect: EffectConfig,
+    x: number,
+    z: number,
+    y = 0.3,
+    velocity?: { x: number; y: number; z: number },
+    scale = 1,
+  ): boolean {
     const slot = this.nextSlot();
     this.stopSlot(slot);
     slot.root.position.set(x, y, z);
     slot.emitter.set(x, y, z);
+    // Written every burst, never only when it differs from 1: slots are
+    // recycled, and a slot that kept the last caller's scale would draw a
+    // missile-sized ship death (or the reverse).
+    slot.root.scaling.setAll(scale > 0 ? scale : 1);
     slot.root.setEnabled(true);
     slot.ageMs = 0;
     slot.chunkCount = chunkCountFor(this.quality);

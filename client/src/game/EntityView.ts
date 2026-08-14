@@ -48,11 +48,14 @@ import { resolveSoundId } from "../audio/soundIds.js";
 import { ExplosionFx } from "./juice/ExplosionFx.js";
 import { HitFlashPool } from "./juice/HitFlash.js";
 import {
+  MISSILE_IMPACT_SCALE,
   explosionEffectIdFor,
   juiceSettingsOf,
+  missileImpactEffectIdsFor,
   viewRelationOf,
   type JuiceSettings,
 } from "./juice/juiceSettings.js";
+import { buildMissileMaster } from "./missileMesh.js";
 import {
   approachRoll,
   bankRollFor,
@@ -77,6 +80,25 @@ const FLAG_BANNER_HEIGHT = 3.2;
 const FLAG_BANNER_BASE_Y = 0.2;
 const FLAG_BANNER_WAVE_MS = 34;
 const FLAG_TRANSITION_MS = 130;
+
+/**
+ * How long a hull stays flagged as "the sim just reported a hit here" while the
+ * view looks for the missile that caused it (see {@link ViewManager.detonateMissile}).
+ *
+ * It exists because the two halves of the story arrive on independent streams:
+ * the `damage` / `shieldAbsorb` EVENT and the state patch that removes the
+ * missile are separate messages online, and either can land a frame or two
+ * before the other. A window of a few frames absorbs that skew; making it much
+ * longer would start pairing a missile that expired on its own with an unrelated
+ * gun hit on a hull it happened to drift past.
+ */
+const MISSILE_HIT_WINDOW_MS = 260;
+
+/** Collider radius the sim gives travelling ordnance (`shared/src/sim/spawn.ts`). */
+const PROJECTILE_RADIUS = 0.4;
+
+/** Hull radius assumed when the session cannot resolve a ship's config. */
+const FALLBACK_SHIP_RADIUS = 1.5;
 
 /** Distance plus projected-size gate for expensive transparent shells. */
 export function transparentShellVisible(
@@ -198,6 +220,28 @@ interface BeamSlot {
   maxLife: number;
 }
 
+/**
+ * One missile the view is currently drawing, kept so that its DISAPPEARANCE can
+ * be read as a detonation. The sim has no projectile-impact event — a missile
+ * that lands is simply `applyDamageToShip` followed by `destroyEntity` — so the
+ * view pairs the two things it does get: a hull the sim says was just hit, and a
+ * missile that stopped existing next to it.
+ */
+interface MissileTrack {
+  /** Last authoritative snapshot position — the impact point, to within a tick. */
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * Distance covered between the last two snapshots. The sim destroys a missile
+   * on the tick it hits, so the tracked position trails the hull by up to one
+   * tick of travel; this is exactly that slack, measured rather than guessed.
+   */
+  step: number;
+  /** Sweep counter this track was last seen in — see `projectileSweep`. */
+  seen: number;
+}
+
 /** Everything ViewManager reads off the active quality tier (§10 5.6). */
 export type ViewQuality = Pick<QualityConfig, "projectiles" | "particles" | "asteroids"> & {
   scene?: QualityConfig["scene"];
@@ -292,6 +336,18 @@ export class ViewManager {
   private readonly liveChannels = new Set<number>();
   /** Pool masters, kept so a quality change can rebuild the pools in place. */
   private readonly poolMasters: Mesh[] = [];
+
+  /** Live missiles by entity id; a track that stops being seen has detonated. */
+  private readonly missileTracks = new Map<EntityId, MissileTrack>();
+  /**
+   * Entities the sim reported taking a hit, with the milliseconds left on their
+   * {@link MISSILE_HIT_WINDOW_MS} window. Written by `consumeEvents`, read when a
+   * missile vanishes — this is the "was that a hit or did it just run out of
+   * fuel?" answer, taken from the sim rather than re-derived in the view.
+   */
+  private readonly recentHits = new Map<EntityId, number>();
+  /** Monotonic per-frame counter used to mark missile tracks as still present. */
+  private projectileSweep = 0;
 
   private readonly poolSize: number;
   private quality: ViewQuality;
@@ -494,21 +550,10 @@ export class ViewManager {
     this.poolMasters.push(kMaster);
     this.fillPool(kMaster, "proj.kinetic", this.kineticPool);
 
-    // Missile: small cone (cylinder w/ zero top), nose +Z.
-    const mMat = new StandardMaterial("mat.proj.missile", this.scene);
-    mMat.diffuseColor = Color3.Black();
-    mMat.emissiveColor = new Color3(1.0, 0.4, 0.2);
-    mMat.specularColor = Color3.Black();
-    const mMaster = MeshBuilder.CreateCylinder(
-      "master.proj.missile",
-      { diameterTop: 0, diameterBottom: 0.32, height: 1.0, tessellation: 6 },
-      this.scene,
-    );
-    mMaster.rotation.x = Math.PI / 2; // nose +Z
-    mMaster.bakeCurrentTransformIntoVertices();
-    mMaster.material = mMat;
-    mMaster.isPickable = false;
-    mMaster.setEnabled(false);
+    // Missile: a modelled warhead — body, nose cone, cruciform fins and an
+    // exhaust plume, merged into one instanced mesh with its nose on +Z (see
+    // `missileMesh.ts` for the geometry and the one-material rationale).
+    const mMaster = buildMissileMaster(this.scene);
     this.poolMasters.push(mMaster);
     this.fillPool(mMaster, "proj.missile", this.missilePool);
 
@@ -544,11 +589,16 @@ export class ViewManager {
         this.spawnBeam(ev.ownerId, ev.targetId, ev.moduleId, cur);
       } else if (ev.type === "damage") {
         this.flashHit(ev.targetId, ev.isAsteroid);
+        this.markHit(ev.targetId);
       } else if (ev.type === "shieldAbsorb") {
         // The absorb is the ONLY thing that lights a shield bubble: its idle
         // pose is near-transparent, so a shell only becomes legible while it is
         // actually stopping fire (§10 5.7, owner note 2026-08-14).
         this.ships.get(ev.targetId)?.rig?.shieldImpact();
+        // A missile stopped by a shield still detonated: the warhead going off
+        // on the bubble is exactly what tells the pilot the shield earned its
+        // energy, so an absorb arms the detonation window like raw damage does.
+        this.markHit(ev.targetId);
       } else if (ev.type === "entityDestroyed") {
         if (ev.isAsteroid) {
           const v = this.asteroids.get(ev.entityId);
@@ -567,9 +617,14 @@ export class ViewManager {
     if (isAsteroid) return; // asteroid hits already read through the death puff
     const view = this.ships.get(targetId);
     if (!view) return;
-    const radius = this.shipConfigFor(targetId)?.collider.radius ?? 1.5;
+    const radius = this.shipConfigFor(targetId)?.collider.radius ?? FALLBACK_SHIP_RADIUS;
     // The live view node already carries the ship's altitude (BUBBLE.md §C).
     this.hitFlash.flash(view.node.position.x, view.node.position.y, view.node.position.z, radius);
+  }
+
+  /** Open (or reopen) an entity's detonation-matching window — see `recentHits`. */
+  private markHit(targetId: EntityId): void {
+    this.recentHits.set(targetId, MISSILE_HIT_WINDOW_MS);
   }
 
   /**
@@ -680,7 +735,7 @@ export class ViewManager {
     this.syncAsteroids(cur, frameDtMs);
     this.syncDecoys(prev, cur, alpha);
     this.syncFlags(cur, frameDtMs);
-    this.syncProjectiles(prev, cur, alpha);
+    this.syncProjectiles(prev, cur, alpha, frameDtMs);
     // Before updateBeams: a still-channelling slot gets its life refreshed here
     // and so never reaches the fade path below.
     this.syncChannelBeams(cur);
@@ -1180,19 +1235,30 @@ export class ViewManager {
     };
   }
 
-  private syncProjectiles(prev: Snapshot, cur: Snapshot, alpha: number): void {
+  private syncProjectiles(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
+    const sweep = ++this.projectileSweep;
     let k = 0;
     let m = 0;
     for (let i = 0; i < cur.projectiles.length; i++) {
       const pr = cur.projectiles[i]!;
+      const p = findProjectile(prev, pr.id) ?? pr;
+      // Displacement between the two snapshots. It is the pose basis below and,
+      // for a missile, how far its last known position may trail the hull it
+      // detonates on — so it is computed before anything can `continue`.
+      const dx = pr.pos.x - p.pos.x;
+      const dy = pr.pos.y - p.pos.y;
+      const dz = pr.pos.z - p.pos.z;
+      // Tracked ahead of the pool lookup on purpose: a missile that finds no free
+      // pool node is invisible this frame, but it must not therefore read as
+      // *detonated* the moment the pool frees up again.
+      if (pr.kind === "missile") this.trackMissile(pr, Math.hypot(dx, dy, dz), sweep);
       const pool = pr.kind === "missile" ? this.missilePool : this.kineticPool;
       const idx = pr.kind === "missile" ? m++ : k++;
       const mesh = pool[idx];
       if (!mesh) continue; // pool exhausted; skip extras
-      const p = findProjectile(prev, pr.id) ?? pr;
-      const x = p.pos.x + (pr.pos.x - p.pos.x) * alpha;
-      const y = p.pos.y + (pr.pos.y - p.pos.y) * alpha;
-      const z = p.pos.z + (pr.pos.z - p.pos.z) * alpha;
+      const x = p.pos.x + dx * alpha;
+      const y = p.pos.y + dy * alpha;
+      const z = p.pos.z + dz * alpha;
       mesh.position.set(x, y, z);
       // Oriented along the 3D VELOCITY, not the replicated heading (BUBBLE.md
       // §C): a projectile's snapshot carries a scalar heading, which says nothing
@@ -1201,9 +1267,9 @@ export class ViewManager {
       // snapshots does. A projectile that has not moved yet (its very first
       // snapshot) keeps the pool node's last pose for one frame, which is
       // invisible at muzzle speed and cheaper than a special case.
-      const dx = pr.pos.x - p.pos.x;
-      const dy = pr.pos.y - p.pos.y;
-      const dz = pr.pos.z - p.pos.z;
+      //
+      // Both masters model their nose on +Z, so this is all the missile needs to
+      // fly nose-first with its fins and exhaust trailing (see `missileMesh.ts`).
       if (dx !== 0 || dy !== 0 || dz !== 0) {
         mesh.rotation.y = yawForDirection(dx, dz);
         mesh.rotation.x = pitchForDirection(dx, dy, dz);
@@ -1215,6 +1281,116 @@ export class ViewManager {
     }
     for (let i = k; i < this.kineticPool.length; i++) this.kineticPool[i]!.setEnabled(false);
     for (let i = m; i < this.missilePool.length; i++) this.missilePool[i]!.setEnabled(false);
+    this.sweepMissiles(sweep, cur);
+    this.ageRecentHits(frameDtMs);
+  }
+
+  /** Record (or refresh) a live missile's last authoritative position. */
+  private trackMissile(pr: ProjectileSnapshot, step: number, sweep: number): void {
+    const track = this.missileTracks.get(pr.id);
+    if (track) {
+      track.x = pr.pos.x;
+      track.y = pr.pos.y;
+      track.z = pr.pos.z;
+      track.step = step;
+      track.seen = sweep;
+      return;
+    }
+    this.missileTracks.set(pr.id, { x: pr.pos.x, y: pr.pos.y, z: pr.pos.z, step, seen: sweep });
+  }
+
+  /** Retire missiles that left this frame's snapshot, detonating the ones that hit. */
+  private sweepMissiles(sweep: number, cur: Snapshot): void {
+    for (const [id, track] of this.missileTracks) {
+      if (track.seen === sweep) continue;
+      this.missileTracks.delete(id);
+      this.detonateMissile(track, cur);
+    }
+  }
+
+  /**
+   * A missile left the snapshot. Draw the warhead going off **only** if the sim
+   * also reported a hit on something within reach of where the missile was:
+   * ordnance despawns for three reasons (it hit, its lifetime ran out, it flew
+   * out of the arena) and two of them should show nothing at all.
+   *
+   * This reuses the pooled {@link ExplosionFx} the ship-death burst runs on —
+   * same slots, same particle budget, same quality tier — at
+   * {@link MISSILE_IMPACT_SCALE} and against the smaller `fx.missile-impact`
+   * effect, so a warhead can never be mistaken for a hull coming apart.
+   */
+  private detonateMissile(track: MissileTrack, cur: Snapshot): void {
+    const point = this.missileImpactPoint(track, cur);
+    if (!point) return;
+    const effect = this.missileImpactEffect();
+    if (!effect) return;
+    this.explosions.burst(effect, point.x, point.z, point.y, undefined, MISSILE_IMPACT_SCALE);
+    // Audio is not a quality-tier concern: a low tier drops particles, never the bang.
+    const soundId = resolveSoundId(effect.sound);
+    if (soundId) this.playSound?.(soundId);
+  }
+
+  /**
+   * Where a vanished missile went off, or null if nothing corroborates a hit.
+   *
+   * The candidate set is exactly the entities the sim said were hit inside
+   * {@link MISSILE_HIT_WINDOW_MS}; among those, the missile detonated on the
+   * nearest one it could physically have reached — its own last position plus a
+   * tick of travel plus the two colliders. The point returned is pulled back
+   * onto that hull's surface facing the incoming missile, which is both the
+   * honest impact point and the one that never buries the flash inside the mesh.
+   */
+  private missileImpactPoint(
+    track: MissileTrack,
+    cur: Snapshot,
+  ): { x: number; y: number; z: number } | null {
+    if (this.recentHits.size === 0) return null;
+    let best: { pos: { x: number; y: number; z: number }; radius: number; distance: number } | null = null;
+    for (let i = 0; i < cur.ships.length; i++) {
+      const ship = cur.ships[i]!;
+      if (!this.recentHits.has(ship.id)) continue;
+      const radius = this.shipConfigFor(ship.id)?.collider.radius ?? FALLBACK_SHIP_RADIUS;
+      best = closerImpact(best, track, ship.pos, radius);
+    }
+    for (let i = 0; i < cur.asteroids.length; i++) {
+      const rock = cur.asteroids[i]!;
+      if (!this.recentHits.has(rock.id)) continue;
+      best = closerImpact(best, track, rock.pos, rock.radius);
+    }
+    if (!best) return null;
+    // Already inside the hull (the missile's last tick put it there): the track
+    // itself is the better point, and normalizing a near-zero vector is not.
+    if (best.distance <= best.radius || best.distance <= 1e-4) {
+      return { x: track.x, y: track.y, z: track.z };
+    }
+    const t = best.radius / best.distance;
+    return {
+      x: best.pos.x + (track.x - best.pos.x) * t,
+      y: best.pos.y + (track.y - best.pos.y) * t,
+      z: best.pos.z + (track.z - best.pos.z) * t,
+    };
+  }
+
+  /** The best available missile-detonation effect config (see `missileImpactEffectIdsFor`). */
+  private missileImpactEffect(): EffectConfig | undefined {
+    const ids = missileImpactEffectIdsFor(this.juice.explosions);
+    for (let i = 0; i < ids.length; i++) {
+      const effect = this.configs.get<EffectConfig>("effect", ids[i]!);
+      if (effect) return effect;
+    }
+    if (ids.length > 0) log.warn(`missile impact effect not found: ${ids.join(", ")}`);
+    return undefined;
+  }
+
+  /** Age out detonation-matching windows; keeps `recentHits` bounded by itself. */
+  private ageRecentHits(frameDtMs: number): void {
+    if (this.recentHits.size === 0) return;
+    const dt = Math.max(0, Number.isFinite(frameDtMs) ? frameDtMs : 0);
+    for (const [id, remaining] of this.recentHits) {
+      const next = remaining - dt;
+      if (next <= 0) this.recentHits.delete(id);
+      else this.recentHits.set(id, next);
+    }
   }
 
   /**
@@ -1331,6 +1507,9 @@ export class ViewManager {
     this.beamPool.length = 0;
     this.channelBeams.clear();
     this.liveChannels.clear();
+    // Dropped rather than detonated: a view being torn down is not an impact.
+    this.missileTracks.clear();
+    this.recentHits.clear();
     for (const master of this.poolMasters) {
       master.material?.dispose();
       master.dispose();
@@ -1470,6 +1649,24 @@ function findAsteroid(snap: Snapshot, id: EntityId): AsteroidSnapshot | undefine
 function findDecoy(snap: Snapshot, id: EntityId): DecoySnapshot | undefined {
   for (let i = 0; i < snap.decoys.length; i++) if (snap.decoys[i]!.id === id) return snap.decoys[i];
   return undefined;
+}
+
+/**
+ * Keep whichever of `best` and the candidate hull is nearer to a vanished
+ * missile, rejecting any the missile could not have reached: its last tracked
+ * position, plus the tick of travel the sim ran before destroying it, plus both
+ * colliders. Returns `best` untouched when the candidate is out of reach.
+ */
+function closerImpact(
+  best: { pos: { x: number; y: number; z: number }; radius: number; distance: number } | null,
+  track: MissileTrack,
+  pos: { x: number; y: number; z: number },
+  radius: number,
+): { pos: { x: number; y: number; z: number }; radius: number; distance: number } | null {
+  const distance = Math.hypot(track.x - pos.x, track.y - pos.y, track.z - pos.z);
+  if (distance > radius + PROJECTILE_RADIUS + track.step) return best;
+  if (best && best.distance <= distance) return best;
+  return { pos, radius, distance };
 }
 
 function firstFreeBeam(pool: readonly BeamSlot[]): BeamSlot | undefined {

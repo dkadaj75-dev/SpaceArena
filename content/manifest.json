@@ -72,6 +72,7 @@
     "effects/explosion-medium.json",
     "effects/explosion-heavy.json",
     "effects/explosion-rock.json",
+    "effects/missile-impact.json",
     "ships/interceptor.json",
     "ships/brawler.json",
     "ships/support.json",

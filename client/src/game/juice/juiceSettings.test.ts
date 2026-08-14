@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { ThemeConfig } from "@space-arena/shared";
 import {
   DEFAULT_JUICE_SETTINGS,
+  MISSILE_IMPACT_SCALE,
   explosionEffectIdFor,
   juiceSettingsOf,
+  missileImpactEffectIdsFor,
   shieldBubbleColorOf,
   shieldImpactFlare,
   shieldRipplePose,
@@ -89,6 +91,7 @@ describe("explosionEffectIdFor", () => {
   const explosions = {
     defaultEffect: "fx.explosion-medium",
     asteroidEffect: "fx.explosion-rock",
+    missileImpactEffect: "fx.missile-impact",
     byShipClass: { light: "fx.explosion-light", heavy: "fx.explosion-heavy" },
     burstCount: 60,
     poolPerEffect: 3,
@@ -113,6 +116,35 @@ describe("explosionEffectIdFor", () => {
     const none = { ...explosions, defaultEffect: null, asteroidEffect: null, byShipClass: {} };
     expect(explosionEffectIdFor({ isAsteroid: false, shipClass: "light" }, none)).toBeNull();
     expect(explosionEffectIdFor({ isAsteroid: true }, none)).toBeNull();
+  });
+});
+
+describe("missileImpactEffectIdsFor", () => {
+  const explosions = {
+    defaultEffect: "fx.explosion-medium",
+    asteroidEffect: "fx.explosion-rock",
+    missileImpactEffect: "fx.missile-impact",
+    byShipClass: {},
+    burstCount: 60,
+    poolPerEffect: 3,
+  };
+
+  it("prefers the warhead variant and keeps the death burst as a fallback", () => {
+    expect(missileImpactEffectIdsFor(explosions)).toEqual(["fx.missile-impact", "fx.explosion-medium"]);
+  });
+
+  it("never offers the same id twice", () => {
+    const same = { ...explosions, missileImpactEffect: "fx.explosion-medium" };
+    expect(missileImpactEffectIdsFor(same)).toEqual(["fx.explosion-medium"]);
+  });
+
+  it("is empty when nothing is configured, so nothing is drawn", () => {
+    expect(missileImpactEffectIdsFor({ ...explosions, missileImpactEffect: null, defaultEffect: null })).toEqual([]);
+  });
+
+  it("ships a dedicated warhead variant by default", () => {
+    expect(DEFAULT_JUICE_SETTINGS.explosions.missileImpactEffect).toBe("fx.missile-impact");
+    expect(MISSILE_IMPACT_SCALE).toBeLessThan(1); // smaller than a hull coming apart
   });
 });
 

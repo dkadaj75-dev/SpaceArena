@@ -1,0 +1,22 @@
+{
+  "id": "fx.missile-impact",
+  "type": "effect",
+  "version": 1,
+  "name": "Missile Impact",
+  "base": {
+    "capacity": 70,
+    "emitRate": 0,
+    "lifeMin": 0.14,
+    "lifeMax": 0.36,
+    "sizeMin": 0.22,
+    "sizeMax": 0.85,
+    "speedMin": 7,
+    "speedMax": 16,
+    "color1": "#ffe3a8",
+    "color2": "#ff5a1e",
+    "direction": [0, 0.15, 0],
+    "gravity": 0
+  },
+  "params": ["emitRate", "lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"],
+  "sound": "[SOUND: explosion_light]"
+}

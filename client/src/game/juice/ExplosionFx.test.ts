@@ -11,6 +11,8 @@ const effect: EffectConfig = {
   params: [],
 };
 const high = { enabled: true, budgetMultiplier: 1, maxEmitterCapacity: 80 };
+/** Mirrors the module's fixed slot count; the pool is asserted against it below. */
+const POOL_SIZE = 6;
 
 afterEach(() => { for (const engine of engines.splice(0)) engine.dispose(); });
 
@@ -50,6 +52,19 @@ describe("ExplosionFx lifecycle pool", () => {
     expect(off.burst(effect, 0, 0)).toBe(false);
     expect(off.activeCount).toBe(1); // flash + cheap hull shards still communicate the kill.
     off.dispose();
+  });
+
+  it("scales the physical burst per call so a warhead cannot read as a hull death", () => {
+    const fx = makeFx();
+    const slot = engines.at(-1)!.scenes[0]!.getTransformNodeByName("fx.explosion.slot.0")!;
+
+    fx.burst(effect, 0, 0, 0, undefined, 0.45);
+    expect(slot.scaling.x).toBeCloseTo(0.45, 5);
+
+    // Slots are recycled: an unscaled burst must clear the previous caller's scale.
+    for (let i = 0; i < POOL_SIZE + 1; i++) fx.burst(effect, i, 0);
+    expect(slot.scaling.x).toBeCloseTo(1, 5);
+    fx.dispose();
   });
 
   it("never disposes the scene-shared particle sprite while rebuilding or releasing the pool", () => {

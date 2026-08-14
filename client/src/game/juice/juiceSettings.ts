@@ -78,6 +78,16 @@ export interface ExplosionSettings {
   defaultEffect: string | null;
   /** Effect id for a destroyed asteroid. */
   asteroidEffect: string | null;
+  /**
+   * Effect id for a MISSILE detonating on what it hit — a warhead going off, not
+   * a hull coming apart, so it is a separate (and much smaller) variant from
+   * every `entityDestroyed` burst above. Unlike its neighbours this one has no
+   * theme key yet: `theme.juice.explosions` is schema-owned elsewhere and zod
+   * would strip an unknown field, so the shipped id lives in
+   * {@link DEFAULT_JUICE_SETTINGS} until that schema next opens. The renderer
+   * falls back to {@link defaultEffect} if a content pack has no such effect.
+   */
+  missileImpactEffect: string | null;
   /** Ship `class` → effect id. */
   byShipClass: Readonly<Record<string, string>>;
   /** Particles per burst BEFORE the quality tier's particle budget scales it. */
@@ -135,11 +145,21 @@ export const DEFAULT_JUICE_SETTINGS: JuiceSettings = {
   explosions: {
     defaultEffect: null,
     asteroidEffect: null,
+    missileImpactEffect: "fx.missile-impact",
     byShipClass: {},
     burstCount: 60,
     poolPerEffect: 3,
   },
 };
+
+/**
+ * How much of a full explosion a missile detonation draws. The effect config
+ * already authors a smaller, shorter particle burst; this shrinks the flash,
+ * shockwave and debris the pooled {@link import("./ExplosionFx.js").ExplosionFx}
+ * slot draws around it, so a warhead landing on a hull cannot be mistaken for
+ * that hull dying.
+ */
+export const MISSILE_IMPACT_SCALE = 0.45;
 
 /** Resolve `theme.juice` against the built-in defaults. Never throws on partial content. */
 export function juiceSettingsOf(theme: ThemeConfig | undefined): JuiceSettings {
@@ -186,6 +206,9 @@ export function juiceSettingsOf(theme: ThemeConfig | undefined): JuiceSettings {
     explosions: {
       defaultEffect: j?.explosions?.default ?? d.explosions.defaultEffect,
       asteroidEffect: j?.explosions?.asteroid ?? d.explosions.asteroidEffect,
+      // No theme key (see ExplosionSettings.missileImpactEffect) — the shipped
+      // default is the only source until the juice schema carries one.
+      missileImpactEffect: d.explosions.missileImpactEffect,
       byShipClass: j?.explosions?.byShipClass ?? d.explosions.byShipClass,
       burstCount: j?.explosions?.burstCount ?? d.explosions.burstCount,
       poolPerEffect: j?.explosions?.poolPerEffect ?? d.explosions.poolPerEffect,
@@ -205,6 +228,21 @@ export function explosionEffectIdFor(
   if (target.isAsteroid) return settings.asteroidEffect;
   const byClass = target.shipClass ? settings.byShipClass[target.shipClass] : undefined;
   return byClass ?? settings.defaultEffect;
+}
+
+/**
+ * Effect ids to try for a missile detonation, best first. The dedicated warhead
+ * burst leads; the generic death explosion is the fallback so a content pack
+ * that predates `fx.missile-impact` still shows SOMETHING at the impact point
+ * rather than a missile silently blinking out of existence.
+ */
+export function missileImpactEffectIdsFor(settings: ExplosionSettings): readonly string[] {
+  const ids: string[] = [];
+  if (settings.missileImpactEffect) ids.push(settings.missileImpactEffect);
+  if (settings.defaultEffect && settings.defaultEffect !== settings.missileImpactEffect) {
+    ids.push(settings.defaultEffect);
+  }
+  return ids;
 }
 
 /**
