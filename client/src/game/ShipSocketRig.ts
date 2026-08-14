@@ -28,7 +28,7 @@ import type { AssetRegistry } from "../core/AssetRegistry.js";
 import { applyParticleParam } from "./particleParams.js";
 import { getParticleTexture } from "./particleTexture.js";
 import { deployProgressFor, hardpointPose } from "./juice/deployAnim.js";
-import { DEFAULT_JUICE_SETTINGS, type JuiceSettings } from "./juice/juiceSettings.js";
+import { DEFAULT_JUICE_SETTINGS, type JuiceSettings, type ViewRelation } from "./juice/juiceSettings.js";
 import { ShieldBubble } from "./juice/ShieldBubble.js";
 
 const log = createLogger("ShipSocketRig");
@@ -335,9 +335,29 @@ export class ShipSocketRig {
     this.shieldBubble.update(shieldUp && this.effectsVisible, dtMs);
   }
 
+  /**
+   * Paint this ship's shield bubble for the side it flies for (enemy = the
+   * board's danger red). The rig has no view of the local player, so the
+   * relation is resolved by the caller that does — see
+   * {@link import("./EntityView.js").ViewManager}.
+   */
+  setShieldRelation(relation: ViewRelation): void {
+    this.shieldBubble.setRelation(relation);
+  }
+
+  /** A shield absorb landed on this ship — flare its bubble (§10 5.7). */
+  shieldImpact(): void {
+    this.shieldBubble.impact();
+  }
+
   /** Whether this ship's shield bubble is currently drawn (dev probe / tests). */
   get shieldVisible(): boolean {
     return this.shieldBubble.isVisible;
+  }
+
+  /** Which side this ship's bubble is painted for (dev probe / tests). */
+  get shieldRelation(): ViewRelation {
+    return this.shieldBubble.shownRelation;
   }
 
   /** Throttled (~15 Hz) signal → curve → particle-param update for every emitter socket. */

@@ -47,7 +47,12 @@ import { advanceBeaconClock, beaconPhase, beaconPulse, beaconRadius } from "./fl
 import { resolveSoundId } from "../audio/soundIds.js";
 import { ExplosionFx } from "./juice/ExplosionFx.js";
 import { HitFlashPool } from "./juice/HitFlash.js";
-import { explosionEffectIdFor, juiceSettingsOf, type JuiceSettings } from "./juice/juiceSettings.js";
+import {
+  explosionEffectIdFor,
+  juiceSettingsOf,
+  viewRelationOf,
+  type JuiceSettings,
+} from "./juice/juiceSettings.js";
 import {
   approachRoll,
   bankRollFor,
@@ -253,7 +258,15 @@ export class ViewManager {
   private readonly decoys = new Map<EntityId, DecoyView>();
   /** Capture-the-flag flags and their wakes (owner 2026-07-31). */
   private readonly flags = new Map<EntityId, FlagView>();
-  /** Kept for the public view API; physical flag colours are team-stable. */
+  /**
+   * The team the viewer flies for. Physical flag colours are team-stable and
+   * ignore it, but the SHIELD BUBBLES do not: it is what decides whether a hull
+   * on screen wears the friendly blue shell or the enemy red one. Callers may
+   * set it on match join; {@link syncShips} also latches it off the local ship
+   * whenever the snapshot carries one, so a session that never called the
+   * setter still colours correctly — and a dead player keeps the last value
+   * rather than watching the whole arena turn friendly mid-respawn.
+   */
   private playerTeam: number | null = null;
   /** Shared beacon breath clock, wrapped to one period (see `flagBeacon.ts`). */
   private beaconClockMs = 0;
@@ -531,6 +544,11 @@ export class ViewManager {
         this.spawnBeam(ev.ownerId, ev.targetId, ev.moduleId, cur);
       } else if (ev.type === "damage") {
         this.flashHit(ev.targetId, ev.isAsteroid);
+      } else if (ev.type === "shieldAbsorb") {
+        // The absorb is the ONLY thing that lights a shield bubble: its idle
+        // pose is near-transparent, so a shell only becomes legible while it is
+        // actually stopping fire (§10 5.7, owner note 2026-08-14).
+        this.ships.get(ev.targetId)?.rig?.shieldImpact();
       } else if (ev.type === "entityDestroyed") {
         if (ev.isAsteroid) {
           const v = this.asteroids.get(ev.entityId);
@@ -688,6 +706,13 @@ export class ViewManager {
       }
     }
     const nowMs = performance.now();
+    // Latch the viewer's team off their own hull while it is on the board. One
+    // scan, before the sync loop, so every ship this frame is coloured against
+    // the same answer; the last known value survives death and spectating.
+    if (this.localPlayerId !== null) {
+      const self = findShip(cur, this.localPlayerId);
+      if (self) this.playerTeam = self.team;
+    }
     for (let i = 0; i < cur.ships.length; i++) {
       const s = cur.ships[i]!;
       let view = this.ships.get(s.id);
@@ -753,6 +778,10 @@ export class ViewManager {
 
       view.rig?.updateModules(s.modules);
       view.rig?.updateEmitters(s, prevShip, nowMs);
+      // Re-asserted every frame rather than cached on the view: a ship can
+      // change teams (mode swaps, rejoin) and the bubble ignores a relation it
+      // is already wearing, so this costs a comparison and no Babylon writes.
+      view.rig?.setShieldRelation(viewRelationOf(s.id, s.team, this.localPlayerId, this.playerTeam));
       view.rig?.updateShield(s, frameDtMs);
     }
   }
@@ -908,7 +937,12 @@ export class ViewManager {
     return { root, canister, collar, canisterMaterial, collarMaterial, tumblePhase: decoy.id * 0.73 };
   }
 
-  /** Which team the viewer flies for; retained for callers that set it on match join. */
+  /**
+   * Which team the viewer flies for, for callers that know it at match join.
+   * Optional: {@link syncShips} latches the same value off the local ship as
+   * soon as it appears in a snapshot. Setting it early only means the very
+   * first frames already colour enemy shield bubbles correctly.
+   */
   setPlayerTeam(team: number | null): void {
     this.playerTeam = team;
   }

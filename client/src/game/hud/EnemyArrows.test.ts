@@ -131,6 +131,23 @@ describe("EnemyArrows distance labels", () => {
     arrows.dispose();
   });
 
+  it("tints the in-view enemy contact diamond with the board's danger colour", () => {
+    // The regression: the faint on-screen marker was drawn in --hud-primary,
+    // so every enemy in view wore the friendly blue. Faint is fine; blue is not.
+    const root = document.createElement("div");
+    const arrows = new EnemyArrows(root, LAYOUT);
+    const css = root.querySelector("style")!.textContent ?? "";
+
+    const markerRule = css.slice(css.indexOf(".hud-enemy-marker-glyph {"));
+    const markerBody = markerRule.slice(0, markerRule.indexOf("}"));
+    expect(markerBody).toContain("--hud-danger");
+    expect(markerBody).not.toContain("--hud-primary");
+    // The lock candidate is the one contact that stays primary — it is not
+    // "an enemy" on the board, it is "the one I am locking".
+    expect(css).toContain(".hud-enemy-arrow.candidate .hud-enemy-marker-glyph");
+    arrows.dispose();
+  });
+
   it("does not leak pooled labels across match disposal/remount", () => {
     const root = document.createElement("div");
     const first = new EnemyArrows(root, LAYOUT);

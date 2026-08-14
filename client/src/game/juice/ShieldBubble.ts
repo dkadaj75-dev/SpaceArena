@@ -7,7 +7,12 @@ import {
   type Scene,
   type TransformNode,
 } from "@babylonjs/core";
-import { shieldRipplePose, type ShieldRippleSettings } from "./juiceSettings.js";
+import {
+  shieldBubbleColorOf,
+  shieldRipplePose,
+  type ShieldRippleSettings,
+  type ViewRelation,
+} from "./juiceSettings.js";
 
 /**
  * ROADMAP §10 5.7 — the shield bubble: a translucent shell that ripples while a
@@ -18,6 +23,11 @@ import { shieldRipplePose, type ShieldRippleSettings } from "./juiceSettings.js"
  * per-ship socket graph), built lazily on the first shield-up so ships that
  * never run a shield never pay for it. The ripple math is pure and lives in
  * {@link shieldRipplePose}; this class only moves Babylon state.
+ *
+ * Two things drive how it reads: WHOSE it is — {@link setRelation} paints an
+ * enemy shell in the theme's danger red and my own side's in shield blue — and
+ * WHETHER IT IS BEING SHOT: {@link impact} is what actually lights it, the idle
+ * pose being near-invisible by design.
  */
 export class ShieldBubble {
   private mesh: Mesh | null = null;
@@ -25,6 +35,12 @@ export class ShieldBubble {
   private settings: ShieldRippleSettings;
   private elapsedMs = 0;
   private active = false;
+  private relation: ViewRelation = "friendly";
+  /**
+   * Render time since the last absorb, or `Infinity` for "no impact on record"
+   * — the state a bubble starts in and returns to whenever its shield drops.
+   */
+  private msSinceImpact = Number.POSITIVE_INFINITY;
 
   constructor(
     private readonly scene: Scene,
@@ -45,7 +61,30 @@ export class ShieldBubble {
       this.mesh.setEnabled(false);
       return;
     }
-    if (this.material) this.material.emissiveColor = colorFromHex(settings.color);
+    this.applyTint();
+  }
+
+  /**
+   * Paint this bubble for the side its ship flies for. Cheap to call every
+   * frame: a relation that did not change touches no Babylon state, so the
+   * caller can simply re-assert it rather than track team changes itself.
+   */
+  setRelation(relation: ViewRelation): void {
+    if (relation === this.relation) return;
+    this.relation = relation;
+    this.applyTint();
+  }
+
+  /**
+   * An absorb landed on this ship — flare the shell. This is what makes a
+   * shield visible at all: the idle pose is deliberately near-transparent, so
+   * without impacts the bubble is felt only as a faint limb on the silhouette.
+   *
+   * Safe to call while the shield is down or the bubble disabled; the flare is
+   * only ever read by a frame that is already drawing.
+   */
+  impact(): void {
+    this.msSinceImpact = 0;
   }
 
   /**
@@ -59,6 +98,10 @@ export class ShieldBubble {
       if (this.active) {
         this.active = false;
         this.elapsedMs = 0;
+        // A collapsed shield forgets its last hit, so the bubble that comes
+        // back when the reservoir recharges starts dark instead of inheriting
+        // a flare from the volley that broke it.
+        this.msSinceImpact = Number.POSITIVE_INFINITY;
         this.mesh?.setEnabled(false);
       }
       return;
@@ -70,7 +113,12 @@ export class ShieldBubble {
       mesh.setEnabled(true);
     }
     this.elapsedMs += dtMs;
-    const pose = shieldRipplePose(this.elapsedMs, this.settings);
+    // Note the ordering against `impact()`: events drain before the frame
+    // renders, so a hit registered this frame is already `dtMs` old here. That
+    // is honest — it IS one frame of render time old — and keeps the flare
+    // monotonically decaying rather than holding its peak for two frames.
+    this.msSinceImpact += dtMs;
+    const pose = shieldRipplePose(this.elapsedMs, this.settings, this.msSinceImpact);
     mesh.scaling.setAll(this.radius * pose.scale);
     if (this.material) this.material.alpha = pose.alpha;
   }
@@ -78,6 +126,11 @@ export class ShieldBubble {
   /** Whether the bubble is currently shown (dev probe / tests). */
   get isVisible(): boolean {
     return this.active;
+  }
+
+  /** Which side this bubble is painted for (dev probe / tests). */
+  get shownRelation(): ViewRelation {
+    return this.relation;
   }
 
   dispose(): void {
@@ -92,7 +145,7 @@ export class ShieldBubble {
     const material = new StandardMaterial(`mat.shieldbubble.${this.name}`, this.scene);
     material.diffuseColor = Color3.Black();
     material.specularColor = Color3.Black();
-    material.emissiveColor = colorFromHex(this.settings.color);
+    material.emissiveColor = colorFromHex(shieldBubbleColorOf(this.relation, this.settings));
     material.disableLighting = true;
     material.backFaceCulling = false;
     material.alpha = this.settings.minAlpha;
@@ -116,6 +169,12 @@ export class ShieldBubble {
     this.mesh = mesh;
     this.material = material;
     return mesh;
+  }
+
+  /** Re-emit the current relation's tint onto a material that already exists. */
+  private applyTint(): void {
+    if (!this.material) return;
+    this.material.emissiveColor = colorFromHex(shieldBubbleColorOf(this.relation, this.settings));
   }
 }
 

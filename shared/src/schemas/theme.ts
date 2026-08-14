@@ -632,15 +632,32 @@ export const juiceSchema = z.object({
   shieldRipple: z
     .object({
       enabled: z.boolean().optional(),
+      /**
+       * Own-side bubble tint. Omitted, it follows the theme's `--hud-shield`,
+       * so the world mesh and the HUD's shield readouts cannot drift apart.
+       */
       color: z.string().optional(),
+      /**
+       * ENEMY bubble tint. Omitted, it follows the theme's `--hud-danger` —
+       * enemy is red everywhere on the board, markers and shields alike.
+       */
+      hostileColor: z.string().optional(),
       /** Full ripple cycle duration. */
       periodMs: z.number().positive().optional(),
       /** Bubble radius as a multiple of the ship's collider radius. */
       radiusScale: z.number().positive().optional(),
       /** Scale wobble around `radiusScale` across one cycle. */
       scaleWobble: z.number().min(0).max(1).optional(),
+      /**
+       * IDLE alpha band — a shield nobody is shooting at. Keep it very low:
+       * the bubble is meant to be felt rather than seen until it is hit.
+       */
       minAlpha: z.number().min(0).max(1).optional(),
       maxAlpha: z.number().min(0).max(1).optional(),
+      /** Peak alpha on an absorb — the flare that makes the shell legible. */
+      impactAlpha: z.number().min(0).max(1).optional(),
+      /** How long that flare takes to fall back into the idle band. */
+      impactDecayMs: z.number().nonnegative().optional(),
     })
     .optional(),
   /**

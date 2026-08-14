@@ -385,11 +385,14 @@
     "shieldRipple": {
       "enabled": true,
       "color": "#3B82F6",
+      "hostileColor": "#EF4444",
       "periodMs": 1400,
       "radiusScale": 1.18,
       "scaleWobble": 0.02,
-      "minAlpha": 0.04,
-      "maxAlpha": 0.1
+      "minAlpha": 0.012,
+      "maxAlpha": 0.03,
+      "impactAlpha": 0.5,
+      "impactDecayMs": 420
     },
     "deploy": {
       "extendDistance": 0.18,

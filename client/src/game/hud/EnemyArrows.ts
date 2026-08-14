@@ -44,8 +44,11 @@ interface ArrowSlot {
  * loop — see {@link begin} / {@link place} / {@link finish}.
  *
  * Tints are the reticle's own custom properties rather than new theme fields:
- * `--hud-danger` for a plain enemy and `--hud-primary` for the current lock
- * candidate, so re-painting the lock visuals re-paints the arrows with them.
+ * `--hud-danger` for a plain enemy — off-screen chevron and in-view contact
+ * diamond alike — and `--hud-primary` for the current lock candidate, so
+ * re-painting the lock visuals re-paints the arrows with them. Objectives
+ * (flags, bases) instead take the primary tint when they are the player's own,
+ * which is the same rule read from the other side: blue is mine, red is theirs.
  */
 export class EnemyArrows {
   private readonly container: HTMLDivElement;
@@ -86,15 +89,27 @@ export class EnemyArrows {
         background: var(--hud-danger, var(--sa-red-500));
         filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
       }
+      /* The in-view contact diamond. Enemy is RED, like every other threat cue
+         on the board (arrows, damage values, enemy shield bubbles) — it read as
+         a friendly blue pip before, which is the one thing a contact marker
+         must never say. The faintness is unchanged and comes from the slot's
+         opacity (markerMinOpacity / outOfRangeOpacity), NOT from the tint:
+         these stay quiet without lying about whose they are. */
       .hud-enemy-marker-glyph {
         position: absolute;
         left: 50%;
         top: 50%;
         display: none;
         box-sizing: border-box;
-        border: 1.25px solid var(--hud-primary, var(--sa-blue-500));
+        border: 1.25px solid var(--hud-danger, var(--sa-red-500));
         background: transparent;
         transform: translate(-50%, -50%) rotate(45deg);
+        filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
+      }
+      /* The lock candidate keeps the primary tint its chevron and reticle use,
+         so "the one I am locking" stays distinct from "a contact". */
+      .hud-enemy-arrow.candidate .hud-enemy-marker-glyph {
+        border-color: var(--hud-primary, var(--sa-blue-500));
         filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
       }
       .hud-enemy-arrow.on-screen-marker .hud-enemy-arrow-glyph {
