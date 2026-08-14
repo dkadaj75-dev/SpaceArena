@@ -1275,7 +1275,10 @@ const CSS = `
   top: 0;
   color: var(--hud-hull, var(--sa-white));
   font-family: var(--hud-font-display, system-ui, sans-serif);
-  font-size: calc(18px * var(--hud-damage-scale, 1));
+  /* 11px is ~60% of the original 18px base: the value stays legible over the
+     terrain but no longer crowds the ship it belongs to. The per-label
+     --hud-damage-scale (set from the hit size) still rides on top unchanged. */
+  font-size: calc(11px * var(--hud-damage-scale, 1));
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1;

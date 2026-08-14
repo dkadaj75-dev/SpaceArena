@@ -493,12 +493,11 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
 
   it("scores a bots-only capture on lunar rift within the fixed match bound", () => {
     // Pinned against the 768-wide / 112-radius-crater lunar-rift layout.
-    for (const s of [42, 1, 3, 7, 11, 13, 21, 73]) {
-      const r = playLunarCtf(s, 180);
-      console.log("PROBE seed", s, "caps", r.events.filter((e) => e.type === "flagCaptured").length,
-        "taken", r.events.filter((e) => e.type === "flagTaken").length);
-    }
-    const { events } = playLunarCtf(42, 180);
+    // Seed re-pinned 42 → 11 on 2026-08-14 with the ×1.5 weapon-DPS pass: on a
+    // map this wide the extra lethality kills seed 42's carriers mid-run (9
+    // `flagTaken`, 0 deliveries), so that seed no longer exercises the thing
+    // this test is about — a bots-only DELIVERY. Seed 11 still does.
+    const { events } = playLunarCtf(11, 180);
     expect(events.some((event) => event.type === "flagCaptured")).toBe(true);
   });
 

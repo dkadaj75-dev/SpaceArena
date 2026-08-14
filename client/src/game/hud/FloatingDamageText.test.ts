@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SimEvent, Snapshot } from "@space-arena/shared";
-import { FloatingDamageText, damageTextScale, formatDamageAmount } from "./FloatingDamageText.js";
+import {
+  DAMAGE_FULL_VISIBLE_DISTANCE,
+  DAMAGE_HIDDEN_DISTANCE,
+  FloatingDamageText,
+  damageDistanceOpacity,
+  damageTextScale,
+  formatDamageAmount,
+} from "./FloatingDamageText.js";
 
 const PLAYER = 1;
 const ENEMY = 2;
@@ -17,16 +24,81 @@ function snapshot(x = 40): Snapshot {
   } as unknown as Snapshot;
 }
 
+/** Projection that always succeeds on-screen, so a test isolates distance alone. */
+function fixedProject(_x: number, _y: number, _z: number, out: { x: number; y: number; behind: boolean }): boolean {
+  out.x = 30;
+  out.y = 40;
+  out.behind = false;
+  return true;
+}
+
 function damage(amount: number): SimEvent {
   return { type: "damage", targetId: ENEMY, sourceId: PLAYER, amount, damageType: "kinetic", isAsteroid: false };
 }
 
 describe("FloatingDamageText", () => {
-  it("formats sustained damage and scales larger hits without unbounded growth", () => {
+  // Whole numbers only (2026-08-14): a beam's per-tick fraction used to show as
+  // "2.5" and read as noise. Rounding never reaches 0 — `add()` has already
+  // rejected a non-positive hit, so anything that gets here landed.
+  it("formats every value as a whole number and scales larger hits without unbounded growth", () => {
     expect(formatDamageAmount(0.04)).toBe("1");
-    expect(formatDamageAmount(2.34)).toBe("2.3");
+    expect(formatDamageAmount(0.5)).toBe("1");
+    expect(formatDamageAmount(2.34)).toBe("2");
+    expect(formatDamageAmount(2.5)).toBe("3");
     expect(formatDamageAmount(24.4)).toBe("24");
+    expect(formatDamageAmount(24.6)).toBe("25");
     expect(damageTextScale(1000)).toBe(1.65);
+  });
+
+  it("fades a value out between the full-visible and hidden distances", () => {
+    expect(damageDistanceOpacity(0)).toBe(1);
+    expect(damageDistanceOpacity(DAMAGE_FULL_VISIBLE_DISTANCE)).toBe(1);
+    expect(damageDistanceOpacity(450)).toBeCloseTo(0.5, 6);
+    expect(damageDistanceOpacity(DAMAGE_HIDDEN_DISTANCE)).toBe(0);
+    expect(damageDistanceOpacity(9999)).toBe(0);
+    // An unplaceable point must never blank a value that is really in view.
+    expect(damageDistanceOpacity(Number.NaN)).toBe(1);
+  });
+
+  it("never spawns a label for a hit beyond the hidden distance", () => {
+    const root = document.createElement("div");
+    const text = new FloatingDamageText(root, PLAYER, { project: fixedProject });
+    // Seed the viewer/ship positions the way a live frame does: the enemy sits
+    // 600 units out, past the 500-unit cutoff.
+    text.update(snapshot(600), snapshot(600), 1, 16);
+    text.consumeEvents([damage(7)]);
+    text.update(snapshot(600), snapshot(600), 1, 16);
+    expect(root.querySelector(".hud-damage-number:not([hidden])")).toBeNull();
+    text.dispose();
+  });
+
+  it("dims a label inside the fade band and retires one that drifts out of range", () => {
+    const root = document.createElement("div");
+    const text = new FloatingDamageText(root, PLAYER, { project: fixedProject });
+    text.update(snapshot(450), snapshot(450), 1, 16);
+    text.consumeEvents([damage(7)]);
+    text.update(snapshot(450), snapshot(450), 1, 16);
+    const label = root.querySelector<HTMLElement>(".hud-damage-number:not([hidden])")!;
+    // Halfway through the band, times the (still full) lifetime opacity.
+    expect(Number(label.style.opacity)).toBeCloseTo(0.5, 2);
+    // The same ship drifts past the cutoff: its label goes, slot and all.
+    text.update(snapshot(600), snapshot(600), 1, 16);
+    expect(root.querySelector(".hud-damage-number:not([hidden])")).toBeNull();
+    text.dispose();
+  });
+
+  it("never fades own-ship damage — the player edge is at zero range", () => {
+    const root = document.createElement("div");
+    const text = new FloatingDamageText(root, PLAYER, null);
+    text.update(snapshot(900), snapshot(900), 1, 16);
+    text.consumeEvents([
+      { type: "damage", targetId: PLAYER, sourceId: ENEMY, amount: 9, damageType: "energy", isAsteroid: false },
+    ]);
+    text.update(snapshot(900), snapshot(900), 1, 16);
+    const label = root.querySelector<HTMLElement>(".hud-damage-number:not([hidden])")!;
+    expect(label.textContent).toBe("9");
+    expect(Number(label.style.opacity)).toBeGreaterThan(0.9);
+    text.dispose();
   });
 
   it("wires hull and shield events into distinct, pooled labels and merges rapid hits", () => {
