@@ -4,9 +4,13 @@ import {
   actionIdsForEvent,
   audioSettingsOf,
   cueSoundFor,
+  distanceGain,
   moduleHookFor,
   resolveSoundId,
   soundRequestFromAction,
+  soundSourceEntity,
+  SOUND_FULL_VOLUME_DISTANCE,
+  SOUND_SILENCE_DISTANCE,
 } from "./soundIds.js";
 
 const PLAYER = 1;
@@ -117,6 +121,50 @@ describe("actionIdsForEvent", () => {
     expect(actionIdsForEvent(unknownModule, lookup)).toEqual([]);
     const damage: SimEvent = { type: "damage", targetId: PLAYER, sourceId: ENEMY, amount: 5, damageType: "energy", isAsteroid: false };
     expect(actionIdsForEvent(damage, lookup)).toEqual([]);
+  });
+});
+
+describe("distanceGain", () => {
+  it("is full volume out to the near radius and silent past the far one", () => {
+    expect(distanceGain(0)).toBe(1);
+    expect(distanceGain(SOUND_FULL_VOLUME_DISTANCE)).toBe(1);
+    expect(distanceGain(SOUND_SILENCE_DISTANCE)).toBe(0);
+    expect(distanceGain(10_000)).toBe(0);
+  });
+
+  it("fades linearly between the two radii", () => {
+    expect(distanceGain(350)).toBeCloseTo(0.75, 6);
+    expect(distanceGain(400)).toBeCloseTo(0.5, 6);
+    expect(distanceGain(450)).toBeCloseTo(0.25, 6);
+  });
+
+  it("treats an unmeasurable distance as here rather than as far away", () => {
+    expect(distanceGain(Number.NaN)).toBe(1);
+    expect(distanceGain(-5)).toBe(1);
+  });
+});
+
+describe("soundSourceEntity", () => {
+  it("names the ship a module sound should be heard from", () => {
+    expect(
+      soundSourceEntity({ type: "projectileFired", ownerId: ENEMY, moduleId: "m", kind: "beam", targetId: PLAYER }),
+    ).toBe(ENEMY);
+    expect(soundSourceEntity({ type: "overheated", entityId: ENEMY, hardpointIndex: 0, moduleId: "m" })).toBe(ENEMY);
+    expect(
+      soundSourceEntity({
+        type: "moduleStateChanged",
+        entityId: ENEMY,
+        hardpointIndex: 0,
+        moduleId: "m",
+        from: "retracted",
+        to: "active",
+      }),
+    ).toBe(ENEMY);
+  });
+
+  it("is null for events that belong to no single ship", () => {
+    expect(soundSourceEntity({ type: "countdownTick", remaining: 3 })).toBeNull();
+    expect(soundSourceEntity({ type: "matchStarted" })).toBeNull();
   });
 });
 

@@ -11,11 +11,32 @@ import {
   actionIdsForEvent,
   audioSettingsOf,
   cueSoundFor,
+  distanceGain,
   soundRequestFromAction,
+  soundSourceEntity,
   type AudioSettings,
 } from "./soundIds.js";
 
 const THEME_ID = "theme.default";
+
+/** Any world-space point — a snapshot `pos` or a Babylon `Vector3` both fit. */
+export interface AudioPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * How the feedback layer places sounds in the world. Both hooks are optional:
+ * without them every sound plays at its authored volume, which is exactly what
+ * the unit tests (and any non-match use) want.
+ */
+export interface AudioFeedbackOptions {
+  /** The local player's ears — own ship position, or the camera when it is gone. */
+  listenerPosition?: () => AudioPoint | null | undefined;
+  /** A sim entity's current world position, or null/undefined when unplaceable. */
+  entityPosition?: (id: EntityId) => AudioPoint | null | undefined;
+}
 
 /**
  * ROADMAP §10 5.7 — the sim-event → sound consumer, same shape as
@@ -35,16 +56,26 @@ const THEME_ID = "theme.default";
  *
  * Each distinct sound id fires at most once per drained frame, so four lasers
  * cycling on the same tick is one zap, and a cue that happens to name the same
- * id as a module action does not double up.
+ * id as a module action does not double up. Because that one voice may stand in
+ * for several ships, ids are collected with their LOUDEST volume of the frame
+ * and flushed at the end — the nearest of four lasers is the one you hear.
+ *
+ * Distance (requirement §1): a sound made by another ship is attenuated by how
+ * far its ship is from the local player (see {@link distanceGain}) and dropped
+ * entirely past the silence radius. The local player's own module sounds and
+ * every theme cue — which are all about the local player by construction —
+ * always play at their authored volume.
  */
 export class AudioFeedback {
   private settings: AudioSettings;
-  private readonly frameIds = new Set<string>();
+  /** This frame's sound id → loudest volume requested for it (closest source). */
+  private readonly frameVolumes = new Map<string, number>();
 
   constructor(
     private readonly configs: ConfigService,
     private readonly playerId: EntityId,
     private readonly audio: AudioManager,
+    private readonly options: AudioFeedbackOptions = {},
   ) {
     this.settings = audioSettingsOf(this.configs.get<ThemeConfig>("theme", THEME_ID));
   }
@@ -63,22 +94,50 @@ export class AudioFeedback {
   consumeEvents(events: readonly SimEvent[]): void {
     // Muted / not yet unlocked: skip the whole resolution pass, not just playback.
     if (this.audio.effectiveVolume <= 0) return;
-    this.frameIds.clear();
+    this.frameVolumes.clear();
+    // One listener lookup per frame, not per event: every source is measured
+    // against the same ears. Null (no provider, or no ship and no camera yet)
+    // means "unplaceable" and disables attenuation rather than muting the world.
+    const listener = this.options.listenerPosition?.() ?? null;
     for (let i = 0; i < events.length; i++) {
       const ev = events[i]!;
       const actionIds = actionIdsForEvent(ev, (id) => this.configs.get<ModuleConfig>("module", id));
-      for (let a = 0; a < actionIds.length; a++) {
-        const request = soundRequestFromAction(this.configs.get<ActionConfig>("action", actionIds[a]!));
-        if (request) this.playOnce(request.id, request.volume);
+      if (actionIds.length > 0) {
+        // Out of earshot: skip the action/config resolution too, not just the voice.
+        const gain = this.gainFor(ev, listener);
+        if (gain > 0) {
+          for (let a = 0; a < actionIds.length; a++) {
+            const request = soundRequestFromAction(this.configs.get<ActionConfig>("action", actionIds[a]!));
+            if (request) this.requestSound(request.id, request.volume * gain);
+          }
+        }
       }
+      // Cues are local-player feedback by definition — never attenuated.
       const cue = cueSoundFor(ev, this.playerId, this.settings.cues);
-      if (cue) this.playOnce(cue, 1);
+      if (cue) this.requestSound(cue, 1);
     }
+    for (const [id, volume] of this.frameVolumes) this.audio.play(id, volume);
   }
 
-  private playOnce(id: string, volume: number): void {
-    if (this.frameIds.has(id)) return;
-    this.frameIds.add(id);
-    this.audio.play(id, volume);
+  /**
+   * Distance gain for one event's sounds. Always 1 for the local player's own
+   * ship, for match-wide events that name no ship, and whenever either end of
+   * the measurement is unplaceable this frame.
+   */
+  private gainFor(event: SimEvent, listener: AudioPoint | null): number {
+    const sourceId = soundSourceEntity(event);
+    if (sourceId === null || sourceId === this.playerId || !listener) return 1;
+    const source = this.options.entityPosition?.(sourceId);
+    if (!source) return 1;
+    return distanceGain(
+      Math.hypot(source.x - listener.x, source.y - listener.y, source.z - listener.z),
+    );
+  }
+
+  /** Keep the loudest (nearest) request per id; the flush plays one voice each. */
+  private requestSound(id: string, volume: number): void {
+    if (volume <= 0) return;
+    const previous = this.frameVolumes.get(id);
+    if (previous === undefined || volume > previous) this.frameVolumes.set(id, volume);
   }
 }

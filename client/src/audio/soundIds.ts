@@ -54,6 +54,45 @@ export function soundRequestFromAction(action: ActionConfig | undefined): SoundR
   return { id, volume };
 }
 
+/** Distance (world units) inside which another ship's sound plays unattenuated. */
+export const SOUND_FULL_VOLUME_DISTANCE = 300;
+/** Distance beyond which another ship's sound is inaudible and never played. */
+export const SOUND_SILENCE_DISTANCE = 500;
+
+/**
+ * Distance attenuation for a sound made by SOMEONE ELSE'S ship: full volume out
+ * to {@link SOUND_FULL_VOLUME_DISTANCE}, a straight line down to zero at
+ * {@link SOUND_SILENCE_DISTANCE}, and zero past it (the caller skips playback
+ * entirely rather than starting a silent voice).
+ *
+ * A non-finite distance means the source could not be placed this frame; that
+ * reads as "right here" — full volume — so a missing position can never mute a
+ * sound that used to be audible.
+ */
+export function distanceGain(distance: number): number {
+  if (!Number.isFinite(distance) || distance <= SOUND_FULL_VOLUME_DISTANCE) return 1;
+  if (distance >= SOUND_SILENCE_DISTANCE) return 0;
+  return (SOUND_SILENCE_DISTANCE - distance) / (SOUND_SILENCE_DISTANCE - SOUND_FULL_VOLUME_DISTANCE);
+}
+
+/**
+ * The entity whose position a module/effect sound should be heard FROM, or null
+ * when the event names no ship (match-wide beats such as the countdown). Sim
+ * events carry ids only, so the listener side resolves the actual position.
+ */
+export function soundSourceEntity(event: SimEvent): EntityId | null {
+  switch (event.type) {
+    case "projectileFired":
+      return event.ownerId;
+    case "overheated":
+    case "moduleStateChanged":
+    case "heatsinkJettisoned":
+      return event.entityId;
+    default:
+      return null;
+  }
+}
+
 /** The module hook whose action ids an event carries (or would carry). */
 export type ModuleHook = "onFire" | "onOverheat" | "onActivate" | "onDeactivate";
 

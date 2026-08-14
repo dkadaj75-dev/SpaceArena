@@ -509,7 +509,14 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     tacticalCamera.setStaticWorld(session.sim.world.staticWorld, session.sim.world.arena.bounds);
     tacticalCamera.setChaseMode(true);
 
-    const audioFeedback = new AudioFeedback(configService, session.playerId, audio);
+    // Other ships' sounds fade with range, so the feedback layer needs a listener
+    // and a way to place a source. The listener is the local hull while it lives
+    // and the chase rig's follow point once it doesn't (death, respawn gap).
+    const audioFeedback = new AudioFeedback(configService, session.playerId, audio, {
+      listenerPosition: () =>
+        playerShip(session.curSnapshot.ships, session.playerId)?.pos ?? playerFollow.position,
+      entityPosition: (id) => session.curSnapshot.ships.find((s) => s.id === id)?.pos ?? null,
+    });
     const screenShake = new ScreenShake(configService, session.playerId, tacticalCamera, bus);
 
     return {
