@@ -447,6 +447,15 @@ export class NetGameSession extends GameSession {
   onOrderRejected: ((reason: string) => void) | null = null;
   /** Per-player progression summary sent once, after the match ends (auth'd participants only). */
   onMatchRewards: ((event: Extract<SimEventMessage, { type: "matchRewards" }>) => void) | null = null;
+  /**
+   * Every decoded authoritative state, including the ones that arrive while the
+   * room is still `waiting` and nothing is ticking this session. The launch
+   * screen listens here to grow its team rosters as pilots (and the room's
+   * backfill bots) land, and to learn the moment the room goes live.
+   */
+  onSnapshot: ((snapshot: Snapshot) => void) | null = null;
+  /** Newest decoded state — see {@link onSnapshot} and `rosterSnapshot`. */
+  private latest: Snapshot | null = null;
 
   /** Artificial inbound latency (?fakelag=ms) for netcode testing. */
   private readonly fakeLagMs: number;
@@ -560,6 +569,12 @@ export class NetGameSession extends GameSession {
   }
   override get prevSnapshot(): Snapshot { return this.previous; }
   override get curSnapshot(): Snapshot { return this.current; }
+  /**
+   * Newest decoded server state, NOT the interpolated pair: before the match
+   * runtime exists nothing calls `tick`, so `curSnapshot` is still the first
+   * patch and would show a roster of one.
+   */
+  override get rosterSnapshot(): Snapshot { return this.latest ?? this.current; }
   override get isEnded(): boolean { return this.current.phase === "ended"; }
   override teamOf(id: EntityId): number | undefined { return this.current.ships.find((ship) => ship.id === id)?.team; }
   override get playerTeam(): number { return this.teamOf(this.playerId) ?? 0; }
@@ -608,6 +623,7 @@ export class NetGameSession extends GameSession {
   override applyOrder(_entityId: EntityId, order: Order): void { this.order(order); }
 
   dispose(): void {
+    this.onSnapshot = null;
     this.net.dispose();
     this.snapshots.length = 0;
     this.events.length = 0;
@@ -633,6 +649,7 @@ export class NetGameSession extends GameSession {
   private receiveState(state: any): void {
     const snap = this.decode(state);
     const now = performance.now();
+    this.latest = snap;
     if (this.snapshots.length === 0) {
       // First authoritative state: replace the inherited local-sim snapshot
       // immediately so consumers built right after join() see server entities,
@@ -649,6 +666,7 @@ export class NetGameSession extends GameSession {
       this.patchWindowStart = now;
       this.patchWindowCount = 0;
     }
+    this.onSnapshot?.(snap);
   }
 
   private renderAt(now: number): void {

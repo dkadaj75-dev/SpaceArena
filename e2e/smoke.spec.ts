@@ -219,8 +219,18 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(lobby).toBeVisible();
 
   // ------------------------------------------------- 5. start a practice match
-  await lobby.getByRole("button", { name: "Practice — 1v1 vs Bot", exact: true }).click();
+  await lobby.getByRole("button", { name: "Skirmish 1v1", exact: true }).click();
   await expect(lobby).toBeHidden();
+
+  // Launching leads with the player search (2026-08-14): a count-UP clock and
+  // both team rosters, while the arena loads behind the card. The match itself
+  // starts when the room stops waiting — here, when the server's backfill seats
+  // the opposing bot — so the HUD is only expected after this screen goes away.
+  const launch = page.locator(".sa-match-loading");
+  await expect(launch).toBeVisible();
+  await expect(launch.locator(".sa-match-loading-elapsed")).toHaveText(/^\d+:\d\d$/);
+  await expect(launch.locator(".sa-match-loading-team")).toHaveCount(2);
+  await expect(launch).toBeHidden({ timeout: 90_000 });
 
   // The loadout left in the Hangar is the one flown (owner 2026-07-31). Since
   // the starter-only defaults (2026-08-04), priced auxiliary sockets ship
@@ -263,6 +273,13 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   } | null>(() => {
     const debug = (window as unknown as { __debug?: DebugApi }).__debug;
     if (!debug?.session) return null;
+    // `forceFrame` compresses SIM time, but the room's order budget is
+    // WALL-CLOCK (tuning.maxOrdersPerSec, kick on sustained abuse), so an order
+    // per forced frame is spam no human HUD could produce. Flight orders are
+    // level-triggered — the sim keeps flying the last one — so the pilot below
+    // steers on the same ~11 Hz cadence the real flight sender uses.
+    const ORDER_MIN_INTERVAL_MS = 90;
+    let lastOrderAt = 0;
     const angleTo = (from: number, to: number): number => {
       let d = (to - from) % (Math.PI * 2);
       if (d > Math.PI) d -= Math.PI * 2;
@@ -284,13 +301,17 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
         : undefined;
       if (!me || !target) return null;
       const bearing = Math.atan2(target.pos.z - me.pos.z, target.pos.x - me.pos.x);
-      session.order({
-        kind: "flight",
-        throttle: 0,
-        turn: Math.max(-1, Math.min(1, angleTo(me.heading, bearing) * 2)),
-        boost: false,
-        fire: false,
-      });
+      const now = Date.now();
+      if (now - lastOrderAt >= ORDER_MIN_INTERVAL_MS) {
+        lastOrderAt = now;
+        session.order({
+          kind: "flight",
+          throttle: 0,
+          turn: Math.max(-1, Math.min(1, angleTo(me.heading, bearing) * 2)),
+          boost: false,
+          fire: false,
+        });
+      }
       debug.forceFrame(166);
       const currentMe = session.curSnapshot.ships.find((ship) => ship.id === session.playerId);
       const currentTarget = session.curSnapshot.ships.find((ship) => ship.id === target.id);
@@ -356,8 +377,17 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
 
       /** ~5 fixed 30 Hz ticks per forced frame (GameLoop caps at maxTicksPerFrame). */
       const FRAME_MS = 166;
-      /** Forced frames between DOM checks. Orders are refreshed every frame. */
+      /** Forced frames between DOM checks. */
       const BATCH = 20;
+      /**
+       * Wall-clock spacing between order bursts. Forced frames compress SIM
+       * time, but an online room polices orders per REAL second
+       * (tuning.maxOrdersPerSec, with a kick for sustained abuse), so the pilot
+       * inputs at roughly the rate the real flight sender does. Orders are
+       * level-triggered, so the ship keeps flying the last one in between.
+       */
+      const ORDER_MIN_INTERVAL_MS = 90;
+      let lastOrderAt = 0;
 
       let frames = 0;
       let phase = "live";
@@ -395,6 +425,10 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
             nearest = foe;
           }
         }
+
+        const now = Date.now();
+        if (now - lastOrderAt < ORDER_MIN_INTERVAL_MS) return;
+        lastOrderAt = now;
 
         if (nearest) {
           const bearing = Math.atan2(nearest.pos.z - me.pos.z, nearest.pos.x - me.pos.x);

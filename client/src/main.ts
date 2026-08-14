@@ -18,7 +18,9 @@ import {
   type EntityId,
   type ThemeConfig,
   type FrameAttitude,
+  type ArenaConfig,
   interpolateFrame,
+  teamSizeOf,
   BASICS_TUTORIAL_ID,
   arenaSchema,
 } from "@space-arena/shared";
@@ -56,7 +58,7 @@ import { TutorialOverlay, showTutorialToast } from "./game/tutorial/TutorialOver
 import { markTutorialCompleted } from "./game/tutorial/tutorialProgress.js";
 import { SettingsScreen } from "./game/screens/SettingsScreen.js";
 import { FullscreenPrompt } from "./game/screens/FullscreenPrompt.js";
-import { MatchLoadingScreen } from "./game/screens/MatchLoadingScreen.js";
+import { loadingRoster, MatchLoadingScreen } from "./game/screens/MatchLoadingScreen.js";
 import {
   defaultRendererPreference,
   parseRenderer,
@@ -64,6 +66,7 @@ import {
   type UserSettings,
 } from "./core/userSettings.js";
 import { NetGameSession } from "./net/NetGameSession.js";
+import { waitForMatchStart } from "./net/matchStart.js";
 import { NetDebugOverlay } from "./net/NetDebugOverlay.js";
 import { BotDebugOverlay } from "./game/BotDebugOverlay.js";
 import { AudioManager } from "./audio/AudioManager.js";
@@ -1061,13 +1064,67 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     return configService.get<GamemodeConfig>("gamemode", gamemodeId)?.defaultArena;
   }
 
+  /**
+   * How long the launch screen looks for pilots before starting anyway. Only a
+   * pack whose gamemode declares no usable bots can reach it: the room's own
+   * backfill lands far sooner. Past it, the match starts and the in-match lobby
+   * overlay keeps reporting the wait, which is the pre-2026-08 behaviour.
+   */
+  const MATCH_SEARCH_TIMEOUT_MS = 60_000;
+
+  /** The arena's skybox as a ready-to-use CSS `url()`, for the launch card art. */
+  function arenaArt(arenaId: string): string | null {
+    const texture = configService.get<ArenaConfig>("arena", arenaId)?.render?.skybox.texture;
+    return texture ? `url("${import.meta.env.BASE_URL}content/${texture}")` : null;
+  }
+
+  /** Pilots per team the chosen mode seats — the launch card's empty slots. */
+  function gamemodeTeamSize(gamemodeId: string): number {
+    const gamemode = configService.get<GamemodeConfig>("gamemode", gamemodeId);
+    return gamemode ? teamSizeOf(gamemode) : 1;
+  }
+
+  /**
+   * ONLINE launch (ROADMAP §7 2.8, reordered 2026-08-14).
+   *
+   * The first thing a player sees is the search: a count-UP clock and both team
+   * rosters, growing as real pilots join and again when the room backfills the
+   * rest with bots. The arena scene and every match model load CONCURRENTLY with
+   * that wait, so "players found" is usually the last thing missing; if it is
+   * not, the same card shows what preload is left instead of blocking on it.
+   */
   async function startOnlineMatch(choice: Extract<LobbyChoice, { kind: "online" }>): Promise<void> {
     lobby.hide();
     hangar.hide();
     music.setScreen("match");
-    matchLoading.showPending("Joining arena");
+    const arenaId = gamemodeArena(choice.gamemode) ?? FALLBACK_ARENA_ID;
+    let cancelled = false;
+    let noteCancelled: () => void = () => {};
+    const cancelSignal = new Promise<void>((resolve) => {
+      noteCancelled = resolve;
+    });
+    matchLoading.showSearching({
+      teamSize: gamemodeTeamSize(choice.gamemode),
+      title: configService.get<ArenaConfig>("arena", arenaId)?.name ?? arenaId,
+      art: arenaArt(arenaId),
+      onCancel: () => {
+        cancelled = true;
+        noteCancelled();
+        matchAssetsActive = false;
+        matchLoading.hide();
+        music.setScreen("menu");
+        lobby.show();
+      },
+    });
+    // Kicked off BEFORE the join: the map is what makes a match start slow, and
+    // the queue wait is free time to spend on it.
+    const assets = beginMatchAssets(arenaId);
+    void assets.ready.catch(() => {
+      /* Surfaced by the awaited copy below; this only marks it handled. */
+    });
+    let session: NetGameSession | null = null;
     try {
-      const session = await NetGameSession.join(
+      session = await NetGameSession.join(
         configService,
         {
           gamemode: choice.gamemode,
@@ -1076,10 +1133,33 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         },
         { upgradeLevels: loadHangarSelection().upgradeLevels ?? undefined },
       );
-      await prepareSessionArena(session);
+      if (cancelled) {
+        session.dispose();
+        return;
+      }
+      const joined = session;
+      const outcome = await waitForMatchStart(joined, {
+        onRoster: (snapshot) => matchLoading.setRoster(loadingRoster(joined, snapshot)),
+        timeoutMs: MATCH_SEARCH_TIMEOUT_MS,
+        cancelled: cancelSignal,
+      });
+      if (cancelled || outcome === "cancelled") {
+        session.dispose();
+        return;
+      }
+      if (outcome === "timeout") log.warn("room never left its lobby — starting anyway");
+      await prepareSessionArena(session, assets);
+      if (cancelled) {
+        session.dispose();
+        return;
+      }
       await matchLoading.dismiss();
       activateSession(session, choice);
     } catch (err) {
+      // Drop the socket unless the match actually took ownership of it — a
+      // half-joined room would otherwise keep this client in its roster.
+      if (session && runtime?.session !== session) session.dispose();
+      if (cancelled) return;
       matchAssetsActive = false;
       matchLoading.hide();
       music.setScreen("menu");
@@ -1099,18 +1179,31 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     }
   }
 
-  /** Static-host/dead-server fallback: identical mode and arena, bot-filled teams. */
+  /**
+   * Static-host/dead-server fallback: identical mode and arena, bot-filled teams.
+   * Shares the online launch card — the roster simply arrives complete, because
+   * the local session seats every bot at construction.
+   */
   async function startBotMatch(choice: Extract<LobbyChoice, { kind: "online" }>): Promise<void> {
     lobby.hide();
     hangar.hide();
     music.setScreen("match");
-    matchLoading.showPending("Preparing local bot match");
+    const arenaId = gamemodeArena(choice.gamemode) ?? FALLBACK_ARENA_ID;
+    matchLoading.showSearching({
+      teamSize: gamemodeTeamSize(choice.gamemode),
+      title: configService.get<ArenaConfig>("arena", arenaId)?.name ?? arenaId,
+      art: arenaArt(arenaId),
+    });
+    const assets = beginMatchAssets(arenaId);
+    void assets.ready.catch(() => {
+      /* Surfaced by the awaited copy below; this only marks it handled. */
+    });
     try {
       const selection = loadHangarSelection();
       const authState = authService.getState();
       const session = new GameSession(
         configService,
-        gamemodeArena(choice.gamemode) ?? FALLBACK_ARENA_ID,
+        arenaId,
         choice.gamemode,
         Date.now() >>> 0,
         {
@@ -1121,7 +1214,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           playerCosmeticId: selection.shipId ? ownership.selectedCosmetic(selection.shipId) : null,
         },
       );
-      await prepareSessionArena(session);
+      // Every bot is already seated locally, so the search card shows the full
+      // roster for whatever is left of the preload rather than an empty grid.
+      matchLoading.setRoster(loadingRoster(session));
+      await prepareSessionArena(session, assets);
       await matchLoading.dismiss();
       activateSession(session, choice);
     } catch (err) {
@@ -1134,15 +1230,45 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     }
   }
 
+  /** An arena build + model preload already running behind the launch screen. */
+  interface PendingMatchAssets {
+    arenaId: string;
+    ready: Promise<void>;
+  }
+
+  /**
+   * Start building the arena and loading its models NOW, reporting progress to
+   * the launch screen. Callers keep the handle and await it only when the match
+   * is otherwise ready to go — which is what lets the search run concurrently.
+   */
+  function beginMatchAssets(arenaId: string): PendingMatchAssets {
+    matchAssetsActive = true;
+    setArena(arenaId);
+    return {
+      arenaId,
+      ready: preloadMatchModels(preloadAssets, configService, arenaId, (loaded, total) =>
+        matchLoading.setAssetProgress(loaded, total),
+      ),
+    };
+  }
+
   /**
    * Resolve and fully preload an arena before any synchronous entity view can
-   * choose (and retain) a procedural fallback master for its asteroid.
+   * choose (and retain) a procedural fallback master for its asteroid. Adopts an
+   * in-flight preload when it covers the arena the session actually resolved
+   * (the normal case — the client and the room read the same gamemode default).
    */
-  async function prepareSessionArena(session: GameSession): Promise<void> {
+  async function prepareSessionArena(session: GameSession, pending?: PendingMatchAssets): Promise<void> {
     matchAssetsActive = true;
     setArena(session.arenaId);
     matchLoading.showSession(session, import.meta.env.BASE_URL);
-    await preloadMatchModels(preloadAssets, configService, session.arenaId);
+    if (pending && pending.arenaId === session.arenaId) {
+      await pending.ready;
+      return;
+    }
+    await preloadMatchModels(preloadAssets, configService, session.arenaId, (loaded, total) =>
+      matchLoading.setAssetProgress(loaded, total),
+    );
   }
 
   /** Activate a session whose arena assets have already been prepared. */

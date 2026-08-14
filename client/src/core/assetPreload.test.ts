@@ -212,4 +212,32 @@ describe("ship model preloading", () => {
     ]));
   });
 
+  it("reports monotonic load progress so the launch screen can show what is left", async () => {
+    const arenaConfig = {
+      ...arena([SMALL_ROCK.id]),
+      propPlacements: [{ propId: TERRAIN_PROP.id, position: { x: 0, z: 0 } }],
+    };
+    const ships = [{ id: "ship.one", render: { recipe: "ship", model: "ships/one.glb" } }];
+    const modules = [{ id: "module.gun", render: { recipe: "module", model: "modules/gun.glb" } }];
+    const configs = {
+      get: vi.fn((type: string, id: string) => {
+        if (type === "arena" && id === "arena.test") return arenaConfig;
+        if (type === "asteroid" && id === SMALL_ROCK.id) return SMALL_ROCK;
+        if (type === "prop" && id === TERRAIN_PROP.id) return TERRAIN_PROP;
+        return undefined;
+      }),
+      getAll: vi.fn((type: string) => (type === "ship" ? ships : type === "module" ? modules : [])),
+    } as unknown as ConfigService;
+    const assets = { ensureModel: vi.fn(async () => null) } as unknown as AssetRegistry;
+
+    const seen: Array<[number, number]> = [];
+    await preloadMatchModels(assets, configs, "arena.test", (loaded, total) => seen.push([loaded, total]));
+
+    expect(seen[0]).toEqual([0, seen[0]![1]]);
+    const total = seen[0]![1];
+    expect(total).toBeGreaterThan(1);
+    // One report per job, never going backwards, ending exactly at the total.
+    expect(seen.map(([loaded]) => loaded)).toEqual([...Array(total + 1).keys()]);
+    expect(seen.every(([, reported]) => reported === total)).toBe(true);
+  });
 });

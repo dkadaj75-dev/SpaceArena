@@ -469,6 +469,17 @@ export class GameSession {
     return this.cur;
   }
 
+  /**
+   * The newest AUTHORITATIVE state, for consumers that run before a match
+   * runtime exists (the launch screen's team rosters). Offline that is simply
+   * the current snapshot; an online session overrides it, because nothing ticks
+   * its interpolator until the match is activated and `curSnapshot` would still
+   * be the very first patch (see NetGameSession).
+   */
+  get rosterSnapshot(): Snapshot {
+    return this.cur;
+  }
+
   get isEnded(): boolean {
     return this.sim.isEnded;
   }

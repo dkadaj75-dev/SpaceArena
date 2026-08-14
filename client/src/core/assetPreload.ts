@@ -103,15 +103,42 @@ export async function preloadShipModels(assets: AssetRegistry, configs: ConfigSe
   }));
 }
 
-/** Everything a match can render, awaited behind the match loading screen. */
+/** Reports completed model loads out of the total this match needs. */
+export type PreloadProgress = (loaded: number, total: number) => void;
+
+/**
+ * Everything a match can render. Awaited behind the match launch screen — and,
+ * since the online flow searches for players FIRST, usually started long before
+ * that screen is done with it, which is what `onProgress` is for: the card shows
+ * whatever is left only if the pilots are found before the models are in.
+ *
+ * Progress is counted in individual model loads rather than in the three coarse
+ * groups, so the bar tracks the work instead of jumping to 90% on the first
+ * resolve. `ensureModel` is memoized per (path, scale, yaw), so naming the ship
+ * renders here AND running the hull pass (which additionally wires each hull's
+ * LOD chain, and must see every master resolved) costs one load apiece.
+ */
 export async function preloadMatchModels(
   assets: AssetRegistry,
   configs: ConfigService,
   arenaId: string,
+  onProgress?: PreloadProgress,
 ): Promise<void> {
-  await Promise.all([
-    preloadArenaModels(assets, configs, arenaId),
-    preloadShipModels(assets, configs),
-    ...moduleModelRenders(configs).map((render) => assets.ensureModel(render)),
-  ]);
+  const jobs: (() => Promise<unknown>)[] = [
+    ...arenaModelRenders(configs, arenaId).map(
+      (render) => () => assets.ensureModel(render, { mergeParts: render.mergeParts !== false }),
+    ),
+    ...shipModelRenders(configs).map((render) => () => assets.ensureModel(render)),
+    ...moduleModelRenders(configs).map((render) => () => assets.ensureModel(render)),
+    () => preloadShipModels(assets, configs),
+  ];
+  let loaded = 0;
+  onProgress?.(0, jobs.length);
+  await Promise.all(
+    jobs.map(async (job) => {
+      await job();
+      loaded++;
+      onProgress?.(loaded, jobs.length);
+    }),
+  );
 }
