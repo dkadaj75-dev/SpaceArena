@@ -56,8 +56,19 @@ export function resolveFitCore(ship: ShipConfig, configs: ConfigLookup, moduleId
 /** Heat a module generates per second of work, transformer tax included. */
 function heatGenPerSec(m: ModuleConfig, heatGenMult: number): number {
   if (!m.heat) return 0;
-  const perShot = m.fire && m.fire.mode !== "continuous" ? m.heat.perShot / m.fire.cycleTime : 0;
+  const perShot = m.fire && m.fire.mode !== "continuous"
+    ? m.heat.perShot * sustainedShotsPerSec(m)
+    : 0;
   return (m.heat.perSecondActive + perShot) * heatGenMult;
+}
+
+/** Held-trigger shot rate including magazine downtime; clipless weapons are unchanged. */
+function sustainedShotsPerSec(m: ModuleConfig): number {
+  if (!m.fire || m.fire.mode === "continuous") return 0;
+  const clip = m.fire.clip;
+  return clip
+    ? clip.size / ((clip.size - 1) * m.fire.cycleTime + clip.reloadSec)
+    : 1 / m.fire.cycleTime;
 }
 
 /** Compute the balance metrics for a ship with a given ordered module loadout. */
@@ -80,12 +91,13 @@ export function fitMetrics(ship: ShipConfig, configs: ConfigLookup, moduleIds: r
     if (m.mitigation) shieldPool += tank;
     if (m.fire) {
       const nominal = m.fire.mode === "continuous" ? m.fire.damage : m.fire.damage / m.fire.cycleTime;
+      const triggerHeld = m.fire.mode === "continuous" ? nominal : m.fire.damage * sustainedShotsPerSec(m);
       burstDps += nominal;
       const gen = heatGenPerSec(m, core.efficiency.heatGen);
       const cooling = (m.heat?.coolingPerSec ?? 0) * core.cooling.multiplier;
       // Duty cycle of a rack that trips and re-arms forever is cooling/generation
       // — burn and lockout both scale with the same capacity, so it cancels out.
-      sustainedDps += gen > cooling ? nominal * (cooling / gen) : nominal;
+      sustainedDps += gen > cooling ? triggerHeld * (cooling / gen) : triggerHeld;
     }
     if (!m.heat) continue;
     const capacity = m.heat.capacity * core.heatStore.multiplier;

@@ -54,6 +54,18 @@ function fakeConfigs(heatSystem = true): ConfigService {
         requiresLineOfSight: true,
       },
     },
+    "module.kinetic-mk1": {
+      name: "Autocannon Mk I",
+      family: "kinetic",
+      ui: { icon: "K", label: "Autocannon", shortName: "Cannon Mk1" },
+      activation: { deployTime: 0.4, retractTime: 0.3 },
+      heat: { capacity: 100, coolingPerSec: 25, perSecondActive: 0, perShot: 20, rearmBelow: 0.25 },
+      fire: {
+        mode: "held", range: 75, cycleTime: 0.3, damage: 5.9, damageType: "kinetic",
+        projectile: { speed: 60, lifetime: 1.5 }, requiresLineOfSight: true,
+        clip: { size: 24, reloadSec: 2.6 },
+      },
+    },
   };
   return {
     get: (_type: string, id: string) => modules[id] as ModuleConfig | undefined,
@@ -65,7 +77,7 @@ function snapshotWithModules(
   modules: {
     hardpointIndex: number;
     moduleId: string;
-    state: "retracted" | "active" | "overheated";
+    state: "retracted" | "active" | "overheated" | "reloading";
     stateTimer?: number;
     heat?: number;
     heatCapacity?: number;
@@ -73,6 +85,7 @@ function snapshotWithModules(
     energyCapacity?: number;
     cycleTimer?: number;
     channeling?: boolean;
+    rounds?: number;
   }[],
   options: { locked?: boolean; energy?: number } = {},
 ): Snapshot {
@@ -100,6 +113,7 @@ function snapshotWithModules(
         modules: modules.map((m) => ({
           ...m,
           stateTimer: m.stateTimer ?? 0,
+          rounds: m.rounds ?? 0,
           heat: m.heat ?? 0,
           heatCapacity: m.heatCapacity ?? 0,
           energy: m.energy ?? 0,
@@ -273,6 +287,24 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     expect(retracted.classList).toContain("no-energy");
     expect(retracted.classList).not.toContain("cooling");
     expect(retracted.classList).not.toContain("unarmable");
+    buttons.dispose();
+  });
+
+  it("shows live clip rounds and a reload sweep", () => {
+    const root = document.createElement("div");
+    const buttons = new ModuleButtons(root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1);
+    buttons.update(snapshotWithModules([
+      { hardpointIndex: 0, moduleId: "module.kinetic-mk1", state: "active", rounds: 17 },
+    ]));
+    const button = root.querySelector<HTMLElement>(".hud-module-btn")!;
+    expect(button.querySelector<HTMLElement>(".rounds")!.textContent).toBe("17");
+    buttons.update(snapshotWithModules([
+      { hardpointIndex: 0, moduleId: "module.kinetic-mk1", state: "reloading", rounds: 0, stateTimer: 1.3 },
+    ]));
+    expect(button.querySelector<HTMLElement>(".rounds")!.textContent).toBe("0");
+    expect(button.classList).toContain("state-reloading");
+    expect(button.classList).toContain("ring-reload");
+    expect(button.style.getPropertyValue("--ring")).toBe("50");
     buttons.dispose();
   });
 

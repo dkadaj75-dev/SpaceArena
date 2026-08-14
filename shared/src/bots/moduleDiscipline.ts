@@ -68,7 +68,7 @@ export function planModuleOrders(
   const decisions: ModuleDecision[] = [];
 
   for (const m of ctx.self.modules) {
-    if (m.state === "deploying" || m.state === "retracting" || m.state === "overheated") continue;
+    if (m.state === "deploying" || m.state === "retracting" || m.state === "overheated" || m.state === "reloading") continue;
     const cfg = configs.get<ModuleConfig>("module", m.moduleId);
     if (!cfg) continue;
     // Weapon racks own a finite overheat/cooling cycle and automatically re-arm

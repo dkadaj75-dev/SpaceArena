@@ -21,10 +21,11 @@
   "fire": {
     "mode": "held",
     "range": 85,
-    "cycleTime": 0.8,
+    "cycleTime": 0.26666666666666666,
     "damage": 6.31,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
+    "clip": { "size": 32, "reloadSec": 2.2 },
     "projectile": {
       "speed": 70,
       "lifetime": 1.5

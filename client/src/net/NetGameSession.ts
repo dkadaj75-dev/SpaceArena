@@ -988,6 +988,7 @@ export function decodeModules(raw: any): Snapshot["ships"][number]["modules"] {
     hardpointIndex: m.hardpointIndex,
     moduleId: m.moduleId,
     state: decodeModuleState(m.state),
+    rounds: m.rounds ?? 0,
     // Per-module stores (heat/energy overhaul 2026-08-07): the four numbers the
     // button rings are drawn from. Capacities are resolved server-side against
     // the hull, so they are replicated rather than recomputed from the config.

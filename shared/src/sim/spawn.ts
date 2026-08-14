@@ -119,6 +119,7 @@ export function spawnShipFromConfig(
       // energy-priced activation and starts DISABLED on every fresh hull.
       state: modCfg.fire || (isInternalFamily(modCfg.family) && !modCfg.boost) ? "active" : "retracted",
       stateTimer: 0,
+      rounds: modCfg.fire?.clip?.size ?? 0,
       heat: 0,
       heatCapacity: modCfg.heat ? modCfg.heat.capacity * core.heatStore.multiplier : 0,
       // Tanks spawn FULL: a pilot leaves the pad with a charged boost bottle and

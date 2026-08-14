@@ -44,12 +44,14 @@ interface ButtonEntry {
   ring: HTMLSpanElement;
   icon: HTMLSpanElement;
   label: HTMLSpanElement;
+  rounds: HTMLSpanElement;
   moduleId: string;
   cfg: ModuleConfig | undefined;
   // Last-rendered values so we only touch the DOM on change.
   lastState: ModuleState | null;
   lastRing: number;
-  lastRingKind: "heat" | "energy" | null;
+  lastRingKind: "heat" | "energy" | "reload" | null;
+  lastRounds: number;
   lastDanger: boolean;
   lastNoEnergy: boolean;
   lastArmed: boolean;
@@ -212,12 +214,17 @@ export class ModuleButtons {
       const entry = this.entries.get(m.hardpointIndex);
       if (!entry) continue;
 
-      const ringKind = heatEnabled && entry.cfg?.fire && m.heatCapacity > 0
+      const reloading = m.state === "reloading" && entry.cfg?.fire?.clip !== undefined;
+      const ringKind = reloading
+        ? "reload"
+        : heatEnabled && entry.cfg?.fire && m.heatCapacity > 0
         ? "heat"
         : m.energyCapacity > 0
           ? "energy"
           : null;
-      const ringPct = ringKind === "heat"
+      const ringPct = ringKind === "reload"
+        ? resourcePct(entry.cfg!.fire!.clip!.reloadSec - m.stateTimer, entry.cfg!.fire!.clip!.reloadSec)
+        : ringKind === "heat"
         ? m.state === "overheated"
           ? 100
           : resourcePct(m.heat, m.heatCapacity)
@@ -247,7 +254,13 @@ export class ModuleButtons {
         entry.ring.hidden = ringKind === null;
         entry.root.classList.toggle("ring-heat", ringKind === "heat");
         entry.root.classList.toggle("ring-energy", ringKind === "energy");
+        entry.root.classList.toggle("ring-reload", ringKind === "reload");
         entry.lastRingKind = ringKind;
+      }
+      const rounds = m.rounds ?? 0;
+      if (rounds !== entry.lastRounds) {
+        entry.rounds.textContent = String(rounds);
+        entry.lastRounds = rounds;
       }
       if (danger !== entry.lastDanger) {
         entry.root.classList.toggle("ring-danger", danger);
@@ -326,8 +339,12 @@ export class ModuleButtons {
         const label = document.createElement("span");
         label.className = "label";
         label.textContent = moduleHudName(cfg, moduleId);
+        const rounds = document.createElement("span");
+        rounds.className = "rounds";
+        rounds.hidden = cfg?.fire?.clip === undefined;
+        rounds.setAttribute("aria-label", "Rounds remaining");
 
-        btn.append(ring, icon, label);
+        btn.append(ring, icon, rounds, label);
         btn.addEventListener("click", () => {
           this.session.order({ kind: "moduleToggle", hardpointIndex });
           log.debug(`moduleToggle → hardpoint ${hardpointIndex} (${moduleId})`);
@@ -342,11 +359,13 @@ export class ModuleButtons {
             ring,
             icon,
             label,
+            rounds,
             moduleId,
             cfg,
             lastState: null,
             lastRing: -1,
             lastRingKind: null,
+            lastRounds: -1,
             lastDanger: false,
             lastNoEnergy: false,
             lastArmed: false,

@@ -85,6 +85,11 @@ describe("decodeModules (Finding 2 + 5)", () => {
     expect(decodeModules(raw)[0]!.state).toBe("active");
   });
 
+  it("wires rounds remaining and the reloading state through the snapshot", () => {
+    const raw = [{ hardpointIndex: 0, moduleId: "module.kinetic-mk1", state: 5, rounds: 7, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 1.2, cycleTimer: 0, shieldPool: 0 }];
+    expect(decodeModules(raw)[0]).toMatchObject({ state: "reloading", rounds: 7, stateTimer: 1.2 });
+  });
+
   it("wires the replicated continuous-channel flag through per-module", () => {
     // The ONLY new field the continuous beam adds to the wire: without it a
     // remote client has nothing to draw a channelled beam from, since a channel

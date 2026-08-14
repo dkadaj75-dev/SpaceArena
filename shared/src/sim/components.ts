@@ -106,7 +106,8 @@ export type ModuleState =
   | "deploying"
   | "active"
   | "retracting"
-  | "overheated";
+  | "overheated"
+  | "reloading";
 
 /**
  * Banked damage from a channelling `continuous` weapon. Damage itself is applied
@@ -137,6 +138,8 @@ export interface ModuleRuntime {
    * `heat.capacity × heat.rearmBelow` — so this is 0 throughout one.
    */
   stateTimer: number;
+  /** Rounds left in an authored clip; 0 for modules without a clip. */
+  rounds: number;
   /** This module's own heat, 0..{@link ModuleRuntime.heatCapacity}. */
   heat: number;
   /**

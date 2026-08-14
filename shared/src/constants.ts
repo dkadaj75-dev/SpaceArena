@@ -15,4 +15,6 @@ export const SIM_TICK_RATE = 30;
 // client would render every hull in its authored colours while the rest of the
 // room sees paint, which is exactly the disagreement replication exists to
 // prevent.
-export const PROTOCOL_VERSION = 5;
+// 6: clip-fed weapons add the `reloading` module state and replicate each
+// module's dynamic rounds-remaining count.
+export const PROTOCOL_VERSION = 6;

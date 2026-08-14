@@ -44,6 +44,26 @@ describe("ModuleSystem state machine", () => {
     expect(states).toEqual(["active", "active", "active", "active", "active", "active", "active"]);
   });
 
+  it("counts down a clip reload, refills it, and re-arms automatically", () => {
+    const world = makeWorld(configs);
+    const fitting = [...INTERCEPTOR_FITTING];
+    fitting[0] = "module.kinetic-mk1";
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", fitting, 0, { x: 0, z: 0 }, 0);
+    const gun = world.modules.get(id)!.modules[0]!;
+    const clip = configs.get<ModuleConfig>("module", gun.moduleId)!.fire!.clip!;
+    expect(gun.rounds).toBe(clip.size);
+    gun.rounds = 0;
+    gun.state = "reloading";
+    gun.stateTimer = clip.reloadSec;
+    tickModules(world, Math.ceil(clip.reloadSec / DT) - 1);
+    expect(gun.state).toBe("reloading");
+    expect(gun.rounds).toBe(0);
+    tickModules(world, 2);
+    expect(gun.state).toBe("active");
+    expect(gun.rounds).toBe(clip.size);
+    expect(gun.stateTimer).toBe(0);
+  });
+
   it("spawns a boost-capable engine DISABLED until it is toggled on", () => {
     const world = makeWorld(configs);
     const id = spawnShipFromConfig(
@@ -303,7 +323,7 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
 
   it("never leaves a module in a state outside the declared enum across a scripted toggle storm", () => {
     const { world, id } = shipWorld();
-    const legal = new Set(["retracted", "deploying", "active", "retracting", "overheated"]);
+    const legal = new Set(["retracted", "deploying", "active", "retracting", "overheated", "reloading"]);
     // Deterministic pseudo-random toggle schedule (no Math.random in sim tests).
     let seed = 1337;
     const nextInt = (n: number): number => {

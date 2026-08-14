@@ -107,7 +107,12 @@ function stepHeat(
       // support module returns retracted for the pilot to raise deliberately.
       // The rail still has the last word — see railFits.
       const online = cfg.fire !== undefined && railFits(world, id, m, siblings);
-      transition(world, id, m, online ? "active" : "retracted", online ? cfg.onActivate : undefined);
+      if (online && cfg.fire?.clip && m.rounds <= 0) {
+        m.stateTimer = cfg.fire.clip.reloadSec;
+        transition(world, id, m, "reloading");
+      } else {
+        transition(world, id, m, online ? "active" : "retracted", online ? cfg.onActivate : undefined);
+      }
     }
     return;
   }

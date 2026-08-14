@@ -56,6 +56,7 @@ function shipWith(
     energy: (opts.moduleEnergy?.[i] ?? opts.energy ?? 100) * 0.01 * 100,
     energyCapacity: 100,
     stateTimer: 0,
+    rounds: 0,
     cycleTimer: 0,
     channeling: false,
     shieldPool: 0,

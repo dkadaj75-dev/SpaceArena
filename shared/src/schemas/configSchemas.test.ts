@@ -565,6 +565,22 @@ describe("module schema", () => {
     expect(mutated("module", patchFire({ damage: 0 }))).toBe(true); // 0 damage is legal (utility beam)
   });
 
+  it("validates discrete-weapon clips and their bounds", () => {
+    const clip = (value: unknown) => (d: Record<string, unknown>) => {
+      (d["fire"] as Record<string, unknown>)["clip"] = value;
+    };
+    expect(mutated("module", clip({ size: 20, reloadSec: 1 }))).toBe(true);
+    expect(mutated("module", clip({ size: 50, reloadSec: 3 }))).toBe(true);
+    expect(mutated("module", clip({ size: 19, reloadSec: 2 }))).toBe(false);
+    expect(mutated("module", clip({ size: 20.5, reloadSec: 2 }))).toBe(false);
+    expect(mutated("module", clip({ size: 30, reloadSec: 3.1 }))).toBe(false);
+    expect(mutated("module", (d) => {
+      (d["fire"] as Record<string, unknown>)["mode"] = "continuous";
+      (d["fire"] as Record<string, unknown>)["clip"] = { size: 30, reloadSec: 2 };
+      d["heat"] = { capacity: 55, coolingPerSec: 8, perSecondActive: 20 };
+    })).toBe(false);
+  });
+
   it("accepts `continuous` only as a hitscan channel, and still requires a cycleTime", () => {
     const patchFire = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
       d["fire"] = { ...(d["fire"] as Record<string, unknown>), ...patch };

@@ -40,6 +40,11 @@ const fireBlock = z.object({
   damageType,
   requiresLineOfSight: z.boolean(),
   projectile,
+  /** Optional magazine for discrete weapons. Omit to preserve unlimited ammunition. */
+  clip: z.object({
+    size: z.number().int().min(20).max(50),
+    reloadSec: z.number().min(1).max(3),
+  }).optional(),
 });
 
 /**
@@ -249,6 +254,13 @@ export const moduleSchema = moduleObject.superRefine((mod, ctx) => {
       code: z.ZodIssueCode.custom,
       message: "fire.mode 'continuous' requires fire.projectile: null (a channel is hitscan, it launches nothing)",
       path: ["fire", "projectile"],
+    });
+  }
+  if (mod.fire?.mode === "continuous" && mod.fire.clip) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "fire.mode 'continuous' cannot use a clip (a channel has no discrete rounds)",
+      path: ["fire", "clip"],
     });
   }
   // --- heat/energy overhaul (2026-08-07) invariants -----------------------

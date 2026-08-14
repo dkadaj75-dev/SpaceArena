@@ -73,6 +73,16 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     expect(panel.recoverSec).toBeCloseTo(laser.heat!.capacity / (laser.heat!.coolingPerSec * 1.6), 6);
   });
 
+  it("accounts for kinetic reload downtime while retaining burst DPS", () => {
+    const gun = configs.get<ModuleConfig>("module", "module.kinetic-mk1")!;
+    const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: [gun.id] });
+    const burst = gun.fire!.damage / gun.fire!.cycleTime;
+    const clipLimited = gun.fire!.damage * gun.fire!.clip!.size /
+      ((gun.fire!.clip!.size - 1) * gun.fire!.cycleTime + gun.fire!.clip!.reloadSec);
+    expect(panel.dps).toBeCloseTo(burst, 6);
+    expect(panel.sustainedDps).toBeLessThanOrEqual(clipLimited + 1e-9);
+  });
+
   it("sums the tanks of a fit made entirely of shields", () => {
     // (computeStatPanel sums whatever it is handed; socket legality is the
     // Hangar's job, not the stat panel's.)

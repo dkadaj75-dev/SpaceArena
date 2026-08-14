@@ -43,6 +43,14 @@ export function moduleSystem(world: World, dt: number): void {
       } else if (m.state === "retracting") {
         m.stateTimer -= dt;
         if (m.stateTimer <= 0) transition(world, id, m, "retracted");
+      } else if (m.state === "reloading") {
+        m.stateTimer -= dt;
+        if (m.stateTimer <= 0 && cfg.fire?.clip) {
+          m.rounds = cfg.fire.clip.size;
+          m.stateTimer = 0;
+          m.cycleTimer = 0;
+          transition(world, id, m, "active");
+        }
       }
     }
   }
@@ -89,6 +97,7 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
       break;
     }
     case "overheated":
+    case "reloading":
       break; // forced offline; ignore toggles
   }
 }

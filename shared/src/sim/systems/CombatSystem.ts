@@ -6,6 +6,7 @@ import { hasLineOfSightBetween } from "../los.js";
 import { spawnProjectile } from "../spawn.js";
 import { heatSystemEnabled } from "../tuningDefaults.js";
 import type { World } from "../World.js";
+import { transition } from "./ModuleSystem.js";
 
 /**
  * Cadence (seconds) at which a channelling `continuous` weapon flushes its
@@ -92,6 +93,7 @@ export function combatSystem(world: World, dt: number): void {
         if (heatSystemEnabled(world.tuning)) {
           m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
         }
+        spendRound(world, id, m, cfg);
 
         if (cfg.fire.projectile === null) {
           const hit = raycastNose(world, id, myTeam, myTf, cfg.fire.range);
@@ -152,6 +154,7 @@ export function combatSystem(world: World, dt: number): void {
       if (heatSystemEnabled(world.tuning)) {
         m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
       }
+      spendRound(world, id, m, cfg);
       const heading = headingOf(dx, dz);
       // Ordnance leaves along the 3D bearing, so a shot at a climbing enemy
       // actually climbs (dumb kinetics included — they still lead nothing).
@@ -195,6 +198,17 @@ export function combatSystem(world: World, dt: number): void {
         });
       }
     }
+  }
+}
+
+/** Spend ammunition only once a discrete shot has passed every firing gate. */
+function spendRound(world: World, ownerId: EntityId, m: ModuleRuntime, cfg: ModuleConfig): void {
+  const clip = cfg.fire?.clip;
+  if (!clip) return;
+  m.rounds = Math.max(0, m.rounds - 1);
+  if (m.rounds === 0) {
+    m.stateTimer = clip.reloadSec;
+    transition(world, ownerId, m, "reloading");
   }
 }
 

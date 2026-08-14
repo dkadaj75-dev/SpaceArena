@@ -11,7 +11,7 @@ import type { MatchStatDelta, MatchStatLine } from "../sim/MatchStats.js";
  * intentionally NOT schema-synced (beams/kinetics are one-shot events, orders are
  * request/ack). Keep this file the single source of truth for both sides.
  *
- * ## Per-module heat/energy (protocol 4, 2026-08-07)
+ * ## Per-module heat/energy and clips (protocol 6, 2026-08-14)
  *
  * Heat and energy are replicated PER MODULE, never per ship. Every module entry
  * — schema-synced as `ModuleState`, and identical in the offline
@@ -28,6 +28,10 @@ import type { MatchStatDelta, MatchStatLine } from "../sim/MatchStats.js";
  * whether to draw a ring. There are no ship-wide heat or energy fields: the pool
  * and the capacitor were deleted, not deprecated (docs/COMBAT-REWORK.md,
  * 2026-08-07 amendment).
+ *
+ * Clip size and reload duration remain static content. Only dynamic `rounds`
+ * travels per module; the `reloading` state and `stateTimer` provide reload
+ * presentation and deterministic client interpolation.
  */
 
 /** Numeric wire encoding for the §2.3 module state machine (uint8 in schema). */
@@ -37,6 +41,7 @@ export const MODULE_STATE_CODE: Record<ModuleState, number> = {
   active: 2,
   retracting: 3,
   overheated: 4,
+  reloading: 5,
 };
 
 /** Inverse of {@link MODULE_STATE_CODE}; index by the uint8 wire value. */
@@ -46,6 +51,7 @@ export const MODULE_STATE_BY_CODE: readonly ModuleState[] = [
   "active",
   "retracting",
   "overheated",
+  "reloading",
 ];
 
 export function encodeModuleState(state: ModuleState): number {

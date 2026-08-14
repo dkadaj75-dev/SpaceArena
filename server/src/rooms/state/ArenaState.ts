@@ -27,6 +27,8 @@ export class ModuleState extends Schema {
   @type("uint8") state = 0;
   /** Remaining seconds in a timed state (deploying/retracting/overheated). */
   @type("float32") stateTimer = 0;
+  /** Dynamic rounds remaining (0 for modules without an authored clip). */
+  @type("uint8") rounds = 0;
   /**
    * This module's OWN heat and its resolved capacity (heat/energy overhaul
    * 2026-08-07). The button's heat ring is `heat / heatCapacity`; a capacity of

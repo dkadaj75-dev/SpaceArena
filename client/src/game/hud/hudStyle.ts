@@ -365,6 +365,10 @@ const CSS = `
   opacity: 0.72;
   background: conic-gradient(var(--hud-primary, var(--sa-blue-500)) calc(var(--ring, 0) * 1%), transparent 0);
 }
+.hud-module-btn.ring-reload > .ring {
+  opacity: 0.9;
+  background: conic-gradient(var(--sa-white) calc(var(--ring, 0) * 1%), transparent 0);
+}
 .hud-module-btn.ring-danger > .ring {
   opacity: 0.92;
   background: conic-gradient(var(--hud-danger, var(--sa-red-500)) calc(var(--ring, 0) * 1%), transparent 0);
@@ -379,6 +383,19 @@ const CSS = `
   justify-content: center;
 }
 .hud-module-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
+.hud-module-btn > .rounds {
+  position: absolute;
+  z-index: 3;
+  right: 17%;
+  bottom: 14%;
+  min-width: 1.35em;
+  padding: 0 0.15em;
+  border: 1px solid color-mix(in srgb, var(--hud-module-family-color) 72%, var(--sa-white));
+  background: color-mix(in srgb, var(--hud-bg) 88%, transparent);
+  color: var(--sa-white);
+  font: 800 clamp(9px, 0.68em, 12px)/1.25 ui-monospace, monospace;
+  text-align: center;
+}
 .hud-module-btn > .label {
   position: absolute;
   z-index: 2;
@@ -427,6 +444,12 @@ const CSS = `
 }
 .hud-module-btn.state-overheated > .icon { color: var(--hud-danger, var(--sa-red-500)); }
 .hud-module-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
+.hud-module-btn.state-reloading {
+  --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 48%, var(--sa-white));
+  filter: saturate(0.55) brightness(0.72);
+}
+.hud-module-btn.state-reloading > .icon { opacity: 0.48; }
+.hud-module-btn.state-reloading > .rounds { animation: hud-reload-pulse 0.8s ease-in-out infinite; }
 .hud-module-btn.no-energy { filter: saturate(0.42) brightness(0.7); opacity: 0.78; }
 .hud-module-btn.armed {
   --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 72%, var(--sa-white));
@@ -443,6 +466,7 @@ const CSS = `
   0%, 100% { filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500))); }
   50% { filter: drop-shadow(0 0 calc(18px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500))); }
 }
+@keyframes hud-reload-pulse { 50% { opacity: 0.42; } }
 
 /* --- Flight controls (FLIGHT.md §4) ---
    Every dimension arrives as a --hud-* custom property resolved in

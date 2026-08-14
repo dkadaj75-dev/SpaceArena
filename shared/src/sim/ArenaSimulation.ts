@@ -26,6 +26,8 @@ export interface ModuleSnapshot {
   /** Hardpoint index this module occupies (stable; toggle addresses by this). */
   hardpointIndex: number;
   state: ModuleState;
+  /** Dynamic rounds remaining; 0 for weapons without a clip. */
+  rounds?: number;
   /**
    * This module's OWN heat (heat/energy overhaul 2026-08-07). The HUD's heat
    * ring is `heat / heatCapacity`; there is no ship heat pool to fall back on.
@@ -784,6 +786,7 @@ export class ArenaSimulation {
           moduleId: m.moduleId,
           hardpointIndex: m.hardpointIndex,
           state: m.state,
+          rounds: m.rounds,
           heat: m.heat,
           heatCapacity: m.heatCapacity,
           energy: m.energy,

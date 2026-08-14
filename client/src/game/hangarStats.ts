@@ -60,6 +60,14 @@ export interface ComputeStatPanelOptions {
   fittedModuleIds: readonly (string | null | undefined)[];
 }
 
+function sustainedShotsPerSec(mod: ModuleConfig): number {
+  if (!mod.fire || mod.fire.mode === "continuous") return 0;
+  const clip = mod.fire.clip;
+  return clip
+    ? clip.size / ((clip.size - 1) * mod.fire.cycleTime + clip.reloadSec)
+    : 1 / mod.fire.cycleTime;
+}
+
 export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts: ComputeStatPanelOptions): HangarStatPanel {
   const core = resolveShipStats(ship, configs, {
     upgradeLevels: opts.upgradeLevels,
@@ -83,14 +91,14 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     if (mod.heat) {
       const capacity = mod.heat.capacity * core.heatStore.multiplier;
       const cooling = mod.heat.coolingPerSec * core.cooling.multiplier;
-      const perShot = mod.fire && mod.fire.mode !== "continuous" ? mod.heat.perShot / mod.fire.cycleTime : 0;
+      const perShot = mod.fire && mod.fire.mode !== "continuous" ? mod.heat.perShot * sustainedShotsPerSec(mod) : 0;
       const gen = (mod.heat.perSecondActive + perShot) * core.efficiency.heatGen;
       if (cooling > 0) recoverSec = Math.max(recoverSec, capacity / cooling);
       if (gen > cooling) {
         burnSec = Math.min(burnSec, Math.max(0, capacity - mod.heat.perShot * core.efficiency.heatGen) / (gen - cooling));
       }
       if (mod.fire) {
-        const nominal = mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage / mod.fire.cycleTime;
+        const nominal = mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage * sustainedShotsPerSec(mod);
         sustainedDps += gen > cooling ? nominal * (cooling / gen) : nominal;
       }
     }

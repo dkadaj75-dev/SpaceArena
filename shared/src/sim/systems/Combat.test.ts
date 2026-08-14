@@ -169,7 +169,10 @@ describe("CombatSystem straight fire — no lock, non-homing weapons (2026-07-31
     rebuildSpatial(world);
 
     const before = world.shipCores.get(target)!.hull;
+    const gun = world.modules.get(shooter)!.modules[0]!;
+    const roundsBefore = gun.rounds;
     combatSystem(world, DT); // weapon spawned online; no lock at all
+    expect(gun.rounds).toBe(roundsBefore - 1);
     expect(world.events.find((e) => e.type === "projectileFired")).toMatchObject({
       kind: "kinetic",
       targetId: null,
@@ -179,6 +182,28 @@ describe("CombatSystem straight fire — no lock, non-homing weapons (2026-07-31
       projectileSystem(world, DT);
     }
     expect(world.shipCores.get(target)!.hull).toBeLessThan(before);
+  });
+
+  it("the last kinetic round starts a deterministic reload and produces no extra shot", () => {
+    const make = () => {
+      const world = makeWorld(configs);
+      const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", ["module.kinetic-mk1", null, null, null], 0, { x: 0, z: 0 }, 0);
+      world.flightStates.set(shooter, { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false });
+      const gun = world.modules.get(shooter)!.modules[0]!;
+      gun.rounds = 1;
+      return { world, shooter, gun };
+    };
+    const a = make();
+    const b = make();
+    combatSystem(a.world, DT);
+    combatSystem(b.world, DT);
+    expect({ state: a.gun.state, timer: a.gun.stateTimer, rounds: a.gun.rounds }).toEqual(
+      { state: b.gun.state, timer: b.gun.stateTimer, rounds: b.gun.rounds },
+    );
+    expect(a.gun.state).toBe("reloading");
+    expect(a.gun.rounds).toBe(0);
+    combatSystem(a.world, DT);
+    expect(a.world.events.filter((e) => e.type === "projectileFired")).toHaveLength(1);
   });
 
   it("the nose ray never reaches past fire.range", () => {

@@ -63,6 +63,16 @@ describe("balanceMath", () => {
     expect(m.ehp).toBeCloseTo(110, 5); // 100 * (1 + 0.1 avg resist)
   });
 
+  it("reports burst cadence separately from clip-limited sustained DPS", () => {
+    const gun = mod("module.kinetic", "kinetic", {
+      heat: { capacity: 100, coolingPerSec: 100, perShot: 0, perSecondActive: 0, rearmBelow: 0.25 },
+      fire: { mode: "held", range: 30, cycleTime: 0.25, damage: 10, damageType: "kinetic", requiresLineOfSight: true, projectile: null, clip: { size: 20, reloadSec: 2 } },
+    });
+    const m = fitMetrics(makeShip(), lookup([gun]), [gun.id]);
+    expect(m.burstDps).toBe(40);
+    expect(m.sustainedDps).toBeCloseTo(200 / (19 * 0.25 + 2), 6);
+  });
+
   it("EHP + shield reserve drive a first-order TTK", () => {
     const modules = [
       // Cooling that keeps pace with generation ⇒ duty cycle 1, so this weapon's
