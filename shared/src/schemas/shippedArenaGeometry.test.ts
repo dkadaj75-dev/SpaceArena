@@ -228,7 +228,10 @@ describe("shipped canyon arena geometry", () => {
 
   it("pins the generated placement count and preserves 180-degree placement symmetry", () => {
     expect(arena.bounds.shape).toBe("box");
-    expect(propPlacements).toHaveLength(128);
+    // 128 generated (16 terrain chunks + 56 twinned pairs) plus the one
+    // hand-authored centrepiece — the He-3 extraction plant, which sits on the
+    // symmetry point itself and is therefore its own 180-degree twin.
+    expect(propPlacements).toHaveLength(129);
     const placements = propPlacements.map((placement) => ({
       propId: placement.propId,
       position: positionOf(placement.position),

@@ -1457,6 +1457,18 @@
         "y": 5.293689
       },
       "scale": 3.438374
+    },
+    {
+      "propId": "prop.lunar-rift-he3-plant",
+      "position": {
+        "x": 0,
+        "y": -8.75,
+        "z": 0
+      },
+      "rotation": {
+        "y": 0
+      },
+      "scale": 1.5
     }
   ],
   "navGraph": {
@@ -1483,7 +1495,7 @@
         "id": "nav-crater-mid",
         "position": {
           "x": 0,
-          "y": -6.995038,
+          "y": 26,
           "z": 0
         },
         "hub": true

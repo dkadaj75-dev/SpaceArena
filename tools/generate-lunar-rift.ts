@@ -281,6 +281,15 @@ async function generate(wasm: ManifoldToplevel, log: (message: string) => void):
   }
 
   // ---- arena ----
+  // NOTE (2026-08-14): content/arenas/lunar-rift.json carries two hand edits on
+  // top of this generator's output, because they cannot be expressed here — the
+  // He-3 extraction plant is an imported GLB, not a procedural part, and every
+  // placement below is emitted as a mirrored *pair* (see `twinPlacement`) while
+  // the plant sits on the symmetry point and is its own twin:
+  //   • propPlacements gains `prop.lunar-rift-he3-plant` at (0, -8.75, 0), scale 1.5;
+  //   • `nav-crater-mid` is lifted from the crater floor to y = 26 so bot routing
+  //     clears the plant's roof (~y 20) instead of aiming inside the building.
+  // Re-run this generator and both are lost — re-apply them before shipping.
   const southBores = field.bores.slice(0, TUNNELS_SOUTH.length);
   const authored: PropPlacement[] = [
     flagPadSouth(field),
