@@ -22,7 +22,7 @@
     "mode": "semi",
     "range": 155,
     "cycleTime": 1.0,
-    "damage": 6.04,
+    "damage": 9.06,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
     "projectile": {

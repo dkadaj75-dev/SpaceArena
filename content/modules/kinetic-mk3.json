@@ -22,7 +22,7 @@
     "mode": "held",
     "range": 85,
     "cycleTime": 0.75,
-    "damage": 4.63,
+    "damage": 6.95,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
     "projectile": {

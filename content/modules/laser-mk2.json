@@ -22,7 +22,7 @@
     "mode": "held",
     "range": 105,
     "cycleTime": 0.45,
-    "damage": 2.49,
+    "damage": 3.74,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null
