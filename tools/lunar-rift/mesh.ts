@@ -17,9 +17,8 @@ import { heightAtDetailed, vnoise3 } from "./riftLib.js";
 
 export const CHUNKS_PER_SIDE = 4;
 export const CHUNK_SIZE = (WORLD_EXT * 2) / CHUNKS_PER_SIDE;
-/** Depth of the temporary solid used for CSG; also the skirt datum. */
+/** Depth of the temporary solid used for CSG. */
 export const SOLID_BOTTOM = -26;
-export const SKIRT_DROP = 1.5;
 
 /**
  * Per-chunk grid pitch. The spec asks for 1.6u on playable chunks and 4.0u on
@@ -317,38 +316,11 @@ function refineSolid(field: RiftField, spec: ChunkSpec, grid: ChunkGrid, solid: 
   return { accum, gridVertex };
 }
 
-// ---------- skirts ----------
-
-function addSkirt(field: RiftField, spec: ChunkSpec, grid: ChunkGrid, accum: Accum): void {
-  const { n, cell } = grid;
-  const ring = perimeterIndices(n);
-  const border = (index: number): { p: [number, number, number]; c: [number, number, number] } => {
-    const i = index % n, j = Math.floor(index / n);
-    const x = spec.x0 + i * cell, z = spec.z0 + j * cell;
-    const p = field.surfacePoint(x, z);
-    const normal = field.surfaceNormal(x, z);
-    const slope = Math.acos(Math.max(-1, Math.min(1, normal[1])));
-    return { p, c: field.vertexColor(p[0], p[1], p[2], normal, slope) };
-  };
-  for (let e = 0; e < ring.length; e++) {
-    const a = border(ring[e]!), b = border(ring[(e + 1) % ring.length]!);
-    const outward: [number, number, number] = [b.p[2] - a.p[2], 0, a.p[0] - b.p[0]];
-    const l = Math.hypot(outward[0], outward[2]) || 1;
-    const flat: [number, number, number] = [outward[0] / l, 0, outward[2] / l];
-    const top0 = accum.vertex(a.p, flat, a.c);
-    const top1 = accum.vertex(b.p, flat, b.c);
-    const bot0 = accum.vertex([a.p[0], a.p[1] - SKIRT_DROP, a.p[2]], flat, scaleColor(a.c, 0.72));
-    const bot1 = accum.vertex([b.p[0], b.p[1] - SKIRT_DROP, b.p[2]], flat, scaleColor(b.c, 0.72));
-    accum.tri(top0, top1, bot0);
-    accum.tri(top1, bot1, bot0);
-  }
-}
+// ---------- portal rims ----------
 
 function scaleColor(c: readonly [number, number, number], k: number): [number, number, number] {
   return [c[0] * k, c[1] * k, c[2] * k];
 }
-
-// ---------- portal rims ----------
 
 const RIM_MAJOR_SEGMENTS = 24;
 const RIM_MINOR_SEGMENTS = 6;
@@ -460,7 +432,11 @@ export function buildChunkSurface(
   const solid = buildSolid(spec, grid);
   const cut = subtractBores(wasm, solid, spec.bores, boreCut(field, options.lod === 0 ? BORE_LOD0 : BORE_LOD1));
   const { accum } = refineSolid(field, spec, grid, cut, spec.bores.length > 0);
-  addSkirt(field, spec, grid, accum);
+  // Adjacent chunks share an exactly welded surface edge. Vertical skirts here
+  // used to put two coplanar, oppositely oriented walls on every internal tile
+  // boundary; at chase-camera angles their edge lighting/depth competition read
+  // as long dark seams. The terrain covers the complete arena, so no skirt is
+  // needed to hide streaming gaps.
   if (options.rims) for (const portal of portalsInChunk(spec, field)) addPortalRim(field, accum, portal.bore, portal.side);
   return accum.toSurface(spec.cx, spec.cz);
 }

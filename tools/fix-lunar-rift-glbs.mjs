@@ -123,11 +123,28 @@ function prepareTerrain(file, offset, index, lod) {
   const { json, bin: initialBin } = parseGlb(readFileSync(file));
   let bin = initialBin;
   const vertices = [];
+  let removedSkirtTriangles = 0;
   const fixVersion = json.asset.extras?.lunarRiftSeamFix ?? 0;
   const needsSkirtColorFix = fixVersion < 1;
   for (const mesh of json.meshes) for (const primitive of mesh.primitives) {
     const pos = readAccessor(json, bin, primitive.attributes.POSITION);
     const normal = readAccessor(json, bin, primitive.attributes.NORMAL);
+    const indices = readAccessor(json, bin, primitive.indices);
+    for (let t = 0; t < indices.accessor.count; t += 3) {
+      const ids = [indices.array[t], indices.array[t + 1], indices.array[t + 2]];
+      const xs = ids.map((id) => pos.array[id * 3]);
+      const zs = ids.map((id) => pos.array[id * 3 + 2]);
+      const onXBorder = xs.every((x) => Math.abs(Math.abs(x) - 96) <= 0.03);
+      const onZBorder = zs.every((z) => Math.abs(Math.abs(z) - 96) <= 0.03);
+      if (!onXBorder && !onZBorder) continue;
+      if (ids[0] === ids[1] && ids[0] === ids[2]) continue;
+      // Surface triangles have an interior vertex. A triangle wholly in one
+      // chunk-edge plane is one of the generated vertical skirt quads. Make it
+      // degenerate in place so the rewrite is deterministic and idempotent.
+      indices.write(t + 1, 0, ids[0]);
+      indices.write(t + 2, 0, ids[0]);
+      removedSkirtTriangles++;
+    }
     const uv = new Float32Array(pos.accessor.count * 2);
     for (let i = 0; i < pos.accessor.count; i++) {
       const x = pos.array[i * 3], y = pos.array[i * 3 + 1], z = pos.array[i * 3 + 2];
@@ -158,7 +175,7 @@ function prepareTerrain(file, offset, index, lod) {
       vertices.push({ index, lod, pos, normal, color, i, x: x + offset.x, y: pos.array[i * 3 + 1] + offset.y, z: z + offset.z });
     }
   }
-  return { file, json, bin, vertices };
+  return { file, json, bin, vertices, removedSkirtTriangles };
 }
 
 const distance = (a, b, count) => Math.hypot(...Array.from({ length: count }, (_, c) => a[c] - b[c]));
@@ -188,6 +205,13 @@ function smoothBorders(assets) {
   for (const group of groups) {
     const chunks = [...new Set(group.vertices.map((v) => v.index))];
     if (chunks.length < 2) continue;
+    const averageY = group.vertices.reduce((sum, vertex) => sum + vertex.y, 0) / group.vertices.length;
+    for (const vertex of group.vertices) {
+      vertex.pos.write(vertex.i, 0, vertex.x - offsets.get(String(vertex.index)).x);
+      vertex.pos.write(vertex.i, 1, averageY - offsets.get(String(vertex.index)).y);
+      vertex.pos.write(vertex.i, 2, vertex.z - offsets.get(String(vertex.index)).z);
+      vertex.y = averageY;
+    }
     for (let a = 0; a < chunks.length; a++) for (let b = a + 1; b < chunks.length; b++) {
       const key = `${Math.min(chunks[a], chunks[b])}-${Math.max(chunks[a], chunks[b])}`;
       if (!adjacent.has(key)) adjacent.set(key, { beforeNormal: 0, beforeColor: 0, afterNormal: 0, afterColor: 0, pairs: 0 });
@@ -283,9 +307,10 @@ for (const name of terrain) {
 }
 const borderMetrics = smoothBorders(terrainAssets);
 for (const asset of terrainAssets) {
-  asset.json.asset.extras = { ...(asset.json.asset.extras ?? {}), lunarRiftSeamFix: 2 };
+  asset.json.asset.extras = { ...(asset.json.asset.extras ?? {}), lunarRiftSeamFix: 3 };
   writeFileSync(asset.file, writeGlb(asset.json, asset.bin));
 }
+console.log(`removed ${terrainAssets.reduce((sum, asset) => sum + asset.removedSkirtTriangles, 0)} skirt triangles`);
 for (const [border, metric] of [...borderMetrics].sort()) console.log(
   `border ${border}: normal ${metric.beforeNormal.toExponential(3)} -> ${metric.afterNormal.toExponential(3)}, color ${metric.beforeColor.toExponential(3)} -> ${metric.afterColor.toExponential(3)} (${metric.pairs} pairs)`,
 );
