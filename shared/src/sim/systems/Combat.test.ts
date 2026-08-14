@@ -13,6 +13,7 @@ import {
   rebuildSpatial,
   warmLock,
 } from "../testutil.js";
+import { damageTypeProfileOf } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 import { combatSystem, latchFireState } from "./CombatSystem.js";
 import { energySystem } from "./EnergySystem.js";
@@ -551,19 +552,23 @@ describe("Damage pipeline — shield mitigation", () => {
 
     applyDamageToShip(world, id, null, 20, "energy");
     const drop = before - core.hull;
-    // damageReduction 0.5 with charge to spare → half through to hull (energy resist 0).
-    expect(drop).toBeCloseTo(10, 1);
-    expect(shield.energy).toBeCloseTo(shield.energyCapacity - 10, 6);
+    // Energy is a shield-breaker (damage.test.ts): the shield takes its 0.8
+    // share — 16 of the 20, paid out of its own reserve — and the 4 that
+    // penetrates lands on hull at the 0.5 energy hull multiplier.
+    expect(drop).toBeCloseTo(2, 6);
+    expect(shield.energy).toBeCloseTo(shield.energyCapacity - 16, 6);
     expect(world.events.some((e) => e.type === "shieldAbsorb")).toBe(true);
   });
 
-  it("without a shield the full (resisted) damage hits hull", () => {
+  it("without a shield the full (type-scaled, resisted) damage hits hull", () => {
     const world = makeWorld(configs);
     const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
     const core = world.shipCores.get(id)!;
     const before = core.hull;
     applyDamageToShip(world, id, null, 20, "energy");
-    expect(before - core.hull).toBeCloseTo(20, 5);
+    // Nothing in the way, so the only factors are the energy hull multiplier
+    // (0.5) and the light hull's energy resist (0).
+    expect(before - core.hull).toBeCloseTo(10, 5);
   });
 });
 
@@ -589,7 +594,7 @@ describe("CombatSystem continuous channel", () => {
   function channelDuel(
     targetPos: { x: number; z: number } = { x: 20, z: 0 },
     cfgs: ConfigService = configs,
-  ): { world: World; shooter: number; target: number; dps: number } {
+  ): { world: World; shooter: number; target: number; dps: number; hullDps: number } {
     const world = makeWorld(cfgs);
     const shooter = spawnShipFromConfig(world, cfgs, "ship.interceptor", BEAM_FITTING, 0, { x: 0, z: 0 }, 0);
     const target = spawnShipFromConfig(world, cfgs, "ship.interceptor", INTERCEPTOR_FITTING, 1, targetPos, 0);
@@ -611,7 +616,13 @@ describe("CombatSystem continuous channel", () => {
     warmLock(world, shooter);
     rebuildSpatial(world);
     const dps = cfgs.get<ModuleConfig>("module", "module.beamlaser-mk1")!.fire!.damage;
-    return { world, shooter, target, dps };
+    // The beam is ENERGY, so what actually lands on plating is the authored DPS
+    // through the energy hull multiplier (damage.test.ts owns that rule). The
+    // target is a light hull with 0 energy resist and no shield, so this is the
+    // only factor between `fire.damage` and hull loss — taken from the resolver
+    // rather than written as 0.5, since it is a tuning knob, not a constant.
+    const hullDps = dps * damageTypeProfileOf(world.tuning, "energy").hullMult;
+    return { world, shooter, target, dps, hullDps };
   }
 
   function channelTick(world: World): void {
@@ -620,7 +631,7 @@ describe("CombatSystem continuous channel", () => {
   }
 
   it("drains hull at exactly DPS x elapsed time while the trigger is held", () => {
-    const { world, target, dps } = channelDuel();
+    const { world, target, hullDps } = channelDuel();
     const before = world.shipCores.get(target)!.hull;
 
     const ticks = 60; // 2 seconds at 30 Hz
@@ -629,7 +640,7 @@ describe("CombatSystem continuous channel", () => {
     const dealt = before - world.shipCores.get(target)!.hull;
     // globalDamageMult is 1.0 and the interceptor's energy resist is 0, so the
     // authored DPS lands verbatim. This is the whole feature in one assertion.
-    expect(dealt).toBeCloseTo(dps * ticks * DT, 9);
+    expect(dealt).toBeCloseTo(hullDps * ticks * DT, 9);
   });
 
   it("is tick-rate independent: the same wall time deals the same damage at half the tick rate", () => {
@@ -686,7 +697,7 @@ describe("CombatSystem continuous channel", () => {
   });
 
   it("without a lock the channel chews whatever enemy the nose crosses (straight fire)", () => {
-    const { world, shooter, target, dps } = channelDuel(); // target dead ahead at x=20
+    const { world, shooter, target, hullDps } = channelDuel(); // target dead ahead at x=20
     world.targets.get(shooter)!.locked = false;
     world.targets.get(shooter)!.targetId = null;
 
@@ -694,7 +705,7 @@ describe("CombatSystem continuous channel", () => {
     const ticks = 30;
     for (let i = 0; i < ticks; i++) channelTick(world);
 
-    expect(before - world.shipCores.get(target)!.hull).toBeCloseTo(dps * ticks * DT, 9);
+    expect(before - world.shipCores.get(target)!.hull).toBeCloseTo(hullDps * ticks * DT, 9);
     expect(world.modules.get(shooter)!.modules[BEAM]!.channeling).toBe(true);
   });
 
@@ -803,7 +814,7 @@ describe("CombatSystem continuous channel", () => {
   });
 
   it("emits ~4 damage events per second, not one per tick, and one fire event per channel", () => {
-    const { world, shooter, target, dps } = channelDuel();
+    const { world, shooter, target, hullDps } = channelDuel();
     for (let i = 0; i < 60; i++) channelTick(world); // 2 seconds
     world.flightStates.get(shooter)!.fire = false;
     channelTick(world); // release flushes the final partial window
@@ -822,7 +833,7 @@ describe("CombatSystem continuous channel", () => {
     const reported = damage.reduce((sum, e) => sum + (e.type === "damage" ? e.amount : 0), 0);
     const targetCore = world.shipCores.get(target)!;
     expect(reported).toBeCloseTo(targetCore.hullMax - targetCore.hull, 9);
-    expect(reported).toBeCloseTo(dps * 60 * DT, 9);
+    expect(reported).toBeCloseTo(hullDps * 60 * DT, 9);
   });
 
   it("emits damage-then-destroyed when the channel lands the kill", () => {

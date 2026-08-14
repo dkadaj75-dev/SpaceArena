@@ -1,8 +1,39 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
+import { damageType } from "./common.js";
 
 export const targetingPolicy = z.enum(["nearest", "lowestHp", "attacker"]);
 export type TargetingPolicy = z.infer<typeof targetingPolicy>;
+
+/**
+ * How ONE damage type behaves against shields and hull (the damage-type
+ * triangle). Both knobs are optional so a pack can author half a profile and
+ * inherit the rest; the sim resolves them through
+ * {@link import("../sim/tuningDefaults.js").damageTypeProfileOf}.
+ */
+export const damageTypeProfileSchema = z.object({
+  /**
+   * Fraction of an incoming hit a WORKING shield tries to soak — the rest
+   * penetrates straight to hull. Energy is soft against shields (0.8), kinetic
+   * punches through them (0.2). When the shield's reserve cannot cover the
+   * share it wants, the un-soaked excess continues to hull rather than
+   * evaporating, so a collapsing shield never eats damage it did not stop.
+   *
+   * This REPLACES the shield module's own `mitigation.damageReduction` for the
+   * types authored here: what distinguishes one shield from another is the size
+   * and recharge of its reserve tank, not the share it takes off the top.
+   */
+  shieldAbsorb: z.number().min(0).max(1).optional(),
+  /**
+   * Effectiveness against HULL, applied to every point that reaches hull —
+   * both the share that penetrated a live shield and the whole hit when the
+   * target has no working shield at all. Energy scorches plating for half
+   * effect (0.5); kinetic lands full (1.0). Applied before the hull's own
+   * per-type `resists`.
+   */
+  hullMult: z.number().nonnegative().optional(),
+});
+export type DamageTypeProfile = z.infer<typeof damageTypeProfileSchema>;
 
 export const tuningSchema = z.object({
   ...baseShape("tuning"),
@@ -51,6 +82,14 @@ export const tuningSchema = z.object({
   matchCountdownSec: z.number().nonnegative().optional(),
   /** Global damage multiplier (balance knob). */
   globalDamageMult: z.number().positive(),
+  /**
+   * Per-damage-type shield/hull behaviour. Optional and per-type optional: a
+   * pack that omits the block entirely gets the shipped triangle (energy
+   * 0.8 shield / 0.5 hull, kinetic 0.2 shield / 1.0 hull), and a damage type
+   * with no entry keeps the LEGACY behaviour — shields soak their own
+   * `mitigation.damageReduction` and hull takes the hit at full nominal.
+   */
+  damageTypes: z.partialRecord(damageType, damageTypeProfileSchema).optional(),
   /** Planar linear drag coefficient. */
   dragCoefficient: z.number().nonnegative().optional(),
   /** CollisionSystem: spatial-hash cell size (world units). */

@@ -1,6 +1,7 @@
 import type { DamageType } from "../schemas/common.js";
 import type { ModuleConfig } from "../schemas/index.js";
 import type { EntityId } from "./components.js";
+import { damageTypeProfileOf } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
 /**
@@ -15,19 +16,37 @@ export interface DamageTally {
 }
 
 /**
- * Central ship damage pipeline used by beams and projectiles alike. Flow:
+ * Central ship damage pipeline used by beams and projectiles alike. Flow, and
+ * the ORDER matters — every stage below multiplies the output of the one above:
  *
- *   1. base *= tuning.globalDamageMult
+ *   1. base *= tuning.globalDamageMult. The global knob is applied FIRST, once,
+ *      so it scales the whole hit — shield absorb and hull damage alike keep
+ *      their ratio to each other and to the shield's reserve. (Applying it last,
+ *      to the hull share only, would silently make shields stronger whenever the
+ *      knob went below 1.)
  *   2. active shield module mitigation (per §2.3): for each `active` shield whose
- *      `coversFamilies` includes the damage type, remove `damageReduction`× of the
- *      hit, capped by whatever charge is left in that module's OWN energy tank —
- *      which the absorb then spends. Absorbing marks the shield worked-this-tick
- *      (EnergySystem also bills its upkeep) and emits `shieldAbsorb`.
+ *      `coversFamilies` includes the damage type, remove the type's SHIELD SHARE
+ *      of the hit — `tuning.damageTypes[type].shieldAbsorb`, 0.8 for energy and
+ *      0.2 for kinetic, so energy is stopped by shields and kinetic sails
+ *      through. The share is capped by whatever charge is left in that module's
+ *      OWN energy tank — which the absorb then spends — and anything the tank
+ *      could not cover simply STAYS in the hit and carries on to hull, so a
+ *      shield collapsing mid-hit loses no damage. Absorbing marks the shield
+ *      worked-this-tick (EnergySystem also bills its upkeep) and emits
+ *      `shieldAbsorb` with what the shield actually soaked.
+ *      A damage type with no authored/shipped profile falls back to the module's
+ *      own `mitigation.damageReduction`, i.e. the pre-triangle behaviour.
  *   3. innate ship shield hp (shieldMax is 0 in MVP — ships have no innate shield;
  *      shielding is entirely module-provided — so this step is a no-op today).
- *   4. remaining damage hits hull after the hull resist for that damage type.
+ *   4. everything still standing reaches HULL, where it is multiplied by the
+ *      type's `hullMult` (energy 0.5, kinetic 1.0) and then by the hull's own
+ *      per-type resist. This applies to the penetrating share AND to the whole
+ *      hit when the target has no working shield at all (none equipped, none
+ *      active, or the reserve is flat) — "reaches hull" is the only condition.
  *
- * Emits `damage`; emits `entityDestroyed` once when hull crosses 0.
+ * Emits `damage` carrying what the hull ACTUALLY lost (post hullMult and
+ * resist), so the number that floats over a ship is the number it took; emits
+ * `entityDestroyed` once when hull crosses 0.
  *
  * Pass a `tally` (a channelling continuous weapon does) to BANK the `damage` and
  * `shieldAbsorb` amounts instead of emitting them — the caller then emits one
@@ -47,6 +66,7 @@ export function applyDamageToShip(
   if (!core || core.hull <= 0) return;
 
   let dmg = baseAmount * world.tuning.globalDamageMult;
+  const profile = damageTypeProfileOf(world.tuning, type);
 
   // (2) active shield mitigation
   const mods = world.modules.get(targetId);
@@ -63,7 +83,14 @@ export function applyDamageToShip(
       // holds exactly as long as its tank and returns as fast as it refills.
       const available = m.energyCapacity > 0 ? m.energy : Infinity;
       if (available <= 0) continue;
-      const reduced = Math.min(dmg * mit.damageReduction, available);
+      // The share this shield TRIES to take is a property of the damage type,
+      // not of the module: what one shield has over another is a bigger, faster
+      // reserve, not a better ratio. Only a type with no profile at all falls
+      // back to the module's authored `damageReduction`.
+      const share = profile.shieldAbsorb ?? mit.damageReduction;
+      // Capped by the reserve — the shortfall stays in `dmg` and goes on to
+      // hull, which is the whole of the collapse-mid-hit rule.
+      const reduced = Math.min(dmg * share, available);
       if (reduced <= 0) continue;
       dmg -= reduced;
       if (m.energyCapacity > 0) m.energy -= reduced;
@@ -90,10 +117,11 @@ export function applyDamageToShip(
     dmg -= absorbed;
   }
 
-  // (4) hull after resist
+  // (4) hull: type effectiveness, then the hull's own resist
   if (dmg <= 0) return;
   const resist = type === "kinetic" ? core.resists.kinetic : core.resists.energy;
-  const hullDmg = dmg * (1 - resist);
+  const hullDmg = dmg * profile.hullMult * (1 - resist);
+  if (hullDmg <= 0) return;
   const wasAlive = core.hull > 0;
   core.hull -= hullDmg;
   if (tally) tally.hull += hullDmg;

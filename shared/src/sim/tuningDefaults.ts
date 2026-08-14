@@ -1,3 +1,4 @@
+import type { DamageType } from "../schemas/common.js";
 import type { TuningConfig } from "../schemas/index.js";
 
 /** Fallback for `tuning.pitchRateMult` (BUBBLE.md §A). */
@@ -57,5 +58,69 @@ export function pitchTuningOf(tuning: TuningConfig): { pitchRateMult: number; ma
   return {
     pitchRateMult: tuning.pitchRateMult ?? DEFAULT_PITCH_RATE_MULT,
     maxPitchRad: clamp,
+  };
+}
+
+/**
+ * A damage type's shield/hull behaviour, fully resolved — no optionals left for
+ * the damage pipeline to think about.
+ */
+export interface ResolvedDamageTypeProfile {
+  /**
+   * Share of the hit a working shield tries to soak, or `null` for "no
+   * type rule" — which means LEGACY behaviour: the shield module's own
+   * `mitigation.damageReduction` decides, exactly as it did before the
+   * damage-type triangle existed.
+   */
+  shieldAbsorb: number | null;
+  /** Multiplier on everything that reaches hull, before the hull's own resist. */
+  hullMult: number;
+}
+
+/**
+ * The shipped damage-type triangle, and the reason it is shaped this way:
+ * energy weapons are shield-breakers that barely scratch plating, kinetic
+ * weapons sail through shields and hit hull for full. A hull with no shield up
+ * therefore fears kinetic; a hull behind a healthy shield fears energy far less
+ * than the raw DPS number suggests.
+ *
+ * These are FALLBACKS. The shipped pack authors the same numbers explicitly in
+ * `content/tuning/default.json`; a pack that omits `damageTypes` lands here.
+ */
+export const DEFAULT_DAMAGE_TYPE_PROFILES: Readonly<Record<DamageType, ResolvedDamageTypeProfile>> = {
+  energy: { shieldAbsorb: 0.8, hullMult: 0.5 },
+  kinetic: { shieldAbsorb: 0.2, hullMult: 1.0 },
+};
+
+/**
+ * A damage type with no shipped default and no authored entry — any type added
+ * to the `damageType` enum later, before balance gets round to tuning it. The
+ * neutral profile is exactly today's pre-triangle behaviour, so a new type
+ * behaves like the old pipeline until someone authors it.
+ */
+const NEUTRAL_PROFILE: ResolvedDamageTypeProfile = { shieldAbsorb: null, hullMult: 1 };
+
+/** A finite, in-range number, or `fallback` — authored packs are not trusted. */
+function ratioOr(value: number | undefined, fallback: number, max: number): number {
+  if (value === undefined || !Number.isFinite(value) || value < 0) return fallback;
+  return Math.min(value, max);
+}
+
+/**
+ * Resolve how `type` behaves against shields and hull for this tuning pack:
+ * authored `tuning.damageTypes[type]` first, then the shipped triangle, then
+ * the neutral legacy profile. Per-FIELD, so a pack may author only `hullMult`
+ * for energy and still inherit the 0.8 shield share.
+ */
+export function damageTypeProfileOf(tuning: TuningConfig, type: DamageType): ResolvedDamageTypeProfile {
+  const base = DEFAULT_DAMAGE_TYPE_PROFILES[type] ?? NEUTRAL_PROFILE;
+  const authored = tuning.damageTypes?.[type];
+  if (!authored) return base;
+  return {
+    shieldAbsorb:
+      authored.shieldAbsorb === undefined
+        ? base.shieldAbsorb
+        : ratioOr(authored.shieldAbsorb, base.shieldAbsorb ?? 0, 1),
+    hullMult: ratioOr(authored.hullMult, base.hullMult, Infinity),
   };
 }

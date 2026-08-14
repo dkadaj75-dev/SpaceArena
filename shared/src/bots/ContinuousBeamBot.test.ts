@@ -9,8 +9,13 @@ import { loadTestConfigs } from "../sim/testutil.js";
 import { BotDriver } from "./BotDriver.js";
 
 const DT = 1 / 30;
-// 80s: half-damage beams (owner 2026-08-05) need the longer channel to kill.
-const SECONDS = 80;
+// 160s: half-damage beams (owner 2026-08-05) already needed a long channel, and
+// the damage-type triangle halves them again against plating — the beam is
+// ENERGY, so only 0.5 of its DPS reaches an unshielded hull. This test is about
+// whether a bot can convert a lock into a kill by channelling at all, not about
+// how fast, so the budget grows with the mechanic rather than the mechanic
+// bending to the budget.
+const SECONDS = 160;
 
 let configs: ConfigService;
 beforeAll(async () => {
