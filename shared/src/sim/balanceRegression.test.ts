@@ -165,6 +165,14 @@ interface Trajectory {
   /** Times a subject module was forced `overheated`. */
   overheats: number;
   /**
+   * The same count split by module id. Recorded 2026-08-14 with the clip-fed
+   * autocannons: a per-SHIP total no longer compares HULLS, because a kinetic
+   * rack now trips on its own tripled cadence wherever it is bolted. The
+   * class-fantasy comparison below therefore reads a single named rack instead
+   * of a total divided by rack count.
+   */
+  overheatsByModule: Record<string, number>;
+  /**
    * Hull the SUBJECT lost across the whole engagement. The opponent in this
    * bench is out of weapon range, so this is self-inflicted damage and the
    * whole scenario asserts it is zero — the failure the old bench could not see
@@ -217,6 +225,7 @@ function runEngagement(
     energyFloor: 1,
     peakModuleHeat: 0,
     overheats: 0,
+    overheatsByModule: {},
     hullLost: 0,
   };
   const checkpointTicks = new Set(CHECKPOINTS.map((s) => s * TPS));
@@ -241,7 +250,10 @@ function runEngagement(
     const eventsBefore = sim.world.events.length;
     sim.tick(DT);
     for (const e of sim.world.events.slice(eventsBefore)) {
-      if (e.type === "overheated" && e.entityId === subject) traj.overheats++;
+      if (e.type === "overheated" && e.entityId === subject) {
+        traj.overheats++;
+        traj.overheatsByModule[e.moduleId] = (traj.overheatsByModule[e.moduleId] ?? 0) + 1;
+      }
     }
     sim.getEvents();
 
@@ -353,7 +365,13 @@ describe("scripted 60 s engagements — per-module heat/energy regression bands"
     // flames out, refills while down, and is raised again by the script.
     expectWithinBand("brawler sustained energy", t.energy, [0.852, 1, 1, 0.488, 0.621, 1, 1]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
-    expect(t.overheats).toBe(13);
+    // 13 → 23 on 2026-08-14 (clip-fed autocannons). The energy curve is
+    // untouched — nothing about the shield tank moved — but the heavy is the one
+    // stock hull carrying a kinetic rack, and at the tripled cadence for
+    // unchanged per-shot heat that rack alone now trips 15 times in the minute
+    // (it tripped ~7 before): ~0.45 s of fire, ~2.3 s locked, over and over.
+    expect(t.overheats).toBe(23);
+    expect(t.overheatsByModule["module.kinetic-mk1"]).toBe(15);
     expect(t.hullLost).toBe(0);
   });
 
@@ -365,16 +383,27 @@ describe("scripted 60 s engagements — per-module heat/energy regression bands"
     expect(t.hullLost).toBe(0);
   });
 
-  it("keeps the class fantasy on upkeep: PER RACK, the light hull cooks fastest", () => {
+  it("keeps the class fantasy on upkeep: on the SAME rack, the cool hull cycles least", () => {
     const support = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
     const interceptor = runEngagement("ship.interceptor", SUSTAINED);
     const brawler = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    // Lockouts per WEAPON, which is the only fair comparison once the pool is
-    // gone: the light hull has the shallowest racks (heatStore ×1.00) and no
-    // cooling bonus, the support hull runs cool (×1.10) and the heavy carries
-    // deep racks (×1.25) on three hardpoints.
-    expect(interceptor.overheats / 2).toBeGreaterThan(support.overheats / 2);
-    expect(interceptor.overheats / 2).toBeGreaterThan(brawler.overheats / 3);
+    // RE-RECORDED 2026-08-14 (clip-fed autocannons). This used to divide each
+    // ship's TOTAL lockouts by its rack count; that average stopped measuring
+    // the hull the moment one weapon family started tripping on its own
+    // schedule. `module.laser-mk1` is the rack all three stock hulls carry, so
+    // comparing it directly is the heatStore/cooling comparison the test was
+    // always trying to make.
+    const laser = (t: Trajectory): number => t.overheatsByModule["module.laser-mk1"] ?? 0;
+    // The support hull runs cool on both knobs (heatStore ×1.10 AND cooling
+    // ×1.10), so the same gun locks out fewest times on it.
+    expect(laser(interceptor), "light vs cool hull, same laser").toBeGreaterThan(laser(support));
+    expect(laser(brawler), "heavy vs cool hull, same laser").toBeGreaterThan(laser(support));
+    // The heavy buys depth (heatStore ×1.25) at the price of cooling (×0.95), so
+    // its duty cycle lands ON the light hull's rather than below it — and it
+    // gets there on MORE uptime, since SUSTAINED rests the light hull's laser
+    // from t=54 (`toggle 0`) while the heavy's laser sits on hardpoint 1 and
+    // runs the full minute.
+    expect(laser(brawler), "heavy vs light hull, same laser").toBe(laser(interceptor));
     // …and the heavy's three racks still cook more in TOTAL than the light's two.
     expect(brawler.overheats).toBeGreaterThanOrEqual(interceptor.overheats);
   });
@@ -527,7 +556,13 @@ describe("shipped weapon single-shot grace", () => {
       expect(gen, `${module.id}: must out-pace its own cooling or heat means nothing`).toBeGreaterThan(cooling);
       const burn = (heat.capacity - heat.perShot) / (gen - cooling);
       const recover = heat.capacity / cooling;
-      expect(burn, `${module.id} burn`).toBeGreaterThan(1.5);
+      // Clip-fed autocannons (2026-08-14) cycle three times faster for unchanged
+      // per-shot heat, so their rack burns far inside the heat-gated envelope:
+      // 0.43-0.46 s, i.e. TWO rounds of a 20-40 round magazine, then ~2.5 s
+      // locked. Recorded as its own floor rather than deleting the guard — the
+      // envelope still has to hold for the eleven heat-gated weapons.
+      const minBurn = module.fire.clip ? 0.4 : 1.5;
+      expect(burn, `${module.id} burn`).toBeGreaterThan(minBurn);
       expect(burn, `${module.id} burn`).toBeLessThan(12);
       expect(recover, `${module.id} recovery`).toBeGreaterThan(1.5);
       expect(recover, `${module.id} recovery`).toBeLessThan(6);
@@ -545,7 +580,12 @@ describe("shipped weapon single-shot grace", () => {
  * change rather than on a regression.
  */
 const TTK_FLOOR_S = 5.33;
-/** Hard design ceiling: a stock engagement must resolve well inside a match. */
+/**
+ * Hard design ceiling: a stock engagement must resolve well inside a match.
+ * Left at 45 through the 2026-08-14 typed-damage re-record, but the headroom is
+ * now thin: the slowest cell (light vs heavy) is 32.6 s, 72% of the ceiling, and
+ * its ±25% band tops out at 40.8 s.
+ */
 const TTK_CEILING_S = 45;
 /** Regression band around each recorded TTK, as a fraction of the recorded value. */
 const TTK_BAND = 0.25;
@@ -631,16 +671,32 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   // moved (× 1.5 on all 15 weapon modules); cycleTime, range and
   // `globalDamageMult` are untouched, which is why every anchor lands within a
   // couple of ticks of `old / 1.5` and the ORDERING of the matrix is unchanged.
+  //
+  // RE-RECORDED AGAIN 2026-08-14 for typed damage + clip-fed autocannons. Every
+  // cell got SLOWER (+10% to +39%), which is the correct reading of this bench
+  // rather than a surprise: no defender in the matrix raises its shield, so
+  // every cell is a BARE-HULL trade, and on a bare hull the only typed-damage
+  // term that applies is `hullMult` — 0.5 for energy, 1.0 for kinetic. Every
+  // stock fitting is laser (energy) + missile (kinetic, unchanged), so each
+  // attacker simply lost half of its laser contribution. The heavy's clip-fed
+  // autocannon claws only part of that back, because this bench runs with the
+  // heat flag ON: at the tripled cadence the mk1 rack burns in ~0.45 s and then
+  // sits locked for ~2.3 s, so its sustained DPS rises far less than 3x (heavy
+  // vs light 6.533 → 8.367, the smallest regression in the matrix).
+  //
+  // The shield side of the triangle is measured by "an active shield measurably
+  // extends survival" at the bottom of this describe, not here.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    ["ship.interceptor", "ship.interceptor", 22, 11.533],
-    ["ship.interceptor", "ship.brawler", 22, 23.5],
-    ["ship.interceptor", "ship.support", 22, 16.633],
-    ["ship.brawler", "ship.interceptor", 22, 6.533],
-    ["ship.brawler", "ship.brawler", 22, 15],
-    ["ship.brawler", "ship.support", 22, 11.4],
-    ["ship.support", "ship.interceptor", 22, 10.133],
-    ["ship.support", "ship.brawler", 22, 21.6],
-    ["ship.support", "ship.support", 22, 14.733],
+    // old (×1.5 pass) → new (typed damage + clips)
+    ["ship.interceptor", "ship.interceptor", 22, 15.633], // 11.533
+    ["ship.interceptor", "ship.brawler", 22, 32.6], //       23.5
+    ["ship.interceptor", "ship.support", 22, 22.3], //       16.633
+    ["ship.brawler", "ship.interceptor", 22, 8.367], //       6.533
+    ["ship.brawler", "ship.brawler", 22, 18.6], //           15
+    ["ship.brawler", "ship.support", 22, 12.6], //           11.4
+    ["ship.support", "ship.interceptor", 22, 13.733], //     10.133
+    ["ship.support", "ship.brawler", 22, 28.8], //           21.6
+    ["ship.support", "ship.support", 22, 20.4], //           14.733
   ];
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {
@@ -697,6 +753,11 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   it("an active shield measurably extends survival", () => {
     // The heavy is the hull under test here: since the internal bay landed
     // (2026-07-31) the light hull's two hardpoints carry no shield at all.
+    // Measured 2026-08-14 under typed damage: 32.6 s bare → 34.3 s shielded,
+    // i.e. the mk1 shield buys 5%. It only ever soaks what its own 40-point tank
+    // can pay for, and half this attacker's output is a KINETIC missile that the
+    // triangle lets through at 0.8. The direction is the contract; the size of
+    // the gap is balance feedback, not something this test pins.
     const measure = (raiseShield: boolean): KillResult => {
       const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
       const attacker = sim.spawnPlayerAt("ship.interceptor", fittingOf("ship.interceptor"), 0, { x: 0, z: 0 }, 0);
