@@ -348,14 +348,23 @@ describe("scripted 60 s engagements — per-module heat/energy regression bands"
     // is flat at 1 — "no ring of that kind" all the way down the fitting.
     expectWithinBand("interceptor sustained energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
     expectNear("interceptor sustained energy floor", t.energyFloor, 1);
-    expect(t.overheats).toBe(13);
+    // 13 → 7 on 2026-08-14 (half-rate missiles). Every lockout the light hull
+    // still suffers is its LASER: at one missile every 2.4 s the rack makes
+    // 24.2 heat/s against 40 of cooling, so a missile rack can no longer reach
+    // its own capacity at all. See the burn-envelope test below, which now
+    // splits the catalogue into heat-gated and cadence-gated racks.
+    expect(t.overheats).toBe(7);
+    expect(t.overheatsByModule["module.missile-mk1"]).toBeUndefined();
     expect(t.hullLost).toBe(0);
   });
 
   it("interceptor, disciplined skirmish (one weapon at a time)", () => {
     const t = runEngagement("ship.interceptor", DISCIPLINED);
     expectWithinBand("interceptor disciplined energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
-    expect(t.overheats).toBe(6);
+    // 6 → 2 on 2026-08-14: same cause, and doubly visible here because
+    // DISCIPLINED rests the laser for two long stretches, leaving the (now
+    // thermally free) missile rack to carry them.
+    expect(t.overheats).toBe(2);
     expect(t.hullLost).toBe(0);
   });
 
@@ -370,8 +379,15 @@ describe("scripted 60 s engagements — per-module heat/energy regression bands"
     // stock hull carrying a kinetic rack, and at the tripled cadence for
     // unchanged per-shot heat that rack alone now trips 15 times in the minute
     // (it tripped ~7 before): ~0.45 s of fire, ~2.3 s locked, over and over.
-    expect(t.overheats).toBe(23);
-    expect(t.overheatsByModule["module.kinetic-mk1"]).toBe(15);
+    //
+    // 23 → 26 later the same day (autocannons doubled again to 6x the original
+    // cadence, missiles halved). Two opposite moves that do not cancel: the
+    // kinetic rack goes 15 → 19 lockouts because it now reaches capacity in
+    // ~0.19 s — ONE round of a 24-round magazine — while the missile rack drops
+    // out of the tally entirely (0, from 4), leaving laser 7 + kinetic 19.
+    expect(t.overheats).toBe(26);
+    expect(t.overheatsByModule["module.kinetic-mk1"]).toBe(19);
+    expect(t.overheatsByModule["module.laser-mk1"]).toBe(7);
     expect(t.hullLost).toBe(0);
   });
 
@@ -379,7 +395,9 @@ describe("scripted 60 s engagements — per-module heat/energy regression bands"
     const t = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
     expectWithinBand("support sustained energy", t.energy, [1, 0.629, 0.302, 1, 0.229, 1, 1]);
     expectNear("support sustained energy floor", t.energyFloor, 0);
-    expect(t.overheats).toBe(8);
+    // 8 → 5 on 2026-08-14 (half-rate missiles): the cool hull's laser trips 5
+    // times, its missile rack none. Energy curve untouched.
+    expect(t.overheats).toBe(5);
     expect(t.hullLost).toBe(0);
   });
 
@@ -539,33 +557,80 @@ describe("shipped weapon single-shot grace", () => {
     }
   });
 
-  it("gives every weapon a finite, sane burn and recovery on the free kit", () => {
-    // The feel targets from the overhaul contract, expressed as content rules:
-    // a mk1 rack burns ~5 s and cools in ~2.5 s with the free radiator (×1.6),
-    // and nothing in the catalogue may sit outside a playable envelope.
+  /**
+   * Weapons split into two classes once missiles were slowed to half rate
+   * (2026-08-14). What LIMITS a rack is either its heat or its cadence, and the
+   * arithmetic below decides which:
+   *
+   *  - HEAT-GATED: generation out-paces cooling, so a held trigger eventually
+   *    locks the rack out. Its burn/recovery envelope is the feel contract.
+   *  - CADENCE-GATED: generation is BELOW cooling, so the rack can never reach
+   *    its own capacity and heat is not a limiter at all — the shot clock is.
+   *    The four missile racks are here now: at one missile every 2.0-4.4 s they
+   *    make 24-28 heat/s against 40-48 of cooling.
+   *
+   * Recording the class per module rather than relaxing the envelope keeps the
+   * guard sharp: a heat-gated rack that quietly drifts under its cooling — the
+   * regression this test exists to catch — now fails the CLASS assertion instead
+   * of silently passing a widened band.
+   */
+  const heatGating = (): Array<{ id: string; gen: number; cooling: number; clip: boolean }> => {
     const sink = configs.get<ModuleConfig>("module", "module.heatsink-basic")!.cooling!.multiplier;
-    for (const module of configs.getAll<ModuleConfig>("module")) {
-      const heat = module.heat;
-      if (!heat || !module.fire) continue;
-      if (module.id === HOT_LASER) continue; // synthetic stress fixture, not content
-      const cooling = heat.coolingPerSec * sink;
-      const gen =
-        module.fire.mode === "continuous"
-          ? heat.perSecondActive
-          : heat.perShot / module.fire.cycleTime;
-      expect(gen, `${module.id}: must out-pace its own cooling or heat means nothing`).toBeGreaterThan(cooling);
-      const burn = (heat.capacity - heat.perShot) / (gen - cooling);
-      const recover = heat.capacity / cooling;
-      // Clip-fed autocannons (2026-08-14) cycle three times faster for unchanged
-      // per-shot heat, so their rack burns far inside the heat-gated envelope:
-      // 0.43-0.46 s, i.e. TWO rounds of a 20-40 round magazine, then ~2.5 s
-      // locked. Recorded as its own floor rather than deleting the guard — the
-      // envelope still has to hold for the eleven heat-gated weapons.
-      const minBurn = module.fire.clip ? 0.4 : 1.5;
-      expect(burn, `${module.id} burn`).toBeGreaterThan(minBurn);
-      expect(burn, `${module.id} burn`).toBeLessThan(12);
-      expect(recover, `${module.id} recovery`).toBeGreaterThan(1.5);
-      expect(recover, `${module.id} recovery`).toBeLessThan(6);
+    return configs
+      .getAll<ModuleConfig>("module")
+      .filter((m) => m.heat && m.fire && m.id !== HOT_LASER) // HOT_LASER: synthetic stress fixture
+      .map((m) => ({
+        id: m.id,
+        gen: m.fire!.mode === "continuous" ? m.heat!.perSecondActive : m.heat!.perShot / m.fire!.cycleTime,
+        cooling: m.heat!.coolingPerSec * sink,
+        clip: Boolean(m.fire!.clip),
+      }));
+  };
+
+  it("gives every heat-gated weapon a finite, sane burn and recovery on the free kit", () => {
+    // The feel targets from the overhaul contract, expressed as content rules:
+    // a mk1 rack burns ~5 s and cools in ~2.5 s with the free radiator (×1.6).
+    const modules = new Map(configs.getAll<ModuleConfig>("module").map((m) => [m.id, m]));
+    const gated = heatGating().filter((w) => w.gen > w.cooling);
+    // All fifteen firing racks were heat-gated before missiles slowed down; the
+    // four missile racks left the class, so the envelope now covers eleven.
+    expect(gated.length, "heat-gated rack count").toBe(11);
+    for (const w of gated) {
+      const heat = modules.get(w.id)!.heat!;
+      const burn = (heat.capacity - heat.perShot) / (w.gen - w.cooling);
+      const recover = heat.capacity / w.cooling;
+      // Clip-fed autocannons (2026-08-14) now cycle SIX times faster than they
+      // originally did for unchanged per-shot heat, so their rack burns for
+      // 0.18-0.20 s — barely more than ONE round of a 20-40 round magazine —
+      // and then sits locked for ~2.1-2.5 s. Recorded as its own floor rather
+      // than deleting the guard; see the balance note in the report, this is the
+      // sharpest edge in the pass.
+      const minBurn = w.clip ? 0.15 : 1.5;
+      expect(burn, `${w.id} burn`).toBeGreaterThan(minBurn);
+      expect(burn, `${w.id} burn`).toBeLessThan(12);
+      expect(recover, `${w.id} recovery`).toBeGreaterThan(1.5);
+      expect(recover, `${w.id} recovery`).toBeLessThan(6);
+    }
+  });
+
+  it("records which racks stopped being heat-gated at all", () => {
+    // The missile racks, and ONLY the missile racks. A laser or an autocannon
+    // appearing here would mean heat had silently stopped limiting a rack that
+    // is balanced around being limited by it.
+    const cadenceGated = heatGating()
+      .filter((w) => w.gen <= w.cooling)
+      .map((w) => w.id)
+      .sort();
+    expect(cadenceGated).toEqual([
+      "module.missile-heavy",
+      "module.missile-mk1",
+      "module.missile-mk2",
+      "module.missile-mk3",
+    ]);
+    // …and they are under it by a real margin, not sitting on the boundary
+    // where a rounding change would flip the class.
+    for (const w of heatGating().filter((x) => x.gen <= x.cooling)) {
+      expect(w.gen / w.cooling, `${w.id} heat pressure`).toBeLessThan(0.8);
     }
   });
 });
@@ -578,13 +643,20 @@ describe("shipped weapon single-shot grace", () => {
  * pre-pass damage, so the SAME design intent — "a hull may not evaporate" — is
  * now `8 / 1.5 ≈ 5.33`. Raising the floor back would fail on the intended
  * change rather than on a regression.
+ *
+ * Rescaled AGAIN the same day by the ×2 damage pass: `8 / 3 ≈ 2.67`, the
+ * original intent carried through the cumulative ×3 the catalogue has taken.
+ * The floor is doing real work now rather than sitting decorative — the fastest
+ * cell (heavy vs light) is 4.833 s, i.e. 1.8× the floor, where before the pass
+ * it sat at 1.6× a floor of 5.33. See the balance note: this is the cell to
+ * watch if damage goes up again.
  */
-const TTK_FLOOR_S = 5.33;
+const TTK_FLOOR_S = 2.67;
 /**
  * Hard design ceiling: a stock engagement must resolve well inside a match.
- * Left at 45 through the 2026-08-14 typed-damage re-record, but the headroom is
- * now thin: the slowest cell (light vs heavy) is 32.6 s, 72% of the ceiling, and
- * its ±25% band tops out at 40.8 s.
+ * Left at 45 through both 2026-08-14 re-records; the ×2 damage pass bought back
+ * the headroom the typed-damage pass had eaten — the slowest cell (light vs
+ * heavy) is 24.4 s, 54% of the ceiling, with its ±25% band topping out at 30.5 s.
  */
 const TTK_CEILING_S = 45;
 /** Regression band around each recorded TTK, as a fraction of the recorded value. */
@@ -686,17 +758,36 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   //
   // The shield side of the triangle is measured by "an active shield measurably
   // extends survival" at the bottom of this describe, not here.
+  //
+  // RE-RECORDED A THIRD TIME 2026-08-14, for the combat retune: `fire.damage`
+  // × 2 on all 15 weapon modules, autocannon `cycleTime` halved again (6× the
+  // original cadence), missile `cycleTime` doubled, and missiles re-typed from
+  // kinetic to the HYBRID warhead (half kinetic, half energy). Every cell got
+  // faster, by 12% to 48%, and the spread between them widened — which is the
+  // arithmetic of the pass rather than a surprise:
+  //
+  //  - LASER contribution doubles outright (×2 damage, unchanged cadence), and
+  //    on this bare-hull bench it is the whole of the light hull's output
+  //    alongside the missile.
+  //  - MISSILE contribution FALLS. ×2 damage against ×2 cycleTime is a wash on
+  //    nominal DPS, and the hybrid warhead then lands at 0.75 hull effect
+  //    instead of kinetic's 1.0 — so on a bare hull a missile rack is worth
+  //    ~78% of what it was. Missiles trade sustained damage for alpha here.
+  //  - AUTOCANNON contribution roughly TRIPLES on sustained fire (×2 damage,
+  //    ×2 cadence, against a fixed reload), and the heavy is the only stock hull
+  //    that carries one — which is why its three columns move furthest and why
+  //    the heavy-vs-light cell is now the fastest kill in the matrix at 4.833 s.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    // old (×1.5 pass) → new (typed damage + clips)
-    ["ship.interceptor", "ship.interceptor", 22, 15.633], // 11.533
-    ["ship.interceptor", "ship.brawler", 22, 32.6], //       23.5
-    ["ship.interceptor", "ship.support", 22, 22.3], //       16.633
-    ["ship.brawler", "ship.interceptor", 22, 8.367], //       6.533
-    ["ship.brawler", "ship.brawler", 22, 18.6], //           15
-    ["ship.brawler", "ship.support", 22, 12.6], //           11.4
-    ["ship.support", "ship.interceptor", 22, 13.733], //     10.133
-    ["ship.support", "ship.brawler", 22, 28.8], //           21.6
-    ["ship.support", "ship.support", 22, 20.4], //           14.733
+    // ×1.5 pass → typed damage + clips → ×2 damage + 6× cannons + half-rate hybrid missiles
+    ["ship.interceptor", "ship.interceptor", 22, 12.067], // 11.533 → 15.633
+    ["ship.interceptor", "ship.brawler", 22, 24.4], //       23.5   → 32.6
+    ["ship.interceptor", "ship.support", 22, 17.3], //       16.633 → 22.3
+    ["ship.brawler", "ship.interceptor", 22, 4.833], //       6.533 →  8.367
+    ["ship.brawler", "ship.brawler", 22, 10.1], //           15     → 18.6
+    ["ship.brawler", "ship.support", 22, 6.5], //            11.4   → 12.6
+    ["ship.support", "ship.interceptor", 22, 12.067], //     10.133 → 13.733
+    ["ship.support", "ship.brawler", 22, 22.5], //           21.6   → 28.8
+    ["ship.support", "ship.support", 22, 16.867], //         14.733 → 20.4
   ];
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {
@@ -753,11 +844,13 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   it("an active shield measurably extends survival", () => {
     // The heavy is the hull under test here: since the internal bay landed
     // (2026-07-31) the light hull's two hardpoints carry no shield at all.
-    // Measured 2026-08-14 under typed damage: 32.6 s bare → 34.3 s shielded,
-    // i.e. the mk1 shield buys 5%. It only ever soaks what its own 40-point tank
-    // can pay for, and half this attacker's output is a KINETIC missile that the
-    // triangle lets through at 0.8. The direction is the contract; the size of
-    // the gap is balance feedback, not something this test pins.
+    // Re-measured 2026-08-14 after the combat retune: 24.4 s bare → 25.467 s
+    // shielded, i.e. the mk1 shield still buys ~4%. It only ever soaks what its
+    // own 40-point tank can pay for, and against doubled damage that tank is
+    // spent sooner — the HYBRID missile now presents half its warhead as energy,
+    // which the shield soaks at 0.5 instead of kinetic's 0.2, so the reserve
+    // drains faster for the same protection. The direction is the contract; the
+    // size of the gap is balance feedback, not something this test pins.
     const measure = (raiseShield: boolean): KillResult => {
       const sim = new ArenaSimulation(configs, BENCH_ARENA, BENCH_MODE, 1);
       const attacker = sim.spawnPlayerAt("ship.interceptor", fittingOf("ship.interceptor"), 0, { x: 0, z: 0 }, 0);

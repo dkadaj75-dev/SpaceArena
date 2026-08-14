@@ -67,7 +67,9 @@ describe("moduleHeatPerSec", () => {
 describe("moduleStats — the numbers each family is judged on", () => {
   it("shows a weapon's dps, range, power and its thermal rhythm", () => {
     expect(labels("module.laser-mk1")).toEqual(["DPS", "Range", "Power", "Burn", "Cool"]);
-    expect(valueOf("module.laser-mk1", "DPS")).toBe("7.2");
+    // 7.2 → 14.5 on 2026-08-14: `fire.damage` × 2 across the catalogue, so the
+    // chip quotes 7.24 per shot every 0.5 s.
+    expect(valueOf("module.laser-mk1", "DPS")).toBe("14.5");
     // "Power" is the flat rail current the module holds while online; "Burn" and
     // "Cool" are the seconds a pilot actually feels (2026-08-07). A weapon has
     // no energy chip at all — it costs none.
@@ -131,7 +133,7 @@ describe("moduleSummaryLine", () => {
   // ×1.6) the same rack burns ~5 s and cools in 2.5 s — see the feel bench.
   it("joins the chips into one readable line", () => {
     expect(moduleSummaryLine(mod("module.laser-mk1"))).toBe(
-      "DPS 7.2 · Range 95 · Power 2.5 · Burn 2.2s · Cool 4s",
+      "DPS 14.5 · Range 95 · Power 2.5 · Burn 2.2s · Cool 4s",
     );
   });
 

@@ -1,7 +1,7 @@
 import type { DamageType } from "../schemas/common.js";
 import type { ModuleConfig } from "../schemas/index.js";
-import type { EntityId } from "./components.js";
-import { damageTypeProfileOf } from "./tuningDefaults.js";
+import type { EntityId, ShipCore } from "./components.js";
+import { damageComponentsOf, type ResolvedDamageTypeProfile } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
 /**
@@ -24,6 +24,15 @@ export interface DamageTally {
  *      their ratio to each other and to the shield's reserve. (Applying it last,
  *      to the hull share only, would silently make shields stronger whenever the
  *      knob went below 1.)
+ *   1b. the scaled hit is SPLIT into leaf damage types by
+ *      `damageComponentsOf` (2026-08-14). A plain `kinetic` or `energy` hit is
+ *      one component of the whole; a COMPOSITE type — `hybrid`, the missile
+ *      warhead — is two, `tuning.damageTypes.hybrid.mix` deciding the ratio
+ *      (shipped 50/50). Each share then runs stages 2-4 below on its own leaf
+ *      profile and the hull's own resist column for that leaf, in the enum's
+ *      order, so a reserve too small for both is spent in a deterministic
+ *      sequence. The shares are re-joined for the EVENTS (see below): one hit
+ *      still floats one number.
  *   2. active shield module mitigation (per §2.3): for each `active` shield whose
  *      `coversFamilies` includes the damage type, remove the type's SHIELD SHARE
  *      of the hit — `tuning.damageTypes[type].shieldAbsorb`, 0.8 for energy and
@@ -46,7 +55,10 @@ export interface DamageTally {
  *
  * Emits `damage` carrying what the hull ACTUALLY lost (post hullMult and
  * resist), so the number that floats over a ship is the number it took; emits
- * `entityDestroyed` once when hull crosses 0.
+ * `entityDestroyed` once when hull crosses 0. A split hit emits ONE `damage`
+ * event (and one `shieldAbsorb` per shield) carrying the SUM across its shares
+ * under the authored type: a missile is one impact, so it floats one number, and
+ * that number is still exactly the hull it removed.
  *
  * Pass a `tally` (a channelling continuous weapon does) to BANK the `damage` and
  * `shieldAbsorb` amounts instead of emitting them — the caller then emits one
@@ -65,8 +77,58 @@ export function applyDamageToShip(
   const core = world.shipCores.get(targetId);
   if (!core || core.hull <= 0) return;
 
-  let dmg = baseAmount * world.tuning.globalDamageMult;
-  const profile = damageTypeProfileOf(world.tuning, type);
+  const scaled = baseAmount * world.tuning.globalDamageMult;
+  // Banked either way: a composite hit has to re-join its shares before it can
+  // emit, and the tally the beams pass in is that same accumulator.
+  const sink: DamageTally = tally ?? { hull: 0, absorbed: new Map() };
+
+  for (const part of damageComponentsOf(world.tuning, type)) {
+    // A share that already killed the target ends the hit: the rest of the
+    // warhead has nothing left to hit.
+    if (core.hull <= 0) break;
+    applyTypedShare(world, targetId, core, scaled * part.share, part.type, part.profile, sink);
+  }
+
+  if (!tally) {
+    for (const [hardpointIndex, amount] of sink.absorbed) {
+      world.emit({ type: "shieldAbsorb", targetId, sourceId, hardpointIndex, amount, damageType: type });
+    }
+    if (sink.hull > 0) {
+      world.emit({ type: "damage", targetId, sourceId, amount: sink.hull, damageType: type, isAsteroid: false });
+    }
+  }
+
+  if (core.hull <= 0) {
+    core.hull = 0;
+    const pos = world.transforms.get(targetId)?.pos;
+    world.emit({
+      type: "entityDestroyed",
+      entityId: targetId,
+      killerId: sourceId,
+      isAsteroid: false,
+      team: world.teams.get(targetId)?.team,
+      pos: pos ? { x: pos.x, y: pos.y, z: pos.z } : undefined,
+    });
+  }
+}
+
+/**
+ * Stages 2-4 for ONE leaf share of a hit: shields, innate shield hp, hull.
+ * Amounts land in `sink` rather than in events — {@link applyDamageToShip} joins
+ * the shares back up and decides what to emit — and the hull is debited here so
+ * a later share of the same hit sees the damage the earlier one did.
+ */
+function applyTypedShare(
+  world: World,
+  targetId: EntityId,
+  core: ShipCore,
+  amount: number,
+  type: DamageType,
+  profile: ResolvedDamageTypeProfile,
+  sink: DamageTally,
+): void {
+  let dmg = amount;
+  if (dmg <= 0) return;
 
   // (2) active shield mitigation
   const mods = world.modules.get(targetId);
@@ -77,6 +139,9 @@ export function applyDamageToShip(
       const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
       const mit = cfg?.mitigation;
       if (!mit) continue;
+      // Asked about the LEAF type, which is what a shield's `coversFamilies`
+      // lists: half a missile is energy to a shield, and the shield knows what
+      // energy is even though it has never heard of `hybrid`.
       if (mit.coversFamilies && !mit.coversFamilies.includes(type)) continue;
       // The shield's RESERVE is its own energy tank (heat/energy overhaul
       // 2026-08-07): a point soaked is a point of charge spent, so a shield
@@ -95,18 +160,7 @@ export function applyDamageToShip(
       dmg -= reduced;
       if (m.energyCapacity > 0) m.energy -= reduced;
       m.workedThisTick = true;
-      if (tally) {
-        tally.absorbed.set(m.hardpointIndex, (tally.absorbed.get(m.hardpointIndex) ?? 0) + reduced);
-      } else {
-        world.emit({
-          type: "shieldAbsorb",
-          targetId,
-          sourceId,
-          hardpointIndex: m.hardpointIndex,
-          amount: reduced,
-          damageType: type,
-        });
-      }
+      sink.absorbed.set(m.hardpointIndex, (sink.absorbed.get(m.hardpointIndex) ?? 0) + reduced);
     }
   }
 
@@ -122,23 +176,8 @@ export function applyDamageToShip(
   const resist = type === "kinetic" ? core.resists.kinetic : core.resists.energy;
   const hullDmg = dmg * profile.hullMult * (1 - resist);
   if (hullDmg <= 0) return;
-  const wasAlive = core.hull > 0;
   core.hull -= hullDmg;
-  if (tally) tally.hull += hullDmg;
-  else world.emit({ type: "damage", targetId, sourceId, amount: hullDmg, damageType: type, isAsteroid: false });
-
-  if (wasAlive && core.hull <= 0) {
-    core.hull = 0;
-    const pos = world.transforms.get(targetId)?.pos;
-    world.emit({
-      type: "entityDestroyed",
-      entityId: targetId,
-      killerId: sourceId,
-      isAsteroid: false,
-      team: world.teams.get(targetId)?.team,
-      pos: pos ? { x: pos.x, y: pos.y, z: pos.z } : undefined,
-    });
-  }
+  sink.hull += hullDmg;
 }
 
 /** Damage a destructible asteroid; emits destruction + flips asset state. */

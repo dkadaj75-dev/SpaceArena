@@ -7,7 +7,7 @@ import type { EntityId } from "./components.js";
 import { applyDamageToShip, type DamageTally } from "./damage.js";
 import { spawnShipFromConfig } from "./spawn.js";
 import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_SHIELD, loadTestConfigs, makeWorld } from "./testutil.js";
-import { DEFAULT_DAMAGE_TYPE_PROFILES, damageTypeProfileOf } from "./tuningDefaults.js";
+import { DEFAULT_DAMAGE_TYPE_PROFILES, damageComponentsOf, damageTypeProfileOf } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
 /**
@@ -243,6 +243,221 @@ describe("damage types — event semantics", () => {
   });
 });
 
+/**
+ * The HYBRID warhead (missiles, 2026-08-14).
+ *
+ * `hybrid` is not a third set of shield/hull numbers — it is a MIX, authored in
+ * `tuning.damageTypes.hybrid.mix`, of the two leaf types. A hybrid hit is dealt
+ * as half an energy hit and half a kinetic one, each through its OWN live
+ * profile and the hull's own resist column, and the two halves are re-joined for
+ * the events so one impact still floats one number.
+ *
+ * On the light hull the shipped 50/50 warhead reads as clean arithmetic:
+ *   20 hybrid, no shield  → 10 kinetic (×1.0 ×0.9 = 9) + 10 energy (×0.5 = 5) = 14
+ *   20 hybrid, shield up  → shield soaks 2 (kinetic share) + 8 (energy share) = 10,
+ *                           hull takes 8×0.9 + 2×0.5 = 8.2
+ */
+describe("damage types — the hybrid warhead (split at damage time)", () => {
+  it("is exactly the average of the two pure hits on a bare hull", () => {
+    const hybrid = lossOnFresh(unshielded(), HIT, "hybrid");
+    const kinetic = lossOnFresh(unshielded(), HIT, "kinetic");
+    const energy = lossOnFresh(unshielded(), HIT, "energy");
+    // The identity that makes this worth doing at all: half of each, not a
+    // third number invented for missiles.
+    expect(hybrid).toBeCloseTo((kinetic + energy) / 2, 6);
+    expect(hybrid).toBeCloseTo(9 + 5, 6);
+  });
+
+  it("splits against a shield too: each half is soaked on its OWN share", () => {
+    const { world, id } = shielded();
+    const shield = world.modules.get(id)!.modules[SHIELD]!;
+    const full = shield.energyCapacity;
+
+    const loss = hullLoss(world, id, HIT, "hybrid");
+    // 10 kinetic → 2 soaked, 8 through; 10 energy → 8 soaked, 2 through.
+    expect(absorbed(world)).toBeCloseTo(10, 6);
+    expect(shield.energy).toBeCloseTo(full - 10, 6);
+    expect(loss).toBeCloseTo(8 * (1 - KINETIC_RESIST) + 2 * 0.5, 6);
+  });
+
+  it("sits between its parents against a shield — worse than kinetic, better than energy", () => {
+    const behindShield = {
+      energy: lossOnFresh(shielded(), HIT, "energy"),
+      hybrid: lossOnFresh(shielded(), HIT, "hybrid"),
+      kinetic: lossOnFresh(shielded(), HIT, "kinetic"),
+    };
+    expect(behindShield.hybrid).toBeGreaterThan(behindShield.energy);
+    expect(behindShield.hybrid).toBeLessThan(behindShield.kinetic);
+  });
+
+  it("spends the reserve share by share, in the enum's order, and overflows the rest to hull", () => {
+    // Reserve 5 against 20 hybrid. Components resolve in ENUM order — kinetic
+    // then energy — so the kinetic half draws its 2 first and the energy half
+    // finds only 3 of the 8 it wants. The other 5 stay in the hit.
+    const { world, id } = shielded(5);
+    const loss = hullLoss(world, id, HIT, "hybrid");
+    expect(absorbed(world)).toBeCloseTo(5, 6);
+    expect(world.modules.get(id)!.modules[SHIELD]!.energy).toBeCloseTo(0, 6);
+    // kinetic: 8 through ×0.9 = 7.2. energy: 7 through ×0.5 = 3.5.
+    expect(loss).toBeCloseTo(7.2 + 3.5, 6);
+  });
+
+  it("emits ONE damage event and ONE shieldAbsorb per shield, under the authored type", () => {
+    // Event coherence is the whole reason the shares are re-joined: a missile is
+    // one impact, so the HUD must float one number, and that number must be the
+    // hull the missile actually removed — not one of its halves.
+    const { world, id } = shielded();
+    const loss = hullLoss(world, id, HIT, "hybrid");
+    const damages = world.events.filter((e) => e.type === "damage");
+    const absorbs = world.events.filter((e) => e.type === "shieldAbsorb");
+    expect(damages.length).toBe(1);
+    expect(absorbs.length).toBe(1);
+    expect(damageEvent(world)).toBeCloseTo(loss, 6);
+    expect((damages[0] as { damageType: string }).damageType).toBe("hybrid");
+    expect((absorbs[0] as { damageType: string }).damageType).toBe("hybrid");
+    expect((absorbs[0] as { amount: number }).amount).toBeCloseTo(10, 6);
+  });
+
+  it("banks a split hit into a tally exactly as it would have emitted it", () => {
+    const emitted = shielded();
+    const emittedLoss = hullLoss(emitted.world, emitted.id, HIT, "hybrid");
+
+    const banked = shielded();
+    const tally: DamageTally = { hull: 0, absorbed: new Map() };
+    applyDamageToShip(banked.world, banked.id, null, HIT, "hybrid", tally);
+
+    expect(tally.hull).toBeCloseTo(emittedLoss, 6);
+    expect(tally.absorbed.get(SHIELD)).toBeCloseTo(absorbed(emitted.world), 6);
+    expect(banked.world.events.some((e) => e.type === "damage" || e.type === "shieldAbsorb")).toBe(false);
+  });
+
+  it("kills with the share that crosses zero, and announces the kill exactly once", () => {
+    const { world, id } = unshielded();
+    const core = world.shipCores.get(id)!;
+    core.hull = 4; // the kinetic half alone (9) is already fatal
+    applyDamageToShip(world, id, null, HIT, "hybrid");
+    expect(core.hull).toBe(0);
+    expect(world.events.filter((e) => e.type === "entityDestroyed").length).toBe(1);
+    // …and the damage event still precedes the kill, as it does for a leaf hit.
+    expect(world.events.findIndex((e) => e.type === "damage")).toBeLessThan(
+      world.events.findIndex((e) => e.type === "entityDestroyed"),
+    );
+  });
+
+  it("is what the shipped missile racks actually author", () => {
+    for (const id of ["module.missile-mk1", "module.missile-mk2", "module.missile-mk3", "module.missile-heavy"]) {
+      expect(configs.get<ModuleConfig>("module", id)!.fire!.damageType, id).toBe("hybrid");
+    }
+  });
+});
+
+describe("damage types — the mix is content, and it composes", () => {
+  /**
+   * The reason the split is resolved at damage time rather than baked into an
+   * averaged `hybrid` profile: the halves stay attached to the LIVE energy and
+   * kinetic profiles, so a designer who buffs energy moves every missile in the
+   * game by half that much, without touching a missile.
+   */
+  it("moves a hybrid weapon by exactly HALF of a change to energy", () => {
+    const baseline = lossOnFresh(unshielded(), HIT, "hybrid");
+    const buffed = {
+      energy: { shieldAbsorb: 0.8, hullMult: 1.0 }, // 0.5 → 1.0
+      kinetic: { shieldAbsorb: 0.2, hullMult: 1.0 },
+      hybrid: { mix: { kinetic: 0.5, energy: 0.5 } },
+    };
+    const pureBefore = lossOnFresh(unshielded(), HIT, "energy");
+    const pureAfter = lossOnFresh(unshielded({ damageTypes: buffed }), HIT, "energy");
+    const hybridAfter = lossOnFresh(unshielded({ damageTypes: buffed }), HIT, "hybrid");
+    expect(hybridAfter - baseline).toBeCloseTo((pureAfter - pureBefore) / 2, 6);
+  });
+
+  it("honours an authored ratio, normalised — 3:1 is a 75/25 warhead", () => {
+    const fixture = unshielded({
+      damageTypes: {
+        energy: { shieldAbsorb: 0.8, hullMult: 0.5 },
+        kinetic: { shieldAbsorb: 0.2, hullMult: 1.0 },
+        hybrid: { mix: { kinetic: 3, energy: 1 } },
+      },
+    });
+    // 15 kinetic ×0.9 = 13.5, 5 energy ×0.5 = 2.5.
+    expect(lossOnFresh(fixture, HIT, "hybrid")).toBeCloseTo(16, 6);
+  });
+
+  it("resolves the shipped mix into two equal, ordered leaf components", () => {
+    const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
+    expect(damageComponentsOf(tuning, "hybrid")).toEqual([
+      { type: "kinetic", share: 0.5, profile: { shieldAbsorb: 0.2, hullMult: 1.0 } },
+      { type: "energy", share: 0.5, profile: { shieldAbsorb: 0.8, hullMult: 0.5 } },
+    ]);
+  });
+
+  it("leaves a leaf type as one whole component", () => {
+    const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
+    expect(damageComponentsOf(tuning, "kinetic")).toEqual([
+      { type: "kinetic", share: 1, profile: { shieldAbsorb: 0.2, hullMult: 1.0 } },
+    ]);
+  });
+
+  it("orders components by the ENUM, never by the authored key order", () => {
+    // Two packs that author the same ratio must draw on a short reserve in the
+    // same sequence, or the same fight resolves differently on two machines.
+    const keyed = (mix: Record<string, number>): TuningConfig =>
+      ({ globalDamageMult: 1, damageTypes: { hybrid: { mix } } }) as unknown as TuningConfig;
+    const a = damageComponentsOf(keyed({ energy: 0.5, kinetic: 0.5 }), "hybrid").map((c) => c.type);
+    const b = damageComponentsOf(keyed({ kinetic: 0.5, energy: 0.5 }), "hybrid").map((c) => c.type);
+    expect(a).toEqual(["kinetic", "energy"]);
+    expect(b).toEqual(a);
+  });
+
+  it("normalises any positive weights, so shares always sum to 1", () => {
+    const tuning = { globalDamageMult: 1, damageTypes: { hybrid: { mix: { kinetic: 7, energy: 3 } } } } as TuningConfig;
+    const parts = damageComponentsOf(tuning, "hybrid");
+    expect(parts.map((p) => p.share)).toEqual([0.7, 0.3]);
+    expect(parts.reduce((sum, p) => sum + p.share, 0)).toBeCloseTo(1, 12);
+  });
+
+  it("drops nonsense weights instead of leaking NaN into hull", () => {
+    const tuning = {
+      globalDamageMult: 1,
+      damageTypes: { hybrid: { mix: { kinetic: 1, energy: Number.NaN } } },
+    } as TuningConfig;
+    expect(damageComponentsOf(tuning, "hybrid").map((p) => [p.type, p.share])).toEqual([["kinetic", 1]]);
+    const fixture = unshielded({ damageTypes: tuning.damageTypes });
+    expect(lossOnFresh(fixture, HIT, "hybrid")).toBeCloseTo(HIT * (1 - KINETIC_RESIST), 6);
+  });
+
+  it("cannot recurse: a component's own mix is not expanded, and self-reference is ignored", () => {
+    const tuning = {
+      globalDamageMult: 1,
+      damageTypes: {
+        hybrid: { mix: { hybrid: 5, kinetic: 1, energy: 1 } },
+        // A leaf that also declares a mix is still taken as a leaf here.
+        kinetic: { shieldAbsorb: 0.2, hullMult: 1.0, mix: { energy: 1 } },
+      },
+    } as TuningConfig;
+    const parts = damageComponentsOf(tuning, "hybrid");
+    expect(parts.map((p) => [p.type, p.share])).toEqual([
+      ["kinetic", 0.5],
+      ["energy", 0.5],
+    ]);
+  });
+
+  it("degrades to the type's own profile when the mix empties out", () => {
+    // `hybrid`'s shipped leaf numbers ARE the collapse of the 50/50 mix, so a
+    // pack that deletes the mix lands on the same behaviour rather than on a
+    // legacy full-nominal hit.
+    const tuning = { globalDamageMult: 1, damageTypes: { hybrid: { mix: {} } } } as TuningConfig;
+    expect(damageComponentsOf(tuning, "hybrid")).toEqual([
+      { type: "hybrid", share: 1, profile: { shieldAbsorb: 0.5, hullMult: 0.75 } },
+    ]);
+    // 20 through the collapsed profile on a bare hull: 20 × 0.75, on the energy
+    // resist column (0 here) — the same 15 the mix produces… bar the kinetic
+    // half's 0.9 resist, which is exactly what a per-type resist is FOR.
+    const fixture = unshielded({ damageTypes: tuning.damageTypes });
+    expect(lossOnFresh(fixture, HIT, "hybrid")).toBeCloseTo(15, 6);
+  });
+});
+
 describe("damage types — globalDamageMult ordering", () => {
   /**
    * `globalDamageMult` is applied FIRST, to the whole hit, before the shield
@@ -290,6 +505,9 @@ describe("damage types — tuning resolution", () => {
     expect(tuning.damageTypes).toEqual({
       energy: { shieldAbsorb: 0.8, hullMult: 0.5 },
       kinetic: { shieldAbsorb: 0.2, hullMult: 1.0 },
+      // The warhead ratio is CONTENT (2026-08-14): missiles carry no split of
+      // their own, they carry a mix of the two rows above.
+      hybrid: { mix: { kinetic: 0.5, energy: 0.5 } },
     });
   });
 

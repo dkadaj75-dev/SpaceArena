@@ -21,8 +21,8 @@
   "fire": {
     "mode": "held",
     "range": 75,
-    "cycleTime": 0.3,
-    "damage": 5.9,
+    "cycleTime": 0.15,
+    "damage": 11.8,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
     "clip": { "size": 24, "reloadSec": 2.6 },

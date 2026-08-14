@@ -1,4 +1,4 @@
-import type { DamageType } from "../schemas/common.js";
+import { damageType as damageTypeEnum, type DamageType } from "../schemas/common.js";
 import type { TuningConfig } from "../schemas/index.js";
 
 /** Fallback for `tuning.pitchRateMult` (BUBBLE.md §A). */
@@ -90,6 +90,29 @@ export interface ResolvedDamageTypeProfile {
 export const DEFAULT_DAMAGE_TYPE_PROFILES: Readonly<Record<DamageType, ResolvedDamageTypeProfile>> = {
   energy: { shieldAbsorb: 0.8, hullMult: 0.5 },
   kinetic: { shieldAbsorb: 0.2, hullMult: 1.0 },
+  // `hybrid` is composite: it normally resolves through {@link DEFAULT_DAMAGE_TYPE_MIXES}
+  // and never uses these numbers. They are the collapse of the shipped 50/50
+  // mix (the average of the two rows above), so a pack that deletes the mix
+  // without replacing it lands on the same behaviour instead of on a legacy
+  // full-nominal hit.
+  hybrid: { shieldAbsorb: 0.5, hullMult: 0.75 },
+};
+
+/** Leaf-type weights a composite damage type is made of. Ratios, not fractions. */
+export type DamageTypeMix = Readonly<Partial<Record<DamageType, number>>>;
+
+/**
+ * The shipped COMPOSITION of each composite damage type: which leaf types a hit
+ * is split into, and in what ratio. `hybrid` is the missile warhead — half
+ * kinetic, half energy (2026-08-14) — which is why a missile is soaked by a
+ * shield for 0.5 of its hit rather than kinetic's 0.2, and lands on bare plating
+ * at 0.75 rather than 1.0.
+ *
+ * A FALLBACK, like the profiles above: `content/tuning/default.json` authors the
+ * same ratio explicitly, and that authored copy is the knob a designer turns.
+ */
+export const DEFAULT_DAMAGE_TYPE_MIXES: Readonly<Partial<Record<DamageType, DamageTypeMix>>> = {
+  hybrid: { kinetic: 0.5, energy: 0.5 },
 };
 
 /**
@@ -123,4 +146,68 @@ export function damageTypeProfileOf(tuning: TuningConfig, type: DamageType): Res
         : ratioOr(authored.shieldAbsorb, base.shieldAbsorb ?? 0, 1),
     hullMult: ratioOr(authored.hullMult, base.hullMult, Infinity),
   };
+}
+
+/**
+ * One share of a hit, already resolved to the LEAF type it is dealt as. A plain
+ * `kinetic` hit is one component with `share: 1`; the shipped `hybrid` warhead
+ * is two, `0.5` each.
+ */
+export interface ResolvedDamageComponent {
+  /** The leaf type this share behaves as — shield share, hull mult AND hull resist. */
+  type: DamageType;
+  /** Fraction of the incoming amount dealt as {@link type}. Shares sum to 1. */
+  share: number;
+  /** {@link type}'s resolved profile, so the caller never re-resolves it. */
+  profile: ResolvedDamageTypeProfile;
+}
+
+/**
+ * Split `type` into the leaf components a hit is actually dealt as.
+ *
+ * A COMPOSITE type (one with a `mix`, shipped: `hybrid`) is the reason this
+ * exists: rather than giving missiles their own averaged shield/hull numbers —
+ * which would freeze at whatever energy and kinetic happened to be on the day
+ * they were written — a hybrid hit is dealt as HALF AN ENERGY HIT AND HALF A
+ * KINETIC ONE, each through its own live profile. Re-tune energy and every
+ * hybrid weapon moves by its energy share, automatically. For the shield-share /
+ * hull-mult model the arithmetic is identical to the averaged profile; what
+ * differs is that the two halves stay independently tunable, and that a shield's
+ * `coversFamilies` is asked about `kinetic`/`energy` — types shields actually
+ * list — rather than about a composite name no shield in the catalogue covers.
+ *
+ * Rules, all of them defensive because packs are authored:
+ *  - No mix (the common case) ⇒ ONE component, the type itself, share 1.
+ *  - Components are LEAVES: a component's own mix is never expanded, so a chain
+ *    or a cycle in content cannot recurse. Naming the composite inside its own
+ *    mix is ignored for the same reason.
+ *  - Weights are ratios, normalised by their sum; non-finite, negative and zero
+ *    weights drop out. A mix that empties out degrades to the single-component
+ *    case, i.e. the type's own profile.
+ *  - Order is the ENUM's declaration order, never the JSON key order, so two
+ *    packs that author the same ratio produce the same sequence of shield draws
+ *    against a reserve too small to pay for both. Determinism is the sim's
+ *    whole contract.
+ */
+export function damageComponentsOf(tuning: TuningConfig, type: DamageType): ResolvedDamageComponent[] {
+  const whole = (): ResolvedDamageComponent[] => [{ type, share: 1, profile: damageTypeProfileOf(tuning, type) }];
+  const mix = tuning.damageTypes?.[type]?.mix ?? DEFAULT_DAMAGE_TYPE_MIXES[type];
+  if (!mix) return whole();
+
+  const weights: Array<{ type: DamageType; weight: number }> = [];
+  let total = 0;
+  for (const leaf of damageTypeEnum.options) {
+    if (leaf === type) continue; // self-reference: a type cannot be a share of itself
+    const weight = mix[leaf];
+    if (weight === undefined || !Number.isFinite(weight) || weight <= 0) continue;
+    weights.push({ type: leaf, weight });
+    total += weight;
+  }
+  if (total <= 0) return whole();
+
+  return weights.map(({ type: leaf, weight }) => ({
+    type: leaf,
+    share: weight / total,
+    profile: damageTypeProfileOf(tuning, leaf),
+  }));
 }

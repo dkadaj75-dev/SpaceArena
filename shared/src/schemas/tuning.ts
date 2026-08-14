@@ -7,7 +7,7 @@ export type TargetingPolicy = z.infer<typeof targetingPolicy>;
 
 /**
  * How ONE damage type behaves against shields and hull (the damage-type
- * triangle). Both knobs are optional so a pack can author half a profile and
+ * triangle). Every knob is optional so a pack can author half a profile and
  * inherit the rest; the sim resolves them through
  * {@link import("../sim/tuningDefaults.js").damageTypeProfileOf}.
  */
@@ -32,6 +32,25 @@ export const damageTypeProfileSchema = z.object({
    * per-type `resists`.
    */
   hullMult: z.number().nonnegative().optional(),
+  /**
+   * Makes this type COMPOSITE: instead of soaking and landing on its own
+   * `shieldAbsorb`/`hullMult`, a hit is split by these WEIGHTS and each share is
+   * dealt as the named leaf type, through that leaf's own profile and the hull's
+   * own resist column. `{ "kinetic": 0.5, "energy": 0.5 }` is the shipped
+   * missile warhead: half punches through shields and lands full on plating,
+   * half is soaked by shields and scorches plating for half.
+   *
+   * Weights are RATIOS, not fractions — they are normalised by their sum, so
+   * `{kinetic: 3, energy: 1}` is a 75/25 warhead. This is the authored knob for
+   * "how hybrid is this weapon", and because the shares resolve through the LEAF
+   * profiles, re-tuning `energy` moves every hybrid weapon by its energy share
+   * rather than leaving it frozen at a stale average.
+   *
+   * Components are always taken as leaves: a mix listed here is not expanded
+   * again (no chains, no cycles), and naming the type itself is ignored. A mix
+   * that ends up empty degrades to the type's own `shieldAbsorb`/`hullMult`.
+   */
+  mix: z.partialRecord(damageType, z.number().nonnegative()).optional(),
 });
 export type DamageTypeProfile = z.infer<typeof damageTypeProfileSchema>;
 
@@ -85,9 +104,10 @@ export const tuningSchema = z.object({
   /**
    * Per-damage-type shield/hull behaviour. Optional and per-type optional: a
    * pack that omits the block entirely gets the shipped triangle (energy
-   * 0.8 shield / 0.5 hull, kinetic 0.2 shield / 1.0 hull), and a damage type
-   * with no entry keeps the LEGACY behaviour — shields soak their own
-   * `mitigation.damageReduction` and hull takes the hit at full nominal.
+   * 0.8 shield / 0.5 hull, kinetic 0.2 shield / 1.0 hull, hybrid = half of
+   * each), and a damage type with no entry keeps the LEGACY behaviour — shields
+   * soak their own `mitigation.damageReduction` and hull takes the hit at full
+   * nominal.
    */
   damageTypes: z.partialRecord(damageType, damageTypeProfileSchema).optional(),
   /** Planar linear drag coefficient. */

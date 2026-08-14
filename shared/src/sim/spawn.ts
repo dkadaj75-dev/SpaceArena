@@ -1,4 +1,5 @@
 import type { ConfigService } from "../core/ConfigService.js";
+import type { DamageType } from "../schemas/common.js";
 import { hardpointsOf, isInternalFamily, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
 import { resolveShipStats, type UpgradeLevels } from "./resolveStats.js";
@@ -185,7 +186,12 @@ export function spawnProjectile(
   params: {
     kind: "kinetic" | "missile";
     damage: number;
-    damageType: "kinetic" | "energy";
+    /**
+     * The AUTHORED type, composite ones (`hybrid`) included — the split into
+     * leaf types happens on impact, in `applyDamageToShip`, not here. Widened
+     * from the two leaves on 2026-08-14 when missiles became hybrid warheads.
+     */
+    damageType: DamageType;
     speed: number;
     turnRate?: number;
     lifetime: number;

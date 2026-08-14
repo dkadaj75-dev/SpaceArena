@@ -1,7 +1,21 @@
 import { z } from "zod";
 
-/** Damage / resist channels (matrix keys). Extensible. */
-export const damageType = z.enum(["kinetic", "energy"]);
+/**
+ * Damage / resist channels (matrix keys). Extensible.
+ *
+ * `kinetic` and `energy` are LEAF types: each carries its own shield share and
+ * hull multiplier (`tuning.damageTypes`), and the hull's `resists` matrix has a
+ * column for each.
+ *
+ * `hybrid` is a COMPOSITE type (missiles, 2026-08-14): it owns no split of its
+ * own, it is a MIX of leaf types authored in `tuning.damageTypes.hybrid.mix`
+ * (shipped: half kinetic, half energy). The damage pipeline resolves the mix at
+ * hit time and applies each share as its leaf type — through that leaf's shield
+ * share, hull multiplier and hull resist — so retuning `energy` moves every
+ * hybrid weapon by half as much, exactly as a designer would expect. See
+ * {@link import("../sim/tuningDefaults.js").damageComponentsOf}.
+ */
+export const damageType = z.enum(["kinetic", "energy", "hybrid"]);
 export type DamageType = z.infer<typeof damageType>;
 
 /** Module families (MVP). New family = new optional block, not a new schema. */

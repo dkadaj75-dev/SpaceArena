@@ -170,23 +170,38 @@ describe("free-kit weapon thermal feel (measured, not computed)", () => {
     expectNear("laser-mk1 uptime", f.uptime, 0.77, 0.08);
   });
 
-  it("missile rack: cycles slower but recovers on the same radiator", () => {
+  it("missile rack: no longer heat-limited at all — the shot clock is its limiter", () => {
+    // RE-RECORDED 2026-08-14 (missiles halved to one shot every 2.4 s). The old
+    // anchors — 6.07 s burn, 1.9 s lockout, 0.81 uptime — described a rack that
+    // out-paced its own cooling. At half rate it no longer does: 58.1 heat a
+    // shot every 2.4 s is 24.2/s against the free radiator's 40/s, so heat now
+    // decays between missiles and the rack never reaches its capacity.
+    //
+    // `-1` is the harness's "never happened" for burn and lockout, and it is
+    // recorded here deliberately rather than deleted: if a future edit makes a
+    // missile rack overheat again, that is a feel change and this test should
+    // say so.
     const f = weaponFeel("module.missile-mk1");
-    expectNear("missile-mk1 burn", f.burnSec, 6.07, 0.6);
-    expectNear("missile-mk1 lockout", f.lockoutSec, 1.9, 0.4);
+    expect(f.burnSec, "missile-mk1 never locks out").toBe(-1);
+    expect(f.lockoutSec, "missile-mk1 never locks out").toBe(-1);
+    expect(f.uptime, "missile-mk1 uptime").toBe(1);
+    // The radiator itself is untouched — a rack filled by hand still cools in
+    // the same ~2.5 s it always did.
     expectNear("missile-mk1 recovery", f.recoverSec, 2.53, 0.4);
-    expectNear("missile-mk1 uptime", f.uptime, 0.81, 0.08);
   });
 
-  it("keeps the trigger worth holding: no free-kit rack is locked out most of the fight", () => {
-    for (const id of ["module.laser-mk1", "module.missile-mk1"]) {
-      const f = weaponFeel(id);
-      expect(f.uptime, `${id} uptime`).toBeGreaterThan(0.6);
-      // …and no rack may run so cool that heat stops being a decision.
-      expect(f.uptime, `${id} uptime`).toBeLessThan(0.95);
-      expect(f.burnSec, `${id} burn`).toBeGreaterThan(0);
-      expect(f.lockoutSec, `${id} lockout`).toBeGreaterThan(0);
-    }
+  it("keeps the trigger worth holding: the heat-gated rack is not locked out most of the fight", () => {
+    // Scoped to the LASER on 2026-08-14. The pair-wise loop this replaced
+    // asserted `uptime < 0.95` for both free-kit racks — "no rack may run so
+    // cool that heat stops being a decision" — which the half-rate missile rack
+    // now fails by design (uptime 1, see above). Heat is still a decision on
+    // every rack the pilot holds down continuously; the missile is simply not
+    // one of those any more.
+    const f = weaponFeel("module.laser-mk1");
+    expect(f.uptime, "laser-mk1 uptime").toBeGreaterThan(0.6);
+    expect(f.uptime, "laser-mk1 uptime").toBeLessThan(0.95);
+    expect(f.burnSec, "laser-mk1 burn").toBeGreaterThan(0);
+    expect(f.lockoutSec, "laser-mk1 lockout").toBeGreaterThan(0);
   });
 });
 

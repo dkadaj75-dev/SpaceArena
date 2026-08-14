@@ -21,9 +21,9 @@
   "fire": {
     "mode": "semi",
     "range": 175,
-    "cycleTime": 2.2,
-    "damage": 21.33,
-    "damageType": "kinetic",
+    "cycleTime": 4.4,
+    "damage": 42.66,
+    "damageType": "hybrid",
     "requiresLineOfSight": true,
     "projectile": {
       "speed": 42,
