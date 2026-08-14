@@ -29,6 +29,28 @@ describe("stageViewport (owner 2026-07-31 split hangar)", () => {
     expect(stageViewport(844, 390, Number.NaN).width).toBe(STAGE_FRACTION);
   });
 
+  it("gives the docked stats band the BOTTOM of the stage half, in both orientations", () => {
+    // Landscape 800x400 with a 40px band: the stage keeps the left half above it.
+    expect(stageViewport(800, 400, 0.5, 40)).toEqual({ x: 0, y: 0.1, width: 0.5, height: 0.9 });
+    // Portrait 400x800: the stage is the TOP half, so the band eats its lower edge.
+    expect(stageViewport(400, 800, 0.5, 80)).toEqual({ x: 0, y: 0.6, width: 1, height: 0.4 });
+  });
+
+  it("caps a runaway band so the hull always keeps a stage to be framed in", () => {
+    // A band claiming the entire screen may still only take 60% of the half.
+    const landscape = stageViewport(800, 400, 0.5, 4000);
+    expect(landscape.y).toBeCloseTo(0.6, 9);
+    expect(landscape.height).toBeCloseTo(0.4, 9);
+    const portrait = stageViewport(400, 800, 0.5, 4000);
+    expect(portrait.height).toBeCloseTo(0.5 * 0.4, 9);
+  });
+
+  it("ignores a nonsense or absent band — the pre-band split is the default", () => {
+    expect(stageViewport(800, 400, 0.5, 0)).toEqual(stageViewport(800, 400));
+    expect(stageViewport(800, 400, 0.5, -20)).toEqual(stageViewport(800, 400));
+    expect(stageViewport(800, 400, 0.5, Number.NaN)).toEqual(stageViewport(800, 400));
+  });
+
   it("never overlaps the panel half: stage + panel exactly tile the screen", () => {
     for (const [w, h] of [
       [390, 844],
@@ -50,6 +72,12 @@ describe("stageAspect", () => {
     expect(stageAspect(390, 844)).toBeCloseTo(390 / 422, 6);
     // Landscape 844x390: stage is 422 x 390.
     expect(stageAspect(844, 390)).toBeCloseTo(422 / 390, 6);
+  });
+
+  it("measures the stage the band left behind, so a tall band cannot crop the hull", () => {
+    // 800x400 landscape, 40px band: the viewer is 400 x 360, not 400 x 400.
+    expect(stageAspect(800, 400, 0.5, 40)).toBeCloseTo(400 / 360, 6);
+    expect(stageAspect(800, 400, 0.5, 40)).toBeGreaterThan(stageAspect(800, 400));
   });
 });
 

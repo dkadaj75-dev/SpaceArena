@@ -26,18 +26,46 @@ export interface ViewportRect {
 export const FULL_VIEWPORT: ViewportRect = { x: 0, y: 0, width: 1, height: 1 };
 
 /**
+ * The most of its half the stats band may ever eat. The band is measured from
+ * the DOM, so a pathological one (a huge font, a wrapped warning) could
+ * otherwise squeeze the hull out of its own stage entirely.
+ */
+const MAX_STATS_SHARE = 0.6;
+
+/**
  * Where the 3D stage sits for a viewport of `width` x `height`.
  *
  * Portrait keeps the stage in the TOP half, which in Babylon's bottom-left
  * origin means `y = 1 - fraction`; landscape keeps it in the LEFT half, which
  * starts at x = 0. Both mirror the CSS in `Hangar.ts` — the panel takes the
  * remainder, and the two must agree or the ship renders behind the panel.
+ *
+ * `statsPx` is the height of the characteristics band DOCKED ALONG THE BOTTOM
+ * of that half (owner 2026-08-14). The band used to float over the stage as a
+ * corner card, which put opaque gauges on top of the hull they describe; it now
+ * sits under the hull, and the viewer gives up exactly the height it takes.
+ * Babylon measures y from the BOTTOM, so the band is what the stage rect starts
+ * above — in both orientations.
  */
-export function stageViewport(width: number, height: number, fraction = STAGE_FRACTION): ViewportRect {
+export function stageViewport(
+  width: number,
+  height: number,
+  fraction = STAGE_FRACTION,
+  statsPx = 0,
+): ViewportRect {
   const f = clamp01(fraction);
+  // Landscape gives the stage the full column height; portrait only its half.
+  const band = statsBand(statsPx, height, isLandscape(width, height) ? 1 : f);
   return isLandscape(width, height)
-    ? { x: 0, y: 0, width: f, height: 1 }
-    : { x: 0, y: 1 - f, width: 1, height: f };
+    ? { x: 0, y: band, width: f, height: 1 - band }
+    : { x: 0, y: 1 - f + band, width: 1, height: f - band };
+}
+
+/** The stats band as a fraction of the CANVAS, capped so the hull keeps a stage. */
+function statsBand(statsPx: number, height: number, stageShare: number): number {
+  if (!Number.isFinite(statsPx) || statsPx <= 0) return 0;
+  const share = statsPx / Math.max(1, height);
+  return Math.min(share, stageShare * MAX_STATS_SHARE);
 }
 
 /** Landscape when it is wider than it is tall — the CSS media query's rule. */
@@ -45,9 +73,14 @@ export function isLandscape(width: number, height: number): boolean {
   return width > height;
 }
 
-/** Pixel aspect ratio of the stage half, for the camera's projection fit. */
-export function stageAspect(width: number, height: number, fraction = STAGE_FRACTION): number {
-  const rect = stageViewport(width, height, fraction);
+/**
+ * Pixel aspect ratio of the stage the hull is framed in, for the camera's
+ * projection fit. `statsPx` is the docked band the viewer gives up (see
+ * {@link stageViewport}) — framing has to use the rectangle that is actually
+ * visible, or a tall band would crop the hull it pushed upward.
+ */
+export function stageAspect(width: number, height: number, fraction = STAGE_FRACTION, statsPx = 0): number {
+  const rect = stageViewport(width, height, fraction, statsPx);
   const w = Math.max(1, width * rect.width);
   const h = Math.max(1, height * rect.height);
   return w / h;

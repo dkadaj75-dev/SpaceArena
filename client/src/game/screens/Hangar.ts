@@ -54,7 +54,7 @@ import { HangarBay } from "./HangarBay.js";
 import { swapFrame, SWAP_DISTANCE_RADII, SWAP_DURATION_SEC } from "../shipSwap.js";
 import { juiceSettingsOf } from "../juice/juiceSettings.js";
 import { moduleIconId, moduleIconSvg } from "../hud/moduleIcons.js";
-import { framingRadius, stageAspect, stageViewport } from "../hangarLayout.js";
+import { framingRadius, stageAspect, stageViewport, STAGE_FRACTION } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
 import { pinInstanceLod0 } from "../../core/modelLod.js";
 import type { TacticalCamera } from "../TacticalCamera.js";
@@ -205,6 +205,12 @@ export class Hangar {
   private readonly root: HTMLDivElement;
   /** Transparent half the 3D stage renders into (see `.hangar-stage` CSS). */
   private readonly stage: HTMLDivElement;
+  /**
+   * The viewer WINDOW inside that half: the stage minus the characteristics
+   * band docked under it. The camera viewport is matched to this rectangle, so
+   * whatever the band takes, the hull is framed in what remains.
+   */
+  private readonly stageView: HTMLDivElement;
   private readonly panel: HTMLDivElement;
   private readonly api: HangarApi;
   private readonly assets: AssetRegistry;
@@ -248,6 +254,8 @@ export class Hangar {
   private swap: { direction: -1 | 1; elapsed: number; distance: number; applied: boolean } | null = null;
   /** Stage-overlay arrows, kept so they can be disabled mid-transition. */
   private stageArrows: HTMLButtonElement[] = [];
+  /** Band height the camera viewport was last fitted around (see `syncStageBand`). */
+  private stageBandPx = 0;
   /**
    * The characteristics block over the 3D stage. Built once and refreshed in
    * place: `render()` wipes the info panel wholesale, and this lives in the
@@ -344,6 +352,11 @@ export class Hangar {
     // queries) must be able to reach.
     this.stage = document.createElement("div");
     this.stage.className = "hangar-stage";
+    // The VIEWER proper: the transparent window the camera's stage viewport is
+    // matched to. Everything that belongs "over the hull" is anchored in here,
+    // so the characteristics band docked beneath it can never cover the ship.
+    this.stageView = el("div", "hangar-stage-view");
+    this.stage.append(this.stageView);
     this.panel = document.createElement("div");
     this.panel.className = "hangar-panel";
     this.root.append(this.stage, this.panel);
@@ -356,6 +369,10 @@ export class Hangar {
     // a corner so it never covers the hull. `pointer-events: none` (CSS) is what
     // keeps orbit/zoom drags reaching the canvas through it — unlike the arrows,
     // it has nothing to click.
+    // The characteristics band. It used to float over the stage as a corner
+    // card, which put opaque gauges on top of the hull they describe; it now
+    // DOCKS along the bottom of the stage half and the viewer above it gives up
+    // exactly the height it takes (owner 2026-08-14).
     this.gauges = el("div", "hangar-gauges");
     // …and its counterpart in the opposite corner: the one thing on this screen
     // that changes what the player flies. Only the control inside it takes
@@ -364,7 +381,11 @@ export class Hangar {
     this.previewLoader = el("div", "hangar-preview-loading", "LOADING HULL");
     this.previewLoader.setAttribute("role", "status");
     this.previewLoader.style.display = "none";
-    this.stage.append(this.gauges, this.stageAction, this.previewLoader, ...this.stageArrows);
+    // Over-the-hull furniture goes in the VIEWER; the band is the stage's own
+    // second row, so it is the one thing that shortens the viewer rather than
+    // covering it.
+    this.stageView.append(this.stageAction, this.previewLoader, ...this.stageArrows);
+    this.stage.append(this.gauges);
     parent.append(this.root);
 
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
@@ -797,8 +818,34 @@ export class Hangar {
   private applyStageViewport(): void {
     const w = window.innerWidth || 1;
     const h = window.innerHeight || 1;
-    this.camera.setStageViewport(stageViewport(w, h));
-    this.frameShip(stageAspect(w, h));
+    const band = this.statsBandPx();
+    this.stageBandPx = band;
+    this.camera.setStageViewport(stageViewport(w, h, STAGE_FRACTION, band));
+    this.frameShip(stageAspect(w, h, STAGE_FRACTION, band));
+  }
+
+  /**
+   * Height the docked characteristics band is currently taking out of the stage
+   * half. Measured rather than assumed: the band's height is whatever its rows
+   * and the current font come to, and the camera has to agree with the CSS or
+   * the hull ends up behind it.
+   */
+  private statsBandPx(): number {
+    if (this.gauges.style.display === "none") return 0;
+    return this.gauges.getBoundingClientRect?.().height ?? 0;
+  }
+
+  /**
+   * Re-fit the viewer if the band's height moved (a gauge row gained a warning,
+   * a longer hull name wrapped). Guarded on an actual change because re-framing
+   * resets the orbit distance, and a player who has zoomed in must not be pulled
+   * back out every time they touch a module.
+   */
+  private syncStageBand(): void {
+    if (!this.isVisible) return;
+    const band = this.statsBandPx();
+    if (Math.abs(band - this.stageBandPx) < 0.5) return;
+    this.applyStageViewport();
   }
 
   /**
@@ -1318,6 +1365,7 @@ export class Hangar {
     this.gauges.innerHTML = "";
     if (!base || !ship) {
       this.gauges.style.display = "none";
+      this.syncStageBand();
       return;
     }
     this.gauges.style.display = "";
@@ -1347,6 +1395,9 @@ export class Hangar {
         ),
       );
     }
+    // The warning line (and a wrapped hull name) change the band's height, and
+    // the viewer above it has to give back exactly that much.
+    this.syncStageBand();
   }
 
   /**
@@ -2077,6 +2128,19 @@ const HANGAR_CSS = `
   min-height: 0;
   min-width: 0;
   pointer-events: none;
+  /* Two rows: the viewer, then the characteristics band under it. */
+  display: flex;
+  flex-direction: column;
+}
+/* The viewer WINDOW — the rectangle the camera's stage viewport is matched to
+   (see hangarLayout.stageViewport). Nothing opaque may live in here: this is
+   the hull's own space, and everything anchored inside it is either an edge
+   control or click-through. */
+.hangar-stage-view {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
 }
 /* Stage arrows: the only thing in the stage half that takes pointer events, so
    orbit and zoom drags still reach the canvas between them. */
@@ -2113,24 +2177,31 @@ const HANGAR_CSS = `
  * these gauges must still reach the canvas underneath.
  */
 .hangar-gauges {
-  position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 8px);
-  left: calc(env(safe-area-inset-left, 0px) + 8px);
-  /* 54%, not 62%: the opposite corner now carries the hull action, and the two
-     must not meet on the narrowest stage the game ships (a portrait phone). */
-  width: min(258px, 54%);
+  /* DOCKED, not floating: the band is the stage's second row, so the gauges sit
+     UNDER the hull instead of on top of it. The freed width is spent on columns
+     rather than a taller card — a short band is stage the viewer keeps. */
+  flex: 0 0 auto;
   box-sizing: border-box;
   pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 7px 9px 8px;
-  background: rgba(10, 12, 15, .62);
-  border: 1px solid rgba(58, 63, 69, .8);
-  border-left: 2px solid var(--hg-accent);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  align-content: end;
+  gap: 3px 16px;
+  padding:
+    6px
+    calc(env(safe-area-inset-right, 0px) + 10px)
+    calc(env(safe-area-inset-bottom, 0px) + 7px)
+    calc(env(safe-area-inset-left, 0px) + 10px);
+  background: linear-gradient(180deg, rgba(10, 12, 15, .55) 0%, rgba(10, 12, 15, .88) 42%);
+  border-top: 2px solid var(--hg-accent);
   backdrop-filter: blur(2px);
 }
-.hangar-gauges.previewing { border-left-color: var(--sa-white); }
+/* The caption rows span the full band; only the gauges themselves column up. */
+.hangar-gauges-head,
+.hangar-ship-class,
+.hangar-gauges-warn { grid-column: 1 / -1; }
+.hangar-ship-class { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--hg-dim); }
+.hangar-gauges.previewing { border-top-color: var(--sa-white); }
 .hangar-gauges-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .hangar-gauges-title { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--hg-accent); }
 .hangar-gauges-preview {
@@ -2178,11 +2249,13 @@ const HANGAR_CSS = `
 .hangar-gauge-delta.worse { color: var(--sa-white); }
 .hangar-gauge-delta.warn { color: var(--hg-danger); }
 .hangar-gauges-warn { font-size: 9.5px; line-height: 1.2; color: var(--hg-danger); }
-/* Phones: the stage half is small, so the block gives the hull more room. */
+/* Phones: the stage half is small, so the band gives the hull more room —
+   tighter rows and narrower columns, which on a phone-width stage means the
+   gauges pair up two-across instead of stacking into a tall wall. */
 @media (max-width: 520px), (orientation: landscape) and (max-height: 480px) {
-  .hangar-gauges { width: min(216px, 54%); padding: 5px 7px 6px; gap: 3px; }
-  .hangar-gauge { grid-template-columns: 64px 1fr auto; column-gap: 5px; }
-  .hangar-gauge-read { min-width: 66px; }
+  .hangar-gauges { grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); padding: 4px 7px 6px; gap: 2px 10px; }
+  .hangar-gauge { grid-template-columns: 54px 1fr auto; column-gap: 5px; }
+  .hangar-gauge-read { min-width: 60px; }
 }
 /*
  * ---- the hull action, over the 3D stage (owner 2026-08-08) ----
