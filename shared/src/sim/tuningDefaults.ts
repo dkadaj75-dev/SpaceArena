@@ -12,6 +12,15 @@ export const MAX_SAFE_PITCH_RAD = Math.PI / 2 - 1e-6;
 export const DEFAULT_MATCH_COUNTDOWN_SEC = 3;
 
 /**
+ * Whether the per-module weapon heat system is active. This is deliberately
+ * opt-in: packs that predate the kill switch, and the shipped pack, run with
+ * heat disabled unless they explicitly set `featureFlags.heatSystem` to true.
+ */
+export function heatSystemEnabled(tuning: TuningConfig): boolean {
+  return tuning.featureFlags?.heatSystem === true;
+}
+
+/**
  * `tuning.matchCountdownSec`, defaulted and made safe. A non-finite or negative
  * authored value degrades to "no countdown" rather than to a match that can
  * never start — the sim would otherwise sit frozen forever on a NaN comparison.

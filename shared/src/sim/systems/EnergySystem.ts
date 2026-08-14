@@ -1,6 +1,7 @@
 import type { ModuleConfig } from "../../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore } from "../components.js";
 import { railFits, transition } from "./ModuleSystem.js";
+import { heatSystemEnabled } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 
 /**
@@ -87,6 +88,9 @@ function stepHeat(
   siblings: readonly ModuleRuntime[],
   dt: number,
 ): void {
+  // The feature stays fully authored and replicated while switched off, but it
+  // has no gameplay effects: no generation, cooling, trip, or re-arm.
+  if (!heatSystemEnabled(world.tuning)) return;
   if (m.heatCapacity <= 0 || !cfg.heat) return;
 
   if (m.workedThisTick) {

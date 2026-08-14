@@ -18,6 +18,7 @@
   "netRenderDelayMs": 100,
   "netCorrectionRate": 12,
   "featureFlags": {
-    "showDebugOverlay": false
+    "showDebugOverlay": false,
+    "heatSystem": false
   }
 }

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ConfigService, EventBus, ConfigEvents, ModuleConfig, Order, Snapshot, ThemeConfig } from "@space-arena/shared";
+import type { ConfigService, EventBus, ConfigEvents, ModuleConfig, Order, Snapshot, ThemeConfig, TuningConfig } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { MODULE_FAMILY_COLOR_FALLBACKS, ModuleButtons, moduleHudName, resolveModuleFamilyColor } from "./ModuleButtons.js";
 
-function fakeConfigs(): ConfigService {
+function fakeConfigs(heatSystem = true): ConfigService {
   const modules: Record<string, Partial<ModuleConfig>> = {
     "module.laser-mk1": {
       name: "Pulse Laser Mk I",
@@ -47,7 +47,10 @@ function fakeConfigs(): ConfigService {
       },
     },
   };
-  return { get: (_type: string, id: string) => modules[id] as ModuleConfig | undefined } as unknown as ConfigService;
+  return {
+    get: (_type: string, id: string) => modules[id] as ModuleConfig | undefined,
+    getAll: (type: string) => type === "tuning" ? [{ featureFlags: { heatSystem } } as TuningConfig] : [],
+  } as unknown as ConfigService;
 }
 
 function snapshotWithModules(
@@ -284,6 +287,18 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     expect(none!.classList).not.toContain("ring-heat");
     expect(none!.classList).not.toContain("ring-energy");
     expect(none!.querySelector<HTMLElement>(".ring")!.hidden).toBe(true);
+    buttons.dispose();
+  });
+
+  it("hides weapon heat rings when featureFlags.heatSystem is off", () => {
+    const root = document.createElement("div");
+    const buttons = new ModuleButtons(root, fakeConfigs(false), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1);
+    buttons.update(snapshotWithModules([
+      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", heat: 25, heatCapacity: 100 },
+    ]));
+    const button = root.querySelector<HTMLElement>(".hud-module-btn")!;
+    expect(button.classList).not.toContain("ring-heat");
+    expect(button.querySelector<HTMLElement>(".ring")!.hidden).toBe(true);
     buttons.dispose();
   });
 

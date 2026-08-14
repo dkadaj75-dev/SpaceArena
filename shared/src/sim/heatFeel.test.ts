@@ -42,7 +42,7 @@ const ENGINE_SLOT = 2;
 let configs: ConfigService;
 
 beforeAll(async () => {
-  configs = await loadTestConfigs();
+  configs = await loadTestConfigs({ heatSystem: true });
   expectReplaced(
     configs.replace({
       id: BENCH_ARENA,

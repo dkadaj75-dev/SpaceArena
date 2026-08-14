@@ -1,5 +1,5 @@
-import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleFamily, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState, ThemeConfig } from "@space-arena/shared";
-import { createLogger, isInternalFamily } from "@space-arena/shared";
+import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleFamily, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState, ThemeConfig, TuningConfig } from "@space-arena/shared";
+import { createLogger, heatSystemEnabled, isInternalFamily } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
@@ -207,11 +207,12 @@ export class ModuleButtons {
       this.rebuild(ship.modules);
     }
 
+    const heatEnabled = heatSystemEnabled(this.configs.getAll<TuningConfig>("tuning")[0] ?? ({} as TuningConfig));
     for (const m of ship.modules) {
       const entry = this.entries.get(m.hardpointIndex);
       if (!entry) continue;
 
-      const ringKind = entry.cfg?.fire && m.heatCapacity > 0
+      const ringKind = heatEnabled && entry.cfg?.fire && m.heatCapacity > 0
         ? "heat"
         : m.energyCapacity > 0
           ? "energy"

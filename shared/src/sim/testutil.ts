@@ -26,7 +26,7 @@ async function fsLoader(relPath: string): Promise<unknown> {
  * (`countdown.test.ts`), which passes the shipped value explicitly.
  */
 export async function loadTestConfigs(
-  opts: { matchCountdownSec?: number } = {},
+  opts: { matchCountdownSec?: number; heatSystem?: boolean } = {},
 ): Promise<ConfigService> {
   const configs = new ConfigService(fsLoader);
   const result = await configs.load("manifest.json");
@@ -34,7 +34,19 @@ export async function loadTestConfigs(
     throw new Error("test content failed to load: " + JSON.stringify(result.errors));
   }
   setTestCountdown(configs, opts.matchCountdownSec ?? 0);
+  if (opts.heatSystem !== undefined) setTestHeatSystem(configs, opts.heatSystem);
   return configs;
+}
+
+/** Explicitly opt a test fixture into/out of the runtime weapon-heat system. */
+export function setTestHeatSystem(configs: ConfigService, enabled: boolean): void {
+  const tuning = configs.getAll<TuningConfig>("tuning")[0];
+  if (!tuning) throw new Error("no tuning config loaded");
+  const result = configs.replace({
+    ...tuning,
+    featureFlags: { ...tuning.featureFlags, heatSystem: enabled },
+  });
+  if (!result.ok) throw new Error("failed to set test heat system: " + JSON.stringify(result.errors));
 }
 
 /**

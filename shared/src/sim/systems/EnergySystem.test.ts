@@ -16,7 +16,7 @@ const DT = 1 / 30;
 
 let configs: ConfigService;
 beforeAll(async () => {
-  configs = await loadTestConfigs();
+  configs = await loadTestConfigs({ heatSystem: true });
 });
 
 function shipWorld(fitting: readonly (string | null)[] = INTERCEPTOR_FITTING): { world: World; id: number } {
@@ -32,6 +32,18 @@ function coolingOf(world: World, id: number, moduleId: string): number {
 }
 
 describe("EnergySystem — per-module heat", () => {
+  it("leaves authored heat inert when featureFlags.heatSystem is off", () => {
+    const world = makeWorld(configs, { tuningOverride: { featureFlags: { heatSystem: false } } });
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
+    const laser = world.modules.get(id)!.modules[0]!;
+    laser.heat = laser.heatCapacity;
+    laser.workedThisTick = true;
+    energySystem(world, DT);
+    expect(laser.heat).toBe(laser.heatCapacity);
+    expect(laser.state).toBe("active");
+    expect(world.events.some((e) => e.type === "overheated")).toBe(false);
+  });
+
   it("accumulates a rack's own heat while it works", () => {
     const { world, id } = shipWorld();
     const laser = world.modules.get(id)!.modules[0]!;

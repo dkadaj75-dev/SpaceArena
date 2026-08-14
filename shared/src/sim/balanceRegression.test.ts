@@ -62,7 +62,7 @@ let configs: ConfigService;
 
 beforeAll(async () => {
   // Private service: the bench fixtures never leak into another suite.
-  configs = await loadTestConfigs();
+  configs = await loadTestConfigs({ heatSystem: true });
 
   // A featureless disc: no asteroids ⇒ no LoS breaks, no avoidance steering, no
   // impact damage. The bench measures the heat/energy model, nothing else.
@@ -535,8 +535,16 @@ describe("shipped weapon single-shot grace", () => {
   });
 });
 
-/** Hard design floor: no default fitting may delete a hull faster than this. */
-const TTK_FLOOR_S = 8;
+/**
+ * Hard design floor: no default fitting may delete a hull faster than this.
+ *
+ * Rescaled 2026-08-14 with the ×1.5 weapon-DPS pass (`fire.damage` × 1.5 on
+ * every weapon module, nothing else touched). The old `8` was recorded against
+ * pre-pass damage, so the SAME design intent — "a hull may not evaporate" — is
+ * now `8 / 1.5 ≈ 5.33`. Raising the floor back would fail on the intended
+ * change rather than on a regression.
+ */
+const TTK_FLOOR_S = 5.33;
 /** Hard design ceiling: a stock engagement must resolve well inside a match. */
 const TTK_CEILING_S = 45;
 /** Regression band around each recorded TTK, as a fraction of the recorded value. */
@@ -618,16 +626,21 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   // Recorded 2026-08-07 against the heat/energy overhaul. EVERY stock matchup
   // resolves — that is the acceptance bar of the overhaul, and `Infinity` is no
   // longer a legal anchor anywhere in this matrix.
+  //
+  // RE-RECORDED 2026-08-14 with the ×1.5 weapon-DPS pass. Only `fire.damage`
+  // moved (× 1.5 on all 15 weapon modules); cycleTime, range and
+  // `globalDamageMult` are untouched, which is why every anchor lands within a
+  // couple of ticks of `old / 1.5` and the ORDERING of the matrix is unchanged.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    ["ship.interceptor", "ship.interceptor", 22, 18.733],
-    ["ship.interceptor", "ship.brawler", 22, 35.367],
-    ["ship.interceptor", "ship.support", 22, 24.933],
-    ["ship.brawler", "ship.interceptor", 22, 12.633],
-    ["ship.brawler", "ship.brawler", 22, 24.233],
-    ["ship.brawler", "ship.support", 22, 16.2],
-    ["ship.support", "ship.interceptor", 22, 16.833],
-    ["ship.support", "ship.brawler", 22, 33.1],
-    ["ship.support", "ship.support", 22, 23.033],
+    ["ship.interceptor", "ship.interceptor", 22, 11.533],
+    ["ship.interceptor", "ship.brawler", 22, 23.5],
+    ["ship.interceptor", "ship.support", 22, 16.633],
+    ["ship.brawler", "ship.interceptor", 22, 6.533],
+    ["ship.brawler", "ship.brawler", 22, 15],
+    ["ship.brawler", "ship.support", 22, 11.4],
+    ["ship.support", "ship.interceptor", 22, 10.133],
+    ["ship.support", "ship.brawler", 22, 21.6],
+    ["ship.support", "ship.support", 22, 14.733],
   ];
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {

@@ -26,7 +26,7 @@ const SHIELD = 1; // the light hull mounts a shield on hardpoint 1 (2026-07-31)
 
 let configs: ConfigService;
 beforeAll(async () => {
-  configs = await loadTestConfigs();
+  configs = await loadTestConfigs({ heatSystem: true });
 });
 
 /**
@@ -820,7 +820,7 @@ describe("CombatSystem continuous channel", () => {
   it("takes no per-SHOT heat — a channel has no shot to charge it against", async () => {
     // Fresh registry: the schema forbids authoring perShot on a channel, so the
     // guard is that CombatSystem never adds shot heat on the channel path.
-    const cfgs = await loadTestConfigs();
+    const cfgs = await loadTestConfigs({ heatSystem: true });
     const { world, shooter } = channelDuel({ x: 20, z: 0 }, cfgs);
     combatSystem(world, DT); // heat accrual is EnergySystem's job, not the shot's
     expect(world.modules.get(shooter)!.modules[BEAM]!.heat).toBe(0);

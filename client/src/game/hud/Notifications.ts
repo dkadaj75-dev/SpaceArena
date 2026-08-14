@@ -1,5 +1,5 @@
-import type { ActionConfig, ConfigService, NotificationConfig, SimEvent, ThemeConfig } from "@space-arena/shared";
-import { createLogger } from "@space-arena/shared";
+import type { ActionConfig, ConfigService, NotificationConfig, SimEvent, ThemeConfig, TuningConfig } from "@space-arena/shared";
+import { createLogger, heatSystemEnabled } from "@space-arena/shared";
 
 const log = createLogger("HudNotifications");
 
@@ -34,6 +34,7 @@ export class NotificationCenter {
   consumeEvents(events: readonly SimEvent[], configs: ConfigService): void {
     for (let i = 0; i < events.length; i++) {
       const ev = events[i]!;
+      if (ev.type === "overheated" && !heatSystemEnabled(configs.getAll<TuningConfig>("tuning")[0] ?? ({} as TuningConfig))) continue;
       const actions = (ev as { actions?: string[] }).actions;
       if (!actions || actions.length === 0) continue;
       for (const actionId of actions) {

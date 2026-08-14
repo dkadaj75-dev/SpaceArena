@@ -4,6 +4,7 @@ import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { headingOf, len3, pitchOf, segmentIntersectsSphere, sphereEntryAlong } from "../math.js";
 import { hasLineOfSightBetween } from "../los.js";
 import { spawnProjectile } from "../spawn.js";
+import { heatSystemEnabled } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 
 /**
@@ -88,7 +89,9 @@ export function combatSystem(world: World, dt: number): void {
         // exactly what makes heat management a decision).
         m.cycleTimer = cfg.fire.cycleTime;
         m.workedThisTick = true;
-        m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
+        if (heatSystemEnabled(world.tuning)) {
+          m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
+        }
 
         if (cfg.fire.projectile === null) {
           const hit = raycastNose(world, id, myTeam, myTf, cfg.fire.range);
@@ -146,7 +149,9 @@ export function combatSystem(world: World, dt: number): void {
       // Fire.
       m.cycleTimer = cfg.fire.cycleTime;
       m.workedThisTick = true;
-      m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
+      if (heatSystemEnabled(world.tuning)) {
+        m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
+      }
       const heading = headingOf(dx, dz);
       // Ordnance leaves along the 3D bearing, so a shot at a climbing enemy
       // actually climbs (dumb kinetics included — they still lead nothing).

@@ -19,7 +19,7 @@ const DT = 1 / 30;
 
 let configs: ConfigService;
 beforeAll(async () => {
-  configs = await loadTestConfigs();
+  configs = await loadTestConfigs({ heatSystem: true });
 });
 
 function ship(world: World, fitting: readonly string[], team = 0, pos = { x: 0, z: 0 }, heading = 0): number {

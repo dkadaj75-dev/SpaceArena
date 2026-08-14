@@ -12,7 +12,7 @@ const LASER = 0;
 
 let configs: ConfigService;
 beforeAll(async () => {
-  configs = await loadTestConfigs();
+  configs = await loadTestConfigs({ heatSystem: true });
 });
 
 function shipWorld(): { world: World; id: number } {
@@ -333,7 +333,7 @@ describe("ModuleSystem overheat exit (hysteresis, not a timer)", () => {
   beforeAll(async () => {
     // Private ConfigService: a fixture that out-paces its own cooling by a wide
     // margin, so the trip/lockout/re-arm cycle is reached in a handful of ticks.
-    ops = await loadTestConfigs();
+    ops = await loadTestConfigs({ heatSystem: true });
     const res = ops.replace({
       id: HOT_MODULE,
       type: "module",
