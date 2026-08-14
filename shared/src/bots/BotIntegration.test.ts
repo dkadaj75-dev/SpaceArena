@@ -21,9 +21,11 @@ const DT = 1 / 30;
 const SECONDS = 60;
 
 let configs: ConfigService;
+let heatConfigs: ConfigService;
 
 beforeAll(async () => {
   configs = await loadTestConfigs();
+  heatConfigs = await loadTestConfigs({ heatSystem: true });
 });
 
 interface RunResult {
@@ -83,16 +85,19 @@ function runMatch(
      * the transform the same way a spawn point would, before the first tick.
      */
     spawnY?: number[];
+    /** An isolated content fixture for behavior that a test explicitly enables. */
+    configService?: ConfigService;
   } = {},
 ): RunResult {
-  const sim = new ArenaSimulation(configs, arenaId, "gamemode.practice-bots", seed);
+  const activeConfigs = opts.configService ?? configs;
+  const sim = new ArenaSimulation(activeConfigs, arenaId, "gamemode.practice-bots", seed);
   const drivers = new Map<EntityId, BotDriver>();
   const botIds: EntityId[] = [];
 
   profileIds.forEach((profileId, i) => {
-    const profile = configs.get<BotprofileConfig>("botprofile", profileId)!;
+    const profile = activeConfigs.get<BotprofileConfig>("botprofile", profileId)!;
     const shipId = "ship.interceptor";
-    const ship = configs.get<ShipConfig>("ship", shipId)!;
+    const ship = activeConfigs.get<ShipConfig>("ship", shipId)!;
     // PINNED engagement geometry: these suites bound the merge (time to lock,
     // to first hit, to damage), so the merge distance must not drift with arena
     // content — the shipped pads moved out to r~82. 60 units apart, facing off
@@ -109,8 +114,8 @@ function runMatch(
     drivers.set(
       id,
       opts.seedDrivers === false
-        ? new BotDriver({ entityId: id, profile, configs })
-        : new BotDriver({ entityId: id, profile, configs, rng: deriveRng(seed, id) }),
+        ? new BotDriver({ entityId: id, profile, configs: activeConfigs })
+        : new BotDriver({ entityId: id, profile, configs: activeConfigs, rng: deriveRng(seed, id) }),
     );
     botIds.push(id);
   });
@@ -450,7 +455,7 @@ describe("bots in a live ArenaSimulation", () => {
     // Missiles retain room for one launch, while the doubled laser shot heat
     // can legitimately trigger its own rack lockout. The bot must still re-arm
     // and land damage rather than stalling permanently.
-    const result = runMatch(["bot.cautious", "bot.cautious"], 11);
+    const result = runMatch(["bot.cautious", "bot.cautious"], 11, undefined, { configService: heatConfigs });
     expect(result.seenStates.has("overheated")).toBe(true);
     expect(result.seenStates.has("active")).toBe(true);
     expect(result.weaponDamage).toBeGreaterThan(0);

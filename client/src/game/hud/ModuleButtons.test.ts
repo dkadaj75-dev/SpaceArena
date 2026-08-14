@@ -1,9 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ConfigService, EventBus, ConfigEvents, ModuleConfig, Order, Snapshot, ThemeConfig, TuningConfig } from "@space-arena/shared";
+import { tuningSchema, type ConfigService, type EventBus, type ConfigEvents, type ModuleConfig, type Order, type Snapshot, type ThemeConfig } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { MODULE_FAMILY_COLOR_FALLBACKS, ModuleButtons, moduleHudName, resolveModuleFamilyColor } from "./ModuleButtons.js";
 
 function fakeConfigs(heatSystem = true): ConfigService {
+  const tuning = tuningSchema.parse({
+    id: "tuning.test",
+    type: "tuning",
+    version: 1,
+    targetingPolicy: "nearest",
+    globalDamageMult: 1,
+    featureFlags: { heatSystem },
+  });
   const modules: Record<string, Partial<ModuleConfig>> = {
     "module.laser-mk1": {
       name: "Pulse Laser Mk I",
@@ -49,7 +57,7 @@ function fakeConfigs(heatSystem = true): ConfigService {
   };
   return {
     get: (_type: string, id: string) => modules[id] as ModuleConfig | undefined,
-    getAll: (type: string) => type === "tuning" ? [{ featureFlags: { heatSystem } } as TuningConfig] : [],
+    getAll: (type: string) => type === "tuning" ? [tuning] : [],
   } as unknown as ConfigService;
 }
 

@@ -36,6 +36,15 @@ setGlobalLogLevel("error");
 let colyseus: ColyseusTestServer;
 let configs: ConfigService;
 
+function setTestHeatSystem(enabled: boolean): void {
+  const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
+  const replaced = configs.replace({
+    ...tuning,
+    featureFlags: { ...tuning.featureFlags, heatSystem: enabled },
+  });
+  if (!replaced.ok) throw new Error("failed to set test heat system");
+}
+
 /** Advance the server room's fixed sim by `n` ticks (real-time, ~33ms each). */
 async function advance(room: { waitForNextSimulationTick(): Promise<void> }, n: number): Promise<void> {
   for (let i = 0; i < n; i++) await room.waitForNextSimulationTick();
@@ -78,6 +87,7 @@ afterAll(async () => {
 
 afterEach(async () => {
   await colyseus.cleanup();
+  setTestHeatSystem(false);
 });
 
 describe("ArenaRoom", () => {
@@ -126,6 +136,9 @@ describe("ArenaRoom", () => {
   });
 
   it("flies ships, acks valid orders, rejects invalid ones, and reflects module toggles", async () => {
+    // This scenario verifies per-module heat replication, so opt its content
+    // fixture into the otherwise disabled runtime heat system.
+    setTestHeatSystem(true);
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
     const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
     const c2 = await colyseus.connectTo(room);
