@@ -118,9 +118,10 @@ export const SPAWNS: readonly SpawnPoint[] = (() => {
 export interface FlagBase { id: string; team: number; position: { x: number; y: number; z: number }; radius: number }
 export const FLAGS: readonly FlagBase[] = [
   // The view's origin is 3.81u above the stand's bottom. These values put that
-  // bottom on the 3.692863u flag-pad surface instead of burying it in the pad.
-  { id: "flag-base-blue", team: 0, position: { x: 0, y: 7.502863, z: -255 }, radius: 16 },
-  { id: "flag-base-red", team: 1, position: { x: 0, y: 7.502863, z: 255 }, radius: 16 },
+  // The pad mesh surface at the flag origin is 1.2u above its 3.442863u placement. EntityView puts
+  // the stand bottom 3.81u below this origin; retain 0.4u visible clearance.
+  { id: "flag-base-blue", team: 0, position: { x: 0, y: 8.852863, z: -255 }, radius: 16 },
+  { id: "flag-base-red", team: 1, position: { x: 0, y: 8.852863, z: 255 }, radius: 16 },
 ];
 
 // ---------- height ----------

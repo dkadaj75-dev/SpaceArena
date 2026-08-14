@@ -119,9 +119,12 @@ function setNormalized(data, element, component, value) {
   data.write(element, component, encoded);
 }
 
-function fixTerrain(file, offset) {
+function prepareTerrain(file, offset, index, lod) {
   const { json, bin: initialBin } = parseGlb(readFileSync(file));
   let bin = initialBin;
+  const vertices = [];
+  const fixVersion = json.asset.extras?.lunarRiftSeamFix ?? 0;
+  const needsSkirtColorFix = fixVersion < 1;
   for (const mesh of json.meshes) for (const primitive of mesh.primitives) {
     const pos = readAccessor(json, bin, primitive.attributes.POSITION);
     const normal = readAccessor(json, bin, primitive.attributes.NORMAL);
@@ -135,22 +138,105 @@ function fixTerrain(file, offset) {
       else if (nx >= nz) { uv[i * 2] = (z + offset.z) / 24; uv[i * 2 + 1] = y / 24; }
       else { uv[i * 2] = (x + offset.x) / 24; uv[i * 2 + 1] = y / 24; }
     }
-    bin = replaceUvs(json, bin, primitive, uv);
+    if (fixVersion < 2) bin = replaceUvs(json, bin, primitive, uv);
 
     const colorIndex = primitive.attributes.COLOR_0;
-    if (colorIndex === undefined) continue;
-    const color = readAccessor(json, bin, colorIndex);
+    const color = colorIndex === undefined ? undefined : readAccessor(json, bin, colorIndex);
+    if (color && needsSkirtColorFix) {
+      for (let i = 0; i < pos.accessor.count; i++) {
+        const x = Math.abs(pos.array[i * 3]), z = Math.abs(pos.array[i * 3 + 2]);
+        const ny = Math.abs(normalized(normal.array[i * 3 + 1], normal.accessor));
+        if (ny > 0.08 || (Math.abs(x - 96) > 0.03 && Math.abs(z - 96) > 0.03)) continue;
+        for (let c = 0; c < Math.min(3, color.elements); c++) {
+          setNormalized(color, i, c, normalized(color.array[i * color.elements + c], color.accessor) / 0.72);
+        }
+      }
+    }
     for (let i = 0; i < pos.accessor.count; i++) {
-      const x = Math.abs(pos.array[i * 3]), z = Math.abs(pos.array[i * 3 + 2]);
-      const ny = Math.abs(normalized(normal.array[i * 3 + 1], normal.accessor));
-      if (ny > 0.08 || (Math.abs(x - 96) > 0.03 && Math.abs(z - 96) > 0.03)) continue;
-      for (let c = 0; c < Math.min(3, color.elements); c++) {
-        setNormalized(color, i, c, normalized(color.array[i * color.elements + c], color.accessor) / 0.72);
+      const x = pos.array[i * 3], z = pos.array[i * 3 + 2];
+      if (Math.abs(Math.abs(x) - 96) > 0.03 && Math.abs(Math.abs(z) - 96) > 0.03) continue;
+      vertices.push({ index, lod, pos, normal, color, i, x: x + offset.x, y: pos.array[i * 3 + 1] + offset.y, z: z + offset.z });
+    }
+  }
+  return { file, json, bin, vertices };
+}
+
+const distance = (a, b, count) => Math.hypot(...Array.from({ length: count }, (_, c) => a[c] - b[c]));
+const values = (vertex, field, count) => {
+  const data = vertex[field];
+  if (!data) return undefined;
+  return Array.from({ length: count }, (_, c) => normalized(data.array[vertex.i * data.elements + c], data.accessor));
+};
+
+function smoothBorders(assets) {
+  const byXZ = new Map();
+  for (const asset of assets) for (const vertex of asset.vertices) {
+    const key = `${Math.round(vertex.x * 1000)},${Math.round(vertex.z * 1000)}`;
+    if (!byXZ.has(key)) byXZ.set(key, []);
+    byXZ.get(key).push(vertex);
+  }
+  const groups = [];
+  for (const sameXZ of byXZ.values()) {
+    sameXZ.sort((a, b) => a.y - b.y);
+    for (const vertex of sameXZ) {
+      let group = groups.find((candidate) => candidate.key === sameXZ && Math.abs(candidate.y - vertex.y) <= 0.05);
+      if (!group) { group = { key: sameXZ, y: vertex.y, vertices: [] }; groups.push(group); }
+      group.vertices.push(vertex);
+    }
+  }
+  const adjacent = new Map();
+  for (const group of groups) {
+    const chunks = [...new Set(group.vertices.map((v) => v.index))];
+    if (chunks.length < 2) continue;
+    for (let a = 0; a < chunks.length; a++) for (let b = a + 1; b < chunks.length; b++) {
+      const key = `${Math.min(chunks[a], chunks[b])}-${Math.max(chunks[a], chunks[b])}`;
+      if (!adjacent.has(key)) adjacent.set(key, { beforeNormal: 0, beforeColor: 0, afterNormal: 0, afterColor: 0, pairs: 0 });
+      const metric = adjacent.get(key);
+      const left = group.vertices.filter((v) => v.index === chunks[a]);
+      const right = group.vertices.filter((v) => v.index === chunks[b]);
+      for (const va of left) for (const vb of right) {
+        metric.beforeNormal = Math.max(metric.beforeNormal, distance(values(va, "normal", 3), values(vb, "normal", 3), 3));
+        if (va.color && vb.color) metric.beforeColor = Math.max(metric.beforeColor, distance(values(va, "color", 3), values(vb, "color", 3), 3));
+        metric.pairs++;
+      }
+    }
+    // At an identical edge position the surface and vertical skirt have duplicate
+    // vertices. Use only upward-facing surface normals for the target, then write
+    // that result to every duplicate so the skirt top cannot render as a crease.
+    const allNormals = group.vertices.map((v) => values(v, "normal", 3));
+    const surfaceNormals = allNormals.filter((n) => n[1] > 0.25);
+    const normals = surfaceNormals.length ? surfaceNormals : allNormals;
+    const normalDelta = allNormals.reduce((max, n) => Math.max(max, distance(allNormals[0], n, 3)), 0);
+    if (normalDelta > 1e-7) {
+      const average = [0, 1, 2].map((c) => normals.reduce((sum, n) => sum + n[c], 0) / normals.length);
+      const length = Math.hypot(...average) || 1;
+      for (const vertex of group.vertices) for (let c = 0; c < 3; c++) setNormalized(vertex.normal, vertex.i, c, average[c] / length);
+    }
+    const colored = group.vertices.filter((v) => v.color);
+    if (colored.length) {
+      const colors = colored.map((v) => values(v, "color", 3));
+      const colorDelta = colors.reduce((max, color) => Math.max(max, distance(colors[0], color, 3)), 0);
+      if (colorDelta > 1e-7) {
+        const averageColor = [0, 1, 2].map((c) => colors.reduce((sum, color) => sum + color[c], 0) / colors.length);
+        for (const vertex of colored) for (let c = 0; c < 3; c++) setNormalized(vertex.color, vertex.i, c, averageColor[c]);
       }
     }
   }
-  json.asset.extras = { ...(json.asset.extras ?? {}), lunarRiftSeamFix: 1 };
-  writeFileSync(file, writeGlb(json, bin));
+  // Re-measure the exact groups that were modified, including LOD0-to-LOD1 pairs.
+  for (const group of groups) {
+    const chunks = [...new Set(group.vertices.map((v) => v.index))];
+    for (let a = 0; a < chunks.length; a++) for (let b = a + 1; b < chunks.length; b++) {
+      const metric = adjacent.get(`${Math.min(chunks[a], chunks[b])}-${Math.max(chunks[a], chunks[b])}`);
+      if (!metric) continue;
+      const left = group.vertices.filter((v) => v.index === chunks[a]);
+      const right = group.vertices.filter((v) => v.index === chunks[b]);
+      for (const va of left) for (const vb of right) {
+        metric.afterNormal = Math.max(metric.afterNormal, distance(values(va, "normal", 3), values(vb, "normal", 3), 3));
+        if (va.color && vb.color) metric.afterColor = Math.max(metric.afterColor, distance(values(va, "color", 3), values(vb, "color", 3), 3));
+      }
+    }
+  }
+  return adjacent;
 }
 
 function fixBoulder(file) {
@@ -188,12 +274,22 @@ function fixBoulder(file) {
 }
 
 const terrain = readdirSync(props).filter((name) => /^lunar-rift-chunk-\d+(_lod1)?\.glb$/.test(name)).sort();
+const terrainAssets = [];
 for (const name of terrain) {
   const index = name.match(/^lunar-rift-chunk-(\d+)/)[1];
   const offset = offsets.get(index);
   if (!offset) throw new Error(`no placement found for chunk ${index}`);
-  fixTerrain(path.join(props, name), offset);
+  terrainAssets.push(prepareTerrain(path.join(props, name), offset, Number(index), name.includes("_lod1") ? 1 : 0));
 }
+const borderMetrics = smoothBorders(terrainAssets);
+for (const asset of terrainAssets) {
+  asset.json.asset.extras = { ...(asset.json.asset.extras ?? {}), lunarRiftSeamFix: 2 };
+  writeFileSync(asset.file, writeGlb(asset.json, asset.bin));
+}
+for (const [border, metric] of [...borderMetrics].sort()) console.log(
+  `border ${border}: normal ${metric.beforeNormal.toExponential(3)} -> ${metric.afterNormal.toExponential(3)}, color ${metric.beforeColor.toExponential(3)} -> ${metric.afterColor.toExponential(3)} (${metric.pairs} pairs)`,
+);
+if ([...borderMetrics.values()].some((m) => m.afterNormal > 1e-5 || m.afterColor > 1 / 255 + 1e-6)) throw new Error("border smoothing verification failed");
 const boulders = readdirSync(props).filter((name) => /^lunar-rift-boulder-[abc]\.glb$/.test(name)).sort();
 for (const name of boulders) fixBoulder(path.join(props, name));
 console.log(`fixed ${terrain.length} terrain GLBs and ${boulders.length} boulder GLBs`);
