@@ -1,5 +1,6 @@
 // Deterministic post-pass for the shipped Lunar Rift terrain and boulders.
-// Replaces (rather than transforms) UVs/material state, so rerunning is safe.
+// Replaces (rather than transforms) UVs, terrain tint/normals, and material
+// state, so rerunning is safe.
 // Run: node tools/fix-lunar-rift-glbs.mjs [--props-dir path] [--arena path]
 /* global Buffer, process, console */
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -23,6 +24,7 @@ const COMPONENTS = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: 
 const SIZES = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
 const ELEMENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
 const align4 = (n) => (n + 3) & ~3;
+const TERRAIN_COLOR = [1, 1, 1];
 
 function parseGlb(bytes) {
   const jsonLength = bytes.readUInt32LE(12);
@@ -175,7 +177,52 @@ function prepareTerrain(file, offset, index, lod) {
       vertices.push({ index, lod, pos, normal, color, i, x: x + offset.x, y: pos.array[i * 3 + 1] + offset.y, z: z + offset.z });
     }
   }
-  return { file, json, bin, vertices, removedSkirtTriangles };
+  return { file, json, bin, index, lod, fixVersion, vertices, removedSkirtTriangles };
+}
+
+function colorStats(asset) {
+  const samples = [];
+  for (const mesh of asset.json.meshes) for (const primitive of mesh.primitives) {
+    const colorIndex = primitive.attributes.COLOR_0;
+    if (colorIndex === undefined) continue;
+    const color = readAccessor(asset.json, asset.bin, colorIndex);
+    for (let i = 0; i < color.accessor.count; i++) {
+      samples.push(Array.from({ length: 3 }, (_, c) => normalized(color.array[i * color.elements + c], color.accessor)));
+    }
+  }
+  const mean = [0, 1, 2].map((c) => samples.reduce((sum, sample) => sum + sample[c], 0) / samples.length);
+  const stddev = [0, 1, 2].map((c) => Math.sqrt(samples.reduce((sum, sample) => sum + (sample[c] - mean[c]) ** 2, 0) / samples.length));
+  return { count: samples.length, mean, stddev };
+}
+
+function flattenTerrainColor(asset) {
+  for (const mesh of asset.json.meshes) for (const primitive of mesh.primitives) {
+    const colorIndex = primitive.attributes.COLOR_0;
+    if (colorIndex === undefined) continue;
+    const color = readAccessor(asset.json, asset.bin, colorIndex);
+    for (let i = 0; i < color.accessor.count; i++) {
+      for (let c = 0; c < Math.min(3, color.elements); c++) setNormalized(color, i, c, TERRAIN_COLOR[c]);
+    }
+    const material = asset.json.materials?.[primitive.material];
+    if (material?.name !== "RIFT_FLOOR") continue;
+    const normal = readAccessor(asset.json, asset.bin, primitive.attributes.NORMAL);
+    for (let i = 0; i < normal.accessor.count; i++) {
+      setNormalized(normal, i, 0, 0);
+      setNormalized(normal, i, 1, 1);
+      setNormalized(normal, i, 2, 0);
+    }
+  }
+}
+
+function materialSignature(asset) {
+  return JSON.stringify((asset.json.materials ?? []).map((material) => ({
+    name: material.name,
+    baseColorFactor: material.pbrMetallicRoughness?.baseColorFactor ?? [1, 1, 1, 1],
+    baseColorTexture: material.pbrMetallicRoughness?.baseColorTexture ?? null,
+    metallicFactor: material.pbrMetallicRoughness?.metallicFactor ?? 1,
+    roughnessFactor: material.pbrMetallicRoughness?.roughnessFactor ?? 1,
+    doubleSided: material.doubleSided ?? false,
+  })));
 }
 
 const distance = (a, b, count) => Math.hypot(...Array.from({ length: count }, (_, c) => a[c] - b[c]));
@@ -305,9 +352,26 @@ for (const name of terrain) {
   if (!offset) throw new Error(`no placement found for chunk ${index}`);
   terrainAssets.push(prepareTerrain(path.join(props, name), offset, Number(index), name.includes("_lod1") ? 1 : 0));
 }
-const borderMetrics = smoothBorders(terrainAssets);
+console.log("LOD0 COLOR_0 statistics before flattening (mean RGB | stddev RGB):");
+for (const asset of terrainAssets.filter((item) => item.lod === 0).sort((a, b) => a.index - b.index)) {
+  const stats = colorStats(asset);
+  console.log(`${String(asset.index).padStart(2)} ${String(stats.count).padStart(5)}  ${stats.mean.map((v) => v.toFixed(5)).join(" ")} | ${stats.stddev.map((v) => v.toFixed(5)).join(" ")}`);
+}
+const referenceMaterial = materialSignature(terrainAssets[0]);
+const materialDifferences = terrainAssets.filter((asset) => materialSignature(asset) !== referenceMaterial);
+console.log(materialDifferences.length === 0
+  ? "material audit: all 32 terrain GLBs match"
+  : `material audit differences: ${materialDifferences.map((asset) => path.basename(asset.file)).join(", ")}`);
+// Reset the fields owned by this pass before cross-chunk smoothing. This makes
+// the result independent of prior runs even where floor and wall vertices are
+// duplicated at a material boundary.
+for (const asset of terrainAssets) flattenTerrainColor(asset);
+const borderMetrics = terrainAssets.every((asset) => asset.fixVersion >= 5)
+  ? new Map()
+  : smoothBorders(terrainAssets);
+for (const asset of terrainAssets) flattenTerrainColor(asset);
 for (const asset of terrainAssets) {
-  asset.json.asset.extras = { ...(asset.json.asset.extras ?? {}), lunarRiftSeamFix: 3 };
+  asset.json.asset.extras = { ...(asset.json.asset.extras ?? {}), lunarRiftSeamFix: 5 };
   writeFileSync(asset.file, writeGlb(asset.json, asset.bin));
 }
 console.log(`removed ${terrainAssets.reduce((sum, asset) => sum + asset.removedSkirtTriangles, 0)} skirt triangles`);
