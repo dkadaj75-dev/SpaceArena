@@ -27,7 +27,8 @@ const PALETTES = {
     bandCoreDir: [-0.78, 0.34, -0.52],
     planet: {
       dir: [0.05, -0.5, 0.8646],
-      angularRadiusDeg: 12.5, kind: "gas", turbulence: 1.7, bandScale: 44,
+      angularRadiusDeg: 12.5, kind: "gas", turbulence: 4.3, bandScale: 13.5,
+      bandOffset: 0.45, bandContrast: 0.18,
       surface: { base: [132, 119, 66], band: [91, 94, 55], detail: [169, 137, 72] },
       atmosphere: [151, 151, 82], storm: { x: 0.34, y: -0.2, rx: 0.27, ry: 0.105 },
     },
@@ -44,7 +45,8 @@ const PALETTES = {
     bandCoreDir: [0.66, 0.52, -0.54],
     planet: {
       dir: [-0.12, 0.12, 0.9854],
-      angularRadiusDeg: 10.5, kind: "gas", turbulence: 1.5, bandScale: 46,
+      angularRadiusDeg: 10.5, kind: "gas", turbulence: 4.0, bandScale: 14.5,
+      bandOffset: -0.25, bandContrast: 0.17,
       surface: { base: [139, 128, 38], band: [73, 91, 31], detail: [202, 158, 55] },
       atmosphere: [164, 190, 77], storm: { x: -0.38, y: 0.16, rx: 0.22, ry: 0.085 },
     },
@@ -267,17 +269,22 @@ function makeNebula(W, H, P) {
           const cloudWarp = fbm(snx * 4 + 419, sny * 4, snz * 4, 4, 0.56) - 0.5;
           detailMix = smoothRange(0.54, 0.68, detailNoise + cloudWarp * 0.24) * (planet.surface.detailGain ?? 0.7);
         } else {
-          // Layer several latitude waves for many softly varying belts. A small
-          // low-frequency phase warp roughens their edges without rotating the
-          // dominant pattern away from the equator.
-          const turbulence = fbm(snx * 3.2 + 211, sny * 3.2, snz * 3.2, 5, 0.58) - 0.5;
-          const phase = localY * (planet.bandScale ?? 42) + turbulence * (planet.turbulence ?? 1.6);
-          const latitudeBands = 0.5
-            + Math.sin(phase) * 0.22
-            + Math.sin(phase * 0.53 + 1.7) * 0.12
-            + Math.sin(phase * 1.83 - 0.8) * 0.07;
-          baseMix = smoothRange(0.25, 0.76, latitudeBands);
-          detailMix = smoothRange(0.54, 0.8, detailNoise) * 0.16;
+          // Broad zones and narrow belts come from incommensurate latitude
+          // waves, avoiding a repeating light/dark cadence. Low-frequency
+          // turbulence shifts the latitude coordinate itself: the resulting
+          // boundaries meander along their length but remain rotationally
+          // sheared rather than breaking into noisy scribbles.
+          const shear = fbm(snx * 1.35 + 211, sny * 0.55, snz * 1.35, 3, 0.58) - 0.5;
+          const phase = localY * (planet.bandScale ?? 14)
+            + shear * (planet.turbulence ?? 4.0)
+            + (planet.bandOffset ?? 0);
+          const latitudeProfile = Math.sin(phase * 0.47 + 0.4) * 0.52
+            + Math.sin(phase * 0.83 - 1.1) * 0.27
+            + Math.sin(phase * 1.31 + 2.2) * 0.14
+            + Math.sin(phase * 2.17 - 0.3) * 0.07;
+          const narrowBelt = Math.exp(-Math.pow((phase - 1.15) / 0.32, 2));
+          baseMix = 0.45 + latitudeProfile * (planet.bandContrast ?? 0.18) + narrowBelt * 0.07;
+          detailMix = smoothRange(0.56, 0.82, detailNoise) * 0.11;
           const storm = planet.storm;
           if (storm) {
             const sd = Math.hypot((localX - storm.x) / storm.rx, (localY - storm.y) / storm.ry);
