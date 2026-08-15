@@ -49,6 +49,12 @@ export interface ShieldRippleSettings {
    * being shot at is information nobody needs, and a permanent bubble over
    * every hull turned the arena into a bag of marbles. The bubble earns its
    * visibility from {@link impactAlpha} when something actually hits it.
+   *
+   * HALVED again on 2026-08-14 (owner request: "shields more transparent"):
+   * both the idle band and the impact flare are exactly half their previous
+   * values, so the shell reads as glass rather than paint. Halving the WHOLE
+   * scale rather than just the idle band keeps the on-hit beat as many times
+   * brighter than idle as it ever was — the flare is still the thing you see.
    */
   minAlpha: number;
   maxAlpha: number;
@@ -97,6 +103,36 @@ export interface ExplosionSettings {
 }
 
 /**
+ * WEAPON IMPACT SPARKS (owner request 2026-08-14) — the little spray thrown
+ * where a shot actually lands, on a hull, a rock, a prop or the regolith.
+ *
+ * The split is by DAMAGE TYPE, because that is the one property a player can
+ * already feel: energy weapons (lasers, beam lasers) throw a tight pale-blue
+ * flash, kinetic ones (the autocannons) throw a wider, longer-lived orange
+ * shower. Both are authored as ordinary effect configs
+ * (`content/effects/impact-*.json`), so retuning the difference is a content
+ * edit — the code only decides WHICH id to play.
+ *
+ * Like {@link ExplosionSettings.missileImpactEffect} these ids have no theme
+ * key yet: `theme.juice` is schema-owned elsewhere and zod would strip an
+ * unknown field, so the shipped ids live in {@link DEFAULT_JUICE_SETTINGS}
+ * until that schema next opens.
+ */
+export interface ImpactSparkSettings {
+  /** Effect id for an ENERGY weapon landing (`fire.damageType: "energy"`). */
+  energyEffect: string | null;
+  /** Effect id for a KINETIC weapon landing, and the fallback for anything else. */
+  kineticEffect: string | null;
+  /**
+   * Milliseconds between sparks from ONE channelling beam. A continuous weapon
+   * has no per-shot beat to hang a spark on, so it sizzles on this cadence
+   * instead — slow enough that a single beam cannot monopolise the pool, fast
+   * enough to read as a continuous burn.
+   */
+  channelIntervalMs: number;
+}
+
+/**
  * Visual bank roll (BUBBLE.md §C) — the hull leaning into a turn. Client-only
  * decoration: the sim's orientation model is yaw + pitch with no roll.
  */
@@ -114,6 +150,7 @@ export interface JuiceSettings {
   shieldRipple: ShieldRippleSettings;
   deploy: DeploySettings;
   explosions: ExplosionSettings;
+  sparks: ImpactSparkSettings;
   bank: BankSettings;
 }
 
@@ -133,9 +170,10 @@ export const DEFAULT_JUICE_SETTINGS: JuiceSettings = {
     periodMs: 1400,
     radiusScale: 1.5,
     scaleWobble: 0.06,
-    minAlpha: 0.012,
-    maxAlpha: 0.032,
-    impactAlpha: 0.5,
+    // Half of the pre-2026-08-14 band (0.012 / 0.032 / 0.5) — see ShieldRippleSettings.
+    minAlpha: 0.006,
+    maxAlpha: 0.016,
+    impactAlpha: 0.25,
     impactDecayMs: 420,
   },
   deploy: { showMeshes: true, extendDistance: 0.18, overshoot: 0.9, spinDegrees: 45 },
@@ -149,6 +187,11 @@ export const DEFAULT_JUICE_SETTINGS: JuiceSettings = {
     byShipClass: {},
     burstCount: 60,
     poolPerEffect: 3,
+  },
+  sparks: {
+    energyEffect: "fx.impact-energy",
+    kineticEffect: "fx.impact-kinetic",
+    channelIntervalMs: 120,
   },
 };
 
@@ -213,7 +256,29 @@ export function juiceSettingsOf(theme: ThemeConfig | undefined): JuiceSettings {
       burstCount: j?.explosions?.burstCount ?? d.explosions.burstCount,
       poolPerEffect: j?.explosions?.poolPerEffect ?? d.explosions.poolPerEffect,
     },
+    // No theme keys yet (see ImpactSparkSettings) — the shipped ids and cadence
+    // are the only source until the juice schema carries them.
+    sparks: { ...d.sparks },
   };
+}
+
+/**
+ * Which spark effect a landing weapon throws, from the damage type the sim
+ * reported for it (`module.fire.damageType`).
+ *
+ * Energy gets its own tight blue spray; EVERYTHING ELSE takes the kinetic
+ * shower. That is deliberate rather than lazy: `kinetic` and `energy` are the
+ * only leaf types, and a composite or future one (`hybrid`, which is what
+ * missiles carry) has no honest colour of its own — the neutral orange debris
+ * spray is the reading that can never be mistaken for "a laser is on you".
+ * Missiles do not normally reach here at all: a warhead draws its detonation.
+ */
+export function sparkEffectIdFor(
+  damageType: string | null | undefined,
+  settings: ImpactSparkSettings,
+): string | null {
+  if (damageType === "energy") return settings.energyEffect ?? settings.kineticEffect;
+  return settings.kineticEffect ?? settings.energyEffect;
 }
 
 /**

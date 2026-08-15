@@ -46,12 +46,15 @@ import { resampleTrail, trailAlphas, TRAIL_POINTS, type TrailPoint } from "./fla
 import { advanceBeaconClock, beaconPhase, beaconPulse, beaconRadius } from "./flagBeacon.js";
 import { resolveSoundId } from "../audio/soundIds.js";
 import { ExplosionFx } from "./juice/ExplosionFx.js";
+import { SparkFx } from "./juice/SparkFx.js";
+import { GeometryProbe } from "./juice/geometryImpact.js";
 import { HitFlashPool } from "./juice/HitFlash.js";
 import {
   MISSILE_IMPACT_SCALE,
   explosionEffectIdFor,
   juiceSettingsOf,
   missileImpactEffectIdsFor,
+  sparkEffectIdFor,
   viewRelationOf,
   type JuiceSettings,
 } from "./juice/juiceSettings.js";
@@ -96,6 +99,22 @@ const MISSILE_HIT_WINDOW_MS = 260;
 
 /** Collider radius the sim gives travelling ordnance (`shared/src/sim/spawn.ts`). */
 const PROJECTILE_RADIUS = 0.4;
+
+/**
+ * How far AHEAD of its last flying position a shot is searched for the floor.
+ *
+ * The regolith disc is a client-side mesh: the sim has no collider for it, so a
+ * round fired at the ground keeps flying until it is a full
+ * `tuning.projectileBoundsMargin` BELOW the floor (20 units, shipped) or its
+ * lifetime runs out — its despawn point says nothing about where it went in.
+ * The view therefore looks ahead once, on the frame the shot drops below the
+ * terrain's ceiling, and remembers the crossing until the shot reaches it.
+ *
+ * 48 units is about ten ticks of cannon travel and covers any descent steeper
+ * than roughly 5°. A shot skimming the surface flatter than that keeps its
+ * round silent rather than paying for a second cast.
+ */
+const GROUND_PROBE_AHEAD = 48;
 
 /** Hull radius assumed when the session cannot resolve a ship's config. */
 const FALLBACK_SHIP_RADIUS = 1.5;
@@ -218,28 +237,68 @@ interface BeamSlot {
   mesh: Mesh;
   life: number; // ms remaining
   maxLife: number;
+  /**
+   * Milliseconds until this beam may throw its next spark. Only a CHANNELLING
+   * beam uses it (a discrete shot sparks once, on its own fire event); it is
+   * zeroed when a channel pins the slot so the burn starts sparking at once.
+   */
+  sparkMs: number;
 }
 
 /**
- * One missile the view is currently drawing, kept so that its DISAPPEARANCE can
- * be read as a detonation. The sim has no projectile-impact event — a missile
- * that lands is simply `applyDamageToShip` followed by `destroyEntity` — so the
- * view pairs the two things it does get: a hull the sim says was just hit, and a
- * missile that stopped existing next to it.
+ * One shot the view is currently drawing, kept so that its DISAPPEARANCE can be
+ * read as an impact. The sim has no projectile-impact event — ordnance that
+ * lands is simply `applyDamageToShip` (or nothing at all, for a static prop)
+ * followed by `destroyEntity` — so the view pairs the things it does get: a
+ * hull the sim says was just hit, a shot that stopped existing next to it, and
+ * the arena geometry along the line it was travelling.
+ *
+ * Warheads detonate ({@link MISSILE_IMPACT_SCALE}); gun rounds spark.
  */
-interface MissileTrack {
+interface ProjectileTrack {
   /** Last authoritative snapshot position — the impact point, to within a tick. */
   x: number;
   y: number;
   z: number;
+  /** Unit travel direction over the last snapshot pair; zero before it moves. */
+  dx: number;
+  dy: number;
+  dz: number;
   /**
-   * Distance covered between the last two snapshots. The sim destroys a missile
-   * on the tick it hits, so the tracked position trails the hull by up to one
-   * tick of travel; this is exactly that slack, measured rather than guessed.
+   * Distance covered between the last two snapshots. The sim destroys a shot on
+   * the tick it hits, so the tracked position trails the hull by up to one tick
+   * of travel; this is exactly that slack, measured rather than guessed.
    */
   step: number;
   /** Sweep counter this track was last seen in — see `projectileSweep`. */
   seen: number;
+  /** A warhead rather than a gun round. */
+  missile: boolean;
+  /**
+   * Floor crossing found by the one look-ahead this shot gets
+   * ({@link GROUND_PROBE_AHEAD}), drawn only once the shot has actually
+   * travelled that far — a spark must never appear ahead of the round making it.
+   */
+  hasGround: boolean;
+  groundX: number;
+  groundY: number;
+  groundZ: number;
+  /** The look-ahead is spent (hit or miss), so it is never cast twice. */
+  probedGround: boolean;
+  /** An impact was already drawn for this shot; its despawn draws nothing more. */
+  spent: boolean;
+}
+
+/**
+ * An entity the sim reported taking a hit, and what hit it. The window is the
+ * "was that a hit or did it just run out of fuel?" answer for a shot that
+ * vanished nearby; the damage type is what decides which spark it throws —
+ * straight from `module.fire.damageType`, via the event the sim already emits.
+ */
+interface HitWindow {
+  /** Milliseconds left on {@link MISSILE_HIT_WINDOW_MS}. */
+  ms: number;
+  damageType: string;
 }
 
 /** Everything ViewManager reads off the active quality tier (§10 5.6). */
@@ -337,17 +396,24 @@ export class ViewManager {
   /** Pool masters, kept so a quality change can rebuild the pools in place. */
   private readonly poolMasters: Mesh[] = [];
 
-  /** Live missiles by entity id; a track that stops being seen has detonated. */
-  private readonly missileTracks = new Map<EntityId, MissileTrack>();
+  /** Live shots by entity id; a track that stops being seen has landed (or expired). */
+  private readonly projectileTracks = new Map<EntityId, ProjectileTrack>();
   /**
-   * Entities the sim reported taking a hit, with the milliseconds left on their
-   * {@link MISSILE_HIT_WINDOW_MS} window. Written by `consumeEvents`, read when a
-   * missile vanishes — this is the "was that a hit or did it just run out of
-   * fuel?" answer, taken from the sim rather than re-derived in the view.
+   * Entities the sim reported taking a hit. Written by `consumeEvents`, read
+   * when a shot vanishes — this is the "was that a hit or did it just run out
+   * of fuel?" answer, taken from the sim rather than re-derived in the view.
    */
-  private readonly recentHits = new Map<EntityId, number>();
-  /** Monotonic per-frame counter used to mark missile tracks as still present. */
+  private readonly recentHits = new Map<EntityId, HitWindow>();
+  /** Monotonic per-frame counter used to mark projectile tracks as still present. */
   private projectileSweep = 0;
+  /**
+   * World Y of the arena floor's ceiling, refreshed once a frame while shots are
+   * in the air. `-Infinity` in every arena with no floor mesh, which turns the
+   * ground look-ahead into a single failed float comparison per shot.
+   */
+  private groundCeilingY = Number.NEGATIVE_INFINITY;
+  /** Effect ids already reported missing, so a bad content pack warns once. */
+  private readonly missingEffects = new Set<string>();
 
   private readonly poolSize: number;
   private quality: ViewQuality;
@@ -356,12 +422,27 @@ export class ViewManager {
   private juice: JuiceSettings;
   private readonly hitFlash: HitFlashPool;
   private readonly explosions: ExplosionFx;
+  /** Weapon impact sprays — its own small ring, see {@link SparkFx}. */
+  private readonly sparks: SparkFx;
+  /** Ray casts against the arena's own scenery, rationed per frame. */
+  private readonly geometry: GeometryProbe;
   private readonly playSound: PlaySound | null;
   private readonly localPlayerId: EntityId | null;
 
   // Reused scratch — no per-frame allocation.
   private readonly sFrom = new Vector3();
   private readonly sTo = new Vector3();
+  /**
+   * Where the last resolved shot hit an entity, and what hit it. A scratch
+   * record rather than a returned object: rounds land several times a second
+   * per gun, and none of them should cost an allocation.
+   */
+  private readonly sImpact: { x: number; y: number; z: number; damageType: string | null } = {
+    x: 0,
+    y: 0,
+    z: 0,
+    damageType: null,
+  };
   /** Scratch orientation frame + vectors for the ship pose (BUBBLE.md §C, full-frame). */
   private readonly sFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
   private readonly sNose = { x: 0, y: 0, z: 0 };
@@ -390,6 +471,8 @@ export class ViewManager {
     this.localPlayerId = options.playerId ?? null;
     this.hitFlash = new HitFlashPool(scene, this.root, this.juice.hitFlash);
     this.explosions = new ExplosionFx(scene, this.juice.explosions, quality.particles, this.root);
+    this.sparks = new SparkFx(scene, quality.particles);
+    this.geometry = new GeometryProbe(scene);
 
     this.assets.setAsteroidLod(quality.asteroids);
     this.buildPools();
@@ -422,8 +505,10 @@ export class ViewManager {
     this.quality = quality;
     this.assets.setAsteroidLod(quality.asteroids);
     // Explosion pools are one-shot, so unlike ship emitters they CAN be rebuilt
-    // mid-match at the new particle budget with nothing visibly popping.
+    // mid-match at the new particle budget with nothing visibly popping. The
+    // spark ring is shorter-lived still, so the same holds twice over.
     this.explosions.setQuality(quality.particles);
+    this.sparks.setQuality(quality.particles);
     if (wasInstanced !== quality.projectiles.useInstances) this.rebuildPools();
   }
 
@@ -573,7 +658,7 @@ export class ViewManager {
       m.isPickable = false;
       m.setEnabled(false);
       m.parent = this.root;
-      this.beamPool.push({ mesh: m, life: 0, maxLife: this.beamFadeMs });
+      this.beamPool.push({ mesh: m, life: 0, maxLife: this.beamFadeMs, sparkMs: 0 });
     }
   }
 
@@ -589,7 +674,7 @@ export class ViewManager {
         this.spawnBeam(ev.ownerId, ev.targetId, ev.moduleId, cur);
       } else if (ev.type === "damage") {
         this.flashHit(ev.targetId, ev.isAsteroid);
-        this.markHit(ev.targetId);
+        this.markHit(ev.targetId, ev.damageType);
       } else if (ev.type === "shieldAbsorb") {
         // The absorb is the ONLY thing that lights a shield bubble: its idle
         // pose is near-transparent, so a shell only becomes legible while it is
@@ -598,7 +683,7 @@ export class ViewManager {
         // A missile stopped by a shield still detonated: the warhead going off
         // on the bubble is exactly what tells the pilot the shield earned its
         // energy, so an absorb arms the detonation window like raw damage does.
-        this.markHit(ev.targetId);
+        this.markHit(ev.targetId, ev.damageType);
       } else if (ev.type === "entityDestroyed") {
         if (ev.isAsteroid) {
           const v = this.asteroids.get(ev.entityId);
@@ -622,9 +707,19 @@ export class ViewManager {
     this.hitFlash.flash(view.node.position.x, view.node.position.y, view.node.position.z, radius);
   }
 
-  /** Open (or reopen) an entity's detonation-matching window — see `recentHits`. */
-  private markHit(targetId: EntityId): void {
-    this.recentHits.set(targetId, MISSILE_HIT_WINDOW_MS);
+  /**
+   * Open (or reopen) an entity's impact-matching window — see `recentHits`. The
+   * existing window is MUTATED when there is one, so a target under sustained
+   * fire allocates once and not once per landing round.
+   */
+  private markHit(targetId: EntityId, damageType: string): void {
+    const open = this.recentHits.get(targetId);
+    if (open) {
+      open.ms = MISSILE_HIT_WINDOW_MS;
+      open.damageType = damageType;
+      return;
+    }
+    this.recentHits.set(targetId, { ms: MISSILE_HIT_WINDOW_MS, damageType });
   }
 
   /**
@@ -685,10 +780,14 @@ export class ViewManager {
   private spawnBeam(ownerId: EntityId, targetId: EntityId | null, moduleId: string, cur: Snapshot): void {
     const from = findShip(cur, ownerId);
     if (!from) return;
+    // Radius of whatever this beam landed on, so the spark sits on its skin
+    // rather than in its middle. Zero for a shot that hit nothing.
+    let hitRadius = 0;
     if (targetId !== null) {
       const to = findShip(cur, targetId) ?? findAsteroid(cur, targetId);
       if (!to) return;
       this.sTo.set(to.pos.x, to.pos.y, to.pos.z);
+      hitRadius = this.targetRadiusOf(targetId, cur);
     } else {
       // A no-lock straight shot that hit nothing: draw the beam down the
       // shooter's nose out to the module's range, so the miss reads as a shot
@@ -701,13 +800,52 @@ export class ViewManager {
         from.pos.z + cosPitch * Math.sin(from.heading) * range,
       );
     }
+    this.sFrom.set(from.pos.x, from.pos.y, from.pos.z);
+    // A hit sparks whether or not a beam mesh was free to draw it: the spray is
+    // the part that says "this shot landed on YOU".
+    if (targetId !== null) this.sparkOnBeam(hitRadius, moduleId);
     const slot = firstFreeBeam(this.beamPool);
     if (!slot) return; // pool exhausted this frame — acceptable, no alloc
-    this.sFrom.set(from.pos.x, from.pos.y, from.pos.z);
     this.orientBeam(slot.mesh, this.sFrom, this.sTo);
     slot.life = slot.maxLife;
     slot.mesh.setEnabled(true);
     (slot.mesh.material as StandardMaterial).alpha = 1;
+  }
+
+  /** Collider radius of a beam's target, ship or rock. */
+  private targetRadiusOf(targetId: EntityId, cur: Snapshot): number {
+    if (findShip(cur, targetId)) {
+      return this.shipConfigFor(targetId)?.collider.radius ?? FALLBACK_SHIP_RADIUS;
+    }
+    return findAsteroid(cur, targetId)?.radius ?? 0;
+  }
+
+  /**
+   * Spark where the beam currently spanning `sFrom` → `sTo` touches its target:
+   * on the target's skin, facing the shooter, spraying back down the beam.
+   *
+   * The weapon's flavour comes from the MODULE that fired it
+   * (`fire.damageType`), which is the honest source for a hitscan weapon — it
+   * spawns no projectile the view could have watched, and a laser must read as
+   * a laser even on the frame the sim reports no damage (a shield ate it).
+   */
+  private sparkOnBeam(hitRadius: number, moduleId: string): void {
+    const dx = this.sTo.x - this.sFrom.x;
+    const dy = this.sTo.y - this.sFrom.y;
+    const dz = this.sTo.z - this.sFrom.z;
+    const length = Math.hypot(dx, dy, dz);
+    if (length <= 1e-4) return;
+    const t = Math.max(0, length - hitRadius) / length;
+    const damageType = this.configs.get<ModuleConfig>("module", moduleId)?.fire?.damageType;
+    this.sparkAt(
+      this.sFrom.x + dx * t,
+      this.sFrom.y + dy * t,
+      this.sFrom.z + dz * t,
+      -dx / length,
+      -dy / length,
+      -dz / length,
+      damageType,
+    );
   }
 
   /**
@@ -731,6 +869,9 @@ export class ViewManager {
    * `frameDtMs` drives beam fade and asteroid-puff timers.
    */
   render(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
+    // Refill the ray budget first: everything downstream that wants to know
+    // where a shot met the scenery spends from this one frame's ration.
+    this.geometry.beginFrame();
     this.syncShips(prev, cur, alpha, frameDtMs);
     this.syncAsteroids(cur, frameDtMs);
     this.syncDecoys(prev, cur, alpha);
@@ -738,10 +879,11 @@ export class ViewManager {
     this.syncProjectiles(prev, cur, alpha, frameDtMs);
     // Before updateBeams: a still-channelling slot gets its life refreshed here
     // and so never reaches the fade path below.
-    this.syncChannelBeams(cur);
+    this.syncChannelBeams(cur, frameDtMs);
     this.updateBeams(frameDtMs);
     this.hitFlash.update(frameDtMs);
     this.explosions.update(frameDtMs);
+    this.sparks.update(frameDtMs);
   }
 
   private syncShips(prev: Snapshot, cur: Snapshot, alpha: number, frameDtMs: number): void {
@@ -1239,6 +1381,10 @@ export class ViewManager {
     const sweep = ++this.projectileSweep;
     let k = 0;
     let m = 0;
+    // One bounding-box read for the whole frame, and only while something is
+    // actually flying: the ground look-ahead is a float comparison per shot.
+    this.groundCeilingY =
+      cur.projectiles.length > 0 ? this.geometry.groundCeilingY : Number.NEGATIVE_INFINITY;
     for (let i = 0; i < cur.projectiles.length; i++) {
       const pr = cur.projectiles[i]!;
       const p = findProjectile(prev, pr.id) ?? pr;
@@ -1248,10 +1394,10 @@ export class ViewManager {
       const dx = pr.pos.x - p.pos.x;
       const dy = pr.pos.y - p.pos.y;
       const dz = pr.pos.z - p.pos.z;
-      // Tracked ahead of the pool lookup on purpose: a missile that finds no free
+      // Tracked ahead of the pool lookup on purpose: a shot that finds no free
       // pool node is invisible this frame, but it must not therefore read as
-      // *detonated* the moment the pool frees up again.
-      if (pr.kind === "missile") this.trackMissile(pr, Math.hypot(dx, dy, dz), sweep);
+      // *landed* the moment the pool frees up again.
+      this.trackProjectile(pr, dx, dy, dz, sweep);
       const pool = pr.kind === "missile" ? this.missilePool : this.kineticPool;
       const idx = pr.kind === "missile" ? m++ : k++;
       const mesh = pool[idx];
@@ -1281,94 +1427,302 @@ export class ViewManager {
     }
     for (let i = k; i < this.kineticPool.length; i++) this.kineticPool[i]!.setEnabled(false);
     for (let i = m; i < this.missilePool.length; i++) this.missilePool[i]!.setEnabled(false);
-    this.sweepMissiles(sweep, cur);
+    this.sweepProjectiles(sweep, cur);
     this.ageRecentHits(frameDtMs);
   }
 
-  /** Record (or refresh) a live missile's last authoritative position. */
-  private trackMissile(pr: ProjectileSnapshot, step: number, sweep: number): void {
-    const track = this.missileTracks.get(pr.id);
-    if (track) {
-      track.x = pr.pos.x;
-      track.y = pr.pos.y;
-      track.z = pr.pos.z;
-      track.step = step;
-      track.seen = sweep;
-      return;
+  /**
+   * Record (or refresh) a live shot's last authoritative position and heading,
+   * then give it its one look at the ground beneath it.
+   */
+  private trackProjectile(
+    pr: ProjectileSnapshot,
+    dx: number,
+    dy: number,
+    dz: number,
+    sweep: number,
+  ): void {
+    const step = Math.hypot(dx, dy, dz);
+    // A shot that has not moved yet keeps the direction it last had rather than
+    // a zero vector, so the very first frame of a track never divides by zero.
+    const inv = step > 1e-6 ? 1 / step : 0;
+    let track = this.projectileTracks.get(pr.id);
+    if (!track) {
+      track = {
+        x: pr.pos.x,
+        y: pr.pos.y,
+        z: pr.pos.z,
+        dx: 0,
+        dy: 0,
+        dz: 0,
+        step: 0,
+        seen: sweep,
+        missile: pr.kind === "missile",
+        hasGround: false,
+        groundX: 0,
+        groundY: 0,
+        groundZ: 0,
+        probedGround: false,
+        spent: false,
+      };
+      this.projectileTracks.set(pr.id, track);
     }
-    this.missileTracks.set(pr.id, { x: pr.pos.x, y: pr.pos.y, z: pr.pos.z, step, seen: sweep });
+    track.x = pr.pos.x;
+    track.y = pr.pos.y;
+    track.z = pr.pos.z;
+    track.step = step;
+    track.seen = sweep;
+    if (inv !== 0) {
+      track.dx = dx * inv;
+      track.dy = dy * inv;
+      track.dz = dz * inv;
+    }
+    this.trackGround(track);
   }
 
-  /** Retire missiles that left this frame's snapshot, detonating the ones that hit. */
-  private sweepMissiles(sweep: number, cur: Snapshot): void {
-    for (const [id, track] of this.missileTracks) {
+  /**
+   * The floor is the one thing a shot can hit that the SIM never sees: the
+   * regolith disc is a client mesh, so a round fired into it keeps flying (and
+   * keeps being replicated) until it is far below the surface. Waiting for the
+   * despawn would put the spark twenty units underground.
+   *
+   * So the view looks ahead ONCE, on the first frame the shot is below the
+   * floor's ceiling and descending, remembers the crossing it finds, and draws
+   * it only when the round has actually flown that far. A shot that dies before
+   * reaching it — lifetime, or the arena limit — never touched the ground and
+   * draws nothing.
+   */
+  private trackGround(track: ProjectileTrack): void {
+    if (track.spent) return;
+    if (track.hasGround) {
+      // Reached (or passed) the crossing? Measured along its own travel, so a
+      // homing missile curving away from the ground never trips it.
+      const ahead =
+        (track.groundX - track.x) * track.dx +
+        (track.groundY - track.y) * track.dy +
+        (track.groundZ - track.z) * track.dz;
+      if (ahead > 0) return;
+      track.spent = true;
+      this.drawImpact(track, track.groundX, track.groundY, track.groundZ, null);
+      return;
+    }
+    if (track.probedGround || track.step <= 0 || track.dy >= 0) return;
+    if (!(track.y <= this.groundCeilingY)) return;
+    track.probedGround = true;
+    // Cast from where it was a tick ago: a shot already through the surface on
+    // the frame it entered the band still gets its crossing found behind it.
+    const point = this.geometry.probe(
+      track.x - track.dx * track.step,
+      track.y - track.dy * track.step,
+      track.z - track.dz * track.step,
+      track.dx,
+      track.dy,
+      track.dz,
+      track.step + GROUND_PROBE_AHEAD,
+    );
+    if (!point) return;
+    track.hasGround = true;
+    track.groundX = point.x;
+    track.groundY = point.y;
+    track.groundZ = point.z;
+    // The crossing may already be behind this frame's position — resolve it now
+    // rather than a frame late.
+    this.trackGround(track);
+  }
+
+  /** Retire shots that left this frame's snapshot, drawing the ones that landed. */
+  private sweepProjectiles(sweep: number, cur: Snapshot): void {
+    for (const [id, track] of this.projectileTracks) {
       if (track.seen === sweep) continue;
-      this.missileTracks.delete(id);
-      this.detonateMissile(track, cur);
+      this.projectileTracks.delete(id);
+      if (track.spent) continue; // already drawn where it met the ground
+      this.resolveDespawn(track, cur);
     }
   }
 
   /**
-   * A missile left the snapshot. Draw the warhead going off **only** if the sim
-   * also reported a hit on something within reach of where the missile was:
-   * ordnance despawns for three reasons (it hit, its lifetime ran out, it flew
-   * out of the arena) and two of them should show nothing at all.
+   * A shot left the snapshot. Ordnance despawns for four reasons — it hit
+   * something the sim damages, it stopped against solid scenery, its lifetime
+   * ran out, or it crossed the arena limit — and only the first two draw.
+   *
+   * The order is evidence-first: the sim's own damage report wins, because it
+   * is authoritative about WHAT was hit and with what damage type. Failing
+   * that, the view asks the scene whether the shot's last travel crossed any
+   * arena geometry. Failing THAT, nothing is drawn: the arena boundary is not
+   * in the geometry set at all (see {@link GeometryProbe}), so a round expiring
+   * against the play-area limit is silent by construction rather than by a
+   * special case that could drift out of step with the bounds shape.
+   */
+  private resolveDespawn(track: ProjectileTrack, cur: Snapshot): void {
+    if (this.entityImpactPoint(track, cur)) {
+      const hit = this.sImpact;
+      this.drawImpact(track, hit.x, hit.y, hit.z, hit.damageType);
+      return;
+    }
+    const point = this.probeSolid(track);
+    if (point) this.drawImpact(track, point.x, point.y, point.z, null);
+  }
+
+  /**
+   * Where the shot met solid arena scenery on the travel it was never seen
+   * finishing, or null.
+   *
+   * The cast starts one observed tick BEHIND the last known position: the sim
+   * destroys a round on the tick it lands, and starting behind means the first
+   * crossing found is the face it went into rather than the far wall of the
+   * rock it is now inside.
+   */
+  private probeSolid(track: ProjectileTrack): Vector3 | null {
+    if (track.step <= 0) return null;
+    return this.geometry.probe(
+      track.x - track.dx * track.step,
+      track.y - track.dy * track.step,
+      track.z - track.dz * track.step,
+      track.dx,
+      track.dy,
+      track.dz,
+      track.step * 2.35 + PROJECTILE_RADIUS,
+    );
+  }
+
+  /**
+   * Draw what this shot landing looks like: a warhead detonates, a gun round
+   * sparks in its weapon's colour, spraying back the way it came.
+   *
+   * `damageType` is the sim's own report when there is one (a hull or rock the
+   * sim damaged); for scenery there is no event to read, so it is null and the
+   * spark falls back to the kinetic spray — which is what a gun round is,
+   * energy weapons in this game being hitscan beams that spawn no projectile.
+   */
+  private drawImpact(
+    track: ProjectileTrack,
+    x: number,
+    y: number,
+    z: number,
+    damageType: string | null,
+  ): void {
+    if (track.missile) {
+      this.detonateAt(x, y, z);
+      return;
+    }
+    this.sparkAt(x, y, z, -track.dx, -track.dy, -track.dz, damageType ?? undefined);
+  }
+
+  /**
+   * A warhead going off at a point.
    *
    * This reuses the pooled {@link ExplosionFx} the ship-death burst runs on —
    * same slots, same particle budget, same quality tier — at
    * {@link MISSILE_IMPACT_SCALE} and against the smaller `fx.missile-impact`
    * effect, so a warhead can never be mistaken for a hull coming apart.
    */
-  private detonateMissile(track: MissileTrack, cur: Snapshot): void {
-    const point = this.missileImpactPoint(track, cur);
-    if (!point) return;
+  private detonateAt(x: number, y: number, z: number): void {
     const effect = this.missileImpactEffect();
     if (!effect) return;
-    this.explosions.burst(effect, point.x, point.z, point.y, undefined, MISSILE_IMPACT_SCALE);
+    this.explosions.burst(effect, x, z, y, undefined, MISSILE_IMPACT_SCALE);
     // Audio is not a quality-tier concern: a low tier drops particles, never the bang.
     const soundId = resolveSoundId(effect.sound);
     if (soundId) this.playSound?.(soundId);
   }
 
   /**
-   * Where a vanished missile went off, or null if nothing corroborates a hit.
+   * One weapon-impact spray at a world point, thrown along `ax/ay/az`.
+   *
+   * Which effect it is comes from the damage type
+   * ({@link sparkEffectIdFor}) and everything about how it LOOKS comes from
+   * that effect's content file, so telling a laser strike from a cannon strike
+   * at a glance is a content decision, not a code one.
+   */
+  private sparkAt(
+    x: number,
+    y: number,
+    z: number,
+    ax: number,
+    ay: number,
+    az: number,
+    damageType?: string,
+  ): void {
+    if (!this.sparks.particlesEnabled) return;
+    if (!this.withinEffectRange(x, y, z)) return;
+    const id = sparkEffectIdFor(damageType, this.juice.sparks);
+    if (!id) return;
+    const effect = this.configs.get<EffectConfig>("effect", id);
+    if (!effect) {
+      if (!this.missingEffects.has(id)) {
+        this.missingEffects.add(id);
+        log.warn(`impact spark effect not found: ${id}`);
+      }
+      return;
+    }
+    this.sparks.burst(effect, x, y, z, ax, ay, az);
+  }
+
+  /**
+   * Whether a decorative burst at this point is close enough to be worth
+   * drawing, against the SAME tier knob that stops distant ship emitters
+   * (`quality.particles.shipEffectCullDistance`). It also gates the ray casts
+   * behind it: a strike nobody can see is not worth a triangle test either.
+   */
+  private withinEffectRange(x: number, y: number, z: number): boolean {
+    const cull = this.quality.particles.shipEffectCullDistance;
+    if (!cull) return true;
+    const camera = this.scene.activeCamera;
+    if (!camera) return true;
+    camera.computeWorldMatrix();
+    const eye = camera.globalPosition;
+    const dx = eye.x - x;
+    const dy = eye.y - y;
+    const dz = eye.z - z;
+    return dx * dx + dy * dy + dz * dz <= cull * cull;
+  }
+
+  /**
+   * Resolve where a vanished shot hit something the SIM damaged, writing the
+   * point (and what hit it) into {@link sImpact}; returns whether it found one.
    *
    * The candidate set is exactly the entities the sim said were hit inside
-   * {@link MISSILE_HIT_WINDOW_MS}; among those, the missile detonated on the
-   * nearest one it could physically have reached — its own last position plus a
-   * tick of travel plus the two colliders. The point returned is pulled back
-   * onto that hull's surface facing the incoming missile, which is both the
-   * honest impact point and the one that never buries the flash inside the mesh.
+   * {@link MISSILE_HIT_WINDOW_MS}; among those, the shot landed on the nearest
+   * one it could physically have reached — its own last position plus a tick of
+   * travel plus the two colliders. The point written is pulled back onto that
+   * hull's surface facing the incoming shot, which is both the honest impact
+   * point and the one that never buries the flash inside the mesh.
    */
-  private missileImpactPoint(
-    track: MissileTrack,
-    cur: Snapshot,
-  ): { x: number; y: number; z: number } | null {
-    if (this.recentHits.size === 0) return null;
+  private entityImpactPoint(track: ProjectileTrack, cur: Snapshot): boolean {
+    if (this.recentHits.size === 0) return false;
     let best: { pos: { x: number; y: number; z: number }; radius: number; distance: number } | null = null;
+    let hit: HitWindow | undefined;
     for (let i = 0; i < cur.ships.length; i++) {
       const ship = cur.ships[i]!;
-      if (!this.recentHits.has(ship.id)) continue;
+      const window = this.recentHits.get(ship.id);
+      if (!window) continue;
       const radius = this.shipConfigFor(ship.id)?.collider.radius ?? FALLBACK_SHIP_RADIUS;
-      best = closerImpact(best, track, ship.pos, radius);
+      const closer = closerImpact(best, track, ship.pos, radius);
+      if (closer !== best) hit = window;
+      best = closer;
     }
     for (let i = 0; i < cur.asteroids.length; i++) {
       const rock = cur.asteroids[i]!;
-      if (!this.recentHits.has(rock.id)) continue;
-      best = closerImpact(best, track, rock.pos, rock.radius);
+      const window = this.recentHits.get(rock.id);
+      if (!window) continue;
+      const closer = closerImpact(best, track, rock.pos, rock.radius);
+      if (closer !== best) hit = window;
+      best = closer;
     }
-    if (!best) return null;
-    // Already inside the hull (the missile's last tick put it there): the track
+    if (!best) return false;
+    this.sImpact.damageType = hit?.damageType ?? null;
+    // Already inside the hull (the shot's last tick put it there): the track
     // itself is the better point, and normalizing a near-zero vector is not.
     if (best.distance <= best.radius || best.distance <= 1e-4) {
-      return { x: track.x, y: track.y, z: track.z };
+      this.sImpact.x = track.x;
+      this.sImpact.y = track.y;
+      this.sImpact.z = track.z;
+      return true;
     }
     const t = best.radius / best.distance;
-    return {
-      x: best.pos.x + (track.x - best.pos.x) * t,
-      y: best.pos.y + (track.y - best.pos.y) * t,
-      z: best.pos.z + (track.z - best.pos.z) * t,
-    };
+    this.sImpact.x = best.pos.x + (track.x - best.pos.x) * t;
+    this.sImpact.y = best.pos.y + (track.y - best.pos.y) * t;
+    this.sImpact.z = best.pos.z + (track.z - best.pos.z) * t;
+    return true;
   }
 
   /** The best available missile-detonation effect config (see `missileImpactEffectIdsFor`). */
@@ -1382,14 +1736,13 @@ export class ViewManager {
     return undefined;
   }
 
-  /** Age out detonation-matching windows; keeps `recentHits` bounded by itself. */
+  /** Age out impact-matching windows; keeps `recentHits` bounded by itself. */
   private ageRecentHits(frameDtMs: number): void {
     if (this.recentHits.size === 0) return;
     const dt = Math.max(0, Number.isFinite(frameDtMs) ? frameDtMs : 0);
-    for (const [id, remaining] of this.recentHits) {
-      const next = remaining - dt;
-      if (next <= 0) this.recentHits.delete(id);
-      else this.recentHits.set(id, next);
+    for (const [id, window] of this.recentHits) {
+      window.ms -= dt;
+      if (window.ms <= 0) this.recentHits.delete(id);
     }
   }
 
@@ -1399,8 +1752,13 @@ export class ViewManager {
    * event per tick to react to — the sim replicates a single `channeling` flag
    * per module and the beam lives for exactly as long as that flag is set, which
    * is what makes release / lock-loss look instant.
+   *
+   * The same absence of a per-shot beat is why a channel's SPARKS run on their
+   * own clock ({@link ImpactSparkSettings.channelIntervalMs}) rather than on the
+   * frame rate: a burn that sparked every frame would own the whole ring at
+   * 60 fps and look different at 30.
    */
-  private syncChannelBeams(cur: Snapshot): void {
+  private syncChannelBeams(cur: Snapshot, frameDtMs: number): void {
     this.liveChannels.clear();
     for (let s = 0; s < cur.ships.length; s++) {
       const ship = cur.ships[s]!;
@@ -1428,6 +1786,9 @@ export class ViewManager {
           slot = firstFreeBeam(this.beamPool);
           if (!slot) continue; // pool exhausted this frame — acceptable, no alloc
           this.channelBeams.set(key, slot);
+          // A fresh channel sparks on its very first frame; the interval only
+          // governs the beats after that.
+          slot.sparkMs = 0;
         }
         this.sFrom.set(ship.pos.x, ship.pos.y, ship.pos.z);
         this.orientBeam(slot.mesh, this.sFrom, this.sTo);
@@ -1435,6 +1796,13 @@ export class ViewManager {
         slot.mesh.setEnabled(true);
         (slot.mesh.material as StandardMaterial).alpha = 1;
         this.liveChannels.add(key);
+        // Only a channel that is actually ON something sparks: a burn into
+        // empty space has no hit point to throw anything off.
+        slot.sparkMs -= Math.max(0, frameDtMs);
+        if (to !== null && slot.sparkMs <= 0) {
+          slot.sparkMs = this.juice.sparks.channelIntervalMs;
+          this.sparkOnBeam(this.targetRadiusOf(ship.targetId!, cur), m.moduleId);
+        }
       }
     }
     if (this.channelBeams.size === this.liveChannels.size) return;
@@ -1460,6 +1828,11 @@ export class ViewManager {
   /** Pooled explosion bursts — exposed for the dev probe and quality checks. */
   get explosionFx(): ExplosionFx {
     return this.explosions;
+  }
+
+  /** Pooled weapon-impact sprays — exposed for the dev probe and quality checks. */
+  get sparkFx(): SparkFx {
+    return this.sparks;
   }
 
   /** Live juice state for `window.__debug.viewManager` (dev verification). */
@@ -1508,7 +1881,7 @@ export class ViewManager {
     this.channelBeams.clear();
     this.liveChannels.clear();
     // Dropped rather than detonated: a view being torn down is not an impact.
-    this.missileTracks.clear();
+    this.projectileTracks.clear();
     this.recentHits.clear();
     for (const master of this.poolMasters) {
       master.material?.dispose();
@@ -1517,6 +1890,7 @@ export class ViewManager {
     this.poolMasters.length = 0;
     this.hitFlash.dispose();
     this.explosions.dispose();
+    this.sparks.dispose();
     this.heroShip?.dispose();
     this.heroKeyLight?.dispose();
     this.heroRimLight?.dispose();
@@ -1652,14 +2026,14 @@ function findDecoy(snap: Snapshot, id: EntityId): DecoySnapshot | undefined {
 }
 
 /**
- * Keep whichever of `best` and the candidate hull is nearer to a vanished
- * missile, rejecting any the missile could not have reached: its last tracked
- * position, plus the tick of travel the sim ran before destroying it, plus both
+ * Keep whichever of `best` and the candidate hull is nearer to a vanished shot,
+ * rejecting any the shot could not have reached: its last tracked position,
+ * plus the tick of travel the sim ran before destroying it, plus both
  * colliders. Returns `best` untouched when the candidate is out of reach.
  */
 function closerImpact(
   best: { pos: { x: number; y: number; z: number }; radius: number; distance: number } | null,
-  track: MissileTrack,
+  track: ProjectileTrack,
   pos: { x: number; y: number; z: number },
   radius: number,
 ): { pos: { x: number; y: number; z: number }; radius: number; distance: number } | null {

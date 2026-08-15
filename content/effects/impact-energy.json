@@ -1,0 +1,21 @@
+{
+  "id": "fx.impact-energy",
+  "type": "effect",
+  "version": 1,
+  "name": "Energy Impact Sparks",
+  "base": {
+    "capacity": 26,
+    "emitRate": 0,
+    "lifeMin": 0.05,
+    "lifeMax": 0.16,
+    "sizeMin": 0.05,
+    "sizeMax": 0.18,
+    "speedMin": 9,
+    "speedMax": 19,
+    "color1": "#d8f7ff",
+    "color2": "#2ea8ff",
+    "direction": [0.28, 0.28, 0.28],
+    "gravity": 0
+  },
+  "params": ["lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "fx.impact-kinetic",
+  "type": "effect",
+  "version": 1,
+  "name": "Kinetic Impact Sparks",
+  "base": {
+    "capacity": 34,
+    "emitRate": 0,
+    "lifeMin": 0.14,
+    "lifeMax": 0.46,
+    "sizeMin": 0.1,
+    "sizeMax": 0.34,
+    "speedMin": 5,
+    "speedMax": 13,
+    "color1": "#ffd489",
+    "color2": "#ff5a0d",
+    "direction": [0.85, 0.85, 0.85],
+    "gravity": 0
+  },
+  "params": ["lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"]
+}

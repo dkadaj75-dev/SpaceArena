@@ -389,9 +389,9 @@
       "periodMs": 1400,
       "radiusScale": 1.18,
       "scaleWobble": 0.02,
-      "minAlpha": 0.012,
-      "maxAlpha": 0.03,
-      "impactAlpha": 0.5,
+      "minAlpha": 0.006,
+      "maxAlpha": 0.015,
+      "impactAlpha": 0.25,
       "impactDecayMs": 420
     },
     "deploy": {

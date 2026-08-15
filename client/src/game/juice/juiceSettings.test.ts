@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { ThemeConfig } from "@space-arena/shared";
 import {
@@ -9,6 +10,7 @@ import {
   shieldBubbleColorOf,
   shieldImpactFlare,
   shieldRipplePose,
+  sparkEffectIdFor,
   viewRelationOf,
 } from "./juiceSettings.js";
 
@@ -148,6 +150,33 @@ describe("missileImpactEffectIdsFor", () => {
   });
 });
 
+describe("sparkEffectIdFor", () => {
+  const sparks = DEFAULT_JUICE_SETTINGS.sparks;
+
+  it("gives energy and kinetic weapons visibly different effects", () => {
+    expect(sparkEffectIdFor("energy", sparks)).toBe("fx.impact-energy");
+    expect(sparkEffectIdFor("kinetic", sparks)).toBe("fx.impact-kinetic");
+    expect(sparkEffectIdFor("energy", sparks)).not.toBe(sparkEffectIdFor("kinetic", sparks));
+  });
+
+  it("falls back to the kinetic spray for a composite or unknown damage type", () => {
+    // `hybrid` is what missiles carry today, and a content pack may invent more.
+    for (const type of ["hybrid", "plasma", "", undefined, null]) {
+      expect(sparkEffectIdFor(type, sparks)).toBe("fx.impact-kinetic");
+    }
+  });
+
+  it("uses whichever effect a pack DID author when one is missing", () => {
+    expect(sparkEffectIdFor("energy", { ...sparks, energyEffect: null })).toBe("fx.impact-kinetic");
+    expect(sparkEffectIdFor("kinetic", { ...sparks, kineticEffect: null })).toBe("fx.impact-energy");
+    expect(sparkEffectIdFor("kinetic", { ...sparks, kineticEffect: null, energyEffect: null })).toBeNull();
+  });
+
+  it("sparks a channelling beam on its own clock rather than per frame", () => {
+    expect(sparks.channelIntervalMs).toBeGreaterThan(1000 / 60);
+  });
+});
+
 describe("shieldRipplePose", () => {
   const ripple = DEFAULT_JUICE_SETTINGS.shieldRipple;
 
@@ -189,6 +218,29 @@ describe("shieldRipplePose", () => {
     // quietly bring the permanent bubble back.
     expect(ripple.maxAlpha).toBeLessThan(0.06);
     expect(ripple.impactAlpha).toBeGreaterThan(ripple.maxAlpha * 5);
+  });
+
+  it("ships the whole bubble at HALF the opacity it once had (owner 2026-08-14)", () => {
+    // Halved coherently — idle band and flare together — so "more like glass"
+    // did not cost the on-hit read its punch. The pre-halving values were
+    // 0.012 / 0.032 / 0.5.
+    expect(ripple.minAlpha).toBeCloseTo(0.006, 6);
+    expect(ripple.maxAlpha).toBeCloseTo(0.016, 6);
+    expect(ripple.impactAlpha).toBeCloseTo(0.25, 6);
+    // Both sides of the fight read from the same band; only the tint differs.
+    expect(shieldBubbleColorOf("friendly", ripple)).not.toBe(shieldBubbleColorOf("hostile", ripple));
+  });
+
+  it("halves the SHIPPED theme's authored band too, not just the built-in default", () => {
+    const shipped = JSON.parse(
+      readFileSync("content/themes/default.json", "utf8"),
+    ) as ThemeConfig;
+    const authored = juiceSettingsOf(shipped).shieldRipple;
+    expect(authored.minAlpha).toBeCloseTo(0.006, 6);
+    expect(authored.maxAlpha).toBeCloseTo(0.015, 6);
+    expect(authored.impactAlpha).toBeCloseTo(0.25, 6);
+    // Still a flare you cannot miss: an order of magnitude over the idle peak.
+    expect(authored.impactAlpha).toBeGreaterThan(authored.maxAlpha * 10);
   });
 
   it("jumps to the impact alpha on a fresh hit and decays back to idle", () => {
