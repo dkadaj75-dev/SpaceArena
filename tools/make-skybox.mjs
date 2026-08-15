@@ -27,9 +27,14 @@ const PALETTES = {
     bandCoreDir: [-0.78, 0.34, -0.52],
     planet: {
       dir: [0.05, -0.5, 0.8646],
-      angularRadiusDeg: 12.5, kind: "gas", turbulence: 4.3, bandScale: 13.5,
-      bandOffset: 0.45, bandContrast: 0.18,
-      surface: { base: [132, 119, 66], band: [91, 94, 55], detail: [169, 137, 72] },
+      // bandScale sets how many zones cross the disc: the broad term runs at
+      // phase*0.47, so ~26 gives four or five zones plus harmonics — Jupiter's
+      // count. 13.5 gave barely one (a featureless ball), 44 gave corduroy.
+      // The two surface tones must also stay APART: muting them together is
+      // what flattened the banding even while the zones were still there.
+      angularRadiusDeg: 12.5, kind: "gas", turbulence: 4.3, bandScale: 26,
+      bandOffset: 0.45, bandContrast: 0.32,
+      surface: { base: [150, 134, 78], band: [104, 101, 58], detail: [178, 146, 79] },
       atmosphere: [151, 151, 82], storm: { x: 0.34, y: -0.2, rx: 0.27, ry: 0.105 },
     },
     sun: { dir: [0.777, 0.309, 0.55], color: [255, 248, 230], discDeg: 0.72, glowDeg: 3.2, minimalGlow: true },
@@ -45,9 +50,11 @@ const PALETTES = {
     bandCoreDir: [0.66, 0.52, -0.54],
     planet: {
       dir: [-0.12, 0.12, 0.9854],
-      angularRadiusDeg: 10.5, kind: "gas", turbulence: 4.0, bandScale: 14.5,
-      bandOffset: -0.25, bandContrast: 0.17,
-      surface: { base: [139, 128, 38], band: [73, 91, 31], detail: [202, 158, 55] },
+      // Slightly tighter banding than deep-field's giant, so the two worlds do
+      // not read as the same planet twice. See the note there on scale/tones.
+      angularRadiusDeg: 10.5, kind: "gas", turbulence: 4.0, bandScale: 29,
+      bandOffset: -0.25, bandContrast: 0.3,
+      surface: { base: [156, 141, 54], band: [101, 108, 45], detail: [204, 162, 62] },
       atmosphere: [164, 190, 77], storm: { x: -0.38, y: 0.16, rx: 0.22, ry: 0.085 },
     },
     sun: { dir: [-0.677, -0.208, -0.706], color: [244, 248, 255], discDeg: 0.68, glowDeg: 3.0, minimalGlow: true },
