@@ -119,6 +119,56 @@ describe("ConfigService.load", () => {
     expect(result.errors.some((e) => e.message.includes("duplicate config id"))).toBe(true);
   });
 
+  // The pack is loaded CONCURRENTLY (170 files over one round trip each was
+  // minutes of dead time on mobile data). Concurrency must not leak into the
+  // result: manifest order decides which duplicate id wins and the order errors
+  // come back in, so a loader that resolves out of order must change nothing.
+  it("loads the pack concurrently but consumes it in manifest order", async () => {
+    const files = validFiles();
+    (files["manifest.json"] as { files: string[] }).files.push("dupe.json");
+    files["dupe.json"] = { ...camera, followLag: 0.9 };
+
+    let inFlight = 0;
+    let peak = 0;
+    const order: string[] = [];
+    const base = memLoader(files);
+    // Resolve in REVERSE arrival order: later files finish first.
+    const svc = new ConfigService(async (path: string) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      const value = await base(path);
+      await new Promise((r) => setTimeout(r, path === "dupe.json" ? 0 : 10));
+      inFlight--;
+      order.push(path);
+      return value;
+    });
+    const result = await svc.load("manifest.json");
+
+    // Genuinely overlapped, and genuinely out of order — `dupe.json` is the
+    // LAST manifest entry but the FIRST pack file to resolve. (The manifest
+    // itself is fetched through the same loader, ahead of the pack.)
+    expect(peak).toBeGreaterThan(1);
+    expect(order.filter((p) => p !== "manifest.json")[0]).toBe("dupe.json");
+    // ...yet the duplicate is still reported against the LATER manifest entry,
+    // exactly as it was when the loop awaited one file at a time.
+    expect(result.ok).toBe(false);
+    const dupe = result.errors.find((e) => e.message.includes("duplicate config id"));
+    expect(dupe?.file).toBe("dupe.json");
+  });
+
+  it("still surfaces a single failed file without losing the rest of the pack", async () => {
+    const files = validFiles();
+    const svc = new ConfigService((path: string) =>
+      path === "camera.json" ? Promise.reject(new Error("boom")) : memLoader(files)(path),
+    );
+    const result = await svc.load("manifest.json");
+
+    expect(result.ok).toBe(false);
+    const failed = result.errors.find((e) => e.message.includes("failed to load file"));
+    expect(failed?.file).toBe("camera.json");
+    expect(failed?.message).toContain("boom");
+  });
+
   it("validates arena wire headroom against the pack's authored projectile margin", async () => {
     const files = validFiles();
     files["arena.json"] = { ...arena, bounds: { shape: "sphere", radius: 3270 } };
