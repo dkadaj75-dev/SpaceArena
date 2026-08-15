@@ -566,7 +566,9 @@ function threat(ctx: BotContext, params: BehaviorParams) {
     ctx.self.pos,
     ctx.self.heading,
     ctx.self.pitch,
-    ctx.blockers,
+    // Hazard spheres, not the cover spheres: this scan is trying not to hit the
+    // rock, so it must clear the whole drawn body, not its mean radius.
+    ctx.hazards,
     numParam(params, "lookahead", 16),
     (ctx.self.colliderRadius ?? 0) + numParam(params, "clearance", 2),
     ctx.staticWorld,

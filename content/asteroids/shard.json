@@ -1,46 +1,46 @@
 {
-  "id": "asteroid.small-rock-b",
+  "id": "asteroid.shard",
   "type": "asteroid",
   "version": 1,
-  "name": "Small Rock B",
-  "radius": 3.5,
+  "name": "Shard",
+  "radius": 4.5,
   "shape": {
-    "seed": 20117,
+    "seed": 31771,
     "lobes": [
       {
-        "radii": [0.94, 0.66, 0.8]
+        "radii": [0.97, 0.4, 0.47]
       }
     ],
     "noise": {
-      "amplitude": 0.12,
-      "frequency": 4.4,
-      "octaves": 2
+      "amplitude": 0.16,
+      "frequency": 3.6,
+      "octaves": 3
     },
     "facets": {
-      "count": 8,
-      "depth": 0.2
+      "count": 5,
+      "depth": 0.18
     }
   },
-  "hp": 40,
+  "hp": 55,
   "destructible": true,
-  "impactDamage": 6,
+  "impactDamage": 8,
   "render": {
     "recipe": "procedural.rock-small",
     "palette": {
-      "primary": "#544a42",
-      "accent": "#786d61"
+      "primary": "#4a4038",
+      "accent": "#7f6a52"
     },
     "detail": 3,
     "surface": {
       "textureSet": "cliff_side",
-      "tileMeters": 2.8,
+      "tileMeters": 3.4,
       "roughness": 1.05,
       "metallic": 0,
-      "normalStrength": 1.5
+      "normalStrength": 1.55
     },
     "spin": {
-      "minDegPerSec": 8,
-      "maxDegPerSec": 26
+      "minDegPerSec": 5,
+      "maxDegPerSec": 20
     }
   },
   "states": [

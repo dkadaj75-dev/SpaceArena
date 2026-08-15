@@ -20,21 +20,26 @@ type ShippedArena = {
 };
 
 const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url));
+/**
+ * Placement counts are PINNED, not bounded: an arena's rock population is
+ * authored content, so a change to it should show up as a deliberate edit here.
+ * Re-recorded 2026-08-15 when the fields were restocked with the new shaped
+ * silhouettes (shard / pebble / spindle / twin-lobe / rubble-knot /
+ * angular-chunk / cratered-boulder / monolith) — see `distinctIds` below for
+ * the variety floor that came with them.
+ */
 const SHIPPED_ARENAS: readonly ShippedArena[] = [
-  { name: "deep-field", file: "deep-field.json", expectedCount: 90, maxExtent: 210 },
-  { name: "ring-nebula", file: "ring-nebula.json", expectedCount: 14, maxExtent: 126 },
-  { name: "lunar-crater", file: "lunar-crater.json", expectedCount: 39, maxExtent: 360 },
-  { name: "broken-halo", file: "broken-halo.json", expectedCount: 14, maxExtent: 150 },
-  { name: "twin-titans", file: "twin-titans.json", expectedCount: 14, maxExtent: 100 },
+  { name: "deep-field", file: "deep-field.json", expectedCount: 148, maxExtent: 210 },
+  { name: "ring-nebula", file: "ring-nebula.json", expectedCount: 46, maxExtent: 126 },
+  { name: "lunar-crater", file: "lunar-crater.json", expectedCount: 82, maxExtent: 360 },
+  { name: "broken-halo", file: "broken-halo.json", expectedCount: 52, maxExtent: 150 },
+  { name: "twin-titans", file: "twin-titans.json", expectedCount: 41, maxExtent: 100 },
 ];
-const asteroidFiles = [
-  "small-rock.json",
-  "small-rock-b.json",
-  "large-hazard.json",
-  "large-hazard-b.json",
-  "colossal-a.json",
-  "colossal-b.json",
-];
+/** Every shipped rock, discovered rather than listed: a new config cannot be missed. */
+const asteroidFiles = readdirSync(`${CONTENT_ROOT}asteroids/`, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+  .map((entry) => entry.name)
+  .sort();
 
 function loadJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -93,6 +98,16 @@ describe("shipped arena asteroid geometry", () => {
       const corridor = [teamCentroid(arena, 0), teamCentroid(arena, 1)] as const;
       const placements = arena.asteroidPlacements;
       expect(placements.length).toBe(shipped.expectedCount);
+
+      // A field of identical rocks reads as wallpaper however many of them there
+      // are, so variety is an invariant of the arena, not a nice-to-have: at
+      // least eight distinct rock types, none of them more than 40% of the field.
+      const perId = new Map<string, number>();
+      for (const placement of placements) perId.set(placement.asteroidId, (perId.get(placement.asteroidId) ?? 0) + 1);
+      expect(perId.size, `${arena.id} distinct rock types`).toBeGreaterThanOrEqual(8);
+      for (const [id, count] of perId) {
+        expect(count / placements.length, `${arena.id} share of ${id}`).toBeLessThanOrEqual(0.4);
+      }
 
       for (let index = 0; index < placements.length; index++) {
         const placement = placements[index]!;

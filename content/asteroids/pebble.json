@@ -1,46 +1,46 @@
 {
-  "id": "asteroid.small-rock-b",
+  "id": "asteroid.pebble",
   "type": "asteroid",
   "version": 1,
-  "name": "Small Rock B",
-  "radius": 3.5,
+  "name": "Pebble",
+  "radius": 1.8,
   "shape": {
-    "seed": 20117,
+    "seed": 6151,
     "lobes": [
       {
-        "radii": [0.94, 0.66, 0.8]
+        "radii": [0.87, 0.68, 0.74]
       }
     ],
     "noise": {
-      "amplitude": 0.12,
-      "frequency": 4.4,
+      "amplitude": 0.2,
+      "frequency": 4.8,
       "octaves": 2
     },
     "facets": {
-      "count": 8,
-      "depth": 0.2
+      "count": 6,
+      "depth": 0.24
     }
   },
-  "hp": 40,
+  "hp": 18,
   "destructible": true,
-  "impactDamage": 6,
+  "impactDamage": 3,
   "render": {
     "recipe": "procedural.rock-small",
     "palette": {
-      "primary": "#544a42",
-      "accent": "#786d61"
+      "primary": "#605649",
+      "accent": "#8b7f6e"
     },
-    "detail": 3,
+    "detail": 2,
     "surface": {
-      "textureSet": "cliff_side",
-      "tileMeters": 2.8,
-      "roughness": 1.05,
+      "textureSet": "gray_rocks",
+      "tileMeters": 1.6,
+      "roughness": 1.1,
       "metallic": 0,
-      "normalStrength": 1.5
+      "normalStrength": 1.6
     },
     "spin": {
-      "minDegPerSec": 8,
-      "maxDegPerSec": 26
+      "minDegPerSec": 14,
+      "maxDegPerSec": 48
     }
   },
   "states": [

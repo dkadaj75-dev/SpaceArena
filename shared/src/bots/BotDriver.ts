@@ -6,6 +6,7 @@ import type { ModuleConfig } from "../schemas/module.js";
 import type { TuningConfig } from "../schemas/tuning.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
+import { makeRockSurfaceProbe } from "../sim/asteroidSurface.js";
 import { hasLineOfSightAmong } from "../sim/los.js";
 import { clamp, dist3, facingVec } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
@@ -294,6 +295,9 @@ export class BotDriver {
       floorY: options.floorY,
       arenaBounds: options.arenaBounds,
       visualRadius: options.visualRadius,
+      // Rocks are shaped bodies; the driver holds the pack, so its recovery can
+      // ask for the real surface instead of settling for a mean sphere.
+      rockSurface: makeRockSurfaceProbe(options.configs),
       staticWorld: options.staticWorld,
       navRoute: options.navRoute,
       orbitSign: this.orbitSign,

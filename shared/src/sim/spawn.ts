@@ -1,4 +1,6 @@
 import type { ConfigService } from "../core/ConfigService.js";
+import { rockSpinFor } from "../collision/rockPose.js";
+import { resolveRockShape } from "../collision/rockShape.js";
 import type { DamageType } from "../schemas/common.js";
 import { hardpointsOf, isInternalFamily, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
@@ -148,25 +150,38 @@ export function spawnShipFromConfig(
   return id;
 }
 
-/** Instantiate an asteroid from config + placement. */
+/**
+ * Instantiate an asteroid from config + placement.
+ *
+ * `placementIndex` is the rock's index in `arena.asteroidPlacements` and is the
+ * identity its tumble is derived from — deliberately NOT the entity id, which an
+ * online client never sees (see `collision/rockPose.ts`). It defaults to the
+ * count of rocks already spawned, which is the same number for the normal
+ * "spawn the arena in placement order" path and keeps hand-built test worlds
+ * sensible.
+ */
 export function spawnAsteroid(
   world: World,
   configs: ConfigService,
   asteroidId: string,
   pos: { x: number; y?: number; z: number },
   scale = 1,
+  placementIndex = world.asteroids.size,
+  rotationY = 0,
 ): EntityId {
   const cfg = configs.get<AsteroidConfig>("asteroid", asteroidId);
   if (!cfg) throw new Error(`unknown asteroid config: ${asteroidId}`);
 
   const id = world.createEntity();
   world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } });
-  // The rock you SEE and the rock you can CRASH INTO are two different radii
-  // (owner report 2026-07-31). The collision sphere stays inscribed in the
-  // model's irregular silhouette so a pilot never dies in clear space, but the
-  // authored scale deliberately hugs its solid-looking outer rock.
   const visualRadius = cfg.radius * scale;
-  world.colliders.set(id, { radius: visualRadius * (cfg.colliderScale ?? 1) });
+  const shape = cfg.shape ? resolveRockShape(cfg.shape) : null;
+  // `collider.radius` is the rock's BOUNDING sphere. It is what the spatial hash
+  // is seeded with and what every narrowphase rejects against first, so it must
+  // be a genuine upper bound on the surface — never the old inscribed sphere,
+  // which would reject real contacts before the shape was ever consulted.
+  const boundRadius = shape ? shape.maxRadius * visualRadius : visualRadius * (cfg.colliderScale ?? 1);
+  world.colliders.set(id, { radius: boundRadius });
   const hp = cfg.hp ?? Infinity;
   world.asteroids.set(id, {
     configId: asteroidId,
@@ -175,6 +190,16 @@ export function spawnAsteroid(
     destructible: cfg.destructible,
     impactDamage: cfg.impactDamage,
     visualRadius,
+    placementIndex,
+    shape,
+    spin: rockSpinFor(placementIndex, cfg.render.spin),
+    baseRotationY: rotationY,
+    orientation: { x: 0, y: 0, z: 0, w: 1 },
+    // NaN forces the first query of this rock to build its pose; no real match
+    // time can equal it, so the cache can never be wrongly hit at t = 0.
+    orientationTime: Number.NaN,
+    innerRadius: shape ? shape.minRadius * visualRadius : boundRadius,
+    meanRadius: shape ? shape.meanRadius * visualRadius : boundRadius,
     state: "intact",
   });
   return id;

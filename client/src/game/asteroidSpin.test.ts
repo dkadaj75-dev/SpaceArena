@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ASTEROID_SPIN,
-  advanceAsteroidSpin,
   asteroidSpinFor,
+  rockOrientationAt,
 } from "./asteroidSpin.js";
 
 describe("asteroidSpinFor", () => {
-  it("is deterministic per entity id and varies between ids", () => {
+  it("is deterministic per placement index and varies between indices", () => {
     expect(asteroidSpinFor(42, undefined)).toEqual(asteroidSpinFor(42, undefined));
     expect(asteroidSpinFor(42, undefined)).not.toEqual(asteroidSpinFor(43, undefined));
   });
@@ -23,15 +23,11 @@ describe("asteroidSpinFor", () => {
   });
 });
 
-describe("advanceAsteroidSpin", () => {
-  it("applies the expected axis-angle rotation in place without changing object identity", () => {
+describe("rockOrientationAt", () => {
+  it("writes the expected axis-angle pose in place without changing object identity", () => {
     const quaternion = { x: 0, y: 0, z: 0, w: 1 };
     const identity = quaternion;
-    advanceAsteroidSpin(
-      quaternion,
-      { axisX: 0, axisY: 1, axisZ: 0, radiansPerSec: Math.PI / 2 },
-      1,
-    );
+    rockOrientationAt({ axisX: 0, axisY: 1, axisZ: 0, radiansPerSec: Math.PI / 2 }, 0, 1, quaternion);
     expect(quaternion).toBe(identity);
     expect(quaternion.x).toBeCloseTo(0);
     expect(quaternion.y).toBeCloseTo(Math.SQRT1_2);
@@ -39,19 +35,26 @@ describe("advanceAsteroidSpin", () => {
     expect(quaternion.w).toBeCloseTo(Math.SQRT1_2);
   });
 
-  it("composes frame steps and ignores zero elapsed time", () => {
-    const stepped = { x: 0, y: 0, z: 0, w: 1 };
-    const once = { ...stepped };
+  it("is a pure function of match time — the renderer never accumulates drift", () => {
+    // The whole point of the closed form: sampling at t, then again at t, then
+    // jumping backwards, all give the same pose. An integration could not.
     const spin = { axisX: 1, axisY: 0, axisZ: 0, radiansPerSec: 0.4 };
-    advanceAsteroidSpin(stepped, spin, 0.5);
-    advanceAsteroidSpin(stepped, spin, 0.5);
-    advanceAsteroidSpin(once, spin, 1);
-    expect(stepped).toEqual(expect.objectContaining({
-      x: expect.closeTo(once.x, 10),
-      w: expect.closeTo(once.w, 10),
-    }));
-    const before = { ...once };
-    advanceAsteroidSpin(once, spin, 0);
-    expect(once).toEqual(before);
+    const a = { x: 0, y: 0, z: 0, w: 1 };
+    const b = { x: 0, y: 0, z: 0, w: 1 };
+    rockOrientationAt(spin, 0, 17.25, a);
+    rockOrientationAt(spin, 0, 3, b);
+    rockOrientationAt(spin, 0, 17.25, b);
+    expect(b).toEqual(a);
+    // ...and it stays a unit quaternion however far out the clock runs.
+    rockOrientationAt(spin, 0, 100000, a);
+    expect(Math.hypot(a.x, a.y, a.z, a.w)).toBeCloseTo(1, 10);
+  });
+
+  it("applies the authored placement yaw under the tumble", () => {
+    const still = { axisX: 0, axisY: 1, axisZ: 0, radiansPerSec: 0 };
+    const posed = { x: 0, y: 0, z: 0, w: 1 };
+    rockOrientationAt(still, Math.PI / 2, 12, posed);
+    expect(posed.y).toBeCloseTo(Math.SQRT1_2);
+    expect(posed.w).toBeCloseTo(Math.SQRT1_2);
   });
 });

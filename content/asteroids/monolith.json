@@ -1,0 +1,51 @@
+{
+  "id": "asteroid.monolith",
+  "type": "asteroid",
+  "version": 1,
+  "name": "Monolith",
+  "radius": 16,
+  "shape": {
+    "seed": 71209,
+    "lobes": [
+      {
+        "radii": [1.06, 1, 0.5]
+      }
+    ],
+    "noise": {
+      "amplitude": 0.09,
+      "frequency": 2.6,
+      "octaves": 3
+    },
+    "facets": {
+      "count": 10,
+      "depth": 0.22
+    },
+    "craters": {
+      "count": 4,
+      "radiusDeg": 22,
+      "depth": 0.14,
+      "rim": 0.4
+    }
+  },
+  "destructible": false,
+  "impactDamage": 30,
+  "render": {
+    "recipe": "procedural.rock-large",
+    "palette": {
+      "primary": "#332c26",
+      "accent": "#5f4630"
+    },
+    "detail": 4,
+    "surface": {
+      "textureSet": "moon_dusted_01",
+      "tileMeters": 10,
+      "roughness": 1,
+      "metallic": 0,
+      "normalStrength": 1.2
+    },
+    "spin": {
+      "minDegPerSec": 0.3,
+      "maxDegPerSec": 1.4
+    }
+  }
+}

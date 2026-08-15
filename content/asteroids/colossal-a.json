@@ -4,7 +4,25 @@
   "version": 1,
   "name": "Colossal Rock A",
   "radius": 18,
-  "colliderScale": 0.95,
+  "shape": {
+    "seed": 55011,
+    "lobes": [
+      {
+        "radii": [0.9, 0.84, 0.87]
+      }
+    ],
+    "noise": {
+      "amplitude": 0.11,
+      "frequency": 2.2,
+      "octaves": 4
+    },
+    "craters": {
+      "count": 9,
+      "radiusDeg": 23,
+      "depth": 0.18,
+      "rim": 0.5
+    }
+  },
   "destructible": false,
   "impactDamage": 32,
   "render": {
@@ -13,11 +31,17 @@
       "primary": "#302923",
       "accent": "#67432e"
     },
-    "model": "asteroids/large_a.glb",
-    "modelScale": 18,
+    "detail": 4,
+    "surface": {
+      "textureSet": "moon_dusted_01",
+      "tileMeters": 11,
+      "roughness": 1,
+      "metallic": 0,
+      "normalStrength": 1.15
+    },
     "spin": {
-      "minDegPerSec": 0.3,
-      "maxDegPerSec": 1.5
+      "minDegPerSec": 0.4,
+      "maxDegPerSec": 1.8
     }
   }
 }

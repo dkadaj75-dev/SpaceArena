@@ -78,8 +78,21 @@ export interface BotContext {
   readonly pitchRate: number;
   /** Control horizon in seconds the driver plans a turn over (its decision interval). */
   readonly turnHorizonSec: number;
-  /** Live asteroid colliders usable as cover / LoS blockers. */
+  /**
+   * Live asteroid colliders usable as cover / LoS blockers, collapsed to the
+   * snapshot's `colliderRadius` (the rock's MEAN surface radius). A rock is a
+   * shaped body now, not a sphere, so a bot reasoning from spheres has to choose
+   * which error it wants: the mean radius keeps cover points honest — sized to
+   * the bounding sphere, a bot would take "cover" out in the open beside a
+   * narrow rock.
+   */
   readonly blockers: readonly LosCircle[];
+  /**
+   * The same rocks sized to their BOUNDING sphere, for anything trying not to
+   * hit one. Nothing outside this sphere is solid, so steering clear of it is
+   * always enough — which is the error a collision-avoidance scan wants.
+   */
+  readonly hazards: readonly LosCircle[];
   /** Static terrain used by sensing and objective route visibility checks. */
   readonly staticWorld?: StaticWorld;
   /** Session-shared precomputed arena route graph. */
@@ -140,9 +153,11 @@ export function buildBotContext(input: BuildContextInput): BotContext {
   }
 
   const blockers: LosCircle[] = [];
+  const hazards: LosCircle[] = [];
   for (const a of snapshot.asteroids) {
     if (a.state === "destroyed") continue;
     blockers.push({ pos: a.pos, radius: a.colliderRadius ?? a.radius });
+    hazards.push({ pos: a.pos, radius: a.boundRadius ?? a.colliderRadius ?? a.radius });
   }
 
   const target = input.targetId !== null ? (enemies.find((e) => e.id === input.targetId) ?? null) : null;
@@ -206,6 +221,7 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     pitchRate: input.pitchRate ?? 0,
     turnHorizonSec: input.turnHorizonSec ?? profile.decisionIntervalMs / 1000,
     blockers,
+    hazards,
     staticWorld: input.staticWorld,
     navRoute: input.navRoute,
     incomingMissiles,

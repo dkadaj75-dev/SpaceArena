@@ -1,3 +1,4 @@
+import { asteroidSegmentEntry } from "./asteroidCollision.js";
 import type { EntityId } from "./components.js";
 import { segmentIntersectsSphere } from "./math.js";
 import type { World } from "./World.js";
@@ -46,10 +47,14 @@ export function hasLineOfSight(world: World, a: LosPoint, b: LosPoint): boolean 
     if (!ast || ast.state === "destroyed") continue;
     const t = world.transforms.get(id);
     if (!t) continue;
-    // Use the same authored collision sphere as impacts and bot navigation.
-    // This keeps all gameplay geometry on one authoritative radius.
+    // Same geometry impacts and projectiles use: the rock's authored surface
+    // behind its bounding sphere. Sight lines therefore agree with shots — a
+    // beam that clears the waist of a contact binary is not reported as blocked
+    // by the sphere that used to swallow it.
     const collider = world.colliders.get(id);
-    if (collider && segmentIntersectsSphere(load(losA, a), load(losB, b), t.pos, collider.radius)) return false;
+    if (!collider) continue;
+    if (!segmentIntersectsSphere(load(losA, a), load(losB, b), t.pos, collider.radius)) continue;
+    if (asteroidSegmentEntry(world, ast, t, collider.radius, losA, losB, 0) >= 0) return false;
   }
   return true;
 }

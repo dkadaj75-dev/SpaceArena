@@ -119,9 +119,28 @@ export interface AsteroidSnapshot {
   id: EntityId;
   configId: string;
   pos: { x: number; y: number; z: number };
+  /** The rock's NOMINAL radius: the unit its shape field is expressed in. */
   radius: number;
-  /** Authoritative collision radius; `radius` remains the drawn radius. */
+  /**
+   * Index in `arena.asteroidPlacements`. The identity a CLIENT can share with
+   * the sim — entity ids are allocated per-World and an online client rebuilds
+   * this list straight from the arena — so tumble/pose derive from it.
+   */
+  placementIndex?: number;
+  /** Authored placement yaw the tumble is layered on top of. */
+  rotationY?: number;
+  /**
+   * Best single-SPHERE stand-in for the rock, for consumers that cannot carry
+   * the real surface: the mean surface radius. Gameplay collision, projectile
+   * sweeps and sim line-of-sight all use the authored shape instead; this is
+   * what the bots' snapshot-only cover/LoS reasoning collapses it to.
+   */
   colliderRadius?: number;
+  /**
+   * Bounding sphere of the drawn rock. What anything AVOIDING the rock should
+   * steer around, since nothing outside it can be solid.
+   */
+  boundRadius?: number;
   state: string;
 }
 
@@ -323,9 +342,9 @@ export class ArenaSimulation {
     this.countdownRemaining = matchCountdownSecOf(tuning);
     this.phase = this.countdownRemaining > 0 ? "countdown" : "live";
 
-    for (const p of arena.asteroidPlacements) {
-      spawnAsteroid(this.world, configs, p.asteroidId, p.position, p.scale ?? 1);
-    }
+    arena.asteroidPlacements.forEach((p, index) => {
+      spawnAsteroid(this.world, configs, p.asteroidId, p.position, p.scale ?? 1, index, p.rotation ?? 0);
+    });
     this.spawnFlags(arena, gamemode);
   }
 
@@ -461,6 +480,10 @@ export class ArenaSimulation {
 
     // Per-tick reset.
     w.losCache.clear();
+    // Publish match time before anything queries geometry: asteroid tumble is a
+    // closed form of it (`collision/rockPose.ts`), so every system in this tick
+    // must see the same pose for a given rock.
+    w.matchElapsed = this.elapsed;
     for (const id of w.shipIds()) {
       const mods = w.modules.get(id);
       if (!mods) continue;
@@ -805,10 +828,14 @@ export class ArenaSimulation {
         id,
         configId: tag.configId,
         pos: { x: tf.pos.x, y: tf.pos.y, z: tf.pos.z },
-        // The DRAWN radius, not the (smaller) collision sphere — this feeds the
-        // renderer and radar. Gameplay geometry uses `colliderRadius` below.
+        // The NOMINAL radius, which is what the renderer scales the shape mesh
+        // by and what the radar draws. The two spheres below are the coarse
+        // stand-ins snapshot-only consumers need.
         radius: tag.visualRadius,
-        colliderRadius: w.colliders.get(id)!.radius,
+        placementIndex: tag.placementIndex,
+        rotationY: tag.baseRotationY,
+        colliderRadius: tag.meanRadius,
+        boundRadius: w.colliders.get(id)!.radius,
         state: tag.state,
       };
     });

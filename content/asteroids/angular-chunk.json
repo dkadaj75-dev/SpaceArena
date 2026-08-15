@@ -1,0 +1,45 @@
+{
+  "id": "asteroid.angular-chunk",
+  "type": "asteroid",
+  "version": 1,
+  "name": "Angular Chunk",
+  "radius": 7,
+  "shape": {
+    "seed": 88243,
+    "lobes": [
+      {
+        "radii": [1.06, 0.9, 0.99]
+      }
+    ],
+    "noise": {
+      "amplitude": 0.07,
+      "frequency": 3.2,
+      "octaves": 2
+    },
+    "facets": {
+      "count": 14,
+      "depth": 0.26
+    }
+  },
+  "destructible": false,
+  "impactDamage": 16,
+  "render": {
+    "recipe": "procedural.rock-large",
+    "palette": {
+      "primary": "#3f3831",
+      "accent": "#79654c"
+    },
+    "detail": 3,
+    "surface": {
+      "textureSet": "cliff_side",
+      "tileMeters": 5.2,
+      "roughness": 1,
+      "metallic": 0,
+      "normalStrength": 1.45
+    },
+    "spin": {
+      "minDegPerSec": 2,
+      "maxDegPerSec": 8
+    }
+  }
+}

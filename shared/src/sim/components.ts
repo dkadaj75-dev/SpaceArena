@@ -1,3 +1,5 @@
+import type { RockSpin } from "../collision/rockPose.js";
+import type { ResolvedRockShape, RockQuat } from "../collision/rockShape.js";
 import type { DamageType } from "../schemas/common.js";
 
 /** Entity handle. Plain integer allocated by the World. */
@@ -217,12 +219,43 @@ export interface AsteroidTag {
   destructible: boolean;
   impactDamage: number;
   /**
-   * Radius the rock is DRAWN at, which is larger than its collision sphere (see
-   * `asteroid.colliderScale`). Snapshots report this, so the renderer, the radar
-   * reason about the rock you can see; gameplay collision, navigation, and
-   * line-of-sight use the smaller sphere in `world.colliders`.
+   * Radius the rock is DRAWN at — for a shaped rock this is the NOMINAL radius
+   * its shape field is expressed in, so the drawn surface reaches
+   * `shape.maxRadius` of it in the fattest direction and `shape.minRadius` in
+   * the thinnest. Snapshots report it so the renderer and radar reason about the
+   * rock you can see.
    */
   visualRadius: number;
+  /**
+   * Index of this rock in `arena.asteroidPlacements`. The identity the CLIENT
+   * shares with the sim (entity ids are allocated per-World and an online client
+   * never sees them), so it is what tumble and pose are derived from.
+   */
+  placementIndex: number;
+  /**
+   * Resolved body shape, or `null` for a legacy sphere-only rock. Shared by
+   * every placement of the same config — never mutated per entity.
+   */
+  shape: ResolvedRockShape | null;
+  /** Deterministic tumble; see `collision/rockPose.ts`. */
+  spin: RockSpin;
+  /** Authored placement yaw, applied under the tumble. */
+  baseRotationY: number;
+  /**
+   * Cached world orientation and the match time it was computed for. Recomputed
+   * at most once per rock per tick, and only for rocks something actually
+   * queries — most rocks in an arena are never touched on a given tick.
+   */
+  orientation: RockQuat;
+  orientationTime: number;
+  /**
+   * Largest solid sphere centred on the body, world units. Anything inside it is
+   * rock for certain, so it is the CONSERVATIVE stand-in for consumers that can
+   * only reason about spheres.
+   */
+  innerRadius: number;
+  /** Mean surface radius, world units — the honest single-sphere approximation. */
+  meanRadius: number;
   /** Asset state id (`intact` / `destroyed`). */
   state: string;
 }

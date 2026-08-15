@@ -4,7 +4,30 @@
   "version": 1,
   "name": "Colossal Rock B",
   "radius": 18,
-  "colliderScale": 0.95,
+  "shape": {
+    "seed": 78331,
+    "lobes": [
+      {
+        "offset": [-0.3, 0.02, 0],
+        "radii": [0.6, 0.57, 0.59]
+      },
+      {
+        "offset": [0.35, -0.04, 0.03],
+        "radii": [0.52, 0.49, 0.49]
+      }
+    ],
+    "noise": {
+      "amplitude": 0.1,
+      "frequency": 2.6,
+      "octaves": 3
+    },
+    "craters": {
+      "count": 5,
+      "radiusDeg": 22,
+      "depth": 0.14,
+      "rim": 0.4
+    }
+  },
   "destructible": false,
   "impactDamage": 32,
   "render": {
@@ -13,11 +36,17 @@
       "primary": "#2b2520",
       "accent": "#5c3c29"
     },
-    "model": "asteroids/large_b.glb",
-    "modelScale": 18,
+    "detail": 4,
+    "surface": {
+      "textureSet": "aerial_ground_rock",
+      "tileMeters": 12,
+      "roughness": 0.95,
+      "metallic": 0,
+      "normalStrength": 1.2
+    },
     "spin": {
-      "minDegPerSec": 0.3,
-      "maxDegPerSec": 1.5
+      "minDegPerSec": 0.4,
+      "maxDegPerSec": 1.8
     }
   }
 }

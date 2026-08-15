@@ -67,9 +67,9 @@ import {
   yawForDirection,
 } from "./shipOrientation.js";
 import {
-  advanceAsteroidSpin,
-  asteroidSpinFor,
-  type AsteroidSpin,
+  rockOrientationAt,
+  rockSpinFor,
+  type RockSpin,
 } from "./asteroidSpin.js";
 import { mvpPresentationSettings } from "./hud/matchPresentation.js";
 
@@ -182,7 +182,9 @@ interface AsteroidView {
   /** Instance scaling at full size — NOT the collider radius, see `getAsteroidMaster`. */
   baseScale: number;
   /** Stable id-derived axis, pace, and direction; allocated once with the view. */
-  spin: AsteroidSpin;
+  spin: RockSpin;
+  /** Authored placement yaw, held under the tumble. */
+  baseRotationY: number;
   dying: boolean;
   dyingMs: number;
 }
@@ -1039,9 +1041,13 @@ export class ViewManager {
         view.dyingMs = ASTEROID_DEATH_MS;
       }
       // Destruction owns the pose once the shrink/debris puff begins, so spin
-      // stops at that transition. All values here are mutated in place.
+      // stops at that transition. Pose is a CLOSED FORM of match time rather
+      // than an accumulation, because the sim collides against the rock's real
+      // surface and has to agree about which way that surface is facing — an
+      // integration here would drift away from it (and, online, would have no
+      // shared starting point at all). All values are written in place.
       if (!view.dying) {
-        advanceAsteroidSpin(view.instance.rotationQuaternion!, view.spin, frameDtMs / 1000);
+        rockOrientationAt(view.spin, view.baseRotationY, cur.elapsed, view.instance.rotationQuaternion!);
       }
     }
     // Advance death puffs; dispose when finished.
@@ -1354,11 +1360,11 @@ export class ViewManager {
       log.warn(`unknown asteroid config ${a.configId}`);
       return undefined;
     }
-    // GLB master when the model has landed, procedural rock otherwise; the
-    // registry hands back the factor that turns the sim's collider radius into
-    // instance scaling either way, because a model master already has its
-    // authored `modelScale` baked into its vertices.
-    const { mesh: master, radiusScale } = this.assets.getAsteroidMaster(cfg.render);
+    // A rock that authors a `shape` is tessellated from the very field the sim
+    // collides against, so the drawn surface IS the collision surface. The old
+    // GLB/procedural rule survives underneath for a config without one.
+    const { mesh: master, radiusScale } =
+      this.assets.getShapedAsteroidMaster(cfg) ?? this.assets.getAsteroidMaster(cfg.render);
     const scale = a.radius * radiusScale;
     const instance = master.createInstance(`asteroid.${a.id}`);
     instance.scaling.setAll(scale);
@@ -1371,7 +1377,11 @@ export class ViewManager {
     return {
       instance,
       baseScale: scale,
-      spin: asteroidSpinFor(a.id, cfg.render.spin),
+      // Tumble keys off the PLACEMENT index, which is the identity the sim uses
+      // too (`shared/src/collision/rockPose.ts`) — an entity id would not agree,
+      // because online this list is rebuilt straight from the arena config.
+      spin: rockSpinFor(a.placementIndex ?? a.id, cfg.render.spin),
+      baseRotationY: a.rotationY ?? 0,
       dying: false,
       dyingMs: 0,
     };

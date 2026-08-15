@@ -21,23 +21,169 @@
     { "asteroidId": "asteroid.small-rock", "position": { "x": -112, "y": 0, "z": -32 }, "rotation": 0.6 },
     { "asteroidId": "asteroid.small-rock-b", "position": { "x": 112, "y": 0, "z": -32 }, "rotation": 2.4 },
     { "asteroidId": "asteroid.small-rock-b", "position": { "x": -112, "y": 0, "z": 32 }, "rotation": 1.3 },
-    { "asteroidId": "asteroid.small-rock", "position": { "x": 112, "y": 0, "z": 32 }, "rotation": 1.9 }
+    { "asteroidId": "asteroid.small-rock", "position": { "x": 112, "y": 0, "z": 32 }, "rotation": 1.9 },
+    { "asteroidId": "asteroid.monolith", "position": { "x": 4.7, "y": -102.7, "z": 46.2 }, "rotation": 4.8, "scale": 1.23 },
+    { "asteroidId": "asteroid.monolith", "position": { "x": -49.4, "y": -10.5, "z": 95.3 }, "rotation": 3.1, "scale": 1.04 },
+    { "asteroidId": "asteroid.spindle", "position": { "x": 46.2, "y": -79.2, "z": 40.9 }, "rotation": 1.9, "scale": 0.88 },
+    { "asteroidId": "asteroid.spindle", "position": { "x": -66.1, "y": 54.6, "z": 44 }, "rotation": 5.5, "scale": 0.88 },
+    { "asteroidId": "asteroid.spindle", "position": { "x": 31.9, "y": 69.8, "z": 86.5 }, "rotation": 5.6, "scale": 1.01 },
+    { "asteroidId": "asteroid.twin-lobe", "position": { "x": -96.4, "y": -44.7, "z": 56.3 }, "rotation": 4.5, "scale": 1.18 },
+    { "asteroidId": "asteroid.twin-lobe", "position": { "x": 74.7, "y": -54.7, "z": 2.6 }, "rotation": 5.7, "scale": 1.12 },
+    { "asteroidId": "asteroid.twin-lobe", "position": { "x": -32.2, "y": 77.8, "z": -14.3 }, "rotation": 3.1, "scale": 1.15 },
+    { "asteroidId": "asteroid.rubble-knot", "position": { "x": -19.3, "y": 110.6, "z": 15.6 }, "rotation": 2.8, "scale": 1.12 },
+    { "asteroidId": "asteroid.rubble-knot", "position": { "x": 23.6, "y": -86.9, "z": -74 }, "rotation": 5.3, "scale": 1.11 },
+    { "asteroidId": "asteroid.rubble-knot", "position": { "x": -13.4, "y": -98.5, "z": 3.2 }, "rotation": 3.6, "scale": 0.88 },
+    { "asteroidId": "asteroid.rubble-knot", "position": { "x": -37.9, "y": -105.7, "z": -47.1 }, "rotation": 1.1, "scale": 1.24 },
+    { "asteroidId": "asteroid.angular-chunk", "position": { "x": 15.9, "y": -15.3, "z": -102 }, "rotation": 1.5, "scale": 1.15 },
+    { "asteroidId": "asteroid.angular-chunk", "position": { "x": -50.6, "y": -48.1, "z": -74.9 }, "rotation": 2, "scale": 0.86 },
+    { "asteroidId": "asteroid.angular-chunk", "position": { "x": 81.4, "y": 71.7, "z": 60.4 }, "rotation": 4.8, "scale": 1.14 },
+    { "asteroidId": "asteroid.angular-chunk", "position": { "x": -15.9, "y": -21.9, "z": 107.3 }, "rotation": 3.9, "scale": 0.9 },
+    { "asteroidId": "asteroid.angular-chunk", "position": { "x": 19.1, "y": -89.4, "z": -6.4 }, "rotation": 2.2, "scale": 1.06 },
+    { "asteroidId": "asteroid.cratered-boulder", "position": { "x": -90.6, "y": 19.9, "z": -74.2 }, "rotation": 1.1, "scale": 1.11 },
+    { "asteroidId": "asteroid.cratered-boulder", "position": { "x": 35.4, "y": 44, "z": -105.6 }, "rotation": 4.4, "scale": 0.92 },
+    { "asteroidId": "asteroid.cratered-boulder", "position": { "x": 48.3, "y": -58.8, "z": -99.1 }, "rotation": 0.5, "scale": 0.89 },
+    { "asteroidId": "asteroid.cratered-boulder", "position": { "x": 11.4, "y": -102.3, "z": -31.9 }, "rotation": 4.5, "scale": 1.15 },
+    { "asteroidId": "asteroid.cratered-boulder", "position": { "x": -72.2, "y": -42.2, "z": -90.9 }, "rotation": 1.6, "scale": 1.03 },
+    { "asteroidId": "asteroid.shard", "position": { "x": 92.3, "y": 65, "z": 26.7 }, "rotation": 0.8, "scale": 1.24 },
+    { "asteroidId": "asteroid.shard", "position": { "x": -32, "y": 60.3, "z": 65.4 }, "rotation": 4.7, "scale": 0.99 },
+    { "asteroidId": "asteroid.shard", "position": { "x": -46.6, "y": 41.6, "z": -52.5 }, "rotation": 0.1, "scale": 1.1 },
+    { "asteroidId": "asteroid.shard", "position": { "x": 93.1, "y": 89.6, "z": 1.2 }, "rotation": 4.2, "scale": 0.98 },
+    { "asteroidId": "asteroid.shard", "position": { "x": 48.2, "y": 74.3, "z": -8.6 }, "rotation": 6.1, "scale": 1.03 },
+    { "asteroidId": "asteroid.shard", "position": { "x": 42.3, "y": 19.8, "z": -89.5 }, "rotation": 5.9, "scale": 0.97 },
+    { "asteroidId": "asteroid.shard", "position": { "x": 23.3, "y": -5.1, "z": 102.6 }, "rotation": 4.5, "scale": 1 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": 70.2, "y": 47.4, "z": 29.7 }, "rotation": 6.3, "scale": 0.85 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": -12.3, "y": 48.9, "z": 99.6 }, "rotation": 4.1, "scale": 0.92 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": -95.7, "y": 41.4, "z": 22.6 }, "rotation": 2.4, "scale": 1.2 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": -36.8, "y": 81.4, "z": -99 }, "rotation": 1.7, "scale": 0.87 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": -7.6, "y": -56.2, "z": -109.2 }, "rotation": 4, "scale": 1.23 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": 84.7, "y": 6.6, "z": 44.8 }, "rotation": 0.2, "scale": 0.92 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": -77.6, "y": 83, "z": -38.8 }, "rotation": 2.8, "scale": 0.92 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": 89.2, "y": -74.4, "z": 61.5 }, "rotation": 0.2, "scale": 0.99 },
+    { "asteroidId": "asteroid.pebble", "position": { "x": -64.9, "y": 31.7, "z": 1.6 }, "rotation": 4, "scale": 1 }
   ],
   "spawnPoints": [
-    { "id": "sp-blue-1", "team": 0, "position": { "x": -108, "y": 0, "z": -16 }, "heading": 0 },
-    { "id": "sp-blue-2", "team": 0, "position": { "x": -108, "y": 0, "z": -8 }, "heading": 0 },
-    { "id": "sp-blue-3", "team": 0, "position": { "x": -108, "y": 0, "z": 0 }, "heading": 0 },
-    { "id": "sp-blue-4", "team": 0, "position": { "x": -108, "y": 0, "z": 8 }, "heading": 0 },
-    { "id": "sp-blue-5", "team": 0, "position": { "x": -108, "y": 0, "z": 16 }, "heading": 0 },
-    { "id": "sp-red-1", "team": 1, "position": { "x": 108, "y": 0, "z": -16 }, "heading": 3.141593 },
-    { "id": "sp-red-2", "team": 1, "position": { "x": 108, "y": 0, "z": -8 }, "heading": 3.141593 },
-    { "id": "sp-red-3", "team": 1, "position": { "x": 108, "y": 0, "z": 0 }, "heading": 3.141593 },
-    { "id": "sp-red-4", "team": 1, "position": { "x": 108, "y": 0, "z": 8 }, "heading": 3.141593 },
-    { "id": "sp-red-5", "team": 1, "position": { "x": 108, "y": 0, "z": 16 }, "heading": 3.141593 }
+    {
+      "id": "sp-blue-1",
+      "team": 0,
+      "position": {
+        "x": -108,
+        "y": 0,
+        "z": -16
+      },
+      "heading": 0
+    },
+    {
+      "id": "sp-blue-2",
+      "team": 0,
+      "position": {
+        "x": -108,
+        "y": 0,
+        "z": -8
+      },
+      "heading": 0
+    },
+    {
+      "id": "sp-blue-3",
+      "team": 0,
+      "position": {
+        "x": -108,
+        "y": 0,
+        "z": 0
+      },
+      "heading": 0
+    },
+    {
+      "id": "sp-blue-4",
+      "team": 0,
+      "position": {
+        "x": -108,
+        "y": 0,
+        "z": 8
+      },
+      "heading": 0
+    },
+    {
+      "id": "sp-blue-5",
+      "team": 0,
+      "position": {
+        "x": -108,
+        "y": 0,
+        "z": 16
+      },
+      "heading": 0
+    },
+    {
+      "id": "sp-red-1",
+      "team": 1,
+      "position": {
+        "x": 108,
+        "y": 0,
+        "z": -16
+      },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-2",
+      "team": 1,
+      "position": {
+        "x": 108,
+        "y": 0,
+        "z": -8
+      },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-3",
+      "team": 1,
+      "position": {
+        "x": 108,
+        "y": 0,
+        "z": 0
+      },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-4",
+      "team": 1,
+      "position": {
+        "x": 108,
+        "y": 0,
+        "z": 8
+      },
+      "heading": 3.141593
+    },
+    {
+      "id": "sp-red-5",
+      "team": 1,
+      "position": {
+        "x": 108,
+        "y": 0,
+        "z": 16
+      },
+      "heading": 3.141593
+    }
   ],
   "flagBases": [
-    { "id": "flag-base-blue", "team": 0, "position": { "x": -124, "y": 0, "z": 0 }, "radius": 16 },
-    { "id": "flag-base-red", "team": 1, "position": { "x": 124, "y": 0, "z": 0 }, "radius": 16 }
+    {
+      "id": "flag-base-blue",
+      "team": 0,
+      "position": {
+        "x": -124,
+        "y": 0,
+        "z": 0
+      },
+      "radius": 16
+    },
+    {
+      "id": "flag-base-red",
+      "team": 1,
+      "position": {
+        "x": 124,
+        "y": 0,
+        "z": 0
+      },
+      "radius": 16
+    }
   ],
   "lighting": {
     "ambientColor": "#18243a",
@@ -50,7 +196,11 @@
       "intensity": 0.85,
       "tint": "#dce4ff",
       "sun": {
-        "dir": [-0.677, -0.208, -0.706],
+        "dir": [
+          -0.677,
+          -0.208,
+          -0.706
+        ],
         "color": "#dce4ff",
         "intensity": 1
       }

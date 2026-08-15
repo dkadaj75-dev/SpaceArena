@@ -1,0 +1,47 @@
+{
+  "id": "asteroid.cratered-boulder",
+  "type": "asteroid",
+  "version": 1,
+  "name": "Cratered Boulder",
+  "radius": 6.5,
+  "shape": {
+    "seed": 12907,
+    "lobes": [
+      {
+        "radii": [0.87, 0.83, 0.85]
+      }
+    ],
+    "noise": {
+      "amplitude": 0.09,
+      "frequency": 2.4,
+      "octaves": 3
+    },
+    "craters": {
+      "count": 12,
+      "radiusDeg": 21,
+      "depth": 0.24,
+      "rim": 0.55
+    }
+  },
+  "destructible": false,
+  "impactDamage": 15,
+  "render": {
+    "recipe": "procedural.rock-large",
+    "palette": {
+      "primary": "#4b433c",
+      "accent": "#8d7b64"
+    },
+    "detail": 3,
+    "surface": {
+      "textureSet": "moon_dusted_01",
+      "tileMeters": 5,
+      "roughness": 1,
+      "metallic": 0,
+      "normalStrength": 1.4
+    },
+    "spin": {
+      "minDegPerSec": 2,
+      "maxDegPerSec": 7
+    }
+  }
+}

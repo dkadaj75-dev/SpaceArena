@@ -2,6 +2,7 @@ import type { ArenaBounds } from "../schemas/arena.js";
 import type { Vec3 } from "../schemas/common.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
 import type { EntityId } from "../sim/components.js";
+import type { RockSurfaceProbe } from "../sim/asteroidSurface.js";
 import { clamp, dist3, segmentIntersectsSphere } from "../sim/math.js";
 import { hasLineOfSightAmong } from "../sim/los.js";
 import type { StaticWorld } from "../collision/staticWorld.js";
@@ -59,6 +60,15 @@ export interface RecoveryEnv {
   arenaBounds?: ArenaBounds;
   /** Maximum rendered hull extent, when larger than the gameplay collider. */
   visualRadius?: number;
+  /**
+   * Real rock surface radius toward a point, for the contact tests. Rocks are
+   * SHAPED bodies (`sim/asteroidSurface.ts`); a hull resting on a bulge sits
+   * well outside the mean sphere and would otherwise read as clear space — the
+   * bot would then never notice it was wedged against the very rock the sim had
+   * just pushed it off. Omitted ⇒ the snapshot's sphere, which is what a caller
+   * with no config registry has to settle for.
+   */
+  rockSurface?: RockSurfaceProbe;
   staticWorld?: StaticWorld;
   navRoute?: NavRoute;
   /** Seeded per-bot side, used as the deterministic tangent tie-break. */
@@ -401,7 +411,7 @@ export class RecoveryController {
     let distance = Infinity;
     for (const asteroid of snapshot.asteroids) {
       if (asteroid.state === "destroyed" || touching.has(`collider:${asteroid.id}`)) continue;
-      const radius = asteroid.radius + ownVisual + VISUAL_MARGIN;
+      const radius = (asteroid.boundRadius ?? asteroid.radius) + ownVisual + VISUAL_MARGIN;
       if (!segmentIntersectsSphere(self.pos, aim, asteroid.pos, radius)) continue;
       const candidate = dist3(self.pos, asteroid.pos);
       if (candidate < distance) {
@@ -525,12 +535,7 @@ function restSurfaces(
   });
   for (const asteroid of snapshot.asteroids) {
     if (asteroid.state === "destroyed") continue;
-    out.push(colliderRestSurface(self, {
-      id: asteroid.id,
-      pos: asteroid.pos,
-      radius: asteroid.colliderRadius ?? asteroid.radius,
-      visualRadius: asteroid.radius,
-    }));
+    out.push(colliderRestSurface(self, rockCollider(asteroid, self, snapshot, env)));
   }
   for (const ship of snapshot.ships) {
     if (ship.id !== self.id) out.push(colliderRestSurface(self, { id: ship.id, pos: ship.pos, radius: ship.colliderRadius ?? 0 }));
@@ -559,7 +564,7 @@ function surfaceByKey(
     return { key, clearance: VISUAL_MARGIN - contact.depth, normal: contact.normal };
   }
   const id = Number(key.slice("collider:".length));
-  const collider = colliderById(snapshot, self, id);
+  const collider = colliderById(snapshot, self, id, env);
   return collider ? colliderRestSurface(self, collider) : null;
 }
 
@@ -601,14 +606,29 @@ function colliderRestSurface(self: ShipSnapshot, collider: ContactCollider): Res
   };
 }
 
-function colliderById(snapshot: Snapshot, self: ShipSnapshot, id: EntityId): ContactCollider | null {
-  const asteroid = snapshot.asteroids.find((candidate) => candidate.id === id && candidate.state !== "destroyed");
-  if (asteroid) return {
-    id,
+/**
+ * One rock as a contact collider. `radius` is the rock's surface UNDER THE HULL
+ * rather than any single sphere, so "am I touching it" means the same thing to
+ * the bot and to the sim's push-out; `visualRadius` stays the bounding sphere,
+ * which is what the rendered overhang is measured against.
+ */
+function rockCollider(
+  asteroid: Snapshot["asteroids"][number],
+  self: ShipSnapshot,
+  snapshot: Snapshot,
+  env: RecoveryEnv,
+): ContactCollider {
+  return {
+    id: asteroid.id,
     pos: asteroid.pos,
-    radius: asteroid.colliderRadius ?? asteroid.radius,
-    visualRadius: asteroid.radius,
+    radius: env.rockSurface?.(asteroid, self.pos, snapshot.elapsed) ?? asteroid.colliderRadius ?? asteroid.radius,
+    visualRadius: asteroid.boundRadius ?? asteroid.radius,
   };
+}
+
+function colliderById(snapshot: Snapshot, self: ShipSnapshot, id: EntityId, env: RecoveryEnv): ContactCollider | null {
+  const asteroid = snapshot.asteroids.find((candidate) => candidate.id === id && candidate.state !== "destroyed");
+  if (asteroid) return rockCollider(asteroid, self, snapshot, env);
   const ship = snapshot.ships.find((candidate) => candidate.id === id && candidate.id !== self.id);
   return ship ? { id, pos: ship.pos, radius: ship.colliderRadius ?? 0 } : null;
 }

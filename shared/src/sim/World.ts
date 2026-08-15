@@ -74,6 +74,16 @@ export class World {
   /** Ships touching the arena boundary on the previous collision tick (event-edge latch). */
   readonly boundaryContacts = new Set<EntityId>();
 
+  /**
+   * Match time in seconds, mirrored from {@link import("./ArenaSimulation.js").ArenaSimulation}
+   * at the top of every tick. The only thing in the World that reads a clock,
+   * and it exists for one reason: asteroid tumble is a CLOSED FORM of match time
+   * (see `collision/rockPose.ts`), so the sim and an online client can pose the
+   * same rock identically without a quaternion on the wire. A World stepped by
+   * hand in a test leaves it at 0 and every rock sits in its rest pose.
+   */
+  matchElapsed = 0;
+
   constructor(
     readonly configs: ConfigService,
     tuning: TuningConfig,

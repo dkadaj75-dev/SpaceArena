@@ -3,6 +3,7 @@ import type { ConfigService } from "../core/ConfigService.js";
 import { botprofileSchema, type BotprofileConfig, type ShipConfig } from "../schemas/index.js";
 import { ArenaSimulation } from "../sim/ArenaSimulation.js";
 import { deriveRng } from "../sim/rng.js";
+import { asteroidSurfaceRadiusToward } from "../sim/asteroidCollision.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import type { BotBehavior } from "./behaviors.js";
 import { BotDriver } from "./BotDriver.js";
@@ -98,14 +99,22 @@ describe("floored-arena bot avoidance", () => {
       if (surface === "rock") {
         const asteroidId = sim.world.asteroidIds()[0]!;
         const asteroid = sim.world.transforms.get(asteroidId)!;
-        const asteroidRadius = sim.world.colliders.get(asteroidId)!.radius;
-        position = { x: asteroid.pos.x + asteroidRadius + radius, y: asteroid.pos.y, z: asteroid.pos.z };
+        // Measured against the rock's real SURFACE, not any single radius
+        // (2026-08-15): `collider.radius` became the bounding sphere when rocks
+        // gained shapes, and parking on it would park the hull in clear space
+        // beside a lumpy rock — exactly the bug shapes were introduced to fix.
+        const tag = sim.world.asteroids.get(asteroidId)!;
+        const bound = sim.world.colliders.get(asteroidId)!.radius;
+        const surfaceToward = (pos: { x: number; y: number; z: number }) =>
+          asteroidSurfaceRadiusToward(sim.world, tag, asteroid, bound, pos.x, pos.y, pos.z);
+        const noseOn = { x: asteroid.pos.x + bound, y: asteroid.pos.y, z: asteroid.pos.z };
+        position = { x: asteroid.pos.x + surfaceToward(noseOn) + radius - 0.2, y: asteroid.pos.y, z: asteroid.pos.z };
         heading = Math.PI;
         pitch = 0;
         clearance = () => {
           const at = sim.world.transforms.get(asteroidId)!.pos;
           const pos = sim.world.transforms.get(id)!.pos;
-          return Math.hypot(pos.x - at.x, pos.y - at.y, pos.z - at.z) - asteroidRadius - radius;
+          return Math.hypot(pos.x - at.x, pos.y - at.y, pos.z - at.z) - surfaceToward(pos) - radius;
         };
       }
       id = sim.spawnPlayerAt(ship.id, ship.defaultFitting, 0, position, heading, undefined, pitch);

@@ -15,7 +15,8 @@ import {
   type Node,
   type Scene,
 } from "@babylonjs/core";
-import { createLogger, type ModuleConfig, type Palette, type RenderRecipe } from "@space-arena/shared";
+import { createLogger, type AsteroidConfig, type ModuleConfig, type Palette, type RenderRecipe } from "@space-arena/shared";
+import { buildRockGeometry, buildRockMaterial } from "./rockMesh.js";
 
 const log = createLogger("AssetRegistry");
 
@@ -436,6 +437,9 @@ interface RockRecipe {
  */
 export const LOD_REFERENCE_RADIUS = 4;
 
+/** Icosphere subdivisions a shaped rock is tessellated at when it authors none. */
+const DEFAULT_ROCK_DETAIL = 3;
+
 const ROCK_RECIPES: Record<string, RockRecipe> = {
   "procedural.rock-small": { subdivisions: 2, displacement: 0.18, seed: 1337, lodMedium: 1, lodLow: 1 },
   "procedural.rock-large": { subdivisions: 3, displacement: 0.28, seed: 9001, lodMedium: 2, lodLow: 1 },
@@ -508,6 +512,12 @@ export class AssetRegistry {
    * on dispose (a dangling LOD level would outlive us on a mesh we don't own).
    */
   private readonly modelLodTargets = new Map<string, ModelLodTarget>();
+  /**
+   * Shaped rock masters (see {@link AssetRegistry.getShapedAsteroidMaster}) and
+   * the config each was tessellated from, so a quality-tier switch can rebuild
+   * their LOD ladder out of the same shape rather than an unrelated icosphere.
+   */
+  private readonly shapeLodTargets = new Map<string, AsteroidConfig>();
   /** Generic authored LOD clones attached per independently-cullable base part. */
   private readonly authoredLodMeshes = new Map<Mesh, Mesh[]>();
   private asteroidLod: AsteroidLod | null = null;
@@ -942,6 +952,94 @@ export class AssetRegistry {
     return { mesh: this.getMesh(render.recipe, render.palette ?? {}), radiusScale: 1 };
   }
 
+  /**
+   * Master mesh for an asteroid that authors a `shape` — the ONLY path a shipped
+   * rock takes. The mesh is tessellated from the same radial field the sim
+   * collides against (`shared/src/collision/rockShape.ts`), so a shot that the
+   * sim says missed visibly misses, and one it says hit lands on rock.
+   *
+   * Returns `null` for a config with no shape; callers fall back to
+   * {@link getAsteroidMaster}'s model/recipe rule.
+   */
+  getShapedAsteroidMaster(config: AsteroidConfig): AsteroidMaster | null {
+    const shape = config.shape;
+    if (!shape) return null;
+    // Keyed by config id: one shape per config, and the palette/surface are part
+    // of that config, so nothing else can vary behind the same key.
+    const key = `shape::${config.id}`;
+    const cached = this.cache.get(key);
+    if (cached) return { mesh: cached, radiusScale: 1 };
+
+    const mesh = this.buildShapeMesh(config, config.render.detail ?? DEFAULT_ROCK_DETAIL, "");
+    this.cache.set(key, mesh);
+    this.shapeLodTargets.set(key, config);
+    this.applyShapeLod(key, config, mesh);
+    return { mesh, radiusScale: 1 };
+  }
+
+  /** One tessellation of a config's shape, with its material attached. */
+  private buildShapeMesh(config: AsteroidConfig, subdivisions: number, suffix: string): Mesh {
+    const surface = config.render.surface;
+    const name = `master.rock.${config.id}${suffix}`;
+    const mesh = buildRockGeometry(
+      this.scene,
+      name,
+      config.shape!,
+      subdivisions,
+      // Local coordinates are in units of the nominal radius, so this converts
+      // one tile of texture into a real number of metres on the finished rock.
+      surface ? config.radius / surface.tileMeters : 1,
+    );
+    mesh.material = surface
+      ? buildRockMaterial(this.scene, `mat.rock.${config.id}`, surface, config.render.palette ?? {}, import.meta.env.BASE_URL)
+      : this.flatRockMaterial(config);
+    return mesh;
+  }
+
+  /** Palette-only fallback for a shaped rock that authors no PBR surface. */
+  private flatRockMaterial(config: AsteroidConfig): StandardMaterial {
+    const palette = config.render.palette ?? {};
+    const material = new StandardMaterial(`mat.rock.${config.id}.flat`, this.scene);
+    material.diffuseColor = colorFromHex(palette["primary"], new Color3(0.35, 0.32, 0.29));
+    material.emissiveColor = colorFromHex(palette["accent"], new Color3(0.49, 0.45, 0.4)).scale(0.05);
+    material.specularColor = Color3.Black();
+    return material;
+  }
+
+  /**
+   * LOD for a shaped rock: the SAME body at fewer subdivisions, sharing the
+   * master's material. Unlike the old icosphere stand-ins this cannot change the
+   * silhouette's identity — a spindle stays a spindle at range instead of
+   * popping into a ball — and unlike a GLB's LOD it needs no second material,
+   * because box-projected UVs are generated identically at any detail.
+   */
+  private applyShapeLod(key: string, config: AsteroidConfig, master: Mesh): void {
+    const lod = this.asteroidLod;
+    if (!lod) return;
+    const detail = config.render.detail ?? DEFAULT_ROCK_DETAIL;
+    // Same perceptual rule the model masters use: the tier's distances are
+    // authored for a radius-4 rock, so a colossal holds its detail proportionally
+    // further out and both swap at about the same on-screen size.
+    const distScale = config.radius / LOD_REFERENCE_RADIUS;
+    const levels: Mesh[] = [];
+    const built = new Set<number>();
+    const addLevel = (distance: number, subdivisions: number, suffix: string): void => {
+      // A rock already near the floor of the detail range has no second stand-in
+      // to give: skip rather than hang a duplicate of the first one.
+      if (distance <= 0 || subdivisions >= detail || built.has(subdivisions)) return;
+      built.add(subdivisions);
+      const variant = this.buildShapeMesh(config, subdivisions, `.lod-${suffix}`);
+      variant.material?.dispose();
+      variant.material = master.material;
+      master.addLODLevel(distance, variant);
+      levels.push(variant);
+    };
+    addLevel(lod.lodMediumDistance * distScale, Math.max(1, detail - 1), "med");
+    addLevel(lod.lodLowDistance * distScale, Math.max(1, detail - 2), "low");
+    if (lod.lodCullDistance > 0) master.addLODLevel(lod.lodCullDistance * distScale, null);
+    this.lodMeshes.set(key, levels);
+  }
+
   /** The already-loaded GLB master for a render config, if it has one and it landed. */
   private loadedModel(render: RenderRecipe): Mesh | null {
     if (!render.model) return null;
@@ -980,7 +1078,9 @@ export class AssetRegistry {
     for (const [key, master] of this.cache) {
       const recipeId = key.slice(0, key.indexOf("::"));
       this.clearLod(key, master);
-      this.applyAsteroidLod(key, recipeId, paletteFromKey(key), master);
+      const shaped = this.shapeLodTargets.get(key);
+      if (shaped) this.applyShapeLod(key, shaped, master);
+      else this.applyAsteroidLod(key, recipeId, paletteFromKey(key), master);
     }
     for (const [key, target] of this.modelLodTargets) {
       this.clearLod(key, target.master);
@@ -1080,6 +1180,7 @@ export class AssetRegistry {
     // LOD levels we hung on them before dropping the variant meshes.
     for (const [key, target] of this.modelLodTargets) this.clearLod(key, target.master);
     this.modelLodTargets.clear();
+    this.shapeLodTargets.clear();
     for (const levels of this.lodMeshes.values()) for (const level of levels) level.dispose();
     this.lodMeshes.clear();
     for (const mesh of this.cache.values()) {

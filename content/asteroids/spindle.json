@@ -1,47 +1,47 @@
 {
-  "id": "asteroid.large-hazard-b",
+  "id": "asteroid.spindle",
   "type": "asteroid",
   "version": 1,
-  "name": "Large Hazard B",
-  "radius": 8,
+  "name": "Spindle",
+  "radius": 13,
   "shape": {
-    "seed": 4477,
+    "seed": 27397,
     "lobes": [
       {
-        "radii": [0.95, 0.6, 0.68]
+        "radii": [0.9, 0.31, 0.37]
       }
     ],
     "noise": {
-      "amplitude": 0.15,
-      "frequency": 3,
+      "amplitude": 0.14,
+      "frequency": 2.8,
       "octaves": 3
     },
     "craters": {
       "count": 3,
-      "radiusDeg": 24,
-      "depth": 0.16,
+      "radiusDeg": 20,
+      "depth": 0.14,
       "rim": 0.35
     }
   },
   "destructible": false,
-  "impactDamage": 18,
+  "impactDamage": 26,
   "render": {
     "recipe": "procedural.rock-large",
     "palette": {
-      "primary": "#41372f",
-      "accent": "#7d5537"
+      "primary": "#3a332c",
+      "accent": "#6f573d"
     },
-    "detail": 3,
+    "detail": 4,
     "surface": {
       "textureSet": "cliff_side",
-      "tileMeters": 5.5,
+      "tileMeters": 9,
       "roughness": 1,
       "metallic": 0,
       "normalStrength": 1.3
     },
     "spin": {
-      "minDegPerSec": 1.5,
-      "maxDegPerSec": 6
+      "minDegPerSec": 0.6,
+      "maxDegPerSec": 2.6
     }
   }
 }

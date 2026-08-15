@@ -21,7 +21,13 @@ describe("Bug 1 — collision grind death", () => {
     const ast = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 0, z: 0 }); // r 3.5, impact 6
     const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: -30 }, Math.PI / 2);
     const impactDamage = world.asteroids.get(ast)!.impactDamage;
-    const sumR = world.colliders.get(ast)!.radius + world.colliders.get(ship)!.radius;
+    // "Never clips inside" is measured against the rock's real SURFACE now, not
+    // a single radius (2026-08-15): `collider.radius` became the bounding sphere
+    // when rocks gained shapes, and a hull resting against a flank thinner than
+    // that bound is correctly INSIDE the old sphere. `innerRadius` is the
+    // largest sphere that is solid rock everywhere, so the hull must always
+    // stay outside it.
+    const solidR = world.asteroids.get(ast)!.innerRadius + world.colliders.get(ship)!.radius;
     const before = world.shipCores.get(ship)!.hull;
 
     // Flight has no avoidance and no arrival (FLIGHT.md §1/§7): the pilot flies
@@ -32,7 +38,7 @@ describe("Bug 1 — collision grind death", () => {
       rebuildSpatial(world);
       navigationSystem(world, DT);
       collisionSystem(world, DT);
-      expect(dist(world.transforms.get(ship)!.pos, { x: 0, z: 0 })).toBeGreaterThan(sumR - 0.1);
+      expect(dist(world.transforms.get(ship)!.pos, { x: 0, z: 0 })).toBeGreaterThan(solidR - 0.1);
     }
 
     // Impact damage is capped by the per-pair cooldown, so 4 s of shoving into

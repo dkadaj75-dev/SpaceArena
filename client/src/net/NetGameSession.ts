@@ -22,6 +22,8 @@ import {
   MSG_ORDER,
   createLogger,
   type ArenaConfig,
+  resolveRockShape,
+  type AsteroidConfig,
   type ConfigService,
   type EntityId,
   type FlightParams,
@@ -483,6 +485,28 @@ export class NetGameSession extends GameSession {
     this.fakeLagMs = Number(new URLSearchParams(location.search).get("fakelag")) || 0;
   }
 
+  /**
+   * Nominal / mean / bounding radii for one asteroid config, resolved once per
+   * config per session. The offline sim carries these on its asteroid entities;
+   * online there are no asteroid entities at all, so they are rebuilt here from
+   * the same shape the sim resolves — which is what keeps the bots' snapshot-only
+   * geometry identical on both paths.
+   */
+  private rockGeometry(configId: string): { radius: number; mean: number; bound: number } {
+    const cached = this.rockGeometryCache.get(configId);
+    if (cached) return cached;
+    const cfg = this.netConfigs.get<AsteroidConfig>("asteroid", configId);
+    const radius = cfg?.radius ?? 1;
+    const shape = cfg?.shape ? resolveRockShape(cfg.shape) : null;
+    const geometry = shape
+      ? { radius, mean: radius * shape.meanRadius, bound: radius * shape.maxRadius }
+      : { radius, mean: radius * (cfg?.colliderScale ?? 1), bound: radius * (cfg?.colliderScale ?? 1) };
+    this.rockGeometryCache.set(configId, geometry);
+    return geometry;
+  }
+
+  private readonly rockGeometryCache = new Map<string, { radius: number; mean: number; bound: number }>();
+
   static async join(
     configs: ConfigService,
     options: ArenaJoinOptions,
@@ -895,13 +919,26 @@ export class NetGameSession extends GameSession {
         modules: decodeModules(p.modules),
       };
     });
-    const asteroids = this.arena.asteroidPlacements.map((p, i) => ({
-      id: i,
-      configId: p.asteroidId,
-      pos: { x: p.position.x, y: p.position.y ?? 0, z: p.position.z },
-      radius: p.scale ?? 1,
-      state: mapGet(state.asteroids, String(i))?.destroyed ? ("destroyed" as const) : ("intact" as const),
-    }));
+    const asteroids = this.arena.asteroidPlacements.map((p, i) => {
+      // Rocks are STATIC and identical on both sides, so the room replicates
+      // only which ones have been destroyed and the client rebuilds the rest
+      // from the arena config. `id` is the placement index here, which is also
+      // what tumble is keyed on (`shared/src/collision/rockPose.ts`) — offline
+      // the ids are sim entity ids and `placementIndex` carries the same number.
+      const geometry = this.rockGeometry(p.asteroidId);
+      const scale = p.scale ?? 1;
+      return {
+        id: i,
+        placementIndex: i,
+        rotationY: p.rotation ?? 0,
+        configId: p.asteroidId,
+        pos: { x: p.position.x, y: p.position.y ?? 0, z: p.position.z },
+        radius: geometry.radius * scale,
+        colliderRadius: geometry.mean * scale,
+        boundRadius: geometry.bound * scale,
+        state: mapGet(state.asteroids, String(i))?.destroyed ? ("destroyed" as const) : ("intact" as const),
+      };
+    });
     const projectiles = mapValues(state.projectiles).map((p: any) => ({
       id: p.entityId,
       kind: "missile" as const,

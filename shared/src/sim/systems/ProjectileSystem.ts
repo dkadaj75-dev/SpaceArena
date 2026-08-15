@@ -1,4 +1,5 @@
 import type { EntityId } from "../components.js";
+import { asteroidSegmentEntry } from "../asteroidCollision.js";
 import { DEFAULT_PROJECTILE_BOUNDS_MARGIN } from "../../schemas/arena.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { clamp, headingOf, len3, pitchOf, segmentIntersectsSphere, sphereEntryAlong } from "../math.js";
@@ -7,9 +8,11 @@ import type { World } from "../World.js";
 /**
  * ProjectileSystem — advances travelling ordnance, homes missiles toward their
  * target (turn-rate-limited, in 3D), expires by lifetime or by leaving the arena
- * bubble, and does swept SPHERE hit detection (old→new segment vs collider)
- * against enemy ships and asteroids so fast projectiles cannot tunnel. First hit
- * along the path wins.
+ * bubble, and does swept hit detection (old→new segment vs collider) against
+ * enemy ships and asteroids so fast projectiles cannot tunnel. Ships are
+ * spheres; an asteroid is swept against its authored SURFACE behind a
+ * bounding-sphere reject (`sim/asteroidCollision.ts`). First hit along the path
+ * wins.
  *
  * Homing spends one 3D angular budget (BUBBLE.md §A): velocity rotates toward
  * the bearing by at most `turnRate * dt`, then yaw/pitch are recovered.
@@ -237,8 +240,20 @@ function findHit(
     const reach = col.radius + proj.radius;
     if (ct.pos.y + reach < minY || ct.pos.y - reach > maxY) continue;
     if (!segmentIntersectsSphere(from, to, ct.pos, reach)) continue;
-    const centerAlong = (ct.pos.x - from.x) * dirX + (ct.pos.y - from.y) * dirY + (ct.pos.z - from.z) * dirZ;
-    const along = sphereEntryAlong(from, ct.pos, centerAlong, reach);
+    let along: number;
+    if (isAsteroid) {
+      // The bounding-sphere sweep above is the early-out; only a shot that
+      // genuinely reaches the rock's bounds pays for the surface march. A rock
+      // whose bounds are clipped but whose SURFACE is missed — the shot that
+      // used to "hit" the empty space beside a lumpy rock — reports no hit at
+      // all here.
+      const entry = asteroidSegmentEntry(world, world.asteroids.get(cid)!, ct, col.radius, from, to, proj.radius);
+      if (entry < 0) continue;
+      along = entry * segLen;
+    } else {
+      const centerAlong = (ct.pos.x - from.x) * dirX + (ct.pos.y - from.y) * dirY + (ct.pos.z - from.z) * dirZ;
+      along = sphereEntryAlong(from, ct.pos, centerAlong, reach);
+    }
     if (!best || along < best.along) {
       best = { id: cid, isAsteroid, along };
     }

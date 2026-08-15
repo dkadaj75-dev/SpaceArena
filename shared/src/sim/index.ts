@@ -9,6 +9,8 @@ export * from "./MatchStats.js";
 export * from "./orders.js";
 export * from "./World.js";
 export * from "./spawn.js";
+export * from "./asteroidCollision.js";
+export * from "./asteroidSurface.js";
 export * from "./resolveStats.js";
 export * from "./powerRail.js";
 export * from "./signals.js";

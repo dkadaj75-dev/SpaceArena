@@ -1,3 +1,4 @@
+import { asteroidContact, rockContact } from "../asteroidCollision.js";
 import type { ShipCore } from "../components.js";
 import { len3, type Attitude } from "../math.js";
 import { orthonormalizeUp, spellAttitude, transportUp } from "../frame.js";
@@ -11,11 +12,13 @@ const noseBefore = { x: 0, y: 0, z: 0 };
 const noseAfter = { x: 0, y: 0, z: 0 };
 
 /**
- * CollisionSystem (1.7) — SPHERE resolution using the world spatial hash as a
- * planar (x,z) broadphase (BUBBLE.md §A: the hash stays 2D, every narrowphase
- * distance is 3D):
- *   - ship vs asteroid: push the ship out; if closing speed > tuning
- *     `impactSpeedThreshold`, the asteroid's `impactDamage` is dealt to hull.
+ * CollisionSystem (1.7) — resolution using the world spatial hash as a planar
+ * (x,z) broadphase (BUBBLE.md §A: the hash stays 2D, every narrowphase distance
+ * is 3D):
+ *   - ship vs asteroid: push the ship out of the rock's authored SURFACE (see
+ *     `sim/asteroidCollision.ts`; a rock with no `shape` still resolves as the
+ *     legacy sphere). If closing speed > tuning `impactSpeedThreshold`, the
+ *     asteroid's `impactDamage` is dealt to hull.
  *   - ship vs ship: symmetric push-out (no damage).
  *   - ship vs boundary: per gamemode `boundaryRule` — bounce (reflect + reposition),
  *     damage (reposition + damagePerSec), warning (emit only).
@@ -47,24 +50,16 @@ export function collisionSystem(world: World, dt: number): void {
       const ac = world.colliders.get(aid)!;
       const sumR = sc.radius + ac.radius;
       // |Δy| prefilter: the broadphase is planar, so a rock directly below the
-      // ship is a candidate no matter how deep it sits.
+      // ship is a candidate no matter how deep it sits. `ac.radius` is the
+      // rock's BOUNDING sphere, so this and the distance reject inside
+      // `asteroidContact` are pure early-outs — the surface field only ever runs
+      // for a hull that is genuinely inside the rock's bounds.
       if (Math.abs(st.pos.y - at.pos.y) >= sumR) continue;
-      let nx = st.pos.x - at.pos.x;
-      let ny = st.pos.y - at.pos.y;
-      let nz = st.pos.z - at.pos.z;
-      let d = len3(nx, ny, nz);
-      if (d >= sumR) continue;
-      if (d === 0) {
-        nx = 1;
-        ny = 0;
-        nz = 0;
-        d = 1;
-      }
-      const inv = 1 / d;
-      nx *= inv;
-      ny *= inv;
-      nz *= inv;
-      const push = sumR - d;
+      if (!asteroidContact(world, ast, at, ac.radius, st.pos.x, st.pos.y, st.pos.z, sc.radius)) continue;
+      const nx = rockContact.nx;
+      const ny = rockContact.ny;
+      const nz = rockContact.nz;
+      const push = rockContact.depth;
       st.pos.x += nx * push;
       st.pos.y += ny * push;
       st.pos.z += nz * push;
