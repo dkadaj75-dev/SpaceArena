@@ -15,6 +15,28 @@ the previous behaviour. `heatSystemEnabled()` in
 `shared/src/sim/tuningDefaults.ts` is the single runtime reader. It returns true
 only for the literal boolean `true`, so omitted flags are safely off.
 
+### Before you re-enable it: the authored heat costs are stale
+
+The weapons have been retuned twice since the flag went off, and **the heat
+block was not rescaled with them**. Turning the flag back on today does not
+restore the old feel — it produces a broken one:
+
+- **Autocannons.** The four kinetic modules now fire at six times their
+  pre-2026-08-14 cadence, but `heat.perShot` is unchanged, so a rack reaches
+  capacity in roughly 0.18 s — about 1.3 rounds of a 20–40 round magazine —
+  then sits locked for 2.1–2.5 s. Duty cycle collapses from ~73% to ~16%, and
+  the clip/reload mechanic becomes dead content because the magazine can never
+  empty. `heat.perShot` on `kinetic-mk1/2/3` and `kinetic-longbarrel` needs to
+  come down by roughly a factor of six before heat is switched on.
+- **Missiles.** Their rate of fire was halved, so they now generate 24–28
+  heat/s against 40–48 cooling: the rack can never reach capacity and heat has
+  stopped being a decision for the class at all. Their `heat` block wants
+  raising, or the class wants excluding from the system deliberately.
+
+`shared/src/sim/balanceRegression.test.ts` measures the burn envelope with heat
+enabled and now classifies racks as heat-gated or cadence-gated; that split is
+the quickest way to see which weapons the system still governs.
+
 The authoritative sim reads it via `World.tuning`; the client HUD, notification
 consumer, and audio consumer read the active tuning config from `ConfigService`.
 This means a normal config replacement is observed by both offline simulation
