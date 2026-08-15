@@ -21,7 +21,8 @@
     "damageReduction": 0.5,
     "coversFamilies": [
       "kinetic",
-      "energy"
+      "energy",
+      "hybrid"
     ]
   },
   "onActivate": [

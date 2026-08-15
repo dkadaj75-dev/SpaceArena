@@ -552,11 +552,10 @@ describe("Damage pipeline — shield mitigation", () => {
 
     applyDamageToShip(world, id, null, 20, "energy");
     const drop = before - core.hull;
-    // Energy is a shield-breaker (damage.test.ts): the shield takes its 0.8
-    // share — 16 of the 20, paid out of its own reserve — and the 4 that
-    // penetrates lands on hull at the 0.5 energy hull multiplier.
-    expect(drop).toBeCloseTo(2, 6);
-    expect(shield.energy).toBeCloseTo(shield.energyCapacity - 16, 6);
+    // A live shield STOPS energy outright (damage.test.ts owns the rules):
+    // the whole 20 goes into the reserve and nothing reaches plating.
+    expect(drop).toBe(0);
+    expect(shield.energy).toBeCloseTo(shield.energyCapacity - 20, 6);
     expect(world.events.some((e) => e.type === "shieldAbsorb")).toBe(true);
   });
 
@@ -621,7 +620,7 @@ describe("CombatSystem continuous channel", () => {
     // target is a light hull with 0 energy resist and no shield, so this is the
     // only factor between `fire.damage` and hull loss — taken from the resolver
     // rather than written as 0.5, since it is a tuning knob, not a constant.
-    const hullDps = dps * damageTypeProfileOf(world.tuning, "energy").hullMult;
+    const hullDps = dps * damageTypeProfileOf(world.tuning, "energy").bareHull;
     return { world, shooter, target, dps, hullDps };
   }
 

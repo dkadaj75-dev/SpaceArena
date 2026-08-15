@@ -455,7 +455,16 @@ describe("bots in a live ArenaSimulation", () => {
     // Missiles retain room for one launch, while the doubled laser shot heat
     // can legitimately trigger its own rack lockout. The bot must still re-arm
     // and land damage rather than stalling permanently.
-    const result = runMatch(["bot.cautious", "bot.cautious"], 11, undefined, { configService: heatConfigs });
+    //
+    // Seed re-pinned 11 → 5 on 2026-08-15: halving the missile rate of fire
+    // halved the heat those racks generate, so seed 11 no longer trips a
+    // lockout at x10 at all (it ends the match having only ever been `active`,
+    // dealing 97.9 damage). That is the authored-heat drift docs/heat-system.md
+    // warns about rather than a bot failure — the heat blocks have not been
+    // rescaled since the weapons were retuned — and it is why the flag ships
+    // off. Seeds 5, 7 and 9 still trip; 1, 2, 13, 17, 21 and 42 no longer do, which
+    // is itself the measure of how far the heat costs have drifted.
+    const result = runMatch(["bot.cautious", "bot.cautious"], 5, undefined, { configService: heatConfigs });
     expect(result.seenStates.has("overheated")).toBe(true);
     expect(result.seenStates.has("active")).toBe(true);
     expect(result.weaponDamage).toBeGreaterThan(0);

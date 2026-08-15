@@ -13,44 +13,35 @@ export type TargetingPolicy = z.infer<typeof targetingPolicy>;
  */
 export const damageTypeProfileSchema = z.object({
   /**
-   * Fraction of an incoming hit a WORKING shield tries to soak — the rest
-   * penetrates straight to hull. Energy is soft against shields (0.8), kinetic
-   * punches through them (0.2). When the shield's reserve cannot cover the
-   * share it wants, the un-soaked excess continues to hull rather than
-   * evaporating, so a collapsing shield never eats damage it did not stop.
+   * Fraction of the hit a WORKING shield takes into its reserve.
    *
-   * This REPLACES the shield module's own `mitigation.damageReduction` for the
-   * types authored here: what distinguishes one shield from another is the size
-   * and recharge of its reserve tank, not the share it takes off the top.
+   * Shielded and bare are two SEPARATE cases (owner 2026-08-15), not one chain:
+   * while a shield is up, `shieldedShield` and `shieldedHull` below are read
+   * independently, so a type can be fully stopped by a shield (energy, 1.0/0.0)
+   * or bleed through it (kinetic, 0.2/0.2) without one number implying the
+   * other. The shares deliberately need not sum to 1 — an autocannon that
+   * lands 0.2 on the reserve and 0.2 on plating spends the rest of its round on
+   * the shield's surface.
    */
-  shieldAbsorb: z.number().min(0).max(1).optional(),
+  shieldedShield: z.number().min(0).max(1).optional(),
   /**
-   * Effectiveness against HULL, applied to every point that reaches hull —
-   * both the share that penetrated a live shield and the whole hit when the
-   * target has no working shield at all. Energy scorches plating for half
-   * effect (0.5); kinetic lands full (1.0). Applied before the hull's own
-   * per-type `resists`.
+   * Fraction of the hit that reaches HULL while a shield is still up. Energy
+   * and the missile warhead are 0 — a live shield stops them outright — while
+   * kinetic keeps 0.2, which is the whole of "autocannons punch through".
+   * Applied before the hull's own per-type `resists`.
    */
-  hullMult: z.number().nonnegative().optional(),
+  shieldedHull: z.number().nonnegative().optional(),
   /**
-   * Makes this type COMPOSITE: instead of soaking and landing on its own
-   * `shieldAbsorb`/`hullMult`, a hit is split by these WEIGHTS and each share is
-   * dealt as the named leaf type, through that leaf's own profile and the hull's
-   * own resist column. `{ "kinetic": 0.5, "energy": 0.5 }` is the shipped
-   * missile warhead: half punches through shields and lands full on plating,
-   * half is soaked by shields and scorches plating for half.
+   * Effectiveness against BARE hull: no shield equipped, none active, or the
+   * reserve is flat. Kinetic and the missile warhead land full (1.0); energy
+   * scorches unprotected plating for half (0.5).
    *
-   * Weights are RATIOS, not fractions — they are normalised by their sum, so
-   * `{kinetic: 3, energy: 1}` is a 75/25 warhead. This is the authored knob for
-   * "how hybrid is this weapon", and because the shares resolve through the LEAF
-   * profiles, re-tuning `energy` moves every hybrid weapon by its energy share
-   * rather than leaving it frozen at a stale average.
-   *
-   * Components are always taken as leaves: a mix listed here is not expanded
-   * again (no chains, no cycles), and naming the type itself is ignored. A mix
-   * that ends up empty degrades to the type's own `shieldAbsorb`/`hullMult`.
+   * This is also what the SHORTFALL is charged at when a shield collapses
+   * mid-hit: the part of `shieldedShield` the reserve could not cover carries
+   * on to hull at this rate rather than evaporating, so the last hit that
+   * breaks a shield still hurts.
    */
-  mix: z.partialRecord(damageType, z.number().nonnegative()).optional(),
+  bareHull: z.number().nonnegative().optional(),
 });
 export type DamageTypeProfile = z.infer<typeof damageTypeProfileSchema>;
 

@@ -1,7 +1,7 @@
 import type { DamageType } from "../schemas/common.js";
 import type { ModuleConfig } from "../schemas/index.js";
 import type { EntityId, ShipCore } from "./components.js";
-import { damageComponentsOf, type ResolvedDamageTypeProfile } from "./tuningDefaults.js";
+import { damageTypeProfileOf, type ResolvedDamageTypeProfile } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
 /**
@@ -16,55 +16,38 @@ export interface DamageTally {
 }
 
 /**
- * Central ship damage pipeline used by beams and projectiles alike. Flow, and
- * the ORDER matters — every stage below multiplies the output of the one above:
+ * Central ship damage pipeline used by beams and projectiles alike.
  *
- *   1. base *= tuning.globalDamageMult. The global knob is applied FIRST, once,
- *      so it scales the whole hit — shield absorb and hull damage alike keep
- *      their ratio to each other and to the shield's reserve. (Applying it last,
- *      to the hull share only, would silently make shields stronger whenever the
- *      knob went below 1.)
- *   1b. the scaled hit is SPLIT into leaf damage types by
- *      `damageComponentsOf` (2026-08-14). A plain `kinetic` or `energy` hit is
- *      one component of the whole; a COMPOSITE type — `hybrid`, the missile
- *      warhead — is two, `tuning.damageTypes.hybrid.mix` deciding the ratio
- *      (shipped 50/50). Each share then runs stages 2-4 below on its own leaf
- *      profile and the hull's own resist column for that leaf, in the enum's
- *      order, so a reserve too small for both is spent in a deterministic
- *      sequence. The shares are re-joined for the EVENTS (see below): one hit
- *      still floats one number.
- *   2. active shield module mitigation (per §2.3): for each `active` shield whose
- *      `coversFamilies` includes the damage type, remove the type's SHIELD SHARE
- *      of the hit — `tuning.damageTypes[type].shieldAbsorb`, 0.8 for energy and
- *      0.2 for kinetic, so energy is stopped by shields and kinetic sails
- *      through. The share is capped by whatever charge is left in that module's
- *      OWN energy tank — which the absorb then spends — and anything the tank
- *      could not cover simply STAYS in the hit and carries on to hull, so a
- *      shield collapsing mid-hit loses no damage. Absorbing marks the shield
- *      worked-this-tick (EnergySystem also bills its upkeep) and emits
- *      `shieldAbsorb` with what the shield actually soaked.
- *      A damage type with no authored/shipped profile falls back to the module's
- *      own `mitigation.damageReduction`, i.e. the pre-triangle behaviour.
- *   3. innate ship shield hp (shieldMax is 0 in MVP — ships have no innate shield;
- *      shielding is entirely module-provided — so this step is a no-op today).
- *   4. everything still standing reaches HULL, where it is multiplied by the
- *      type's `hullMult` (energy 0.5, kinetic 1.0) and then by the hull's own
- *      per-type resist. This applies to the penetrating share AND to the whole
- *      hit when the target has no working shield at all (none equipped, none
- *      active, or the reserve is flat) — "reaches hull" is the only condition.
+ * SHIELDED AND BARE ARE TWO SEPARATE CASES (owner 2026-08-15), not one chain.
+ * The older model soaked a share off the top and passed the remainder down to
+ * hull, which meant one number implied the other; the rules are now stated
+ * independently per damage type, and the two cases are:
  *
- * Emits `damage` carrying what the hull ACTUALLY lost (post hullMult and
- * resist), so the number that floats over a ship is the number it took; emits
- * `entityDestroyed` once when hull crosses 0. A split hit emits ONE `damage`
- * event (and one `shieldAbsorb` per shield) carrying the SUM across its shares
- * under the authored type: a missile is one impact, so it floats one number, and
- * that number is still exactly the hull it removed.
+ *   WHILE A COVERING SHIELD IS UP (active, and its reserve is not flat)
+ *     - the shield takes `shieldedShield` of the hit into its reserve;
+ *     - hull takes `shieldedHull` of the hit, and nothing else.
+ *     These are read independently and DELIBERATELY DO NOT HAVE TO SUM TO 1:
+ *     an autocannon puts 0.2 into the reserve and 0.2 through to plating and
+ *     spends the rest of the round on the shield's surface. A laser puts 1.0
+ *     into the reserve and nothing through; so does half a missile.
  *
- * Pass a `tally` (a channelling continuous weapon does) to BANK the `damage` and
- * `shieldAbsorb` amounts instead of emitting them — the caller then emits one
- * aggregate event per cadence window. `entityDestroyed` is never banked: a kill
- * is announced on the tick it happens. The mechanical result is byte-identical
- * either way; only event volume differs.
+ *   BARE — no shield equipped, none active, or the reserve is flat
+ *     - hull takes `bareHull` of the hit. Kinetic and missiles land full;
+ *       energy scorches unprotected plating for half.
+ *
+ * A shield that COLLAPSES mid-hit is the seam between the two: the part of
+ * `shieldedShield` its reserve could not cover is charged to hull at `bareHull`
+ * rather than evaporating, so the round that breaks a shield still hurts and no
+ * damage is silently lost at the boundary.
+ *
+ * Order within a hit: `base *= tuning.globalDamageMult` FIRST and once, so the
+ * knob scales shield and hull alike and leaves their ratio alone. Hull damage
+ * is then multiplied by the hull's own per-type resist.
+ *
+ * Emits `damage` carrying what the hull ACTUALLY lost, so the number floating
+ * over a ship is the number it took, and one `shieldAbsorb` per shield that
+ * soaked. Pass a `tally` (a channelling continuous weapon does) to BANK those
+ * amounts instead of emitting them; `entityDestroyed` is never banked.
  */
 export function applyDamageToShip(
   world: World,
@@ -78,16 +61,11 @@ export function applyDamageToShip(
   if (!core || core.hull <= 0) return;
 
   const scaled = baseAmount * world.tuning.globalDamageMult;
-  // Banked either way: a composite hit has to re-join its shares before it can
-  // emit, and the tally the beams pass in is that same accumulator.
+  // Banked either way: the tally the beams pass in is the same accumulator the
+  // discrete path uses to build its one event per hit.
   const sink: DamageTally = tally ?? { hull: 0, absorbed: new Map() };
 
-  for (const part of damageComponentsOf(world.tuning, type)) {
-    // A share that already killed the target ends the hit: the rest of the
-    // warhead has nothing left to hit.
-    if (core.hull <= 0) break;
-    applyTypedShare(world, targetId, core, scaled * part.share, part.type, part.profile, sink);
-  }
+  applyTyped(world, targetId, core, scaled, type, damageTypeProfileOf(world.tuning, type), sink);
 
   if (!tally) {
     for (const [hardpointIndex, amount] of sink.absorbed) {
@@ -112,13 +90,48 @@ export function applyDamageToShip(
   }
 }
 
+/** A shield that is up, covers `type`, and still has reserve to spend. */
+interface CoveringShield {
+  module: NonNullable<ReturnType<World["modules"]["get"]>>["modules"][number];
+  /** Reserve left in its own tank; Infinity for a module with no tank. */
+  available: number;
+  /** Its authored `damageReduction`, used only for a type with no rule at all. */
+  fallbackShare: number;
+}
+
 /**
- * Stages 2-4 for ONE leaf share of a hit: shields, innate shield hp, hull.
- * Amounts land in `sink` rather than in events — {@link applyDamageToShip} joins
- * the shares back up and decides what to emit — and the hull is debited here so
- * a later share of the same hit sees the damage the earlier one did.
+ * The shields standing between `targetId` and a hit of `type`, in module order
+ * so the sequence of draws against a reserve too small to pay is deterministic.
+ * A shield with a flat reserve is NOT covering — that is exactly the "bare"
+ * case, and it is what makes a collapsed shield stop protecting.
  */
-function applyTypedShare(
+function coveringShields(world: World, targetId: EntityId, type: DamageType): CoveringShield[] {
+  const mods = world.modules.get(targetId);
+  if (!mods) return [];
+  const out: CoveringShield[] = [];
+  for (const m of mods.modules) {
+    if (m.state !== "active") continue;
+    const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
+    const mit = cfg?.mitigation;
+    if (!mit) continue;
+    // Asked about the type the shield itself lists in `coversFamilies`.
+    if (mit.coversFamilies && !mit.coversFamilies.includes(type)) continue;
+    const available = m.energyCapacity > 0 ? m.energy : Infinity;
+    if (available <= 0) continue;
+    out.push({ module: m, available, fallbackShare: mit.damageReduction });
+  }
+  return out;
+}
+
+/**
+ * Apply one hit of `type` to a ship: shield reserve, then hull.
+ *
+ * The shield draw is computed ONCE for the hit and then filled from whatever
+ * covering shields are up, in module order, rather than per shield — otherwise
+ * two shields would each take the type's full share and a second shield would
+ * silently double the protection.
+ */
+function applyTyped(
   world: World,
   targetId: EntityId,
   core: ShipCore,
@@ -127,54 +140,42 @@ function applyTypedShare(
   profile: ResolvedDamageTypeProfile,
   sink: DamageTally,
 ): void {
-  let dmg = amount;
-  if (dmg <= 0) return;
+  if (amount <= 0) return;
 
-  // (2) active shield mitigation
-  const mods = world.modules.get(targetId);
-  if (mods) {
-    for (const m of mods.modules) {
-      if (dmg <= 0) break;
-      if (m.state !== "active") continue;
-      const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
-      const mit = cfg?.mitigation;
-      if (!mit) continue;
-      // Asked about the LEAF type, which is what a shield's `coversFamilies`
-      // lists: half a missile is energy to a shield, and the shield knows what
-      // energy is even though it has never heard of `hybrid`.
-      if (mit.coversFamilies && !mit.coversFamilies.includes(type)) continue;
-      // The shield's RESERVE is its own energy tank (heat/energy overhaul
-      // 2026-08-07): a point soaked is a point of charge spent, so a shield
-      // holds exactly as long as its tank and returns as fast as it refills.
-      const available = m.energyCapacity > 0 ? m.energy : Infinity;
-      if (available <= 0) continue;
-      // The share this shield TRIES to take is a property of the damage type,
-      // not of the module: what one shield has over another is a bigger, faster
-      // reserve, not a better ratio. Only a type with no profile at all falls
-      // back to the module's authored `damageReduction`.
-      const share = profile.shieldAbsorb ?? mit.damageReduction;
-      // Capped by the reserve — the shortfall stays in `dmg` and goes on to
-      // hull, which is the whole of the collapse-mid-hit rule.
-      const reduced = Math.min(dmg * share, available);
-      if (reduced <= 0) continue;
-      dmg -= reduced;
-      if (m.energyCapacity > 0) m.energy -= reduced;
+  // --- what the shields can take ------------------------------------------
+  let hull: number;
+  const shields = coveringShields(world, targetId, type);
+  if (shields.length === 0) {
+    // Bare: no shield equipped, none active, or every reserve is flat.
+    hull = amount * profile.bareHull;
+  } else {
+    const share = profile.shieldedShield ?? shields[0]!.fallbackShare;
+    let want = amount * share;
+    for (const shield of shields) {
+      if (want <= 0) break;
+      const taken = Math.min(want, shield.available);
+      if (taken <= 0) continue;
+      want -= taken;
+      const m = shield.module;
+      if (m.energyCapacity > 0) m.energy -= taken;
       m.workedThisTick = true;
-      sink.absorbed.set(m.hardpointIndex, (sink.absorbed.get(m.hardpointIndex) ?? 0) + reduced);
+      sink.absorbed.set(m.hardpointIndex, (sink.absorbed.get(m.hardpointIndex) ?? 0) + taken);
     }
+    // `want` is now the shortfall: the share the reserves could not cover. It
+    // is charged to hull at the BARE rate — the shield collapsed under it.
+    hull = amount * profile.shieldedHull + want * profile.bareHull;
   }
 
-  // (3) innate shield hp — none in MVP (shieldMax 0).
-  if (core.shieldMax > 0 && core.shield > 0 && dmg > 0) {
-    const absorbed = Math.min(core.shield, dmg);
+  // --- innate shield hp (shieldMax is 0 in MVP) ----------------------------
+  if (core.shieldMax > 0 && core.shield > 0 && hull > 0) {
+    const absorbed = Math.min(core.shield, hull);
     core.shield -= absorbed;
-    dmg -= absorbed;
+    hull -= absorbed;
   }
 
-  // (4) hull: type effectiveness, then the hull's own resist
-  if (dmg <= 0) return;
+  if (hull <= 0) return;
   const resist = type === "kinetic" ? core.resists.kinetic : core.resists.energy;
-  const hullDmg = dmg * profile.hullMult * (1 - resist);
+  const hullDmg = hull * (1 - resist);
   if (hullDmg <= 0) return;
   core.hull -= hullDmg;
   sink.hull += hullDmg;

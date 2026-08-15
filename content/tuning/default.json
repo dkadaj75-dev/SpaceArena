@@ -9,9 +9,21 @@
   "matchCountdownSec": 3,
   "globalDamageMult": 1.0,
   "damageTypes": {
-    "energy": { "shieldAbsorb": 0.8, "hullMult": 0.5 },
-    "kinetic": { "shieldAbsorb": 0.2, "hullMult": 1.0 },
-    "hybrid": { "mix": { "kinetic": 0.5, "energy": 0.5 } }
+    "energy": {
+      "shieldedShield": 1.0,
+      "shieldedHull": 0.0,
+      "bareHull": 0.5
+    },
+    "kinetic": {
+      "shieldedShield": 0.2,
+      "shieldedHull": 0.2,
+      "bareHull": 1.0
+    },
+    "hybrid": {
+      "shieldedShield": 0.5,
+      "shieldedHull": 0.0,
+      "bareHull": 1.0
+    }
   },
   "dragCoefficient": 0.02,
   "spatialCellSize": 16,

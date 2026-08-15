@@ -1,5 +1,13 @@
 # Balancing report — Orion's Arm
 
+> **Update 2026-08-15 — re-measured after the shielded/bare damage rewrite.**
+> The damage model was restated (shielded and bare as independent cases per
+> type; missile damage and cooldown both doubled) and all 20 matches re-run on
+> the same seeds. The changes moved the numbers in the intended direction, and
+> the before/after is in [Effect of the damage rewrite](#effect-of-the-damage-rewrite)
+> at the end. The body below is the ORIGINAL measurement that motivated it, kept
+> because the recommendations were written against it.
+
 Generated 2026-08-15 from **20 complete bot-vs-bot matches** (10 × CTF 5v5 on
 `arena.lunar-rift`, 10 × deathmatch 5v5 on `arena.deep-field`), played headless
 in the deterministic simulation by `tools/match-tracker.ts` and aggregated by
@@ -215,3 +223,70 @@ the gap between the modes is large enough to look at deliberately.
   per-weapon tuning measurable and is a small, worthwhile change.
 - **Stock fittings only.** Every pilot flies its hull's `defaultFitting`, so
   this measures the shipped loadouts, not the fitting space.
+
+---
+
+## Effect of the damage rewrite
+
+Re-measured 2026-08-15 on the same 20 seeds, after the damage rules were
+restated as two independent cases per type and missiles had both their damage
+and their cooldown doubled:
+
+| type | shield up → reserve | shield up → hull | bare hull |
+|---|---:|---:|---:|
+| energy (lasers, beams) | 1.0 | 0.0 | 0.5 |
+| kinetic (autocannons) | 0.2 | 0.2 | 1.0 |
+| hybrid (missiles) | 0.5 | 0.0 | 1.0 |
+
+### What moved (CTF, 10 matches)
+
+| metric | before | after |
+|---|---:|---:|
+| brawler K/D | 1.68 | **1.56** |
+| interceptor K/D | 0.49 | **0.54** |
+| support K/D | 1.02 | **1.22** |
+| brawler share of all damage | 57.7% | **51.9%** |
+| brawler → interceptor TTK | 24.3 s | 22.1 s |
+| interceptor → brawler TTK | 54.5 s | **41.3 s** |
+| worst-matchup asymmetry | **2.24 : 1** | **1.87 : 1** |
+| missile share of damage | 27.4% | **41.6%** |
+| kinetic share of damage | 32.6% | 25.2% |
+| energy share of damage | 40.0% | 33.1% |
+
+Deathmatch agrees: brawler K/D 1.79 → 1.76, interceptor 0.45 → **0.56**, brawler
+damage share 59.9% → **54.9%**.
+
+**Reading it.** Three of the report's four headline problems improved without
+anyone touching a ship file. The brawler gave up nearly six points of damage
+share, the interceptor climbed off the floor in both modes, and the worst
+matchup in the game tightened from 2.24:1 to 1.87:1 — mostly because the
+interceptor kills a brawler thirteen seconds faster than it used to.
+
+**Missiles are now the strongest weapon in the game**, up from the weakest:
+41.6% of all damage, because a warhead that lands FULL on a bare hull is a
+finisher, and doubling its damage while doubling its cooldown left sustained
+output flat but made every individual hit decisive. That is a deliberate design
+shape (burst alpha) rather than a regression, but it is worth watching — if
+missiles start to feel oppressive, the lever is `bareHull` for `hybrid` in
+`content/tuning/default.json`, not the module damage.
+
+**Kinetic fell** from 32.6% to 25.2%, which follows directly from the rules: an
+autocannon now spends 60% of each round on a live shield's surface, delivering
+only 0.2 + 0.2. It is still the best answer to an unshielded target.
+
+### What did NOT move
+
+**CTF still never finishes.** 0 of 10 matches reached first-to-3, and flag
+conversion did not improve — a 20-seed sweep found only 2 seeds delivering a
+capture inside 180 s, down from 12. Carriers die *faster* now, because a runner
+under fire is a bare hull and both kinetic and missiles land full on one.
+Recommendation 1 (make the flag survivable to carry) is therefore more urgent
+after this change, not less: the damage rewrite fixed the hull triangle and made
+the objective problem worse.
+
+### Method note
+
+Same seeds, same harness, same hull composition per team, so these columns are
+directly comparable. The one caveat from the original report still applies: this
+is bot play, and the objective numbers are as much a statement about bot
+behaviour as about tuning.
