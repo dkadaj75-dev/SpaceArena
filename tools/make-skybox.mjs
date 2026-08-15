@@ -18,33 +18,33 @@ const PALETTES = {
   // must shine ALONG -dir so surfaces lit by it face the painted star.
   "deep-field": {
     base: [5, 7, 12],
-    dustA: { col: [66, 34, 16], hot: [150, 92, 42], lo: 0.56, hi: 1.0 },
-    dustB: { col: [48, 36, 18], hot: [160, 126, 66], lo: 0.62, hi: 1.02 },
-    dustC: { col: [36, 26, 30], hot: [90, 64, 70], lo: 0.6, hi: 1.04 },
+    dustA: { col: [44, 27, 17], hot: [100, 65, 34], lo: 0.68, hi: 1.0 },
+    dustB: { col: [38, 31, 20], hot: [105, 82, 43], lo: 0.72, hi: 1.02 },
+    dustC: { col: [29, 22, 25], hot: [62, 47, 51], lo: 0.71, hi: 1.04 },
     core: [255, 214, 160],
-    warp: 1.25, starGain: 1.0, seed: 7, gain: 1.3,
-    bandN: [0.28, 0.86, 0.42], bandWidth: 0.36, bandGain: 0.75,
+    warp: 1.25, starGain: 1.0, seed: 7, gain: 0.92, nebulaGain: 0.34,
+    bandN: [0.28, 0.86, 0.42], bandWidth: 0.31, bandGain: 1.35,
     bandCoreDir: [-0.78, 0.34, -0.52],
     planet: {
       dir: [0.05, -0.5, 0.8646],
-      angularRadiusDeg: 12.5, kind: "gas", turbulence: 9.0, bandScale: 31,
-      surface: { base: [151, 151, 50], band: [77, 105, 39], detail: [211, 176, 70] },
-      atmosphere: [178, 205, 91], storm: { x: 0.34, y: -0.2, rx: 0.27, ry: 0.105 },
+      angularRadiusDeg: 12.5, kind: "gas", turbulence: 1.7, bandScale: 44,
+      surface: { base: [132, 119, 66], band: [91, 94, 55], detail: [169, 137, 72] },
+      atmosphere: [151, 151, 82], storm: { x: 0.34, y: -0.2, rx: 0.27, ry: 0.105 },
     },
     sun: { dir: [0.777, 0.309, 0.55], color: [255, 248, 230], discDeg: 0.72, glowDeg: 3.2, minimalGlow: true },
   },
   "ring-nebula": {
     base: [6, 6, 14],
-    dustA: { col: [52, 30, 80], hot: [116, 66, 160], lo: 0.56, hi: 1.0 },
-    dustB: { col: [22, 42, 82], hot: [66, 106, 175], lo: 0.62, hi: 1.02 },
-    dustC: { col: [40, 24, 56], hot: [96, 60, 130], lo: 0.6, hi: 1.04 },
+    dustA: { col: [38, 25, 57], hot: [79, 49, 104], lo: 0.72, hi: 1.0 },
+    dustB: { col: [19, 31, 57], hot: [48, 72, 111], lo: 0.76, hi: 1.02 },
+    dustC: { col: [30, 21, 41], hot: [65, 45, 82], lo: 0.75, hi: 1.04 },
     core: [224, 208, 255],
-    warp: 1.5, starGain: 1.0, seed: 23, gain: 1.3,
-    bandN: [-0.5, 0.75, 0.43], bandWidth: 0.42, bandGain: 0.8,
+    warp: 1.5, starGain: 1.0, seed: 23, gain: 0.9, nebulaGain: 0.24,
+    bandN: [-0.5, 0.75, 0.43], bandWidth: 0.3, bandGain: 1.55,
     bandCoreDir: [0.66, 0.52, -0.54],
     planet: {
-      dir: [0.35, 0.15, -0.9247],
-      angularRadiusDeg: 10.5, kind: "gas", turbulence: 13.0, bandScale: 38,
+      dir: [-0.12, 0.12, 0.9854],
+      angularRadiusDeg: 10.5, kind: "gas", turbulence: 1.5, bandScale: 46,
       surface: { base: [139, 128, 38], band: [73, 91, 31], detail: [202, 158, 55] },
       atmosphere: [164, 190, 77], storm: { x: -0.38, y: 0.16, rx: 0.22, ry: 0.085 },
     },
@@ -61,7 +61,7 @@ const PALETTES = {
     core: [40, 40, 42],
     warp: 0.12, starGain: 1.15, seed: 61, gain: 0.38,
     // The Orion Arm: a warm-toned diagonal river across the black sky.
-    bandN: [0.58, 0.55, -0.60], bandWidth: 0.22, bandGain: 1.15,
+    bandN: [0.58, 0.55, -0.60], bandWidth: 0.24, bandGain: 2.35,
     bandCoreDir: [0.56, -0.78, -0.28],
     planet: {
       // Readable Apollo-8-style Earthrise. ~75 deg of azimuth from the sun:
@@ -175,6 +175,9 @@ function makeNebula(W, H, P) {
         const warmCore = [132, 92, 54][ch] * bulge * bg;
         c[ch] = c[ch] * (1 - lanes) + (coolArm + warmCore) * (1 - lanes * 0.72);
       }
+      // Keep decorative nebula subordinate to the galactic river: presets can
+      // reduce its brightness independently without dimming the band or stars.
+      const beforeNebula = [...c];
       const nA = fbm(ax * 1.9, ay * 1.9, az * 1.9, 6, 0.55);
       if (!P.spaceBlack) rampMix(nA, P.dustA.lo, P.dustA.hi, P.dustA.col, P.dustA.hot, c);
       const nB = fbm(ax * 3.4 + 31, ay * 3.4, az * 3.4, 6, 0.5);
@@ -188,6 +191,8 @@ function makeNebula(W, H, P) {
       // Only inside genuinely dense dust (stretched nA above the dustA floor).
       const core = Math.pow(Math.max(0, nC), 8) * Math.max(0, (1 / (1 + Math.exp(-(nA - 0.5) * 14))) - 0.75) * 3.0;
       for (let ch = 0; ch < 3; ch++) c[ch] += P.core[ch] * core;
+      const nebulaGain = P.nebulaGain ?? 1;
+      for (let ch = 0; ch < 3; ch++) c[ch] = beforeNebula[ch] + (c[ch] - beforeNebula[ch]) * nebulaGain;
 
       // Stars: jittered point per 3D cell, distance in direction space
       const S = 90;
@@ -262,17 +267,25 @@ function makeNebula(W, H, P) {
           const cloudWarp = fbm(snx * 4 + 419, sny * 4, snz * 4, 4, 0.56) - 0.5;
           detailMix = smoothRange(0.54, 0.68, detailNoise + cloudWarp * 0.24) * (planet.surface.detailGain ?? 0.7);
         } else {
-          // Gas bands remain horizontal but their phase is turbulently warped.
+          // Layer several latitude waves for many softly varying belts. A small
+          // low-frequency phase warp roughens their edges without rotating the
+          // dominant pattern away from the equator.
           const turbulence = fbm(snx * 3.2 + 211, sny * 3.2, snz * 3.2, 5, 0.58) - 0.5;
-          const latitudeBands = 0.5 + 0.5 * Math.sin(localY * (planet.bandScale ?? 30) + turbulence * (planet.turbulence ?? 8));
-          baseMix = smoothRange(0.28, 0.7, latitudeBands);
-          detailMix = smoothRange(0.48, 0.76, detailNoise) * 0.32;
+          const phase = localY * (planet.bandScale ?? 42) + turbulence * (planet.turbulence ?? 1.6);
+          const latitudeBands = 0.5
+            + Math.sin(phase) * 0.22
+            + Math.sin(phase * 0.53 + 1.7) * 0.12
+            + Math.sin(phase * 1.83 - 0.8) * 0.07;
+          baseMix = smoothRange(0.25, 0.76, latitudeBands);
+          detailMix = smoothRange(0.54, 0.8, detailNoise) * 0.16;
           const storm = planet.storm;
           if (storm) {
             const sd = Math.hypot((localX - storm.x) / storm.rx, (localY - storm.y) / storm.ry);
             const oval = 1 - smoothRange(0.68, 1.05, sd);
-            detailMix = Math.max(detailMix, oval * 0.92);
-            baseMix *= 1 - oval * 0.55;
+            const stormAngle = Math.atan2((localY - storm.y) / storm.ry, (localX - storm.x) / storm.rx);
+            const vortex = (0.5 + 0.5 * Math.sin(stormAngle * 2.0 + sd * 8.0)) * oval;
+            detailMix = Math.max(detailMix, oval * (0.34 + vortex * 0.34));
+            baseMix = baseMix * (1 - oval * 0.28) + vortex * oval * 0.24;
           }
         }
         for (let ch = 0; ch < 3; ch++) {

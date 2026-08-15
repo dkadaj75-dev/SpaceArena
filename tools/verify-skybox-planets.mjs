@@ -11,7 +11,7 @@ const SPECS = {
     angularRadiusDeg: 38,
   },
   "ring-nebula": {
-    planetDir: [0.35, 0.15, -0.9247],
+    planetDir: [-0.12, 0.12, 0.9854],
     sunDir: [-0.677, -0.208, -0.706],
     angularRadiusDeg: 14,
   },
