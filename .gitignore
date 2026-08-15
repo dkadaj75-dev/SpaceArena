@@ -22,3 +22,5 @@ debug.log
 .gfxpass/
 .netpass/
 .tmp/
+
+.balance/

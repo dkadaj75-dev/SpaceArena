@@ -1572,10 +1572,24 @@ const CSS = `
  */
 .hud-results--mvp .hud-results-title {
   max-width:100%;
-  line-height:1.2;
-  padding-block:.14em;
+  /* 1.2 CLIPPED THE NAME. An overflow-y of visible does not survive next to an
+     overflow-x of clip — the spec computes a visible axis to clip when the
+     other axis clips — so the box really was cutting the glyphs, and the
+     display face's caps overflow a 1.2 line box. The line box now fits the
+     glyphs, and overflow-clip-margin gives the ink (and its glow) room to
+     bleed past the inline clip where the browser supports it. */
+  line-height:1.5;
+  padding-block:.22em;
+  /* The panel is a flex COLUMN, so this box is a flex item and will shrink
+     below its content when the card is tight — which shows the glyphs as a
+     middle band with their tops and bottoms sliced off, exactly the reported
+     symptom. Refuse to shrink, and floor the box at the font's own metrics
+     (Orbitron's ascender+descender is ~1.25em, wider than a 1.2 line box). */
+  flex:0 0 auto;
+  min-height:calc(1.25em + .44em);
   overflow-x:clip;
   overflow-y:visible;
+  overflow-clip-margin:.35em;
   text-overflow:ellipsis;
   white-space:nowrap;
   color:var(--hud-text, var(--sa-white));
