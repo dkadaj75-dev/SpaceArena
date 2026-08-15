@@ -115,14 +115,54 @@ describe("shipped asteroid catalogue", () => {
     expect(used.size).toBeGreaterThanOrEqual(3);
   });
 
-  it("keeps the tessellation budget proportional to the body", () => {
+  it("gives one normal strength per scan set, because the texture carries it", () => {
+    // The renderer caches one `Texture` per scan set and the normal-map strength
+    // rides `Texture.level` on it, so two configs sharing a set cannot hold
+    // different strengths — authoring them differently gives BOTH whichever
+    // config was built last. Strength is a property of the scan anyway: these
+    // four differ by ~5x in the slope they encode, and that spread is why they
+    // could not all sit near 1 and still read as rock.
+    const bySet = new Map<string, Map<number, string[]>>();
     for (const config of asteroids) {
+      const surface = config.render.surface;
+      if (!surface) continue;
+      const strengths = bySet.get(surface.textureSet) ?? new Map<number, string[]>();
+      strengths.set(surface.normalStrength, [...(strengths.get(surface.normalStrength) ?? []), config.id]);
+      bySet.set(surface.textureSet, strengths);
+    }
+    for (const [set, strengths] of bySet) {
+      expect([...strengths.keys()], `${set} strengths: ${JSON.stringify([...strengths])}`).toHaveLength(1);
+      // A map turned all the way down is the other classic way rock reads flat.
+      expect([...strengths.keys()][0]!, `${set} strength`).toBeGreaterThan(0.5);
+    }
+  });
+
+  it("keeps the tessellation budget proportional to the body", () => {
+    // Babylon's icosphere is 20 * subdivisions^2 triangles — NOT 20 * 4^n, which
+    // this test used to assume. That mistake is why the catalogue was capped at
+    // detail 4: it was believed to cost 5120 triangles when it costs 320, and the
+    // rocks were left tessellated far coarser than the budget allowed. A crater
+    // 25 degrees across cannot show on a body carrying 180 facets, so raising
+    // this is not decoration — it is what lets the authored shape be seen at all.
+    // Vertices still land exactly on the sim's field (client rockMesh.test.ts),
+    // so finer sampling moves the drawn body TOWARD the collided one.
+    const triangles = (detail: number): number => 20 * detail * detail;
+    let previousRadius = 0;
+    let previousDetail = 0;
+    for (const config of [...asteroids].sort((a, b) => a.radius - b.radius)) {
       const detail = config.render.detail;
       expect(detail, `${config.id} must author a detail level`).toBeDefined();
-      // 20 * 4^detail triangles, tripled by the unwelded box-projection UVs.
-      if (config.radius >= 11) expect(detail).toBeGreaterThanOrEqual(4);
-      if (config.radius <= 2) expect(detail).toBeLessThanOrEqual(3);
-      expect(detail).toBeLessThanOrEqual(4);
+      if (!detail) continue;
+      if (config.radius >= 11) expect(detail, `${config.id} is colossal`).toBeGreaterThanOrEqual(6);
+      if (config.radius <= 2) expect(detail, `${config.id} is a pebble`).toBeLessThanOrEqual(3);
+      // The ceiling is the shape schema's, and it is ~2.2k vertices once the
+      // box-projection UVs unweld it — small change against a ship hull.
+      expect(detail).toBeLessThanOrEqual(6);
+      expect(triangles(detail), `${config.id} triangle budget`).toBeLessThanOrEqual(720);
+      // A bigger body never gets a coarser mesh than a smaller one.
+      if (config.radius > previousRadius) expect(detail, `${config.id} vs previous`).toBeGreaterThanOrEqual(previousDetail);
+      previousRadius = config.radius;
+      previousDetail = detail;
     }
   });
 });

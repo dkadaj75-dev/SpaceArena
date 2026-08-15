@@ -16,7 +16,7 @@ import {
   type Scene,
 } from "@babylonjs/core";
 import { createLogger, type AsteroidConfig, type ModuleConfig, type Palette, type RenderRecipe } from "@space-arena/shared";
-import { buildRockGeometry, buildRockMaterial } from "./rockMesh.js";
+import { applyRockRelief, buildRockGeometry, buildRockMaterial, type RockRelief } from "./rockMesh.js";
 
 const log = createLogger("AssetRegistry");
 
@@ -399,6 +399,11 @@ export interface AsteroidLod {
    * see `quality.asteroids.proceduralOnly`). Omitted = models are used.
    */
   proceduralOnly?: boolean;
+  /**
+   * Per-pixel parallax relief on the shaped rocks (quality tier knob — see
+   * `quality.asteroids.surfaceRelief`). Omitted = normal map only.
+   */
+  surfaceRelief?: RockRelief;
 }
 
 /**
@@ -991,7 +996,14 @@ export class AssetRegistry {
       surface ? config.radius / surface.tileMeters : 1,
     );
     mesh.material = surface
-      ? buildRockMaterial(this.scene, `mat.rock.${config.id}`, surface, config.render.palette ?? {}, import.meta.env.BASE_URL)
+      ? buildRockMaterial(
+          this.scene,
+          `mat.rock.${config.id}`,
+          surface,
+          config.render.palette ?? {},
+          import.meta.env.BASE_URL,
+          this.asteroidLod?.surfaceRelief ?? "off",
+        )
       : this.flatRockMaterial(config);
     return mesh;
   }
@@ -1069,18 +1081,27 @@ export class AssetRegistry {
   }
 
   /**
-   * Set (or clear) the asteroid LOD distances. Applies to masters already built
-   * and to any built later, so a quality-tier switch mid-session takes effect
-   * without recreating the registry. `null` removes every LOD level.
+   * Set (or clear) the asteroid LOD distances and surface-relief mode. Applies
+   * to masters already built and to any built later, so a quality-tier switch
+   * mid-session takes effect without recreating the registry. `null` removes
+   * every LOD level and drops back to the plain normal map.
    */
   setAsteroidLod(lod: AsteroidLod | null): void {
     this.asteroidLod = lod;
+    const relief = lod?.surfaceRelief ?? "off";
     for (const [key, master] of this.cache) {
       const recipeId = key.slice(0, key.indexOf("::"));
       this.clearLod(key, master);
       const shaped = this.shapeLodTargets.get(key);
-      if (shaped) this.applyShapeLod(key, shaped, master);
-      else this.applyAsteroidLod(key, recipeId, paletteFromKey(key), master);
+      if (shaped) {
+        this.applyShapeLod(key, shaped, master);
+        // Parallax is a per-pixel cost, so it moves with the tier — and the LOD
+        // variants share the master's material, so retuning it here covers them.
+        const surface = shaped.render.surface;
+        if (surface && master.material instanceof PBRMaterial) {
+          applyRockRelief(this.scene, master.material, surface, import.meta.env.BASE_URL, relief);
+        }
+      } else this.applyAsteroidLod(key, recipeId, paletteFromKey(key), master);
     }
     for (const [key, target] of this.modelLodTargets) {
       this.clearLod(key, target.master);

@@ -35,7 +35,8 @@
     "lodMediumDistance": 0,
     "lodLowDistance": 0,
     "lodCullDistance": 6000,
-    "thinInstances": true
+    "thinInstances": true,
+    "surfaceRelief": "occlusion"
   },
   "projectiles": {
     "useInstances": true

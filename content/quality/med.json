@@ -32,7 +32,8 @@
     "lodMediumDistance": 0,
     "lodLowDistance": 0,
     "lodCullDistance": 3000,
-    "thinInstances": false
+    "thinInstances": false,
+    "surfaceRelief": "parallax"
   },
   "projectiles": {
     "useInstances": true

@@ -40,13 +40,13 @@
       "primary": "#4d423a",
       "accent": "#87684a"
     },
-    "detail": 4,
+    "detail": 6,
     "surface": {
       "textureSet": "aerial_ground_rock",
       "tileMeters": 6.8,
       "roughness": 1,
       "metallic": 0,
-      "normalStrength": 1.35
+      "normalStrength": 3.2
     },
     "spin": {
       "minDegPerSec": 1,

@@ -111,13 +111,29 @@ const CSS = `
 .hud-root[data-presentation="scoreboard"] > .hud-results { display:none !important; }
 .hud-scoreboard h2 { margin:0 0 12px; font-family:var(--hud-font-display,inherit); letter-spacing:.15em; color:var(--hud-primary,var(--sa-blue-500)); }
 .hud-scoreboard h2 { flex:0 0 auto; }
-.hud-scoreboard table { --hud-scoreboard-team:var(--sa-red-500); width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:clamp(.68rem,2vw,.9rem); }
-.hud-scoreboard table.hud-scoreboard-team--ally { --hud-scoreboard-team:var(--sa-blue-500); }
-.hud-scoreboard table.hud-scoreboard-team--enemy { --hud-scoreboard-team:var(--sa-red-500); }
-.hud-scoreboard caption { text-align:left; color:var(--hud-scoreboard-team); font-weight:700; padding:5px; }
+/* Team colour is viewer-relative (see matchPresentation.teamPerspective): the
+   viewer's own roster is the HUD primary, every other team is the danger tone.
+   Both the heading tint AND the block fill are derived from that one token, so
+   a themed pack re-hues a whole roster by setting --hud-primary/--hud-danger.
+   The fill is what tells the two rosters apart at a glance — a red caption over
+   rows on the shared panel field read as one continuous list. */
+.hud-scoreboard table {
+  --hud-scoreboard-team:var(--hud-danger,var(--sa-red-500));
+  --hud-scoreboard-team-pct:20%;
+  --hud-scoreboard-team-fill:color-mix(in srgb,var(--hud-scoreboard-team) var(--hud-scoreboard-team-pct),transparent);
+  width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:clamp(.68rem,2vw,.9rem);
+  background:var(--hud-scoreboard-team-fill);
+}
+/* The viewer's own block stays the quieter of the two: it already carries the
+   highlighted local-player row, so the enemy block is the one that must shout. */
+.hud-scoreboard table.hud-scoreboard-team--ally { --hud-scoreboard-team:var(--hud-primary,var(--sa-blue-500)); --hud-scoreboard-team-pct:10%; }
+.hud-scoreboard table.hud-scoreboard-team--enemy { --hud-scoreboard-team:var(--hud-danger,var(--sa-red-500)); --hud-scoreboard-team-pct:20%; }
+.hud-scoreboard caption { text-align:left; color:var(--hud-scoreboard-team); font-weight:700; padding:5px; background:var(--hud-scoreboard-team-fill); box-shadow:inset var(--sa-line-thin,2px) 0 var(--hud-scoreboard-team); }
 .hud-scoreboard th,.hud-scoreboard td { padding:6px; text-align:right; border-bottom:1px solid color-mix(in srgb,var(--hud-scoreboard-team) 30%,transparent); }
 .hud-scoreboard th:first-child,.hud-scoreboard td:first-child { text-align:left; min-width:8em; }
-.hud-scoreboard tr.hud-scoreboard-local-player { background:color-mix(in srgb,var(--hud-scoreboard-team) 22%,transparent); box-shadow:inset 3px 0 var(--hud-accent,var(--sa-white)); }
+/* Reads over either block fill: a heavier wash of the same hue plus the white
+   rail, rather than a colour of its own. */
+.hud-scoreboard tr.hud-scoreboard-local-player { background:color-mix(in srgb,var(--hud-scoreboard-team) 30%,transparent); box-shadow:inset 3px 0 var(--hud-accent,var(--sa-white)); }
 .hud-scoreboard tr.hud-scoreboard-local-player td { color:var(--hud-accent,var(--sa-white)); font-weight:700; }
 .hud-scoreboard-btn { position:absolute; top:calc(var(--hud-inset-top) + 42px); right:var(--hud-inset-right); z-index:31; pointer-events:auto; border:1px solid var(--hud-primary,var(--sa-blue-500)); background:color-mix(in srgb,var(--hud-bg,var(--sa-n-900)) 75%,transparent); color:var(--hud-text,var(--sa-white)); padding:7px 10px; font:inherit; font-size:.68rem; }
 .hud-results-scoreboard { width:100%; }
@@ -1413,20 +1429,43 @@ const CSS = `
   overflow-y: auto;
   background: transparent;
 }
+/*
+ * MVP card sizing is ONE responsive step: every child is sized in em off the
+ * card's own font-size (badge, name, chips, labels, buttons), so this single
+ * clamp scales the whole panel from a 320px phone to a desktop. The min()
+ * against vh is what makes short landscape work — a 390px-tall phone gets the
+ * type it has room for, not the type its width would suggest.
+ */
 .hud-results--mvp .hud-results-panel {
   width:min(440px, 44vw);
   max-width:calc(100% - var(--hud-inset-left) - var(--hud-inset-right));
   margin-right:max(var(--hud-inset-right), 4vw);
-  gap:10px;
-  padding:min(25px, 3.2vh) min(34px, 4vw);
+  gap:.5em;
+  font-size:clamp(.72rem, min(.58rem + .85vw, 3.1vh), 1.15rem);
+  padding:min(1.5em, 3.2vh) min(2em, 4vw);
+}
+/* A phone on its side has width to spare and no height at all, so the card
+   trades its narrow column for a wider one — which is what puts the actions on
+   a single 44px row instead of three. */
+@media (orientation:landscape) and (max-height:480px) {
+  .hud-results--mvp .hud-results-panel { width:min(560px, 66vw); }
+  .hud-results--mvp .hud-results-mvp-badge { --hud-mvp-badge-box:min(var(--hud-mvp-badge-size, 112px), 15vh); }
+}
+/* Shortest landscape of all (an SE-class phone on its side). Every box here is
+   already em-sized, so tightening the card's own rhythm shrinks the whole
+   thing — except the 44px tap targets, which is why the leading goes first. */
+@media (orientation:landscape) and (max-height:360px) {
+  .hud-results--mvp .hud-results-panel { font-size:clamp(.66rem, min(.58rem + .85vw, 3.1vh), 1rem); gap:.3em; padding:.7em 1.4em; }
+  .hud-results--mvp .hud-results-title { font-size:clamp(1.05rem, 1.9em, 2.2rem); }
 }
 @media (orientation:portrait) {
   .hud-results--mvp .hud-results-panel {
     width:calc(100% - var(--hud-inset-left) - var(--hud-inset-right));
     margin:0 var(--hud-inset-right) var(--hud-inset-bottom) var(--hud-inset-left);
-    max-height:52vh;
-    padding:15px 20px;
-    gap:7px;
+    max-height:64vh;
+    font-size:clamp(.72rem, min(.56rem + 1.25vw, 2.1vh), 1.1rem);
+    padding:.9em 1.25em;
+    gap:.4em;
   }
 }
 /* Same two-plate frame as the in-match widgets, at panel scale. */
@@ -1450,7 +1489,14 @@ const CSS = `
   inset: var(--hud-rim);
   background: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 94%, transparent);
 }
-.hud-results-panel > * { position: relative; z-index: 1; }
+/*
+ * Panel children never shrink. The panel is a capped-height flex column, so the
+ * default flex-shrink:1 let a too-tall card squeeze its own rows below their
+ * content height — which is how the MVP name ended up cropped through its own
+ * overflow (and, on a 320px phone, squeezed to zero). Content that does not
+ * fit scrolls the panel instead, which is what overflow-y:auto is there for.
+ */
+.hud-results-panel > * { position: relative; z-index: 1; flex: 0 0 auto; max-width: 100%; }
 .hud-results-outcome-tag {
   align-self:flex-end;
   padding:3px 9px;
@@ -1463,16 +1509,20 @@ const CSS = `
 .hud-results-outcome-tag[data-outcome="victory"],
 .hud-results-outcome-tag[data-outcome="targets-cleared"] { color:var(--hud-primary, var(--sa-blue-500)); }
 .hud-results-outcome-tag[data-outcome="defeat"] { color:var(--hud-danger, var(--sa-red-500)); }
+/* The theme's badgeSizePx is the CAP, not the size: on a short landscape phone
+   a literal 112px hex ate the card. Its label is a fraction of the resolved box
+   so the word can never outgrow the hex it sits in. */
 .hud-results-mvp-badge {
-  width:var(--hud-mvp-badge-size, 112px);
-  height:var(--hud-mvp-badge-size, 112px);
+  --hud-mvp-badge-box: min(var(--hud-mvp-badge-size, 112px), 26vw, 17vh);
+  width:var(--hud-mvp-badge-box);
+  height:var(--hud-mvp-badge-box);
   display:grid;
   place-items:center;
-  margin-top:calc(var(--hud-mvp-badge-size, 112px) * -.36);
+  margin-top:calc(var(--hud-mvp-badge-box) * -.36);
   clip-path:polygon(50% 0, 88% 12%, 100% 50%, 88% 88%, 50% 100%, 12% 88%, 0 50%, 12% 12%);
   color:var(--hud-bg, var(--sa-n-900));
   background:var(--mvp-team, var(--hud-primary, var(--sa-blue-500)));
-  font:900 clamp(1.5rem, 4vw, 2.5rem)/1 var(--hud-font-display, system-ui, sans-serif);
+  font:900 calc(var(--hud-mvp-badge-box) * .32)/1.1 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing:.08em;
   filter:drop-shadow(0 0 calc(24px * var(--hud-glow)) var(--mvp-team, var(--hud-primary, var(--sa-blue-500))));
   animation:hud-mvp-badge var(--hud-mvp-badge-ms, 520ms) cubic-bezier(.16, 1.35, .32, 1) both;
@@ -1508,15 +1558,33 @@ const CSS = `
   text-align: center;
   animation: hud-results-banner 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
+/*
+ * The pilot/ship name. Three separate things kept cropping it:
+ *  - a 1.05 line box, which is SHORTER than the display font's own
+ *    ascender+descender, so the ink hung outside the box it was clipped to;
+ *  - overflow:hidden clipping both axes, so that overhang (and the glow) was
+ *    cut top and bottom rather than merely overflowing;
+ *  - the flex column shrinking the box below even that (fixed above).
+ * So: a line box that holds the font's own metrics, block padding for the ink a
+ * themed display face may still hang outside it, and clipping only where
+ * clipping is wanted — the inline axis, where a long name must ellipsize rather
+ * than push the card wide.
+ */
 .hud-results--mvp .hud-results-title {
   max-width:100%;
-  overflow:hidden;
+  line-height:1.2;
+  padding-block:.14em;
+  overflow-x:clip;
+  overflow-y:visible;
   text-overflow:ellipsis;
   white-space:nowrap;
   color:var(--hud-text, var(--sa-white));
-  font-size:clamp(1.75rem, 4.5vw, 3.25rem);
-  line-height:1.05;
-  text-shadow:0 0 22px color-mix(in srgb, var(--mvp-team) 55%, transparent);
+  font-size:clamp(1.15rem, 2.2em, 3rem);
+  /* A drop-shadow filter rather than a shadow on the text — a filter is applied
+     AFTER the inline-axis clip (the same reason the frames glow with one), so
+     the halo traces the word, and an ellipsised name, instead of being cut into
+     a lit rectangle at the box edge. */
+  filter:drop-shadow(0 0 .55em color-mix(in srgb, var(--mvp-team) 55%, transparent));
   animation:hud-mvp-name .48s cubic-bezier(.16, 1, .3, 1) var(--hud-mvp-name-delay-ms, 430ms) both;
 }
 @keyframes hud-mvp-name { from { opacity:0; transform:translateY(14px); letter-spacing:.02em; } to { opacity:1; transform:none; letter-spacing:.14em; } }
@@ -1565,7 +1633,7 @@ const CSS = `
 .hud-results-stat {
   flex:1 1 0;
   min-width:0;
-  padding:8px 5px 7px;
+  padding:.5em .35em .45em;
   display:flex;
   flex-direction:column;
   align-items:center;
@@ -1576,8 +1644,10 @@ const CSS = `
 }
 .hud-results-stat:nth-child(2) { --chip-delay:80ms; }
 .hud-results-stat:nth-child(3) { --chip-delay:160ms; }
-.hud-results-stat-value { color:var(--hud-text, var(--sa-white)); font:800 1.45em/1 var(--hud-font-display, system-ui, sans-serif); font-variant-numeric:tabular-nums; }
-.hud-results-stat-label { margin-top:4px; color:var(--hud-neutral, var(--sa-n-400)); font-size:.56em; letter-spacing:.12em; }
+/* line-height 1.15, not 1: a display face's digits sit taller than a 1.0 line
+   box, and the chip is one of the boxes that used to crop them. */
+.hud-results-stat-value { color:var(--hud-text, var(--sa-white)); font:800 1.45em/1.15 var(--hud-font-display, system-ui, sans-serif); font-variant-numeric:tabular-nums; }
+.hud-results-stat-label { margin-top:.3em; color:var(--hud-neutral, var(--sa-n-400)); font-size:.56em; letter-spacing:.12em; }
 @keyframes hud-mvp-chip { from { opacity:0; transform:translateY(10px) scale(.94); } to { opacity:1; transform:none; } }
 .hud-results-rewards {
   display: flex;
@@ -1614,6 +1684,11 @@ const CSS = `
 .hud-results--mvp .hud-results-actions {
   animation:hud-mvp-actions .48s cubic-bezier(.16, 1, .3, 1) var(--hud-mvp-actions-delay-ms, 1120ms) both;
 }
+/* Em-sized box, px-floored tap target: the 96px/18px literals kept the two
+   secondary actions one-per-row on a 320px phone, which cost 52px of a card
+   that had none to spare. The 44px minimum is the tap target and does not
+   scale. */
+.hud-results--mvp .hud-results-btn { min-width:6.5em; padding:.55em 1.15em; }
 @keyframes hud-mvp-actions { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:none; } }
 .hud-results--mvp-skipped .hud-results-mvp-badge,
 .hud-results--mvp-skipped .hud-results-participants,

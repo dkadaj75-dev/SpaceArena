@@ -113,7 +113,18 @@ export const rockSurfaceSchema = z.object({
   roughness: z.number().min(0).max(2).default(1),
   /** Dielectric rock is never metallic; exposed only for icy/metallic variants. */
   metallic: z.number().min(0).max(1).default(0),
-  /** Normal-map strength; >1 exaggerates the micro relief. */
+  /**
+   * Normal-map strength; >1 exaggerates the micro relief.
+   *
+   * It belongs to the SCAN, not to the rock: the four sets differ by a factor of
+   * five in how much slope they actually encode (`gray_rocks` has a standard
+   * deviation of 33/255 in red, `aerial_ground_rock` 7/255), so this is the
+   * per-set correction that makes them read alike. It is also enforced per set,
+   * because the renderer carries the value on the shared `Texture.level` — two
+   * configs on one scan set CANNOT hold different strengths, and authoring them
+   * differently would silently give both whichever loaded last. See
+   * `shippedAsteroids.test.ts`.
+   */
   normalStrength: z.number().min(0).max(4).default(1),
 });
 export type RockSurfaceConfig = z.infer<typeof rockSurfaceSchema>;

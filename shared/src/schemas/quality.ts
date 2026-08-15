@@ -130,6 +130,22 @@ export const qualitySchema = z.object({
      * data so denser arenas can turn it on without a code change.
      */
     thinInstances: z.boolean(),
+    /**
+     * Per-pixel surface relief on the shaped rocks' PBR material, on top of the
+     * normal map every tier gets.
+     *
+     *  - `off`       — normal map only.
+     *  - `parallax`  — one extra texture tap that shifts the UV by the local
+     *                  height, so the grain sits IN the rock instead of on it.
+     *  - `occlusion` — parallax occlusion mapping: a short march along the view
+     *                  ray (up to 15 taps) that lets ridges hide what is behind
+     *                  them and makes a crater rim shift as the camera moves.
+     *
+     * A tier knob rather than content because the cost is per PIXEL of rock on
+     * screen, which is exactly the budget that separates a phone from a desktop.
+     * Optional so an already-published pack stays valid; omitted ⇒ `off`.
+     */
+    surfaceRelief: z.enum(["off", "parallax", "occlusion"]).optional(),
   }),
 
   projectiles: z.object({

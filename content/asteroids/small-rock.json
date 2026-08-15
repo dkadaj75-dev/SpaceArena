@@ -32,7 +32,7 @@
       "primary": "#5b5148",
       "accent": "#7d7266"
     },
-    "detail": 3,
+    "detail": 5,
     "surface": {
       "textureSet": "gray_rocks",
       "tileMeters": 3.2,

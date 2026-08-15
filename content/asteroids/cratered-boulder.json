@@ -31,13 +31,13 @@
       "primary": "#4b433c",
       "accent": "#8d7b64"
     },
-    "detail": 3,
+    "detail": 5,
     "surface": {
       "textureSet": "moon_dusted_01",
       "tileMeters": 5,
       "roughness": 1,
       "metallic": 0,
-      "normalStrength": 1.4
+      "normalStrength": 2.6
     },
     "spin": {
       "minDegPerSec": 2,

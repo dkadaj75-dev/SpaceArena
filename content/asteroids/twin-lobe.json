@@ -36,13 +36,13 @@
       "primary": "#463c33",
       "accent": "#7a5c3f"
     },
-    "detail": 4,
+    "detail": 6,
     "surface": {
       "textureSet": "gray_rocks",
       "tileMeters": 8,
       "roughness": 1,
       "metallic": 0,
-      "normalStrength": 1.25
+      "normalStrength": 1.35
     },
     "spin": {
       "minDegPerSec": 0.8,

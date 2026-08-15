@@ -59,7 +59,13 @@ export function scoreboardScore(line: Readonly<MatchStatLine>, ctf: boolean): nu
     + (ctf ? line.flagsCaptured * 1000 + line.flagsReturned * 100 : 0);
 }
 
-/** Resolve team meaning from the frame the HUD is about to paint. */
+/**
+ * Resolve team meaning from the frame the HUD is about to paint.
+ *
+ * Spectating — or any frame before the viewer's own ship is in the snapshot —
+ * falls back to team 0, which leaves TEAM 2 as the enemy (red) block rather
+ * than painting both rosters the same colour.
+ */
 export function viewerTeam(snapshot: Pick<Snapshot, "ships">, playerId: EntityId): number {
   for (const ship of snapshot.ships) if (ship.id === playerId) return ship.team;
   return 0;
