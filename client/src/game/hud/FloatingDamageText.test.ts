@@ -153,17 +153,45 @@ describe("FloatingDamageText", () => {
     // Seed the team lookup the way a live frame does, then take the hits.
     text.update(snapshot(), snapshot(), 1, 16);
     text.consumeEvents([
-      { type: "damage", targetId: TEAMMATE, sourceId: ENEMY, amount: 5, damageType: "energy", isAsteroid: false },
-      { type: "damage", targetId: ENEMY, sourceId: TEAMMATE, amount: 6, damageType: "energy", isAsteroid: false },
+      { type: "damage", targetId: PLAYER, sourceId: ENEMY, amount: 5, damageType: "energy", isAsteroid: false },
+      { type: "damage", targetId: ENEMY, sourceId: PLAYER, amount: 6, damageType: "energy", isAsteroid: false },
     ]);
     text.update(snapshot(), snapshot(), 1, 16);
 
     const labels = root.querySelectorAll<HTMLElement>(".hud-damage-number:not([hidden])");
     expect(labels).toHaveLength(2);
-    const teammateHit = [...labels].find((el) => el.textContent === "5")!;
-    const enemyHit = [...labels].find((el) => el.textContent === "6")!;
-    expect(teammateHit.classList.contains("friendly")).toBe(true);
-    expect(enemyHit.classList.contains("hostile")).toBe(true);
+    const takenHit = [...labels].find((el) => el.textContent === "5")!;
+    const dealtHit = [...labels].find((el) => el.textContent === "6")!;
+    expect(takenHit.classList.contains("friendly")).toBe(true);
+    expect(dealtHit.classList.contains("hostile")).toBe(true);
+    text.dispose();
+  });
+
+  // Owner's rule (2026-08-15): the board is the PLAYER's fight. Ten ships
+  // trading hits produced labels for exchanges the player cannot act on, and
+  // they competed with the two numbers that decide the next move.
+  it("ignores damage the player neither dealt nor took", () => {
+    const root = document.createElement("div");
+    const text = new FloatingDamageText(root, PLAYER, {
+      project: (_x, _y, _z, out) => {
+        out.x = 30;
+        out.y = 40;
+        out.behind = false;
+        return true;
+      },
+    });
+    text.update(snapshot(), snapshot(), 1, 16);
+    text.consumeEvents([
+      // A teammate and an enemy duelling somewhere else on the map.
+      { type: "damage", targetId: TEAMMATE, sourceId: ENEMY, amount: 5, damageType: "energy", isAsteroid: false },
+      { type: "damage", targetId: ENEMY, sourceId: TEAMMATE, amount: 6, damageType: "energy", isAsteroid: false },
+      { type: "shieldAbsorb", targetId: TEAMMATE, sourceId: ENEMY, hardpointIndex: 0, amount: 4, damageType: "energy" },
+      // An unattributed hit on someone else — no source to claim it either.
+      { type: "damage", targetId: TEAMMATE, sourceId: null, amount: 7, damageType: "kinetic", isAsteroid: false },
+    ]);
+    text.update(snapshot(), snapshot(), 1, 16);
+
+    expect(root.querySelectorAll(".hud-damage-number:not([hidden])")).toHaveLength(0);
     text.dispose();
   });
 
@@ -186,7 +214,8 @@ describe("FloatingDamageText", () => {
     const text = new FloatingDamageText(root, PLAYER, null);
     const events: SimEvent[] = [];
     for (let i = 0; i < 25; i++) {
-      events.push({ type: "damage", targetId: 100 + i, sourceId: null, amount: 1, damageType: "kinetic", isAsteroid: false });
+      // The player's own hits: only damage they dealt or took reaches the pool.
+      events.push({ type: "damage", targetId: 100 + i, sourceId: PLAYER, amount: 1, damageType: "kinetic", isAsteroid: false });
     }
     text.consumeEvents(events);
     expect(root.querySelectorAll(".hud-damage-number")).toHaveLength(24);

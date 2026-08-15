@@ -125,12 +125,25 @@ export class FloatingDamageText {
     }
   }
 
+  /**
+   * MY fight only (owner request 2026-08-15). A ten-ship match trades hits
+   * constantly, and every exchange on the far side of the arena used to throw
+   * its own labels — noise the player cannot act on, competing with the two
+   * numbers that decide their next move. A hit is drawn only when the player
+   * DEALT it or TOOK it; everyone else's duel is silent.
+   */
+  private isMine(sourceId: EntityId | null, targetId: EntityId): boolean {
+    return sourceId === this.playerId || targetId === this.playerId;
+  }
+
   consumeEvents(events: readonly SimEvent[]): void {
     for (let i = 0; i < events.length; i++) {
       const event = events[i]!;
       if (event.type === "damage" && !event.isAsteroid) {
+        if (!this.isMine(event.sourceId, event.targetId)) continue;
         this.add(event.targetId, event.amount, "hull");
       } else if (event.type === "shieldAbsorb") {
+        if (!this.isMine(event.sourceId, event.targetId)) continue;
         this.add(event.targetId, event.amount, "shield");
       }
     }
