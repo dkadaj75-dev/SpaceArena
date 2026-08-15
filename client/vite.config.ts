@@ -299,26 +299,37 @@ export default defineConfig(({ command }) => ({
             handler: "NetworkFirst",
             options: {
               cacheName: "space-arena-content-json",
-              networkTimeoutSeconds: 5,
+              // 2s, not 5: the pack is ~170 small files, so on a link that is
+              // merely slow rather than dead this is the difference between a
+              // brief stall and minutes of dead time before the cache is used.
+              networkTimeoutSeconds: 2,
               cacheableResponse: { statuses: [200] },
               expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 },
             },
           },
           {
-            // Binary pack assets keep their URLs when a pack regenerates (the
-            // lunar-rift chunk GLBs were rewritten in place), so cache-first
-            // showed players old geometry inside a world whose server collision
-            // had moved on. Network first; the cache is the offline fallback.
+            // Binary pack assets keep their URLs when a pack regenerates, so
+            // this was NetworkFirst to stop a cache serving old geometry inside
+            // a world whose server collision had moved on.
+            //
+            // That cost far more than it bought. NetworkFirst pays a round trip
+            // on EVERY asset even when the cache already holds it, so on mobile
+            // data a warm install still re-fetched ~5 MB of terrain chunks,
+            // textures and audio at 100-300 ms of latency apiece — the single
+            // biggest reason the game ran worse off wifi.
+            //
+            // StaleWhileRevalidate serves the cached copy immediately and
+            // refreshes in the background, so the stale-geometry window is one
+            // load rather than forever: `registerType: "autoUpdate"` plus
+            // `clientsClaim` and `cleanupOutdatedCaches` above mean a redeploy
+            // activates a new worker promptly, and the revalidation behind this
+            // frame has the correct asset ready for the next one.
             // maxEntries must fit a full arena: 32 terrain chunks + textures +
             // props + ship hulls + audio blew past the old 60-entry LRU.
             urlPattern: /\/content\/.*\.(glb|gltf|bin|png|jpe?g|webp|ktx2|mp3|ogg|wav)(\?.*)?$/,
-            handler: "NetworkFirst",
+            handler: "StaleWhileRevalidate",
             options: {
               cacheName: "space-arena-content-assets",
-              // Generous: the match loading screen absorbs the wait, and a
-              // slow-but-alive server falling back to cache would re-create
-              // exactly the stale-geometry mismatch this rule exists to stop.
-              networkTimeoutSeconds: 10,
               cacheableResponse: { statuses: [200] },
               expiration: { maxEntries: 160, maxAgeSeconds: 30 * 24 * 60 * 60 },
             },

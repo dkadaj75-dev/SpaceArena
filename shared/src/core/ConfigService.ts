@@ -43,6 +43,39 @@ export interface ConfigEvents extends Record<string, unknown> {
 /** Loads a content file (relative path) and returns its parsed JSON. */
 export type ConfigLoader = (path: string) => Promise<unknown>;
 
+/**
+ * How many pack files may be in flight at once while loading.
+ *
+ * High enough that a high-latency link (mobile data: 100-300 ms per round trip)
+ * spends its time overlapping rather than queueing, low enough not to swamp a
+ * phone's connection pool or a dev server — browsers cap same-origin HTTP/1.1
+ * at ~6 sockets anyway, and HTTP/2 multiplexes.
+ */
+const PACK_LOAD_CONCURRENCY = 12;
+
+/**
+ * `items.map(fn)` with at most `limit` promises in flight, resolving to results
+ * in INPUT ORDER. Order is load-bearing here: it decides which duplicate id
+ * wins and the order validation errors are reported in.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      out[index] = await fn(items[index]!, index);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 function deepFreeze<T>(obj: T): T {
   if (obj === null || typeof obj !== "object") return obj;
   for (const value of Object.values(obj as Record<string, unknown>)) {
@@ -108,14 +141,35 @@ export class ConfigService {
     const fileById = new Map<string, string>();
     const configs: AnyConfig[] = [];
 
-    for (const file of manifestParsed.data.files) {
-      let raw: unknown;
-      try {
-        raw = await this.loader(file);
-      } catch (err) {
-        errors.push({ file, path: "", message: `failed to load file: ${String(err)}` });
+    // Fetch the pack CONCURRENTLY, then process it in manifest order.
+    //
+    // This loop used to await each file in turn. Over `fetch` that serialises
+    // one network round trip per config: on a fast link 170 files cost a few
+    // seconds, but on mobile data — 100-300 ms of latency each, plus the radio
+    // waking from idle — the same pack took the better part of a minute before
+    // a single mesh had loaded. Order still decides which duplicate id wins and
+    // the order errors are reported in, so results are consumed strictly in
+    // manifest order; only the waiting overlaps.
+    const loaded = await mapWithConcurrency(
+      manifestParsed.data.files,
+      PACK_LOAD_CONCURRENCY,
+      async (file) => {
+        try {
+          return { ok: true as const, raw: await this.loader(file) };
+        } catch (err) {
+          return { ok: false as const, message: `failed to load file: ${String(err)}` };
+        }
+      },
+    );
+
+    for (let i = 0; i < manifestParsed.data.files.length; i++) {
+      const file = manifestParsed.data.files[i]!;
+      const fetched = loaded[i]!;
+      if (!fetched.ok) {
+        errors.push({ file, path: "", message: fetched.message });
         continue;
       }
+      const raw: unknown = fetched.raw;
       const result = validateConfig(raw);
       if (!result.success) {
         if (result.error) {
