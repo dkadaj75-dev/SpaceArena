@@ -67,11 +67,22 @@ import {
 import { CEILING, CRATERS, FLAGS, KILL_FLOOR, LANES, MOUTHS, SPAWNS, TUNNELS, TUNNELS_SOUTH } from "./lunar-rift/riftLib.js";
 
 // ---------- budgets ----------
-const LOD0_TRI_BUDGET = 320_000;
-const LOD1_TRI_BUDGET = 120_000;
+/**
+ * Budget for the RAW surface this tool emits. The shipped LOD0/LOD1 budgets are
+ * enforced by tools/bake-lunar-rift-terrain.mjs, which simplifies these meshes
+ * down to what actually ships.
+ */
+const SOURCE_TRI_BUDGET = 340_000;
 const COLLISION_TRI_BUDGET = 80_000;
 const CHUNK_GLB_BYTES = 1_600_000;
-const LOD_DISTANCE = 190;
+/**
+ * Chunk centres are 192u apart and Babylon measures LOD distance to a mesh's
+ * bounding-sphere CENTRE, so the old 190 put every orthogonal neighbour on LOD1
+ * the moment you stood on your own chunk — a cross-LOD border everywhere, all
+ * the time. 300 clears the 192u orthogonal and 271.5u diagonal neighbours, so a
+ * chunk only drops to LOD1 once it is genuinely in the distance.
+ */
+const LOD_DISTANCE = 300;
 const COORD_LIMIT = 404;
 const GROUND_DROP_LIMIT = 6;
 const TUNNEL_CLEARANCE = 6.2;
@@ -160,8 +171,18 @@ async function generate(wasm: ManifoldToplevel, log: (message: string) => void):
   const propCollisions = new Map<string, PropCollision>();
 
   for (const spec of specs) {
+    // ONE full-resolution surface per chunk, used for both LOD levels.
+    //
+    // LOD1 used to be meshed independently at twice the pitch. That gave every
+    // cross-LOD border its own private set of chords, so the moment a chunk
+    // swapped LOD the ground split away from its neighbour — and because the
+    // swap distance is shorter than the chunk pitch, a cross-LOD border is the
+    // normal in-play state, not an edge case. Both levels are now cut from this
+    // one mesh by tools/bake-lunar-rift-terrain.mjs, which never touches the
+    // border ring, so LOD0 and LOD1 of any chunk present an identical edge and
+    // a cross-LOD border is as watertight as a same-LOD one.
     const lod0 = buildChunkSurface(wasm, field, spec, spec.cell, { rims: true, lod: 0 });
-    const lod1 = buildChunkSurface(wasm, field, spec, spec.cell * 2, { rims: true, lod: 1 });
+    const lod1 = lod0;
     const collision = buildChunkCollision(wasm, field, spec);
     const id = `lunar-rift-chunk-${spec.index}`;
     const lod0Glb = await encodeGlb(`LOD0_TERRAIN_${spec.index}`, [{ surface: lod0, material: RIFT_ROCK }]);
@@ -189,8 +210,8 @@ async function generate(wasm: ManifoldToplevel, log: (message: string) => void):
     chunks.push({ spec, lod0, lod1, collision, lod0Bytes: lod0Glb.length, lod1Bytes: lod1Glb.length });
     log(
       `chunk ${spec.index} pitch ${spec.cell} play ${(spec.playFraction * 100).toFixed(0)}% ` +
-        `lod0 ${(lod0.indices.length / 3).toLocaleString()} tris ${(lod0Glb.length / 1024).toFixed(0)}KB ` +
-        `lod1 ${(lod1.indices.length / 3).toLocaleString()} col ${(collision.indices.length / 3).toLocaleString()}`,
+        `source ${(lod0.indices.length / 3).toLocaleString()} tris ${(lod0Glb.length / 1024).toFixed(0)}KB ` +
+        `col ${(collision.indices.length / 3).toLocaleString()}`,
     );
   }
 
@@ -558,9 +579,9 @@ function budgetChecks(generated: Generated): CheckRow[] {
   const lod1 = generated.chunks.reduce((sum, c) => sum + c.lod1.indices.length / 3, 0);
   const collision = generated.chunks.reduce((sum, c) => sum + c.collision.indices.length / 3, 0);
   const biggest = generated.chunks.reduce((max, c) => Math.max(max, c.lod0Bytes, c.lod1Bytes), 0);
+  void lod1;
   return [
-    { name: `LOD0 total <= ${LOD0_TRI_BUDGET.toLocaleString()} tris`, pass: lod0 <= LOD0_TRI_BUDGET, detail: `${lod0.toLocaleString()} tris` },
-    { name: `LOD1 total <= ${LOD1_TRI_BUDGET.toLocaleString()} tris`, pass: lod1 <= LOD1_TRI_BUDGET, detail: `${lod1.toLocaleString()} tris` },
+    { name: `source total <= ${SOURCE_TRI_BUDGET.toLocaleString()} tris`, pass: lod0 <= SOURCE_TRI_BUDGET, detail: `${lod0.toLocaleString()} tris (bake trims this to the shipped LOD budgets)` },
     { name: `collision total <= ${COLLISION_TRI_BUDGET.toLocaleString()} tris`, pass: collision <= COLLISION_TRI_BUDGET, detail: `${collision.toLocaleString()} tris` },
     { name: `chunk GLB <= ${(CHUNK_GLB_BYTES / 1024 / 1024).toFixed(2)} MB`, pass: biggest <= CHUNK_GLB_BYTES, detail: `largest ${(biggest / 1024).toFixed(0)} KB` },
   ];

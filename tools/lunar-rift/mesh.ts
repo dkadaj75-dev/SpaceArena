@@ -21,16 +21,27 @@ export const CHUNK_SIZE = (WORLD_EXT * 2) / CHUNKS_PER_SIDE;
 export const SOLID_BOTTOM = -26;
 
 /**
- * Per-chunk grid pitch. The spec asks for 1.6u on playable chunks and 4.0u on
- * pure highland, but 1.6u everywhere is needlessly expensive because only the
- * core chunks are predominantly playable. The
- * middle tier keeps the flank lanes dense while fitting the budget with room
- * for the CSG bores. See the deviation note in the tool header.
+ * ONE grid pitch for every chunk, and it has to stay that way.
+ *
+ * The pitch used to be tiered (1.6 core / 2.0 flank / 4.0 highland) to spend
+ * triangles where the play is. That is exactly what put a seam down every
+ * internal chunk border: two neighbours sampling the same border line at 1.6u
+ * and 2.0u only share a vertex every 8u, so between shared vertices each side
+ * chords a curved height field on its own and the two surfaces separate. The
+ * gap is small (~1.5cm) but it is a real hole, and at a grazing camera angle a
+ * hole lets the background through as a dead-straight line.
+ *
+ * With a single pitch every chunk samples the SAME world grid, so a border row
+ * is the same list of world points on both sides, `heightAtDetailed` gives it
+ * the same y, and `displacement` (a pure function of world position) gives it
+ * the same offset. The two rings are then identical by construction rather
+ * than by tolerance, which is the only version of this that cannot drift.
+ *
+ * Detail is bought back afterwards by tools/bake-lunar-rift-terrain.mjs, which
+ * simplifies chunk INTERIORS and leaves the border ring untouched.
+ * tools/lunar-rift-seam-audit.mjs is the gate that keeps this honest.
  */
-const CELL_CORE = 1.6;
-const CELL_FLANK = 2;
-const CELL_HIGHLAND = 4;
-const CORE_FRACTION = 0.62;
+const CELL = 2;
 const FLANK_FRACTION = 0.08;
 /** Existing collision pitch retained for its tested terrain fidelity. */
 const COLLISION_CELL = 2.5;
@@ -84,7 +95,10 @@ export function planChunks(field: RiftField): ChunkSpec[] {
         }
       }
       const playFraction = hits / total;
-      const cell = playFraction >= CORE_FRACTION ? CELL_CORE : playFraction >= FLANK_FRACTION ? CELL_FLANK : CELL_HIGHLAND;
+      // The render pitch is uniform, but collision still coarsens over pure
+      // highland — collision meshes are per-chunk broadphase geometry that
+      // never has to line up with a neighbour, so the old tiering stands.
+      const highland = playFraction < FLANK_FRACTION;
       specs.push({
         index: iz * CHUNKS_PER_SIDE + ix,
         ix,
@@ -93,8 +107,8 @@ export function planChunks(field: RiftField): ChunkSpec[] {
         z0,
         cx: x0 + CHUNK_SIZE / 2,
         cz: z0 + CHUNK_SIZE / 2,
-        cell,
-        collisionCell: cell === CELL_HIGHLAND ? COLLISION_CELL_HIGHLAND : COLLISION_CELL,
+        cell: CELL,
+        collisionCell: highland ? COLLISION_CELL_HIGHLAND : COLLISION_CELL,
         playFraction,
         bores: field.bores.filter((bore) => boreTouchesChunk(bore, x0, z0)),
       });
@@ -432,11 +446,12 @@ export function buildChunkSurface(
   const solid = buildSolid(spec, grid);
   const cut = subtractBores(wasm, solid, spec.bores, boreCut(field, options.lod === 0 ? BORE_LOD0 : BORE_LOD1));
   const { accum } = refineSolid(field, spec, grid, cut, spec.bores.length > 0);
-  // Adjacent chunks share an exactly welded surface edge. Vertical skirts here
-  // used to put two coplanar, oppositely oriented walls on every internal tile
-  // boundary; at chase-camera angles their edge lighting/depth competition read
-  // as long dark seams. The terrain covers the complete arena, so no skirt is
-  // needed to hide streaming gaps.
+  // Adjacent chunks now genuinely do share a welded surface edge: with one
+  // uniform CELL the border rows are the same world points on both sides (see
+  // the CELL comment). Vertical skirts here used to put two coplanar,
+  // oppositely oriented walls on every internal tile boundary; at chase-camera
+  // angles their edge lighting/depth competition read as long dark seams, and
+  // they were also concealing the real gap rather than closing it.
   if (options.rims) for (const portal of portalsInChunk(spec, field)) addPortalRim(field, accum, portal.bore, portal.side);
   return accum.toSurface(spec.cx, spec.cz);
 }

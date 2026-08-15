@@ -11,7 +11,7 @@
     "lods": [
       {
         "model": "props/lunar-rift-chunk-7_lod1.glb",
-        "distance": 190
+        "distance": 300
       }
     ]
   },

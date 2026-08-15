@@ -17,6 +17,7 @@
     "lint": "eslint .",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client && tsc -p tsconfig.tools.json",
     "validate:content": "tsx tools/validate-content.ts",
+    "validate:terrain": "node tools/lunar-rift-seam-audit.mjs --lod 0 && node tools/lunar-rift-seam-audit.mjs --lod 1 && node tools/lunar-rift-seam-audit.mjs --lod mix",
     "content:export": "tsx tools/export-content.ts",
     "content:proof": "tsx tools/pack-proof.ts",
     "bundle:budget": "tsx tools/bundle-budget.ts",
@@ -38,7 +39,7 @@
     "typescript-eslint": "^8.0.0",
     "vitest": "^2.0.5"
   },
-  "//allowScripts": "Keys are version-pinned, so every upgrade of one of these packages re-surfaces the npm-11 allow-scripts warning until its entry is bumped — that is deliberate (re-approval should be a conscious step). esbuild matters at PRODUCTION runtime since 6.3: the Docker image runs the server via tsx, and esbuild's install script is its fallback for resolving the platform binary when the optionalDependencies path fails.",
+  "//allowScripts": "Keys are version-pinned, so every upgrade of one of these packages re-surfaces the npm-11 allow-scripts warning until its entry is bumped \u2014 that is deliberate (re-approval should be a conscious step). esbuild matters at PRODUCTION runtime since 6.3: the Docker image runs the server via tsx, and esbuild's install script is its fallback for resolving the platform binary when the optionalDependencies path fails.",
   "allowScripts": {
     "argon2@0.45.1": true,
     "better-sqlite3@13.0.1": true,
