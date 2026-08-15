@@ -67,7 +67,7 @@ function main(): void {
   const clients = clientMetricsRepo.since(since);
   const server = serverMetricsRepo.since(since);
 
-  console.log(`\nSpace Arena telemetry — last ${args.days} day(s)`);
+  console.log(`\nOrion's Arm telemetry — last ${args.days} day(s)`);
   console.log(`  database: ${dbPath ?? process.env["SPACE_ARENA_DB"] ?? "(default data/space-arena.db)"}`);
   console.log(`  window:   ${new Date(since).toISOString()} → now`);
 

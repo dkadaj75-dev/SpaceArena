@@ -45,7 +45,7 @@ export class AuthScreen {
     const titleWrap = document.createElement("div");
     titleWrap.className = "sa-menu-titlewrap";
     const title = document.createElement("h1");
-    title.textContent = "SPACE ARENA";
+    title.textContent = "ORION'S ARM";
     title.className = "sa-screen-title";
     const rule = document.createElement("div");
     rule.className = "sa-menu-rule";

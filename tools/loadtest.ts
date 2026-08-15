@@ -507,7 +507,7 @@ async function main(): Promise<void> {
   console.log(
     [
       "",
-      "Space Arena load test (ROADMAP §11 6.6)",
+      "Orion's Arm load test (ROADMAP §11 6.6)",
       `  rooms:           ${options.rooms}`,
       `  duration:        ${options.durationS}s${soakLength ? " (soak: leak assertions enabled)" : ""}`,
       `  gamemode:        ${options.gamemode}`,

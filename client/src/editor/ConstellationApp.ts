@@ -88,7 +88,7 @@ export class ConstellationApp {
       const imported = new DraftPackStore(raw); const result = await imported.preflight();
       if (!result.ok) { this.problems = result.errors; this.renderProblems(); this.message("Imported pack is invalid; current draft was preserved."); return; }
       this.draft = imported; this.root?.querySelector(".constellation-workspace")?.replaceWith(this.workspace()); this.update();
-    } catch { this.message("Import failed: choose a valid Space Arena JSON content pack."); }
+    } catch { this.message("Import failed: choose a valid Orion's Arm JSON content pack."); }
   }
 
   private renderProblems(): void {

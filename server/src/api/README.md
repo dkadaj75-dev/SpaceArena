@@ -1,4 +1,4 @@
-# Space Arena — REST API (Phase 3)
+# Orion's Arm — REST API (Phase 3)
 
 Base URL: same origin as the game server (default `http://localhost:2567`).
 All bodies are JSON; the server caps request bodies at **64 kb** and applies a

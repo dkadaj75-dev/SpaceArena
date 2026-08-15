@@ -28,10 +28,10 @@ beforeAll(async () => {
   root = mkdtempSync(path.join(os.tmpdir(), "space-arena-static-"));
   clientDir = path.join(root, "dist");
   mkdirSync(path.join(clientDir, "assets"), { recursive: true });
-  writeFileSync(path.join(clientDir, "index.html"), "<!doctype html><title>Space Arena</title>");
+  writeFileSync(path.join(clientDir, "index.html"), "<!doctype html><title>Orion's Arm</title>");
   writeFileSync(path.join(clientDir, "assets", "index-abc123.js"), "console.log(1)");
   writeFileSync(path.join(clientDir, "sw.js"), "self.addEventListener('fetch',()=>{})");
-  writeFileSync(path.join(clientDir, "manifest.webmanifest"), '{"name":"Space Arena"}');
+  writeFileSync(path.join(clientDir, "manifest.webmanifest"), `{"name":"Orion's Arm"}`);
   writeFileSync(path.join(clientDir, "offline.html"), "<!doctype html>offline");
 
   contentDir = path.join(root, "content");
@@ -85,7 +85,7 @@ describe("client static serving", () => {
   it("falls back to the shell for extension-less routes", async () => {
     const res = await request(app).get("/hangar");
     expect(res.status).toBe(200);
-    expect(res.text).toContain("Space Arena");
+    expect(res.text).toContain("Orion's Arm");
     expect(res.headers["cache-control"]).toBe(NO_CACHE_CACHE_CONTROL);
   });
 
@@ -96,7 +96,7 @@ describe("client static serving", () => {
       const res = await request(app).get(url);
       expect(res.status, url).toBe(404);
       // Express's own 404 body, not the app shell.
-      expect(res.text, url).not.toContain("Space Arena");
+      expect(res.text, url).not.toContain("Orion's Arm");
     }
   });
 

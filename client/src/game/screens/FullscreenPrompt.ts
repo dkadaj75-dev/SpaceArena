@@ -101,7 +101,7 @@ export class FullscreenPrompt {
 
     const text = document.createElement("p");
     text.className = "sa-fullscreen-prompt-text";
-    text.textContent = "Space Arena plays best without the browser chrome.";
+    text.textContent = "Orion's Arm plays best without the browser chrome.";
 
     const go = document.createElement("button");
     go.className = "sa-screen-btn sa-screen-btn--primary sa-button sa-button--primary";

@@ -1,4 +1,4 @@
-# Maps and skyboxes in Space Arena
+# Maps and skyboxes in Orion's Arm
 
 A reference for building arenas (maps) and skyboxes **outside** this repo — e.g. in a
 standalone Babylon.js map/planet/skybox builder — and importing the result.

@@ -1,4 +1,4 @@
-# Space Arena
+# Orion's Arm
 
 Fast-paced arcade 3D space arena combat in the browser — one finger is enough. Built as a data-driven engine (Babylon.js client, Colyseus server, shared TS sim) plus a constellation of designer-facing editors, so ships, arenas, modules, and bots are authored as JSON content rather than hardcoded logic. See `ROADMAP.md` for the full architecture and phase plan.
 

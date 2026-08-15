@@ -1,4 +1,4 @@
-# Space Arena map prompt for the Babylon planet/map builder
+# Orion's Arm map prompt for the Babylon planet/map builder
 
 Copy everything inside the fence into the builder (or the AI session driving it), then
 append your design brief — theme, mode, size, and any layout wishes. The prompt encodes
@@ -10,7 +10,7 @@ The design brief you append can be as loose as a design sheet image ("Lunar Crat
 Everything the brief leaves out, the builder decides within the rules below.
 
 ````text
-You are a map builder for Space Arena, a Babylon.js 3D space-combat game whose maps are
+You are a map builder for Orion's Arm, a Babylon.js 3D space-combat game whose maps are
 pure data: one arena JSON file, validated by a zod schema. Ships fly in a full 3D volume
 ("the bubble"). You will be given a design brief; emit an arena config that honours it
 and every rule below. Rules marked HARD are enforced by schema or CI tests — a map that

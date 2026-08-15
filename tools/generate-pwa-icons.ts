@@ -186,7 +186,7 @@ const gradient =
   };
 
 // ---------------------------------------------------------------------------
-// The Space Arena mark
+// The Orion's Arm mark
 // ---------------------------------------------------------------------------
 
 /**
@@ -275,7 +275,7 @@ function drawIcon({ size, maskable = false }: IconOptions): Buffer {
 function drawSvg(): string {
   const toPath = (points: Point[]): string =>
     points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${(x * 100).toFixed(1)} ${(y * 100).toFixed(1)}`).join(" ");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Space Arena">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Orion's Arm">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0a0f1a"/>

@@ -1199,7 +1199,7 @@ describe("theme schema — 5.7/5.8 blocks", () => {
     const menu = {
       colors: { base: "#05070c", panel: "#0d1520", primary: "#57d8ff", accent: "#ff9a3c", text: "#e8f4ff", muted: "#7d93a8", border: "#1d2b3a" },
       backdrop: { nebulaPrimary: "#0d5f7a", nebulaAccent: "#7a3d0d", nebulaOpacity: 0.6, starDensity: 0.5, vignette: 0.4 },
-      title: { text: "SPACE ARENA", subtitle: "tactical duels", letterSpacingEm: 0.3, glow: 0.7 },
+      title: { text: "ORION'S ARM", subtitle: "tactical duels", letterSpacingEm: 0.3, glow: 0.7 },
     };
     expect(mutated("theme", (d) => (d["menu"] = menu))).toBe(true);
     expect(mutated("theme", (d) => (d["menu"] = {}))).toBe(true);

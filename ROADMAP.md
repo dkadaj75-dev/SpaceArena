@@ -1,4 +1,4 @@
-# 🚀 Space Arena — MVP Prototype Roadmap (v2)
+# 🚀 Orion's Arm — MVP Prototype Roadmap (v2)
 
 > **Fast-paced arcade 3D space arena combat in the browser — one finger is enough.**
 > 1v1 & 2v2 PvP inside bounded arenas with hazardous asteroids — built as a **data-driven engine plus a constellation of designer-facing editors**, not a hardcoded game.
@@ -644,6 +644,6 @@ Per-task assignments marked in *(italics)* throughout. Pre-flagged escalation ho
 
 ---
 
-*Space Arena MVP Roadmap v2.0 — 2026-07-21. Control model changed to one-finger tactical (tap-to-move, module toggles, auto-fire with LoS). This is a living document: check off tasks as they land, amend estimates at phase exits.*
+*Orion's Arm MVP Roadmap v2.0 — 2026-07-21. Control model changed to one-finger tactical (tap-to-move, module toggles, auto-fire with LoS). This is a living document: check off tasks as they land, amend estimates at phase exits.*
 
 *Amended 2026-07-25: the flight overhaul superseded the movement/targeting/input/camera model — `docs/FLIGHT.md` is the contract for those, see the note at the top.*

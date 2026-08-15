@@ -205,7 +205,7 @@ async function main(): Promise<void> {
   const dbPath = path.join(workspace, "data", "proof.db");
   const port = 21000 + Math.floor(Math.random() * 4000);
 
-  console.log("\u001b[1mSpace Arena — content pack proof (ROADMAP §11 6.7 / S6)\u001b[0m");
+  console.log("\u001b[1mOrion's Arm — content pack proof (ROADMAP §11 6.7 / S6)\u001b[0m");
   console.log(`workspace : ${workspace}`);
   console.log(`content   : ${contentDir} (copy of repo content/)`);
   console.log(`database  : ${dbPath}`);

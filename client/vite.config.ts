@@ -258,8 +258,8 @@ export default defineConfig(({ command }) => ({
       // precache manifest holds a few duplicate url+revision pairs — workbox
       // collapses identical entries, and only *conflicting* ones would throw.)
       manifest: {
-        name: "Space Arena",
-        short_name: "Space Arena",
+        name: "Orion's Arm",
+        short_name: "Orion's Arm",
         description: "One-thumb tactical space combat. Fit your ship, manage heat, win the arena.",
         id: siteBase(),
         start_url: siteBase(),

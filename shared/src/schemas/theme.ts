@@ -768,7 +768,7 @@ export const menuSchema = z.object({
   /** Title treatment for the main menu. */
   title: z
     .object({
-      /** Overrides the built-in "SPACE ARENA" wordmark. */
+      /** Overrides the built-in "ORION'S ARM" wordmark. */
       text: z.string().optional(),
       /** Tagline under the wordmark; empty string hides it. */
       subtitle: z.string().optional(),

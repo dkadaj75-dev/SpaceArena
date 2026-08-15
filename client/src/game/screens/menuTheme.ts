@@ -52,7 +52,7 @@ export const DEFAULT_MENU_THEME: MenuTheme = {
   nebulaOpacity: 0.55,
   starDensity: 0.5,
   vignette: 0.55,
-  titleText: "SPACE ARENA",
+  titleText: "ORION'S ARM",
   titleSubtitle: "TACTICAL SHIP COMBAT",
   titleLetterSpacingEm: 0.32,
   titleGlow: 0.5,
