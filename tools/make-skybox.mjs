@@ -24,13 +24,14 @@ const PALETTES = {
     core: [255, 214, 160],
     warp: 1.25, starGain: 1.0, seed: 7, gain: 1.3,
     bandN: [0.28, 0.86, 0.42], bandWidth: 0.36, bandGain: 0.75,
+    bandCoreDir: [-0.78, 0.34, -0.52],
     planet: {
       dir: [0.05, -0.5, 0.8646],
-      angularRadiusDeg: 38,
-      surface: { base: [190, 133, 85], band: [122, 78, 53], detail: [252, 177, 105] },
-      atmosphere: [104, 178, 255],
+      angularRadiusDeg: 12.5, kind: "gas", turbulence: 9.0, bandScale: 31,
+      surface: { base: [151, 151, 50], band: [77, 105, 39], detail: [211, 176, 70] },
+      atmosphere: [178, 205, 91], storm: { x: 0.34, y: -0.2, rx: 0.27, ry: 0.105 },
     },
-    sun: { dir: [0.777, 0.309, 0.55], color: [255, 236, 200], discDeg: 3.4, glowDeg: 26 },
+    sun: { dir: [0.777, 0.309, 0.55], color: [255, 248, 230], discDeg: 0.72, glowDeg: 3.2, minimalGlow: true },
   },
   "ring-nebula": {
     base: [6, 6, 14],
@@ -40,13 +41,14 @@ const PALETTES = {
     core: [224, 208, 255],
     warp: 1.5, starGain: 1.0, seed: 23, gain: 1.3,
     bandN: [-0.5, 0.75, 0.43], bandWidth: 0.42, bandGain: 0.8,
+    bandCoreDir: [0.66, 0.52, -0.54],
     planet: {
       dir: [0.35, 0.15, -0.9247],
-      angularRadiusDeg: 14,
-      surface: { base: [82, 94, 116], band: [52, 61, 82], detail: [122, 136, 158] },
-      atmosphere: [116, 178, 255],
+      angularRadiusDeg: 10.5, kind: "gas", turbulence: 13.0, bandScale: 38,
+      surface: { base: [139, 128, 38], band: [73, 91, 31], detail: [202, 158, 55] },
+      atmosphere: [164, 190, 77], storm: { x: -0.38, y: 0.16, rx: 0.22, ry: 0.085 },
     },
-    sun: { dir: [-0.677, -0.208, -0.706], color: [220, 228, 255], discDeg: 3.0, glowDeg: 24 },
+    sun: { dir: [-0.677, -0.208, -0.706], color: [244, 248, 255], discDeg: 0.68, glowDeg: 3.0, minimalGlow: true },
   },
   "lunar-crater": {
     base: [0, 0, 1], spaceBlack: true,
@@ -60,18 +62,19 @@ const PALETTES = {
     warp: 0.12, starGain: 1.15, seed: 61, gain: 0.38,
     // The Orion Arm: a warm-toned diagonal river across the black sky.
     bandN: [0.58, 0.55, -0.60], bandWidth: 0.22, bandGain: 1.15,
+    bandCoreDir: [0.56, -0.78, -0.28],
     planet: {
       // Readable Apollo-8-style Earthrise. ~75 deg of azimuth from the sun:
       // far enough to clear its glow, close enough that the disc renders
       // gibbous — at the old anti-solar spot the lit-phase shading left only
       // a crescent and the atmosphere halo (verifier caught it).
       dir: [-0.749, 0.208, 0.629],
-      angularRadiusDeg: 8,
+      angularRadiusDeg: 8, kind: "earth",
       surface: {
-        base: [38, 84, 148], band: [70, 110, 160], detail: [230, 238, 245],
+        base: [24, 73, 145], band: [166, 126, 72], detail: [238, 244, 248],
         detailGain: 0.72,
       },
-      atmosphere: [130, 190, 255],
+      atmosphere: [130, 190, 255], atmosphereDeg: 0.72,
     },
     ground: {
       horizon: -0.065,
@@ -156,7 +159,22 @@ function makeNebula(W, H, P) {
       const band = Math.exp(-(bandDist * bandDist) / (P.bandWidth * P.bandWidth));
       const bandDust = fbm(ax * 2.6 + 97, ay * 2.6, az * 2.6, 5, 0.55);
       const bg = P.bandGain ?? 0.55;
-      for (let ch = 0; ch < 3; ch++) c[ch] += P.dustB.col[ch] * band * bandDust * bg + P.dustA.col[ch] * band * 0.16;
+      // The warm galactic bulge is localized along the great circle, fading
+      // into cooler blue-white arms. Narrow, broken absorption lanes remove
+      // light instead of merely drawing dark stripes over it.
+      const coreDir = P.bandCoreDir;
+      const alongCore = Math.max(0, dx * coreDir[0] + dy * coreDir[1] + dz * coreDir[2]);
+      const bulge = band * Math.pow(alongCore, 5) * (0.55 + bandDust * 0.45);
+      const arm = band * (0.32 + bandDust * 0.55);
+      const laneWarp = (fbm(dx * 8 + 733, dy * 8, dz * 8, 3, 0.55) - 0.5) * P.bandWidth * 0.22;
+      const laneA = Math.exp(-Math.pow((bandDist - P.bandWidth * 0.18 - laneWarp) / (P.bandWidth * 0.065), 2));
+      const laneB = Math.exp(-Math.pow((bandDist - P.bandWidth * 0.38 + laneWarp) / (P.bandWidth * 0.085), 2));
+      const lanes = Math.min(0.72, (laneA * 0.62 + laneB * 0.38) * (0.55 + bandDust * 0.45));
+      for (let ch = 0; ch < 3; ch++) {
+        const coolArm = [54, 64, 82][ch] * arm * bg;
+        const warmCore = [132, 92, 54][ch] * bulge * bg;
+        c[ch] = c[ch] * (1 - lanes) + (coolArm + warmCore) * (1 - lanes * 0.72);
+      }
       const nA = fbm(ax * 1.9, ay * 1.9, az * 1.9, 6, 0.55);
       if (!P.spaceBlack) rampMix(nA, P.dustA.lo, P.dustA.hi, P.dustA.col, P.dustA.hot, c);
       const nB = fbm(ax * 3.4 + 31, ay * 3.4, az * 3.4, 6, 0.5);
@@ -178,9 +196,10 @@ function makeNebula(W, H, P) {
       const jx = cx + hash(cx, cy, cz), jy = cy + hash(cy, cz, cx), jz = cz + hash(cz, cx, cy);
       const ddx = dx * S - jx, ddy = dy * S - jy, ddz = dz * S - jz;
       const d2 = ddx * ddx + ddy * ddy + ddz * ddz;
-      if (d2 < (P.spaceBlack ? 0.0055 : 0.004)) {
+      const starRadius2 = (P.spaceBlack ? 0.0055 : 0.004) * (1 + band * 1.15);
+      if (d2 < starRadius2) {
         const b = hash(cx * 3 + 1, cy * 3 + 2, cz * 3 + 3);
-        star = Math.max(0, 1 - d2 / 0.004) ** 3 * (0.35 + 1.4 * b * b) * 255 * P.starGain;
+        star = Math.max(0, 1 - d2 / starRadius2) ** 3 * (0.35 + 1.4 * b * b) * 255 * P.starGain;
       }
       // Rare bright glow stars (density boosted inside the band).
       const S2 = 26;
@@ -210,7 +229,8 @@ function makeNebula(W, H, P) {
         const ang = Math.acos(cosAng) * (180 / Math.PI);
         const radiusDeg = planet.angularRadiusDeg;
         const edgeHalfWidth = 0.075;
-        if (ang < radiusDeg + 3.2) {
+        const atmosphereDeg = planet.atmosphereDeg ?? 0.6;
+        if (ang < radiusDeg + atmosphereDeg) {
         const discAlpha = 1 - smoothRange(radiusDeg - edgeHalfWidth, radiusDeg + edgeHalfWidth, ang);
         const upSeed = Math.abs(pd[1]) < 0.96 ? [0, 1, 0] : [1, 0, 0];
         let ex = upSeed[1] * pd[2] - upSeed[2] * pd[1];
@@ -232,21 +252,36 @@ function makeNebula(W, H, P) {
         const ndotl = snx * sunDir[0] + sny * sunDir[1] + snz * sunDir[2];
         const illumination = 0.03 + smoothRange(-0.12, 0.2, ndotl) * 0.97;
         const limb = 0.28 + 0.72 * Math.pow(surfaceZ, 0.38);
-        const latitudeBands = 0.5 + 0.5 * Math.sin(
-          localY * 26 + fbm(snx * 2.2 + 211, sny * 2.2, snz * 2.2, 4, 0.58) * 7,
-        );
         const detailNoise = fbm(snx * 7.5 + 307, sny * 7.5, snz * 7.5, 5, 0.55);
-        const bandMix = smoothRange(0.32, 0.72, latitudeBands);
-        // Earth palettes can opt into stronger, patchier cloud cover without
-        // changing the established band/detail balance of other planets.
-        const detailMix = smoothRange(0.5, 0.78, detailNoise) * (planet.surface.detailGain ?? 0.46);
+        let baseMix = 0, detailMix = 0;
+        if (planet.kind === "earth") {
+          // Low-frequency continental masks over ocean, with independent,
+          // finer curled cloud systems; neither follows latitude mechanically.
+          const continents = fbm(snx * 2.8 + 211, sny * 2.8, snz * 2.8, 5, 0.56);
+          baseMix = smoothRange(0.49, 0.59, continents);
+          const cloudWarp = fbm(snx * 4 + 419, sny * 4, snz * 4, 4, 0.56) - 0.5;
+          detailMix = smoothRange(0.54, 0.68, detailNoise + cloudWarp * 0.24) * (planet.surface.detailGain ?? 0.7);
+        } else {
+          // Gas bands remain horizontal but their phase is turbulently warped.
+          const turbulence = fbm(snx * 3.2 + 211, sny * 3.2, snz * 3.2, 5, 0.58) - 0.5;
+          const latitudeBands = 0.5 + 0.5 * Math.sin(localY * (planet.bandScale ?? 30) + turbulence * (planet.turbulence ?? 8));
+          baseMix = smoothRange(0.28, 0.7, latitudeBands);
+          detailMix = smoothRange(0.48, 0.76, detailNoise) * 0.32;
+          const storm = planet.storm;
+          if (storm) {
+            const sd = Math.hypot((localX - storm.x) / storm.rx, (localY - storm.y) / storm.ry);
+            const oval = 1 - smoothRange(0.68, 1.05, sd);
+            detailMix = Math.max(detailMix, oval * 0.92);
+            baseMix *= 1 - oval * 0.55;
+          }
+        }
         for (let ch = 0; ch < 3; ch++) {
-          const broad = planet.surface.base[ch] * (1 - bandMix) + planet.surface.band[ch] * bandMix;
+          const broad = planet.surface.base[ch] * (1 - baseMix) + planet.surface.band[ch] * baseMix;
           const surface = (broad * (1 - detailMix) + planet.surface.detail[ch] * detailMix)
             * illumination * limb;
           out[ch] = out[ch] * (1 - discAlpha) + surface * discAlpha;
         }
-        if (ang > radiusDeg - edgeHalfWidth && ang < radiusDeg + 3.2) {
+        if (ang > radiusDeg - edgeHalfWidth && ang < radiusDeg + atmosphereDeg) {
           const sunDotPlanet = sunDir[0] * pd[0] + sunDir[1] * pd[1] + sunDir[2] * pd[2];
           let tx = sunDir[0] - pd[0] * sunDotPlanet;
           let ty = sunDir[1] - pd[1] * sunDotPlanet;
@@ -254,7 +289,7 @@ function makeNebula(W, H, P) {
           const tl = Math.hypot(tx, ty, tz);
           if (tl > 0) { tx /= tl; ty /= tl; tz /= tl; }
           const sunward = Math.max(0, snx * tx + sny * ty + snz * tz);
-          const rimFalloff = 1 - smoothRange(radiusDeg - edgeHalfWidth, radiusDeg + 3.2, ang);
+          const rimFalloff = 1 - smoothRange(radiusDeg - edgeHalfWidth, radiusDeg + atmosphereDeg, ang);
           const atmosphereGain = rimFalloff * (0.08 + 0.46 * sunward);
           for (let ch = 0; ch < 3; ch++) out[ch] += planet.atmosphere[ch] * atmosphereGain;
         }
@@ -296,18 +331,14 @@ function makeNebula(W, H, P) {
       }
 
       // The nearby star is painted LAST so it dominates the planet, dust and stars.
-      // cosAng near 1 = looking straight at the sun. Disc is hard-saturated,
-      // glow falls off smoothly, plus a wide faint halo warming the sky around.
+      // ISS-style nearby star: a hard saturated disc and compact corona with
+      // a steep, uninterrupted falloff. No atmosphere means no wide soft halo.
       let sun = 0;
       if (P.sun) {
         const cosAng = dx * P.sun.dir[0] + dy * P.sun.dir[1] + dz * P.sun.dir[2];
         const ang = Math.acos(Math.min(1, Math.max(-1, cosAng))) * (180 / Math.PI);
         if (ang < P.sun.discDeg) sun = 1;
-        else if (ang < P.sun.glowDeg) sun = Math.pow(1 - (ang - P.sun.discDeg) / (P.sun.glowDeg - P.sun.discDeg), 3.2) * (P.sun.minimalGlow ? 0.18 : 0.8);
-        // Halo is ADDITIVE across the whole range (not an else-branch): an
-        // exclusive chain left a dark ring where the glow hit zero just before
-        // the halo stepped back in.
-        if (!P.sun.minimalGlow && ang < 70) sun += Math.pow(1 - ang / 70, 3) * 0.16;
+        else if (ang < P.sun.glowDeg) sun = Math.pow(1 - (ang - P.sun.discDeg) / (P.sun.glowDeg - P.sun.discDeg), 4.2) * 0.72;
       }
       const i = (py * W + px) * 4;
       const sc = P.sun ? P.sun.color : [255, 255, 255];
