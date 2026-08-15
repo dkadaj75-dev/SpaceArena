@@ -23,4 +23,5 @@ debug.log
 .netpass/
 .tmp/
 
-.balance/
+# Raw match-tracker records; regenerate with tools/match-tracker.ts.
+.balance*/
