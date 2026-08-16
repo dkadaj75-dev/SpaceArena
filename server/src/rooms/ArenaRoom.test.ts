@@ -197,6 +197,46 @@ describe("ArenaRoom", () => {
     await c2.leave();
   });
 
+  it("accepts a wire jettisonHeatsink order and replicates the dropped decoy", async () => {
+    // Regression: the sim has handled `jettisonHeatsink` since 2026-07-31, and
+    // `validateOrder` accepts it — but the wire `orderSchema` listed only
+    // flight/moduleToggle, so the HUD's JETTISON button worked offline and was
+    // acked "malformed" online. This drives the full online path: client wire
+    // order → schema → validateOrder → sim → decoy replication.
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
+    await advance(room, 1);
+    expect(room.state.matchPhase).toBe("live");
+
+    // The stock interceptor fits `module.heatsink-basic`, a passive radiator
+    // with no `jettison` block, so the order would be spent doing nothing. Swap
+    // the fitted sink for the ablative one on the live sim so the drop has a
+    // sink that CAN leave the hull.
+    const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
+      sim: { world: { modules: Map<number, { modules: Array<{ moduleId: string }> }> } };
+    };
+    const p1 = room.state.players.get(c1.sessionId)!;
+    const sink = serverRoom.sim.world.modules
+      .get(p1.entityId)!
+      .modules.find((m) => m.moduleId === "module.heatsink-basic")!;
+    expect(sink).toBeDefined();
+    sink.moduleId = "module.heatsink-ablative";
+
+    expect(room.state.decoys.size).toBe(0);
+    c1.send("order", { seq: 1, order: { kind: "jettisonHeatsink" } });
+    // The accepted ack is the regression assertion: before the schema carried
+    // this kind, the very same send came back `{ accepted: false, "malformed" }`.
+    expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
+
+    await advance(room, 2);
+    expect(room.state.decoys.size).toBe(1);
+    const decoy = [...room.state.decoys.values()][0]!;
+    expect(decoy.team).toBe(0); // the dropper's own team — a lure for the enemy
+    expect(decoy.lifeFraction).toBeGreaterThan(0);
+
+    await c1.leave();
+  });
+
   it("broadcasts a beam fireEvent and ends the match on elimination", async () => {
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
     const c1 = await colyseus.connectTo(room);

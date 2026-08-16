@@ -214,6 +214,18 @@ export const orderSchema = z.discriminatedUnion("kind", [
     fire: z.boolean(),
   }),
   z.object({ kind: z.literal("moduleToggle"), hardpointIndex: z.number().int().nonnegative() }),
+  /**
+   * Blow the fitted heatsink clear of the hull. No payload: a hull has exactly
+   * one heatsink bay, so the sim finds it. Whether the fitted sink CAN be
+   * jettisoned (and is off cooldown) is a sim rule, not a wire one — an
+   * ineligible order parses fine and is simply spent doing nothing
+   * (JettisonSystem), mirroring `ArenaRoom.validateOrder`.
+   *
+   * Absent from this union since the wire vocabulary was written, even though
+   * the sim, the server's own `validateOrder` and the HUD's JETTISON button all
+   * spoke it — so the button worked offline and was acked `malformed` online.
+   */
+  z.object({ kind: z.literal("jettisonHeatsink") }),
 ]);
 
 /** Zod schema for the full client order envelope. */
