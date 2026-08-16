@@ -259,6 +259,24 @@ export class ConfigService {
     return Array.from(this.registry.get(type)?.values() ?? []) as T[];
   }
 
+  /**
+   * The pack's single tuning config, or `undefined` if it has none.
+   *
+   * `getAll<TuningConfig>("tuning")[0]` appeared at 32 sites, and spelling the
+   * "there is exactly one" assumption out that many times is how it drifts. The
+   * uniqueness itself is enforced at PACK LOAD (`tools/validate-content.ts`),
+   * which is the only place that can fail loudly without a match paying for it.
+   *
+   * Deliberately returns `TuningConfig | undefined` rather than throwing or
+   * substituting a default. Sim callers run this inside a tick, where a throw
+   * would take the match down for a content problem that pack validation should
+   * already have caught; and every consumer either has its own documented
+   * fallback (`?? 20`, `?? 120`) or takes `TuningConfig | undefined` outright.
+   */
+  tuning(): TuningConfig | undefined {
+    return this.getAll<TuningConfig>("tuning")[0];
+  }
+
   /** Whether any config with this id exists. */
   has(id: string): boolean {
     return this.idIndex.has(id);

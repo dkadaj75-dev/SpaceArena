@@ -1,5 +1,6 @@
 import type { BotprofileConfig, GamemodeConfig, ModuleConfig, ShipConfig } from "../shared/src/schemas/index.js";
 import { BotDriver } from "../shared/src/bots/BotDriver.js";
+import { createBotDriver } from "../shared/src/bots/createBotDriver.js";
 import { randomBotFitting } from "../shared/src/bots/botLoadout.js";
 import { resolveBotRoster } from "../shared/src/bots/roster.js";
 import { ArenaSimulation, type ShipSnapshot, type Snapshot } from "../shared/src/sim/ArenaSimulation.js";
@@ -177,15 +178,12 @@ function runMatch(
       ? randomBotFitting(configs, ship.id, rng, profile)
       : ship.defaultFitting);
     const id = sim.spawnPlayer(ship.id, fitting, team);
-    drivers.set(id, new BotDriver({
-      entityId: id,
-      profile,
-      configs,
-      rng: deriveRng(seed, id),
-      arenaBounds: sim.world.arena.bounds,
-      floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined,
-      visualRadius: ship.render.modelScale,
-    }));
+    // Switching to createBotDriver deliberately GAINS staticWorld/navRoute (line-of-sight
+    // and route planning, both previously absent here) and the collider-floored
+    // visualRadius in place of a raw ship.render.modelScale — i.e. this now measures the
+    // bot that actually ships. The tables recorded in docs/bots/behavior-map.md predate
+    // this and need regenerating.
+    drivers.set(id, createBotDriver(sim.world, id, profile, ship, deriveRng(seed, id)));
     audits.set(id, freshAudit(id, team, profile.id, ship.id, fitting));
     teamCounts.set(team, (teamCounts.get(team) ?? 0) + 1);
   };

@@ -120,10 +120,6 @@ const CSS = `
 .hud-scoreboard tr.hud-scoreboard-local-player { background:color-mix(in srgb,var(--hud-scoreboard-team) 22%,transparent); box-shadow:inset 3px 0 var(--hud-accent,var(--sa-white)); }
 .hud-scoreboard tr.hud-scoreboard-local-player td { color:var(--hud-accent,var(--sa-white)); font-weight:700; }
 .hud-scoreboard-btn { position:absolute; top:calc(var(--hud-inset-top) + 42px); right:var(--hud-inset-right); z-index:31; pointer-events:auto; border:1px solid var(--hud-primary,var(--sa-blue-500)); background:color-mix(in srgb,var(--hud-bg,var(--sa-n-900)) 75%,transparent); color:var(--hud-text,var(--sa-white)); padding:7px 10px; font:inherit; font-size:.68rem; }
-.hud-results-scoreboard { width:100%; }
-.hud-results-scoreboard .hud-scoreboard-panel { width:100%; max-height:38vh; padding:10px; }
-.hud-results-scoreboard .hud-scoreboard-panel h2 { display:none; }
-.hud-results-panel:has(.hud-results-scoreboard:not(:empty)) { max-width:min(900px,calc(100% - var(--hud-inset-left) - var(--hud-inset-right))); }
 @media (orientation:portrait) { .hud-kill-feed { top:calc(var(--hud-inset-top) + 78px); width:66vw; } .hud-scoreboard-panel { padding:10px; } .hud-scoreboard th,.hud-scoreboard td { padding:5px 3px; } }
 @media (orientation:portrait) { .hud-scoreboard-actions { flex-direction:column; align-items:stretch; } .hud-scoreboard-actions .hud-results-btn { width:100%; } }
 
@@ -133,37 +129,19 @@ const CSS = `
   touch-action: manipulation;
 }
 
-/* Shared HUD primitives. Cut-corner panels opt into .hud-frame below, reusing
-   its two-plate chamfer contract instead of drawing a second kind of bevel. */
+/* Shared HUD buttons. Anything that wants a cut-corner plate opts into
+   .hud-frame below, reusing its two-plate chamfer contract instead of drawing a
+   second kind of bevel. */
 .hud-button, .hud-icon-button, .hud-results-btn, .hud-scoreboard-btn, .hud-settings-btn {
   box-sizing:border-box; color:var(--sa-white); border:var(--sa-line-hairline) solid var(--sa-n-400);
   background:var(--sa-n-800); font:var(--sa-type-caption); border-radius:var(--sa-radius-small);
   transition:background-color 150ms,border-color 150ms,transform 100ms,opacity 150ms;
 }
 .hud-button--primary, .hud-results-btn--primary { color:var(--sa-n-900); background:var(--sa-blue-500); border-color:var(--sa-blue-500); }
-.hud-button--danger { background:var(--sa-red-500); border-color:var(--sa-red-500); }
 .hud-button:hover:not(:disabled), .hud-results-btn:hover:not(:disabled), .hud-icon-button:hover:not(:disabled) { border-color:var(--sa-blue-500); }
 .hud-button:active:not(:disabled), .hud-results-btn:active:not(:disabled), .hud-icon-button:active:not(:disabled) { transform:translateY(1px); }
 .hud-button:disabled, .hud-results-btn:disabled, .hud-icon-button:disabled { opacity:.38; cursor:not-allowed; }
 .hud-icon-button, .hud-settings-btn { inline-size:44px; block-size:44px; display:grid; place-items:center; padding:0; }
-.hud-toggle-group, .hud-tab-group { display:inline-flex; }
-.hud-toggle, .hud-tab { border:var(--sa-line-hairline) solid var(--sa-n-400); padding:6px 14px; font:var(--sa-type-caption); color:var(--sa-white); background:var(--sa-n-800); }
-.hud-toggle[aria-pressed="true"], .hud-tab[aria-selected="true"] { background:var(--sa-blue-500); border-color:var(--sa-blue-500); }
-.hud-check, .hud-radio, .hud-slider { accent-color:var(--sa-blue-500); }
-.hud-slider--danger { accent-color:var(--sa-red-500); }
-.hud-panel { padding:16px; background:var(--sa-n-800); border-radius:var(--sa-radius-medium); }
-.hud-panel--solid { border:var(--sa-line-hairline) solid var(--sa-n-600); }
-.hud-panel--top-accent { border-top:var(--sa-line-thin) solid var(--sa-blue-500); }
-.hud-panel--corner-brackets { background:linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) left top/14px var(--sa-line-thin) no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) left top/var(--sa-line-thin) 14px no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) right bottom/14px var(--sa-line-thin) no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) right bottom/var(--sa-line-thin) 14px no-repeat,var(--sa-n-800); }
-.hud-panel--holographic { background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--sa-blue-500) 10%,transparent) 0 var(--sa-line-hairline),transparent var(--sa-line-hairline) 24px),var(--sa-n-800); }
-.hud-stat { display:flex; justify-content:space-between; gap:16px; border-bottom:var(--sa-line-hairline) solid var(--sa-n-600); font:var(--sa-type-caption); }
-.hud-stat__value { font:var(--sa-type-data); font-variant-numeric:tabular-nums; }
-.hud-progress { overflow:hidden; block-size:6px; border-radius:var(--sa-radius-small); background:var(--sa-n-700); }
-.hud-progress__bar { inline-size:var(--hud-progress,0%); block-size:100%; background:var(--hud-progress-color,var(--sa-blue-500)); transition:inline-size 150ms; }
-.hud-progress--danger { --hud-progress-color:var(--sa-red-500); }
-.hud-circular-progress { display:grid;place-items:center;inline-size:88px;aspect-ratio:1;border-radius:50%;background:conic-gradient(var(--hud-progress-color,var(--sa-blue-500)) var(--hud-progress,0%),var(--sa-n-700) 0);font:var(--sa-type-data);font-variant-numeric:tabular-nums; }
-.hud-circular-progress::before { content:"";grid-area:1/1;inline-size:calc(100% - 10px);aspect-ratio:1;border-radius:50%;background:var(--sa-n-900); }
-.hud-circular-progress > * { position:relative;grid-area:1/1; }
 
 /*
  * Shared two-layer chamfer contract. The isolated negative layer stays above
@@ -228,20 +206,6 @@ const CSS = `
 }
 /* Own content rides above both plates. */
 .hud-frame > * { position: relative; z-index: 1; }
-
-/* Angular corner brackets framing a key widget — two L-shaped strokes drawn with
-   borders on a pair of absolutely positioned spans (no extra colors, no images). */
-.hud-bracket {
-  position: absolute;
-  z-index: 2;
-  width: calc(var(--hud-chamfer) + 5px);
-  height: calc(var(--hud-chamfer) + 5px);
-  pointer-events: none;
-  border: var(--hud-rim) solid var(--hud-primary, var(--sa-blue-500));
-  opacity: 0.85;
-}
-.hud-bracket[data-corner="tl"] { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
-.hud-bracket[data-corner="br"] { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
 
 /* --- Player-centred 3D radar (top-left) --- */
 .hud-minimap {
@@ -1241,6 +1205,7 @@ const CSS = `
 .hud-kill-announce.flag-bad { color: var(--hud-danger, var(--sa-red-500)); }
 .hud-kill-announce.flag-info { color: var(--hud-module-boost-color, var(--sa-white)); }
 .hud-kill-announce.visible {
+  /* 1.8s mirrors how long one announcement stays on screen (KillAnnouncements.ts). */
   animation: hud-kill-announce 1.8s ease-out forwards;
 }
 @keyframes hud-kill-announce {

@@ -163,7 +163,7 @@ If a player fitting exists, its power score is the sum of `level×100 + log2(pri
 
 ## Audit results (2026-08-07)
 
-`tools/bot-behavior-audit.ts` runs two seeded 10v10 lunar-crater CTF matches to the match end/cap and one seeded ring-nebula team deathmatch, using randomized legal loadouts. It records per-bot/team objective, combat, trigger, rack, overlay, movement, and energy measurements and prints threshold-based issues.
+`tools/bot-behavior-audit.ts` runs two seeded 10v10 lunar-rift CTF matches to the match end/cap and one seeded ring-nebula team deathmatch, using randomized legal loadouts. It records per-bot/team objective, combat, trigger, rack, overlay, movement, and energy measurements and prints threshold-based issues.
 
 The final run produced CTF results of 2–1 at 600.0 s (seed 11) and 3–0 at 417.2 s (seed 73), plus a 25–17 deathmatch completed at 623.7 s. Across the combined runs, objective occupancy was 100.0% flagrunner, 36.6% aggressive, 74.4% cautious, and 28.7% rookie. Aggregate rack lockout remained near zero (individual CTF maximum 1.7%), while per-bot engaged fire uptime ranged from 0–24.8% in CTF. These numbers show neither permanent thermal lockout nor an always-firing bypass; low CTF fire uptime mostly reflects objective routing and lock/range gates.
 
@@ -251,6 +251,8 @@ The stuck detector discarded its motion window on any zero-throttle tick outside
 
 ### Before/after — `npx tsx tools/bot-behavior-audit.ts`
 
+**Pending regeneration:** this table was recorded before the audit tool was wired for terrain awareness (`staticWorld`/`navRoute`) and the collider-floored `visualRadius`; the numbers below describe a bot that does not ship.
+
 | Scenario | End (before → after) | zeroPct mean | zeroPct max | avoidPct max |
 |---|---|---:|---:|---:|
 | CTF seed 11 | 375.3 s → **468.1 s, capture limit** | 72.1% → 5.8% | 99.6% → 11.0% | 12.2% |
@@ -290,6 +292,8 @@ Owner-validated D1-D5, landed in two gated phases: D2+D3+D4+D5 first, then D1.
 | D5 — dead content | `module.boost-mk1/mk2/mk3` deleted with their manifest and progression entries. No ship socket accepts family `boost`, so they were unfittable and unreachable; `validate:content` is the net. The `boost` FAMILY remains legal — boost-carrying ENGINES (`engine-sport`, `engine-agile`, `engine-racing`, `engine-endurance`) are how a hull gets an afterburner. | `validate:content`; server fitting/shop cases re-pointed at `module.laser-mk2` |
 
 ### Acceptance — `npx tsx tools/bot-behavior-audit.ts`
+
+**Pending regeneration:** this table was recorded before the audit tool was wired for terrain awareness (`staticWorld`/`navRoute`) and the collider-floored `visualRadius`; the numbers below describe a bot that does not ship.
 
 `before` is main at b5be6cb; `phase 1` is D2-D5; `after` is the full tree. The audit now prints a machine-comparable `SUMMARY` row per scenario, including role occupancy and the count of decisions where a bot ON A JOB let a combat behaviour win while under threat.
 

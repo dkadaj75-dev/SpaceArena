@@ -3,6 +3,7 @@ import {
   botCosmeticFor,
   MatchStatsAccumulator,
   BotDriver,
+  createBotDriver,
   createLogger,
   deriveRng,
   facingVec,
@@ -266,19 +267,7 @@ export class GameSession {
       // `options.botRng` still wins, for tests that want a specific stream.
       this.bots.set(
         id,
-        new BotDriver({
-          entityId: id,
-          profile: slot.profile,
-          configs,
-          rng: options.botRng ?? deriveRng(seed, id),
-          arenaBounds: this.sim.world.arena.bounds,
-          floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
-          staticWorld: this.sim.world.staticWorld,
-          navRoute: this.sim.world.navRoute,
-          // modelScale is approximately the authored forward length for a
-          // unit-normalized hull; the gameplay collider is the honest floor.
-          visualRadius: Math.max(botShip.collider.radius, (botShip.render.modelScale ?? botShip.collider.radius * 2) / 2),
-        }),
+        createBotDriver(this.sim.world, id, slot.profile, botShip, options.botRng ?? deriveRng(seed, id)),
       );
     }
 
@@ -402,22 +391,7 @@ export class GameSession {
       : undefined;
     if (spawn.profile && !profile) log.warn(`scripted spawn: unknown bot profile ${spawn.profile}`);
     if (profile) {
-      this.bots.set(
-        id,
-        new BotDriver({
-          entityId: id,
-          profile,
-          configs: this.configs,
-          rng: deriveRng(this.seed, id),
-          arenaBounds: this.sim.world.arena.bounds,
-          floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
-          staticWorld: this.sim.world.staticWorld,
-          navRoute: this.sim.world.navRoute,
-          // modelScale is approximately the authored forward length for a
-          // unit-normalized hull; the gameplay collider is the honest floor.
-          visualRadius: Math.max(ship.collider.radius, (ship.render.modelScale ?? ship.collider.radius * 2) / 2),
-        }),
-      );
+      this.bots.set(id, createBotDriver(this.sim.world, id, profile, ship, deriveRng(this.seed, id)));
     }
     // The freshly spawned ship must exist in the snapshot the very next frame
     // reads, not one tick later — the director highlights it immediately.

@@ -9,6 +9,7 @@ import { deriveRng } from "../sim/rng.js";
 import { loadTestConfigs } from "../sim/testutil.js";
 import { BotDriver } from "./BotDriver.js";
 import { botBehaviors } from "./behaviors.js";
+import { visualRadiusOf } from "./createBotDriver.js";
 import { clearRoleAllocationCache } from "./roleAllocator.js";
 
 const DT = 1 / 30;
@@ -376,7 +377,7 @@ function playLunarCtf(seed: number, seconds: number) {
       arenaBounds: sim.world.arena.bounds,
       staticWorld: sim.world.staticWorld,
       navRoute: sim.world.navRoute,
-      visualRadius: Math.max(ship.collider.radius, (ship.render.modelScale ?? ship.collider.radius * 2) / 2),
+      visualRadius: visualRadiusOf(ship),
     }) });
   }
   const events: SimEvent[] = [];
@@ -491,23 +492,52 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
     expect(stuck, `carriers pinned to asteroid colliders: ${JSON.stringify(stuck)}`).toEqual([]);
   });
 
-  it("scores a bots-only capture on lunar rift within the fixed match bound", () => {
-    // Pinned against the 768-wide / 112-radius-crater lunar-rift layout.
-    // Seed re-pinned 11 → 4 after the flag stands were raised to their correct
-    // visual height. Pickup remains healthy, but that small approach change
-    // perturbs the deterministic firefights and seed 11's carriers now die
-    // mid-run (4 `flagTaken`, 4 `flagDropped`, 0 deliveries). Seed 4 delivers.
-    //
-    // Seed re-pinned 4 → 12 on 2026-08-14 for typed damage + clip-fed
-    // autocannons. Objective play itself is unaffected — a sweep of seeds 1-20
-    // took the flag 5-12 times per 180 s run on EVERY seed (mean 9.6) and 12 of
-    // the 20 delivered at least one capture — but the new combat math reshuffles
-    // which carriers win their firefights, and seed 4's runners now all die
-    // holding it (9 `flagTaken`, 9 `flagDropped`, 0 deliveries). Seed 12 scores
-    // twice, at 52.7 s and 108.6 s, both comfortably inside the bound.
-    const { events } = playLunarCtf(12, 180);
-    expect(events.some((event) => event.type === "flagCaptured")).toBe(true);
-  });
+  /**
+   * Objective health on lunar rift, over a seed SWEEP rather than one pinned
+   * seed (refactor plan §2f).
+   *
+   * This assertion was re-pinned twice — 11 → 4 when the flag stands were raised
+   * to their correct visual height, then 4 → 12 for typed damage and clip-fed
+   * autocannons — because it was a single-seed boolean on the single most
+   * chaotic thing in the match: which carrier wins its firefight. Objective play
+   * itself never regressed on either occasion; only the seed's luck did. A test
+   * that has to be re-pinned whenever combat math changes is not measuring what
+   * its title says.
+   *
+   * So it now measures the thing that is actually stable. A fresh sweep of seeds
+   * 1-20 at 180 s, measured on this tree:
+   *
+   *   takes  min 4, max 13, mean 8.3 — EVERY seed takes the flag
+   *   caps   13 of 20 seeds deliver at least once
+   *
+   * Pickup is therefore the robust signal and carries the test; delivery is kept
+   * as an honest floor over the whole sweep, which several carriers must fail
+   * before it reddens. Seeds 1-5 are used as they come — deliberately NOT chosen
+   * for their results, since picking the seeds that deliver would be the old pin
+   * wearing a sweep costume. Of those five, seeds 3 and 4 deliver, so the floor
+   * has one spare.
+   */
+  it("keeps bots taking flags on lunar rift, and still delivering across a sweep", () => {
+    const seeds = [1, 2, 3, 4, 5];
+    const perSeed = seeds.map((seed) => {
+      const { events } = playLunarCtf(seed, 180);
+      return {
+        seed,
+        takes: events.filter((event) => event.type === "flagTaken").length,
+        caps: events.filter((event) => event.type === "flagCaptured").length,
+      };
+    });
+    const report = perSeed.map((r) => `seed ${r.seed}: ${r.takes} takes / ${r.caps} caps`).join("; ");
+
+    // Pickup health, per seed. The measured floor is 4, so `> 0` is a wide band:
+    // a seed reaching zero means bots stopped reaching the stands at all.
+    for (const row of perSeed) {
+      expect(row.takes, `no flag pickups at all — ${report}`).toBeGreaterThan(0);
+    }
+    // Delivery floor across the sweep. Two of these five deliver today.
+    const delivering = perSeed.filter((row) => row.caps > 0).length;
+    expect(delivering, `no carrier delivered on any seed — ${report}`).toBeGreaterThan(0);
+  }, 120_000);
 
   it("threads a lunar-rift tunnel at cruise without wall impact damage", () => {
     const result = transitLunarTunnel();

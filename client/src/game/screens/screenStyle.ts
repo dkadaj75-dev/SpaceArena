@@ -219,14 +219,12 @@ const CSS = `
  */
 .sa-screen-btn,
 .sa-menu-section,
-.sa-settings-group,
-.sa-matchmaking-panel {
+.sa-settings-group {
   isolation: isolate;
 }
 .sa-screen-btn::before,
 .sa-menu-section::before,
-.sa-settings-group::before,
-.sa-matchmaking-panel::before {
+.sa-settings-group::before {
   z-index: -1;
 }
 .sa-screen-btn:disabled { opacity: .45; cursor: default; }
@@ -738,8 +736,7 @@ const CSS = `
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sa-menu-offline-badge .dot,
-  .sa-matchmaking-scanner span { animation: none; }
+  .sa-menu-offline-badge .dot { animation: none; }
 }
 
 /* Design-system primitives. State attributes make every board state testable
@@ -759,87 +756,15 @@ const CSS = `
 .sa-button:active:not(:disabled), .sa-button[data-state="pressed"] { transform:translateY(1px); background:color-mix(in srgb, var(--sa-button-color, var(--sa-blue-500)) 78%, var(--sa-n-900)); }
 .sa-button:disabled, .sa-button[data-state="disabled"] { opacity:.38; cursor:not-allowed; filter:saturate(.25); }
 .sa-icon-button { width:40px; height:40px; display:inline-grid; place-items:center; padding:0; clip-path:var(--sa-clip); }
-.sa-toggle-group, .sa-tab-group { display:inline-flex; }
+.sa-tab-group { display:inline-flex; }
 .sa-toggle, .sa-tab { min-height:32px; padding:6px 14px; border-radius:0; border-inline-end:0; }
 .sa-toggle:first-child, .sa-tab:first-child { border-radius:var(--sa-radius-small) 0 0 var(--sa-radius-small); }
 .sa-toggle:last-child, .sa-tab:last-child { border-radius:0 var(--sa-radius-small) var(--sa-radius-small) 0; border-inline-end:var(--sa-line-hairline) solid var(--sa-n-400); }
 .sa-toggle[aria-pressed="true"], .sa-tab[aria-selected="true"] { background:var(--sa-blue-500); border-color:var(--sa-blue-500); }
-.sa-check, .sa-radio { inline-size:16px; block-size:16px; accent-color:var(--sa-blue-500); }
-.sa-radio { border-radius:50%; }
 .sa-slider { accent-color:var(--sa-slider-color, var(--sa-blue-500)); }
-.sa-slider--danger { --sa-slider-color:var(--sa-red-500); }
 .sa-panel { position:relative; box-sizing:border-box; padding:16px; border:var(--sa-line-hairline) solid var(--sa-n-600); border-radius:var(--sa-radius-medium); background:var(--sa-n-800); }
 .sa-panel--top-accent { border-top:var(--sa-line-thin) solid var(--sa-blue-500); }
-.sa-panel--corner-brackets { background:linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) left top/14px var(--sa-line-thin) no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) left top/var(--sa-line-thin) 14px no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) right bottom/14px var(--sa-line-thin) no-repeat,linear-gradient(var(--sa-blue-500),var(--sa-blue-500)) right bottom/var(--sa-line-thin) 14px no-repeat,var(--sa-n-800); border-color:transparent; }
 .sa-panel--holographic { clip-path:var(--sa-clip); background:linear-gradient(color-mix(in srgb,var(--sa-blue-500) 8%,transparent),transparent),repeating-linear-gradient(90deg,color-mix(in srgb,var(--sa-blue-500) 10%,transparent) 0 1px,transparent 1px 24px),var(--sa-n-800); }
-.sa-stat { display:flex; justify-content:space-between; gap:16px; border-bottom:var(--sa-line-hairline) solid var(--sa-n-600); font:var(--sa-type-caption); }
-.sa-stat__value { color:var(--sa-white); font:var(--sa-type-data); font-variant-numeric:tabular-nums; }
 .sa-progress { overflow:hidden; height:6px; border-radius:var(--sa-radius-small); background:var(--sa-n-700); }
 .sa-progress__bar { width:var(--sa-progress,0%); height:100%; background:var(--sa-progress-color,var(--sa-blue-500)); transition:width 150ms; }
-.sa-progress--danger { --sa-progress-color:var(--sa-red-500); }
-.sa-circular-progress { display:grid; place-items:center; width:88px; aspect-ratio:1; border-radius:50%; background:conic-gradient(var(--sa-progress-color,var(--sa-blue-500)) var(--sa-progress,0%),var(--sa-n-700) 0); font:var(--sa-type-data); font-variant-numeric:tabular-nums; }
-.sa-circular-progress::before { content:""; grid-area:1/1; width:calc(100% - 10px); aspect-ratio:1; border-radius:50%; background:var(--sa-n-900); }
-.sa-circular-progress > * { position:relative; grid-area:1/1; }
-
-/* Matchmaking — a compact radar instrument in the shared menu language. */
-.sa-matchmaking-panel {
-  position: relative;
-  width: min(380px, 100%);
-  padding: 28px 24px 22px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  box-sizing: border-box;
-  background: var(--sa-rim-color);
-  clip-path: var(--sa-clip);
-}
-.sa-matchmaking-panel::before {
-  content: "";
-  position: absolute;
-  inset: var(--sa-rim);
-  z-index: -1;
-  background: var(--sa-panel-fill);
-  clip-path: var(--sa-clip);
-}
-.sa-matchmaking-scanner {
-  position: relative;
-  width: 150px;
-  height: 150px;
-  border: 1px solid color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 55%, transparent);
-  border-radius: 50%;
-  background:
-    linear-gradient(90deg, transparent 49.5%, color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 22%, transparent) 50%, transparent 50.5%),
-    linear-gradient(0deg, transparent 49.5%, color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 22%, transparent) 50%, transparent 50.5%);
-  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 34%, transparent));
-}
-.sa-matchmaking-scanner span {
-  position: absolute;
-  inset: 50%;
-  border: 1px solid var(--sa-menu-primary, var(--sa-blue-500));
-  border-radius: 50%;
-  animation: sa-scan-pulse 2.4s ease-out infinite;
-}
-.sa-matchmaking-scanner span:nth-child(2) { animation-delay: .8s; }
-.sa-matchmaking-scanner span:nth-child(3) { animation-delay: 1.6s; }
-@keyframes sa-scan-pulse {
-  0% { inset: 50%; opacity: .9; }
-  100% { inset: 5%; opacity: 0; }
-}
-.sa-matchmaking .sa-screen-title { font-size: clamp(18px, 5vw, 25px); letter-spacing: .12em; }
-.sa-matchmaking-flavor {
-  min-height: 1.5em;
-  color: var(--sa-menu-muted, var(--sa-n-400));
-  text-align: center;
-}
-.sa-matchmaking-elapsed {
-  color: var(--sa-menu-primary, var(--sa-blue-500));
-  font: 600 12px/1.2 ui-monospace, monospace;
-  letter-spacing: .16em;
-  font-variant-numeric: tabular-nums;
-}
-.sa-matchmaking .sa-screen-btn { width: min(260px, 100%); }
-.sa-matchmaking[data-state="found"] .sa-matchmaking-scanner,
-.sa-matchmaking[data-state="joining"] .sa-matchmaking-scanner { border-color: var(--sa-menu-accent, var(--sa-white)); }
-.sa-matchmaking[data-state="server-lost"] .sa-matchmaking-scanner { opacity: .35; filter: grayscale(1); }
 `;

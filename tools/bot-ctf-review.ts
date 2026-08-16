@@ -1,5 +1,6 @@
 import type { BotprofileConfig, GamemodeConfig, ModuleConfig, ShipConfig } from "../shared/src/schemas/index.js";
 import { BotDriver } from "../shared/src/bots/BotDriver.js";
+import { createBotDriver } from "../shared/src/bots/createBotDriver.js";
 import { clearRoleAllocationCache } from "../shared/src/bots/roleAllocator.js";
 import { ArenaSimulation } from "../shared/src/sim/ArenaSimulation.js";
 import type { EntityId } from "../shared/src/sim/components.js";
@@ -131,16 +132,7 @@ function run(seed: number): RunMetrics {
     for (let i = 0; i < 5; i++) {
       const id = sim.spawnPlayer(ship.id, ship.defaultFitting, team);
       const profile = profiles[(team * 5 + i) % profiles.length]!;
-      drivers.set(id, new BotDriver({
-        entityId: id, profile, configs, rng: deriveRng(seed, id),
-        arenaBounds: sim.world.arena.bounds,
-        floorY: sim.world.arena.bounds.shape === "sphere" ? sim.world.arena.bounds.floorY : undefined,
-        staticWorld: sim.world.staticWorld,
-        navRoute: sim.world.navRoute,
-        // modelScale approximates authored hull length, while the collider is
-        // the minimum truthful world-space recovery extent.
-        visualRadius: Math.max(ship.collider.radius, (ship.render.modelScale ?? ship.collider.radius * 2) / 2),
-      }));
+      drivers.set(id, createBotDriver(sim.world, id, profile, ship, deriveRng(seed, id)));
     }
   }
   const ids = [...drivers.keys()];
