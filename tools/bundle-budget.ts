@@ -31,8 +31,26 @@
  * the wire — using the same level (9) a CDN would use. Raw sizes are printed too
  * because they are what the browser has to parse.
  *
- * Exits 1 (with a readable table) when the initial payload is over budget or
- * when editor code reached it.
+ * ## Why the 5 MB budget alone is not a regression detector (refactor plan §2e)
+ *
+ * 82% of the measured bytes are Babylon. First-party code would have to grow
+ * roughly 17x — from ~211 kB to 3.6 MB gzip — before the headline budget fired,
+ * so it cannot notice anything a feature branch realistically does. Two narrower
+ * gates sit alongside it:
+ *
+ *   1. A ceiling on the FIRST-PARTY chunk. `client/vite.config.ts` sends
+ *      everything outside `node_modules` to `index-*.js`, so that one chunk is
+ *      the app. This is a ratchet: it needs re-baselining as features land, and
+ *      that deliberate bump is the point — it makes growth a decision.
+ *   2. An assertion on the SET of chunks index.html names. This is the half that
+ *      matters. A per-chunk ceiling would not fire if `babylon-loaders`
+ *      (~54 kB gzip, currently lazy behind the GLB loader's dynamic import) were
+ *      promoted into the initial set — the total would jump while every
+ *      individual chunk stayed under its own limit.
+ *
+ * Exits 1 (with a readable table) when the initial payload is over budget, when
+ * the initial chunk set changed, when the first-party chunk outgrew its ceiling,
+ * or when editor code reached the shell.
  */
 import { gzipSync } from "node:zlib";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -59,8 +77,42 @@ const BUDGET_GZIP_BYTES = 5 * 1024 * 1024;
  */
 const ADVISORY_RAW_BYTES = 7 * 1024 * 1024;
 
+/**
+ * The exact set of chunk stems `index.html` may name. Adding one means a chunk
+ * that used to be fetched on demand is now fetched before the first frame;
+ * removing one means somebody made the shell lazier and this list is stale.
+ * Both are worth a deliberate edit, so both fail.
+ */
+const EXPECTED_INITIAL_STEMS = ["babylon-core", "index", "vendor"] as const;
+
+/**
+ * Stem of the first-party chunk. `client/vite.config.ts`'s manualChunks returns
+ * undefined for anything outside `node_modules`, so this one chunk is all of
+ * `client/src`.
+ */
+const FIRST_PARTY_STEM = "index";
+
+/**
+ * Ceiling on the first-party chunk, gzip. Measured 2026-08-16: 210.9 kB, so
+ * this leaves ~23% headroom. A ratchet — raise it deliberately when a feature
+ * genuinely needs the bytes, and treat the bump as the record of that decision.
+ */
+const FIRST_PARTY_GZIP_BYTES = 260 * 1024;
+
 /** A chunk whose name marks it as the lazily-imported dev editor bundle. */
 const EDITOR_CHUNK = /editor/i;
+
+/**
+ * Drop Rollup's content hash: `index-bri4-xw_.js` → `index`. The hash is 8
+ * base64url chars and MAY ITSELF CONTAIN `-`, so splitting on the last dash is
+ * wrong; match the fixed-width suffix instead. An unrecognised shape falls
+ * through to the whole basename, which makes the set assertion below fail
+ * loudly rather than silently comparing garbage.
+ */
+function chunkStem(file: string): string {
+  const stripped = file.replace(/-[A-Za-z0-9_-]{8}\.js$/, "");
+  return stripped === file ? file.replace(/\.js$/, "") : stripped;
+}
 
 /**
  * A string literal present in every editor module (`fetch("/__editor/save")`,
@@ -185,6 +237,43 @@ function main(): void {
     lazyEditor.length > 0
       ? `  editor code: ${lazyEditor.map((c) => c.file).join(", ")} — lazy, excluded from the budget.`
       : "  editor code: absent from the build (DEV-gated in main.ts and tree-shaken).",
+  );
+
+  // Structural gate: exactly which chunks does index.html pull before the first
+  // frame? Checked before the size gates because "a lazy chunk became eager" is
+  // the specific diagnosis, and a bare total would only report the symptom.
+  const initialStems = [...new Set(initial.map((c) => chunkStem(c.file)))].sort();
+  const expected: string[] = [...EXPECTED_INITIAL_STEMS].sort();
+  const added = initialStems.filter((s) => !expected.includes(s));
+  const removed = expected.filter((s) => !initialStems.includes(s));
+  if (added.length > 0) {
+    fail(
+      `index.html now eagerly loads ${added.join(", ")} — ${added.length === 1 ? "that chunk was" : "those chunks were"} ` +
+        `lazy. Something added a static import of a module that used to be reached through a dynamic \`import()\`. ` +
+        `Restore the dynamic import, or widen EXPECTED_INITIAL_STEMS in this file if the eager load is intended.`,
+    );
+  }
+  if (removed.length > 0) {
+    fail(
+      `index.html no longer names ${removed.join(", ")} — the shell got lazier, which is good, but this gate is now ` +
+        `checking a stale baseline. Drop ${removed.length === 1 ? "it" : "them"} from EXPECTED_INITIAL_STEMS.`,
+    );
+  }
+
+  // First-party ceiling. Babylon dominates the total, so this is the only size
+  // number a feature branch can actually move.
+  const firstParty = initial.filter((c) => chunkStem(c.file) === FIRST_PARTY_STEM);
+  const firstPartyGzip = firstParty.reduce((sum, c) => sum + c.gzip, 0);
+  if (firstPartyGzip > FIRST_PARTY_GZIP_BYTES) {
+    fail(
+      `first-party JS (${firstParty.map((c) => c.file).join(", ")}) is ${humanBytes(firstPartyGzip)} gzip, over its ` +
+        `${humanBytes(FIRST_PARTY_GZIP_BYTES)} ceiling. This is app code, not Babylon: either trim it, move something ` +
+        `behind a dynamic import, or raise FIRST_PARTY_GZIP_BYTES deliberately.`,
+    );
+  }
+  console.log(
+    `  first-party: ${humanBytes(firstPartyGzip)} gzip of ${humanBytes(FIRST_PARTY_GZIP_BYTES)} ceiling ` +
+      `(${((firstPartyGzip / FIRST_PARTY_GZIP_BYTES) * 100).toFixed(1)}%); initial set ${initialStems.join(", ")}.`,
   );
 
   if (totalRaw > ADVISORY_RAW_BYTES) {

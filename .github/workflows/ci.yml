@@ -1,9 +1,9 @@
 name: CI
 
-# ROADMAP §11 6.2 — typecheck, lint, tests, the validate-content gate, the
-# bundle budget, and the Playwright smoke.
+# ROADMAP §11 6.2 — typecheck, lint, tests, the validate-content and
+# validate-terrain gates, the bundle budget, and the Playwright smoke.
 #
-# Shape: the five fast checks are independent jobs with NO `needs:` between them,
+# Shape: the six fast checks are independent jobs with NO `needs:` between them,
 # so they run fully in parallel and each failure lands on its own red X instead of
 # hiding behind whichever check happened to run first. They share one composite
 # setup action (`.github/actions/setup`) that pins Node 22 and does the cached
@@ -63,6 +63,20 @@ jobs:
       # Loads content/manifest.json through ConfigService: every schema, every
       # cross-reference, every relational constraint. Bad content never merges.
       - run: npm run validate:content
+
+  terrain:
+    name: Terrain gate (validate:terrain)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # Welds all 16 placed lunar-rift chunks in world space and counts edges
+      # belonging to one triangle only — a hole in the ground the player sees as
+      # a dead-straight line of background at a grazing angle. Run at LOD 0, LOD
+      # 1, and checkerboarded (the normal in-play state, since chunk centres are
+      # 192u apart). Reads only committed content, so a plain checkout is enough.
+      - run: npm run validate:terrain
 
   build:
     name: Client build + bundle budget

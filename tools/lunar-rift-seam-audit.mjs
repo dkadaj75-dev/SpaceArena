@@ -17,9 +17,10 @@
 //
 // `--lod mix` checkerboards the LOD levels so every internal border is
 // cross-LOD, which is the normal in-play state (chunk centres are 192u apart).
-/* global Buffer, URL, process, console */
+/* global Buffer, process, console */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const arg = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -133,8 +134,13 @@ export function topAt(chunk, x, z) {
   return best;
 }
 
+// `fileURLToPath`, not `new URL(...).pathname`: on Windows the latter yields
+// "/D:/repo/tools/x.mjs" (leading slash, forward slashes) while `path.resolve`
+// yields "D:\repo\tools\x.mjs", so the guard never matched and the audit exited
+// 0 having measured nothing. It ran on Linux, which is why the seam gate looked
+// green everywhere it was ever checked.
 const entry = process.argv[1] ? path.resolve(process.argv[1]) : "";
-if (entry === new URL(import.meta.url).pathname) {
+if (entry === fileURLToPath(import.meta.url)) {
   main();
 }
 
