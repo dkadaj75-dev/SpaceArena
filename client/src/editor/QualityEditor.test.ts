@@ -15,7 +15,7 @@ function tier(name: QualityTier): QualityConfig {
     render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: true },
     glow: { enabled: true, intensity: 0.4 },
     particles: { enabled: true, budgetMultiplier: 1, maxEmitterCapacity: 80 },
-    asteroids: { lodMediumDistance: 100, lodLowDistance: 200, lodCullDistance: 600, thinInstances: false },
+    asteroids: { lodMediumDistance: 100, lodLowDistance: 200, lodCullDistance: 600 },
     projectiles: { useInstances: true },
     scene: {
       skyboxEnabled: true,

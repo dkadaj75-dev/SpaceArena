@@ -38,7 +38,7 @@ function tier(
     render: { hardwareScalingMultiplier: 1, maxDevicePixelRatio: 2, freezeStatics: true },
     glow: { enabled: true, intensity: 0.5 },
     particles: { enabled: true, budgetMultiplier: 1, maxEmitterCapacity: 80 },
-    asteroids: { lodMediumDistance: 60, lodLowDistance: 100, lodCullDistance: 0, thinInstances: false },
+    asteroids: { lodMediumDistance: 60, lodLowDistance: 100, lodCullDistance: 0 },
     projectiles: { useInstances: true },
     scene: {
       skyboxEnabled: true,

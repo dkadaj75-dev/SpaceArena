@@ -49,7 +49,7 @@ describe("EntityView fitted module integration", () => {
       {
         projectiles: { useInstances: true },
         particles: { enabled: false, budgetMultiplier: 0, maxEmitterCapacity: 0 },
-        asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
+        asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0 },
       },
     );
     const snapshot = {

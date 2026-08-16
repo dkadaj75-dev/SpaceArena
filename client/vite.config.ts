@@ -283,6 +283,31 @@ export default defineConfig(({ command }) => ({
         // Precache the app shell: the HTML plus every chunk index.html loads
         // eagerly. Babylon is ~6 MB raw, well past workbox's 2 MB default.
         globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest,woff2}"],
+        // Two things the shell pattern sweeps up that no first load needs:
+        //
+        //  - Rajdhani's DEVANAGARI faces. @fontsource gates them behind
+        //    `unicode-range: U+0900-097F,…`, so a browser never requests them —
+        //    but `woff2` in the pattern above downloads all three at SW install
+        //    anyway: 232,528 B, 69% of the entire woff2 payload.
+        //  - The Constellation editor chunks. Admin-only, reached through a
+        //    dynamic import (main.ts:946), and already excluded from the page-load
+        //    budget by tools/bundle-budget.ts — they have no business in the
+        //    install cost either.
+        //
+        // Both stay in dist/ and stay servable on demand; they are only dropped
+        // from the up-front precache. Together 249,281 B of a 2.07 MB install.
+        // Globbed, not named: the Constellation hash changes every build.
+        //
+        // NOT done by switching to @fontsource's `latin-*` subset entrypoints:
+        // those files declare their @font-face with NO `unicode-range`, so
+        // importing latin + latin-ext yields two identically-descriptored faces,
+        // the last wins for the whole family, and every ASCII glyph in the game
+        // falls back to system-ui. (Orbitron has no latin-ext entrypoint at all.)
+        globIgnores: [
+          "**/*-devanagari-*-normal-*.woff2",
+          "**/ConstellationApp-*.js",
+          "**/ConstellationApp-*.css",
+        ],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // Nothing under these prefixes is a navigation: /api and the Colyseus
         // matchmaking POST must always hit the network, and /content is handled

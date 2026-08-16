@@ -35,8 +35,7 @@
   "asteroids": {
     "lodMediumDistance": 0,
     "lodLowDistance": 0,
-    "lodCullDistance": 0,
-    "thinInstances": false
+    "lodCullDistance": 0
   },
   "projectiles": {
     "useInstances": true

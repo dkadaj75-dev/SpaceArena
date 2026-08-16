@@ -450,7 +450,13 @@ export class SceneBuilder {
       const panorama = new Texture(
         `${import.meta.env.BASE_URL}content/${authored.texture}`,
         this.scene,
-        undefined,
+        // noMipmap. All three shipped panoramas are 4096x2048 = 32.0 MiB RGBA8
+        // resident; the generated mip chain adds ~10.7 MiB on top of that for an
+        // `infiniteDistance` backdrop which is sampled at roughly 1:1 and so
+        // never reads a lower level. Positional args on purpose — do NOT convert
+        // this call to the options-object form without moving invertY (false,
+        // load-bearing per the comment above) with it.
+        true,
         false,
         undefined,
         () => {

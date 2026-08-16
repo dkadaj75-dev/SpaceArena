@@ -16,7 +16,7 @@ import {
   type Scene,
 } from "@babylonjs/core";
 import { createLogger, type AsteroidConfig, type ModuleConfig, type Palette, type RenderRecipe } from "@space-arena/shared";
-import { buildRockGeometry, buildRockMaterial } from "./rockMesh.js";
+import { buildRockGeometry, buildRockMaterial, preloadRockTextures } from "./rockMesh.js";
 
 const log = createLogger("AssetRegistry");
 
@@ -30,7 +30,29 @@ const log = createLogger("AssetRegistry");
  */
 let glTFLoaderReady: Promise<unknown> | null = null;
 function ensureGlTFLoader(): Promise<unknown> {
-  glTFLoaderReady ??= import("@babylonjs/loaders/glTF");
+  glTFLoaderReady ??= (() => {
+    // KHR_materials_transmission builds a TransmissionHelper for ANY
+    // transmissionFactor > 0. That allocates a 1024x1024 HALF_FLOAT MSAAx4
+    // mipmapped `opaqueSceneTexture` and — the expensive part — subscribes to
+    // `scene.onNewMeshAddedObservable`, so its extra opaque render list keeps
+    // absorbing every ship, asteroid and terrain chunk that spawns afterwards.
+    // The entire shipped use of it is `ArmoredGlass` on
+    // prop.lunar-rift-he3-plant at factor 0.15: a second full opaque pass, for a
+    // window. With the helper off Babylon falls back to the material's own
+    // `alphaMode: BLEND`, so the glass reads as flat 15% alpha instead of
+    // refracting — a deliberate trade, and the cleaner long-term fix is to strip
+    // the extension in the offline bake.
+    //
+    // Registered inside the memoized initializer so exactly one observer is ever
+    // added, and added synchronously BEFORE the dynamic import resolves.
+    SceneLoader.OnPluginActivatedObservable.add((plugin) => {
+      if (plugin.name !== "gltf") return;
+      // Not on ISceneLoaderPlugin; a value import of GLTFFileLoader would pull
+      // the ~1 MB loaders chunk back into the initial payload (ROADMAP §11 6.3).
+      (plugin as unknown as { dontUseTransmissionHelper: boolean }).dontUseTransmissionHelper = true;
+    });
+    return import("@babylonjs/loaders/glTF");
+  })();
   return glTFLoaderReady;
 }
 
@@ -950,6 +972,18 @@ export class AssetRegistry {
       return { mesh: model, radiusScale: 1 / unitRadius };
     }
     return { mesh: this.getMesh(render.recipe, render.palette ?? {}), radiusScale: 1 };
+  }
+
+  /**
+   * Warm the rock scans named by a set of `textureSet` ids, resolving once every
+   * image has decoded.
+   *
+   * The registry owns the Scene these textures are cached against and the base
+   * URL {@link buildRockMaterial} resolves them from, so the preloader asks for
+   * them here rather than being handed a Scene it has no other use for.
+   */
+  ensureRockSurfaces(textureSets: Iterable<string>): Promise<void> {
+    return preloadRockTextures(this.scene, import.meta.env.BASE_URL, textureSets);
   }
 
   /**

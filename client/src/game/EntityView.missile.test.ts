@@ -111,7 +111,7 @@ function makeView(): { view: ViewManager; scene: Scene; playSound: ReturnType<ty
     {
       projectiles: { useInstances: true },
       particles: { enabled: false, budgetMultiplier: 0, maxEmitterCapacity: 0 },
-      asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
+      asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0 },
     },
     { juice: DEFAULT_JUICE_SETTINGS, playSound },
   );

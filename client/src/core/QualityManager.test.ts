@@ -24,7 +24,6 @@ function quality(): QualityConfig {
       lodLowDistance: 220,
       lodCullDistance: 600,
       proceduralOnly: true,
-      thinInstances: false,
     },
     projectiles: { useInstances: true },
     scene: {

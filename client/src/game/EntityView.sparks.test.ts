@@ -157,7 +157,7 @@ function makeView(): {
       projectiles: { useInstances: true },
       // Particles ON: a spark IS its particle burst, so the ring must be live.
       particles: { enabled: true, budgetMultiplier: 1, maxEmitterCapacity: 40 },
-      asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
+      asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0 },
     },
     { juice: DEFAULT_JUICE_SETTINGS, playSound: vi.fn() },
   );

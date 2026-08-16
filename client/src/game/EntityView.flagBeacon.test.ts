@@ -46,7 +46,7 @@ function makeView(): { scene: Scene; engine: NullEngine; view: ViewManager } {
   const view = new ViewManager(scene, configs, () => undefined, {
     projectiles: { useInstances: true },
     particles: { enabled: false, budgetMultiplier: 0, maxEmitterCapacity: 0 },
-    asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
+    asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0 },
   });
   return { scene, engine, view };
 }
@@ -143,7 +143,7 @@ describe("flag base beacons (owner 2026-08-01)", () => {
     const view = new ViewManager(scene, configs, () => undefined, {
       projectiles: { useInstances: true },
       particles: { enabled: false, budgetMultiplier: 0, maxEmitterCapacity: 0 },
-      asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0, thinInstances: false },
+      asteroids: { lodMediumDistance: 0, lodLowDistance: 0, lodCullDistance: 0 },
       scene: { skyboxEnabled: true, boundaryShieldShader: false, starfieldPoints: 0, spawnMarkers: false, transparentShellCullDistance: 180 },
     });
     const snap = snapshot([flag(21)]);

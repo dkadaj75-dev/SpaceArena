@@ -31,8 +31,7 @@
   "asteroids": {
     "lodMediumDistance": 0,
     "lodLowDistance": 0,
-    "lodCullDistance": 3000,
-    "thinInstances": false
+    "lodCullDistance": 3000
   },
   "projectiles": {
     "useInstances": true
@@ -44,6 +43,7 @@
     "spawnMarkers": false,
     "transparentShellCullDistance": 180,
     "terrain": { "lodBias": 0.6 },
+    "ships": { "lodBias": 0.6 },
     "dust": {
       "count": 0,
       "size": 0.35,

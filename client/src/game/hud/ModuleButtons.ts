@@ -209,7 +209,7 @@ export class ModuleButtons {
       this.rebuild(ship.modules);
     }
 
-    const heatEnabled = heatSystemEnabled(this.configs.getAll<TuningConfig>("tuning")[0] ?? ({} as TuningConfig));
+    const heatEnabled = heatSystemEnabled(this.configs.getAll<TuningConfig>("tuning")[0]);
     for (const m of ship.modules) {
       const entry = this.entries.get(m.hardpointIndex);
       if (!entry) continue;

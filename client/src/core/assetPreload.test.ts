@@ -22,12 +22,12 @@ const SMALL_ROCK = {
   render: {
     recipe: "procedural.rock-small",
     palette: { primary: "#5b5148" },
-    model: "asteroids/small_a.glb",
+    model: "fixtures/rock-a.glb",
     modelScale: 3.5,
   },
   states: [
     { id: "intact" },
-    { id: "destroyed", render: { recipe: "procedural.debris", model: "asteroids/debris.glb" } },
+    { id: "destroyed", render: { recipe: "procedural.debris", model: "fixtures/debris.glb" } },
   ],
 } satisfies Record<string, unknown>;
 
@@ -35,7 +35,7 @@ const SMALL_ROCK_B = {
   ...SMALL_ROCK,
   id: "asteroid.small-rock-b",
   name: "Small Rock B",
-  render: { ...SMALL_ROCK.render, model: "asteroids/small_b.glb" },
+  render: { ...SMALL_ROCK.render, model: "fixtures/rock-b.glb" },
   states: [{ id: "intact" }, { id: "destroyed", render: { recipe: "procedural.debris" } }],
 } satisfies Record<string, unknown>;
 
@@ -99,7 +99,7 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
     );
     const models = arenaModelRenders(configs, "arena.test").map((r) => r.model);
     // small_a once (placed twice), small_b once, plus small-rock's destroyed-state model.
-    expect(models).toEqual(["asteroids/small_a.glb", "asteroids/debris.glb", "asteroids/small_b.glb"]);
+    expect(models).toEqual(["fixtures/rock-a.glb", "fixtures/debris.glb", "fixtures/rock-b.glb"]);
   });
 
   it("carries the scale/yaw the registry keys its masters by", () => {
@@ -175,7 +175,9 @@ describe("ship model preloading", () => {
       "ships/a.glb", "ships/a-lod1.glb", "ships/a-lod2.glb", "ships/c.glb",
     ]);
     await preloadShipModels(assets, configs);
-    expect(ensureModel).toHaveBeenCalledTimes(6);
+    // One request per authored GLB: the two hulls plus a.glb's two LOD levels.
+    // The procedural ship asks for nothing.
+    expect(ensureModel).toHaveBeenCalledTimes(4);
     expect(ensureModel.mock.results.every((result) => result.type === "return")).toBe(true);
   });
 
@@ -199,11 +201,11 @@ describe("ship model preloading", () => {
     const assets = { ensureModel } as unknown as AssetRegistry;
 
     expect(moduleModelRenders(configs).map((render) => render.model)).toEqual(["modules/gun.glb"]);
-    await preloadMatchModels(assets, configs, "arena.test");
+    await preloadMatchModels(assets, configs, "arena.test").all;
 
     expect(ensureModel.mock.calls.map(([render]) => render.model)).toEqual(expect.arrayContaining([
-      "asteroids/small_a.glb",
-      "asteroids/debris.glb",
+      "fixtures/rock-a.glb",
+      "fixtures/debris.glb",
       "props/terrain.glb",
       "props/terrain-lod1.glb",
       "props/terrain-lod2.glb",
@@ -231,7 +233,7 @@ describe("ship model preloading", () => {
     const assets = { ensureModel: vi.fn(async () => null) } as unknown as AssetRegistry;
 
     const seen: Array<[number, number]> = [];
-    await preloadMatchModels(assets, configs, "arena.test", (loaded, total) => seen.push([loaded, total]));
+    await preloadMatchModels(assets, configs, "arena.test", (loaded, total) => seen.push([loaded, total])).all;
 
     expect(seen[0]).toEqual([0, seen[0]![1]]);
     const total = seen[0]![1];
@@ -239,5 +241,98 @@ describe("ship model preloading", () => {
     // One report per job, never going backwards, ending exactly at the total.
     expect(seen.map(([loaded]) => loaded)).toEqual([...Array(total + 1).keys()]);
     expect(seen.every(([, reported]) => reported === total)).toBe(true);
+  });
+
+  it("gates the launch on the seated hulls only, leaving the rest to land behind the match", async () => {
+    const ships = [
+      { id: "ship.seated", render: { recipe: "ship", model: "ships/seated.glb" } },
+      { id: "ship.spare", render: { recipe: "ship", model: "ships/spare.glb" } },
+    ];
+    const configs = {
+      // No arena in the pack, so the only jobs are the two hulls.
+      get: vi.fn(() => undefined),
+      getAll: vi.fn((type: string) => (type === "ship" ? ships : [])),
+    } as unknown as ConfigService;
+    const release = new Map<string, () => void>();
+    const ensureModel = vi.fn(
+      (render: { model?: string }) => new Promise<null>((resolve) => release.set(render.model!, () => resolve(null))),
+    );
+    const preload = preloadMatchModels({ ensureModel } as unknown as AssetRegistry, configs, "arena.missing");
+
+    // Both hulls are in flight — the unseated one is loading, just not blocking.
+    await Promise.resolve();
+    expect([...release.keys()].sort()).toEqual(["ships/seated.glb", "ships/spare.glb"]);
+
+    // Would hang (and time the test out) if the spare hull were in the gate.
+    release.get("ships/seated.glb")!();
+    await preload.ready(["ship.seated"]);
+
+    let allSettled = false;
+    void preload.all.then(() => {
+      allSettled = true;
+    });
+    await Promise.resolve();
+    expect(allSettled).toBe(false);
+    release.get("ships/spare.glb")!();
+    await preload.all;
+  });
+
+  it("blocks on every hull when the roster cannot name one, so a scripted spawn is never a stand-in", async () => {
+    const ships = [{ id: "ship.one", render: { recipe: "ship", model: "ships/one.glb" } }];
+    const configs = {
+      get: vi.fn(() => undefined),
+      getAll: vi.fn((type: string) => (type === "ship" ? ships : [])),
+    } as unknown as ConfigService;
+    const releases: Array<() => void> = [];
+    const ensureModel = vi.fn(() => new Promise<null>((resolve) => releases.push(() => resolve(null))));
+    const preload = preloadMatchModels({ ensureModel } as unknown as AssetRegistry, configs, "arena.missing");
+
+    for (const seated of [undefined, [] as string[]]) {
+      let ready = false;
+      void preload.ready(seated).then(() => {
+        ready = true;
+      });
+      await Promise.resolve();
+      expect(ready).toBe(false);
+    }
+    releases[0]!();
+    await preload.ready();
+  });
+
+  it("keeps the number of loads in flight bounded rather than opening one socket per model", async () => {
+    const modules = Array.from({ length: 20 }, (_, i) => ({
+      id: `module.${i}`,
+      render: { recipe: "module", model: `modules/${i}.glb` },
+    }));
+    const configs = {
+      get: vi.fn(() => undefined),
+      getAll: vi.fn((type: string) => (type === "module" ? modules : [])),
+    } as unknown as ConfigService;
+    let inFlight = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    const ensureModel = vi.fn(() => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      return new Promise<null>((resolve) => {
+        releases.push(() => {
+          inFlight--;
+          resolve(null);
+        });
+      });
+    });
+    const preload = preloadMatchModels({ ensureModel } as unknown as AssetRegistry, configs, "arena.missing");
+
+    // A pool, not a serial queue and not a twenty-wide burst.
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(6);
+
+    // Each completion frees exactly one slot, so the whole list still drains.
+    while (releases.length > 0) {
+      releases.shift()!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await preload.all;
+    expect(ensureModel).toHaveBeenCalledTimes(20);
   });
 });

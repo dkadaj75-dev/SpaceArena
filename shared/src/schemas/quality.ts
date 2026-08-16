@@ -124,12 +124,12 @@ export const qualitySchema = z.object({
      */
     proceduralOnly: z.boolean().optional(),
     /**
-     * Render asteroids as thin instances instead of hardware `InstancedMesh`.
-     * Measured on the practice arena: 10 asteroids across 2 masters already
-     * batch to 2 draw calls as InstancedMesh, so this buys ~0 there — kept as
-     * data so denser arenas can turn it on without a code change.
+     * No special batching knob is needed here: asteroids already render as
+     * hardware `InstancedMesh` per master. Measured on the practice arena, 10
+     * asteroids across 2 masters batch to 2 draw calls, so there is nothing
+     * left on the table at current densities for a thin-instance path (or
+     * similar) to win back.
      */
-    thinInstances: z.boolean(),
   }),
 
   projectiles: z.object({
@@ -194,6 +194,22 @@ export const qualitySchema = z.object({
     terrain: z
       .object({
         enabled: z.boolean().default(true),
+        /** Positive multiplier on authored world-space LOD distances. */
+        lodBias: z.number().positive().default(1),
+      })
+      .optional(),
+    /**
+     * Ship-hull LOD distance budget, same shape and intent as `terrain` above
+     * minus the enable toggle — a match cannot hide a ship the way it can hide
+     * a terrain prop. Omitted keeps authored distances (40/90/180 for the
+     * shipped hulls). The local player's own hull pins LOD0 regardless of this
+     * bias (`EntityView.pinInstanceLod0`), so the effect is confined to
+     * remote ships: a low-tier bias of 0.55 pulls the first rung to 22u,
+     * comfortably inside the ~55u default / ~8-12u chase camera radius band
+     * where a budget GPU is spending triangles on hulls it can barely resolve.
+     */
+    ships: z
+      .object({
         /** Positive multiplier on authored world-space LOD distances. */
         lodBias: z.number().positive().default(1),
       })

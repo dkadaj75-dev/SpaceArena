@@ -29,7 +29,7 @@ import { recoverFromStaleContentPack } from "./core/contentRecovery.js";
 import { designTokenCssVars } from "./game/themeTokens.js";
 import { createUpdateGate } from "./core/swUpdate.js";
 import { installTouchGuards } from "./core/touchGuards.js";
-import { preloadArenaModels, preloadMatchModels } from "./core/assetPreload.js";
+import { preloadArenaModels, preloadMatchModels, preloadShipModels, type MatchPreload } from "./core/assetPreload.js";
 import { createBootAssetRegistry } from "./core/bootAssets.js";
 import { ModelLoadQueue } from "./core/modelLoadQueue.js";
 import { QualityManager, readWebglRenderer } from "./core/QualityManager.js";
@@ -193,38 +193,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   const serverHealth = new ServerHealthState();
   const healthProbe = serverHealth.refresh();
 
-  // --- Auth (§8 3.3): restore any existing session before the first screen shows. ---
+  // --- Auth (§8 3.3): restore any existing session, concurrently. ---
+  //
+  // Restoring is a NETWORK round trip for anyone who has been here before
+  // (`/api/auth/me`, plus a refresh + retry on an expired 15-minute access
+  // token, or a guest issue when only the guest token survived), and awaiting it
+  // here used to hold the engine, the scene and every menu screen hostage to it.
+  // None of that construction needs to know who the player is, so the wait moves
+  // down to the join point below — the same shape the health probe above uses.
   const authService = new AuthService();
-  await authService.restore();
-
-  // A dev-admin session STORED while the page was on localhost must not survive
-  // a visit via the LAN hostname: restore() would silently resurrect it and the
-  // phone + laptop would again collapse into one identity (see the dev-login
-  // localhost gate below — this closes the restored-session path it misses).
-  const onLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  if (import.meta.env.DEV && !onLocalhost && authService.getState().status === "authed" && authService.isDevSession()) {
-    log.info("dropping restored dev-admin session on a LAN hostname — use guest/login instead");
-    authService.logout();
-  }
-
-  // DEV convenience: skip the login screen with an instant admin session
-  // (server-side dev-login route; hard-absent in production). Escape hatches
-  // for testing the real auth flow: `?login=1` for one boot, or
-  // `localStorage["sa.devLogin"] = "off"` until cleared.
-  // Localhost ONLY: a phone joining over the LAN (http://<pc-ip>:5173) must get
-  // the auth screen and its own guest identity — if every dev client silently
-  // became the same admin account, two devices could never matchmake against
-  // each other (the queue de-duplicates per player).
-  if (
-    import.meta.env.DEV &&
-    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-    authService.getState().status !== "authed" &&
-    !new URLSearchParams(window.location.search).has("login") &&
-    localStorage.getItem("sa.devLogin") !== "off"
-  ) {
-    const ok = await authService.devLogin();
-    if (ok) log.info("dev-login: authenticated as admin (use ?login=1 to test the auth screen)");
-  }
+  const authRestored = authService.restore();
 
   // An explicit URL or saved backend always wins. Safari's no-preference
   // default is WebGPU, while other browsers retain the conservative WebGL2
@@ -335,6 +313,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   quality.onChange((cfg) => {
     sceneBuilder.setQuality(cfg);
     runtime?.viewManager.setQuality(cfg);
+    // Ship hull LODs are applied once at preload time (§below), so a tier
+    // change mid-match — most commonly an auto-tier demote on a struggling
+    // mobile client — would otherwise leave every remote hull's LOD switch
+    // distances biased for the tier the match STARTED in. Re-apply is cheap:
+    // every hull this match could render was already requested by
+    // `preloadMatchModels`, so `ensureModel` resolves cached masters with no
+    // re-fetch and `applyModelLods` just clears and re-clones the LOD levels.
+    // Gated on `runtime` (mirroring the line above) so a quality change in the
+    // main menu never kicks off a full-roster hull download.
+    if (runtime) void preloadShipModels(preloadAssets, configService, cfg.scene.ships?.lodBias);
   });
 
   const tacticalCamera = new TacticalCamera(scene, canvas, configService, bus);
@@ -370,12 +358,27 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   const projectViewport = new Viewport(0, 0, 1, 1);
   const projectWorld = new Vector3();
   const projectResult = new Vector3();
+  // The canvas's CSS size, read from the DOM only when it can actually have
+  // changed (see the ResizeObserver at the bottom of this function).
+  //
+  // `clientWidth`/`clientHeight` are forced-layout reads, and `project()` runs
+  // per HUD marker: the flight HUD interleaves a dozen-plus of them with the
+  // style writes the off-screen arrows make in the same pass, so every read
+  // flushed a layout the previous write had just invalidated. The value is
+  // identical for every marker in a frame — it is a property of the canvas, not
+  // of the point being projected — so caching it removes the thrash outright.
+  let canvasCssW = 0;
+  let canvasCssH = 0;
+  const refreshCanvasCssSize = (): void => {
+    canvasCssW = canvas.clientWidth;
+    canvasCssH = canvas.clientHeight;
+  };
   const flightBinding: FlightHudBinding = {
     inputSurface: canvas,
     project(x: number, y: number, z: number, out: ProjectedPoint): boolean {
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      if (width <= 0 || height <= 0) return false;
+      // Unchanged meaning, cached source: a canvas with no layout yet (hidden
+      // tab, display:none) still refuses to place markers until it has one.
+      if (canvasCssW <= 0 || canvasCssH <= 0) return false;
       // The HUD updates BEFORE `scene.render()` each frame, so on the very first
       // frame of a match the scene has never computed a view matrix — every later
       // frame reuses the previous one, which is a frame of lag nobody can see.
@@ -397,8 +400,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       if (Math.abs(viewZ) <= 0.01) return false;
       out.behind = viewZ < 0;
       Vector3.ProjectToRef(projectWorld, projectIdentity, scene.getTransformMatrix(), projectViewport, projectResult);
-      out.x = projectResult.x * width;
-      out.y = projectResult.y * height;
+      out.x = projectResult.x * canvasCssW;
+      out.y = projectResult.y * canvasCssH;
       return true;
     },
     cameraView(out: CameraView): void {
@@ -976,11 +979,53 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       designToolsEntry.addEventListener("click", () => void openConstellation()); document.body.append(designToolsEntry);
     } catch { /* Capability probe is authoritative: players see no entry. */ }
   }
+  // Eager, then self-healing: this call is a no-op while the restore above is
+  // still in flight, and the subscription re-runs it the moment a session lands.
   void installDesignToolsEntry();
   authService.onChange(() => void installDesignToolsEntry());
-  if (new URLSearchParams(window.location.search).has("editor") && authService.getState().status === "authed") void openConstellation();
 
   boot?.settle("interface", "ok", "theme · fonts · menu");
+
+  // --- Auth join: everything above was built while the restore was in flight ---
+  //
+  // The three gates below are the only places the boot path reads the session
+  // SYNCHRONOUSLY, and each would silently take the anonymous branch if it ran
+  // first — so this is where the wait has to land, and it has to land before
+  // them. (Everything constructed above only holds the service and re-reads it
+  // through `onChange`: the design-tools entry, the ownership ledger and the
+  // Hangar all repaint themselves when the session arrives.)
+  await authRestored;
+
+  // A dev-admin session STORED while the page was on localhost must not survive
+  // a visit via the LAN hostname: restore() would silently resurrect it and the
+  // phone + laptop would again collapse into one identity (see the dev-login
+  // localhost gate below — this closes the restored-session path it misses).
+  const onLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  if (import.meta.env.DEV && !onLocalhost && authService.getState().status === "authed" && authService.isDevSession()) {
+    log.info("dropping restored dev-admin session on a LAN hostname — use guest/login instead");
+    authService.logout();
+  }
+
+  // DEV convenience: skip the login screen with an instant admin session
+  // (server-side dev-login route; hard-absent in production). Escape hatches
+  // for testing the real auth flow: `?login=1` for one boot, or
+  // `localStorage["sa.devLogin"] = "off"` until cleared.
+  // Localhost ONLY: a phone joining over the LAN (http://<pc-ip>:5173) must get
+  // the auth screen and its own guest identity — if every dev client silently
+  // became the same admin account, two devices could never matchmake against
+  // each other (the queue de-duplicates per player).
+  if (
+    import.meta.env.DEV &&
+    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+    authService.getState().status !== "authed" &&
+    !new URLSearchParams(window.location.search).has("login") &&
+    localStorage.getItem("sa.devLogin") !== "off"
+  ) {
+    const ok = await authService.devLogin();
+    if (ok) log.info("dev-login: authenticated as admin (use ?login=1 to test the auth screen)");
+  }
+
+  if (new URLSearchParams(window.location.search).has("editor") && authService.getState().status === "authed") void openConstellation();
 
   // --- Boot stage 3: is the game server actually there? ---
   //
@@ -1119,7 +1164,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // Kicked off BEFORE the join: the map is what makes a match start slow, and
     // the queue wait is free time to spend on it.
     const assets = beginMatchAssets(arenaId);
-    void assets.ready.catch(() => {
+    void assets.preload.all.catch(() => {
       /* Surfaced by the awaited copy below; this only marks it handled. */
     });
     let session: NetGameSession | null = null;
@@ -1195,7 +1240,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       art: arenaArt(arenaId),
     });
     const assets = beginMatchAssets(arenaId);
-    void assets.ready.catch(() => {
+    void assets.preload.all.catch(() => {
       /* Surfaced by the awaited copy below; this only marks it handled. */
     });
     try {
@@ -1233,7 +1278,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   /** An arena build + model preload already running behind the launch screen. */
   interface PendingMatchAssets {
     arenaId: string;
-    ready: Promise<void>;
+    preload: MatchPreload;
   }
 
   /**
@@ -1246,10 +1291,27 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     setArena(arenaId);
     return {
       arenaId,
-      ready: preloadMatchModels(preloadAssets, configService, arenaId, (loaded, total) =>
-        matchLoading.setAssetProgress(loaded, total),
+      preload: preloadMatchModels(
+        preloadAssets,
+        configService,
+        arenaId,
+        (loaded, total) => matchLoading.setAssetProgress(loaded, total),
+        quality.current.scene.ships?.lodBias,
       ),
     };
+  }
+
+  /**
+   * The ship configs this roster actually seats. The snapshot carries no config
+   * id, so the session's own entity → ship map is the only way to name them.
+   */
+  function seatedHulls(session: GameSession): Set<string> {
+    const seated = new Set<string>();
+    for (const ship of session.rosterSnapshot.ships) {
+      const configId = session.shipConfigIdFor(ship.id);
+      if (configId) seated.add(configId);
+    }
+    return seated;
   }
 
   /**
@@ -1257,18 +1319,29 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    * choose (and retain) a procedural fallback master for its asteroid. Adopts an
    * in-flight preload when it covers the arena the session actually resolved
    * (the normal case — the client and the room read the same gamemode default).
+   *
+   * A matchmade launch — the only path that hands over a `pending` handle — has
+   * its FINAL roster by now, so it blocks on the hulls that roster seats and lets
+   * the rest finish behind the match: a duel waits on one hull instead of the
+   * whole fleet. Every other caller (the tutorial, an editor playtest) spawns
+   * ships from a script long after launch, and for those the only safe blocking
+   * set is all of them.
    */
   async function prepareSessionArena(session: GameSession, pending?: PendingMatchAssets): Promise<void> {
     matchAssetsActive = true;
     setArena(session.arenaId);
     matchLoading.showSession(session, import.meta.env.BASE_URL);
     if (pending && pending.arenaId === session.arenaId) {
-      await pending.ready;
+      await pending.preload.ready(seatedHulls(session));
       return;
     }
-    await preloadMatchModels(preloadAssets, configService, session.arenaId, (loaded, total) =>
-      matchLoading.setAssetProgress(loaded, total),
-    );
+    await preloadMatchModels(
+      preloadAssets,
+      configService,
+      session.arenaId,
+      (loaded, total) => matchLoading.setAssetProgress(loaded, total),
+      quality.current.scene.ships?.lodBias,
+    ).ready();
   }
 
   /** Activate a session whose arena assets have already been prepared. */
@@ -1528,14 +1601,23 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // scaling multiplier have to be re-applied against the new value.
     quality.refreshDevicePixelRatio(window.devicePixelRatio || 1);
     engine.resize();
+    // This callback is the ONLY thing that can invalidate the HUD's cached CSS
+    // size, so it is also the only place that re-reads it.
+    refreshCanvasCssSize();
     // Orientation drives the chase camera's default distance (the authored
     // landscapeRadiusScale) — same width>height rule the HUD layout uses.
-    tacticalCamera.setLandscapeOrientation(canvas.clientWidth > canvas.clientHeight);
+    tacticalCamera.setLandscapeOrientation(canvasCssW > canvasCssH);
     if (mvpStaged) applyMvpStageOffset();
   });
   resizeObserver.observe(canvas);
   engine.resize();
-  tacticalCamera.setLandscapeOrientation(canvas.clientWidth > canvas.clientHeight);
+  // SEED, and it is load-bearing: the render loop is already running by this
+  // line, and the ResizeObserver's first callback does not arrive until after
+  // the current task yields. A cache left at 0 until then makes `project()`
+  // refuse every marker, so the HUD would come up blank for the opening frames.
+  // Nothing between `runRenderLoop` above and here may await.
+  refreshCanvasCssSize();
+  tacticalCamera.setLandscapeOrientation(canvasCssW > canvasCssH);
 
   window.addEventListener("beforeunload", () => {
     tutorialOverlay?.dispose();

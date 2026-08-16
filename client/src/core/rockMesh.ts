@@ -9,12 +9,15 @@ import {
   type Scene,
 } from "@babylonjs/core";
 import {
+  createLogger,
   resolveRockShape,
   rockRadius,
   type Palette,
   type RockShapeConfig,
   type RockSurfaceConfig,
 } from "@space-arena/shared";
+
+const log = createLogger("rockMesh");
 
 /**
  * ROCK MESH — the renderer's half of the shared asteroid shape.
@@ -159,30 +162,102 @@ export function buildRockGeometry(
   return mesh;
 }
 
-/** Per-scene texture cache, so fourteen rock configs share four texture sets. */
-const textureCache = new WeakMap<Scene, Map<string, Texture>>();
+/** A cached scan plus the handle a preloader needs to know it has decoded. */
+interface CachedRockTexture {
+  readonly texture: Texture;
+  /** Settles — never rejects — once the image has decoded OR failed to. */
+  readonly ready: Promise<void>;
+}
 
-function rockTexture(scene: Scene, baseUrl: string, file: string, srgb: boolean): Texture {
+/** Per-scene texture cache, so fourteen rock configs share four texture sets. */
+const textureCache = new WeakMap<Scene, Map<string, CachedRockTexture>>();
+
+function rockTextureEntry(scene: Scene, baseUrl: string, file: string, srgb: boolean): CachedRockTexture {
   let perScene = textureCache.get(scene);
   if (!perScene) {
     perScene = new Map();
     textureCache.set(scene, perScene);
   }
+  // The colour space is part of the key, not just the file: the same JPEG read
+  // as sRGB and as linear are two different GPU textures.
   const key = `${file}::${srgb ? "srgb" : "linear"}`;
   const cached = perScene.get(key);
   if (cached) return cached;
+  let settle!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
   const texture = new Texture(
     `${baseUrl}${TEXTURE_DIR}${file}`,
     scene,
-    { noMipmap: false, invertY: false, samplingMode: Texture.TRILINEAR_SAMPLINGMODE },
+    {
+      noMipmap: false,
+      invertY: false,
+      samplingMode: Texture.TRILINEAR_SAMPLINGMODE,
+      onLoad: () => settle(),
+      // A scan that 404s already leaves the rock on Babylon's placeholder, which
+      // is a cosmetic fault. It must not also be able to strand a match behind
+      // the launch screen, so a failure settles the wait rather than hanging it.
+      onError: (message) => {
+        log.warn(`rock scan failed to load: ${file}${message ? ` — ${message}` : ""}`);
+        settle();
+      },
+    },
   );
   // Box projection is a real tiling UV — both axes must wrap or the rock shows
   // a stretched border where the coordinate leaves 0..1.
   texture.wrapU = Texture.WRAP_ADDRESSMODE;
   texture.wrapV = Texture.WRAP_ADDRESSMODE;
   if (!srgb) texture.gammaSpace = false;
-  perScene.set(key, texture);
-  return texture;
+  const entry: CachedRockTexture = { texture, ready };
+  perScene.set(key, entry);
+  return entry;
+}
+
+function rockTexture(scene: Scene, baseUrl: string, file: string, srgb: boolean): Texture {
+  return rockTextureEntry(scene, baseUrl, file, srgb).texture;
+}
+
+/**
+ * The four maps one scan set contributes and the colour space each is read in.
+ *
+ * ONE list, so {@link preloadRockTextures} warms exactly the cache entries
+ * {@link buildRockMaterial} goes on to ask for. A mismatched sRGB flag would be
+ * a different key and would quietly fetch the same JPEG twice — keep this in
+ * step with the four `rockTexture` calls below.
+ */
+const ROCK_MAPS: readonly (readonly [suffix: string, srgb: boolean])[] = [
+  ["diff", true],
+  ["nor", false],
+  ["ao", false],
+  ["rough", false],
+];
+
+/**
+ * Fetch and decode the scans a set of rock surfaces needs, resolving only once
+ * every image is actually on the GPU.
+ *
+ * Nothing here changes what a rock looks like — {@link buildRockMaterial} asks
+ * for the same maps through the same per-scene cache. What changes is WHEN the
+ * fetch happens. An asteroid arena declares no `render.model` anywhere, so the
+ * match preload has historically had nothing to do for it: the launch bar hit
+ * 100% on the ship hulls alone and the first rendered frame then kicked off
+ * sixteen texture loads at once, with Babylon drawing every rock on its
+ * placeholder until they landed. Counting these as preload work makes the bar
+ * describe the real wait and puts the rocks on screen textured.
+ */
+export function preloadRockTextures(
+  scene: Scene,
+  baseUrl: string,
+  textureSets: Iterable<string>,
+): Promise<void> {
+  const waits: Promise<void>[] = [];
+  for (const set of new Set(textureSets)) {
+    for (const [suffix, srgb] of ROCK_MAPS) {
+      waits.push(rockTextureEntry(scene, baseUrl, `${set}_${suffix}_1k.jpg`, srgb).ready);
+    }
+  }
+  return Promise.all(waits).then(() => undefined);
 }
 
 /**

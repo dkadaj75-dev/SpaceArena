@@ -33,7 +33,7 @@ const LOD: AsteroidLod = { lodMediumDistance: 85, lodLowDistance: 200, lodCullDi
 const MODEL_RENDER: RenderRecipe = {
   recipe: "procedural.rock-small",
   palette: { primary: "#5b5148", accent: "#7d7266" },
-  model: "asteroids/small_a.glb",
+  model: "fixtures/rock-a.glb",
   modelScale: 3.5,
 };
 
@@ -195,7 +195,7 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     await assets.ensureModel(MODEL_RENDER);
 
     const { mesh, radiusScale } = assets.getAsteroidMaster(MODEL_RENDER);
-    expect(mesh.name).toBe("master.model.asteroids/small_a.glb");
+    expect(mesh.name).toBe("master.model.fixtures/rock-a.glb");
     // modelScale is baked into the master, so an unscaled placement at the
     // config's own radius comes out at scaling 1.
     expect(radiusScale).toBeCloseTo(1 / 3.5, 6);
@@ -287,7 +287,7 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     const bigRender: RenderRecipe = {
       recipe: "procedural.rock-large",
       palette: { primary: "#463b34", accent: "#8a5a3c" },
-      model: "asteroids/large_a.glb",
+      model: "fixtures/rock-large.glb",
       modelScale: 8,
     };
     await assets.ensureModel(bigRender);
@@ -327,7 +327,7 @@ describe("AssetRegistry asteroid masters (§10 5.6)", () => {
     assets.setAsteroidLod({ ...LOD, proceduralOnly: true });
     await assets.ensureModel(MODEL_RENDER);
 
-    expect(assets.getShipMaster(MODEL_RENDER).name).toBe("master.model.asteroids/small_a.glb");
+    expect(assets.getShipMaster(MODEL_RENDER).name).toBe("master.model.fixtures/rock-a.glb");
     // The same render used as an asteroid still respects the low-tier gate.
     expect(assets.getAsteroidMaster(MODEL_RENDER).mesh.name).toBe("master.procedural.rock-small");
     assets.dispose();
