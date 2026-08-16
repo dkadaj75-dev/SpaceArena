@@ -7,6 +7,28 @@ const LS_ACCESS = "accessToken";
 const LS_REFRESH = "refreshToken";
 const LS_GUEST = "guestToken";
 
+/**
+ * Hard ceiling on every auth fetch, in milliseconds.
+ *
+ * A dead server does not always REFUSE a connection. From another machine on
+ * the LAN — the phone-against-a-stopped-PC case — Windows Firewall silently
+ * DROPS packets to a closed port instead of answering RST, so `fetch` hangs for
+ * minutes. Boot awaits the session restore, so without a ceiling the whole game
+ * sits on the boot screen forever instead of falling back to offline play. The
+ * health probe has always had its own AbortController timeout; these fetches
+ * were the gap.
+ *
+ * 8 s is deliberately far above any healthy round-trip (the probe allows 3.5 s)
+ * so a slow production server is not mistaken for a dead one: timing out a live
+ * refresh would throw a signed-in player back to anonymous.
+ */
+const AUTH_TIMEOUT_MS = 8_000;
+
+/** Fresh per-request timeout signal, kept in one place so every fetch gets it. */
+function authTimeoutSignal(): AbortSignal {
+  return AbortSignal.timeout(AUTH_TIMEOUT_MS);
+}
+
 /** Public profile payload returned by every auth response and `/me`. */
 export interface Profile {
   userId: string;
@@ -262,6 +284,7 @@ export class AuthService {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken }),
+        signal: authTimeoutSignal(),
       });
       if (!res.ok) {
         this.clearSession();
@@ -287,6 +310,7 @@ export class AuthService {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: authTimeoutSignal(),
     });
 
     if (res.status === 401 && !isRetry) {
