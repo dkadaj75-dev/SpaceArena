@@ -2,7 +2,7 @@
   "id": "gamemode.practice-ctf-5v5",
   "type": "gamemode",
   "version": 1,
-  "name": "CTF 5v5",
+  "name": "5v5 Capture the Flag",
   "launch": "online",
   "teams": "5v5",
   "defaultArena": "arena.lunar-rift",

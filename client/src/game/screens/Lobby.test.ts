@@ -89,6 +89,30 @@ describe("Lobby mode list", () => {
     lobby.hide();
   });
 
+  it("leaves a hidden mode off the list — it ships as a fixture, not a destination", () => {
+    const modes = [
+      { id: "gamemode.duel-1v1", type: "gamemode", version: 1, name: "Duel", launch: "online" },
+      { id: "gamemode.practice-bots-1v1", type: "gamemode", version: 1, name: "Skirmish 1v1", launch: "online", hidden: true },
+    ] as unknown as GamemodeConfig[];
+    const lobby = new Lobby(
+      document.body,
+      { get: () => undefined, getAll: (type: string) => (type === "gamemode" ? modes : []) } as unknown as ConfigService,
+      auth(),
+      new ServerHealthState(vi.fn()),
+      {
+        onChoose: vi.fn(),
+        onLogout: vi.fn(),
+        onAccountRequested: vi.fn(),
+        onHangarRequested: vi.fn(),
+        onShopRequested: vi.fn(),
+        onSettingsRequested: vi.fn(),
+      },
+    );
+    const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
+    expect([...play.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Duel"]);
+    lobby.hide();
+  });
+
   it("routes every mode through the same online join path", () => {
     // One lobby per click: choosing sets the busy guard that disables the whole
     // row, so a second click on the same instance is correctly a no-op.

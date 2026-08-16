@@ -4,6 +4,7 @@
   "version": 1,
   "name": "Titan Duel",
   "launch": "online",
+  "hidden": true,
   "teams": "1v1",
   "defaultArena": "arena.twin-titans",
   "winCondition": {

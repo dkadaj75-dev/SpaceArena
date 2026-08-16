@@ -77,12 +77,27 @@ describe("signal registry", () => {
     expect(evalSignal("hullFraction", ship({ hull: 999, hullMax: 100 }))).toBe(1);
   });
 
-  it("shieldActive reflects any module with an absorb reservoir", () => {
+  it("shieldActive reflects a DEPLOYED module with an absorb reservoir", () => {
     const withShield = ship({
       modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, rounds: 0, cycleTimer: 0, channeling: false, shieldPool: 5 }],
     });
     expect(evalSignal("shieldActive", withShield)).toBe(1);
     expect(evalSignal("shieldActive", ship())).toBe(0);
+  });
+
+  /**
+   * Owner 2026-08-16: a shield's reservoir IS its energy tank, and that tank
+   * charges from spawn, so a pool alone reads "this hull carries a shield" —
+   * not "this hull is running one". Only `active` mitigates damage, and only
+   * `active` may look like it does: this is what stopped the bubble appearing
+   * around every ship that merely had a shield equipped.
+   */
+  it("stays down for a shield that is fitted and charged but never switched on", () => {
+    const module = { moduleId: "m", hardpointIndex: 0, heat: 0, heatCapacity: 100, energy: 20, energyCapacity: 20, stateTimer: 0, rounds: 0, cycleTimer: 0, channeling: false, shieldPool: 20 } as const;
+    expect(evalSignal("shieldActive", ship({ modules: [{ ...module, state: "retracted" }] }))).toBe(0);
+    expect(evalSignal("shieldActive", ship({ modules: [{ ...module, state: "deploying" }] }))).toBe(0);
+    expect(evalSignal("shieldActive", ship({ modules: [{ ...module, state: "retracting" }] }))).toBe(0);
+    expect(evalSignal("shieldActive", ship({ modules: [{ ...module, state: "active" }] }))).toBe(1);
   });
 
   it("firing reflects an active module mid weapon cycle", () => {

@@ -102,6 +102,14 @@ export const gamemodeSchema = z.object({
   teams: z.enum(["1v1", "2v2", "5v5", "10v10"]),
   /** How this mode is launched. Tutorial is the only shipped offline mode. */
   launch: z.enum(["online", "offline"]).optional().default("online"),
+  /**
+   * Ships in the pack but is NOT offered on the Play menu. For modes that exist
+   * to be *run*, not chosen: the bot-behaviour audit's twin-titans duel, the
+   * 1v1 skirmish the sim tests build their worlds from. Distinct from
+   * `launch: "offline"`, which says how a mode starts rather than whether a
+   * player is ever shown it.
+   */
+  hidden: z.boolean().optional().default(false),
   /** Optional bot roster / backfill policy (Phase 5 5.1). Omitted ⇒ no bots. */
   bots: gamemodeBots.optional(),
   /** Optional default arena id this mode is played on when the room gets none. */

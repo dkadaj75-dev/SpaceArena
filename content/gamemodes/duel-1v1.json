@@ -2,7 +2,7 @@
   "id": "gamemode.duel-1v1",
   "type": "gamemode",
   "version": 1,
-  "name": "Duel 1v1",
+  "name": "Duel",
   "launch": "online",
   "teams": "1v1",
   "defaultArena": "arena.deep-field",

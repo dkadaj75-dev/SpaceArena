@@ -50,6 +50,20 @@ function frameStep(ship: ShipSnapshot, prev?: ShipSnapshot): number {
   return Math.hypot(dx, dy, dz);
 }
 
+/**
+ * Whether this ship is running a shield RIGHT NOW — the one definition the
+ * `shieldActive` signal and the shield bubble both read.
+ *
+ * Both halves matter. `shieldPool` is the module's energy tank mirrored through
+ * the snapshot, and a fitted shield charges its tank whether or not the pilot
+ * has ever switched it on, so a pool alone says "equipped", not "up". Only an
+ * `active` module mitigates damage (see `damage.ts` step 2), so only an `active`
+ * module may look like it is.
+ */
+export function shieldShellUp(ship: ShipSnapshot): boolean {
+  return ship.modules.some((m) => m.state === "active" && m.shieldPool > 0);
+}
+
 /** Signal-compute function: pure over (current, previous) snapshot. */
 export type SignalFn = (ship: ShipSnapshot, prev?: ShipSnapshot) => number;
 
@@ -60,8 +74,8 @@ export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
   boostActive: (s, p) => (frameStep(s, p) > BOOST_STEP_THRESHOLD ? 1 : 0),
   /** Remaining hull as a fraction of max, 0..1. */
   hullFraction: (s) => (s.hullMax > 0 ? clamp01(s.hull / s.hullMax) : 0),
-  /** 1 while any shield module has an absorb reservoir, else 0. */
-  shieldActive: (s) => (s.modules.some((m) => m.shieldPool > 0) ? 1 : 0),
+  /** 1 while a DEPLOYED shield module has an absorb reservoir, else 0. */
+  shieldActive: (s) => (shieldShellUp(s) ? 1 : 0),
   /**
    * How hot the ship's HOTTEST rack is, 0..1 (heat/energy overhaul 2026-08-07).
    * There is no ship heat pool to read any more, and the hottest module is the

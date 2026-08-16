@@ -15,6 +15,7 @@ import {
   evalCurve,
   evalSignal,
   hardpointsOf,
+  shieldShellUp,
   type ConfigService,
   type EffectConfig,
   type ModuleConfig,
@@ -319,20 +320,18 @@ export class ShipSocketRig {
   }
 
   /**
-   * Shield-bubble ripple (§10 5.7). Shown while ANY fitted shield module holds
-   * an absorb reservoir — the same `shieldActive` condition emitter bindings
-   * use, read straight off the snapshot so it works identically offline and
-   * online. `dtMs` is the render-frame delta driving the ripple phase.
+   * Shield-bubble ripple (§10 5.7). Shown while a DEPLOYED shield module holds
+   * an absorb reservoir — {@link shieldShellUp}, the same condition the
+   * `shieldActive` signal drives emitter bindings from, read straight off the
+   * snapshot so it works identically offline and online. `dtMs` is the
+   * render-frame delta driving the ripple phase.
+   *
+   * The state test is the point (owner 2026-08-16): a shield's reservoir is its
+   * energy tank, which charges from the moment the ship spawns, so testing the
+   * pool alone put a bubble around every hull that merely *carried* a shield.
    */
   updateShield(ship: ShipSnapshot, dtMs: number): void {
-    let shieldUp = false;
-    for (let i = 0; i < ship.modules.length; i++) {
-      if (ship.modules[i]!.shieldPool > 0) {
-        shieldUp = true;
-        break;
-      }
-    }
-    this.shieldBubble.update(shieldUp && this.effectsVisible, dtMs);
+    this.shieldBubble.update(shieldShellUp(ship) && this.effectsVisible, dtMs);
   }
 
   /**

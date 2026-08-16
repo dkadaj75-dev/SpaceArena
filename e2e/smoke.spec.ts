@@ -219,7 +219,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(lobby).toBeVisible();
 
   // ------------------------------------------------- 5. start a practice match
-  await lobby.getByRole("button", { name: "Skirmish 1v1", exact: true }).click();
+  await lobby.getByRole("button", { name: "2v2 Team Deathmatch", exact: true }).click();
   await expect(lobby).toBeHidden();
 
   // Launching leads with the player search (2026-08-14): a count-UP clock and

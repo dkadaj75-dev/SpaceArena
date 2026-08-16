@@ -251,6 +251,9 @@ export class ResultsOverlay {
     this.root.classList.remove("hud-results--outcome");
     this.root.classList.add("hud-results--mvp");
     this.bannerEl.textContent = mvpName;
+    // How long the name is, for the stylesheet to fit the type to the card
+    // instead of clipping a long name (see `--mvp-name-chars` in hudStyle.ts).
+    this.bannerEl.style.setProperty("--mvp-name-chars", String(mvpName.length));
     this.bannerEl.removeAttribute("data-outcome");
     this.outcomeTagEl.textContent = this.outcomeText;
     this.outcomeTagEl.dataset["outcome"] = this.outcomeText.toLowerCase().replaceAll(" ", "-");

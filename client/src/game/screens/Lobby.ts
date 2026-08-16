@@ -163,7 +163,7 @@ export class Lobby {
     }
     play.append(this.offlineBadge);
     for (const gm of gamemodes) {
-      if (gm.launch === "offline") continue;
+      if (gm.launch === "offline" || gm.hidden) continue;
       this.addButton(play, gm.name ?? gm.id, () => this.choose({ kind: "online", gamemode: gm.id }), true);
     }
 

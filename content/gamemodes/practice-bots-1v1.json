@@ -4,6 +4,7 @@
   "version": 1,
   "name": "Skirmish 1v1",
   "launch": "online",
+  "hidden": true,
   "teams": "1v1",
   "defaultArena": "arena.ring-nebula",
   "winCondition": {

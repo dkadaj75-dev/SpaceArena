@@ -2,7 +2,7 @@
   "id": "gamemode.practice-bots-5v5",
   "type": "gamemode",
   "version": 1,
-  "name": "Battle 5v5",
+  "name": "5v5 Team Deathmatch",
   "launch": "online",
   "teams": "5v5",
   "defaultArena": "arena.ring-nebula",

@@ -1419,7 +1419,18 @@ const CSS = `
   margin-right:max(var(--hud-inset-right), 4vw);
   gap:10px;
   padding:min(25px, 3.2vh) min(34px, 4vw);
+  /* The pilot name is sized against the CARD, not the viewport: 44vw of a
+     landscape phone is 371px, nothing like 44vw of a desktop, and only the card
+     knows which one it got. Safe to contain here — both MVP branches give the
+     panel an explicit width, so nothing inside it decides how wide it is. */
+  container-type:inline-size;
 }
+/* Nothing in the card may be squeezed to make the card fit. Flex items shrink
+   by default, and a line box shrunk under its own font-size draws the glyphs at
+   full height inside a short box — with overflow:hidden on the name that cut a
+   clean horizontal line through the pilot's name on a landscape phone. Overflow
+   now scrolls instead; the compact block below keeps it from having to. */
+.hud-results--mvp .hud-results-panel > * { flex:0 0 auto; }
 @media (orientation:portrait) {
   .hud-results--mvp .hud-results-panel {
     width:calc(100% - var(--hud-inset-left) - var(--hud-inset-right));
@@ -1428,6 +1439,22 @@ const CSS = `
     padding:15px 20px;
     gap:7px;
   }
+}
+/* Landscape phones. The card at full size wants ~420px of height and a phone on
+   its side offers ~370px, so every element used to give up a slice of itself.
+   Spend the deficit on the chrome — badge, gaps, chip padding — and leave the
+   name, the stats and the 44px buttons intact. */
+@media (orientation:landscape) and (max-height:560px) {
+  .hud-results--mvp { --hud-mvp-badge-size:min(76px, 20vh); }
+  /* A little wider than the 44vw hero framing: below ~700px the two secondary
+     buttons could not share a row, and a third 44px row is height this card
+     does not have. The hull still gets the larger half of the screen. */
+  .hud-results--mvp .hud-results-panel { width:min(440px, 48vw); gap:6px; padding:min(14px, 2.4vh) min(22px, 2.8vw); }
+  .hud-results--mvp .hud-results-btn { min-width:84px; padding:6px 12px; }
+  .hud-results--mvp .hud-results-mvp-badge { font-size:clamp(1rem, 2.6vw, 1.6rem); }
+  .hud-results--mvp .hud-results-stat { padding:5px 4px 4px; }
+  .hud-results--mvp .hud-results-stat-value { font-size:1.25em; }
+  .hud-results--mvp .hud-results-rewards-line { font-size:1em; }
 }
 /* Same two-plate frame as the in-match widgets, at panel scale. */
 .hud-results-panel::before,
@@ -1510,12 +1537,28 @@ const CSS = `
 }
 .hud-results--mvp .hud-results-title {
   max-width:100%;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
   color:var(--hud-text, var(--sa-white));
-  font-size:clamp(1.75rem, 4.5vw, 3.25rem);
-  line-height:1.05;
+  /* Fitted, not clipped. Three caps on one preferred size:
+       - clamp(1.75rem, 4.5vw, 3.25rem) — what the name wants to be;
+       - 9vh — the SHORT axis, which is the one a landscape phone runs out of;
+       - the card's own inline size divided by the name's length, where 0.95em is
+         what one tracked Orbitron capital measures (0.94 for ordinary names,
+         and the wide-glyph tail wraps rather than spilling).
+     --mvp-name-chars is published by ResultsOverlay.showMvp(); the 0.95rem
+     floor means a pathological name wraps (see overflow-wrap) rather than
+     shrinking to nothing. Nothing here truncates, so no name loses letters. */
+  font-size:max(
+    0.95rem,
+    min(
+      clamp(1.75rem, 4.5vw, 3.25rem),
+      9vh,
+      calc(100cqi / max(var(--mvp-name-chars, 9), 5) / 0.95)
+    )
+  );
+  /* 1.05 put the line box under the glyph box: ascenders and descenders were
+     shaved even where the name fitted across. */
+  line-height:1.22;
+  overflow-wrap:anywhere;
   text-shadow:0 0 22px color-mix(in srgb, var(--mvp-team) 55%, transparent);
   animation:hud-mvp-name .48s cubic-bezier(.16, 1, .3, 1) var(--hud-mvp-name-delay-ms, 430ms) both;
 }

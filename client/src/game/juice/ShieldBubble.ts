@@ -16,7 +16,9 @@ import {
 
 /**
  * ROADMAP §10 5.7 — the shield bubble: a translucent shell that ripples while a
- * ship's shield module holds a reservoir, and vanishes the moment it drops.
+ * ship is RUNNING a shield, and vanishes the moment the shield drops. Equipped
+ * is not running: see {@link import("@space-arena/shared").shieldShellUp}, which
+ * the rig calls, for why the module's state is half the test.
  *
  * One mesh per ship, owned by that ship's
  * {@link import("../ShipSocketRig.js").ShipSocketRig} (which already owns the
@@ -89,8 +91,9 @@ export class ShieldBubble {
 
   /**
    * Drive the bubble for one frame. `shieldUp` comes from the ship snapshot
-   * (any shield module with a live absorb reservoir); the ripple clock resets
-   * on each rise so every shield-up starts from the same point in the cycle.
+   * (a DEPLOYED shield module with a live absorb reservoir); the ripple clock
+   * resets on each rise so every shield-up starts from the same point in the
+   * cycle.
    */
   update(shieldUp: boolean, dtMs: number): void {
     if (!this.settings.enabled) return;

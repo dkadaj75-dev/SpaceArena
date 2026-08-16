@@ -27,6 +27,25 @@ describe("shipped gamemode launch policy", () => {
     }
   });
 
+  /**
+   * The Play menu is generated from this list (Lobby.buildSections), so the
+   * shipped catalogue IS the menu. Owner 2026-08-16: one 1v1 and it is called
+   * Duel; the rest name their team size and their rules. The two remaining 1v1
+   * configs stay in the pack as fixtures — `hidden` is what keeps them off the
+   * menu.
+   */
+  it("offers exactly one mode per team size, named the way the menu reads", () => {
+    const offered = shippedModes().filter((mode) => mode.launch === "online" && !mode.hidden);
+    // Sorted: the menu's own order is the manifest's, not the directory's.
+    expect(offered.map((mode) => mode.name).sort()).toEqual([
+      "2v2 Team Deathmatch",
+      "5v5 Capture the Flag",
+      "5v5 Team Deathmatch",
+      "Duel",
+    ]);
+    expect(offered.filter((mode) => mode.teams === "1v1")).toHaveLength(1);
+  });
+
   it("maps authored 5v5 teams to five seats per side", () => {
     const mode = shippedModes().find((candidate) => candidate.id === "gamemode.practice-bots-5v5")!;
     expect(mode.teams).toBe("5v5");

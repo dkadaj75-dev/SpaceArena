@@ -2,7 +2,7 @@
   "id": "gamemode.practice-bots",
   "type": "gamemode",
   "version": 1,
-  "name": "Skirmish 2v2",
+  "name": "2v2 Team Deathmatch",
   "launch": "online",
   "teams": "2v2",
   "defaultArena": "arena.ring-nebula",

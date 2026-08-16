@@ -1,4 +1,4 @@
-// Boots the REAL client into arena.lunar-rift (CTF 5v5) headless, parks a
+// Boots the REAL client into arena.lunar-rift (5v5 Capture the Flag) headless, parks a
 // camera at gameplay-like low oblique angles over known chunk borders, and
 // screenshots each one twice: once as the game renders it, once with a magenta
 // clear colour so any background bleeding through the ground is unmistakable.
@@ -53,10 +53,10 @@ const prompt = page.locator(".sa-fullscreen-prompt");
 if (await prompt.isVisible().catch(() => false)) {
   await prompt.getByText("Not now", { exact: true }).click().catch(() => {});
 }
-console.log("starting CTF 5v5 through the lobby …");
+console.log("starting 5v5 Capture the Flag through the lobby …");
 const lobby = page.locator(".lobby-overlay");
 await lobby.waitFor({ state: "visible", timeout: 300_000 });
-await lobby.getByRole("button", { name: "CTF 5v5", exact: true }).click();
+await lobby.getByRole("button", { name: "5v5 Capture the Flag", exact: true }).click();
 await page.locator(".sa-match-loading").waitFor({ state: "hidden", timeout: 300_000 });
 await page.waitForFunction(() => window.__debug?.session?.arenaId === "arena.lunar-rift", null, { timeout: 300_000 });
 
