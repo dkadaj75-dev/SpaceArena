@@ -45,16 +45,23 @@ export function timeBasedPull(referencePull: number, dtSeconds: number, referenc
  * power-save batches receives into 100-300 ms bursts, it is the normal state.
  *
  * The target keeps `headroomPatches` of the p90 arrival gap between the render
- * point and the newest snapshot. Asymmetric on purpose:
+ * point and the newest snapshot. BOTH directions are rate-limited, because the
+ * delay is not a free variable: `renderTime = now - delay`, so any step in the
+ * delay is a step in the playback clock the remote ships live on.
  *
- *  - WIDENING is instant. By the time the gaps say the delay is too tight the
- *    bracket is already starving, and easing toward safety would just ration
- *    out the stutter over the next several seconds.
- *  - NARROWING is slow (`NARROW_MS_PER_SECOND`). The render point sits inside
- *    the interpolation timeline, so lowering the delay plays the timeline
- *    faster than real time until it catches up — done abruptly that is itself
- *    a visible speed-up. 15 ms/s recovers a Wi-Fi burst in a couple of
- *    seconds without a watchable warp.
+ *  - WIDENING at `WIDEN_MS_PER_SECOND` (fast). The first cut of this widened
+ *    INSTANTLY, reasoning that a too-tight delay meant the bracket was already
+ *    starving — and the owner immediately reported the ride SLIGHTLY WORSE.
+ *    The reasoning missed the common case: the p90 of a live gap ring drifts up
+ *    a few ms whenever a fresh burst sample lands, long before any bracket runs
+ *    dry, and every instant up-step yanked `renderTime` BACKWARD by that many
+ *    milliseconds — remote ships visibly rewound, once per burst sample, a
+ *    rhythmic hitch in place of the old freeze-and-lurch. Rate-limited at
+ *    120 ms/s, a widening plays the timeline at ~0.88x for a few hundred
+ *    milliseconds instead — a sub-perceptual slow-motion, never a step back.
+ *  - NARROWING at `NARROW_MS_PER_SECOND` (slow): playback at ~1.015x until the
+ *    burst's slack is repaid. Recovery is deliberately much slower than onset —
+ *    over-delay merely adds latency, under-delay stutters.
  *
  * `floorMs` is the authored `netRenderDelayMs`, kept as the minimum so a calm
  * network behaves exactly as it always has; `ceilMs` caps what jitter can buy
@@ -62,6 +69,7 @@ export function timeBasedPull(referencePull: number, dtSeconds: number, referenc
  * about where it is.
  */
 export const RENDER_DELAY_CEIL_MS = 350;
+export const WIDEN_MS_PER_SECOND = 120;
 const NARROW_MS_PER_SECOND = 15;
 const HEADROOM_PATCHES = 2;
 
@@ -78,6 +86,7 @@ export function adaptiveRenderDelay(
     const p90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))]!;
     target = Math.min(ceilMs, Math.max(floorMs, p90 * HEADROOM_PATCHES));
   }
-  if (target >= currentMs) return target;
-  return Math.max(target, currentMs - NARROW_MS_PER_SECOND * Math.max(0, dtSeconds));
+  const dt = Math.max(0, dtSeconds);
+  if (target > currentMs) return Math.min(target, currentMs + WIDEN_MS_PER_SECOND * dt);
+  return Math.max(target, currentMs - NARROW_MS_PER_SECOND * dt);
 }
