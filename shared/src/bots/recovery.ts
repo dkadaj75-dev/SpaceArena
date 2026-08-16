@@ -533,8 +533,31 @@ function restSurfaces(
     clearance: VISUAL_MARGIN - staticContact.depth,
     normal: staticContact.normal,
   });
+  // Bounding-sphere reject before the radial field. `rockCollider` probes the
+  // per-direction rock surface, and this was the one path into that field with
+  // no cheap guard in front of it — every other sim entry point (CollisionSystem,
+  // ProjectileSystem, los) already rejects on a bound first. `activeContacts`
+  // then discards everything outside `VISUAL_MARGIN + ownOverhang`, which on a
+  // typical tick is all of them.
+  //
+  // This is EXACT, not an approximation. `boundRadius` is the same bound the
+  // sim's own narrowphase trusts, and the probe can never exceed it: both scale
+  // the same shape by the same `radius`, with a 4% authored margin. Since
+  // `clearance = length - selfR - r` uses the same `length` and the same
+  // operation order, and IEEE-754 subtraction is monotonic, r_bound >= r_probe
+  // gives clearance_bound <= clearance_probe exactly — so a surface rejected on
+  // the bound could only ever have been discarded downstream anyway. No epsilon.
+  const ownOverhang = Math.max(0, (env.visualRadius ?? radius) - radius);
+  const band = VISUAL_MARGIN + ownOverhang;
   for (const asteroid of snapshot.asteroids) {
     if (asteroid.state === "destroyed") continue;
+    const bound = asteroid.boundRadius ?? asteroid.colliderRadius ?? asteroid.radius;
+    // Same two points and same convention as `colliderRestSurface` below —
+    // `rockCollider` reports `pos: asteroid.pos` — so `length` is bit-identical.
+    const dx = self.pos.x - asteroid.pos.x;
+    const dy = self.pos.y - asteroid.pos.y;
+    const dz = self.pos.z - asteroid.pos.z;
+    if ((Math.hypot(dx, dy, dz) || 1) - radius - bound > band) continue;
     out.push(colliderRestSurface(self, rockCollider(asteroid, self, snapshot, env)));
   }
   for (const ship of snapshot.ships) {

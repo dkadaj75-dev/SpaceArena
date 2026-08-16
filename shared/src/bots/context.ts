@@ -141,6 +141,48 @@ export interface BuildContextInput {
   navRoute?: NavRoute;
 }
 
+/**
+ * One-slot memo for the per-snapshot blocker/hazard spheres.
+ *
+ * The loop below materialises two objects per live asteroid and depends on
+ * NOTHING but `snapshot.asteroids` — not the bot, not its profile, not the RNG
+ * (which `buildBotContext` only stores, never calls). It runs 1-3 times per bot
+ * per tick, so ~17 times a tick with ten bots, rebuilding an identical list each
+ * time; on the asteroid arenas `buildBotContext` is the largest non-idle
+ * self-time entry in the profile.
+ *
+ * Keyed on Snapshot IDENTITY, which is sound with no clear hook:
+ * `ArenaSimulation.snapshot()` allocates a fresh Snapshot — and fresh asteroid
+ * objects — on every call, and one snapshot is shared across every driver in a
+ * bot-update pass. That is unlike the value-keyed `roleAllocator` cache, which
+ * genuinely needs `clearRoleAllocationCache()`.
+ *
+ * Deliberately NOT a `WeakMap`: measured worse, because it keeps every tick's
+ * arrays reachable and promotes them into old space.
+ *
+ * The arrays are returned by reference and must stay read-only; every consumer
+ * here only reads them.
+ */
+let cachedFor: Snapshot | null = null;
+let cachedBlockers: LosCircle[] = [];
+let cachedHazards: LosCircle[] = [];
+
+function asteroidSpheres(snapshot: Snapshot): { blockers: LosCircle[]; hazards: LosCircle[] } {
+  if (cachedFor !== snapshot) {
+    const blockers: LosCircle[] = [];
+    const hazards: LosCircle[] = [];
+    for (const a of snapshot.asteroids) {
+      if (a.state === "destroyed") continue;
+      blockers.push({ pos: a.pos, radius: a.colliderRadius ?? a.radius });
+      hazards.push({ pos: a.pos, radius: a.boundRadius ?? a.colliderRadius ?? a.radius });
+    }
+    cachedBlockers = blockers;
+    cachedHazards = hazards;
+    cachedFor = snapshot;
+  }
+  return { blockers: cachedBlockers, hazards: cachedHazards };
+}
+
 /** Build the read-only decision context for one bot from a snapshot. */
 export function buildBotContext(input: BuildContextInput): BotContext {
   const { snapshot, self, profile } = input;
@@ -152,13 +194,7 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     else enemies.push(ship);
   }
 
-  const blockers: LosCircle[] = [];
-  const hazards: LosCircle[] = [];
-  for (const a of snapshot.asteroids) {
-    if (a.state === "destroyed") continue;
-    blockers.push({ pos: a.pos, radius: a.colliderRadius ?? a.radius });
-    hazards.push({ pos: a.pos, radius: a.boundRadius ?? a.colliderRadius ?? a.radius });
-  }
+  const { blockers, hazards } = asteroidSpheres(snapshot);
 
   const target = input.targetId !== null ? (enemies.find((e) => e.id === input.targetId) ?? null) : null;
   const distance = target ? dist3(self.pos, target.pos) : Infinity;

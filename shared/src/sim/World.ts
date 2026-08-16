@@ -108,9 +108,13 @@ export class World {
     return this.configs.get<TuningConfig>("tuning", this.initialTuning.id) ?? this.initialTuning;
   }
 
+  /** Bumped by every membership change; invalidates the id-list cache below. */
+  private membershipGeneration = 0;
+
   createEntity(): EntityId {
     const id = this.nextId++;
     this.entities.add(id);
+    this.membershipGeneration++;
     return id;
   }
 
@@ -125,9 +129,11 @@ export class World {
     if (this.entities.has(id)) throw new Error(`restoreEntity: ${id} is still alive`);
     if (id >= this.nextId) throw new Error(`restoreEntity: ${id} was never allocated`);
     this.entities.add(id);
+    this.membershipGeneration++;
   }
 
   destroyEntity(id: EntityId): void {
+    this.membershipGeneration++;
     this.entities.delete(id);
     this.transforms.delete(id);
     this.velocities.delete(id);
@@ -175,25 +181,75 @@ export class World {
     return out;
   }
 
+  /**
+   * Ascending id lists, cached per membership generation.
+   *
+   * Each of these was a fresh `Array.from(...).sort(...)` on every call, and
+   * between the sim, the snapshot builder and the bot pass they run ~26-30 times
+   * a tick — a few microseconds and ~17 KB of garbage per tick, every tick, to
+   * rebuild lists that only change when an entity is created or destroyed.
+   *
+   * Membership changes in exactly three places ({@link createEntity},
+   * {@link restoreEntity}, {@link destroyEntity}), all in this file, so bumping a
+   * generation counter there is provably complete: nothing outside
+   * `shared/src/sim` writes these maps.
+   *
+   * The accessors return a COPY, which is not optional. Three of them are
+   * iterated while the loop destroys entities — `shipIds` in CleanupSystem,
+   * `projectileIds` in ProjectileSystem, `decoyIds` in JettisonSystem — so
+   * handing out the cached array would mutate a list mid-iteration. A 10-element
+   * slice is far cheaper than a sort, so it still pays; the copy is uniform
+   * across all five rather than only the three that need it today, because
+   * "which of these is safe to alias" is not a property worth relying on.
+   */
+  private idCacheGeneration = -1;
+  private readonly idCache = new Map<string, EntityId[]>();
+
+  /**
+   * Validity is TWO tests, and both are needed.
+   *
+   * The generation alone is not enough: `createEntity` hands out an id well
+   * before the component map is written (`spawn.ts` does ~16 lines of stat
+   * resolution in between), so a call landing in that window would cache a list
+   * missing the new id and the generation would not move again. Comparing the
+   * cached length against the live map size closes that window.
+   *
+   * The size test alone is not enough either: destroying one ship and spawning
+   * another within a tick leaves the size unchanged while the membership is
+   * different. The generation closes that one.
+   */
+  private sortedIds(key: string, source: ReadonlyMap<EntityId, unknown>): EntityId[] {
+    if (this.idCacheGeneration !== this.membershipGeneration) {
+      this.idCache.clear();
+      this.idCacheGeneration = this.membershipGeneration;
+    }
+    let ids = this.idCache.get(key);
+    if (ids === undefined || ids.length !== source.size) {
+      ids = Array.from(source.keys()).sort((a, b) => a - b);
+      this.idCache.set(key, ids);
+    }
+    return ids.slice();
+  }
+
   /** Ship entity ids in ascending order (deterministic iteration). */
   shipIds(): EntityId[] {
-    return Array.from(this.shipCores.keys()).sort((a, b) => a - b);
+    return this.sortedIds("ships", this.shipCores);
   }
 
   asteroidIds(): EntityId[] {
-    return Array.from(this.asteroids.keys()).sort((a, b) => a - b);
+    return this.sortedIds("asteroids", this.asteroids);
   }
 
   projectileIds(): EntityId[] {
-    return Array.from(this.projectiles.keys()).sort((a, b) => a - b);
+    return this.sortedIds("projectiles", this.projectiles);
   }
 
   decoyIds(): EntityId[] {
-    return Array.from(this.decoys.keys()).sort((a, b) => a - b);
+    return this.sortedIds("decoys", this.decoys);
   }
 
   /** Flag entity ids in ascending order (deterministic iteration). */
   flagIds(): EntityId[] {
-    return Array.from(this.flags.keys()).sort((a, b) => a - b);
+    return this.sortedIds("flags", this.flags);
   }
 }

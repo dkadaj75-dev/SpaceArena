@@ -284,6 +284,15 @@ export interface Snapshot {
  *   7. CollisionSystem   — ship-asteroid, ship-ship, boundary
  *   8. CleanupSystem     — remove destroyed ships
  */
+/** Element-wise id-list equality — both lists are ascending, so order counts. */
+function sameIds(a: readonly EntityId[], b: readonly EntityId[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 export class ArenaSimulation {
   readonly world: World;
   private elapsed = 0;
@@ -293,6 +302,9 @@ export class ArenaSimulation {
   /** Whole-second value last announced by a `countdownTick` event (-1 = none yet). */
   private lastCountdownAnnounced = -1;
   private winnerTeam: number | null = null;
+  /** Live rock ids the static broadphase layer was last built from (see `tick`). */
+  private staticRocks: EntityId[] = [];
+  private staticCellSize = -1;
   private readonly teamScores = new Map<number, number>();
   /** Flag captures per team (capture-the-flag only). */
   private readonly teamCaptures = new Map<number, number>();
@@ -492,14 +504,32 @@ export class ArenaSimulation {
       }
     }
 
-    // Rebuild broadphase (ships + asteroids) from current positions.
-    w.spatial.setCellSize(w.tuning.spatialCellSize ?? 16);
-    w.spatial.clear();
+    // Rebuild the broadphase. Only the SHIP layer is rebuilt per tick: asteroid
+    // transforms are immutable (no system writes one; the tumble is a closed-form
+    // pose a bounding-sphere hash cannot see), so the rock layer only has to
+    // change when the live rock set or the cell size does.
+    //
+    // The trigger is an exact element-wise comparison of the live id list rather
+    // than a hash or a count. A count misses a same-tick destroy-and-spawn, and a
+    // hash trades a collision — however unlikely — for a stale broadphase, which
+    // is not a trade worth making in the collision path.
+    const cellSize = w.tuning.spatialCellSize ?? 16;
+    w.spatial.setCellSize(cellSize);
+    const liveRocks: EntityId[] = [];
     for (const id of w.asteroidIds()) {
-      const t = w.transforms.get(id)!;
-      const c = w.colliders.get(id)!;
-      if (w.asteroids.get(id)!.state !== "destroyed") w.spatial.insert(id, t.pos.x, t.pos.z, c.radius);
+      if (w.asteroids.get(id)!.state !== "destroyed") liveRocks.push(id);
     }
+    if (cellSize !== this.staticCellSize || !sameIds(liveRocks, this.staticRocks)) {
+      w.spatial.clearStatic();
+      for (const id of liveRocks) {
+        const t = w.transforms.get(id)!;
+        const c = w.colliders.get(id)!;
+        w.spatial.insertStatic(id, t.pos.x, t.pos.z, c.radius);
+      }
+      this.staticRocks = liveRocks;
+      this.staticCellSize = cellSize;
+    }
+    w.spatial.clearDynamic();
     for (const id of w.shipIds()) {
       const t = w.transforms.get(id)!;
       const c = w.colliders.get(id)!;

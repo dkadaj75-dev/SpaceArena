@@ -120,14 +120,49 @@ function transformedBounds(bounds: { min: Point3; max: Point3 }, position: Point
   return { min, max };
 }
 
+/**
+ * Running slab range for {@link segmentBounds}, at module level so a
+ * six-comparison test allocates nothing.
+ *
+ * Safe as shared mutable state because it is never live across a call that could
+ * re-enter: `slabAxis` is pure arithmetic, and `segmentBounds` has fully returned
+ * before `raycast` does anything else. (`heightBelow` re-enters `raycast` at the
+ * METHOD level, which is a different frame — by then this scratch is dead.)
+ */
+const slab = { lo: 0, hi: 0 };
+
+/**
+ * One slab axis, narrowing {@link slab}. False means a provable miss.
+ *
+ * The parallel-axis branch reproduces the original loop's `continue` exactly,
+ * including for a NaN origin: both comparisons are false, so it returns true and
+ * the axis is skipped, as before. `Math.max`/`Math.min` are kept verbatim rather
+ * than rewritten as comparisons — they differ on NaN and -0, and this divides by
+ * a delta that can be zero-ish.
+ */
+function slabAxis(origin: number, delta: number, low: number, high: number): boolean {
+  if (Math.abs(delta) < 1e-15) return !(origin < low || origin > high);
+  let a = (low - origin) / delta;
+  let b = (high - origin) / delta;
+  // Unconditional swap, so a temp is bit-identical to the destructured form
+  // (and on NaN neither swaps).
+  if (a > b) { const t = a; a = b; b = t; }
+  slab.lo = Math.max(slab.lo, a);
+  slab.hi = Math.min(slab.hi, b);
+  return !(slab.lo > slab.hi);
+}
+
+/**
+ * Segment vs AABB. Was a `for…of` over an array-of-tuple literal, which
+ * allocated one outer array plus three 4-element tuples per call — and a fourth
+ * on every `[a,b] = [b,a]` swap — to run six comparisons. It is the hottest
+ * function in the bot phase on the CTF terrain, so the allocation dominated the
+ * arithmetic. `&&` short-circuits exactly where the loop used to `return false`.
+ */
 function segmentBounds(from: Point3, to: Point3, min: Point3, max: Point3, maxT: number): boolean {
-  let lo = 0, hi = maxT;
-  for (const [origin, delta, low, high] of [[from.x, to.x - from.x, min.x, max.x], [from.y, to.y - from.y, min.y, max.y], [from.z, to.z - from.z, min.z, max.z]] as const) {
-    if (Math.abs(delta) < 1e-15) { if (origin < low || origin > high) return false; continue; }
-    let a = (low - origin) / delta, b = (high - origin) / delta;
-    if (a > b) [a, b] = [b, a];
-    lo = Math.max(lo, a); hi = Math.min(hi, b);
-    if (lo > hi) return false;
-  }
-  return true;
+  slab.lo = 0;
+  slab.hi = maxT;
+  return slabAxis(from.x, to.x - from.x, min.x, max.x)
+    && slabAxis(from.y, to.y - from.y, min.y, max.y)
+    && slabAxis(from.z, to.z - from.z, min.z, max.z);
 }

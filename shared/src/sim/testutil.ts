@@ -94,12 +94,15 @@ export function makeWorld(
 
 /** Rebuild the spatial hash from current asteroid + ship positions (what tick() does). */
 export function rebuildSpatial(world: World): void {
+  // Rocks go into the STATIC layer, ships into the dynamic one, exactly as
+  // `tick()` does — otherwise a test's broadphase would order its candidates
+  // differently from the real sim's.
   world.spatial.clear();
   for (const id of world.asteroidIds()) {
     if (world.asteroids.get(id)!.state === "destroyed") continue;
     const t = world.transforms.get(id)!;
     const c = world.colliders.get(id)!;
-    world.spatial.insert(id, t.pos.x, t.pos.z, c.radius);
+    world.spatial.insertStatic(id, t.pos.x, t.pos.z, c.radius);
   }
   for (const id of world.shipIds()) {
     const t = world.transforms.get(id)!;

@@ -17,8 +17,8 @@ export const DEFAULT_MATCH_COUNTDOWN_SEC = 3;
  * opt-in: packs that predate the kill switch, and the shipped pack, run with
  * heat disabled unless they explicitly set `featureFlags.heatSystem` to true.
  */
-export function heatSystemEnabled(tuning: TuningConfig): boolean {
-  return tuning.featureFlags?.heatSystem === true;
+export function heatSystemEnabled(tuning: TuningConfig | undefined): boolean {
+  return tuning?.featureFlags?.heatSystem === true;
 }
 
 /**
@@ -49,14 +49,14 @@ export function matchCountdownSecOf(tuning: TuningConfig): number {
  * vertical is the one value that would let a "clamped" hull sit exactly on the
  * pole where its heading stops meaning anything.
  */
-export function pitchTuningOf(tuning: TuningConfig): { pitchRateMult: number; maxPitchRad: number | null } {
-  const authored = tuning.maxPitchRad;
+export function pitchTuningOf(tuning: TuningConfig | undefined): { pitchRateMult: number; maxPitchRad: number | null } {
+  const authored = tuning?.maxPitchRad;
   const clamp =
     authored === undefined || Number.isNaN(authored)
       ? null
       : Math.min(Math.max(authored, Number.EPSILON), MAX_SAFE_PITCH_RAD);
   return {
-    pitchRateMult: tuning.pitchRateMult ?? DEFAULT_PITCH_RATE_MULT,
+    pitchRateMult: tuning?.pitchRateMult ?? DEFAULT_PITCH_RATE_MULT,
     maxPitchRad: clamp,
   };
 }

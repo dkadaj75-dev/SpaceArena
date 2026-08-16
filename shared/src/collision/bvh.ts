@@ -138,16 +138,36 @@ function boundsForRange(mesh: CollisionMesh, order: number[], node: Node): void 
   node.maxX = maxX; node.maxY = maxY; node.maxZ = maxZ;
 }
 
+/**
+ * Running slab range for {@link segmentAabb}. Its own scratch rather than one
+ * shared with `staticWorld.ts`: these are separate modules and a shared cell
+ * would couple two hot paths for no gain. Never live across a re-entrant call —
+ * `nodeAxis` is pure arithmetic and `segmentAabb` returns before
+ * `segmentIntersect` descends.
+ */
+const slab = { lo: 0, hi: 0 };
+
+/** One slab axis, narrowing {@link slab}. See staticWorld.ts for the equivalence argument. */
+function nodeAxis(origin: number, dir: number, min: number, max: number): boolean {
+  if (Math.abs(dir) < 1e-15) return !(origin < min || origin > max);
+  let a = (min - origin) / dir;
+  let b = (max - origin) / dir;
+  if (a > b) { const t = a; a = b; b = t; }
+  slab.lo = Math.max(slab.lo, a);
+  slab.hi = Math.min(slab.hi, b);
+  return !(slab.lo > slab.hi);
+}
+
+/**
+ * Segment vs BVH node bounds — the same allocation-per-call shape as
+ * `staticWorld.segmentBounds`, on the inner loop of every triangle raycast.
+ */
 function segmentAabb(p: Point3, dx: number, dy: number, dz: number, n: Node, maxT: number): boolean {
-  let lo = 0, hi = maxT;
-  for (const [origin, dir, min, max] of [[p.x, dx, n.minX, n.maxX], [p.y, dy, n.minY, n.maxY], [p.z, dz, n.minZ, n.maxZ]] as const) {
-    if (Math.abs(dir) < 1e-15) { if (origin < min || origin > max) return false; continue; }
-    let a = (min - origin) / dir, b = (max - origin) / dir;
-    if (a > b) [a, b] = [b, a];
-    lo = Math.max(lo, a); hi = Math.min(hi, b);
-    if (lo > hi) return false;
-  }
-  return true;
+  slab.lo = 0;
+  slab.hi = maxT;
+  return nodeAxis(p.x, dx, n.minX, n.maxX)
+    && nodeAxis(p.y, dy, n.minY, n.maxY)
+    && nodeAxis(p.z, dz, n.minZ, n.maxZ);
 }
 
 function triangleSegment(mesh: CollisionMesh, tri: number, p: Point3, dx: number, dy: number, dz: number): SegmentHit | null {

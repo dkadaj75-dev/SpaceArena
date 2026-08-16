@@ -523,7 +523,7 @@ export class BotDriver {
   private maxPitch(): number | null {
     if (this.maxPitchCache !== undefined) return this.maxPitchCache;
     const tuning = this.configs.getAll<TuningConfig>("tuning")[0];
-    this.maxPitchCache = pitchTuningOf(tuning ?? ({} as TuningConfig)).maxPitchRad;
+    this.maxPitchCache = pitchTuningOf(tuning).maxPitchRad;
     return this.maxPitchCache;
   }
 
