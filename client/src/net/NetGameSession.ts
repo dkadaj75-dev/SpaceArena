@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Colyseus schema state is runtime-generated. */
 import {
-  decodeCenti,
-  decodeFlagState,
-  decodeHeading,
-  decodeModuleState,
-  decodePitch,
-  decodeUnit,
+  checkWireState,
+  decodeAsteroidDestroyed,
+  decodeSnapshot,
+  isReplicatedPlayerAlive,
+  wireFindKey,
+  wireValues,
+  FlagTrailAccumulator,
   attitudeNear,
   facingVec,
   flightStep,
@@ -14,7 +15,6 @@ import {
   len3,
   orthonormalizeUp,
   pitchOf,
-  upFromAttitude,
   pitchTuningOf,
   resolveShipStats,
   resolveStaticStep,
@@ -36,7 +36,6 @@ import {
   type SimEventMessage,
   type Snapshot,
   type SteerState,
-  type TeamScore,
   type TuningConfig,
   type UpgradeLevels,
   type FrameAttitude,
@@ -51,11 +50,31 @@ const MAX_SNAPSHOTS = 32;
 const SNAP_DISTANCE = 3; // world units: larger prediction error snaps instead of blending
 const PENDING_TOGGLE_MS = 800; // optimistic module-state overlay lifetime
 
-export function decodeRoomPhase(matchPhase: unknown, countdownRemaining: number): Snapshot["phase"] {
-  if (matchPhase === "waiting") return "waiting";
-  if (matchPhase === "ended") return "ended";
-  return countdownRemaining > 0 ? "countdown" : "live";
-}
+/**
+ * The wire decoders now live in `shared/src/net/decodeState.ts` — unchanged, and
+ * still only ever called from here in production. They moved so that the SERVER
+ * can import them too: the round-trip test in
+ * `server/src/rooms/state/replicate.test.ts` runs this exact decoder against a
+ * real `ArenaState` that the real replication writer just filled in, which is
+ * the only way the two halves of the protocol are ever exercised together
+ * instead of separately against hand-written literals.
+ *
+ * Re-exported from here because that is where every existing consumer imports
+ * them from, and because "the client's decoder" is still what they are.
+ */
+export {
+  decodeCosmeticId,
+  decodeDecoys,
+  decodeFlags,
+  decodeModules,
+  decodeRoomPhase,
+  decodeShip,
+  decodeSnapshot,
+  decodeTeamScores,
+  decodeUp,
+  isReplicatedPlayerAlive,
+  FlagTrailAccumulator,
+} from "@space-arena/shared";
 
 interface TimedSnapshot { time: number; snapshot: Snapshot }
 interface PendingToggle { sentAt: number; fromState: string; optimistic: "deploying" | "retracting" }
@@ -432,6 +451,8 @@ export class NetGameSession extends GameSession {
   /** Network flags omit breadcrumbs; rebuild their bounded wakes from patches. */
   private readonly flagTrails = new FlagTrailAccumulator();
   private readonly flagTrailLength: number;
+  /** One-shot latch for the wire field-name check — see {@link receiveState}. */
+  private wireChecked = false;
 
   // --- telemetry (NetDebugOverlay) ---
   ordersSent = 0;
@@ -479,7 +500,7 @@ export class NetGameSession extends GameSession {
     this.flagTrailLength = configs.get<GamemodeConfig>("gamemode", gamemodeId)?.ctf?.trailLength ?? 0;
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
     this.tuning = tuning;
-    this.pitchTuning = pitchTuningOf(tuning ?? ({} as TuningConfig));
+    this.pitchTuning = pitchTuningOf(tuning);
     this.renderDelay = tuning?.netRenderDelayMs ?? 100;
     this.correctionRate = tuning?.netCorrectionRate ?? 12;
     this.fakeLagMs = Number(new URLSearchParams(location.search).get("fakelag")) || 0;
@@ -671,6 +692,21 @@ export class NetGameSession extends GameSession {
   }
 
   private receiveState(state: any): void {
+    // The client half of the wire field-name contract (see
+    // `shared/src/net/wireFields.ts`). CI already asserts the server's schema
+    // against the same frozen list; this is the backstop for the case no test
+    // can see — a DEPLOYED server whose schema drifted from the bundle this
+    // browser is running, which decodes as a screen full of silent `?? 0`.
+    //
+    // Latched to the first patch on purpose. `receiveState` is the netcode's
+    // hot path at 20 Hz; an Object.keys walk per patch would allocate on every
+    // one of them to re-answer a question whose answer cannot change inside a
+    // single room connection. Reported rather than thrown for the same reason:
+    // a schema mismatch is a broken HUD, but a throw here is a dead client.
+    if (!this.wireChecked) {
+      this.wireChecked = true;
+      for (const problem of checkWireState(state)) log.error("wire schema mismatch —", problem);
+    }
     const snap = this.decode(state);
     const now = performance.now();
     this.latest = snap;
@@ -882,49 +918,27 @@ export class NetGameSession extends GameSession {
   }
 
   private decode(state: any): Snapshot {
-    const ships = mapValues(state.players).filter(isReplicatedPlayerAlive).map((p: any) => {
-      const id = Number(p.entityId);
-      const shipId = String(p.shipId);
-      this.shipIds.set(id, shipId);
-      this.displayNames.set(id, String(p.displayName ?? "Pilot"));
-      if (p.isBot === true) this.botEntities.add(id);
-      else this.botEntities.delete(id);
-      if (this.playerId !== id && this.net.room?.sessionId && findKey(state.players, p) === this.net.room.sessionId)
-        (this as { playerId: number }).playerId = id;
-      const heading = decodeHeading(p.heading);
-      const pitch = decodePitch(p.pitch ?? 0);
-      return {
-        id,
-        team: p.team,
-        // Full 3D (BUBBLE.md §B): `y` rides the same centi codec as x/z, while
-        // `pitch` uses the SIGNED int16 pair — decoding it with `decodeHeading`
-        // would turn every nose-down attitude into a ~2π-off climb.
-        pos: { x: decodeCenti(p.x), y: decodeCenti(p.y ?? 0), z: decodeCenti(p.z) },
-        heading,
-        pitch,
-        up: decodeUp(p.upX, p.upY, p.upZ, heading, pitch),
-        hull: p.hull,
-        // Server-resolved maxima (upgrade + passive-resolved), replicated verbatim —
-        // never reconstructed from the base ship config, which would ignore
-        // upgrade tracks and utility-module passives (capacitor battery, heat sink).
-        hullMax: p.hullMax,
-        // Flight + sensor state, quantized server-side by `encodeUnit`
-        // (FLIGHT.md §5). `targetId` travels as -1 for "none" because the
-        // schema field is a plain number.
-        targetId: p.targetId === undefined || p.targetId < 0 ? null : Number(p.targetId),
-        throttle: decodeUnit(p.throttle ?? 0),
-        lockProgress: decodeUnit(p.lockProgress ?? 0),
-        locked: Boolean(p.locked),
-        cosmeticId: decodeCosmeticId(p.cosmeticId),
-        modules: decodeModules(p.modules),
-      };
+    const snap = decodeSnapshot(state, {
+      arena: this.arena,
+      asteroids: this.decodeAsteroids(state),
+      trails: this.flagTrails,
+      trailLength: this.flagTrailLength,
     });
-    const asteroids = this.arena.asteroidPlacements.map((p, i) => {
-      // Rocks are STATIC and identical on both sides, so the room replicates
-      // only which ones have been destroyed and the client rebuilds the rest
-      // from the arena config. `id` is the placement index here, which is also
-      // what tumble is keyed on (`shared/src/collision/rockPose.ts`) — offline
-      // the ids are sim entity ids and `placementIndex` carries the same number.
+    this.cachePlayerIdentities(state);
+    return snap;
+  }
+
+  /**
+   * Rocks are STATIC and identical on both sides, so the room replicates only
+   * which ones have been destroyed and the client rebuilds the rest from the
+   * arena config — which is why this stays here rather than in the shared
+   * decoder: everything except `state` comes from configs and the local
+   * mesh-geometry cache. `id` is the placement index, which is also what tumble
+   * is keyed on (`shared/src/collision/rockPose.ts`) — offline the ids are sim
+   * entity ids and `placementIndex` carries the same number.
+   */
+  private decodeAsteroids(state: any): Snapshot["asteroids"] {
+    return this.arena.asteroidPlacements.map((p, i) => {
       const geometry = this.rockGeometry(p.asteroidId);
       const scale = p.scale ?? 1;
       return {
@@ -936,49 +950,35 @@ export class NetGameSession extends GameSession {
         radius: geometry.radius * scale,
         colliderRadius: geometry.mean * scale,
         boundRadius: geometry.bound * scale,
-        state: mapGet(state.asteroids, String(i))?.destroyed ? ("destroyed" as const) : ("intact" as const),
+        state: decodeAsteroidDestroyed(state.asteroids, i) ? ("destroyed" as const) : ("intact" as const),
       };
     });
-    const projectiles = mapValues(state.projectiles).map((p: any) => ({
-      id: p.entityId,
-      kind: "missile" as const,
-      pos: { x: decodeCenti(p.x), y: decodeCenti(p.y ?? 0), z: decodeCenti(p.z) },
-      heading: decodeHeading(p.heading),
-    }));
-    const decoys = decodeDecoys(state.decoys);
-    const flags = decodeFlags(
-      state.flags,
-      this.arena,
-      this.flagTrails,
-      this.flagTrailLength,
-    );
-    // Phase from the room lifecycle + the sim's replicated countdown. A room
-    // that has not started yet ("waiting") is reported as `countdown` too: its
-    // sim is not being ticked at all, so "frozen, cannot move or fire, GO is
-    // still ahead" describes it exactly, and every consumer (HUD overlay,
-    // predictor, bots) then needs only ONE rule instead of a waiting special case.
-    const countdownRemaining = Math.max(0, Number(state.countdownRemaining ?? 0));
-    const phase = decodeRoomPhase(state.matchPhase, countdownRemaining);
-    return {
-      tick: Math.round((state.matchTimer ?? 0) * 30),
-      elapsed: state.matchTimer ?? 0,
-      phase,
-      teamScores: decodeTeamScores(state.teamScores),
-      countdownRemaining,
-      lobbyRemainingSec: Math.max(0, Number(state.lobbyRemainingSec ?? 0)),
-      winnerTeam: state.winnerTeam === -1 ? null : state.winnerTeam,
-      ships,
-      asteroids,
-      projectiles,
-      decoys,
-      flags,
-    };
   }
-}
 
-/** A roster entry persists across respawn, but only live entries are render/sim snapshots. */
-export function isReplicatedPlayerAlive(player: { alive?: unknown }): boolean {
-  return player.alive !== false;
+  /**
+   * Roster-side bookkeeping the snapshot itself does not carry: which ship
+   * config / display name / bot flag belongs to an entity id, and which entity
+   * is US. Dead entries are skipped for the same reason they are dropped from
+   * the snapshot — a corpse's roster row is stale until it respawns.
+   *
+   * Kept separate from the decode so the decoder can stay pure and be shared
+   * with the server's round-trip test. It runs after `decodeSnapshot` and
+   * before `decode` returns, so every consumer still sees the caches populated
+   * for the snapshot it is handed, exactly as when this was one fused loop.
+   */
+  private cachePlayerIdentities(state: any): void {
+    const sessionId = this.net.room?.sessionId;
+    for (const p of wireValues(state.players)) {
+      if (!isReplicatedPlayerAlive(p)) continue;
+      const id = Number(p.entityId);
+      this.shipIds.set(id, String(p.shipId));
+      this.displayNames.set(id, String(p.displayName ?? "Pilot"));
+      if (p.isBot === true) this.botEntities.add(id);
+      else this.botEntities.delete(id);
+      if (this.playerId !== id && sessionId && wireFindKey(state.players, p) === sessionId)
+        (this as { playerId: number }).playerId = id;
+    }
+  }
 }
 
 /**
@@ -995,185 +995,6 @@ export function boostMult(configs: ConfigService, fittedModuleIds: readonly stri
   return 1;
 }
 
-/**
- * Decode a replicated `PlayerState.modules` ArraySchema into `ModuleSnapshot[]`,
- * reading `hardpointIndex`/`moduleId`/`cycleTimer`/heat+energy stores verbatim from
- * the wire state — never synthesized from array position or the ship config's
- * `defaultFitting`. The modules array is sparse-safe (see `spawn.ts`): a
- * fitting like `{0: laser, 2: shield}` replicates two entries whose own
- * `hardpointIndex` fields are 0 and 2, NOT array positions 0 and 1, so every
- * consumer (ShipSocketRig, ModuleButtons, pending-toggle overlay) must look
- * modules up by `hardpointIndex`, never by index into this array.
- *
- * Exported standalone (pure over its `raw` input) so the sparse-fitting
- * decode contract has a direct regression test independent of a live
- * Colyseus room.
- */
-/**
- * Replicated paint → the offline snapshot's optional field. The wire carries ""
- * for "authored look" (a schema string has no null), and the standard paint id
- * means the same thing, so both decode to ABSENT — the renderer then has exactly
- * one case to handle, identically online and offline.
- */
-export function decodeCosmeticId(raw: unknown): string | undefined {
-  if (typeof raw !== "string" || raw.length === 0) return undefined;
-  return raw;
-}
-
-export function decodeModules(raw: any): Snapshot["ships"][number]["modules"] {
-  return mapValues(raw).map((m: any) => ({
-    hardpointIndex: m.hardpointIndex,
-    moduleId: m.moduleId,
-    state: decodeModuleState(m.state),
-    rounds: m.rounds ?? 0,
-    // Per-module stores (heat/energy overhaul 2026-08-07): the four numbers the
-    // button rings are drawn from. Capacities are resolved server-side against
-    // the hull, so they are replicated rather than recomputed from the config.
-    heat: m.heat,
-    heatCapacity: m.heatCapacity ?? 0,
-    energy: m.energy ?? 0,
-    energyCapacity: m.energyCapacity ?? 0,
-    stateTimer: m.stateTimer,
-    cycleTimer: m.cycleTimer,
-    channeling: m.channeling ?? false,
-    shieldPool: m.shieldPool ?? 0,
-  }));
-}
-
-/**
- * Decode the replicated ship-up axis (float32 on the wire): normalized and
- * Gram–Schmidt-corrected against the decoded nose, because the three float32
- * components are individually rounded and the frame must stay orthonormal.
- * A missing/degenerate up (a pre-v3 peer in a mixed-version dev setup, a
- * zeroed field) falls back to the derived roll-less up for the same nose —
- * always a legal frame.
- */
-export function decodeUp(
-  upX: unknown,
-  upY: unknown,
-  upZ: unknown,
-  heading: number,
-  pitch: number,
-): { x: number; y: number; z: number } {
-  const x = Number(upX);
-  const y = Number(upY);
-  const z = Number(upZ);
-  const up = { x, y, z };
-  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-    return upFromAttitude(heading, pitch, up);
-  }
-  return orthonormalizeUp(heading, pitch, up);
-}
-
-/**
- * Replicated team scores → snapshot shape, ascending by team id. Accepts the
- * current `{kills,captures}` entries and the former numeric-kills wire shape.
- */
-export function decodeTeamScores(raw: any): TeamScore[] {
-  const out: TeamScore[] = [];
-  if (raw?.entries) {
-    for (const [key, score] of raw.entries()) out.push(decodeTeamScore(key, score));
-  } else if (raw) {
-    for (const key of Object.keys(raw)) out.push(decodeTeamScore(key, raw[key]));
-  }
-  out.sort((a, b) => a.team - b.team);
-  return out;
-}
-
-function decodeTeamScore(key: unknown, raw: any): TeamScore {
-  return typeof raw === "number"
-    ? { team: Number(key), kills: Number(raw), captures: 0 }
-    : { team: Number(key), kills: Number(raw?.kills ?? 0), captures: Number(raw?.captures ?? 0) };
-}
-
-/** Pure wire decoder for jettisoned heatsinks. */
-export function decodeDecoys(raw: any): Snapshot["decoys"] {
-  return mapValues(raw).map((d: any) => ({
-    id: Number(d.entityId),
-    team: Number(d.team),
-    pos: { x: decodeCenti(d.x), y: decodeCenti(d.y ?? 0), z: decodeCenti(d.z) },
-    radius: Number(d.radius),
-    lifeFraction: Number(d.lifeFraction),
-  }));
-}
-
-type TrailPoint = { x: number; y: number; z: number };
-
-/** Stateful client-side counterpart of the sim's CTF `pushTrail`. */
-export class FlagTrailAccumulator {
-  private readonly trails = new Map<number, TrailPoint[]>();
-
-  update(id: number, state: Snapshot["flags"][number]["state"], pos: TrailPoint, maxLength: number): TrailPoint[] {
-    if (state === "home" || maxLength <= 0) {
-      this.trails.delete(id);
-      return [];
-    }
-    const trail = this.trails.get(id) ?? [];
-    const last = trail[trail.length - 1];
-    if (!last || distance(last, pos) >= 0.5) {
-      if (last && distance(last, pos) > maxLength) trail.length = 0;
-      trail.push({ ...pos });
-      let length = 0;
-      for (let i = trail.length - 1; i > 0; i--) {
-        length += distance(trail[i]!, trail[i - 1]!);
-        if (length > maxLength) {
-          trail.splice(0, i - 1);
-          break;
-        }
-      }
-    }
-    this.trails.set(id, trail);
-    return trail.map((point) => ({ ...point }));
-  }
-
-  retain(ids: ReadonlySet<number>): void {
-    for (const id of this.trails.keys()) if (!ids.has(id)) this.trails.delete(id);
-  }
-
-  clear(): void { this.trails.clear(); }
-}
-
-/** Decode dynamic flag state and join it with static arena base data. */
-export function decodeFlags(
-  raw: any,
-  arena: ArenaConfig,
-  trails: FlagTrailAccumulator,
-  trailLength: number,
-): Snapshot["flags"] {
-  const live = new Set<number>();
-  const flags = mapValues(raw).map((f: any) => {
-    const id = Number(f.entityId);
-    live.add(id);
-    const team = Number(f.team);
-    const state = decodeFlagState(Number(f.state));
-    const pos = { x: decodeCenti(f.x), y: decodeCenti(f.y ?? 0), z: decodeCenti(f.z) };
-    const base = arena.flagBases?.find((candidate) => candidate.team === team);
-    return {
-      id,
-      team,
-      state,
-      carrierId: f.carrierEntityId === undefined || Number(f.carrierEntityId) < 0 ? null : Number(f.carrierEntityId),
-      pos,
-      home: base ? { x: base.position.x, y: base.position.y ?? 0, z: base.position.z } : { ...pos },
-      baseRadius: base?.radius ?? 0,
-      dropRemaining: state === "dropped" ? Math.max(0, Number(f.dropRemaining ?? 0)) : 0,
-      trail: trails.update(id, state, pos, trailLength),
-    };
-  });
-  trails.retain(live);
-  return flags;
-}
-
-function distance(a: TrailPoint, b: TrailPoint): number {
-  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
-function mapValues(value: any): any[] { return value?.values ? [...value.values()] : Object.values(value ?? {}); }
-function mapGet(value: any, key: string): any { return value?.get ? value.get(key) : value?.[key]; }
-function findKey(map: any, target: any): string | undefined {
-  if (map?.entries) for (const [k, v] of map.entries()) if (v === target) return k;
-  return undefined;
-}
 /** Scratch frame for snapshot interpolation — reset per ship, copied out below. */
 const lerpFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 

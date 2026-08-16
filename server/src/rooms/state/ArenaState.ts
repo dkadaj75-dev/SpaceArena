@@ -5,12 +5,13 @@ import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
  * *minimally* — only what a client cannot derive locally from configs + events:
  *
  *  - Static asteroid *layout* is NOT synced (both sides load it from the arena
- *    config); only per-placement `hp` / `destroyed` travel (task 2.10).
+ *    config); only the per-placement `destroyed` flag travels (task 2.10).
  *  - Beams and kinetics are one-shot fire events (protocol `fireEvent`), NOT
  *    schema entities. Only **missiles** get a {@link ProjectileState} entry
  *    (task 2.7).
- *  - Positions/velocities are quantized to int16 centi-units and headings to
- *    uint16 (see shared `net/quantize`), documented there.
+ *  - Positions are quantized to int16 centi-units and headings to uint16 (see
+ *    shared `net/quantize`), documented there. Velocity is NOT replicated at
+ *    all — see the note on {@link PlayerState}.
  *
  * Uses @colyseus/schema's `@type` decorators (server tsconfig enables
  * `experimentalDecorators` + `useDefineForClassFields:false`, the combination
@@ -99,9 +100,26 @@ export class PlayerState extends Schema {
   @type("float32") upX = 0;
   @type("float32") upY = 1;
   @type("float32") upZ = 0;
-  /** Velocity, int16 centi-units. */
-  @type("int16") vx = 0;
-  @type("int16") vz = 0;
+
+  /*
+   * NO VELOCITY FIELDS HERE, deliberately — this documents an absence.
+   *
+   * Two int16 centi-unit fields, `vx` and `vz`, sat at this spot until protocol
+   * 7. Nothing ever wrote them and nothing ever read them, so they replicated
+   * zeroes for their whole life. Do not put them back as they were: a `vx`/`vz`
+   * pair with no `vy` is a 2D subset of a 3D flight model (BUBBLE.md §B — the
+   * bubble's vertical axis is a real degree of freedom), so a client that
+   * trusted the pair would be wrong the moment a ship pitched.
+   *
+   * The client already has velocity: `trackServerVelocity` in
+   * `client/src/net/NetGameSession.ts` DIFFERENCES the two interpolated
+   * snapshot positions it is already holding, in all three axes. That is the
+   * supported mechanism. If replicated velocity is ever genuinely wanted (the
+   * quantization noise on a differenced pair is the argument for it), add all
+   * THREE components, with a writer in `replicate.ts` and a decoder to match,
+   * and bump the protocol again.
+   */
+
   @type("float32") hull = 0;
   /** Resolved max hull (ship class + upgrades + module passives) — for HUD bars. */
   @type("float32") hullMax = 0;
@@ -130,9 +148,6 @@ export class PlayerState extends Schema {
    */
   @type("number") targetId = -1;
   @type([ModuleState]) modules = new ArraySchema<ModuleState>();
-  /** Highest client order seq applied for this player (reconciliation). */
-  @type("number") lastProcessedSeq = 0;
-  @type("boolean") connected = true;
 }
 
 /** Missiles only (beams/kinetics are events). Keyed by sim entity id string. */
@@ -145,10 +160,14 @@ export class ProjectileState extends Schema {
   @type("uint16") heading = 0;
 }
 
-/** Asteroid dynamic state only; position/radius come from the arena config. */
+/**
+ * Asteroid dynamic state only; position/radius come from the arena config.
+ *
+ * Intact/destroyed is the whole payload: a rock's remaining `hp` used to travel
+ * too, but no client ever decoded it (there is no rock health bar), so it was
+ * deleted with protocol 7. Damage numbers reach the client as `simEvent`s.
+ */
 export class AsteroidState extends Schema {
-  /** Current hit points, or -1 for indestructible asteroids. */
-  @type("float32") hp = 0;
   @type("boolean") destroyed = false;
 }
 

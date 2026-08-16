@@ -4,9 +4,14 @@ import { Client as ColyseusClient, type SeatReservation } from "colyseus.js";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { boot, ColyseusTestServer } from "@colyseus/testing";
 import {
+  FlagTrailAccumulator,
   decodeCenti,
+  decodeDecoys,
+  decodeFlags,
   decodePitch,
+  decodeTeamScores,
   setGlobalLogLevel,
+  type ArenaConfig,
   type BotprofileConfig,
   type ConfigService,
   type ShipConfig,
@@ -158,7 +163,6 @@ describe("ArenaRoom", () => {
     await advance(room, 20);
     // Server-authoritative position changed.
     expect(p1.x !== startX || p1.z !== startZ).toBe(true);
-    expect(p1.lastProcessedSeq).toBe(1);
 
     // Out-of-range flight axis → rejected by the wire schema.
     c1.send("order", { seq: 2, order: { kind: "flight", throttle: 5, turn: 0, boost: false, fire: true } });
@@ -280,7 +284,6 @@ describe("ArenaRoom", () => {
     expect(p1.x !== startX || p1.z !== startZ).toBe(true);
     expect(p1.heading).not.toBe(startHeading);
     expect(p1.throttle).toBe(255);
-    expect(p1.lastProcessedSeq).toBe(1);
 
     // Cutting the throttle is another single order; the ship decelerates.
     c1.send("order", { seq: 2, order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true } });
@@ -1137,6 +1140,159 @@ describe("ArenaRoom", () => {
 
     for (let tick = 0; tick < 180 && !player.alive; tick++) await advance(room, 1);
     expect(player.alive).toBe(true);
+    await human.leave();
+  });
+
+  /**
+   * CTF objectives, end to end: a real room ticks a real sim, the room's
+   * replication writes the schema, and the CLIENT's own decoders read
+   * `room.state` back out.
+   *
+   * This suite used to have effectively zero flag/decoy/score coverage — one
+   * unrelated grep hit for the word "flags" — even though objectives are the
+   * whole of the CTF mode. The value of running the client decoders here (rather
+   * than reading schema fields directly, as every other test in this file does)
+   * is that it is the only place the encode and decode halves of the objective
+   * protocol meet across a genuine room lifecycle: `replicate.test.ts` proves
+   * the same pairing against a bare simulation, and this proves the room
+   * actually drives it.
+   *
+   * Positions are teleported rather than flown. A capture flown honestly across
+   * a 510-unit arena is ~20 seconds of wall clock per leg and is at the mercy of
+   * bot pathing; the objective RULES are the sim's business and are tested there.
+   * What is under test here is that each state the flag passes through reaches a
+   * client intact.
+   */
+  interface CtfInternals {
+    sim: {
+      applyOrder(entityId: number, order: unknown): void;
+      world: {
+        transforms: Map<number, { pos: { x: number; y: number; z: number } }>;
+        shipCores: Map<number, { hull: number }>;
+        modules: Map<number, { modules: Array<{ moduleId: string; cycleTimer: number }> }>;
+      };
+    };
+  }
+
+  /** Boot a live 5v5 CTF room with one human and a full bot backfill. */
+  async function bootCtfRoom() {
+    const room = await colyseus.createRoom<ArenaState>("arena", {
+      gamemode: "gamemode.practice-ctf-5v5",
+      botBackfillMs: 0,
+    });
+    const human = await colyseus.connectTo(room);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await advance(room, 1);
+    expect(room.state.matchPhase).toBe("live");
+    const internal = colyseus.getRoomById(room.roomId) as unknown as CtfInternals;
+    const arena = configs.get<ArenaConfig>("arena", "arena.lunar-rift")!;
+    return { room, human, internal, arena };
+  }
+
+  it("replicates the whole CTF flag lifecycle, and a capture, to the client's decoders", async () => {
+    const { room, human, internal, arena } = await bootCtfRoom();
+    const trails = new FlagTrailAccumulator();
+    const readFlags = (): ReturnType<typeof decodeFlags> =>
+      decodeFlags(room.state.flags, arena, trails, 100);
+
+    // 1. HOME. One flag per authored base, each sitting on its own stand.
+    expect(room.state.flags.size).toBe(2);
+    const atHome = readFlags();
+    expect(atHome).toHaveLength(2);
+    for (const flag of atHome) {
+      expect(flag.state).toBe("home");
+      expect(flag.carrierId).toBeNull();
+      expect(flag.baseRadius).toBeGreaterThan(0);
+      // Base data never travels; the client joins it from the arena config.
+      expect(flag.pos.z).toBeCloseTo(flag.home.z, 1);
+    }
+
+    const player = room.state.players.get(human.sessionId)!;
+    const enemyTeam = player.team === 0 ? 1 : 0;
+    const enemyFlagKey = [...room.state.flags.entries()].find(([, f]) => f.team === enemyTeam)![0];
+    const enemyFlagId = Number(enemyFlagKey);
+
+    // 2. TAKEN. Fly (teleport) the human through the enemy flag.
+    const flagPos = internal.sim.world.transforms.get(enemyFlagId)!.pos;
+    const shipTf = internal.sim.world.transforms.get(player.entityId)!;
+    shipTf.pos = { ...flagPos };
+    await advance(room, 1);
+    const carried = readFlags().find((f) => f.id === enemyFlagId)!;
+    expect(carried.state).toBe("carried");
+    expect(carried.carrierId).toBe(player.entityId);
+    expect(room.state.flags.get(enemyFlagKey)!.carrierEntityId).toBe(player.entityId);
+
+    // 3. DROPPED. Killing the carrier leaves the flag where it died, counting
+    //    down. `dropRemaining` is the field a rename would silently zero.
+    internal.sim.world.shipCores.get(player.entityId)!.hull = 0;
+    await advance(room, 2);
+    const dropped = readFlags().find((f) => f.id === enemyFlagId)!;
+    expect(dropped.state).toBe("dropped");
+    expect(dropped.carrierId).toBeNull();
+    expect(dropped.dropRemaining).toBeGreaterThan(0);
+    // A flag off its stand leaves a wake the client accumulates locally.
+    expect(dropped.trail.length).toBeGreaterThan(0);
+
+    // 4. RETURNED. A defender of the flag's OWN team sends it straight home.
+    const defender = [...room.state.players.values()].find((p) => p.isBot && p.team === enemyTeam)!;
+    const loosePos = internal.sim.world.transforms.get(enemyFlagId)!.pos;
+    internal.sim.world.transforms.get(defender.entityId)!.pos = { ...loosePos };
+    await advance(room, 1);
+    const returned = readFlags().find((f) => f.id === enemyFlagId)!;
+    expect(returned.state).toBe("home");
+    expect(returned.trail).toEqual([]);
+
+    // 5. CAPTURED. A runner of the human's team carries the enemy flag into its
+    //    own base while its own flag is home — the mode's actual win condition.
+    const runner = [...room.state.players.values()].find((p) => p.isBot && p.team === player.team)!;
+    const runnerTf = internal.sim.world.transforms.get(runner.entityId)!;
+    runnerTf.pos = { ...internal.sim.world.transforms.get(enemyFlagId)!.pos };
+    await advance(room, 1);
+    expect(readFlags().find((f) => f.id === enemyFlagId)!.carrierId).toBe(runner.entityId);
+
+    const ownBase = arena.flagBases!.find((base) => base.team === player.team)!;
+    runnerTf.pos = { x: ownBase.position.x, y: ownBase.position.y ?? 0, z: ownBase.position.z };
+    await advance(room, 1);
+
+    const scores = decodeTeamScores(room.state.teamScores);
+    expect(scores.find((s) => s.team === player.team)?.captures).toBe(1);
+    expect(scores.find((s) => s.team === enemyTeam)?.captures ?? 0).toBe(0);
+    // A captured flag goes straight back on its stand.
+    expect(readFlags().find((f) => f.id === enemyFlagId)!.state).toBe("home");
+
+    await human.leave();
+  });
+
+  it("replicates a jettisoned heatsink decoy to the client's decoder", async () => {
+    const { room, human, internal } = await bootCtfRoom();
+    expect(decodeDecoys(room.state.decoys)).toEqual([]);
+
+    // The stock fitting carries the non-jettisonable sink, so swap in the
+    // ablative one on the live module runtime — the JettisonSystem resolves the
+    // config by module id, and this suite is testing replication, not fittings.
+    const player = room.state.players.get(human.sessionId)!;
+    const sink = internal.sim.world.modules.get(player.entityId)!.modules.find((m) =>
+      m.moduleId.startsWith("module.heatsink"),
+    )!;
+    sink.moduleId = "module.heatsink-ablative";
+    sink.cycleTimer = 0;
+    const shipPos = { ...internal.sim.world.transforms.get(player.entityId)!.pos };
+    internal.sim.applyOrder(player.entityId, { kind: "jettisonHeatsink" });
+    await advance(room, 1);
+
+    expect(room.state.decoys.size).toBe(1);
+    const decoys = decodeDecoys(room.state.decoys);
+    expect(decoys).toHaveLength(1);
+    const decoy = decoys[0]!;
+    expect(decoy.team).toBe(player.team);
+    expect(decoy.radius).toBeGreaterThan(0);
+    expect(decoy.lifeFraction).toBeGreaterThan(0);
+    expect(decoy.lifeFraction).toBeLessThanOrEqual(1);
+    // Dropped at rest where the hull was, within the wire's 0.1-unit precision.
+    expect(Math.abs(decoy.pos.x - shipPos.x)).toBeLessThanOrEqual(0.05);
+    expect(Math.abs(decoy.pos.y - shipPos.y)).toBeLessThanOrEqual(0.05);
+    expect(Math.abs(decoy.pos.z - shipPos.z)).toBeLessThanOrEqual(0.05);
+
     await human.leave();
   });
 

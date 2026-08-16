@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import {
   ArenaSimulation,
   BotDriver,
+  createBotDriver,
   deriveRng,
   generateBotName,
   pickBotShip,
@@ -14,12 +15,6 @@ import {
   teamSizeOf,
   SIM_TICK_RATE,
   createLogger,
-  encodeCenti,
-  encodeFlagState,
-  encodeHeading,
-  encodeModuleState,
-  encodePitch,
-  encodeUnit,
   orderMessageSchema,
   MSG_ORDER,
   MSG_ORDER_ACK,
@@ -34,7 +29,6 @@ import {
   type EntityId,
   type Order,
   type SimEvent,
-  type ShipSnapshot,
   type OrderRejectReason,
   type FireEventMessage,
   type SimEventMessage,
@@ -47,10 +41,8 @@ import { ownedCosmeticIds } from "../api/ownership.js";
 import { hardpointMapToFitting, validateFitting } from "../api/fittingValidation.js";
 import { finalizeMatch, type Participant } from "../progression/service.js";
 import { getMetrics, instrumentClientEgress } from "../telemetry/metrics.js";
-import {
-  ArenaState, PlayerState, ProjectileState, ModuleState, AsteroidState,
-  DecoyState, FlagState, TeamScoreState,
-} from "./state/ArenaState.js";
+import { ArenaState, PlayerState, ModuleState, AsteroidState } from "./state/ArenaState.js";
+import { applySnapshot, syncShipState } from "./state/replicate.js";
 
 const log = createLogger("ArenaRoom");
 
@@ -244,7 +236,6 @@ export class ArenaRoom extends Room<ArenaState> {
     this.asteroidEntityIds.forEach((id, i) => {
       const tag = this.sim.world.asteroids.get(id)!;
       const a = new AsteroidState();
-      a.hp = Number.isFinite(tag.hp) ? tag.hp : -1; // -1 == indestructible
       a.destroyed = tag.state === "destroyed";
       state.asteroids.set(String(i), a);
     });
@@ -300,7 +291,6 @@ export class ArenaRoom extends Room<ArenaState> {
     ps.cosmeticId = cosmeticId ?? "";
     ps.displayName = this.resolveDisplayName(userId, options);
     ps.isBot = false;
-    ps.connected = true;
     // One ModuleState per fitted (non-empty) module; empty hardpoints get none.
     const fittedCount = fitting.filter((m) => m !== null).length;
     for (let i = 0; i < fittedCount; i++) ps.modules.push(new ModuleState());
@@ -320,7 +310,7 @@ export class ArenaRoom extends Room<ArenaState> {
     instrumentClientEgress(client, this.roomId, this);
     getMetrics().setClientCount(this.roomId, this.clients.length);
 
-    this.syncShipState(entityId, ps);
+    syncShipState(this.sim.snapshot(), entityId, ps);
     client.send(MSG_MATCH_STATS, { lines: this.matchStats.all() });
 
     log.info("client joined", { sessionId: client.sessionId, team, entityId, shipId, userId });
@@ -524,15 +514,31 @@ export class ArenaRoom extends Room<ArenaState> {
       .find((candidate): candidate is readonly (string | null)[] => candidate !== undefined);
     for (let team = 0; team < 2; team++) {
       for (let i = perTeam.get(team) ?? 0; i < teamSize; i++) {
+        // Roster parity with the offline path. The client's local fallback
+        // (GameSession) reads all three of `profile`, `shipId` and `fitting` off
+        // the matched slot; this read only `profile` and always sourced the hull
+        // from `backfill`, silently discarding a slot's authored `ship`/`fitting`
+        // even though `gamemodeSchema` accepts both.
+        //
+        // The gate is `!slot?.fitting`, mirroring GameSession exactly, and that
+        // detail is load-bearing: simply preferring the slot's hull over
+        // `pickBotShip` would SKIP a draw on practice-bots-5v5 and
+        // practice-ctf-5v5 (both author a roster AND set randomizeLoadouts), and
+        // `rosterRng` also feeds `generateBotName` below — so bot hulls and names
+        // on two shipped online modes would change. This form preserves the
+        // stream. No shipped roster slot authors `fitting`, and every authored
+        // `ship` already equals its mode's `defaultShip`, so today this is a
+        // provable no-op; it stops being one the moment content uses the fields.
         const teamRoster = authoredRoster.filter((slot) => slot.team === team);
-        const botProfile = teamRoster.length > 0 ? teamRoster[i % teamRoster.length]!.profile : backfill.profile;
-        const botShipId = randomize
-          ? pickBotShip(configs, rosterRng, backfill.shipId, this.sim.world.gamemode.bots?.shipPool)
-          : backfill.shipId;
+        const slot = teamRoster.length > 0 ? teamRoster[i % teamRoster.length] : undefined;
+        const botProfile = slot?.profile ?? backfill.profile;
+        const botShipId = randomize && !slot?.fitting
+          ? pickBotShip(configs, rosterRng, slot?.shipId ?? backfill.shipId, this.sim.world.gamemode.bots?.shipPool)
+          : (slot?.shipId ?? backfill.shipId);
         const botShip = configs.get<ShipConfig>("ship", botShipId) ?? ship;
-        const botFitting = randomize
+        const botFitting = slot?.fitting ?? (randomize
           ? randomBotFitting(configs, botShipId, rosterRng, botProfile, referenceFitting)
-          : botShip.defaultFitting;
+          : botShip.defaultFitting);
         // Bots wear a paint authored for their hull, keyed off the room seed + entity id
         // rather than drawn from `rosterRng`: dressing them must not shift the
         // stream that picks their hulls and fittings.
@@ -548,7 +554,6 @@ export class ArenaRoom extends Room<ArenaState> {
         // on a scoreboard, "Vortexrunner_77" reads as an opponent.
         ps.displayName = generateBotName(rosterRng);
         ps.isBot = true;
-        ps.connected = false;
         for (let m = 0; m < botFitting.filter((x) => x !== null).length; m++) ps.modules.push(new ModuleState());
         this.state.players.set(key, ps);
         this.keyToEntity.set(key, entityId);
@@ -560,21 +565,12 @@ export class ArenaRoom extends Room<ArenaState> {
         // happen. Entity id salts the stream so co-spawned bots differ.
         this.botDrivers.set(
           entityId,
-          new BotDriver({
-            entityId,
-            profile: botProfile,
-            configs,
-            rng: deriveRng(this.seed, entityId),
-            arenaBounds: this.sim.world.arena.bounds,
-            floorY: this.sim.world.arena.bounds.shape === "sphere" ? this.sim.world.arena.bounds.floorY : undefined,
-            staticWorld: this.sim.world.staticWorld,
-            navRoute: this.sim.world.navRoute,
-            // modelScale is approximately the authored forward length for a
-            // unit-normalized hull; the gameplay collider is the honest floor.
-            visualRadius: Math.max(botShip.collider.radius, (botShip.render.modelScale ?? botShip.collider.radius * 2) / 2),
-          }),
+          createBotDriver(this.sim.world, entityId, botProfile, botShip, deriveRng(this.seed, entityId)),
         );
-        this.syncShipState(entityId, ps);
+        // Snapshot per bot, not hoisted out of the loop: each iteration spawns
+        // a ship into the world, so a snapshot taken before the loop would not
+        // contain the bots spawned after it.
+        syncShipState(this.sim.snapshot(), entityId, ps);
         spawned++;
       }
     }
@@ -659,8 +655,10 @@ export class ArenaRoom extends Room<ArenaState> {
     }
 
     this.sim.applyOrder(entityId, order);
-    const ps = this.state.players.get(client.sessionId);
-    if (ps) ps.lastProcessedSeq = seq;
+    // The accepted `seq` goes back on the per-client `orderAck` and nowhere
+    // else: reconciliation is a private conversation with the sender, so it has
+    // no business in the roster every client decodes (protocol 7 deleted the
+    // `lastProcessedSeq` field that used to shadow it).
     this.ack(client, seq, true);
   }
 
@@ -760,24 +758,19 @@ export class ArenaRoom extends Room<ArenaState> {
     this.trackFrags(events);
     this.relayEvents(events);
 
-    this.writeState();
+    // ONE post-tick snapshot for the whole replication pass. The write side of
+    // the wire protocol lives in `state/replicate.ts` and used to open by taking
+    // its own — two full rebuilds of identical state, since `snapshot()` is pure
+    // and nothing between them touches the sim except one read. (`driveBots`
+    // keeps its own: that one is deliberately PRE-tick, taken before any order
+    // in the pass is applied so every bot decides against the same world.)
+    //
+    // `applySnapshot` is a free function over (state, snapshot) precisely so the
+    // encoder and the client's real decoder can be run against each other in one
+    // process test (`state/replicate.test.ts`) instead of only ever meeting
+    // across a websocket.
     const snap = this.sim.snapshot();
-    this.state.matchTimer = snap.elapsed;
-    // The countdown lives in the sim, so this is a mirror, not a second timer.
-    if (this.state.countdownRemaining !== snap.countdownRemaining) {
-      this.state.countdownRemaining = snap.countdownRemaining;
-    }
-    // Team scores; write-on-change keeps patches quiet.
-    for (const { team, kills, captures } of snap.teamScores) {
-      const key = String(team);
-      let score = this.state.teamScores.get(key);
-      if (!score) {
-        score = new TeamScoreState();
-        this.state.teamScores.set(key, score);
-      }
-      if (score.kills !== kills) score.kills = kills;
-      if (score.captures !== captures) score.captures = captures;
-    }
+    applySnapshot(this.state, snap, this.entityToKey, this.asteroidEntityIds, this.sim.world.asteroids);
 
     getMetrics().recordTick(this.roomId, performance.now() - startedAt);
 
@@ -837,178 +830,6 @@ export class ArenaRoom extends Room<ArenaState> {
       const passthrough = toSimEventMessage(ev);
       if (passthrough) this.broadcast(MSG_SIM_EVENT, passthrough);
     }
-  }
-
-  private writeState(): void {
-    const snap = this.sim.snapshot();
-
-    // Ships (players + bots).
-    for (const ship of snap.ships) {
-      const key = this.entityToKey.get(ship.id);
-      if (!key) continue;
-      const ps = this.state.players.get(key);
-      if (!ps) continue;
-      this.applyShipSnapshot(ps, ship);
-    }
-
-    // Missiles only (beams/kinetics are events).
-    const liveMissiles = new Set<string>();
-    for (const p of snap.projectiles) {
-      if (p.kind !== "missile") continue;
-      const pk = String(p.id);
-      liveMissiles.add(pk);
-      let proj = this.state.projectiles.get(pk);
-      if (!proj) {
-        proj = new ProjectileState();
-        proj.entityId = p.id;
-        this.state.projectiles.set(pk, proj);
-      }
-      const qx = encodeCenti(p.pos.x);
-      const qy = encodeCenti(p.pos.y);
-      const qz = encodeCenti(p.pos.z);
-      const qh = encodeHeading(p.heading);
-      if (proj.x !== qx) proj.x = qx;
-      if (proj.y !== qy) proj.y = qy;
-      if (proj.z !== qz) proj.z = qz;
-      if (proj.heading !== qh) proj.heading = qh;
-    }
-    for (const pk of [...this.state.projectiles.keys()]) {
-      if (!liveMissiles.has(pk)) this.state.projectiles.delete(pk);
-    }
-
-    const liveDecoys = new Set<string>();
-    for (const d of snap.decoys) {
-      const key = String(d.id);
-      liveDecoys.add(key);
-      let state = this.state.decoys.get(key);
-      if (!state) {
-        state = new DecoyState();
-        state.entityId = d.id;
-        this.state.decoys.set(key, state);
-      }
-      state.team = d.team;
-      state.x = encodeCenti(d.pos.x);
-      state.y = encodeCenti(d.pos.y);
-      state.z = encodeCenti(d.pos.z);
-      state.radius = d.radius;
-      state.lifeFraction = d.lifeFraction;
-    }
-    for (const key of [...this.state.decoys.keys()]) if (!liveDecoys.has(key)) this.state.decoys.delete(key);
-
-    const liveFlags = new Set<string>();
-    for (const f of snap.flags) {
-      const key = String(f.id);
-      liveFlags.add(key);
-      let state = this.state.flags.get(key);
-      if (!state) {
-        state = new FlagState();
-        state.entityId = f.id;
-        this.state.flags.set(key, state);
-      }
-      state.team = f.team;
-      state.state = encodeFlagState(f.state);
-      state.x = encodeCenti(f.pos.x);
-      state.y = encodeCenti(f.pos.y);
-      state.z = encodeCenti(f.pos.z);
-      state.carrierEntityId = f.carrierId ?? -1;
-      state.dropRemaining = f.dropRemaining;
-    }
-    for (const key of [...this.state.flags.keys()]) if (!liveFlags.has(key)) this.state.flags.delete(key);
-
-    // Asteroids: hp/destroyed only.
-    this.asteroidEntityIds.forEach((id, i) => {
-      const tag = this.sim.world.asteroids.get(id);
-      if (!tag) return;
-      const a = this.state.asteroids.get(String(i));
-      if (!a) return;
-      const hp = Number.isFinite(tag.hp) ? tag.hp : -1;
-      const destroyed = tag.state === "destroyed";
-      if (a.hp !== hp) a.hp = hp;
-      if (a.destroyed !== destroyed) a.destroyed = destroyed;
-    });
-  }
-
-  /** Full ship write (used at join before the first tick). */
-  private syncShipState(entityId: EntityId, ps: PlayerState): void {
-    const snap = this.sim.snapshot();
-    const ship = snap.ships.find((s) => s.id === entityId);
-    if (ship) this.applyShipSnapshot(ps, ship);
-  }
-
-  private applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
-    if (!ps.alive) ps.alive = true;
-    const qx = encodeCenti(ship.pos.x);
-    const qy = encodeCenti(ship.pos.y);
-    const qz = encodeCenti(ship.pos.z);
-    const qh = encodeHeading(ship.heading);
-    const qp = encodePitch(ship.pitch);
-    // The up axis rides as float32 — round through Math.fround for the dirty
-    // check, or the stored 32-bit value never equals the 64-bit sim value and
-    // every field would be re-sent on every patch.
-    const qux = Math.fround(ship.up.x);
-    const quy = Math.fround(ship.up.y);
-    const quz = Math.fround(ship.up.z);
-    if (ps.x !== qx) ps.x = qx;
-    if (ps.y !== qy) ps.y = qy;
-    if (ps.z !== qz) ps.z = qz;
-    if (ps.heading !== qh) ps.heading = qh;
-    if (ps.pitch !== qp) ps.pitch = qp;
-    if (ps.upX !== qux) ps.upX = qux;
-    if (ps.upY !== quy) ps.upY = quy;
-    if (ps.upZ !== quz) ps.upZ = quz;
-    if (ps.hull !== ship.hull) ps.hull = ship.hull;
-    // Resolved maxima (ship class + upgrades + module passives): the sim already
-    // resolved these into the snapshot at spawn, so mirror them straight through.
-    if (ps.hullMax !== ship.hullMax) ps.hullMax = ship.hullMax;
-
-    // Flight + sensor state (FLIGHT.md §5). `throttle` and `lockProgress` are
-    // already normalized 0..1 in the snapshot, so they quantize through the same
-    // `encodeUnit` the client decodes with — no per-field scaling anywhere else.
-    const qThrottle = encodeUnit(ship.throttle);
-    const qLock = encodeUnit(ship.lockProgress);
-    if (ps.throttle !== qThrottle) ps.throttle = qThrottle;
-    if (ps.lockProgress !== qLock) ps.lockProgress = qLock;
-    if (ps.locked !== ship.locked) ps.locked = ship.locked;
-    const targetId = ship.targetId ?? -1;
-    if (ps.targetId !== targetId) ps.targetId = targetId;
-
-    let shieldPool = 0;
-    for (let i = 0; i < ship.modules.length; i++) {
-      const m = ship.modules[i]!;
-      shieldPool += m.shieldPool;
-      const target = ps.modules[i];
-      if (!target) {
-        const ms = new ModuleState();
-        ms.moduleId = m.moduleId;
-        ms.hardpointIndex = m.hardpointIndex;
-        ms.state = encodeModuleState(m.state);
-        ms.stateTimer = m.stateTimer;
-        ms.rounds = m.rounds ?? 0;
-        ms.heat = m.heat;
-        ms.heatCapacity = m.heatCapacity;
-        ms.energy = m.energy;
-        ms.energyCapacity = m.energyCapacity;
-        ms.cycleTimer = m.cycleTimer;
-        ms.channeling = m.channeling;
-        ms.shieldPool = m.shieldPool;
-        ps.modules.push(ms);
-        continue;
-      }
-      if (target.moduleId !== m.moduleId) target.moduleId = m.moduleId;
-      if (target.hardpointIndex !== m.hardpointIndex) target.hardpointIndex = m.hardpointIndex;
-      const code = encodeModuleState(m.state);
-      if (target.state !== code) target.state = code;
-      if (target.stateTimer !== m.stateTimer) target.stateTimer = m.stateTimer;
-      if (target.rounds !== (m.rounds ?? 0)) target.rounds = m.rounds ?? 0;
-      if (target.heat !== m.heat) target.heat = m.heat;
-      if (target.heatCapacity !== m.heatCapacity) target.heatCapacity = m.heatCapacity;
-      if (target.energy !== m.energy) target.energy = m.energy;
-      if (target.energyCapacity !== m.energyCapacity) target.energyCapacity = m.energyCapacity;
-      if (target.cycleTimer !== m.cycleTimer) target.cycleTimer = m.cycleTimer;
-      if (target.channeling !== m.channeling) target.channeling = m.channeling;
-      if (target.shieldPool !== m.shieldPool) target.shieldPool = m.shieldPool;
-    }
-    if (ps.shieldPool !== shieldPool) ps.shieldPool = shieldPool;
   }
 
   private endMatch(): void {
@@ -1084,14 +905,13 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   async onLeave(client: Client, consented: boolean): Promise<void> {
-    const ps = this.state.players.get(client.sessionId);
-    if (ps) ps.connected = false;
-
+    // The roster row STAYS put for the reconnection window — it carries no
+    // connection flag (protocol 7 deleted `connected`, which nothing decoded);
+    // clients filter the roster on `alive`, and a leaver's ship is only removed
+    // by `removePlayer` below.
     if (!consented) {
       try {
         await this.allowReconnection(client, RECONNECT_WINDOW_S);
-        const rejoined = this.state.players.get(client.sessionId);
-        if (rejoined) rejoined.connected = true;
         log.info("client reconnected", { sessionId: client.sessionId });
         return;
       } catch {

@@ -94,9 +94,9 @@ New order (shared/src/sim/orders.ts):
   received state every tick until replaced. This keeps the net model edge-triggered
   (one order per meaningful input change) and inside `tuning.maxOrdersPerSec`.
 - NavigationSystem per tick for ships with FlightState:
-  - `heading += turn * engine.turnRate * dt` (turn>0 turns the same direction as
-    today's `turnToward` positive delta; client maps stick-right to whichever sign
-    reads as screen-right under the chase cam).
+  - `heading += turn * engine.turnRate * dt` (turn>0 increases heading directly,
+    the same sense as a positive `angleDelta`; client maps stick-right to
+    whichever sign reads as screen-right under the chase cam).
   - `desiredSpeed = throttle * engine.nominalSpeed * boostMult` — boost resolves
     exactly like today's MoveOrder.boost path (active boost module + energy/heat
     headroom, `workedThisTick = true`).
@@ -289,9 +289,14 @@ and `pan.boundsMargin` gone, `pan.sensitivity` kept for the editor stage.
 
 **Net** — `orderSchema` move/target cases and the now-unreachable `out-of-bounds`
 / `bad-target` reject reasons; `ArenaRoom.validateOrder`'s move/target cases and
-its `inBounds` helper. `PROTOCOL_VERSION` is unchanged: it versions the CONTENT
-PACK bundle format (`shared/src/content/pack.ts`), which this stage does not
-touch, and there is no separate wire-protocol constant to bump.
+its `inBounds` helper. `PROTOCOL_VERSION` was unchanged *for this stage*: no
+replicated field moved, and the reject reasons that went are not schema.
+(Correction, 2026-08-16: the constant is not content-only. It gates the CONTENT
+PACK bundle — `validateBundle` in `shared/src/content/pack.ts` refuses a
+mismatch — *and* it is the repo's version stamp for the Colyseus schema in
+`server/src/rooms/state/ArenaState.ts`; entries 3 through 7 in
+`shared/src/constants.ts` are all wire-schema changes. There is no second
+constant. Bump it whenever a replicated field is added, removed or reordered.)
 
 **Bots** — `BotDriver` no longer emits `target` orders (`lastTargetId` gone). It
 keeps `pickTarget`, renamed in intent: it chooses which enemy to MANOEUVRE

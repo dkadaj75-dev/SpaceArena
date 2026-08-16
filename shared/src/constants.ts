@@ -17,4 +17,11 @@ export const SIM_TICK_RATE = 30;
 // prevent.
 // 6: clip-fed weapons add the `reloading` module state and replicate each
 // module's dynamic rounds-remaining count.
-export const PROTOCOL_VERSION = 6;
+// 7: five fields DELETED from the replicated state — `PlayerState.vx`/`vz`
+// (never written by anyone; the client differences positions instead, see the
+// note on `PlayerState`), `PlayerState.lastProcessedSeq` (reconciliation is the
+// per-client `orderAck`), `PlayerState.connected` (clients filter on `alive`)
+// and `AsteroidState.hp` (no rock health bar exists). Colyseus encodes by
+// declaration index, so an older client would mis-decode every field after the
+// first hole.
+export const PROTOCOL_VERSION = 7;
