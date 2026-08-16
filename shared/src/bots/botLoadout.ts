@@ -3,8 +3,6 @@ import type { BotprofileConfig } from "../schemas/botprofile.js";
 import { hardpointsOf, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
 import { resolveShipStats } from "../sim/resolveStats.js";
 
-/** Seeded bot fittings use every tier and specialist in the installed pack. */
-export const MAX_BOT_MODULE_LEVEL = Infinity;
 const MAX_ATTEMPTS = 2_000;
 /** Shortest held-trigger burn a rolled bot fitting may have (seconds). */
 const MIN_BURN_SEC = 2;

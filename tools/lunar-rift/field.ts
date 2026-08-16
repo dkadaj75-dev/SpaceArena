@@ -11,7 +11,6 @@
  */
 import {
   CEILING,
-  H_TOP,
   TUNNELS,
   WALL_RUN,
   albedoAt,
@@ -454,4 +453,3 @@ export const PLAYABLE_OVER = WALL_RUN + 12;
  */
 export const COLLISION_OVER = WALL_RUN + 3;
 export const COLLISION_CEILING = CEILING + 6;
-export const HIGHLAND_TOP = H_TOP;

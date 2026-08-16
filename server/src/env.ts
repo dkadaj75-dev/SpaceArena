@@ -301,11 +301,6 @@ export function envWarnings(): readonly string[] {
   return cached.warnings;
 }
 
-/** Drop the memoized environment. Tests only — production parses exactly once. */
-export function resetEnvCache(): void {
-  cached = null;
-}
-
 /** A boot-log-safe view of the environment: secrets redacted, paths intact. */
 export function describeEnv(env: ServerEnv): Record<string, unknown> {
   return {

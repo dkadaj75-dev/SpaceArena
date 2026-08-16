@@ -175,15 +175,6 @@ export function internalsOf(ship: ShipConfig): InternalSocket[] {
   return ship.sockets.filter((s): s is InternalSocket => s.kind === "internal");
 }
 
-/**
- * Fitted-slot index → whether that slot is an internal. Handy for the many
- * callers that hold an index (a `ModuleRuntime`, a HUD entry) rather than a
- * socket.
- */
-export function isInternalSlot(ship: ShipConfig, slotIndex: number): boolean {
-  return hardpointsOf(ship)[slotIndex]?.kind === "internal";
-}
-
 /** Every emitter socket on a ship, in array order. */
 export function emittersOf(ship: ShipConfig): Extract<SocketConfig, { kind: "emitter" }>[] {
   return ship.sockets.filter((s): s is Extract<SocketConfig, { kind: "emitter" }> => s.kind === "emitter");

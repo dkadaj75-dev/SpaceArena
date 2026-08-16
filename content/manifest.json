@@ -134,7 +134,6 @@
     "actions/play-sound-shield-up.json",
     "actions/play-sound-shield-down.json",
     "actions/play-sound-boost-up.json",
-    "actions/play-sound-boost-down.json",
     "actions/play-sound-overheat.json",
     "modules/beamlaser-mk3.json",
     "modules/engine-mk2.json",

@@ -44,9 +44,10 @@ export interface FlightState {
   /** Fraction of nominal speed the pilot is asking for, 0..1. */
   throttle: number;
   /**
-   * Turn-rate fraction, -1..1. Positive turns in the same direction a positive
-   * `turnToward` delta does (the client maps stick-right to whichever sign reads
-   * as screen-right under the chase cam).
+   * Turn-rate fraction, -1..1. Positive increases heading directly (the same
+   * sense as a positive `angleDelta` from current heading to a target; the
+   * client maps stick-right to whichever sign reads as screen-right under the
+   * chase cam).
    */
   turn: number;
   /**

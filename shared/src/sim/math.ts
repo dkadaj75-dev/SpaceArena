@@ -62,13 +62,6 @@ export function angleDelta(from: number, to: number): number {
   return wrapAngle(to - from);
 }
 
-/** Rotate `heading` toward `target` by at most `maxStep` radians. */
-export function turnToward(heading: number, target: number, maxStep: number): number {
-  const delta = angleDelta(heading, target);
-  if (Math.abs(delta) <= maxStep) return wrapAngle(target);
-  return wrapAngle(heading + Math.sign(delta) * maxStep);
-}
-
 export function headingOf(x: number, z: number): number {
   return Math.atan2(z, x);
 }
@@ -106,17 +99,6 @@ export function angleBetween3(a: Vec3, b: Vec3): number {
   if (la === 0 || lb === 0) return 0;
   const cos = (a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb);
   return Math.acos(clamp(cos, -1, 1));
-}
-
-/**
- * Move `pitch` toward `target` by at most `maxStep` radians. Unlike
- * {@link turnToward} there is no wrap: pitch is a clamped ±PI/2-ish quantity, so
- * the short way round is always the direct difference.
- */
-export function pitchToward(pitch: number, target: number, maxStep: number): number {
-  const delta = target - pitch;
-  if (Math.abs(delta) <= maxStep) return target;
-  return pitch + Math.sign(delta) * maxStep;
 }
 
 const HALF_PI = Math.PI / 2;

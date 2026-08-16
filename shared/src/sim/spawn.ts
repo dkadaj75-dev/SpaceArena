@@ -3,7 +3,7 @@ import { rockSpinFor } from "../collision/rockPose.js";
 import { resolveRockShape } from "../collision/rockShape.js";
 import type { DamageType } from "../schemas/common.js";
 import { hardpointsOf, isInternalFamily, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
-import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
+import type { EntityId, ModuleRuntime } from "./components.js";
 import { resolveShipStats, type UpgradeLevels } from "./resolveStats.js";
 import { railAdmitted } from "./powerRail.js";
 import { advancePitch } from "./math.js";
@@ -13,20 +13,6 @@ import type { World } from "./World.js";
 
 /** Small radius given to travelling ordnance for hit sweeps. */
 const PROJECTILE_RADIUS = 0.4;
-
-/**
- * Resolve final ship core stats from the ship class + upgrade tracks + module
- * passives. Thin back-compat wrapper over {@link resolveShipStats} (the single
- * Phase 4 resolver); `upgradeLevels` are DB purchase counts (0 = base).
- */
-export function resolveShipCore(
-  config: ShipConfig,
-  configs: ConfigService,
-  upgradeLevels?: UpgradeLevels,
-  fittedModuleIds?: readonly (string | null)[],
-): ShipCore {
-  return resolveShipStats(config, configs, { upgradeLevels, fittedModuleIds });
-}
 
 /**
  * Instantiate a ship from config with a resolved core and per-module runtimes.

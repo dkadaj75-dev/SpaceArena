@@ -22,7 +22,6 @@
  * Dev is unaffected: `client/dist` normally does not exist while developing, and
  * the Vite plugin keeps serving `/content/*` itself (client/vite.config.ts).
  */
-import { existsSync } from "node:fs";
 import path from "node:path";
 import express, { type Express } from "express";
 
@@ -120,7 +119,3 @@ export function cacheControlFor(clientDir: string, filePath: string): string {
   return rel.startsWith("assets/") ? IMMUTABLE_CACHE_CONTROL : NO_CACHE_CACHE_CONTROL;
 }
 
-/** True when `dir` looks like a finished Vite build (used by env validation). */
-export function isBuiltClientDir(dir: string): boolean {
-  return existsSync(path.join(dir, "index.html"));
-}

@@ -16,9 +16,6 @@ import type { EntityId, SimEvent } from "@space-arena/shared";
 /** Chained frags count as a streak while spaced at most this far apart. */
 export const MULTI_KILL_WINDOW_MS = 10_000;
 
-/** How long one announcement stays on screen (mirrored by the CSS animation). */
-export const ANNOUNCE_MS = 1_800;
-
 export interface KillStreakState {
   /** Frags in the current chain (0 = none yet). */
   count: number;

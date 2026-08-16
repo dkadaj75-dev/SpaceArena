@@ -22,7 +22,6 @@ describe("two-layer chamfer stacking", () => {
       ".sa-screen-btn",
       ".sa-menu-section",
       ".sa-settings-group",
-      ".sa-matchmaking-panel",
     ]) {
       const escaped = host.replace(".", "\\.");
       expect(css).toMatch(new RegExp(`${escaped}[\\s\\S]*isolation:\\s*isolate`));

@@ -346,54 +346,6 @@ export const FLIGHT_HUD_DEFAULTS = {
   "orientation" | "viewport" | "scale" | "metersPerUnit" | "boost" | "jettison"
 > & { actions: { boost: FlightActionLayout; jettison: FlightActionLayout } };
 
-/**
- * BOOST's radius as a fraction of FIRE's. It is the secondary control of the
- * pair, but the ratio is chosen so the shipped theme still clears a 44 px touch
- * target at landscape scale (36 px × 0.85 × 2 × 0.72 ≈ 44 px).
- */
-export const BOOST_RADIUS_RATIO = 0.72;
-
-/**
- * How far BOOST is lifted off its corner inset, in FIRE RADII, on top of FIRE's
- * own offset. The mirrored corner is where the gauge stack lives, and this is
- * the shortest lift that clears it in both orientations of the shipped theme
- * while keeping the button inside the bottom thumb band — the
- * "shipped phone control geometry" audit in flightHudLayout.test.ts is what
- * holds that claim honest.
- */
-export const BOOST_LIFT_RADII = 3;
-
-/** Mirror an anchor across the vertical axis (bottom-right ⇄ bottom-left). */
-export function mirrorAnchorX(anchor: HudAnchorName): HudAnchorName {
-  switch (anchor) {
-    case "bottom-right":
-      return "bottom-left";
-    case "bottom-left":
-      return "bottom-right";
-    case "top-right":
-      return "top-left";
-    default:
-      return "top-right";
-  }
-}
-
-/**
- * BOOST's geometry, derived from the already-scaled FIRE layout (so nothing here
- * multiplies by `hud.scale` a second time).
- *
- * See {@link BOOST_LIFT_RADII} for why it is lifted rather than sitting at
- * FIRE's own height.
- */
-export function boostLayoutFrom(fire: FireLayout, color: string): BoostLayout {
-  return {
-    anchor: mirrorAnchorX(fire.anchor),
-    radiusPx: fire.radiusPx * BOOST_RADIUS_RATIO,
-    offsetXPx: fire.offsetXPx,
-    offsetYPx: fire.offsetYPx + fire.radiusPx * BOOST_LIFT_RADII,
-    color,
-  };
-}
-
 function actionLayoutFrom(
   action: FlightActionButtonConfig | undefined,
   fallback: (typeof FLIGHT_HUD_DEFAULTS.actions)[keyof typeof FLIGHT_HUD_DEFAULTS.actions],

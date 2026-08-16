@@ -343,11 +343,6 @@ export function getMetrics(): MetricsRegistry {
   return registry;
 }
 
-/** Drop the registry. Tests only — production creates exactly one. */
-export function resetMetrics(): void {
-  registry = null;
-}
-
 // ---------------------------------------------------------------------------
 // Client egress instrumentation
 // ---------------------------------------------------------------------------
