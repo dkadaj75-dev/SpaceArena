@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bracket, decayCorrection, lerpHeading, timeBasedPull } from "./interpolation.js";
+import { adaptiveRenderDelay, bracket, decayCorrection, lerpHeading, RENDER_DELAY_CEIL_MS, timeBasedPull } from "./interpolation.js";
 import { decodeCenti, decodeHeading, encodeCenti, encodeHeading } from "@space-arena/shared";
 
 describe("net interpolation", () => {
@@ -16,5 +16,57 @@ describe("net interpolation", () => {
     };
     expect(residualAfterOneSecond(30)).toBeCloseTo(residualAfterOneSecond(144), 12);
     expect(timeBasedPull(0.15, 1 / 60)).toBeCloseTo(0.15, 12);
+  });
+});
+
+describe("adaptiveRenderDelay", () => {
+  const dt = 1 / 60;
+
+  it("stays at the authored floor on a calm network", () => {
+    // Steady 50 ms patches want 2×p90 = 100 = the floor: behaviour unchanged.
+    const gaps = Array.from({ length: 20 }, () => 50);
+    expect(adaptiveRenderDelay(100, gaps, 100, dt)).toBe(100);
+  });
+
+  it("holds the floor until enough gaps exist to say anything", () => {
+    // The first patches of a match must not swing the delay on noise.
+    expect(adaptiveRenderDelay(100, [], 100, dt)).toBe(100);
+    expect(adaptiveRenderDelay(100, [200, 210, 190], 100, dt)).toBe(100);
+  });
+
+  it("widens IMMEDIATELY when arrivals burst past the current delay", () => {
+    // The measured localhost profile: ~62 ms median with bursts. 2×p90 keeps a
+    // full burst of headroom between the render point and the newest snapshot.
+    const gaps = [60, 62, 61, 95, 63, 62, 90, 61, 64, 62];
+    const next = adaptiveRenderDelay(100, gaps, 100, dt);
+    expect(next).toBeGreaterThan(150);
+    // One frame, full width — no easing toward safety while the bracket starves.
+    expect(adaptiveRenderDelay(100, gaps, 100, 0)).toBe(next);
+  });
+
+  it("narrows SLOWLY once the network calms down", () => {
+    const calm = Array.from({ length: 20 }, () => 50);
+    // Recovering from a 250 ms burst delay: one frame moves a fraction of a
+    // millisecond — the timeline replays faster than real time, and doing this
+    // abruptly is itself a visible speed-up.
+    const oneFrame = adaptiveRenderDelay(250, calm, 100, dt);
+    expect(oneFrame).toBeLessThan(250);
+    expect(oneFrame).toBeGreaterThan(249);
+    // A second of calm frames recovers ~15 ms; ten seconds recovers the burst.
+    let delay = 250;
+    for (let i = 0; i < 600; i++) delay = adaptiveRenderDelay(delay, calm, 100, dt);
+    expect(delay).toBeLessThan(250 - 140);
+    expect(delay).toBeGreaterThanOrEqual(100);
+  });
+
+  it("never exceeds the ceiling however bad the jitter gets", () => {
+    const awful = Array.from({ length: 20 }, () => 400);
+    expect(adaptiveRenderDelay(100, awful, 100, dt)).toBe(RENDER_DELAY_CEIL_MS);
+  });
+
+  it("never drops below the authored floor", () => {
+    // A network faster than the floor asks for less; the floor wins.
+    const fast = Array.from({ length: 20 }, () => 20);
+    expect(adaptiveRenderDelay(100, fast, 100, dt)).toBe(100);
   });
 });

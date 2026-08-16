@@ -30,3 +30,54 @@ export function decayCorrection(offset: number, dtSeconds: number, rate: number,
 export function timeBasedPull(referencePull: number, dtSeconds: number, referenceHz = 60): number {
   return 1 - Math.pow(1 - referencePull, dtSeconds * referenceHz);
 }
+
+/**
+ * How far behind `now` remote entities are rendered, adapted to the patch
+ * cadence the network is actually delivering.
+ *
+ * A FIXED delay is only correct on the network it was tuned for. Measured on
+ * localhost — the best case there is — patches nominally 50 ms apart arrive at
+ * a median of ~62 ms with bursts past 95 ms, so a fixed 100 ms delay left the
+ * render time ahead of the newest snapshot on ~16% of frames. A dry bracket
+ * clamps to the newest snapshot, so the remote ship FREEZES there and then
+ * lurches when the next patch lands — precisely the "ships jump between server
+ * updates" the interpolation buffer exists to hide. On phone Wi-Fi, whose
+ * power-save batches receives into 100-300 ms bursts, it is the normal state.
+ *
+ * The target keeps `headroomPatches` of the p90 arrival gap between the render
+ * point and the newest snapshot. Asymmetric on purpose:
+ *
+ *  - WIDENING is instant. By the time the gaps say the delay is too tight the
+ *    bracket is already starving, and easing toward safety would just ration
+ *    out the stutter over the next several seconds.
+ *  - NARROWING is slow (`NARROW_MS_PER_SECOND`). The render point sits inside
+ *    the interpolation timeline, so lowering the delay plays the timeline
+ *    faster than real time until it catches up — done abruptly that is itself
+ *    a visible speed-up. 15 ms/s recovers a Wi-Fi burst in a couple of
+ *    seconds without a watchable warp.
+ *
+ * `floorMs` is the authored `netRenderDelayMs`, kept as the minimum so a calm
+ * network behaves exactly as it always has; `ceilMs` caps what jitter can buy
+ * because past ~350 ms of display latency a stale-but-smooth enemy is lying
+ * about where it is.
+ */
+export const RENDER_DELAY_CEIL_MS = 350;
+const NARROW_MS_PER_SECOND = 15;
+const HEADROOM_PATCHES = 2;
+
+export function adaptiveRenderDelay(
+  currentMs: number,
+  arrivalGapsMs: readonly number[],
+  floorMs: number,
+  dtSeconds: number,
+  ceilMs = RENDER_DELAY_CEIL_MS,
+): number {
+  let target = floorMs;
+  if (arrivalGapsMs.length >= 4) {
+    const sorted = [...arrivalGapsMs].sort((a, b) => a - b);
+    const p90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))]!;
+    target = Math.min(ceilMs, Math.max(floorMs, p90 * HEADROOM_PATCHES));
+  }
+  if (target >= currentMs) return target;
+  return Math.max(target, currentMs - NARROW_MS_PER_SECOND * Math.max(0, dtSeconds));
+}

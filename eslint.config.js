@@ -13,6 +13,9 @@ export default tseslint.config(
       "playwright-report/**",
       "test-results/**",
       "blob-report/**",
+      // Agent scratch: settings, and worktrees holding checkouts of this very
+      // repo — linting those double-counts every finding against a stale copy.
+      ".claude/**",
     ],
   },
   js.configs.recommended,

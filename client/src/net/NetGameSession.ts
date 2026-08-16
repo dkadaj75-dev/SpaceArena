@@ -43,7 +43,7 @@ import {
 import { GameSession } from "../game/GameSession.js";
 import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
 import type { SeatReservation } from "colyseus.js";
-import { bracket, timeBasedPull } from "./interpolation.js";
+import { adaptiveRenderDelay, bracket, timeBasedPull } from "./interpolation.js";
 
 const log = createLogger("NetGameSession");
 const MAX_SNAPSHOTS = 32;
@@ -394,7 +394,17 @@ export class NetGameSession extends GameSession {
   private current: Snapshot;
   private seq = 0;
   private lastRenderMs = performance.now();
-  private readonly renderDelay: number;
+  /** Authored minimum render delay; the adaptive delay never goes below it. */
+  private readonly renderDelayFloor: number;
+  /** Live render delay — widened instantly under patch jitter, narrowed slowly. */
+  private renderDelay: number;
+  /**
+   * Recent patch arrival gaps (ms), the signal the adaptive delay reads. A small
+   * ring: old gaps must age out or one Wi-Fi burst would pin the delay at its
+   * ceiling for the rest of the match.
+   */
+  private readonly arrivalGaps: number[] = [];
+  private lastPatchAt: number | null = null;
   private readonly correctionRate: number;
   private readonly shipIds = new Map<EntityId, string>();
   private readonly displayNames = new Map<EntityId, string>();
@@ -501,7 +511,8 @@ export class NetGameSession extends GameSession {
     const tuning = configs.getAll<TuningConfig>("tuning")[0];
     this.tuning = tuning;
     this.pitchTuning = pitchTuningOf(tuning);
-    this.renderDelay = tuning?.netRenderDelayMs ?? 100;
+    this.renderDelayFloor = tuning?.netRenderDelayMs ?? 100;
+    this.renderDelay = this.renderDelayFloor;
     this.correctionRate = tuning?.netCorrectionRate ?? 12;
     this.fakeLagMs = Number(new URLSearchParams(location.search).get("fakelag")) || 0;
   }
@@ -719,6 +730,14 @@ export class NetGameSession extends GameSession {
     }
     this.snapshots.push({ time: now, snapshot: snap });
     if (this.snapshots.length > MAX_SNAPSHOTS) this.snapshots.shift();
+    // Feed the adaptive render delay (see `renderAt`). Same ring size as the
+    // snapshot buffer: ~1.6 s of history at the nominal patch rate, enough to
+    // see a Wi-Fi burst coming and to forget it once the network calms down.
+    if (this.lastPatchAt !== null) {
+      this.arrivalGaps.push(now - this.lastPatchAt);
+      if (this.arrivalGaps.length > MAX_SNAPSHOTS) this.arrivalGaps.shift();
+    }
+    this.lastPatchAt = now;
     this.patchesReceived++;
     this.patchWindowCount++;
     if (now - this.patchWindowStart >= 1000) {
@@ -731,11 +750,16 @@ export class NetGameSession extends GameSession {
 
   private renderAt(now: number): void {
     this.drainLagQueue(now);
+    const dt = Math.max(0, Math.min(0.1, (now - this.lastRenderMs) / 1000));
+    this.lastRenderMs = now;
+    // Adapt the render delay to the patch cadence actually observed — a fixed
+    // delay leaves the bracket dry the moment arrivals burst past it, and a dry
+    // bracket is a remote ship frozen at the newest snapshot until the next
+    // patch shoves it forward. See adaptiveRenderDelay for the measurements.
+    this.renderDelay = adaptiveRenderDelay(this.renderDelay, this.arrivalGaps, this.renderDelayFloor, dt);
     const b = bracket(this.snapshots, now - this.renderDelay);
     if (!b) return;
     const [a, z, t] = b;
-    const dt = Math.max(0, Math.min(0.1, (now - this.lastRenderMs) / 1000));
-    this.lastRenderMs = now;
 
     this.previous = this.current;
     this.current = interpolate(a.snapshot, z.snapshot, t);
