@@ -43,7 +43,7 @@ import {
 import { GameSession } from "../game/GameSession.js";
 import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
 import type { SeatReservation } from "colyseus.js";
-import { adaptiveRenderDelay, bracket, timeBasedPull } from "./interpolation.js";
+import { adaptiveRenderDelay, bracket, hermitePosition, timeBasedPull } from "./interpolation.js";
 
 const log = createLogger("NetGameSession");
 const MAX_SNAPSHOTS = 32;
@@ -760,9 +760,16 @@ export class NetGameSession extends GameSession {
     const b = bracket(this.snapshots, now - this.renderDelay);
     if (!b) return;
     const [a, z, t] = b;
+    // The samples flanking the bracketed segment feed the C1 position curve for
+    // remote ships (see `interpolate`). Identity lookup, not a re-search: these
+    // are the very objects `bracket` just returned, and the buffer is ≤32 long.
+    const ia = this.snapshots.indexOf(a);
+    const iz = this.snapshots.indexOf(z);
+    const before = ia > 0 ? this.snapshots[ia - 1]! : null;
+    const after = iz >= 0 && iz + 1 < this.snapshots.length ? this.snapshots[iz + 1]! : null;
 
     this.previous = this.current;
-    this.current = interpolate(a.snapshot, z.snapshot, t);
+    this.current = interpolate(a, z, t, before, after, this.playerId);
     this.trackServerVelocity(a, z);
     this.applyPrediction(dt, now);
     this.applyPendingToggles(now);
@@ -1022,27 +1029,64 @@ export function boostMult(configs: ConfigService, fittedModuleIds: readonly stri
 /** Scratch frame for snapshot interpolation — reset per ship, copied out below. */
 const lerpFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 
-function interpolate(a: Snapshot, b: Snapshot, t: number): Snapshot {
-  const ships = b.ships.map((s) => {
-    const p = a.ships.find((x) => x.id === s.id) ?? s;
+/**
+ * Blend the bracketed snapshot pair into the frame's render state.
+ *
+ * REMOTE ship positions ride the C1 Hermite curve ({@link hermitePosition})
+ * through the samples flanking the segment: plain lerp is C0, and its velocity
+ * step at every ~20 Hz sample boundary reads as a faint shudder at 60 fps even
+ * under a perfect playback timeline. `before`/`after` are the buffer
+ * neighbours of `a`/`b`; a ship missing from either (just spawned, buffer still
+ * filling) degrades that end of its curve to the old lerp.
+ *
+ * The LOCAL player's position stays plain lerp on purpose: it is not a display
+ * position — the hull renders from the predictor — it is the CORRECTION TARGET
+ * `applyPrediction` pulls the predictor toward every frame, and the correction
+ * constants (netCorrectionRate, snap distances, the manoeuvre-lag budget) were
+ * all measured against the lerped target. Remote smoothing is display-only
+ * polish and must not steer the predictor.
+ */
+function interpolate(
+  a: TimedSnapshot,
+  b: TimedSnapshot,
+  t: number,
+  before: TimedSnapshot | null,
+  after: TimedSnapshot | null,
+  localPlayerId: EntityId,
+): Snapshot {
+  const ships = b.snapshot.ships.map((s) => {
+    const p = a.snapshot.ships.find((x) => x.id === s.id) ?? s;
     // The ORIENTATION is interpolated as one frame (nose + up nlerp'd and
     // re-orthonormalized), never as heading and pitch independently: near the
     // poles the heading coordinate's scale is unbounded, so two adjacent
     // samples can differ by a large heading for a tiny real rotation, and a
     // coordinate lerp sweeps the hull through a rotation it never made.
     interpolateFrame(p.heading, p.pitch, p.up, s.heading, s.pitch, s.up, t, lerpFrame);
+    const pos = { x: 0, y: 0, z: 0 };
+    if (s.id === localPlayerId) {
+      pos.x = p.pos.x + (s.pos.x - p.pos.x) * t;
+      pos.y = p.pos.y + (s.pos.y - p.pos.y) * t;
+      pos.z = p.pos.z + (s.pos.z - p.pos.z) * t;
+    } else {
+      const pPrev = before?.snapshot.ships.find((x) => x.id === s.id);
+      const pNext = after?.snapshot.ships.find((x) => x.id === s.id);
+      hermitePosition(
+        pPrev ? { time: before!.time, pos: pPrev.pos } : null,
+        { time: a.time, pos: p.pos },
+        { time: b.time, pos: s.pos },
+        pNext ? { time: after!.time, pos: pNext.pos } : null,
+        t,
+        pos,
+      );
+    }
     return {
       ...s,
-      pos: {
-        x: p.pos.x + (s.pos.x - p.pos.x) * t,
-        y: p.pos.y + (s.pos.y - p.pos.y) * t,
-        z: p.pos.z + (s.pos.z - p.pos.z) * t,
-      },
+      pos,
       heading: lerpFrame.heading,
       pitch: lerpFrame.pitch,
       up: { x: lerpFrame.up.x, y: lerpFrame.up.y, z: lerpFrame.up.z },
       modules: s.modules.map((m) => ({ ...m })),
     };
   });
-  return { ...b, ships };
+  return { ...b.snapshot, ships };
 }
