@@ -70,6 +70,8 @@ export class AudioFeedback {
   private settings: AudioSettings;
   /** This frame's sound id → loudest volume requested for it (closest source). */
   private readonly frameVolumes = new Map<string, number>();
+  /** Set by {@link dispose}; every further event is dropped. */
+  private disposed = false;
 
   constructor(
     private readonly configs: ConfigService,
@@ -91,9 +93,23 @@ export class AudioFeedback {
     return this.settings;
   }
 
+  /**
+   * Match teardown (main.ts `MatchRuntime.dispose`). This layer holds no
+   * subscriptions today — it is driven by `consumeEvents` from the render loop —
+   * but the AudioManager it feeds outlives every match, so it neutralizes
+   * itself: a late `consumeEvents` after teardown must not synthesize a voice
+   * on the menu. Idempotent, and the hook is here so a future listener/timer
+   * added to this class is torn down with the runtime rather than leaking.
+   */
+  dispose(): void {
+    this.disposed = true;
+    this.frameVolumes.clear();
+  }
+
   consumeEvents(events: readonly SimEvent[]): void {
-    // Muted / not yet unlocked: skip the whole resolution pass, not just playback.
-    if (this.audio.effectiveVolume <= 0) return;
+    // Torn down, muted, or not yet unlocked: skip the whole resolution pass,
+    // not just playback.
+    if (this.disposed || this.audio.effectiveVolume <= 0) return;
     this.frameVolumes.clear();
     // One listener lookup per frame, not per event: every source is measured
     // against the same ears. Null (no provider, or no ship and no camera yet)

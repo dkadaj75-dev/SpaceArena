@@ -4,7 +4,14 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildBundle, setGlobalLogLevel, type ContentBundle } from "@space-arena/shared";
 import { getConfigService } from "../configService.js";
-import { ContentPackStore, describeSwapError, exportBundleFrom, hashDirectory, renameWithRetry } from "./packStore.js";
+import {
+  ContentPackStore,
+  copyPackAssets,
+  describeSwapError,
+  exportBundleFrom,
+  hashDirectory,
+  renameWithRetry,
+} from "./packStore.js";
 
 setGlobalLogLevel("error");
 
@@ -68,6 +75,36 @@ async function seedDir(dir: string, radius: number): Promise<void> {
     const abs = path.join(dir, ...rel.split("/"));
     await mkdir(path.dirname(abs), { recursive: true });
     await writeFile(abs, JSON.stringify(json, null, 2), "utf8");
+  }
+}
+
+/**
+ * The half of a content directory a bundle cannot describe: models, skyboxes,
+ * music, and the odd README. Deterministic bytes per path so a test can assert
+ * the *content* survived the swap, not merely that a file of the right name did.
+ */
+const ASSETS: Record<string, Buffer> = {
+  "asteroids/rock.glb": Buffer.from([0x67, 0x6c, 0x54, 0x46, 0x02, 0x00, 0xff, 0xfe, 0x00, 0x01]),
+  "skyboxes/nebula.webp": Buffer.from([0x52, 0x49, 0x46, 0x46, 0xde, 0xad, 0xbe, 0xef]),
+  "skyboxes/tiles/px.ktx2": Buffer.from([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb]),
+  "sounds/music/theme.mp3": Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x80, 0x7f, 0x00]),
+  "README.md": Buffer.from("# assets live here\n", "utf8"),
+  "props/.gitkeep": Buffer.alloc(0),
+};
+
+async function seedAssets(dir: string): Promise<void> {
+  for (const [rel, bytes] of Object.entries(ASSETS)) {
+    const abs = path.join(dir, ...rel.split("/"));
+    await mkdir(path.dirname(abs), { recursive: true });
+    await writeFile(abs, bytes);
+  }
+}
+
+/** Assert every seeded asset is present in `dir` with its exact bytes. */
+async function expectAssetsIntact(dir: string): Promise<void> {
+  for (const [rel, bytes] of Object.entries(ASSETS)) {
+    const actual = await readFile(path.join(dir, ...rel.split("/")));
+    expect({ rel, bytes: actual.toString("hex") }).toEqual({ rel, bytes: bytes.toString("hex") });
   }
 }
 
@@ -283,6 +320,125 @@ describe("ContentPackStore — failure handling", () => {
     await expect(renameWithRetry(from, to, 2)).rejects.toThrow();
     // Three attempts with 120 ms + 240 ms of backoff between them.
     expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+  });
+});
+
+/**
+ * The regression that motivated {@link copyPackAssets}: a bundle is JSON only,
+ * but the directory it replaces holds ~100 binaries. Staging the bundle alone
+ * and renaming it into place deleted every model, skybox and music file from the
+ * live pack — survivable exactly once, because `content.previous/` still had
+ * them, and then destroyed for good by the next import.
+ */
+describe("ContentPackStore — binary assets survive the swap", () => {
+  beforeEach(async () => {
+    await seedAssets(contentDir);
+  });
+
+  it("carries models, skyboxes and nested binaries into the new live pack", async () => {
+    const result = await store.importBundle(await bundleOf(120));
+    expect(result.ok).toBe(true);
+
+    await expectAssetsIntact(contentDir);
+    // …and the bundle's own half landed too, so this is not "the swap no-opped".
+    const live = JSON.parse(await readFile(path.join(contentDir, "arenas", "base.json"), "utf8")) as {
+      bounds: { radius: number };
+    };
+    expect(live.bounds.radius).toBe(120);
+  });
+
+  it("still has them after a second import — the previous-dir grace period is not the mechanism", async () => {
+    await store.importBundle(await bundleOf(120));
+    await store.importBundle(await bundleOf(130));
+    // The pack that held the originals has now been rm -rf'd twice over.
+    await expectAssetsIntact(contentDir);
+  });
+
+  it("keeps pruning JSON the new manifest drops while preserving assets", async () => {
+    await store.importBundle(await bundleOf(120, { id: "arena.proof", radius: 33 }));
+    expect(await exists(path.join(contentDir, "arenas", "proof.json"))).toBe(true);
+
+    await store.importBundle(await bundleOf(130));
+    expect(await exists(path.join(contentDir, "arenas", "proof.json"))).toBe(false);
+    await expectAssetsIntact(contentDir);
+  });
+
+  it("restores the assets on rollback", async () => {
+    await store.importBundle(await bundleOf(120));
+    // Prove rollback restores rather than merely leaving things alone: give the
+    // now-live pack an asset the previous one never had.
+    await writeFile(path.join(contentDir, "skyboxes", "added.webp"), Buffer.from([1, 2, 3]));
+
+    const result = await store.rollback();
+    expect(result.ok).toBe(true);
+    await expectAssetsIntact(contentDir);
+    expect(await exists(path.join(contentDir, "skyboxes", "added.webp"))).toBe(false);
+    expect(getConfigService().get("arena", "arena.base")).toMatchObject({ bounds: { radius: 50 } });
+
+    // Rollback is symmetric, so the assets ride forward again on the undo.
+    expect((await store.rollback()).ok).toBe(true);
+    await expectAssetsIntact(contentDir);
+    expect(await exists(path.join(contentDir, "skyboxes", "added.webp"))).toBe(true);
+  });
+
+  it("leaves the live pack byte-identical when the swap fails after staging", async () => {
+    const before = await hashDirectory(contentDir);
+
+    let calls = 0;
+    const flaky = new ContentPackStore(contentDir, {
+      rename: async (from, to) => {
+        calls += 1;
+        if (calls === 2) throw Object.assign(new Error("EPERM: operation not permitted, rename"), { code: "EPERM" });
+        await renameWithRetry(from, to);
+      },
+    });
+
+    const result = await flaky.importBundle(await bundleOf(120));
+    expect(result.ok).toBe(false);
+    // Byte-identical, assets included — hashDirectory reads raw bytes, so a
+    // truncated or UTF-8-mangled binary would show up here.
+    expect(await hashDirectory(contentDir)).toBe(before);
+    await expectAssetsIntact(contentDir);
+    expect((await readdir(root)).filter((e) => e.includes(".staging-"))).toEqual([]);
+  });
+
+  it("aborts without touching the live pack when an asset cannot be staged", async () => {
+    const before = await hashDirectory(contentDir);
+    // "Disk filled up half way through the models." The copy happens strictly
+    // before the swap, so the failure must cost nothing but a discarded staging
+    // directory — no rename has been attempted yet.
+    const broken = new ContentPackStore(contentDir, {
+      copyAssets: async (from, to) => {
+        await copyPackAssets(from, to); // get part-way, then die
+        throw Object.assign(new Error("ENOSPC: no space left on device, copyfile"), { code: "ENOSPC" });
+      },
+    });
+
+    const result = await broken.importBundle(await bundleOf(120));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.stage).toBe("swap");
+    expect(result.errors[0]?.message).toMatch(/failed to stage the pack/);
+    expect(result.errors[0]?.message).toMatch(/ENOSPC/);
+
+    expect(await hashDirectory(contentDir)).toBe(before);
+    await expectAssetsIntact(contentDir);
+    expect(await broken.hasPrevious()).toBe(false);
+    expect((await readdir(root)).filter((e) => e.includes(".staging-"))).toEqual([]);
+    expect(getConfigService().get("arena", "arena.base")).toMatchObject({ bounds: { radius: 50 } });
+  });
+
+  it("sweeps a staging directory abandoned by a crashed import", async () => {
+    // What a process killed between writePackTo and the swap leaves behind: a
+    // full copy of every binary, orphaned forever because the next attempt picks
+    // a fresh timestamped name.
+    const orphan = path.join(root, "content.staging-1");
+    await mkdir(path.join(orphan, "asteroids"), { recursive: true });
+    await writeFile(path.join(orphan, "asteroids", "rock.glb"), ASSETS["asteroids/rock.glb"]!);
+
+    expect((await store.importBundle(await bundleOf(120))).ok).toBe(true);
+    expect((await readdir(root)).sort()).toEqual(["content", "content.previous"]);
+    await expectAssetsIntact(contentDir);
   });
 });
 

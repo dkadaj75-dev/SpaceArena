@@ -29,6 +29,7 @@ export class DraftPackStore {
 
   snapshot(): ContentBundle { return structuredClone(this.bundle); }
   dirtyCount(): number { return this.dirty.size; }
+  dirtyPaths(): string[] { return [...this.dirty].sort(); }
   isDirty(): boolean { return this.dirty.size > 0; }
   canUndo(): boolean { return this.undoStack.length > 0; }
   canRedo(): boolean { return this.redoStack.length > 0; }
@@ -41,12 +42,18 @@ export class DraftPackStore {
     this.persist({ path, kind: "set" });
   }
 
+  /** Dirty paths the draft no longer holds — deletions "Save to repo" propagates. */
+  deletedPaths(): string[] { return this.dirtyPaths().filter((path) => !(path in this.bundle.files)); }
+
   deleteFile(path: string): void {
     this.checkpoint();
     delete this.bundle.files[path];
     const manifest = this.bundle.manifest as { files: string[] };
     manifest.files = manifest.files.filter((file) => file !== path);
-    this.dirty.add(path); this.persist({ path, kind: "delete" });
+    // Deleting a config that was only ever a draft addition returns the pack to
+    // its base state — it must not survive as a deletion to propagate.
+    if (path in this.base.files) this.dirty.add(path); else this.dirty.delete(path);
+    this.persist({ path, kind: "delete" });
   }
 
   addFile(path: string, value: unknown): void {

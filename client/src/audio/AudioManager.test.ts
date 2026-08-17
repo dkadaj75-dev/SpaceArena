@@ -27,16 +27,16 @@ class FakeContext {
   sampleRate = 48000;
   state: "running" | "suspended" = "running";
   destination = { kind: "destination", connect: () => {} };
-  nodes: { kind: string; connectedTo: unknown[] }[] = [];
+  nodes: { kind: string; connectedTo: unknown[]; disconnected: boolean }[] = [];
   started: string[] = [];
 
   private node(kind: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
-    const record = { kind, connectedTo: [] as unknown[] };
+    const record = { kind, connectedTo: [] as unknown[], disconnected: false };
     this.nodes.push(record);
     return {
       ...extra,
       connect: (target: unknown) => record.connectedTo.push(target),
-      disconnect: () => {},
+      disconnect: () => (record.disconnected = true),
     };
   }
 
@@ -72,6 +72,10 @@ class FakeContext {
 
   count(kind: string): number {
     return this.nodes.filter((n) => n.kind === kind).length;
+  }
+
+  countDisconnected(kind: string): number {
+    return this.nodes.filter((n) => n.kind === kind && n.disconnected).length;
   }
 }
 
@@ -181,6 +185,32 @@ describe("AudioManager", () => {
     // ...until the earlier voices' tails have passed.
     pooled.advance(5000);
     expect(pooled.audio.play("kinetic_fire")).toBe(true);
+  });
+
+  it("stopAll() cuts every in-flight voice so a match's SFX cannot ring out over the menu", () => {
+    const pooled = makeAudio({ maxVoices: 4, retriggerGapMs: 50 });
+    pooled.audio.unlock();
+    expect(pooled.audio.play("laser_fire")).toBe(true);
+    expect(pooled.audio.play("kinetic_fire")).toBe(true);
+    expect(pooled.audio.activeVoices).toBe(2);
+
+    pooled.audio.stopAll();
+
+    expect(pooled.audio.activeVoices).toBe(0);
+    // Exactly the two per-voice gains are unhooked from the bus. The three bus
+    // gains (master/sfx/music) stay wired — those belong to the settings
+    // screen, not to match teardown — and so does the master volume.
+    expect(pooled.ctx.countDisconnected("gain")).toBe(2);
+    expect(pooled.audio.effectiveVolume).toBeGreaterThan(0);
+    // The retrigger throttle is reset too, so the next match starts clean.
+    expect(pooled.audio.play("laser_fire")).toBe(true);
+  });
+
+  it("stopAll() is safe with nothing playing and before any unlock", () => {
+    expect(() => h.audio.stopAll()).not.toThrow();
+    h.audio.unlock();
+    expect(() => h.audio.stopAll()).not.toThrow();
+    expect(h.audio.activeVoices).toBe(0);
   });
 
   it("reads volumes from storage and persists changes", () => {

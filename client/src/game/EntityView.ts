@@ -1646,6 +1646,18 @@ export class ViewManager {
     this.root.dispose();
   }
 
+  /**
+   * Last-resort cleanup for the shared Scene, called after {@link dispose} by
+   * `endMatch()` (main.ts). Everything this manager parents lives under one of
+   * these two roots, so dropping them recursively guarantees no per-match node
+   * survives into the next match even if `dispose()` threw partway through.
+   * A no-op on the normal path — both roots are already disposed by then.
+   */
+  disposeRoots(): void {
+    if (!this.root.isDisposed()) this.root.dispose(false, true);
+    if (!this.heroRoot.isDisposed()) this.heroRoot.dispose(false, true);
+  }
+
   /** Drop and re-create both projectile pools in the current instancing mode. */
   private rebuildPools(): void {
     for (const m of this.kineticPool) m.dispose();

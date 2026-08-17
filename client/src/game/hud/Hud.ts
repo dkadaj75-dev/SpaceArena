@@ -133,6 +133,7 @@ export class Hud {
   ) {
     injectHudStyle();
     this.root.innerHTML = "";
+    delete this.root.dataset["presentation"];
     this.root.classList.add("hud-root");
 
     // In-match settings (5.8). Marked as a HUD control so the 5.4 palm-rejection
@@ -402,5 +403,7 @@ export class Hud {
     this.lobbyWaiting.dispose();
     this.resultsOverlay.dispose();
     this.root.innerHTML = "";
+    delete this.root.dataset["presentation"];
+    delete this.root.dataset["orientation"];
   }
 }

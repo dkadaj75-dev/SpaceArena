@@ -115,23 +115,60 @@ describe("SchemaFormGen", () => {
     expect(form.getValue().tags).toEqual(["two", ""]);
   });
 
-  it("renders id-reference fields as a searchable input backed by a datalist of configService ids", () => {
+  it("renders id-reference fields as a <select> of live configService ids plus a none option", () => {
     const configService = fakeConfigService();
-    const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService });
+    const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService, references: { asteroidId: "asteroid" } });
 
-    const reference = input(form, "asteroidId") as HTMLInputElement;
-    expect(reference.tagName).toBe("INPUT");
-    expect(reference.type).toBe("text");
+    const reference = input(form, "asteroidId") as HTMLSelectElement;
+    expect(reference.tagName).toBe("SELECT");
     expect(configService.getAll).toHaveBeenCalledWith("asteroid");
     expect(reference.value).toBe("asteroid.small-rock");
+    // Sorted catalogue, preceded by the clear option.
+    expect(Array.from(reference.options).map((o) => o.value)).toEqual(["", "asteroid.large-hazard", "asteroid.small-rock"]);
 
-    // The candidate ids live in the linked <datalist>, still sorted.
-    const listId = reference.getAttribute("list");
-    expect(listId).toBeTruthy();
-    const datalist = form.element.querySelector(`datalist#${listId}`) as HTMLDataListElement;
-    expect(datalist).not.toBeNull();
-    const ids = Array.from(datalist.querySelectorAll("option")).map((o) => o.value);
-    expect(ids).toEqual(["asteroid.large-hazard", "asteroid.small-rock"]);
+    reference.value = "asteroid.large-hazard";
+    reference.dispatchEvent(new Event("change"));
+    expect(configService.replace).toHaveBeenCalledWith(expect.objectContaining({ asteroidId: "asteroid.large-hazard" }));
+  });
+
+  it("keeps a dangling reference selectable and marks it missing", () => {
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({
+      schema: testSchema,
+      value: { ...baseValue, asteroidId: "asteroid.deleted" },
+      configService,
+      references: { asteroidId: "asteroid" },
+    });
+
+    const reference = input(form, "asteroidId") as HTMLSelectElement;
+    expect(reference.value).toBe("asteroid.deleted");
+    const missing = Array.from(reference.options).find((o) => o.value === "asteroid.deleted")!;
+    expect(missing.textContent).toBe("asteroid.deleted (missing)");
+  });
+
+  it("resolves references nested inside arrays, not just immediate property names", () => {
+    const schema = z.object({
+      id: z.string(),
+      type: z.literal("gamemode"),
+      bots: z.object({ shipPool: z.array(z.string()), roster: z.array(z.object({ profile: z.string() })) }),
+    });
+    const configService = {
+      getAll: vi.fn((type: string) => (type === "ship" ? [{ id: "ship.a" }] : [{ id: "bot.ace" }])) as unknown as ConfigService["getAll"],
+      replace: vi.fn(() => ({ ok: true, errors: [] })) as unknown as ConfigService["replace"],
+    };
+    const form = new SchemaFormGen({
+      schema,
+      value: { id: "gamemode.x", type: "gamemode", bots: { shipPool: ["ship.a"], roster: [{ profile: "bot.ace" }] } },
+      configService,
+    });
+
+    // The config type is read off the value, so the shipped path table applies.
+    const pool = form.element.querySelector('[name="bots.shipPool.0"]') as HTMLSelectElement;
+    expect(pool.tagName).toBe("SELECT");
+    expect(Array.from(pool.options).map((o) => o.value)).toEqual(["", "ship.a"]);
+    const profile = form.element.querySelector('[name="bots.roster.0.profile"]') as HTMLSelectElement;
+    expect(profile.tagName).toBe("SELECT");
+    expect(profile.value).toBe("bot.ace");
   });
 
   it("renders a bounded number as a synced number box + range slider, and the slider commits edits", () => {

@@ -32,6 +32,8 @@ export interface AudioManagerOptions {
 interface Voice {
   id: string;
   endsAtMs: number;
+  /** The voice's own gain node — the one handle that can silence it early. */
+  gain: GainNode;
 }
 
 /**
@@ -242,7 +244,7 @@ export class AudioManager {
       return false;
     }
     this.lastPlayedMs.set(id, nowMs);
-    this.voices.push({ id, endsAtMs: nowMs + Math.max(0, durationSec) * 1000 + 60 });
+    this.voices.push({ id, endsAtMs: nowMs + Math.max(0, durationSec) * 1000 + 60, gain: voiceGain });
     // Nodes disconnect themselves when the whole graph goes idle; the voice
     // record is bookkeeping for the pool budget only (reaped lazily, no timers).
     return true;
@@ -253,10 +255,26 @@ export class AudioManager {
     return this.warnedIds.size;
   }
 
-  dispose(): void {
-    this.detachUnlock?.();
+  /**
+   * Cut every in-flight SFX voice right now. Match teardown (`endMatch()` in
+   * main.ts) calls this: the page survives the match, so a barrage that was
+   * still ringing when the player quit used to play its scheduled tails out
+   * over the main menu — the audible half of "the match is still running".
+   *
+   * Voices are silenced at their OWN gain and unhooked from the bus, never by
+   * touching the shared sfx/master gains (those belong to the 5.8 settings
+   * screen). Pool bookkeeping is emptied so the next match starts with a full
+   * voice budget and no stale retrigger throttle.
+   */
+  stopAll(): void {
+    for (const voice of this.voices) silenceVoice(voice);
     this.voices.length = 0;
     this.lastPlayedMs.clear();
+  }
+
+  dispose(): void {
+    this.detachUnlock?.();
+    this.stopAll();
     const ctx = this.ctx;
     this.ctx = null;
     this.masterGain = null;
@@ -304,7 +322,7 @@ export class AudioManager {
   }
 
   private suspendAll(): void {
-    this.voices.length = 0;
+    this.stopAll();
     if (this.ctx && this.ctx.state === "running" && "suspend" in this.ctx) {
       void (this.ctx as AudioContext).suspend().catch(() => {});
     }
@@ -330,6 +348,16 @@ export class AudioManager {
     } catch {
       // Private mode / quota — the level still applies for this session.
     }
+  }
+}
+
+/** Silence one voice at its own gain and unhook it from the shared bus. */
+function silenceVoice(voice: Voice): void {
+  try {
+    voice.gain.gain.value = 0;
+    voice.gain.disconnect();
+  } catch {
+    // A closed context (or a node the browser already reclaimed) needs nothing.
   }
 }
 

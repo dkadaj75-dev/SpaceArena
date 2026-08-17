@@ -66,11 +66,38 @@ export class NetClient {
     return room;
   }
 
+  /**
+   * Leave the room and make sure nothing this client owns can be called again.
+   *
+   * Order matters. The listeners come off FIRST: `leave()` is asynchronous, and
+   * a patch or a message that lands in the window before the socket actually
+   * closes would otherwise decode into a session the app has already thrown
+   * away (schema callbacks included — `removeAllListeners` clears the decoder's
+   * too). The local callbacks are nulled for the same reason, and because they
+   * hold the dead session alive through this object.
+   *
+   * The leave is always CONSENTED: a user-initiated quit must not leave the
+   * server holding a reconnection window with a ghost ship in the arena
+   * (`ArenaRoom.onLeave` → `removePlayer`). The room itself keeps running for
+   * everyone else. Idempotent, and never throws into a teardown sequence.
+   */
   dispose(): void {
     const room = this.room;
     this.room = null;
     this.connected = false;
-    if (room) void room.leave();
+    this.onOrderAck = null;
+    this.onFireEvent = null;
+    this.onSimEvent = null;
+    this.onMatchStats = null;
+    this.onStateChange = null;
+    if (room) {
+      try {
+        room.removeAllListeners();
+        void room.leave(true).catch((err: unknown) => log.warn("room.leave failed", err));
+      } catch (err) {
+        log.warn("room teardown failed", err);
+      }
+    }
     log.debug("disposed");
   }
 }

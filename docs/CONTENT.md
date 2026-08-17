@@ -310,29 +310,47 @@ Writing the files in place was rejected: `/content/*` is live traffic, and a
 half-written pack is a *served* pack. There must be no window in which a client
 can fetch an arena referencing an asteroid that has not landed yet.
 
-### Binary assets (`.glb`) do **not** ride along in a pack
+### Binary assets do **not** travel in a pack — they are carried across the swap
 
-A bundle carries JSON only — `files` is a map of path → parsed JSON, the path
-sanitizer accepts `.json` and nothing else, and `writePackTo` materializes a
-**fresh** directory from the bundle before the swap. So every non-JSON file in
-`content/` — today `content/ships/*.glb` and `content/asteroids/*.glb` — is
-absent from the staged directory and is gone once it is swapped in.
+A bundle carries JSON only: `files` is a map of path → parsed JSON, and the path
+sanitizer accepts `.json` and nothing else. But the content *directory* holds far
+more — `.glb` models, `.webp`/`.jpg` skyboxes, `.ktx2` textures, `.mp3` music —
+and `writePackTo` materializes a **fresh** directory from the bundle. Staging the
+bundle alone and renaming it into place would therefore delete every binary in
+the live pack.
+
+So staging is assembled from two sources:
+
+```
+writePackTo(staging, bundle)      manifest.json + the .json configs it lists
+copyPackAssets(content, staging)  everything in the live pack that is NOT .json
+```
+
+The split is exact. Every `.json` file under `content/` is either listed in
+`manifest.json` or is not part of the pack at all, so "is it JSON" cleanly
+separates *what the bundle defines* from *what only the directory has*. Dropping
+a file from the manifest still deletes it (pruning works); a model still survives
+(no data loss).
 
 Consequences to plan around:
 
-- **Models ship with the deployment, not with the pack.** They are part of the
-  image / the volume's content tree (`server` serves the whole content dir
+- **Models still ship with the deployment, not with the pack.** They are part of
+  the image / the volume's content tree (`server` serves the whole content dir
   statically, `.glb` → `model/gltf-binary`), and they are versioned in git.
-  Authoring a new rock or hull is a deploy, not a content import.
-- **An import into a live deployment drops them.** Re-place the `.glb` files
-  under `content/` after importing, or import into a directory you then restore
-  the binaries into. Rollback has the same shape: `content.previous/` only holds
-  what the previous *pack* wrote.
+  Authoring a new rock or hull is a deploy, not a content import. What changed is
+  only that an import no longer *destroys* the ones already there.
+- **Adding a binary is still a deploy.** An import can preserve assets; it cannot
+  introduce them, because a JSON bundle has nowhere to put the bytes.
+- **Ordering.** The copy finishes before the first rename, so a failure part-way
+  through (a full disk, an unreadable file) aborts the import with the live pack
+  untouched — the cost is a discarded staging directory, nothing more. A staging
+  directory abandoned by a crash is swept by the next import.
+- **Rollback is coherent by construction.** `content.previous/` is a complete
+  directory, assets included, so restoring it restores the binaries too.
 - A config whose `render.model` file is missing is **not** a validation error and
   does not break the client: `AssetRegistry.ensureModel` logs a warning and the
-  entity falls back to its procedural `render.recipe`. That fallback is the
-  reason this is a rough edge and not an outage — but it does mean a missing
-  model shows up as "the rocks look wrong", never as a failed import.
+  entity falls back to its procedural `render.recipe`. That fallback is why a
+  missing model shows up as "the rocks look wrong", never as a failed import.
 
 ### Windows caveat
 

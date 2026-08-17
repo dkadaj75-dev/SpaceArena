@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConfigService } from "@space-arena/shared";
-import { persistEditorConfig } from "@space-arena/shared/editor-persistence";
+import { persistEditorConfig, removeEditorConfig } from "@space-arena/shared/editor-persistence";
 
 const dirs: string[] = [];
 
@@ -110,5 +110,59 @@ describe("persistEditorConfig", () => {
         },
       }),
     ).rejects.toThrow(/path must be notifications\/custom-1\.json/);
+  });
+});
+
+describe("removeEditorConfig", () => {
+  it("deletes the file and demanifests it so the deletion survives a reload", async () => {
+    const dir = await contentDir();
+    // A survivor, so the reload below exercises a manifest that still has content.
+    const keeper = { id: "notification.keeper", type: "notification", version: 1, text: "Kept", style: "info", durationMs: 500 };
+    await persistEditorConfig(dir, { path: "notifications/keeper.json", json: keeper });
+
+    const result = await removeEditorConfig(dir, { path: "notifications/existing.json" });
+
+    expect(result).toEqual({ path: "notifications/existing.json", existed: true, removedFromManifest: true });
+    await expect(access(path.join(dir, "notifications", "existing.json"))).rejects.toThrow();
+    const manifest = JSON.parse(await readFile(path.join(dir, "manifest.json"), "utf8")) as { files: string[] };
+    expect(manifest.files).toEqual(["notifications/keeper.json"]);
+
+    const reloaded = new ConfigService(async (relative) =>
+      JSON.parse(await readFile(path.join(dir, relative), "utf8")) as unknown);
+    expect((await reloaded.load("manifest.json")).ok).toBe(true);
+    expect(reloaded.get("notification", "notification.existing")).toBeUndefined();
+    expect(reloaded.get("notification", "notification.keeper")).toMatchObject({ text: "Kept" });
+  });
+
+  it("still reconciles the manifest when the file is already gone", async () => {
+    const dir = await contentDir();
+    await rm(path.join(dir, "notifications", "existing.json"));
+
+    const result = await removeEditorConfig(dir, { path: "notifications/existing.json" });
+
+    expect(result).toEqual({ path: "notifications/existing.json", existed: false, removedFromManifest: true });
+    const manifest = JSON.parse(await readFile(path.join(dir, "manifest.json"), "utf8")) as { files: string[] };
+    expect(manifest.files).toEqual([]);
+  });
+
+  it("leaves an untracked-but-valid path's manifest alone", async () => {
+    const dir = await contentDir();
+    await mkdir(path.join(dir, "camera"));
+    await writeFile(path.join(dir, "camera", "spare.json"), "{}", "utf8");
+
+    const result = await removeEditorConfig(dir, { path: "camera/spare.json" });
+
+    expect(result).toEqual({ path: "camera/spare.json", existed: true, removedFromManifest: false });
+    const manifest = JSON.parse(await readFile(path.join(dir, "manifest.json"), "utf8")) as { files: string[] };
+    expect(manifest.files).toEqual(["notifications/existing.json"]);
+  });
+
+  it("refuses anything that is not a config file under a known content folder", async () => {
+    const dir = await contentDir();
+    for (const bad of ["../secrets.json", "manifest.json", "notifications/../../escape.json", "ships/hull.glb", "unknown/thing.json"]) {
+      await expect(removeEditorConfig(dir, { path: bad })).rejects.toThrow(/not a content config path|invalid content path/);
+    }
+    // The one file that existed is untouched by every rejected request.
+    await expect(access(path.join(dir, "notifications", "existing.json"))).resolves.toBeUndefined();
   });
 });

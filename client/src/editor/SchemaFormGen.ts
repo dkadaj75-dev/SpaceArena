@@ -1,5 +1,6 @@
 import { z, type ZodType } from "zod";
 import type { ConfigService, ConfigType } from "@space-arena/shared";
+import { referenceTypesFor } from "./referenceFields.js";
 
 export interface FormProblem {
   path: string;
@@ -39,9 +40,15 @@ export interface SchemaFormOptions<T> {
    * addable keys is the canonical case (see `BotProfileEditor`).
    */
   fields?: Record<string, FieldRenderer>;
+  /**
+   * Extra cross-reference fields keyed by dotted path (`*` for array indices),
+   * merged over the table in `referenceFields.ts`. Only needed for a shape that
+   * table does not describe — every shipped config type is already covered.
+   */
+  references?: Record<string, ConfigType | readonly ConfigType[]>;
 }
 
-type JsonSchema = {
+export type JsonSchema = {
   type?: string;
   properties?: Record<string, JsonSchema>;
   required?: string[];
@@ -63,29 +70,8 @@ type JsonSchema = {
 /** Matches a 6-digit hex colour, which we surface as a native colour picker. */
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
-let datalistSeq = 0;
-
-const REFERENCE_TYPES: Record<string, ConfigType> = {
-  propId: "prop",
-  asteroidId: "asteroid",
-  defaultFitting: "module",
-  onFire: "action",
-  onOverheat: "action",
-  onActivate: "action",
-  onDeactivate: "action",
-  actions: "action",
-  triggerEvent: "event",
-  notification: "notification",
-  profile: "botprofile",
-  defaultProfile: "botprofile",
-  ship: "ship",
-  defaultShip: "ship",
-  defaultArena: "arena",
-  hull: "upgrade",
-  engine: "upgrade",
-  energy: "upgrade",
-  heat: "upgrade",
-};
+/** Placeholder option for clearing an optional reference (or an empty fitting slot). */
+const NO_REFERENCE = "— none —";
 
 /** Schema-driven HTML form generator used by every editor panel. */
 export class SchemaFormGen<T> {
@@ -169,7 +155,7 @@ export class SchemaFormGen<T> {
           presentLabel.className = "ed-optional-label";
           presentLabel.textContent = `${key} present`;
           childField.hidden = !present.checked;
-          present.addEventListener("change", () => this.change([...path, key], present.checked ? defaultFor(child) : undefined));
+          present.addEventListener("change", () => this.change([...path, key], present.checked ? defaultFor(child, this.json.$defs) : undefined));
           optional.append(toggle, presentLabel, childField); box.append(optional);
         } else box.append(childField);
       }
@@ -209,7 +195,7 @@ export class SchemaFormGen<T> {
       const literal = this.resolve(b.properties?.[key] ?? {}).const;
       select.append(new Option(String(literal), String(i), false, i === index));
     });
-    select.addEventListener("change", () => this.change(path, defaultFor(branches[Number(select.value)] ?? branch)));
+    select.addEventListener("change", () => this.change(path, defaultFor(branches[Number(select.value)] ?? branch, this.json.$defs)));
     row.append(title, select);
 
     // `body` is a <details> group (never root here) — the picker goes first.
@@ -239,7 +225,7 @@ export class SchemaFormGen<T> {
     add.type = "button";
     add.className = "ed-btn ed-btn--sm";
     add.textContent = "Add";
-    add.addEventListener("click", () => this.change(path, [...values, defaultFor(schema.items ?? {})]));
+    add.addEventListener("click", () => this.change(path, [...values, defaultFor(schema.items ?? {}, this.json.$defs)]));
     wrap.append(list, add);
     return wrap;
   }
@@ -247,27 +233,11 @@ export class SchemaFormGen<T> {
   private scalarField(schema: JsonSchema, value: unknown, path: string[], label: string): HTMLElement {
     const wrap = this.wrap(label);
     const name = path.join(".");
-    const referenceType = REFERENCE_TYPES[label];
+    const referenceTypes = referenceTypesFor(this.configType(), path, this.options.references);
     let input: HTMLInputElement | HTMLSelectElement;
-    /** Extra node appended after the primary control (slider, colour swatch…). */
-    let companion: HTMLElement | null = null;
 
-    if (referenceType) {
-      // Searchable reference picker: a text box backed by a <datalist> of ids.
-      // Keeps typing/filtering on desktop and the native picker on touch, which
-      // a plain <select> of hundreds of ids cannot.
-      input = document.createElement("input");
-      input.type = "text";
-      input.className = "ed-input editor-reference";
-      input.value = typeof value === "string" ? value : "";
-      input.autocomplete = "off";
-      input.placeholder = `${referenceType} id…`;
-      const list = document.createElement("datalist");
-      list.id = `ed-ref-${referenceType}-${++datalistSeq}`;
-      const ids = this.options.configService.getAll(referenceType).map((item) => item.id).sort();
-      for (const id of ids) list.append(new Option(id, id));
-      input.setAttribute("list", list.id);
-      companion = list;
+    if (referenceTypes) {
+      input = this.referenceField(referenceTypes, value);
     } else if (schema.enum) {
       input = document.createElement("select");
       input.className = "ed-select";
@@ -343,13 +313,50 @@ export class SchemaFormGen<T> {
     } else {
       wrap.append(input);
     }
-    if (companion) wrap.append(companion);
 
     const error = document.createElement("small");
     error.className = "editor-field-error";
     error.dataset.errorFor = path.join(".");
     wrap.append(error);
     return wrap;
+  }
+
+  /** The config type of the value being edited — the key into the reference table. */
+  private configType(): string | undefined {
+    const type = (this.value as { type?: unknown } | null)?.type;
+    return typeof type === "string" ? type : undefined;
+  }
+
+  /**
+   * Cross-reference picker: a real `<select>` of every live id of the referenced
+   * type(s). Two options exist beyond the catalogue — "— none —" for clearing an
+   * optional reference or an empty fitting slot, and the current value itself
+   * when it resolves to nothing, marked "(missing)" so a dangling id stays
+   * visible and selectable instead of silently snapping to another config.
+   */
+  private referenceField(types: readonly ConfigType[], value: unknown): HTMLSelectElement {
+    const select = document.createElement("select");
+    select.className = "ed-select editor-reference";
+    const current = typeof value === "string" ? value : "";
+    select.append(new Option(NO_REFERENCE, "", false, current === ""));
+
+    let known = false;
+    for (const type of types) {
+      const ids = this.options.configService.getAll(type).map((item) => item.id).sort();
+      if (!ids.length) continue;
+      // One flat list for a single-type field; grouped when a field is
+      // polymorphic (`cosmetic.target` accepts a ship OR a module).
+      const target = types.length > 1 ? document.createElement("optgroup") : select;
+      if (target instanceof HTMLOptGroupElement) { target.label = type; select.append(target); }
+      for (const id of ids) {
+        const selected = id === current;
+        known ||= selected;
+        target.append(new Option(id, id, false, selected));
+      }
+    }
+    if (current && !known) select.append(new Option(`${current} (missing)`, current, false, true));
+    select.value = current;
+    return select;
   }
 
   private jsonField(value: unknown, path: string[], label: string): HTMLElement {
@@ -448,14 +455,28 @@ function inputValue(input: HTMLInputElement | HTMLSelectElement, schema: JsonSch
   if (schema.type === "number" || schema.type === "integer") return Number(input.value);
   return input.value;
 }
-function defaultFor(raw: JsonSchema): unknown {
-  const schema = raw;
+/**
+ * The value a field should hold when it first appears — enabling an optional,
+ * switching a union branch, adding an array element, or seeding a whole new
+ * config (see `newConfig.ts`). `defs` resolves `$ref`s, which a schema converted
+ * from a shared sub-schema is full of.
+ */
+export function defaultFor(raw: JsonSchema, defs?: Record<string, JsonSchema>): unknown {
+  const schema = raw.$ref ? defs?.[raw.$ref.split("/").pop() ?? ""] ?? raw : raw;
   if (schema.const !== undefined) return schema.const;
-  if (schema.anyOf) {
-    const branch = schema.anyOf.find((item) => item.type !== "null");
-    if (branch) return defaultFor(branch);
+  const union = schema.anyOf ?? schema.oneOf;
+  if (union) {
+    const branch = union.find((item) => (item.$ref ? defs?.[item.$ref.split("/").pop() ?? ""]?.type : item.type) !== "null");
+    if (branch) return defaultFor(branch, defs);
   }
-  if (schema.type === "object") return Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, child]) => [key, defaultFor(child)]));
+  if (schema.type === "object" || schema.properties) {
+    const required = schema.required;
+    return Object.fromEntries(Object.entries(schema.properties ?? {})
+      // A skeleton carries only what the schema demands; optionals stay absent
+      // so a new config is the smallest thing that validates.
+      .filter(([key]) => !required || required.includes(key))
+      .map(([key, child]) => [key, defaultFor(child, defs)]));
+  }
   if (schema.type === "array") return [];
   if (schema.type === "boolean") return false;
   if (schema.type === "number" || schema.type === "integer") {

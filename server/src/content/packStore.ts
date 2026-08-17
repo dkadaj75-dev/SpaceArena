@@ -24,6 +24,25 @@
  * and ConfigService reads the same bytes; there is no window in which a client
  * may fetch an arena that references an asteroid that has not landed yet.
  *
+ * ### Why the swap copies the binaries forward
+ *
+ * A content *bundle* is JSON only — `manifest.json` plus the `.json` configs it
+ * lists ({@link isSafeContentPath} refuses anything else). The content
+ * *directory* holds far more than that: the `.glb` models, `.webp`/`.jpg`
+ * skyboxes, `.ktx2` textures and `.mp3` music that those configs point at, none
+ * of which can travel inside a bundle. Staging the bundle alone and swapping it
+ * in would therefore delete every binary asset from the live pack — recoverable
+ * from `content.previous/` exactly until the next import deletes that too.
+ *
+ * So staging is built from two sources: the bundle supplies the JSON, and
+ * {@link copyPackAssets} carries every non-`.json` file forward from the pack
+ * being replaced. The split is exact — a file is either something the bundle
+ * defines or something only the directory has, never both — which is what keeps
+ * "the new manifest drops a file, so the file goes away" working while the
+ * binaries survive.
+ *
+ * @see docs/CONTENT.md
+ *
  * ### Windows
  *
  * `rename()` on a directory fails with EPERM/EBUSY on Windows if **any** handle
@@ -36,7 +55,7 @@
  * told what to close. See docs/CONTENT.md.
  */
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   MANIFEST_FILENAME,
@@ -62,6 +81,9 @@ const TRANSIENT_RENAME_CODES = new Set(["EPERM", "EACCES", "EBUSY", "ENOTEMPTY",
 
 /** Suffix of the directory holding the pack that was live before the last import. */
 export const PREVIOUS_SUFFIX = ".previous";
+
+/** Prefix (after the content dir's own name) of a not-yet-live staging directory. */
+export const STAGING_SUFFIX = ".staging-";
 
 export interface ImportSuccess {
   ok: true;
@@ -106,6 +128,7 @@ export class ContentPackStore {
   private busy: Promise<unknown> = Promise.resolve();
   private info: PackInfo | null = null;
   private readonly rename: (from: string, to: string) => Promise<void>;
+  private readonly copyAssets: (from: string, to: string) => Promise<number>;
 
   /**
    * @param dir the live content directory.
@@ -113,12 +136,20 @@ export class ContentPackStore {
    *   {@link renameWithRetry}; tests inject a failing rename to exercise the
    *   mid-swap rollback path, which is otherwise unreachable without corrupting
    *   a real filesystem.
+   * @param options.copyAssets seam for the asset carry-forward, for the same
+   *   reason: "the disk filled up half way through copying a 20 MB model" has to
+   *   abort the import with the live pack intact, and there is no portable way
+   *   to provoke that for real.
    */
   constructor(
     readonly dir: string,
-    options: { rename?: (from: string, to: string) => Promise<void> } = {},
+    options: {
+      rename?: (from: string, to: string) => Promise<void>;
+      copyAssets?: (from: string, to: string) => Promise<number>;
+    } = {},
   ) {
     this.rename = options.rename ?? renameWithRetry;
+    this.copyAssets = options.copyAssets ?? copyPackAssets;
   }
 
   /** Sibling directory holding the pack replaced by the most recent import. */
@@ -161,7 +192,10 @@ export class ContentPackStore {
    *
    * Order matters and is the whole safety argument: **validate entirely in
    * memory → stage to a new directory → swap → reload**. Nothing is written
-   * until the pack is known-good, and nothing is live until it is fully written.
+   * until the pack is known-good, and nothing is live until it is fully written
+   * — including the binary assets copied forward from the pack being replaced,
+   * which land in staging *before* the swap so a failed copy costs nothing but a
+   * discarded staging directory.
    */
   async importBundle(raw: unknown): Promise<ImportResult> {
     return this.serialize(async () => {
@@ -171,9 +205,16 @@ export class ContentPackStore {
       }
       const bundle = validation.bundle;
 
-      const staging = `${this.dir}.staging-${Date.now()}`;
+      await this.pruneStaleStaging();
+
+      const staging = `${this.dir}${STAGING_SUFFIX}${Date.now()}`;
+      let assets = 0;
       try {
         await writePackTo(staging, bundle);
+        // Second, and just as load-bearing: the models/skyboxes/music the bundle
+        // cannot carry. A throw here aborts the import with the live pack — and
+        // its assets — completely untouched.
+        assets = await this.copyAssets(this.dir, staging);
       } catch (err) {
         await rm(staging, { recursive: true, force: true }).catch(() => {});
         return {
@@ -212,6 +253,7 @@ export class ContentPackStore {
         packVersion: bundle.packVersion,
         sourceHash: bundle.sourceHash,
         files: Object.keys(bundle.files).length,
+        assets,
       });
 
       return {
@@ -297,6 +339,30 @@ export class ContentPackStore {
     }
   }
 
+  /**
+   * Delete `content.staging-*` siblings left behind by an import that died
+   * mid-flight (a crash between staging and the swap — the swap itself always
+   * cleans up after itself). Staging names are timestamped, so a retry never
+   * collides with the corpse of the attempt before it; without this sweep those
+   * corpses simply accumulate, and each one is a full copy of every binary in
+   * the pack. Best effort: a leftover we cannot remove must not fail the import.
+   */
+  private async pruneStaleStaging(): Promise<void> {
+    const parent = path.dirname(this.dir);
+    const prefix = `${path.basename(this.dir)}${STAGING_SUFFIX}`;
+    let entries: string[];
+    try {
+      entries = await readdir(parent);
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      if (!name.startsWith(prefix)) continue;
+      log.warn("removing an abandoned staging directory from a previous import", { dir: name });
+      await rm(path.join(parent, name), { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   private serialize<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.busy.then(fn, fn);
     this.busy = run.catch(() => {});
@@ -327,6 +393,11 @@ export async function exportBundleFrom(dir: string): Promise<ContentBundle> {
  * directories that hold them. Without the fsync a crash between the write and
  * the rename can leave a directory that *looks* complete and holds zero-length
  * files — the classic "atomic rename over unflushed data" trap.
+ *
+ * This writes the bundle and *only* the bundle: `manifest.json` plus its JSON
+ * configs. The result is a valid pack but not yet a complete content directory —
+ * see {@link copyPackAssets}, which an import runs immediately afterwards to
+ * bring the binaries across.
  */
 async function writePackTo(dir: string, bundle: ContentBundle): Promise<void> {
   await rm(dir, { recursive: true, force: true });
@@ -355,6 +426,87 @@ async function writeJsonSynced(absPath: string, json: unknown): Promise<void> {
   const handle = await open(absPath, "w");
   try {
     await handle.writeFile(`${JSON.stringify(json, null, 2)}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * True for the files a bundle is authoritative over, and therefore the files an
+ * import must *not* carry forward from the pack it replaces.
+ *
+ * The test is simply "is it JSON": `manifest.json` plus the configs it lists are
+ * the only things a bundle can contain — {@link isSafeContentPath} rejects every
+ * other extension — so a `.json` file in the live directory is by definition
+ * either replaced by the incoming bundle or deliberately dropped by it. Copying
+ * one forward would resurrect content the author just deleted.
+ */
+function isBundleOwned(filename: string): boolean {
+  return filename.toLowerCase().endsWith(".json");
+}
+
+/**
+ * Copy every file the bundle does *not* own — models, textures, audio, READMEs,
+ * `.gitkeep`s — from `fromDir` into `toDir`, preserving the subdirectory layout.
+ *
+ * Uses `copyFile`, which hands the copy to the kernel (`CopyFileEx` on Windows,
+ * `copy_file_range` on Linux) rather than pulling a 20 MB `.glb` through a
+ * Buffer. Each copy is fsynced for the same reason the JSON writes are: staging
+ * is about to be made live by a rename, and a rename over unflushed data is how
+ * you get a directory full of zero-length models after a power cut.
+ *
+ * A missing `fromDir` is not an error — the very first import into an empty
+ * deployment has no live pack to preserve anything from.
+ *
+ * @returns the number of files copied.
+ */
+export async function copyPackAssets(fromDir: string, toDir: string): Promise<number> {
+  let copied = 0;
+  const syncedDirs = new Set<string>();
+
+  const walk = async (from: string, to: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(from, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
+
+    let ensured = false;
+    for (const entry of entries) {
+      const src = path.join(from, entry.name);
+      // A symlink to a directory has to recurse; anything else is copied by
+      // value (copyFile follows the link), so a linked asset lands as real bytes
+      // in staging instead of a dangling pointer into the replaced pack.
+      const intoDir = entry.isDirectory() || (entry.isSymbolicLink() && (await isDirectory(src)));
+      if (intoDir) {
+        await walk(src, path.join(to, entry.name));
+        continue;
+      }
+      if (isBundleOwned(entry.name)) continue;
+      if (!ensured) {
+        await mkdir(to, { recursive: true });
+        syncedDirs.add(to);
+        ensured = true;
+      }
+      const dest = path.join(to, entry.name);
+      await copyFile(src, dest);
+      await syncFile(dest);
+      copied += 1;
+    }
+  };
+
+  await walk(fromDir, toDir);
+  for (const d of syncedDirs) await syncDir(d);
+  return copied;
+}
+
+/** fsync an already-written file so the imminent rename cannot outrun its bytes. */
+async function syncFile(absPath: string): Promise<void> {
+  const handle = await open(absPath, "r+");
+  try {
     await handle.sync();
   } finally {
     await handle.close();
@@ -423,15 +575,30 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Stable digest of a directory tree's JSON contents — used by tests and tooling. */
+/**
+ * Stable digest of a directory tree's contents — used by tests and tooling to
+ * assert "these bytes did not move".
+ *
+ * Hashes raw bytes, not decoded text: the tree contains `.glb`/`.webp`/`.mp3`
+ * assets, and reading those as UTF-8 replaces every invalid sequence with
+ * U+FFFD, which would let two genuinely different models hash identically —
+ * exactly the difference a "the live pack is untouched" assertion exists to
+ * catch. Each entry contributes its path and its length as well as its bytes, so
+ * no rearrangement of files can produce a colliding stream.
+ */
 export async function hashDirectory(dir: string): Promise<string> {
   const hash = createHash("sha256");
   const walk = async (current: string, prefix: string): Promise<void> => {
     const entries = (await readdir(current, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : 1));
     for (const entry of entries) {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) await walk(path.join(current, entry.name), rel);
-      else hash.update(`${rel}\0${await readFile(path.join(current, entry.name), "utf8")}\0`);
+      if (entry.isDirectory()) {
+        await walk(path.join(current, entry.name), rel);
+        continue;
+      }
+      const bytes = await readFile(path.join(current, entry.name));
+      hash.update(`${rel}\0${bytes.length}\0`);
+      hash.update(bytes);
     }
   };
   await walk(dir, "");

@@ -469,7 +469,9 @@ describe("ArenaRoom", () => {
   // -------------------------------------------------------------------------
 
   it("flies a wire pitch order off the ground plane and replicates y and pitch", async () => {
-    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    // Pin the arena: the y=7 spawn altitude below is deep-field's authored value,
+    // and the gamemode's defaultArena is editable content.
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", arena: "arena.deep-field", minPlayers: 1 });
     const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
     await advance(room, 1);
     expect(room.state.matchPhase).toBe("live");

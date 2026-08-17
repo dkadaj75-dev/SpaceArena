@@ -53,6 +53,7 @@ import { Hangar, loadHangarSelection } from "./game/screens/Hangar.js";
 import { allHangarShipJobs } from "./game/hangarAssetPreload.js";
 import { ShopScreen } from "./game/screens/ShopScreen.js";
 import { createSessionOwnership } from "./game/sessionOwnership.js";
+import { runTeardown } from "./game/matchTeardown.js";
 import { TutorialDirector, type TutorialHost } from "./game/tutorial/TutorialDirector.js";
 import { TutorialOverlay, showTutorialToast } from "./game/tutorial/TutorialOverlay.js";
 import { markTutorialCompleted } from "./game/tutorial/tutorialProgress.js";
@@ -525,6 +526,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     });
     const screenShake = new ScreenShake(configService, session.playerId, tacticalCamera, bus);
 
+    let disposed = false;
     return {
       session,
       viewManager,
@@ -534,12 +536,23 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       netOverlay,
       botOverlay,
       dispose(): void {
-        viewManager.dispose();
-        hud.dispose();
-        screenShake.dispose();
-        netOverlay?.dispose();
-        botOverlay?.dispose();
-        if (session instanceof NetGameSession) session.dispose();
+        if (disposed) return;
+        disposed = true;
+        // Order is deliberate and every step is isolated (`runTeardown`): the
+        // SESSION goes first so the socket is left and the ticking stops even
+        // if Babylon teardown throws below, and the view roots are dropped last
+        // as a belt — the Scene is shared with the next match, so a node that
+        // survives here comes back as a remnant ship.
+        runTeardown([
+          { label: "session", run: () => { if (session instanceof NetGameSession) session.dispose(); } },
+          { label: "audioFeedback", run: () => audioFeedback.dispose() },
+          { label: "screenShake", run: () => screenShake.dispose() },
+          { label: "netOverlay", run: () => netOverlay?.dispose() },
+          { label: "botOverlay", run: () => botOverlay?.dispose() },
+          { label: "hud", run: () => hud.dispose() },
+          { label: "viewManager", run: () => viewManager.dispose() },
+          { label: "viewRoots", run: () => viewManager.disposeRoots() },
+        ]);
       },
     };
   }
@@ -547,6 +560,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   let runtime: MatchRuntime | null = null;
   let matchAssetsActive = false;
   let simPaused = false;
+  /** Blend fraction for the frame being drawn — see `renderFrame`. */
+  let frameAlpha = 0;
   /** True while the sim is frozen *because the settings screen is open* (5.8). */
   let pausedBySettings = false;
 
@@ -602,25 +617,52 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    * the runtime is disposed exactly once and the profile is refreshed (credits /
    * xp / level may have moved server-side via `matchRewards`). Fire-and-forget:
    * the Lobby header updates through `AuthService.onChange` when it resolves.
+   *
+   * Idempotent and exception-safe by construction. `runtime` is cleared BEFORE
+   * anything is disposed, so the loop and `renderFrame` stop touching the dying
+   * match on the very next tick no matter what happens below; every remaining
+   * step is isolated by `runTeardown`, because a throw partway used to leave a
+   * match ticking (and audible) behind the menu.
+   *
+   * Music is NOT touched here: the call sites own the screen route, and the
+   * "Play a New Game" path goes straight into another match — routing to
+   * `menu` here would make MusicController fade the match track out, load the
+   * menu track for the length of the loading screen, and fade it out again.
    */
   function endMatch(): void {
-    matchAssetsActive = false;
-    tutorial?.attachMatch(null);
-    if (pausedBySettings) {
-      pausedBySettings = false;
-      setSimPaused(false);
-    }
-    settingsScreen.hide();
-    runtime?.dispose();
+    const dying = runtime;
     runtime = null;
-    // Back to the menu/hangar rigs: the chase view only exists while a ship is
-    // flying (FLIGHT.md §3), and leaving it restores the tactical orbit limits.
-    mvpStaged = false;
-    tacticalCamera.clearStageScreenOffset();
-    tacticalCamera.setStaticWorld(null);
-    tacticalCamera.setChaseMode(false);
-    tacticalCamera.setHangarMode(false);
-    void authService.refreshProfile();
+    matchAssetsActive = false;
+    runTeardown([
+      { label: "tutorial", run: () => tutorial?.attachMatch(null) },
+      {
+        label: "settingsPause",
+        run: () => {
+          if (pausedBySettings) {
+            pausedBySettings = false;
+            setSimPaused(false);
+          }
+          settingsScreen.hide();
+        },
+      },
+      { label: "runtime", run: () => dying?.dispose() },
+      // In-flight SFX voices outlive the sim that scheduled them: without this
+      // the last barrage of the match plays out over the main menu (§10 5.7).
+      { label: "audio", run: () => audio.stopAll() },
+      // Back to the menu/hangar rigs: the chase view only exists while a ship
+      // is flying (FLIGHT.md §3), and leaving it restores the orbit limits.
+      {
+        label: "camera",
+        run: () => {
+          mvpStaged = false;
+          tacticalCamera.clearStageScreenOffset();
+          tacticalCamera.setStaticWorld(null);
+          tacticalCamera.setChaseMode(false);
+          tacticalCamera.setHangarMode(false);
+        },
+      },
+      { label: "profile", run: () => void authService.refreshProfile() },
+    ]);
     if (updateGate.onSafeMoment()) location.reload();
   }
 
@@ -943,6 +985,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   let constellation: import("./editor/ConstellationApp.js").ConstellationApp | null = null;
   let designToolsEntry: HTMLButtonElement | null = null;
+  /**
+   * Scene/camera capabilities Constellation needs to use the game's canvas as
+   * its 3D viewport. Assigned once the editor host below is built (further down
+   * this bootstrap); Constellation degrades to a forms-only layout while null.
+   */
+  let constellationHost: import("./editor/ConstellationViewport.js").ConstellationHost | null = null;
   async function openConstellation(): Promise<void> {
     try {
       const [{ ConstellationApp }, { AdminContentRepository }] = await Promise.all([
@@ -953,7 +1001,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         constellation = null;
         music.setScreen("menu");
         lobby.show();
-      });
+      }, constellationHost);
       await constellation.open();
     } catch (error) {
       log.warn("Constellation access denied or unavailable", error);
@@ -1346,6 +1394,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   /** Activate a session whose arena assets have already been prepared. */
   function activateSession(session: GameSession, choice: LobbyChoice): void {
+    // Never let one match overwrite another. Most callers already ran
+    // `endMatch()`, but the dev editor's playtest launch does not — and an
+    // overwritten runtime is unreachable, so its session would keep ticking,
+    // its room stay joined and its ship nodes stay in the shared Scene forever.
+    if (runtime) endMatch();
     matchAssetsActive = false;
     music.setScreen("match");
     runtime = createMatchRuntime(session);
@@ -1375,9 +1428,15 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     if (!simPaused) loop.step(dtMs);
 
     if (runtime) {
+      // Resample the session for THIS frame before anything reads its snapshots.
+      // Offline that is a no-op returning the loop accumulator's phase; online
+      // the session re-reads its snapshot buffer at the current instant and
+      // needs no further blend (GameSession.sampleForRender). Skipped while
+      // paused, which freezes the drawn frame exactly as it freezes the loop.
+      if (!simPaused) frameAlpha = runtime.session.sampleForRender(loop.alpha);
       const prev = runtime.session.prevSnapshot;
       const cur = runtime.session.curSnapshot;
-      const alpha = loop.alpha;
+      const alpha = frameAlpha;
 
       // Drive the camera follow node from the interpolated player position.
       const pp = playerShip(prev.ships, runtime.session.playerId);
@@ -1470,8 +1529,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     }
   });
 
-  if (import.meta.env.DEV) {
-    let editorShell: import("./editor/EditorShell.js").EditorShell | null = null;
+  // Editor host capabilities. Built unconditionally (not DEV-gated) because the
+  // admin-only Constellation tools use the same scene/camera hooks for their 3D
+  // viewport in every build; only the F10 shell binding below stays DEV-only.
+  let editorShell: import("./editor/EditorShell.js").EditorShell | null = null;
+  {
     const editorHost = {
       scene,
       configService,
@@ -1534,22 +1596,28 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         tacticalCamera.setGesturesSuspended(suspended);
       },
     };
-    window.addEventListener("keydown", (event) => {
-      if (event.key !== "F10" || event.repeat) return;
-      event.preventDefault();
-      void Promise.all([
-        import("./editor/EditorShell.js"),
-        import("./editor/ModuleEditor.js"),
-        import("./editor/ShipManagerModules.js"),
-      ]).then(([{ EditorShell }, { ModuleEditor }, { ShipManagerModules }]) => {
-        if (!editorShell) {
-          editorShell = new EditorShell(editorHost);
-          editorShell.registerPanel("Modules", (host, report) => new ModuleEditor(host, report));
-          editorShell.registerPanel("Ships", (host, report) => new ShipManagerModules(host, report));
-        }
-        editorShell.toggle();
+    constellationHost = editorHost;
+    if (import.meta.env.DEV) {
+      window.addEventListener("keydown", (event) => {
+        if (event.key !== "F10" || event.repeat) return;
+        event.preventDefault();
+        void Promise.all([
+          import("./editor/EditorShell.js"),
+          import("./editor/ModuleEditor.js"),
+          import("./editor/ShipManagerModules.js"),
+        ]).then(([{ EditorShell }, { ModuleEditor }, { ShipManagerModules }]) => {
+          if (!editorShell) {
+            editorShell = new EditorShell(editorHost);
+            editorShell.registerPanel("Modules", (host, report) => new ModuleEditor(host, report));
+            editorShell.registerPanel("Ships", (host, report) => new ShipManagerModules(host, report));
+          }
+          editorShell.toggle();
+        });
       });
-    });
+    }
+  }
+
+  if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>)["__debug"] = {
       scene,
       engine,

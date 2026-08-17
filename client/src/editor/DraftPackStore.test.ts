@@ -1,41 +1,78 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { ContentBundle } from "@space-arena/shared";
 import { DraftPackStore } from "./DraftPackStore.js";
 
 function bundle(): ContentBundle {
-  return { kind: "space-arena.content-pack", protocolVersion: 1, packId: "pack.test", packVersion: 1, generatedAt: new Date(0).toISOString(), sourceHash: "sha256:base", manifest: { id: "manifest.test", type: "manifest", version: 1, files: ["tuning/a.json"] }, files: { "tuning/a.json": { id: "tuning.a", type: "tuning", version: 1, tickRate: 30 } } };
+  return {
+    packId: "pack.test",
+    packVersion: 1,
+    generatedAt: "2026-01-01T00:00:00.000Z",
+    sourceHash: "hash-test",
+    manifest: { id: "manifest.test", type: "manifest", version: 1, files: ["camera/default.json"] },
+    files: { "camera/default.json": { id: "camera.default", type: "camera", version: 1 } },
+  } as unknown as ContentBundle;
 }
 
-describe("DraftPackStore", () => {
-  it("undoes and redoes edits through the same draft history", () => {
+beforeEach(() => {
+  localStorage.clear();
+});
+
+describe("DraftPackStore dirty tracking", () => {
+  it("reports edits, additions and deletions as the paths Save to repo must write", () => {
     const store = new DraftPackStore(bundle());
-    const before = store.snapshot().files["tuning/default.json"] as { id: string };
-    store.setFile("tuning/default.json", { ...before, name: "changed" });
-    expect(store.canUndo()).toBe(true);
-    store.undo();
-    expect(store.snapshot().files["tuning/default.json"]).toEqual(before);
-    store.redo();
-    expect(store.snapshot().files["tuning/default.json"]).toMatchObject({ name: "changed" });
-  });
-  it("keeps an immutable base and tracks edit/create/delete/discard", () => {
-    const store = new DraftPackStore(bundle());
-    store.setFile("tuning/a.json", { id: "tuning.a", type: "tuning", version: 1, tickRate: 60 });
-    expect(store.dirtyCount()).toBe(1);
-    expect((store.base.files["tuning/a.json"] as { tickRate: number }).tickRate).toBe(30);
-    store.addFile("tuning/b.json", { id: "tuning.b", type: "tuning", version: 1 });
-    expect((store.snapshot().manifest as { files: string[] }).files).toContain("tuning/b.json");
-    store.deleteFile("tuning/b.json");
-    expect(store.snapshot().files["tuning/b.json"]).toBeUndefined();
-    store.discard();
-    expect(store.dirtyCount()).toBe(0);
+    expect(store.dirtyPaths()).toEqual([]);
+
+    store.setFile("camera/default.json", { id: "camera.default", type: "camera", version: 2 });
+    store.addFile("notifications/new.json", { id: "notification.new", type: "notification", version: 1 });
+
+    expect(store.dirtyPaths()).toEqual(["camera/default.json", "notifications/new.json"]);
+    expect(store.deletedPaths()).toEqual([]);
+    expect(store.dirtyCount()).toBe(2);
   });
 
-  it("restores a dirty draft without storing credentials", () => {
+  it("keeps a deleted base file dirty and separates it out as a deletion", () => {
     const store = new DraftPackStore(bundle());
-    store.setFile("tuning/a.json", { id: "tuning.a", type: "tuning", version: 1, tickRate: 55 });
-    const raw = localStorage.getItem("sa.constellation.draft.sha256:base")!;
-    expect(raw).not.toContain("accessToken");
-    expect(DraftPackStore.restore(bundle()).dirtyCount()).toBe(1);
-    localStorage.clear();
+
+    store.deleteFile("camera/default.json");
+
+    expect(store.dirtyPaths()).toEqual(["camera/default.json"]);
+    expect(store.deletedPaths()).toEqual(["camera/default.json"]);
+    expect(store.snapshot().files["camera/default.json"]).toBeUndefined();
+    expect((store.snapshot().manifest as { files: string[] }).files).toEqual([]);
+  });
+
+  it("does not propagate a deletion for a config that only ever existed in the draft", () => {
+    const store = new DraftPackStore(bundle());
+
+    store.addFile("notifications/new.json", { id: "notification.new", type: "notification", version: 1 });
+    store.deleteFile("notifications/new.json");
+
+    // Adding then deleting returns the pack to its base state — nothing on disk
+    // to remove, so the path must not be handed to the delete endpoint.
+    expect(store.dirtyPaths()).toEqual([]);
+    expect(store.deletedPaths()).toEqual([]);
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("clears the dirty flag when an edit is reverted by hand", () => {
+    const store = new DraftPackStore(bundle());
+
+    store.setFile("camera/default.json", { id: "camera.default", type: "camera", version: 2 });
+    store.setFile("camera/default.json", { id: "camera.default", type: "camera", version: 1 });
+
+    expect(store.isDirty()).toBe(false);
+  });
+
+  it("restores deletions through undo and discard", () => {
+    const store = new DraftPackStore(bundle());
+
+    store.deleteFile("camera/default.json");
+    store.undo();
+    expect(store.snapshot().files["camera/default.json"]).toBeDefined();
+    expect(store.dirtyPaths()).toEqual([]);
+
+    store.deleteFile("camera/default.json");
+    store.discard();
+    expect(store.dirtyPaths()).toEqual([]);
   });
 });

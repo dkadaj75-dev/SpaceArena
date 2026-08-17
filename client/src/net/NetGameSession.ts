@@ -467,6 +467,8 @@ export class NetGameSession extends GameSession {
   private readonly flagTrailLength: number;
   /** One-shot latch for the wire field-name check — see {@link receiveState}. */
   private wireChecked = false;
+  /** Latched by {@link dispose}: nothing on this session runs again. */
+  private disposed = false;
 
   // --- telemetry (NetDebugOverlay) ---
   ordersSent = 0;
@@ -635,9 +637,29 @@ export class NetGameSession extends GameSession {
     return session;
   }
 
-  /** Network sessions are advanced by Colyseus patches, not the local GameLoop. */
-  override tick(_fixedDt: number): void {
+  /**
+   * Network sessions are advanced by Colyseus patches, not the local GameLoop —
+   * and, since the buffer is resampled per DRAWN FRAME (see
+   * {@link sampleForRender}), not by the fixed step either. Deliberately inert:
+   * sampling here as well would resample the buffer at fixed-step instants that
+   * no alpha in the renderer corresponds to.
+   */
+  override tick(_fixedDt: number): void {}
+
+  /**
+   * Resample the snapshot buffer at the instant this frame is drawn.
+   *
+   * The returned alpha is 1, not the loop accumulator's: `current` is already
+   * the state at `now`, so there is nothing left for the renderer to blend
+   * toward. `previous` stays the LAST FRAME's sample, which is what every
+   * consumer that differences the pair (bank roll, the speed readout, view
+   * spawn/despawn checks) actually wants. See {@link GameSession.sampleForRender}
+   * for why the old fixed-step sampling was the source of the online judder.
+   */
+  override sampleForRender(_loopAlpha: number): number {
+    if (this.disposed) return 1;
     this.renderAt(performance.now());
+    return 1;
   }
   override get prevSnapshot(): Snapshot { return this.previous; }
   override get curSnapshot(): Snapshot { return this.current; }
@@ -694,9 +716,23 @@ export class NetGameSession extends GameSession {
   override clearFrameEvents(): void { this.events.length = 0; }
   override applyOrder(_entityId: EntityId, order: Order): void { this.order(order); }
 
+  /**
+   * Kill this session for good (main.ts `endMatch`). The page outlives the
+   * match, so "stop using it" is not enough — every route back INTO it has to
+   * be cut, or a late patch/message decodes into a session the app has already
+   * discarded and drives HUD, views and audio from the menu.
+   *
+   * The socket goes first (so the room is left even if a later step throws),
+   * then the callbacks the app installed on this object, then the buffers.
+   * Idempotent, and `deferred`/`tick` are inert afterwards.
+   */
   dispose(): void {
-    this.onSnapshot = null;
+    if (this.disposed) return;
+    this.disposed = true;
     this.net.dispose();
+    this.onSnapshot = null;
+    this.onOrderRejected = null;
+    this.onMatchRewards = null;
     this.snapshots.length = 0;
     this.events.length = 0;
     this.kineticTracers.clear();
@@ -705,12 +741,18 @@ export class NetGameSession extends GameSession {
     this.flagTrails.clear();
   }
 
+  /** True once {@link dispose} ran — the session accepts no further work. */
+  get isDisposed(): boolean { return this.disposed; }
+
   /** Prediction error magnitude in 3D — the same figure the snap test uses. */
   get correctionError(): number { return Math.hypot(this.errX, this.errY, this.errZ); }
   get bufferDepth(): number { return this.snapshots.length; }
 
   /** Run `fn` now, or after the artificial latency window when ?fakelag= is set. */
   private deferred(fn: () => void): void {
+    // A disposed session accepts no more work — including the fakelag queue,
+    // whose entries would otherwise fire minutes after the match ended.
+    if (this.disposed) return;
     if (this.fakeLagMs <= 0) return fn();
     this.lagQueue.push({ at: performance.now() + this.fakeLagMs, fn });
   }
@@ -1111,8 +1153,17 @@ const lerpFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 
  * constants (netCorrectionRate, snap distances, the manoeuvre-lag budget) were
  * all measured against the lerped target. Remote smoothing is display-only
  * polish and must not steer the predictor.
+ *
+ * `elapsed` is interpolated with everything else, and has to be: it is the
+ * client's MATCH CLOCK, and copying it verbatim off `b` left it stepping in
+ * 50 ms server-patch jumps while the frame around it moved smoothly. Everything
+ * driven by it inherited the step — asteroid spin and decoy tumble are posed
+ * directly from `cur.elapsed` (so every rock in the arena stuttered at the patch
+ * rate, whether or not a ship was near it), and `cur.elapsed - prev.elapsed` is
+ * the denominator of two RATES (the hull's bank roll, the HUD speed readout),
+ * which read zero on most frames and one whole patch interval on the rest.
  */
-function interpolate(
+export function interpolate(
   a: TimedSnapshot,
   b: TimedSnapshot,
   t: number,
@@ -1154,5 +1205,6 @@ function interpolate(
       modules: s.modules.map((m) => ({ ...m })),
     };
   });
-  return { ...b.snapshot, ships };
+  const elapsed = a.snapshot.elapsed + (b.snapshot.elapsed - a.snapshot.elapsed) * t;
+  return { ...b.snapshot, elapsed, ships };
 }

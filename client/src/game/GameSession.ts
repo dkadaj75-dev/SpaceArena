@@ -297,6 +297,30 @@ export class GameSession {
   }
 
   /**
+   * Resample this session for the frame that is about to be DRAWN, and return
+   * the alpha the renderer should blend `prevSnapshot`→`curSnapshot` with.
+   *
+   * Offline this is a no-op: `tick` really does retire one snapshot per fixed
+   * step, so the loop accumulator's `alpha` is exactly the phase between the
+   * returned pair and the pair is exactly one fixed step long.
+   *
+   * ONLINE it is not, and that was the jerk. A network session has no fixed
+   * step of its own — it resamples a wall-clock snapshot buffer — so when it did
+   * that from `tick`, the pair's endpoints were the wall-clock instants the tick
+   * callback happened to fire at while the alpha blending them was the fixed-step
+   * accumulator's phase: two different clocks, whose disagreement is the frame
+   * pacing error. On a metronome-steady 60 fps they agree (which is why every
+   * headless test passed), but at ±15% frame-time jitter — an ordinary browser —
+   * a ship travelling a constant 60 u/s renders at between 32 and 88 u/s, and
+   * two ticks caught in one `step()` collapse the pair onto a single instant so
+   * the frame stalls outright. Sampling from HERE instead puts the session on
+   * the renderer's own clock, where the answer is exact by construction.
+   */
+  sampleForRender(loopAlpha: number): number {
+    return loopAlpha;
+  }
+
+  /**
    * Feed every live bot the current snapshot and push its orders through the
    * normal order queue — the exact path a human tap takes. A DEAD bot is not
    * dropped any more: respawn modes rebuild the ship under the same entity id

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
-import { persistEditorConfig } from "../shared/src/content/editorPersistence.js";
+import { persistEditorConfig, removeEditorConfig } from "../shared/src/content/editorPersistence.js";
 import { MAX_UPLOAD_BYTES, uploadEditorModel } from "./src/editor/editorUploadModel.js";
 
 // Repo-root content/ directory (client/ is one level down).
@@ -39,6 +39,29 @@ function contentPipelinePlugin(): Plugin {
               const payload: unknown = JSON.parse(body);
               if (!isSaveRequest(payload)) throw new Error("expected { path, json }");
               const result = await persistEditorConfig(CONTENT_DIR, payload);
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ ok: true, ...result }));
+            } catch (error) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: String(error) }));
+            }
+          })();
+        });
+      });
+      // Dev-only editor deletion, the mirror of /__editor/save: it removes the
+      // file AND its manifest entry so a delete survives reload.
+      server.middlewares.use("/__editor/delete", (req, res, next) => {
+        if (req.method !== "POST") return next();
+        let body = "";
+        req.on("data", (part: Buffer) => {
+          body += part.toString();
+        });
+        req.on("end", () => {
+          void (async () => {
+            try {
+              const payload: unknown = JSON.parse(body);
+              if (!isDeleteRequest(payload)) throw new Error("expected { path }");
+              const result = await removeEditorConfig(CONTENT_DIR, payload);
               res.setHeader("Content-Type", "application/json");
               res.end(JSON.stringify({ ok: true, ...result }));
             } catch (error) {
@@ -178,6 +201,10 @@ function contentPipelinePlugin(): Plugin {
 
 function isSaveRequest(value: unknown): value is { path: string; json: unknown } {
   return typeof value === "object" && value !== null && typeof (value as { path?: unknown }).path === "string" && "json" in value;
+}
+
+function isDeleteRequest(value: unknown): value is { path: string } {
+  return typeof value === "object" && value !== null && typeof (value as { path?: unknown }).path === "string";
 }
 
 /**

@@ -1,6 +1,6 @@
 import {
   ConfigService, bundleLoader, type AnyConfig, type BotprofileConfig,
-  type ContentBundle, type CosmeticConfig, type ShipConfig, type ThemeConfig,
+  type ArenaConfig, type AsteroidConfig, type ContentBundle, type CosmeticConfig, type ShipConfig, type ThemeConfig,
 } from "@space-arena/shared";
 import { defaultFitOf, fitMetrics, simulateEngagement, timeToKill } from "./balanceMath.js";
 
@@ -14,7 +14,8 @@ export async function renderPreview(target: HTMLElement, context: PreviewContext
     case "theme": return themePreview(target, context.config as ThemeConfig);
     case "ship": case "module": case "upgrade": return balancePreview(target, service, context.config);
     case "cosmetic": return cosmeticPreview(target, context.config as CosmeticConfig);
-    case "arena": case "asteroid": return arenaPreview(target, context.config);
+    case "arena": return arenaPreview(target, context.config);
+    case "asteroid": return asteroidPreview(target, context.config);
     case "botprofile": return botPreview(target, context.config as BotprofileConfig);
     case "tuning": case "camera": return tuningPreview(target, service);
     case "progression": return progressionPreview(target, context.config);
@@ -52,9 +53,23 @@ function cosmeticPreview(target: HTMLElement, cosmetic: CosmeticConfig): () => v
   target.append(title("Painted item preview"), hull, note(`Applies to ${cosmetic.target}.`)); return () => {};
 }
 
-function arenaPreview(target: HTMLElement, config: AnyConfig): () => void {
-  const data = config as unknown as { bounds?: unknown; spawns?: unknown[]; asteroids?: unknown[]; objectives?: unknown[] };
-  target.dataset.sceneRebuild = config.id; target.append(title("EditorStage scene rebuild"), note(`Draft scene rebuilt for ${config.id}: ${data.spawns?.length ?? 0} spawns · ${data.asteroids?.length ?? 0} asteroids · ${data.objectives?.length ?? 0} objectives. Camera is preserved; no live match is mutated.`)); return () => { delete target.dataset.sceneRebuild; };
+export function arenaPreview(target: HTMLElement, config: ArenaConfig): () => void {
+  const summary = [
+    `${config.spawnPoints.length} spawns`,
+    `${config.asteroidPlacements.length} asteroids`,
+    `${config.propPlacements?.length ?? 0} props`,
+    `${config.flagBases?.length ?? 0} flag bases`,
+    `${config.zones?.length ?? 0} zones`,
+  ].join(" · ");
+  target.dataset.sceneRebuild = config.id;
+  target.append(title("EditorStage scene rebuild"), note(`Draft scene rebuilt for ${config.id}: ${summary}. Camera is preserved; no live match is mutated.`));
+  return () => { delete target.dataset.sceneRebuild; };
+}
+
+function asteroidPreview(target: HTMLElement, config: AsteroidConfig): () => void {
+  target.dataset.sceneRebuild = config.id;
+  target.append(title("EditorStage scene rebuild"), note(`Draft scene rebuilt for ${config.id}. Camera is preserved; no live match is mutated.`));
+  return () => { delete target.dataset.sceneRebuild; };
 }
 
 export function seededBotAudit(profile: BotprofileConfig, seed = 73): { winner: string; role: string; score: number; urgency: number; target: string } {

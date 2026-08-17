@@ -3,13 +3,26 @@
   "type": "gamemode",
   "version": 1,
   "name": "Duel",
-  "launch": "online",
   "teams": "1v1",
-  "defaultArena": "arena.deep-field",
+  "launch": "online",
+  "hidden": false,
+  "bots": {
+    "defaultProfile": "bot.rookie",
+    "defaultShip": "ship.interceptor",
+    "backfillWaitMs": 10000,
+    "randomizeLoadouts": true,
+    "shipPool": [
+      "ship.interceptor",
+      "ship.brawler",
+      "ship.support"
+    ]
+  },
+  "defaultArena": "arena.ring-nebula",
   "winCondition": {
     "type": "fragLimit",
     "count": 5
   },
+  "eliminationEndsMatch": true,
   "respawn": {
     "enabled": false,
     "delay": 4
@@ -23,12 +36,5 @@
     "win": 100,
     "loss": 25,
     "perKill": 10
-  },
-  "bots": {
-    "defaultProfile": "bot.rookie",
-    "defaultShip": "ship.interceptor",
-    "backfillWaitMs": 10000,
-    "randomizeLoadouts": true,
-    "shipPool": ["ship.interceptor", "ship.brawler", "ship.support"]
   }
 }
