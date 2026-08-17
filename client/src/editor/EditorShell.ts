@@ -303,7 +303,9 @@ export class EditorShell {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "ed-btn ed-btn--danger";
-    close.textContent = "Exit (F10)";
+    // Labelled for the phone, where there is no F10 to name.
+    close.textContent = "Exit";
+    close.title = "Close the designer (F10)";
     close.addEventListener("click", () => this.close());
 
     right.append(status, close);
