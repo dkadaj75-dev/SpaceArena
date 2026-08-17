@@ -58,6 +58,16 @@ import { loadTestConfigs } from "./testutil.js";
  * The failure message prints the observed digest. Before pasting it in, be sure
  * you can name the change that moved it — and if only `numeric` moved, say so in
  * the commit message.
+ *
+ * Record history:
+ *  - 2026-08-16: first recording.
+ *  - 2026-08-16 (same day): scripted vector re-recorded for the deliberate
+ *    occupancy-aware per-team spawn selection. Its team-1 ships spawn on pads
+ *    1/2/3 instead of the global counter's 4/5/1, so every position and the
+ *    combat that follows moves; one fewer event lands inside the window
+ *    (302, was 303). The BOT vector is untouched: its 5+5 sequential spawn-in
+ *    picks identical pads under both selectors, and its respawn rolls happen to
+ *    map to the same pads with every pad clear.
  */
 
 const DT = 1 / 30;
@@ -268,9 +278,9 @@ describe("golden sim fingerprint", () => {
   it("pins the scripted asteroid-field vector", () => {
     const fp = scriptedVector(600);
     expect(fp).toEqual({
-      structure: "0fc425ff",
-      numeric: "9c924fa2",
-      events: 303,
+      structure: "c83de5aa",
+      numeric: "12fe7031",
+      events: 302,
       ticks: 600,
     });
   });

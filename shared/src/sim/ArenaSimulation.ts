@@ -1,6 +1,6 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import { resolveCosmeticFor } from "../content/cosmetics.js";
-import type { ArenaConfig, GamemodeConfig, TuningConfig } from "../schemas/index.js";
+import type { ArenaConfig, GamemodeConfig, ShipConfig, TuningConfig } from "../schemas/index.js";
 import type { EntityId, FlagState, ModuleState, ShipCore, TargetRef } from "./components.js";
 import type { SimEvent } from "./events.js";
 import type { Order } from "./orders.js";
@@ -206,6 +206,15 @@ export type MatchPhase = "waiting" | "countdown" | "live" | "ended";
  */
 const COUNTDOWN_EPSILON = 1e-9;
 
+/**
+ * A pad is not merely free when collision spheres do not quite touch. Respawning
+ * into that sliver makes the next collision tick look like a spawn-kill, so keep
+ * a small, radius-relative buffer around both hulls. It deliberately scales with
+ * the content's colliders: changing a hull size cannot quietly invalidate this
+ * placement rule.
+ */
+const SPAWN_CLEARANCE_FACTOR = 1.1;
+
 /** One team's running kill count (frag-limit scoreboards; draws stay visible). */
 export interface TeamScore {
   team: number;
@@ -329,6 +338,12 @@ export class ArenaSimulation {
   private readonly pendingRespawns: { entityId: EntityId; timer: number }[] = [];
   /** Deterministic spawn-point picker for respawns (own stream off the session seed). */
   private readonly respawnRng: () => number;
+  /**
+   * Initial placement belongs to a TEAM, not to the world-wide entity counter.
+   * A side joining after deaths (or after the other side filled its pads) must
+   * still begin at its own first authored point and walk its own authored order.
+   */
+  private readonly nextInitialSpawnByTeam = new Map<number, number>();
 
   constructor(
     private readonly configs: ConfigService,
@@ -406,9 +421,7 @@ export class ArenaSimulation {
     upgradeLevels?: UpgradeLevels,
     cosmeticId?: string | null,
   ): EntityId {
-    const spawns = this.world.arena.spawnPoints.filter((s) => s.team === team);
-    const used = this.world.shipIds().length;
-    const sp = spawns[used % Math.max(1, spawns.length)] ?? this.world.arena.spawnPoints[0]!;
+    const sp = this.selectInitialSpawn(team, this.spawnRadiusFor(shipId));
     this.teamsEverPresent.add(team);
     const id = spawnShipFromConfig(
       this.world,
@@ -452,6 +465,121 @@ export class ArenaSimulation {
    */
   private paintFor(shipId: string, cosmeticId: string | null | undefined): string | undefined {
     return resolveCosmeticFor(this.configs, shipId, cosmeticId);
+  }
+
+  /** Read the same authored collider radius {@link spawnShipFromConfig} installs. */
+  private spawnRadiusFor(shipId: string): number {
+    const ship = this.configs.get<ShipConfig>("ship", shipId);
+    if (!ship) throw new Error(`unknown ship config: ${shipId}`);
+    return ship.collider.radius;
+  }
+
+  /**
+   * Return this team's authored pads, preserving config order for every tie and
+   * rotation. Content normally supplies both sides, but retaining the historic
+   * all-pad fallback leaves malformed/practice fixtures playable rather than
+   * turning a join into an unrelated crash.
+   */
+  private spawnPointsFor(team: number): ArenaConfig["spawnPoints"] {
+    const own = this.world.arena.spawnPoints.filter((spawn) => spawn.team === team);
+    return own.length > 0 ? own : this.world.arena.spawnPoints;
+  }
+
+  /** Squared distance from a pad to its nearest live ship; Infinity means empty. */
+  private nearestShipDistanceSquared(spawn: ArenaConfig["spawnPoints"][number]): number {
+    let nearest = Infinity;
+    const pos = spawn.position;
+    // shipIds is ascending. Besides making this replay-stable, it keeps the
+    // nearest-distance scan independent of Map insertion order; pad ties are
+    // resolved explicitly by the caller's authored order or seeded roll.
+    for (const id of this.world.shipIds()) {
+      const shipPos = this.world.transforms.get(id)!.pos;
+      const dx = shipPos.x - pos.x;
+      const dy = shipPos.y - (pos.y ?? 0);
+      const dz = shipPos.z - pos.z;
+      const distanceSquared = dx * dx + dy * dy + dz * dz;
+      if (distanceSquared < nearest) nearest = distanceSquared;
+    }
+    return nearest;
+  }
+
+  private isSpawnClear(spawn: ArenaConfig["spawnPoints"][number], spawningRadius: number): boolean {
+    const pos = spawn.position;
+    for (const id of this.world.shipIds()) {
+      const shipPos = this.world.transforms.get(id)!.pos;
+      const occupantRadius = this.world.colliders.get(id)!.radius;
+      const clearance = (spawningRadius + occupantRadius) * SPAWN_CLEARANCE_FACTOR;
+      const dx = shipPos.x - pos.x;
+      const dy = shipPos.y - (pos.y ?? 0);
+      const dz = shipPos.z - pos.z;
+      if (dx * dx + dy * dy + dz * dz < clearance * clearance) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Pick one of `spawns` in authored rotation order. When every pad is crowded,
+   * return the pad with the most room to its nearest live ship instead of failing
+   * a respawn. `start` is also the deterministic tie-break, so exact geometry
+   * ties cannot make platform-dependent placement decisions.
+   */
+  private selectRotatingSpawn(
+    spawns: ArenaConfig["spawnPoints"],
+    spawningRadius: number,
+    start: number,
+  ): ArenaConfig["spawnPoints"][number] {
+    for (let offset = 0; offset < spawns.length; offset++) {
+      const index = (start + offset) % spawns.length;
+      const candidate = spawns[index]!;
+      if (this.isSpawnClear(candidate, spawningRadius)) return candidate;
+    }
+
+    let best = spawns[start % spawns.length]!;
+    let bestDistance = this.nearestShipDistanceSquared(best);
+    for (let offset = 1; offset < spawns.length; offset++) {
+      const candidate = spawns[(start + offset) % spawns.length]!;
+      const nearestDistance = this.nearestShipDistanceSquared(candidate);
+      if (nearestDistance > bestDistance) {
+        best = candidate;
+        bestDistance = nearestDistance;
+      }
+    }
+    return best;
+  }
+
+  private selectInitialSpawn(team: number, spawningRadius: number): ArenaConfig["spawnPoints"][number] {
+    const spawns = this.spawnPointsFor(team);
+    const next = this.nextInitialSpawnByTeam.get(team) ?? 0;
+    const spawn = this.selectRotatingSpawn(spawns, spawningRadius, next);
+    // Advance from the pad actually used. If an occupied point was skipped, the
+    // next join resumes after the chosen pad rather than repeatedly probing it.
+    const selectedIndex = spawns.indexOf(spawn);
+    this.nextInitialSpawnByTeam.set(team, (selectedIndex + 1) % spawns.length);
+    return spawn;
+  }
+
+  private selectRespawn(team: number, spawningRadius: number): ArenaConfig["spawnPoints"][number] {
+    const spawns = this.spawnPointsFor(team);
+    const clear = spawns.filter((spawn) => this.isSpawnClear(spawn, spawningRadius));
+    // Consume exactly one draw per respawn. It varies only among legal pads, so
+    // a reseeded match remains reproducible without letting a random choice put
+    // a newly rebuilt ship inside a live one.
+    const roll = this.respawnRng();
+    if (clear.length > 0) return clear[Math.min(clear.length - 1, Math.floor(roll * clear.length))]!;
+
+    let bestDistance = -Infinity;
+    const leastCrowded: ArenaConfig["spawnPoints"] = [];
+    for (const spawn of spawns) {
+      const nearestDistance = this.nearestShipDistanceSquared(spawn);
+      if (nearestDistance > bestDistance) {
+        bestDistance = nearestDistance;
+        leastCrowded.length = 0;
+        leastCrowded.push(spawn);
+      } else if (nearestDistance === bestDistance) {
+        leastCrowded.push(spawn);
+      }
+    }
+    return leastCrowded[Math.min(leastCrowded.length - 1, Math.floor(roll * leastCrowded.length))]!;
   }
 
   applyOrder(entityId: EntityId, order: Order): void {
@@ -611,11 +739,7 @@ export class ArenaSimulation {
       const record = this.spawnRecords.get(pending.entityId);
       if (!record) continue; // left the match while dead — no ghost respawns
       if (this.world.isAlive(pending.entityId)) continue; // already back (defensive)
-      const spawns = this.world.arena.spawnPoints.filter((s) => s.team === record.team);
-      const sp =
-        spawns.length > 0
-          ? spawns[Math.min(spawns.length - 1, Math.floor(this.respawnRng() * spawns.length))]!
-          : this.world.arena.spawnPoints[0]!;
+      const sp = this.selectRespawn(record.team, this.spawnRadiusFor(record.shipId));
       spawnShipFromConfig(
         this.world,
         this.configs,

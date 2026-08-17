@@ -851,18 +851,24 @@ describe("ArenaRoom", () => {
       sim: {
         world: {
           shipCores: Map<number, { hull: number }>;
-          transforms: Map<number, { pos: { x: number; z: number }; heading: number }>;
+          transforms: Map<number, { pos: { x: number; y: number; z: number }; heading: number }>;
         };
       };
     };
     // Force the enemy (c2) to near-death and park it point-blank ahead of c1 —
     // inside the sensor cone, or the lock never completes and nothing fires
-    // (FLIGHT.md §2).
+    // (FLIGHT.md §2). ALL THREE axes: deep-field's authored pads sit at
+    // different altitudes, and leaving y at the spawn's own value silently
+    // relied on the old spawn selector pairing pads only 2.8u apart in y. The
+    // occupancy-aware selector pairs sp-a1 (y=7) with sp-b1 (y=-7), and a 14u
+    // vertical offset over an 8u planar one is ~60° off the nose — outside any
+    // sensor cone, so the lock never formed and the match never ended.
     const playerId = room.state.players.get(c1.sessionId)!.entityId;
     const enemyId = room.state.players.get(c2.sessionId)!.entityId;
     const pTf = serverRoom.sim.world.transforms.get(playerId)!;
     const ePos = serverRoom.sim.world.transforms.get(enemyId)!.pos;
     ePos.x = pTf.pos.x + Math.cos(pTf.heading) * 8;
+    ePos.y = pTf.pos.y;
     ePos.z = pTf.pos.z + Math.sin(pTf.heading) * 8;
     serverRoom.sim.world.shipCores.get(enemyId)!.hull = 8;
 
