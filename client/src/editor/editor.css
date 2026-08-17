@@ -381,6 +381,153 @@
 .sa-editor .ed-viewport {
   grid-area: viewport;
   pointer-events: none;
+  /* Anchors floating viewport chrome (context panel) to the cell, not the page. */
+  position: relative;
+}
+
+/*
+ * Selection context panel: floating chrome INSIDE the viewport cell. It floats
+ * over the scene rather than sitting in the shell grid, so it never shrinks
+ * the canvas — but it must take pointer events back for itself.
+ */
+.sa-editor .ed-ctx {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 5;
+  width: min(300px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.sa-editor .ed-ctx-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ed-border-soft);
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+  flex: 0 0 auto;
+}
+
+.sa-editor .ed-ctx-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ed-accent);
+  white-space: nowrap;
+}
+
+.sa-editor .ed-ctx-subtitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--ed-mono);
+  color: var(--ed-text-faint);
+}
+
+.sa-editor .ed-ctx-close {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ed-text-dim);
+  background: transparent;
+  border: 1px solid var(--ed-border-soft);
+  clip-path: none;
+}
+
+.sa-editor .ed-ctx-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 10px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sa-editor .ed-ctx-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+
+.sa-editor .ed-ctx-field > span:first-child {
+  flex: 0 0 44%;
+  max-width: 44%;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ed-text-dim);
+  overflow-wrap: anywhere;
+}
+
+.sa-editor .ed-ctx-field > input,
+.sa-editor .ed-ctx-field > select {
+  flex: 1 1 90px;
+  min-width: 0;
+}
+
+.sa-editor .ed-ctx-static {
+  font: var(--ed-mono);
+  color: var(--ed-text);
+  overflow-wrap: anywhere;
+}
+
+.sa-editor .ed-ctx-note {
+  margin: 6px 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--ed-warn);
+  background: rgba(255, 181, 69, 0.09);
+  border-left: 2px solid rgba(255, 181, 69, 0.5);
+}
+
+.sa-editor .ed-ctx-link {
+  display: block;
+  width: 100%;
+  margin: 4px 0;
+  height: auto;
+  min-height: var(--ed-control-h);
+  padding: 4px 8px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--ed-accent);
+  background: var(--ed-accent-faint);
+  border: 1px solid var(--ed-border-soft);
+  clip-path: none;
+}
+
+.sa-editor .ed-ctx-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--ed-border-soft);
+  flex: 0 0 auto;
+}
+
+.sa-editor .ed-ctx-actions .ed-btn {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 720px) {
+  /* Phone: full-width strip pinned to the top of the viewport, above the sheet. */
+  .sa-editor .ed-ctx {
+    left: 8px;
+    top: 8px;
+    width: calc(100% - 16px);
+    max-height: 46%;
+  }
 }
 
 /* --------------------------------------------------------------- inspector */
