@@ -60,6 +60,7 @@ import {
 } from "./socketOps.js";
 import { StickyWarnings } from "./stickyWarnings.js";
 import { applicationNotice } from "./applicationScope.js";
+import { ViewportContextPanel, type CtxField, type CtxView } from "./ViewportContextPanel.js";
 
 const ALL_SIGNALS = signalId.options as readonly SignalId[];
 const ALL_FAMILIES = moduleFamily.options as readonly ModuleFamily[];
@@ -99,6 +100,9 @@ export class ShipManager implements EditorPanel {
 
   private shipId: string;
   private selectedIndex: number | null = null;
+  private readonly ctx = new ViewportContextPanel(() => this.deselect());
+  /** Inspector "Selected socket" section — the context panel's deep-link target. */
+  private selectedSocketBox: HTMLElement | null = null;
   /** Persistent, dismissable warnings (reorder DB-fitting remaps) — survive replace() success. */
   private readonly sticky = new StickyWarnings();
   /** A candidate ship replace() rejected for fitting incompatibility, awaiting a one-click fix. */
@@ -215,6 +219,63 @@ export class ShipManager implements EditorPanel {
     this.element.append(this.defaultFittingSection(ship));
     this.element.append(this.signalSimulatorSection(ship));
     this.element.append(this.coreStatsSection(ship));
+
+    if (this.selectedIndex !== null && ship.sockets[this.selectedIndex]) this.ctx.show(this.socketContextView(ship, this.selectedIndex));
+    else this.ctx.hide();
+  }
+
+  /** Floating in-viewport summary of the selected socket; heavy edits deep-link to the inspector. */
+  private socketContextView(ship: ShipConfig, index: number): CtxView {
+    const socket = ship.sockets[index]!;
+    const transform = (patch: Partial<{ pos: [number, number, number]; rot: [number, number, number]; scale: number }>): void => {
+      const current = { pos: [...socket.transform.pos] as [number, number, number], rot: [...(socket.transform.rot ?? [0, 0, 0])] as [number, number, number], scale: socket.transform.scale ?? 1 };
+      this.replace(setSocketTransform(ship, index, { ...current, ...patch }));
+    };
+    const pos = socket.transform.pos;
+    const rot = socket.transform.rot ?? [0, 0, 0];
+    const axes = ["x", "y", "z"] as const;
+    const fields: CtxField[] = [
+      { kind: "static", label: "kind", value: socket.kind },
+      ...axes.map((axis, i): CtxField => ({ kind: "number", label: `pos ${axis}`, key: `p${axis}`, value: pos[i] ?? 0, onCommit: (value) => { const next = [...pos] as [number, number, number]; next[i] = value; transform({ pos: next }); } })),
+      ...axes.map((axis, i): CtxField => ({ kind: "number", label: `rot ${axis} (rad)`, key: `r${axis}`, value: rot[i] ?? 0, onCommit: (value) => { const next = [...rot] as [number, number, number]; next[i] = value; transform({ rot: next }); } })),
+      { kind: "number", label: "scale", key: "scale", value: socket.transform.scale ?? 1, min: 0.01, onCommit: (value) => { if (value > 0) transform({ scale: value }); } },
+    ];
+    if (socket.kind === "hardpoint") {
+      fields.push({ kind: "static", label: "accepts", value: socket.accepts.join(", ") });
+      fields.push({ kind: "link", label: "Accepts & reorder ▸ inspector", onClick: () => this.revealInspectorSocket() });
+    } else if (socket.kind === "emitter") {
+      fields.push({ kind: "select", label: "effect", value: socket.effect, options: this.host.configService.getAll<EffectConfig>("effect").map((e) => ({ value: e.id, label: e.name ?? e.id })), onCommit: (id) => this.replace(setEmitterEffect(ship, index, id)) });
+      fields.push({ kind: "static", label: "bindings", value: String(socket.bindings.length) });
+      fields.push({ kind: "link", label: "Bindings & curves ▸ inspector", onClick: () => this.revealInspectorSocket() });
+    }
+    return {
+      title: socket.kind === "hardpoint" ? `#${hardpointIndexOf(ship, index)} ${socket.id}` : socket.id,
+      subtitle: ship.id,
+      fields,
+      actions: [
+        { label: "Duplicate", onClick: () => this.replace(duplicateSocket(ship, index)) },
+        { label: "Frame", onClick: () => this.frameSocket(index) },
+        { label: "Delete", onClick: () => { this.deselect(); this.replace(deleteSocket(ship, index)); }, danger: true },
+      ],
+    };
+  }
+
+  private revealInspectorSocket(): void {
+    this.selectedSocketBox?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
+
+  private frameSocket(index: number): void {
+    const marker = this.markers.get(index);
+    const cam = this.scene.activeCamera as unknown as { setTarget?: (v: Vector3) => void; radius?: number };
+    if (!marker || !cam) return;
+    cam.setTarget?.(marker.getAbsolutePosition());
+    if (typeof cam.radius === "number") cam.radius = Math.max(4, (this.hullMesh?.getBoundingInfo().boundingSphere.radiusWorld ?? 4) * 1.2);
+  }
+
+  private deselect(): void {
+    this.selectedIndex = null;
+    this.gizmos.attachToMesh(null);
+    this.renderUi();
   }
 
   /**
@@ -313,6 +374,8 @@ export class ShipManager implements EditorPanel {
       const btn = button(`${dot(socket.kind)} ${label} (${socket.kind})`, () => this.select(index));
       btn.classList.add("ed-list-btn");
       btn.classList.toggle("is-selected", index === this.selectedIndex);
+      // Viewport pick → inspector list stays in step (happy-dom lacks scrollIntoView).
+      if (index === this.selectedIndex) queueMicrotask(() => btn.scrollIntoView?.({ block: "nearest" }));
       const dup = button("Dup", () => this.replace(duplicateSocket(ship, index)));
       const del = button("Del", () => {
         this.selectedIndex = null;
@@ -327,6 +390,7 @@ export class ShipManager implements EditorPanel {
   /** Editor for the currently selected socket. */
   private selectedSocketSection(ship: ShipConfig): HTMLElement {
     const box = section("Selected socket");
+    this.selectedSocketBox = box;
     if (this.selectedIndex === null || !ship.sockets[this.selectedIndex]) {
       box.append(text("Click a marker in the 3D view (or a socket above) to select."));
       return box;
@@ -635,7 +699,17 @@ export class ShipManager implements EditorPanel {
     if (marker) {
       this.gizmos.attachToMesh(marker);
     }
+    this.highlightSelection();
     this.renderUi();
+  }
+
+  /** Outline the selected marker so the pick reads in the viewport, not just the list. */
+  private highlightSelection(): void {
+    for (const [index, marker] of this.markers) {
+      const mesh = marker as AbstractMesh & { renderOutline?: boolean; outlineColor?: Color3; outlineWidth?: number };
+      mesh.renderOutline = index === this.selectedIndex;
+      if (index === this.selectedIndex) { mesh.outlineColor = new Color3(0.34, 0.85, 1); mesh.outlineWidth = 0.06; }
+    }
   }
 
   /** Gizmo drag ended: write the marker's transform back into the socket. */
@@ -776,11 +850,21 @@ export class ShipManager implements EditorPanel {
       const marker = this.markers.get(this.selectedIndex);
       if (marker) this.gizmos.attachToMesh(marker);
     }
+    this.highlightSelection();
     if (this.simOn) this.startParticles(ship);
   }
 
   /** Project 3D marker positions to screen and place HTML labels over the canvas. */
   private updateLabels(): void {
+    // Live-sync the context panel's transform fields with the gizmo drag.
+    if (this.selectedIndex !== null && this.ctx.visible) {
+      const marker = this.markers.get(this.selectedIndex);
+      if (marker) {
+        this.ctx.setNumber("px", marker.position.x); this.ctx.setNumber("py", marker.position.y); this.ctx.setNumber("pz", marker.position.z);
+        this.ctx.setNumber("rx", marker.rotation.x); this.ctx.setNumber("ry", marker.rotation.y); this.ctx.setNumber("rz", marker.rotation.z);
+        this.ctx.setNumber("scale", marker.scaling.x);
+      }
+    }
     const engine = this.scene.getEngine();
     const canvas = engine.getRenderingCanvas();
     const cam = this.scene.activeCamera;
@@ -871,6 +955,7 @@ export class ShipManager implements EditorPanel {
   }
 
   dispose(): void {
+    this.ctx.dispose();
     this.unbindGizmoCommit();
     this.unbindGizmoSuspend();
     this.stopParticles();
