@@ -17,6 +17,7 @@ describe("MapEditor asteroid placement", () => {
 const notification = { id: "notification.boundary-warning", type: "notification", version: 1, text: "Boundary", style: "critical", durationMs: 1000 };
 const asteroid = { id: "asteroid.rock", type: "asteroid", version: 1, name: "Rock", radius: 3, colliderScale: 1, destructible: false, impactDamage: 0, render: { recipe: "procedural.rock" } };
 const prop = { id: "prop.block", type: "prop", version: 1, name: "Block", category: "structure", impactDamage: 0, render: { recipe: "model.static", model: "props/block.glb", modelScale: 1 } };
+const terrainProp = { id: "prop.ground", type: "prop", version: 1, name: "Ground", category: "terrain", impactDamage: 0, render: { recipe: "model.static", model: "props/ground.glb", modelScale: 1 } };
 const arena = {
   id: "arena.editor-test", type: "arena", version: 1, name: "Editor test", bounds: { shape: "box", width: 100, height: 100, floorY: -20, ceilingY: 30 },
   asteroidPlacements: [], propPlacements: [], navGraph: { nodes: [], links: [] },
@@ -30,12 +31,14 @@ interface MapEditorTestDriver {
   armed: { kind: "asteroid" | "prop"; id: string } | "nav" | null;
   navSelection: number[];
   layers: Map<string, { visible: boolean; locked: boolean }>;
+  gameView: boolean;
   place(point: Vector3): void;
   select(kind: "asteroid" | "prop" | "spawn" | "flag" | "nav", index: number, mesh: import("@babylonjs/core").AbstractMesh): void;
   commitTransform(): void;
   duplicateSelected(): void;
   removeSelected(): void;
   toggleNavLink(): void;
+  toggleGameView(): void;
   canSelect(kind: string, index: number): boolean;
   save(): Promise<void>;
 }
@@ -43,12 +46,14 @@ function driver(editor: MapEditor): MapEditorTestDriver { return editor as unkno
 
 describe("MapEditor placement session", () => {
   let engine: NullEngine; let scene: Scene; let configs: ConfigService; let editor: MapEditor;
+  let setSpawnMarkersForced: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     engine = new NullEngine(); scene = new Scene(engine); configs = new ConfigService(() => Promise.resolve(null), new EventBus<ConfigEvents>());
-    for (const config of [notification, asteroid, prop, arena]) expect(configs.replace(config).ok).toBe(true);
-    editor = new MapEditor({ scene, configService: configs, bus: new EventBus(), pauseSim() {}, resumeSim() {}, rebuildArena() {}, setGameVisible() {}, setArenaVisible() {}, setSpawnMarkersForced() {}, setPropPickingForced() {}, suspendCameraGestures() {}, launchPlaytest: vi.fn() }, vi.fn());
+    setSpawnMarkersForced = vi.fn();
+    for (const config of [notification, asteroid, prop, terrainProp, arena]) expect(configs.replace(config).ok).toBe(true);
+    editor = new MapEditor({ scene, configService: configs, bus: new EventBus(), pauseSim() {}, resumeSim() {}, rebuildArena() {}, setGameVisible() {}, setArenaVisible() {}, setSpawnMarkersForced, setPropPickingForced() {}, suspendCameraGestures() {}, launchPlaytest: vi.fn() }, vi.fn());
   });
-  afterEach(() => { editor.dispose(); scene.dispose(); engine.dispose(); });
+  afterEach(() => { editor.dispose(); scene.dispose(); engine.dispose(); document.body.replaceChildren(); });
 
   it("adds, moves, duplicates and deletes mirrored prop placements in the config draft", () => {
     const subject = driver(editor); subject.armed = { kind: "prop", id: "prop.block" }; subject.place(new Vector3(4.4, 2.2, -7.6));
@@ -81,5 +86,53 @@ describe("MapEditor placement session", () => {
 
   it("blocks playtest launch when the arena schema is invalid", () => {
     expect(playtestArenaProblems({ ...arena, bounds: { shape: "box", width: 100, height: 100, floorY: 30, ceilingY: 20 } })).toContain("bounds.ceilingY: ceilingY must be greater than floorY");
+  });
+
+  it("routes terrain and locked props to the Terrain layer, locked by default", () => {
+    const subject = driver(editor);
+    subject.armed = { kind: "prop", id: "prop.ground" }; subject.place(new Vector3(0, 0, 4));
+    subject.armed = { kind: "prop", id: "prop.block" }; subject.place(new Vector3(0, 0, 10));
+    // Terrain placements default locked so stray clicks never drag the floor.
+    expect(subject.canSelect("prop", 0)).toBe(false);
+    expect(subject.canSelect("prop", 2)).toBe(true);
+    // The Terrain layer row is the obvious way in — unlock and the ground moves.
+    subject.layers.get("terrain")!.locked = false;
+    expect(subject.canSelect("prop", 0)).toBe(true);
+    // A hand-locked ordinary prop answers to the Terrain layer too.
+    subject.layers.get("terrain")!.locked = true;
+    const draft = structuredClone(configs.get<ArenaConfig>("arena", arena.id)!);
+    draft.propPlacements![2]!.locked = true;
+    expect(configs.replace(draft).ok).toBe(true);
+    expect(subject.canSelect("prop", 2)).toBe(false);
+  });
+
+  it("game view hides the authoring furniture and restores selection on return", () => {
+    const subject = driver(editor);
+    subject.armed = { kind: "asteroid", id: "asteroid.rock" }; subject.place(new Vector3(3, 0, 5)); subject.armed = null;
+    subject.select("asteroid", 0, scene.getMeshByName("editor.asteroid.0")! );
+    expect(document.querySelector(".ed-ctx")).not.toBeNull();
+
+    subject.toggleGameView();
+    expect(subject.gameView).toBe(true);
+    expect(scene.getTransformNodeByName("editorMapPreview")!.isEnabled()).toBe(false);
+    expect(setSpawnMarkersForced).toHaveBeenLastCalledWith(false);
+    expect((document.querySelector(".ed-ctx") as HTMLElement).style.display).toBe("none");
+
+    subject.toggleGameView();
+    expect(scene.getTransformNodeByName("editorMapPreview")!.isEnabled()).toBe(true);
+    expect(setSpawnMarkersForced).toHaveBeenLastCalledWith(true);
+    expect((document.querySelector(".ed-ctx") as HTMLElement).style.display).not.toBe("none");
+  });
+
+  it("keeps the selection and context panel alive across a commit", () => {
+    const subject = driver(editor);
+    subject.armed = { kind: "asteroid", id: "asteroid.rock" }; subject.place(new Vector3(3, 0, 5)); subject.armed = null;
+    const mesh = scene.getMeshByName("editor.asteroid.0")!;
+    subject.select("asteroid", 0, mesh);
+    mesh.position.set(6, 0, 5);
+    subject.commitTransform();
+    // The rebuild replace() triggers must re-attach the handles + panel.
+    expect((document.querySelector(".ed-ctx") as HTMLElement).style.display).not.toBe("none");
+    expect(configs.get<ArenaConfig>("arena", arena.id)!.asteroidPlacements[0]!.position.x).toBe(6);
   });
 });

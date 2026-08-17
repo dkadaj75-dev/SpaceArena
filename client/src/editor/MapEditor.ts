@@ -8,9 +8,11 @@ import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
 import { bindGizmoCameraSuspend } from "./EditorStage.js";
 import { applicationNotice } from "./applicationScope.js";
+import { degPerSecToRpm, rpmToDegPerSec, ViewportContextPanel, type CtxField, type CtxView } from "./ViewportContextPanel.js";
 
-type Layer = "asteroid" | "prop" | "spawn" | "flag" | "nav" | "bounds";
-type Selection = { kind: Exclude<Layer, "bounds">; index: number; mesh: TransformNode };
+/** "terrain" is a pseudo-layer: locked/ground props answer to it instead of "prop". */
+type Layer = "asteroid" | "prop" | "terrain" | "spawn" | "flag" | "nav" | "bounds";
+type Selection = { kind: Exclude<Layer, "bounds" | "terrain">; index: number; mesh: TransformNode };
 type AssetChoice = { kind: "asteroid" | "prop"; id: string };
 type EditorPlacement = {
   position: { x: number; y?: number; z: number };
@@ -18,8 +20,8 @@ type EditorPlacement = {
   rotation?: number | { y?: number; x?: number; z?: number };
   scale?: number; radius?: number; hub?: boolean; locked?: boolean;
 };
-type PairMap = Record<Exclude<Layer, "bounds">, Map<number, number>>;
-const LAYERS: Array<[Layer, string]> = [["asteroid", "Asteroids"], ["prop", "Props"], ["spawn", "Spawns"], ["flag", "Flag bases"], ["nav", "Nav graph"], ["bounds", "Bounds"]];
+type PairMap = Record<Selection["kind"], Map<number, number>>;
+const LAYERS: Array<[Layer, string]> = [["asteroid", "Asteroids"], ["prop", "Props"], ["terrain", "Terrain"], ["spawn", "Spawns"], ["flag", "Flag bases"], ["nav", "Nav graph"], ["bounds", "Bounds"]];
 
 /** World-space arena authoring surface. Runtime models remain owned by SceneBuilder. */
 export class MapEditor implements EditorPanel {
@@ -37,8 +39,12 @@ export class MapEditor implements EditorPanel {
   private translateSnap = true;
   private rotateSnap = true;
   private ceilingPreview = true;
-  private unlockedProps = new Set<number>();
-  private layers = new Map<Layer, { visible: boolean; locked: boolean }>(LAYERS.map(([layer]) => [layer, { visible: true, locked: false }]));
+  /** "Game view" preview: all editor furniture off, free camera kept. */
+  private gameView = false;
+  private readonly ctx = new ViewportContextPanel(() => this.clearSelection());
+  // Terrain defaults LOCKED so stray clicks never drag the floor; the layer row
+  // is the obvious way in (replaces the old one-shot "Unlock terrain" button).
+  private layers = new Map<Layer, { visible: boolean; locked: boolean }>(LAYERS.map(([layer]) => [layer, { visible: true, locked: layer === "terrain" }]));
   private pairs: PairMap = { asteroid: new Map(), prop: new Map(), spawn: new Map(), flag: new Map(), nav: new Map() };
 
   constructor(private readonly host: EditorHost, private readonly report: (message: string | null) => void) {
@@ -54,12 +60,16 @@ export class MapEditor implements EditorPanel {
     this.applySnap();
     this.renderUi(); this.rebuildPreview();
     this.observer = host.scene.onPointerObservable.add((info) => this.onPointer(info));
-    this.beforeRenderObserver = host.scene.onBeforeRenderObservable.add(() => { if (!this.layers.get("prop")!.visible) this.applyScenePropVisibility(); });
+    this.beforeRenderObserver = host.scene.onBeforeRenderObservable.add(() => {
+      if (!this.layers.get("prop")!.visible || !this.layers.get("terrain")!.visible) this.applyScenePropVisibility();
+      this.syncContextTransforms();
+    });
     window.addEventListener("keydown", this.onKey);
   }
 
   private arena(): ArenaConfig | undefined { return this.host.configService.get<ArenaConfig>("arena", this.arenaId); }
   private onPointer(info: PointerInfo): void {
+    if (this.gameView) return;
     if (info.type !== PointerEventTypes.POINTERPICK || !info.pickInfo?.hit || !info.pickInfo.pickedMesh) return;
     const mesh = info.pickInfo.pickedMesh;
     const metadata = mesh.metadata as { editorKind?: Layer; editorIndex?: number } | null;
@@ -82,10 +92,13 @@ export class MapEditor implements EditorPanel {
   }
 
   private onKey = (event: KeyboardEvent): void => {
+    const target = event.target as HTMLElement | null;
+    if (target && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) return;
     if (event.key === "Delete") { event.preventDefault(); this.removeSelected(); }
     else if (event.ctrlKey && event.key.toLowerCase() === "d") { event.preventDefault(); this.duplicateSelected(); }
     else if (event.key.toLowerCase() === "l" && this.navSelection.length === 2) { event.preventDefault(); this.toggleNavLink(); }
     else if (event.key.toLowerCase() === "f") { event.preventDefault(); this.frameSelection(); }
+    else if (event.key.toLowerCase() === "g") { event.preventDefault(); this.toggleGameView(); }
   };
 
   private renderUi(): void {
@@ -99,14 +112,14 @@ export class MapEditor implements EditorPanel {
     const modeSelect = document.createElement("select");
     for (const mode of modes) modeSelect.append(new Option(mode.name, mode.id));
     toolbar.append(modeSelect, button("Playtest", () => void this.playtest(modeSelect.value)));
+    toolbar.append(button("Game view (G)", () => this.toggleGameView(), this.gameView ? "is-active" : ""));
     this.element.append(toolbar, applicationNotice("arena"));
 
     const layers = section("Layers");
     for (const [key, title] of LAYERS) {
       const state = this.layers.get(key)!;
       const item = row("ed-layer-row");
-      item.append(label(title), toggle("Eye", state.visible, (value) => { state.visible = value; this.rebuildPreview(); }), toggle("Lock", state.locked, (value) => { state.locked = value; if (value && this.selected?.kind === key) this.clearSelection(); }));
-      if (key === "prop") item.append(button("Unlock terrain", () => { const arena = this.arena(); arena?.propPlacements?.forEach((placement, index) => { const prop = this.host.configService.get<PropConfig>("prop", placement.propId); if (placement.locked || prop?.category === "terrain") this.unlockedProps.add(index); }); this.rebuildPreview(); }));
+      item.append(label(title), toggle("Eye", state.visible, (value) => { state.visible = value; this.rebuildPreview(); }), toggle("Lock", state.locked, (value) => { state.locked = value; if (value && this.selected && !this.canSelect(this.selected.kind, this.selected.index)) this.clearSelection(); }));
       layers.append(item);
     }
     this.element.append(layers);
@@ -138,12 +151,30 @@ export class MapEditor implements EditorPanel {
   }
 
   private rebuildPreview(): void {
+    const keep = this.selected ? { kind: this.selected.kind, index: this.selected.index } : null;
     this.root.dispose(false, true);
     this.root = new TransformNode("editorMapPreview", this.host.scene);
-    const arena = this.arena(); if (!arena) return;
+    this.root.setEnabled(!this.gameView);
+    this.selected = null; this.gizmos.attachToMesh(null);
+    const arena = this.arena(); if (!arena) { this.ctx.hide(); return; }
     this.previewAsteroids(arena); this.previewProps(arena); this.previewSpawns(arena); this.previewFlags(arena); this.previewNav(arena); this.previewBounds(arena);
     this.applyScenePropVisibility();
-    this.selected = null; this.gizmos.attachToMesh(null);
+    // Keep the selection alive across the rebuild every replace() triggers —
+    // otherwise each gizmo drag / context-panel edit would drop the handles.
+    if (keep && !this.gameView && this.canSelect(keep.kind, keep.index)) {
+      const mesh = this.meshFor(keep.kind, keep.index);
+      if (mesh) { this.reattach(keep.kind, keep.index, mesh); return; }
+    }
+    this.ctx.hide();
+  }
+
+  /** The mesh select() would attach to for (kind, index) — SceneBuilder root for props. */
+  private meshFor(kind: Selection["kind"], index: number): AbstractMesh | null {
+    if (kind === "prop") {
+      const scene = this.host.scene.meshes.find((mesh) => { const meta = mesh.metadata as { editorKind?: string; editorIndex?: number } | null; return meta?.editorKind === "prop" && meta.editorIndex === index && !mesh.name.startsWith("editor."); });
+      if (scene) return scene;
+    }
+    return this.host.scene.getMeshByName(`editor.${kind}.${index}`);
   }
 
   private previewAsteroids(arena: ArenaConfig): void {
@@ -151,8 +182,8 @@ export class MapEditor implements EditorPanel {
     arena.asteroidPlacements.forEach((p, index) => this.marker("asteroid", index, new Vector3(p.position.x, p.position.y ?? 0, p.position.z), 2.2 * (p.scale ?? 1), new Color3(.55, .44, .28), p.rotation ?? 0));
   }
   private previewProps(arena: ArenaConfig): void {
-    const state = this.layers.get("prop")!; if (!state.visible) return;
     arena.propPlacements?.forEach((p, index) => {
+      if (!this.layers.get(this.governingLayer("prop", index))!.visible) return;
       const prop = this.host.configService.get<PropConfig>("prop", p.propId);
       const mesh = this.marker("prop", index, new Vector3(p.position.x, p.position.y ?? 0, p.position.z), 2.5 * (p.scale ?? 1), prop?.category === "terrain" ? new Color3(.28, .34, .38) : new Color3(.28, .72, .56), p.rotation?.y ?? 0);
       mesh.isVisible = false; // real SceneBuilder prop remains visible and carries matching metadata.
@@ -190,25 +221,38 @@ export class MapEditor implements EditorPanel {
     mesh.position.copyFrom(position); mesh.rotation.y = rotationY; mesh.parent = this.root; mesh.metadata = { editorKind: kind, editorIndex: index }; mesh.material = material(this.host, `editorMat.${kind}.${index}`, color); mesh.isPickable = this.canSelect(kind, index); return mesh;
   }
 
+  /** Locked/ground props answer to the Terrain pseudo-layer, everything else to its own row. */
+  private governingLayer(kind: Layer, index: number): Layer {
+    if (kind !== "prop") return kind;
+    const p = this.arena()?.propPlacements?.[index];
+    const prop = p && this.host.configService.get<PropConfig>("prop", p.propId);
+    return p?.locked || prop?.category === "terrain" ? "terrain" : "prop";
+  }
+
   private canSelect(kind: Layer, index: number): boolean {
-    const state = this.layers.get(kind); if (!state?.visible || state.locked) return false;
-    if (kind === "prop") { const arena = this.arena(); const p = arena?.propPlacements?.[index]; const prop = p && this.host.configService.get<PropConfig>("prop", p.propId); if ((p?.locked || prop?.category === "terrain") && !this.unlockedProps.has(index)) return false; }
-    return true;
+    const state = this.layers.get(this.governingLayer(kind, index));
+    return !!state?.visible && !state.locked;
   }
 
   private select(kind: Selection["kind"], index: number, mesh: AbstractMesh): void {
+    if (kind === "nav") { this.navSelection = [...this.navSelection.filter((value) => value !== index), index].slice(-2); }
+    this.reattach(kind, index, mesh);
+    this.renderUi();
+  }
+
+  /** Attach handles + context panel to (kind, index) without a UI re-render. */
+  private reattach(kind: Selection["kind"], index: number, mesh: AbstractMesh): void {
     // SceneBuilder prop meshes may be children; attach to their authored hierarchy root.
     let target: TransformNode = mesh;
     if (kind === "prop") while (target.parent instanceof TransformNode && (target.parent.metadata as { editorIndex?: number } | null)?.editorIndex === index) target = target.parent;
     this.selected = { kind, index, mesh: target };
-    if (kind === "nav") { this.navSelection = [...this.navSelection.filter((value) => value !== index), index].slice(-2); }
     this.gizmos.attachToNode(target);
     const allowScale = kind === "asteroid" || kind === "prop";
     if (this.gizmos.gizmos.scaleGizmo) { const scale = this.gizmos.gizmos.scaleGizmo; scale.uniformScaleGizmo.isEnabled = allowScale; scale.xGizmo.isEnabled = false; scale.yGizmo.isEnabled = false; scale.zGizmo.isEnabled = false; }
     this.gizmos.gizmos.positionGizmo?.onDragEndObservable.addOnce(() => this.commitTransform());
     this.gizmos.gizmos.rotationGizmo?.onDragEndObservable.addOnce(() => this.commitTransform());
     this.gizmos.gizmos.scaleGizmo?.onDragEndObservable.addOnce(() => this.commitTransform());
-    this.renderUi();
+    this.ctx.show(this.contextView());
   }
 
   private commitTransform(): void {
@@ -284,8 +328,123 @@ export class MapEditor implements EditorPanel {
     const rotation = this.gizmos.gizmos.rotationGizmo; if (rotation) for (const gizmo of [rotation.xGizmo, rotation.yGizmo, rotation.zGizmo]) gizmo.snapDistance = this.rotateSnap ? Math.PI / 12 : 0;
   }
   private frameSelection(): void { if (!this.selected) return; const camera = this.host.scene.activeCamera as unknown as { setTarget?: (value: Vector3) => void; radius?: number }; camera?.setTarget?.(this.selected.mesh.getAbsolutePosition()); if (camera && typeof camera.radius === "number") { const radius = this.selected.mesh instanceof AbstractMesh ? this.selected.mesh.getBoundingInfo().boundingSphere.radiusWorld : 4; camera.radius = Math.max(12, radius * 5); } }
-  private clearSelection(): void { this.selected = null; this.gizmos.attachToMesh(null); }
-  private resetSession(): void { this.clearSelection(); this.navSelection = []; this.unlockedProps.clear(); this.pairs = { asteroid: new Map(), prop: new Map(), spawn: new Map(), flag: new Map(), nav: new Map() }; this.inferPairs(); this.rebuildPreview(); this.renderUi(); }
+  private clearSelection(): void { this.selected = null; this.gizmos.attachToMesh(null); this.ctx.hide(); }
+  private resetSession(): void { this.clearSelection(); this.navSelection = []; this.pairs = { asteroid: new Map(), prop: new Map(), spawn: new Map(), flag: new Map(), nav: new Map() }; this.inferPairs(); this.rebuildPreview(); this.renderUi(); }
+
+  /**
+   * "Game view": the arena exactly as a match shows it — markers, rings, nav
+   * lines, ceiling preview, gizmos and forced spawn markers all off — while the
+   * free editor camera stays. Toggling back restores the authoring furniture
+   * AND the selection.
+   */
+  private toggleGameView(): void {
+    this.gameView = !this.gameView;
+    this.root.setEnabled(!this.gameView);
+    this.host.setSpawnMarkersForced(!this.gameView);
+    if (this.gameView) { this.gizmos.attachToMesh(null); this.ctx.hide(); }
+    else if (this.selected) { this.gizmos.attachToNode(this.selected.mesh); this.ctx.show(this.contextView()); }
+    this.renderUi();
+  }
+
+  /** Stream the live gizmo drag into the context panel's transform fields. */
+  private syncContextTransforms(): void {
+    if (!this.selected || !this.ctx.visible) return;
+    const mesh = this.selected.mesh;
+    this.ctx.setNumber("px", mesh.position.x); this.ctx.setNumber("py", mesh.position.y); this.ctx.setNumber("pz", mesh.position.z);
+    this.ctx.setNumber("rx", mesh.rotation.x); this.ctx.setNumber("ry", mesh.rotation.y); this.ctx.setNumber("rz", mesh.rotation.z);
+    this.ctx.setNumber("scale", mesh.scaling.x);
+  }
+
+  /** Clone-mutate-replace for context-panel field commits (mirror-aware). */
+  private commitField(mutate: (arena: ArenaConfig) => void): void {
+    if (!this.selected) return;
+    const arena = structuredClone(this.arena()); if (!arena) return;
+    const { kind, index } = this.selected;
+    mutate(arena);
+    this.maintainTwin(arena, kind, index);
+    this.replace(arena);
+  }
+
+  /** The floating selection panel's content — everything about one placement. */
+  private contextView(): CtxView {
+    const selected = this.selected!;
+    const { kind, index } = selected;
+    const arena = this.arena();
+    const placement = arena ? listFor(arena, kind)?.[index] : undefined;
+    const fields: CtxField[] = [];
+    const title = `${kind[0]!.toUpperCase()}${kind.slice(1)} #${index}`;
+    if (!arena || !placement) return { title, fields, actions: [] };
+
+    if (kind === "asteroid") {
+      fields.push({ kind: "select", label: "asteroid", value: placement.asteroidId ?? "", options: this.host.configService.getAll<AsteroidConfig>("asteroid").map((a) => ({ value: a.id, label: a.name ?? a.id })), onCommit: (id) => this.commitField((draft) => { draft.asteroidPlacements[index]!.asteroidId = id; }) });
+    } else if (kind === "prop") {
+      fields.push({ kind: "select", label: "prop", value: placement.propId ?? "", options: this.host.configService.getAll<PropConfig>("prop").map((p) => ({ value: p.id, label: `${p.name ?? p.id} · ${p.category}` })), onCommit: (id) => this.commitField((draft) => { draft.propPlacements![index]!.propId = id; }) });
+      fields.push({ kind: "toggle", label: "locked (terrain layer)", value: placement.locked ?? false, onCommit: (locked) => this.commitField((draft) => { draft.propPlacements![index]!.locked = locked || undefined; }) });
+    }
+
+    this.pushTransformFields(fields, kind, index, placement);
+    if (kind === "asteroid") this.pushSpinFields(fields, placement.asteroidId ?? "");
+    if (kind === "spawn") {
+      fields.push({ kind: "number", label: "team", value: placement.team ?? 0, step: 1, min: 0, onCommit: (team) => this.commitField((draft) => { draft.spawnPoints[index]!.team = Math.max(0, Math.round(team)); }) });
+      fields.push({ kind: "number", label: "heading (rad)", value: placement.heading ?? 0, key: "ry", onCommit: (heading) => this.commitField((draft) => { draft.spawnPoints[index]!.heading = heading; }) });
+    }
+    if (kind === "flag") {
+      fields.push({ kind: "number", label: "team", value: placement.team ?? 0, step: 1, min: 0, onCommit: (team) => this.commitField((draft) => { draft.flagBases![index]!.team = Math.max(0, Math.round(team)); }) });
+      fields.push({ kind: "number", label: "radius", value: placement.radius ?? 1, min: 0.01, onCommit: (radius) => { if (radius > 0) this.commitField((draft) => { draft.flagBases![index]!.radius = radius; }); } });
+    }
+    if (kind === "nav") fields.push({ kind: "toggle", label: "hub node", value: placement.hub ?? false, onCommit: (hub) => this.commitField((draft) => { draft.navGraph!.nodes[index]!.hub = hub || undefined; }) });
+
+    return {
+      title,
+      subtitle: placement.id ?? placement.asteroidId ?? placement.propId ?? "",
+      fields,
+      actions: [
+        { label: "Duplicate", onClick: () => this.duplicateSelected() },
+        { label: "Frame", onClick: () => this.frameSelection() },
+        { label: "Delete", onClick: () => this.removeSelected(), danger: true },
+      ],
+    };
+  }
+
+  private pushTransformFields(fields: CtxField[], kind: Selection["kind"], index: number, placement: EditorPlacement): void {
+    const axes = ["x", "y", "z"] as const;
+    for (const axis of axes) {
+      fields.push({ kind: "number", label: `pos ${axis}`, key: `p${axis}`, value: placement.position[axis] ?? 0, onCommit: (value) => this.commitField((draft) => { const p = listFor(draft, kind)![index]!; p.position = { ...p.position, [axis]: value }; }) });
+    }
+    if (kind === "asteroid") {
+      fields.push({ kind: "number", label: "rot y (rad)", key: "ry", value: typeof placement.rotation === "number" ? placement.rotation : 0, onCommit: (value) => this.commitField((draft) => { draft.asteroidPlacements[index]!.rotation = value; }) });
+    } else if (kind === "prop") {
+      const rotation = typeof placement.rotation === "object" && placement.rotation !== null ? placement.rotation : {};
+      for (const axis of axes) {
+        fields.push({ kind: "number", label: `rot ${axis} (rad)`, key: `r${axis}`, value: rotation[axis] ?? 0, onCommit: (value) => this.commitField((draft) => { const p = draft.propPlacements![index]!; const current = typeof p.rotation === "object" && p.rotation !== null ? p.rotation : {}; p.rotation = { ...current, [axis]: value }; }) });
+      }
+    }
+    if (kind === "asteroid" || kind === "prop") {
+      fields.push({ kind: "number", label: "scale", key: "scale", value: placement.scale ?? 1, min: 0.01, onCommit: (value) => { if (value > 0) this.commitField((draft) => { listFor(draft, kind)![index]!.scale = value; }); } });
+    }
+  }
+
+  /**
+   * Spin lives on the referenced ASTEROID CONFIG's render recipe, not on this
+   * placement — editing it changes every placement of that asteroid, in every
+   * arena. Exposed in RPM (deg/sec on disk) with its own save action.
+   */
+  private pushSpinFields(fields: CtxField[], asteroidId: string): void {
+    const asteroid = this.host.configService.get<AsteroidConfig>("asteroid", asteroidId);
+    if (!asteroid) return;
+    const spin = asteroid.render.spin ?? { minDegPerSec: 0, maxDegPerSec: 0 };
+    const commitSpin = (min: number, max: number): void => {
+      const next = structuredClone(asteroid);
+      next.render.spin = { minDegPerSec: Math.max(0, min), maxDegPerSec: Math.max(0, min, max) };
+      const result = this.host.configService.replace(next);
+      if (!result.ok) { this.report(result.errors.map((error) => `${error.path}: ${error.message}`).join("; ")); return; }
+      if (this.selected) this.ctx.show(this.contextView());
+    };
+    fields.push({ kind: "number", label: "spin min (RPM)", value: degPerSecToRpm(spin.minDegPerSec), min: 0, onCommit: (rpm) => commitSpin(rpmToDegPerSec(rpm), spin.maxDegPerSec) });
+    fields.push({ kind: "number", label: "spin max (RPM)", value: degPerSecToRpm(spin.maxDegPerSec), min: 0, onCommit: (rpm) => commitSpin(spin.minDegPerSec, rpmToDegPerSec(rpm)) });
+    fields.push({ kind: "note", text: `Spin edits the shared "${asteroid.name ?? asteroid.id}" asteroid config — every placement of it, in every arena.` });
+    fields.push({ kind: "link", label: "Save asteroid config to disk", onClick: () => void (async () => { const current = this.host.configService.get<AsteroidConfig>("asteroid", asteroidId); if (current) this.report(await saveConfig(current)); })() });
+  }
   private inferPairs(): void {
     const arena = this.arena(); if (!arena) return;
     for (const kind of ["asteroid", "prop", "spawn", "flag", "nav"] as const) {
@@ -297,7 +456,7 @@ export class MapEditor implements EditorPanel {
       }
     }
   }
-  private applyScenePropVisibility(): void { const visible = this.layers.get("prop")!.visible; for (const mesh of this.host.scene.meshes) if ((mesh.metadata as { editorKind?: string } | null)?.editorKind === "prop" && !mesh.name.startsWith("editor.")) mesh.setEnabled(visible); }
+  private applyScenePropVisibility(): void { for (const mesh of this.host.scene.meshes) { const meta = mesh.metadata as { editorKind?: string; editorIndex?: number } | null; if (meta?.editorKind === "prop" && meta.editorIndex !== undefined && !mesh.name.startsWith("editor.")) mesh.setEnabled(this.layers.get(this.governingLayer("prop", meta.editorIndex))!.visible); } }
   private replace(arena: ArenaConfig): void { const result = this.host.configService.replace(arena); if (!result.ok) { this.report(result.errors.map((error) => `${error.path}: ${error.message}`).join("; ")); return; } this.host.rebuildArena(); this.rebuildPreview(); this.renderUi(); }
   private async save(): Promise<void> { const arena = this.arena(); if (!arena) return; const parsed = arenaSchema.safeParse(arena); if (!parsed.success) { this.report(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")); return; } const error = await saveConfig(parsed.data); this.report(error); }
   private async playtest(gamemodeId: string): Promise<void> { const arena = this.arena(); if (!arena) return; const problems = playtestArenaProblems(arena); if (problems.length) { this.report(problems.join("; ")); return; } try { await this.host.launchPlaytest(arena.id, gamemodeId); } catch (error) { this.report(error instanceof Error ? error.message : String(error)); } }
@@ -319,7 +478,7 @@ export class MapEditor implements EditorPanel {
     panel.append(form.element, button("Save imported prop", () => void (async () => { const value = form.getValue(); const error = await saveConfig(value); this.report(error); if (!error) this.renderUi(); })(), "ed-btn--primary")); this.element.prepend(panel);
   }
 
-  dispose(): void { for (const mesh of this.host.scene.meshes) if ((mesh.metadata as { editorKind?: string } | null)?.editorKind === "prop") mesh.setEnabled(true); this.unbindGizmoSuspend(); if (this.observer) this.host.scene.onPointerObservable.remove(this.observer); if (this.beforeRenderObserver) this.host.scene.onBeforeRenderObservable.remove(this.beforeRenderObserver); window.removeEventListener("keydown", this.onKey); this.gizmos.dispose(); this.root.dispose(false, true); }
+  dispose(): void { for (const mesh of this.host.scene.meshes) if ((mesh.metadata as { editorKind?: string } | null)?.editorKind === "prop") mesh.setEnabled(true); if (this.gameView) this.host.setSpawnMarkersForced(true); /* shell owns the release on close */ this.ctx.dispose(); this.unbindGizmoSuspend(); if (this.observer) this.host.scene.onPointerObservable.remove(this.observer); if (this.beforeRenderObserver) this.host.scene.onBeforeRenderObservable.remove(this.beforeRenderObserver); window.removeEventListener("keydown", this.onKey); this.gizmos.dispose(); this.root.dispose(false, true); }
 }
 
 function listFor(arena: ArenaConfig, kind: Selection["kind"]): EditorPlacement[] | undefined { if (kind === "asteroid") return arena.asteroidPlacements as EditorPlacement[]; if (kind === "prop") return arena.propPlacements as EditorPlacement[] | undefined; if (kind === "spawn") return arena.spawnPoints as EditorPlacement[]; if (kind === "flag") return arena.flagBases as EditorPlacement[] | undefined; return arena.navGraph?.nodes as EditorPlacement[] | undefined; }
