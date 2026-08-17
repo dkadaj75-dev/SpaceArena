@@ -687,6 +687,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           setSimPaused(false);
         }
       },
+      // TEMPORARY(designer-access): remove with the settings-screen designer
+      // button. The editor pauses the sim itself, so unwind the settings pause
+      // first rather than leaving two owners of the same flag.
+      onOpenDesigner: () => {
+        if (pausedBySettings) {
+          pausedBySettings = false;
+          setSimPaused(false);
+        }
+        void openDesigner();
+      },
       // Mid-match only: abandon the match outright and land in the lobby.
       // endMatch() already unwinds the settings pause and the chase rig.
       onQuitToMenu:
@@ -1532,92 +1542,106 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // Editor host capabilities. Built unconditionally (not DEV-gated) because the
   // admin-only Constellation tools use the same scene/camera hooks for their 3D
   // viewport in every build; only the F10 shell binding below stays DEV-only.
+  //
+  // TEMPORARY(designer-access): remove with the settings-screen designer button.
+  // `openDesigner()` also sits outside the DEV gate for one reason only — the
+  // designer authors from a phone, which has no F10 key, and reaches the shell
+  // through the settings screen. Re-gating it (and deleting the settings
+  // button) is the whole rollback. The editor modules stay behind a dynamic
+  // import in both builds, so nothing of the editor enters the initial payload
+  // (tools/bundle-budget.ts gates exactly that). The dev-server save endpoints
+  // (/__editor/*) do not exist in a production build: the button is for looking
+  // at the UI, not for authoring against it.
   let editorShell: import("./editor/EditorShell.js").EditorShell | null = null;
-  {
-    const editorHost = {
-      scene,
-      configService,
-      bus,
-      pauseSim: () => {
-        setSimPaused(true);
-        tacticalCamera.setEditorMode(true);
-      },
-      resumeSim: () => {
-        setSimPaused(false);
-        tacticalCamera.setEditorMode(false);
-        tacticalCamera.follow(playerFollow);
-        // The Quality panel writes `sa.quality` directly — pick up whatever the
-        // dev changed while the editor was open (5.8 store owns the rest).
-        userSettings.refresh();
-      },
-      rebuildArena: () => {
-        sceneBuilder.buildArena(currentArenaId ?? FALLBACK_ARENA_ID);
-      },
-      // The editor takes over the canvas: the live match (HUD, entity views) is
-      // hidden so nothing of the running game shows through behind the editor's
-      // own stage. `runtime` is null on the menu screens — nothing to hide then.
-      setGameVisible: (visible: boolean) => {
-        hudRoot.style.display = visible ? "" : "none";
-        // Menu/auth/hangar screens are body-level overlays — hide them too or
-        // they float over the editor viewport (editor.css targets this class).
-        document.body.classList.toggle("sa-editor-open", !visible);
-        runtime?.viewManager.setVisible(visible);
-        runtime?.botOverlay?.setSuppressed(!visible);
-      },
-      setArenaVisible: (visible: boolean) => {
-        sceneBuilder.setVisible(visible);
-      },
-      setSpawnMarkersForced: (forced: boolean) => {
-        sceneBuilder.setSpawnMarkerOverride(forced ? true : null);
-      },
-      setPropPickingForced: (forced: boolean) => {
-        sceneBuilder.setPropPickingOverride(forced);
-      },
-      launchPlaytest: async (arenaId: string, gamemodeId: string) => {
-        const arena = configService.get("arena", arenaId);
-        const mode = configService.get<GamemodeConfig>("gamemode", gamemodeId);
-        if (!arena || !mode) throw new Error("Playtest arena or gamemode is missing");
-        const validation = arenaSchema.safeParse(arena);
-        if (!validation.success) throw new Error(validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
-        editorShell?.close();
-        matchLoading.showPending("Building editor playtest");
-        try {
-          const session = new GameSession(configService, arenaId, gamemodeId, 1);
-          await prepareSessionArena(session);
-          await matchLoading.dismiss();
-          activateSession(session, { kind: "tutorial" });
-        } catch (error) {
-          matchAssetsActive = false;
-          matchLoading.hide();
-          throw error;
-        }
-      },
-      suspendCameraGestures: (suspended: boolean) => {
-        tacticalCamera.setGesturesSuspended(suspended);
-      },
-    };
-    constellationHost = editorHost;
-    if (import.meta.env.DEV) {
-      window.addEventListener("keydown", (event) => {
-        if (event.key !== "F10" || event.repeat) return;
-        event.preventDefault();
-        void Promise.all([
-          import("./editor/EditorShell.js"),
-          import("./editor/ModuleEditor.js"),
-          import("./editor/ShipManagerModules.js"),
-        ]).then(([{ EditorShell }, { ModuleEditor }, { ShipManagerModules }]) => {
-          if (!editorShell) {
-            editorShell = new EditorShell(editorHost);
-            editorShell.registerPanel("Modules", (host, report) => new ModuleEditor(host, report));
-            editorShell.registerPanel("Ships", (host, report) => new ShipManagerModules(host, report));
-          }
-          editorShell.toggle();
-        });
-      });
+  const editorHost = {
+    scene,
+    configService,
+    bus,
+    pauseSim: () => {
+      setSimPaused(true);
+      tacticalCamera.setEditorMode(true);
+    },
+    resumeSim: () => {
+      setSimPaused(false);
+      tacticalCamera.setEditorMode(false);
+      tacticalCamera.follow(playerFollow);
+      // The Quality panel writes `sa.quality` directly — pick up whatever the
+      // dev changed while the editor was open (5.8 store owns the rest).
+      userSettings.refresh();
+    },
+    rebuildArena: () => {
+      sceneBuilder.buildArena(currentArenaId ?? FALLBACK_ARENA_ID);
+    },
+    // The editor takes over the canvas: the live match (HUD, entity views) is
+    // hidden so nothing of the running game shows through behind the editor's
+    // own stage. `runtime` is null on the menu screens — nothing to hide then.
+    setGameVisible: (visible: boolean) => {
+      hudRoot.style.display = visible ? "" : "none";
+      // Menu/auth/hangar screens are body-level overlays — hide them too or
+      // they float over the editor viewport (editor.css targets this class).
+      document.body.classList.toggle("sa-editor-open", !visible);
+      runtime?.viewManager.setVisible(visible);
+      runtime?.botOverlay?.setSuppressed(!visible);
+    },
+    setArenaVisible: (visible: boolean) => {
+      sceneBuilder.setVisible(visible);
+    },
+    setSpawnMarkersForced: (forced: boolean) => {
+      sceneBuilder.setSpawnMarkerOverride(forced ? true : null);
+    },
+    setPropPickingForced: (forced: boolean) => {
+      sceneBuilder.setPropPickingOverride(forced);
+    },
+    launchPlaytest: async (arenaId: string, gamemodeId: string) => {
+      const arena = configService.get("arena", arenaId);
+      const mode = configService.get<GamemodeConfig>("gamemode", gamemodeId);
+      if (!arena || !mode) throw new Error("Playtest arena or gamemode is missing");
+      const validation = arenaSchema.safeParse(arena);
+      if (!validation.success) throw new Error(validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+      editorShell?.close();
+      matchLoading.showPending("Building editor playtest");
+      try {
+        const session = new GameSession(configService, arenaId, gamemodeId, 1);
+        await prepareSessionArena(session);
+        await matchLoading.dismiss();
+        activateSession(session, { kind: "tutorial" });
+      } catch (error) {
+        matchAssetsActive = false;
+        matchLoading.hide();
+        throw error;
+      }
+    },
+    suspendCameraGestures: (suspended: boolean) => {
+      tacticalCamera.setGesturesSuspended(suspended);
+    },
+  };
+  constellationHost = editorHost;
+
+  /**
+   * Open (or close) the Constellation designer shell. One entry point for both
+   * the DEV F10 key and the temporary settings-screen button; the shell and its
+   * late-registered panels are built once and toggled after that.
+   */
+  async function openDesigner(): Promise<void> {
+    const [{ EditorShell }, { ModuleEditor }, { ShipManagerModules }] = await Promise.all([
+      import("./editor/EditorShell.js"),
+      import("./editor/ModuleEditor.js"),
+      import("./editor/ShipManagerModules.js"),
+    ]);
+    if (!editorShell) {
+      editorShell = new EditorShell(editorHost);
+      editorShell.registerPanel("Modules", (host, report) => new ModuleEditor(host, report));
+      editorShell.registerPanel("Ships", (host, report) => new ShipManagerModules(host, report));
     }
+    editorShell.toggle();
   }
 
   if (import.meta.env.DEV) {
+    window.addEventListener("keydown", (event) => {
+      if (event.key !== "F10" || event.repeat) return;
+      event.preventDefault();
+      void openDesigner();
+    });
     (window as unknown as Record<string, unknown>)["__debug"] = {
       scene,
       engine,

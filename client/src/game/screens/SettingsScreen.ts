@@ -67,6 +67,8 @@ export class SettingsScreen {
   private readonly groups: HTMLDivElement;
   private onClose: (() => void) | null = null;
   private onQuitToMenu: (() => void) | null = null;
+  // TEMPORARY(designer-access): remove with the settings-screen designer button.
+  private onOpenDesigner: (() => void) | null = null;
   /** Rebuilt on every show; each entry re-paints one control from the store. */
   private readonly refreshers: ((values: UserSettings) => void)[] = [];
   private readonly unsubscribe: () => void;
@@ -115,9 +117,19 @@ export class SettingsScreen {
    * `onQuitToMenu` (match context) abandons the match for the main menu and
    * deliberately does NOT fire `onClose` — the match teardown owns the cleanup.
    */
-  show(options: { context?: SettingsContext; onClose?: () => void; onQuitToMenu?: () => void } = {}): void {
+  show(
+    options: {
+      context?: SettingsContext;
+      onClose?: () => void;
+      onQuitToMenu?: () => void;
+      // TEMPORARY(designer-access): remove with the settings-screen designer button.
+      onOpenDesigner?: () => void;
+    } = {},
+  ): void {
     this.onClose = options.onClose ?? null;
     this.onQuitToMenu = options.onQuitToMenu ?? null;
+    // TEMPORARY(designer-access): remove with the settings-screen designer button.
+    this.onOpenDesigner = options.onOpenDesigner ?? null;
     applyMenuTheme(this.root, this.host.configs.get<ThemeConfig>("theme", THEME_ID));
     this.build(options.context ?? "menu");
     this.root.style.display = "flex";
@@ -175,6 +187,23 @@ export class SettingsScreen {
         cb?.();
       });
       this.groups.append(quit);
+    }
+
+    // TEMPORARY(designer-access): remove with the settings-screen designer
+    // button. The designer authors from a phone, which has no F10 key — this is
+    // the only way in on touch. Closes settings, then toggles the editor shell.
+    if (this.onOpenDesigner) {
+      const designer = document.createElement("button");
+      designer.className = "sa-screen-btn sa-button sa-button--secondary";
+      designer.dataset["settingsDesigner"] = "";
+      designer.textContent = "Constellation Designer";
+      designer.addEventListener("click", () => {
+        this.hide();
+        const cb = this.onOpenDesigner;
+        this.onClose = null;
+        cb?.();
+      });
+      this.groups.append(designer);
     }
 
     const values = this.host.settings.current;
