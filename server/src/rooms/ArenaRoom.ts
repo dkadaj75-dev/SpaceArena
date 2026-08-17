@@ -598,8 +598,16 @@ export class ArenaRoom extends Room<ArenaState> {
     const snapshot = this.sim.snapshot();
     for (const [entityId, driver] of this.botDrivers) {
       if (!this.sim.hasShip(entityId)) {
-        this.botDrivers.delete(entityId);
-        this.orderRates.delete(botRateKey(entityId));
+        // The ship is only ABSENT while it waits out `gamemode.respawn`: the
+        // sim then rebuilds it under this same entity id. Deleting the driver
+        // here — as this loop used to — orphaned every bot on its first death:
+        // the rebuilt hull never received another order and sat parked at its
+        // spawn pad for the rest of the match (the live "bots become inactive"
+        // report, CTF and TDM alike). KEEP the driver; it detects the sighting
+        // gap itself on the first update after the respawn and starts the new
+        // hull from a clean reset (`BotDriver.lastSeenTick`). A driver whose
+        // ship never returns (respawn disabled) idles here harmlessly until
+        // `dispose` clears the map.
         continue;
       }
       for (const order of driver.update(snapshot, this.botClockMs)) {

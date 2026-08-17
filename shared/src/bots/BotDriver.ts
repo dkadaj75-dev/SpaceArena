@@ -273,6 +273,25 @@ export class BotDriver {
   private targetMotion: { id: EntityId; pos: Required<Vec3>; atMs: number } | null = null;
   private fireState: FireDisciplineState = { heatHeld: false };
   private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number; standoff: boolean } | null = null;
+  /**
+   * `snapshot.tick` of the last update that SAW this driver's ship, or -1
+   * before the first sighting. `gamemode.respawn` destroys a dead hull outright
+   * and rebuilds it UNDER THE SAME ENTITY ID after the delay, so a gap in
+   * sightings is a death, and the return is a NEW hull at a spawn pad — not a
+   * continuation of the old flight. Every piece of driver memory (cadence,
+   * calibration, and above all the level-triggered `lastFlight` the new hull is
+   * not integrating) belongs to the dead ship, so a sighting that does not
+   * directly follow the previous one starts from `reset()`.
+   *
+   * A TICK GAP rather than an "I saw an absence" flag, deliberately: every live
+   * host calls `update` once per sim tick for a LIVING ship, but half of them —
+   * the test harnesses, the CTF review tool — skip the call entirely while the
+   * ship is dead, so a flag set inside the absent-path `update` would never
+   * fire there and those hosts would fly respawned bots on dead-ship memory.
+   * The gap test makes every host correct by construction: keep the driver,
+   * call it however you like, the first sighting after any hole resets.
+   */
+  private lastSeenTick = -1;
   /** L0: the single owner of every "not making progress against a surface" rule. */
   private readonly recovery: RecoveryController;
   private heldBehavior: { key: string; untilMs: number } | null = null;
@@ -358,6 +377,7 @@ export class BotDriver {
     this.targetMotion = null;
     this.fireState = { heatHeld: false };
     this.carrierProgress = null;
+    this.lastSeenTick = -1;
     this.recovery.reset();
     this.heldBehavior = null;
     this.lastRole = "free";
@@ -381,7 +401,19 @@ export class BotDriver {
   update(snapshot: Snapshot, nowMs: number): readonly Order[] {
     if (snapshot.phase !== "live") return NO_ORDERS;
     const self = findShipSnapshot(snapshot, this.entityId);
-    if (!self) return NO_ORDERS;
+    if (!self) {
+      // Dead and waiting out `gamemode.respawn`; the sighting gap on return is
+      // what triggers the reset (see `lastSeenTick`).
+      return NO_ORDERS;
+    }
+    // A sighting that does not directly follow the previous one means the id
+    // was absent in between: a rebuilt hull. Without this reset the respawned
+    // ship was flown against the DEAD ship's memory — the level-triggered
+    // `lastFlight` it never received made the epsilon gate swallow the next
+    // orders, and the hull sat parked at its spawn pad integrating a default
+    // zero throttle: the live "bots become inactive" report.
+    if (this.lastSeenTick !== -1 && snapshot.tick - this.lastSeenTick > 1) this.reset();
+    this.lastSeenTick = snapshot.tick;
     this.driverTick += 1;
     this.calibrate(self, snapshot.elapsed);
     this.sampleThreat(snapshot, self, nowMs);

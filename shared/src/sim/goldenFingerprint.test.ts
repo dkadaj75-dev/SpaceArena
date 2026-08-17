@@ -68,6 +68,10 @@ import { loadTestConfigs } from "./testutil.js";
  *    (302, was 303). The BOT vector is untouched: its 5+5 sequential spawn-in
  *    picks identical pads under both selectors, and its respawn rolls happen to
  *    map to the same pads with every pad clear.
+ *  - 2026-08-16 (same day): bot vector re-recorded for the bot-respawn fix.
+ *    Drivers now fly rebuilt hulls instead of leaving them parked at the pad,
+ *    so the combat after the vector's first death unfolds differently
+ *    (450 events, was 451). The scripted vector has no bots and is untouched.
  */
 
 const DT = 1 / 30;
@@ -291,9 +295,9 @@ describe("golden sim fingerprint", () => {
   it("pins the ten-bot lunar-rift vector", () => {
     const fp = botVector(900);
     expect(fp).toEqual({
-      structure: "56c81595",
-      numeric: "59639879",
-      events: 451,
+      structure: "54021eb6",
+      numeric: "c1487e46",
+      events: 450,
       ticks: 900,
     });
   }, 120_000);
