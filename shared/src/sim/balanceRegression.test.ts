@@ -777,17 +777,36 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   //    ×2 cadence, against a fixed reload), and the heavy is the only stock hull
   //    that carries one — which is why its three columns move furthest and why
   //    the heavy-vs-light cell is now the fastest kill in the matrix at 4.833 s.
+  // RE-RECORDED A FOURTH TIME 2026-08-16, for the owner's blanket pass: laser
+  // `fire.damage` × 2 (all seven laser-family modules, beams included) and
+  // missile `fire.damage` × 3 with `cycleTime` × 4. The matrix moved exactly as
+  // that arithmetic predicts:
+  //
+  //  - LASER-led columns collapse fastest. Lasers are energy (0.5 hullMult), so
+  //    on this bare-hull bench a ×2 base is a straight ×2 contribution — the
+  //    support's two-laser fit nearly halves its kill times (12.067 → 6.433
+  //    against the light hull).
+  //  - MISSILE sustained output FALLS to 0.75× (×3 damage over ×4 cycle) while
+  //    its alpha triples — a mk1 warhead now lands 43.56 raw. On a 60 s bench
+  //    that trade reads as slower, in play it reads as burstier.
+  //  - The AUTOCANNON was not touched, so the brawler's own column barely moves
+  //    (10.1 → 9.467 in the mirror) while everyone shooting AT it speeds up.
+  //
+  // The fastest cell (brawler vs light, 3.367 s) now sits at 1.26× the 2.67 s
+  // evaporation floor — the closest this matrix has ever run to it. Another
+  // damage pass without touching that floor's rationale will trip it, and
+  // should: at that point "a hull may not evaporate" is genuinely in question.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    // ×1.5 pass → typed damage + clips → ×2 damage + 6× cannons + half-rate hybrid missiles
-    ["ship.interceptor", "ship.interceptor", 22, 12.067], // 11.533 → 15.633
-    ["ship.interceptor", "ship.brawler", 22, 24.4], //       23.5   → 32.6
-    ["ship.interceptor", "ship.support", 22, 17.3], //       16.633 → 22.3
-    ["ship.brawler", "ship.interceptor", 22, 4.833], //       6.533 →  8.367
-    ["ship.brawler", "ship.brawler", 22, 10.1], //           15     → 18.6
-    ["ship.brawler", "ship.support", 22, 6.5], //            11.4   → 12.6
-    ["ship.support", "ship.interceptor", 22, 12.067], //     10.133 → 13.733
-    ["ship.support", "ship.brawler", 22, 22.5], //           21.6   → 28.8
-    ["ship.support", "ship.support", 22, 16.867], //         14.733 → 20.4
+    // typed damage + clips → ×2 all weapons → 2026-08-16 laser ×2 / missile ×3@¼ rate
+    ["ship.interceptor", "ship.interceptor", 22, 8.333], //  15.633 → 12.067
+    ["ship.interceptor", "ship.brawler", 22, 16.1], //       32.6   → 24.4
+    ["ship.interceptor", "ship.support", 22, 10.133], //     22.3   → 17.3
+    ["ship.brawler", "ship.interceptor", 22, 3.367], //       8.367 →  4.833
+    ["ship.brawler", "ship.brawler", 22, 9.467], //          18.6   → 10.1
+    ["ship.brawler", "ship.support", 22, 4.833], //          12.6   →  6.5
+    ["ship.support", "ship.interceptor", 22, 6.433], //      13.733 → 12.067
+    ["ship.support", "ship.brawler", 22, 14.2], //           28.8   → 22.5
+    ["ship.support", "ship.support", 22, 10.133], //         20.4   → 16.867
   ];
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {

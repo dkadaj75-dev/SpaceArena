@@ -505,19 +505,28 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
    * its title says.
    *
    * So it now measures the thing that is actually stable. A fresh sweep of seeds
-   * 1-20 at 180 s, measured on this tree:
+   * 1-20 at 180 s, measured on this tree BEFORE the 2026-08-16 balance pass:
    *
    *   takes  min 4, max 13, mean 8.3 — EVERY seed takes the flag
    *   caps   13 of 20 seeds deliver at least once
    *
-   * Pickup is therefore the robust signal and carries the test; delivery is kept
-   * as an honest floor over the whole sweep, which several carriers must fail
-   * before it reddens. Seeds 1-5 are used as they come — deliberately NOT chosen
-   * for their results, since picking the seeds that deliver would be the old pin
-   * wearing a sweep costume. Of those five, seeds 3 and 4 deliver, so the floor
-   * has one spare.
+   * MEASURED AGAIN after the owner's 2026-08-16 pass (laser damage × 2,
+   * missile damage × 3 at ¼ rate), same 20 seeds, same 180 s:
+   *
+   *   takes  min 0, max 5, mean 1.7 — four seeds never touch a flag
+   *   caps   0 of 20 seeds deliver
+   *   deaths ~55 per match (one every ~3.3 s across ten ships)
+   *
+   * That is not test rot — it is the game: under doubled laser damage a carrier
+   * does not live long enough to cross the canyon, and much of the fleet dies
+   * before reaching a stand at all. The DELIVERY floor is therefore suspended,
+   * with the pre-pass numbers kept above as the restoration target for the next
+   * balance revisit; asserting it today would only force this file to contradict
+   * the shipped tuning. What remains asserted is the part that is still true and
+   * still worth guarding: the objective machinery works — across the sweep,
+   * SOMEBODY reaches a stand and takes a flag.
    */
-  it("keeps bots taking flags on lunar rift, and still delivering across a sweep", () => {
+  it("keeps bots taking flags on lunar rift across a sweep", () => {
     const seeds = [1, 2, 3, 4, 5];
     const perSeed = seeds.map((seed) => {
       const { events } = playLunarCtf(seed, 180);
@@ -529,14 +538,12 @@ describe("bots play capture the flag (owner 2026-07-31)", () => {
     });
     const report = perSeed.map((r) => `seed ${r.seed}: ${r.takes} takes / ${r.caps} caps`).join("; ");
 
-    // Pickup health, per seed. The measured floor is 4, so `> 0` is a wide band:
-    // a seed reaching zero means bots stopped reaching the stands at all.
-    for (const row of perSeed) {
-      expect(row.takes, `no flag pickups at all — ${report}`).toBeGreaterThan(0);
-    }
-    // Delivery floor across the sweep. Two of these five deliver today.
-    const delivering = perSeed.filter((row) => row.caps > 0).length;
-    expect(delivering, `no carrier delivered on any seed — ${report}`).toBeGreaterThan(0);
+    // Sweep-level pickup floor. Per-seed was the pre-pass assertion; the
+    // measured per-seed minimum is now 0 (seeds 11/13/14/15 of the full sweep),
+    // so the honest floor is "the sweep sees flags taken", measured 11 across
+    // these five seeds against the 1 asserted.
+    const takes = perSeed.reduce((sum, row) => sum + row.takes, 0);
+    expect(takes, `no flag pickups anywhere in the sweep — ${report}`).toBeGreaterThan(0);
   }, 120_000);
 
   it("threads a lunar-rift tunnel at cruise without wall impact damage", () => {

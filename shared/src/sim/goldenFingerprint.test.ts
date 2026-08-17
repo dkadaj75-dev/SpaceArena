@@ -72,6 +72,10 @@ import { loadTestConfigs } from "./testutil.js";
  *    Drivers now fly rebuilt hulls instead of leaving them parked at the pad,
  *    so the combat after the vector's first death unfolds differently
  *    (450 events, was 451). The scripted vector has no bots and is untouched.
+ *  - 2026-08-16 (evening): re-recorded for the owner-requested balance pass —
+ *    laser damage x2, missile damage x3 at a quarter of the fire rate. Both
+ *    vectors move on both digests, and the bot vector sheds 61 events: fights
+ *    resolve so much faster that fewer exchanges fit in its 30 s window.
  */
 
 const DT = 1 / 30;
@@ -282,9 +286,9 @@ describe("golden sim fingerprint", () => {
   it("pins the scripted asteroid-field vector", () => {
     const fp = scriptedVector(600);
     expect(fp).toEqual({
-      structure: "c83de5aa",
-      numeric: "12fe7031",
-      events: 302,
+      structure: "04e1360a",
+      numeric: "d49577cb",
+      events: 300,
       ticks: 600,
     });
   });
@@ -295,9 +299,9 @@ describe("golden sim fingerprint", () => {
   it("pins the ten-bot lunar-rift vector", () => {
     const fp = botVector(900);
     expect(fp).toEqual({
-      structure: "54021eb6",
-      numeric: "c1487e46",
-      events: 450,
+      structure: "7f8ad7f9",
+      numeric: "e6cc0461",
+      events: 389,
       ticks: 900,
     });
   }, 120_000);

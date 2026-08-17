@@ -22,7 +22,7 @@
     "mode": "continuous",
     "range": 100,
     "cycleTime": 0.1,
-    "damage": 20.12,
+    "damage": 40.24,
     "damageType": "energy",
     "requiresLineOfSight": true,
     "projectile": null
