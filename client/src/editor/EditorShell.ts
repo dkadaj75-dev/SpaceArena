@@ -52,6 +52,37 @@ export interface EditorPanel { element: HTMLElement; dispose(): void; }
 
 const TAB_STORAGE_KEY = "sa-editor.tab";
 /**
+ * Two-level navigation: a category row in the top bar, a tool row under it.
+ * Fifteen flat tabs in one scrolling strip is not navigable on a phone, and the
+ * grouping is the only thing that makes the tool set legible on a desktop
+ * either. Order here IS the order in the category row.
+ */
+const GROUP_ORDER = ["World", "Ships", "Content", "Balance", "System"] as const;
+/** Where a panel lands when {@link EditorShell.registerPanel} names no group. */
+const DEFAULT_GROUP = "Content";
+/**
+ * Group of every panel the shell (or main.ts) registers by name. Keyed by name
+ * rather than passed at every call site so the 2-argument `registerPanel`
+ * signature stays valid for external registrations.
+ */
+const PANEL_GROUPS: Record<string, string> = {
+  Map: "World",
+  Inspector: "World",
+  Ships: "Ships",
+  Modules: "Ships",
+  Assets: "Content",
+  Actions: "Content",
+  Notifications: "Content",
+  Modes: "Content",
+  Bots: "Content",
+  Balance: "Balance",
+  Tuning: "Balance",
+  Theme: "System",
+  Quality: "System",
+  Console: "System",
+  Problems: "System",
+};
+/**
  * Which tools want the real arena behind them. Tools that stage their own
  * subject (a ship, an asset, a chart) get a clean, arena-free backdrop instead
  * — see {@link EditorStage} for the lighting/grid that replaces it.
@@ -76,30 +107,75 @@ const ARENA_VISIBLE_TABS: Record<string, boolean> = {
 const SHEET_STATES = ["half", "full", "collapsed"] as const;
 type SheetState = (typeof SHEET_STATES)[number];
 
+/** Anything `getBoundingClientRect()` returns — the only part this file reads. */
+export interface RectLike { left: number; top: number; width: number; height: number }
+
 /**
- * Dev editor dock (F10). The live 3D scene *is* the viewport: the shell is a
- * transparent full-screen grid overlay whose left column passes pointer events
- * straight through to the canvas, with a HUD-styled top bar and a right-hand
- * inspector (a bottom sheet on phones).
+ * The screen rectangle the 3D canvas must occupy while the editor is open.
  *
- * Panels are registered rather than hard-coded so later phases can extend the
- * tool set without touching the shell.
+ * The canvas is fullscreen behind the overlay, so a right-docked inspector used
+ * to cover the right half of a subject that is centred on the WHOLE window. The
+ * fix is a real split: inset the canvas to the viewport cell and `engine.resize()`.
+ *
+ * Desktop needs nothing beyond the spacer's own rect (the inspector is a grid
+ * column, so the cell already stops at its edge). On a phone the inspector is a
+ * FIXED bottom sheet drawn over the full-width viewport cell, so its top edge is
+ * the real bottom of the viewport — except when collapsed, where the 36px handle
+ * is not worth shrinking the scene for.
+ */
+export function viewportRectFor(spacer: RectLike, inspector: RectLike | null, sheetCollapsed: boolean): RectLike {
+  let bottom = spacer.top + spacer.height;
+  if (inspector && !sheetCollapsed && inspector.top > spacer.top) {
+    // A bottom sheet spans the whole cell width; a docked column never does.
+    const spansCell = inspector.left <= spacer.left + 1 && inspector.left + inspector.width >= spacer.left + spacer.width - 1;
+    if (spansCell) bottom = Math.min(bottom, inspector.top);
+  }
+  return { left: spacer.left, top: spacer.top, width: Math.max(1, spacer.width), height: Math.max(1, bottom - spacer.top) };
+}
+
+/** Canvas inline styles the shell overwrites, so close() can put them back verbatim. */
+const CANVAS_STYLE_KEYS = ["position", "left", "top", "right", "bottom", "width", "height"] as const;
+
+/**
+ * Dev editor dock (F10, and the temporary settings-screen entry). The live 3D
+ * scene *is* the viewport: the shell is a full-screen grid overlay whose
+ * viewport cell passes pointer events straight through to the canvas, with a
+ * HUD-styled top bar and a right-hand inspector (a bottom sheet on phones).
+ *
+ * Two things the shell owns that a panel must not fight:
+ *  - the canvas RECT. The canvas is fullscreen behind the overlay, so the shell
+ *    insets it to the viewport cell and calls `engine.resize()` whenever the
+ *    chrome moves (see {@link viewportRectFor}). Panels keep projecting through
+ *    `canvas.getBoundingClientRect()` and stay correct.
+ *  - NAVIGATION. Tools are grouped (World / Ships / Content / Balance / System)
+ *    and reached through a category row plus a tool row; panels are registered
+ *    rather than hard-coded so later phases extend the set without touching it.
  */
 export class EditorShell {
-  private readonly panels = new Map<string, EditorPanelFactory>();
+  private readonly panels = new Map<string, { factory: EditorPanelFactory; group: string }>();
   private readonly problems: string[] = [];
   private root: HTMLDivElement | null = null;
   private active: EditorPanel | null = null;
   private unsubscribe: (() => void) | null = null;
 
+  private groupsBar: HTMLDivElement | null = null;
   private tabsBar: HTMLDivElement | null = null;
   private body: HTMLDivElement | null = null;
   private title: HTMLSpanElement | null = null;
+  private crumb: HTMLSpanElement | null = null;
   private statusButton: HTMLButtonElement | null = null;
   private statusCount: HTMLSpanElement | null = null;
   private renderProblems: (() => void) | null = null;
   private sheet: SheetState = "half";
   private stage: EditorStage | null = null;
+  private group: string = GROUP_ORDER[0];
+
+  private viewport: HTMLDivElement | null = null;
+  private inspector: HTMLElement | null = null;
+  private chromeObserver: ResizeObserver | null = null;
+  private readonly onWindowResize = (): void => this.applyViewportRect();
+  /** Canvas inline styles as they were before the editor inset them. */
+  private canvasStyles: Partial<Record<(typeof CANVAS_STYLE_KEYS)[number], string>> | null = null;
 
   constructor(private readonly host: EditorHost) {
     this.registerPanel("Map", (h, report) => new MapEditor(h, report));
@@ -118,8 +194,27 @@ export class EditorShell {
     this.registerPanel("Problems", () => this.problemsPanel());
   }
 
-  registerPanel(name: string, factory: EditorPanelFactory): void { this.panels.set(name, factory); }
+  /**
+   * Register (or replace) a tool. `group` is optional so the 2-argument calls
+   * from main.ts keep working — a name without a hint lands in {@link PANEL_GROUPS}
+   * or, failing that, in {@link DEFAULT_GROUP}.
+   */
+  registerPanel(name: string, factory: EditorPanelFactory, group?: string): void {
+    this.panels.set(name, { factory, group: group ?? PANEL_GROUPS[name] ?? DEFAULT_GROUP });
+  }
   toggle(): void { if (this.root) this.close(); else this.open(); }
+
+  /** Groups in declared order, then any group a late registration invented. */
+  private groupNames(): string[] {
+    const used = new Set<string>();
+    for (const entry of this.panels.values()) used.add(entry.group);
+    const ordered: string[] = GROUP_ORDER.filter((name) => used.has(name));
+    return [...ordered, ...[...used].filter((name) => !ordered.includes(name))];
+  }
+
+  private panelsIn(group: string): string[] {
+    return [...this.panels].filter(([, entry]) => entry.group === group).map(([name]) => name);
+  }
 
   private open(): void {
     this.host.pauseSim();
@@ -140,8 +235,21 @@ export class EditorShell {
     root.dataset.sheet = this.sheet;
     this.root = root;
 
-    root.append(this.buildTopBar(), this.buildViewportSpacer(), this.buildInspector());
+    const topbar = this.buildTopBar();
+    root.append(topbar, this.buildToolRow(), this.buildViewportSpacer(), this.buildInspector());
     document.body.append(root);
+
+    // The canvas is fullscreen behind this overlay; inset it to the viewport
+    // cell so the subject is centred in what the designer can actually see.
+    this.captureCanvasStyles();
+    this.applyViewportRect();
+    if (typeof ResizeObserver !== "undefined") {
+      // The inspector carries a CSS resize handle and the top bar can wrap, so
+      // both re-drive the inset; the root covers window/orientation changes.
+      this.chromeObserver = new ResizeObserver(() => this.applyViewportRect());
+      for (const el of [root, topbar, this.inspector]) if (el) this.chromeObserver.observe(el);
+    }
+    window.addEventListener("resize", this.onWindowResize);
 
     this.unsubscribe = this.host.bus.on("config:changed", () => { this.validateAll(); this.renderProblems?.(); });
     this.updateStatus();
@@ -156,19 +264,25 @@ export class EditorShell {
     brand.className = "ed-brand";
     brand.textContent = "Constellation";
 
-    const tabs = document.createElement("div");
-    tabs.className = "ed-tabs";
-    tabs.setAttribute("role", "tablist");
-    for (const name of this.panels.keys()) {
+    const groups = document.createElement("div");
+    groups.className = "ed-groups";
+    groups.setAttribute("role", "tablist");
+    groups.setAttribute("aria-label", "Tool categories");
+    for (const name of this.groupNames()) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "ed-tab";
-      button.dataset.tab = name;
+      button.className = "ed-group";
+      button.dataset.group = name;
       button.textContent = name;
-      button.addEventListener("click", () => this.show(name));
-      tabs.append(button);
+      // Picking a category shows its first tool — a category is never a
+      // dead end that leaves the tool row pointing somewhere else.
+      button.addEventListener("click", () => {
+        const first = this.panelsIn(name)[0];
+        if (first) this.show(first);
+      });
+      groups.append(button);
     }
-    this.tabsBar = tabs;
+    this.groupsBar = groups;
 
     const right = document.createElement("div");
     right.className = "ed-topbar-right";
@@ -193,14 +307,42 @@ export class EditorShell {
     close.addEventListener("click", () => this.close());
 
     right.append(status, close);
-    bar.append(brand, tabs, right);
+    bar.append(brand, groups, right);
     return bar;
+  }
+
+  /** Second nav level: the tools of the active category. Rebuilt on group change. */
+  private buildToolRow(): HTMLElement {
+    const tabs = document.createElement("div");
+    tabs.className = "ed-tabs ed-toolrow";
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "Tools");
+    this.tabsBar = tabs;
+    return tabs;
+  }
+
+  private renderToolRow(active: string): void {
+    const tabs = this.tabsBar;
+    if (!tabs) return;
+    tabs.replaceChildren(...this.panelsIn(this.group).map((name) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ed-tab";
+      button.dataset.tab = name;
+      button.textContent = name;
+      button.setAttribute("role", "tab");
+      button.classList.toggle("is-active", name === active);
+      button.setAttribute("aria-selected", String(name === active));
+      button.addEventListener("click", () => this.show(name));
+      return button;
+    }));
   }
 
   /** Transparent column over the live scene — must not eat pointer events. */
   private buildViewportSpacer(): HTMLElement {
     const spacer = document.createElement("div");
     spacer.className = "ed-viewport";
+    this.viewport = spacer;
     return spacer;
   }
 
@@ -221,9 +363,12 @@ export class EditorShell {
 
     const head = document.createElement("div");
     head.className = "ed-inspector-head";
+    const crumb = document.createElement("span");
+    crumb.className = "ed-inspector-crumb";
     const title = document.createElement("span");
     title.className = "ed-inspector-title";
-    head.append(title);
+    head.append(crumb, title);
+    this.crumb = crumb;
     this.title = title;
 
     const body = document.createElement("div");
@@ -231,6 +376,7 @@ export class EditorShell {
     this.body = body;
 
     inspector.append(handle, head, body);
+    this.inspector = inspector;
     return inspector;
   }
 
@@ -238,6 +384,52 @@ export class EditorShell {
     const next = SHEET_STATES[(SHEET_STATES.indexOf(this.sheet) + 1) % SHEET_STATES.length]!;
     this.sheet = next;
     if (this.root) this.root.dataset.sheet = next;
+    // The sheet height IS the viewport's bottom edge on a phone.
+    this.applyViewportRect();
+  }
+
+  /** Snapshot the canvas's own inline layout so close() restores it exactly. */
+  private captureCanvasStyles(): void {
+    const canvas = this.renderCanvas();
+    if (!canvas || this.canvasStyles) return;
+    const saved: Partial<Record<(typeof CANVAS_STYLE_KEYS)[number], string>> = {};
+    for (const key of CANVAS_STYLE_KEYS) saved[key] = canvas.style[key];
+    this.canvasStyles = saved;
+  }
+
+  private renderCanvas(): HTMLCanvasElement | null {
+    // Host-agnostic on purpose: the engine already owns the canvas, so the
+    // EditorHost interface does not have to grow a viewport method for this.
+    return this.host.scene.getEngine().getRenderingCanvas();
+  }
+
+  /** Size the 3D canvas to the viewport cell (see {@link viewportRectFor}). */
+  private applyViewportRect(): void {
+    const canvas = this.renderCanvas();
+    const spacer = this.viewport;
+    if (!canvas || !spacer || !this.root) return;
+    const rect = viewportRectFor(
+      spacer.getBoundingClientRect(),
+      this.inspector?.getBoundingClientRect() ?? null,
+      this.sheet === "collapsed",
+    );
+    canvas.style.position = "fixed";
+    canvas.style.left = `${Math.round(rect.left)}px`;
+    canvas.style.top = `${Math.round(rect.top)}px`;
+    canvas.style.right = "auto";
+    canvas.style.bottom = "auto";
+    canvas.style.width = `${Math.round(rect.width)}px`;
+    canvas.style.height = `${Math.round(rect.height)}px`;
+    this.host.scene.getEngine().resize();
+  }
+
+  private restoreCanvasRect(): void {
+    const canvas = this.renderCanvas();
+    const saved = this.canvasStyles;
+    this.canvasStyles = null;
+    if (!canvas || !saved) return;
+    for (const key of CANVAS_STYLE_KEYS) canvas.style[key] = saved[key] ?? "";
+    this.host.scene.getEngine().resize();
   }
 
   private restoreTab(): string {
@@ -249,19 +441,22 @@ export class EditorShell {
   private show(name: string): void {
     const body = this.body;
     if (!this.root || !body) return;
-    const factory = this.panels.get(name);
-    if (!factory) return;
+    const entry = this.panels.get(name);
+    if (!entry) return;
 
     this.active?.dispose(); this.active = null;
     this.renderProblems = null;
     body.replaceChildren();
 
     try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch { /* private mode — ignore */ }
+    this.group = entry.group;
     if (this.title) this.title.textContent = name;
-    for (const tab of this.tabsBar?.querySelectorAll<HTMLElement>(".ed-tab") ?? []) {
-      tab.classList.toggle("is-active", tab.dataset.tab === name);
-      tab.setAttribute("aria-selected", String(tab.dataset.tab === name));
+    if (this.crumb) this.crumb.textContent = entry.group;
+    for (const button of this.groupsBar?.querySelectorAll<HTMLElement>(".ed-group") ?? []) {
+      button.classList.toggle("is-active", button.dataset.group === entry.group);
+      button.setAttribute("aria-selected", String(button.dataset.group === entry.group));
     }
+    this.renderToolRow(name);
     // Arena visible for world-space tools; clean lit stage for the rest.
     const arenaVisible = ARENA_VISIBLE_TABS[name] ?? true;
     this.host.setArenaVisible(arenaVisible);
@@ -270,7 +465,7 @@ export class EditorShell {
     // Opening a tool on a phone should reveal the sheet if it was collapsed.
     if (this.sheet === "collapsed") { this.sheet = "half"; this.root.dataset.sheet = "half"; }
 
-    this.active = factory(this.host, (message) => {
+    this.active = entry.factory(this.host, (message) => {
       if (message) { this.problems.push(message); this.updateStatus(); }
     });
     this.active.element.classList.add("editor-panel", "ed-panel-root");
@@ -321,6 +516,13 @@ export class EditorShell {
   close(): void {
     this.active?.dispose(); this.active = null; this.unsubscribe?.(); this.unsubscribe = null;
     this.renderProblems = null;
+    this.chromeObserver?.disconnect(); this.chromeObserver = null;
+    window.removeEventListener("resize", this.onWindowResize);
+    // Hand the canvas back fullscreen BEFORE the game returns: the HUD projects
+    // against the canvas rect, and the match must not inherit the editor split.
+    this.restoreCanvasRect();
+    this.viewport = null; this.inspector = null;
+    this.groupsBar = null; this.crumb = null;
     this.tabsBar = null; this.body = null; this.title = null; this.statusButton = null; this.statusCount = null;
     this.stage?.dispose(); this.stage = null;
     this.host.suspendCameraGestures(false);

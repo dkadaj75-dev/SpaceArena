@@ -51,10 +51,17 @@
   inset: 0;
   z-index: 1000;
   display: grid;
-  grid-template-rows: var(--ed-topbar-h) 1fr;
+  /*
+   * Two-level navigation: category row inside the top bar, tools of the active
+   * category in the row under it. The `viewport` cell is the authority on where
+   * the 3D canvas is inset to (EditorShell.applyViewportRect) — anything added
+   * to this grid above/beside it shrinks the canvas rather than covering it.
+   */
+  grid-template-rows: var(--ed-topbar-h) auto 1fr;
   grid-template-columns: 1fr auto;
   grid-template-areas:
     "topbar topbar"
+    "toolrow toolrow"
     "viewport inspector";
   font: var(--ed-font);
   color: var(--ed-text);
@@ -211,7 +218,8 @@
   flex: 0 0 auto;
 }
 
-.sa-editor .ed-tabs {
+.sa-editor .ed-tabs,
+.sa-editor .ed-groups {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -221,6 +229,51 @@
   overflow-y: hidden;
   scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
+}
+
+/* Level 2: the tools of the active category, on their own full-width row. */
+.sa-editor .ed-toolrow {
+  grid-area: toolrow;
+  pointer-events: auto;
+  gap: 6px;
+  padding: 6px 10px;
+  background: linear-gradient(180deg, rgba(10, 15, 26, 0.94), rgba(10, 15, 26, 0.78));
+  border-bottom: 1px solid var(--ed-border-soft);
+  backdrop-filter: blur(6px);
+}
+
+/* Level 1: category buttons. Wider hit area and quieter than an active tool. */
+.sa-editor .ed-group {
+  appearance: none;
+  flex: 0 0 auto;
+  height: var(--ed-control-h);
+  padding: 0 14px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ed-text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ed-radius);
+  clip-path: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.sa-editor .ed-group:hover {
+  color: var(--ed-text);
+  background: rgba(24, 38, 60, 0.85);
+  border-color: var(--ed-border-soft);
+}
+
+.sa-editor .ed-group.is-active {
+  color: var(--ed-accent);
+  background: var(--ed-accent-faint);
+  border-color: var(--ed-accent-dim);
+  box-shadow: inset 0 -2px 0 var(--ed-accent);
 }
 
 .sa-editor .ed-topbar-right {
@@ -357,12 +410,25 @@
 
 .sa-editor .ed-inspector-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: baseline;
+  justify-content: flex-start;
   gap: 8px;
-  padding: 8px 12px 6px;
+  padding: 10px 14px 8px;
   border-bottom: 1px solid var(--ed-border-soft);
   flex: 0 0 auto;
+}
+
+/* Which category the open tool belongs to — the second half of the breadcrumb. */
+.sa-editor .ed-inspector-crumb {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ed-text-faint);
+}
+
+.sa-editor .ed-inspector-crumb:not(:empty)::after {
+  content: " /";
+  color: var(--ed-border);
 }
 
 .sa-editor .ed-inspector-title {
@@ -376,9 +442,24 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 10px 12px 24px;
+  padding: 12px 14px 28px;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+/*
+ * A panel's own toolbar is its primary control surface — pin it to the top of
+ * the scroller so a long form never scrolls the tool's actions out of reach.
+ * The negative offsets cancel the body's padding so it docks flush.
+ */
+.sa-editor .ed-inspector-body > .ed-panel-root > .ed-toolbar {
+  position: sticky;
+  top: -12px;
+  z-index: 3;
+  margin: -12px -14px 10px;
+  padding: 10px 14px;
+  background: var(--ed-panel-solid);
+  border-bottom: 1px solid var(--ed-border);
 }
 
 /* Drag handle: desktop hides it, mobile bottom-sheet uses it. */
@@ -1110,6 +1191,7 @@
   }
 
   .sa-editor .ed-tab,
+  .sa-editor .ed-group,
   .sa-editor button,
   .sa-editor .ed-btn,
   .sa-editor .ed-status {
@@ -1157,11 +1239,17 @@
     grid-template-columns: 1fr;
     grid-template-areas:
       "topbar"
+      "toolrow"
       "viewport";
   }
 
   .sa-editor .ed-brand {
     display: none;
+  }
+
+  /* Both nav rows scroll sideways rather than wrapping into the viewport. */
+  .sa-editor .ed-toolrow {
+    padding: 6px 8px;
   }
 
   .sa-editor .ed-inspector {
@@ -1313,6 +1401,7 @@ body.sa-editor-open .game-screen {
 
 @media (pointer: coarse) {
   .sa-editor .ed-tab,
+  .sa-editor .ed-group,
   .sa-editor button,
   .sa-editor .ed-btn,
   .sa-editor .ed-status { min-height: 44px; min-width: 44px; }
