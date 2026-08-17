@@ -1,4 +1,7 @@
-import { Color3, HemisphericLight, MeshBuilder, TransformNode, Vector3, type GizmoManager, type LinesMesh, type Scene } from "@babylonjs/core";
+import {
+  BaseTexture, Color3, Constants, DirectionalLight, HemisphericLight, MeshBuilder, RawCubeTexture,
+  Texture, TransformNode, Vector3, type GizmoManager, type LinesMesh, type Scene,
+} from "@babylonjs/core";
 
 /** Half-extent of the backdrop grid, in world units. */
 const GRID_EXTENT = 20;
@@ -10,11 +13,16 @@ const GRID_STEP = 2;
  *
  * The arena's light rig is parented to `arenaRoot`, so hiding the arena for a
  * clean stage also kills every light and leaves staged ships pitch black. This
- * supplies its own hemispheric light plus a faint cyan ground grid for spatial
- * reference; the scene's dark clear colour is the background.
+ * supplies its own rig — a hemispheric fill, a directional key, and a tiny IBL
+ * cube (GLB hulls are PBR: without an environment texture their metallic
+ * surfaces render black no matter how many analytic lights shine on them; same
+ * trick as HangarBay's RawCubeTexture) — plus a faint cyan ground grid for
+ * spatial reference; the scene's dark clear colour is the background.
  */
 export class EditorStage {
   private root: TransformNode | null = null;
+  private environment: RawCubeTexture | null = null;
+  private previousEnvironment: BaseTexture | null = null;
 
   constructor(private readonly scene: Scene) {}
 
@@ -28,11 +36,21 @@ export class EditorStage {
     const root = new TransformNode("editorStageRoot", this.scene);
     this.root = root;
 
-    const light = new HemisphericLight("editorStageLight", new Vector3(0.3, 1, 0.2), this.scene);
-    light.intensity = 0.8;
-    light.diffuse = new Color3(0.95, 0.97, 1);
-    light.groundColor = new Color3(0.18, 0.22, 0.3);
-    light.parent = root;
+    const fill = new HemisphericLight("editorStageLight", new Vector3(0.3, 1, 0.2), this.scene);
+    fill.intensity = 0.65;
+    fill.diffuse = new Color3(0.95, 0.97, 1);
+    fill.groundColor = new Color3(0.18, 0.22, 0.3);
+    fill.parent = root;
+
+    const key = new DirectionalLight("editorStageKey", new Vector3(-0.45, -0.8, -0.4), this.scene);
+    key.intensity = 1.4;
+    key.diffuse = new Color3(1, 0.96, 0.9);
+    key.specular = new Color3(1, 0.98, 0.95);
+    key.parent = root;
+
+    this.previousEnvironment = this.scene.environmentTexture;
+    this.environment = createStageEnvironment(this.scene);
+    if (this.environment) this.scene.environmentTexture = this.environment;
 
     const grid = this.buildGrid();
     grid.parent = root;
@@ -53,8 +71,43 @@ export class EditorStage {
   }
 
   dispose(): void {
+    if (this.environment) {
+      if (this.scene.environmentTexture === this.environment) this.scene.environmentTexture = this.previousEnvironment;
+      this.environment.dispose();
+      this.environment = null;
+      this.previousEnvironment = null;
+    }
     this.root?.dispose(false, true);
     this.root = null;
+  }
+}
+
+/**
+ * Tiny synthetic IBL cube: cool sky above, warm horizon, dark floor. NullEngine
+ * has no texture backend, so tests (no rendering canvas) skip it — the same
+ * guard HangarBay uses.
+ */
+function createStageEnvironment(scene: Scene): RawCubeTexture | null {
+  if (!scene.getEngine().getRenderingCanvas()) return null;
+  const size = 8;
+  const faceColours: readonly [number, number, number][] = [
+    [52, 72, 100], [52, 72, 100], [148, 168, 196], [14, 20, 32], [40, 56, 80], [40, 56, 80],
+  ];
+  const faces = faceColours.map(([r, g, b]) => {
+    const data = new Uint8Array(size * size * 4);
+    for (let i = 0; i < data.length; i += 4) { data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255; }
+    return data;
+  });
+  try {
+    const environment = new RawCubeTexture(scene, faces, size, Constants.TEXTUREFORMAT_RGBA, Constants.TEXTURETYPE_UNSIGNED_BYTE, true);
+    environment.coordinatesMode = Texture.CUBIC_MODE;
+    environment.gammaSpace = false;
+    environment.level = 0.7;
+    return environment;
+  } catch {
+    // A NullEngine given a mock canvas (shell smoke tests) has no texture
+    // backend; the analytic lights still cover the staging.
+    return null;
   }
 }
 
