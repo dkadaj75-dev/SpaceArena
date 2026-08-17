@@ -13,12 +13,9 @@
       }
     },
     "engine": {
-      "nominalSpeed": 18,
-      "accel": 10,
-      "turnRate": 1.8
-    },
-    "power": {
-      "capacity": 14
+      "nominalSpeed": 16,
+      "accel": 7,
+      "turnRate": 1
     },
     "cooling": {
       "multiplier": 0.95
@@ -32,14 +29,17 @@
     "energyStore": {
       "multiplier": 1.1
     },
-    "sensors": {
-      "lockRange": 155.0,
-      "lockTimeSec": 1.4,
-      "coneDeg": 80
+    "power": {
+      "capacity": 14
     },
     "efficiency": {
       "energyDraw": 1,
       "heatGen": 1
+    },
+    "sensors": {
+      "lockRange": 125,
+      "lockTimeSec": 1.5,
+      "coneDeg": 80
     }
   },
   "upgradeTracks": {
@@ -51,7 +51,6 @@
   "sockets": [
     {
       "id": "hp-nose-l",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           -0.9,
@@ -59,6 +58,7 @@
           1.6
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "laser",
         "kinetic"
@@ -66,7 +66,6 @@
     },
     {
       "id": "hp-nose-r",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           0.9,
@@ -74,6 +73,7 @@
           1.6
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "laser",
         "kinetic"
@@ -81,7 +81,6 @@
     },
     {
       "id": "hp-spine",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           0,
@@ -89,6 +88,7 @@
           0.2
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "missile",
         "kinetic"
@@ -96,7 +96,6 @@
     },
     {
       "id": "hp-core",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           0,
@@ -104,13 +103,13 @@
           -0.3
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "shield"
       ]
     },
     {
       "id": "in-engine",
-      "kind": "internal",
       "transform": {
         "pos": [
           0,
@@ -118,13 +117,13 @@
           -1.7
         ]
       },
+      "kind": "internal",
       "accepts": [
         "engine"
       ]
     },
     {
       "id": "in-generator",
-      "kind": "internal",
       "transform": {
         "pos": [
           0,
@@ -132,13 +131,13 @@
           -0.6
         ]
       },
+      "kind": "internal",
       "accepts": [
         "generator"
       ]
     },
     {
       "id": "in-transformer",
-      "kind": "internal",
       "transform": {
         "pos": [
           0.7,
@@ -146,13 +145,13 @@
           -0.9
         ]
       },
+      "kind": "internal",
       "accepts": [
         "transformer"
       ]
     },
     {
       "id": "in-heatsink",
-      "kind": "internal",
       "transform": {
         "pos": [
           -0.7,
@@ -160,13 +159,13 @@
           -0.9
         ]
       },
+      "kind": "internal",
       "accepts": [
         "heatsink"
       ]
     },
     {
       "id": "in-sensors",
-      "kind": "internal",
       "transform": {
         "pos": [
           0,
@@ -174,13 +173,13 @@
           0.9
         ]
       },
+      "kind": "internal",
       "accepts": [
         "sensors"
       ]
     },
     {
       "id": "in-auxiliary",
-      "kind": "internal",
       "transform": {
         "pos": [
           0,
@@ -188,6 +187,7 @@
           -0.75
         ]
       },
+      "kind": "internal",
       "accepts": [
         "generator",
         "heatsink"
@@ -195,7 +195,6 @@
     },
     {
       "id": "hp-chin",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           0,
@@ -203,6 +202,7 @@
           1.15
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "laser",
         "kinetic",
@@ -212,7 +212,6 @@
     },
     {
       "id": "hp-utility",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           1.35,
@@ -220,6 +219,7 @@
           -0.45
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "utility",
         "shield"
@@ -227,14 +227,14 @@
     },
     {
       "id": "eng-l",
-      "kind": "emitter",
       "transform": {
         "pos": [
           -0.9,
           0,
-          -2.0
+          -2
         ]
       },
+      "kind": "emitter",
       "effect": "fx.engine-trail",
       "bindings": [
         {
@@ -269,14 +269,14 @@
     },
     {
       "id": "eng-r",
-      "kind": "emitter",
       "transform": {
         "pos": [
           0.9,
           0,
-          -2.0
+          -2
         ]
       },
+      "kind": "emitter",
       "effect": "fx.engine-trail",
       "bindings": [
         {
@@ -311,7 +311,6 @@
     },
     {
       "id": "smoke-hull",
-      "kind": "emitter",
       "transform": {
         "pos": [
           0,
@@ -319,6 +318,7 @@
           0.2
         ]
       },
+      "kind": "emitter",
       "effect": "fx.damage-smoke",
       "bindings": [
         {
@@ -343,7 +343,6 @@
     },
     {
       "id": "vent-core",
-      "kind": "emitter",
       "transform": {
         "pos": [
           0,
@@ -351,6 +350,7 @@
           -0.3
         ]
       },
+      "kind": "emitter",
       "effect": "fx.overheat-vent",
       "bindings": [
         {
@@ -375,7 +375,6 @@
     },
     {
       "id": "boost-plume",
-      "kind": "emitter",
       "transform": {
         "pos": [
           0,
@@ -383,6 +382,7 @@
           -2.4
         ]
       },
+      "kind": "emitter",
       "effect": "fx.boost-trail",
       "bindings": [
         {
@@ -438,8 +438,14 @@
     "modelScale": 0.154,
     "modelRotationY": 0,
     "lods": [
-      { "model": "ships/human_heavy_lod1.glb", "distance": 40 },
-      { "model": "ships/human_heavy_lod2.glb", "distance": 90 }
+      {
+        "model": "ships/human_heavy_lod1.glb",
+        "distance": 40
+      },
+      {
+        "model": "ships/human_heavy_lod2.glb",
+        "distance": 90
+      }
     ]
   },
   "collider": {
