@@ -28,6 +28,7 @@ import {
   type EntityId,
   type FlightParams,
   type GamemodeConfig,
+  type ModuleConfig,
   type Order,
   type ShipConfig,
   type Attitude,
@@ -41,6 +42,7 @@ import {
   type FrameAttitude,
 } from "@space-arena/shared";
 import { GameSession } from "../game/GameSession.js";
+import { KineticTracerField } from "./kineticTracers.js";
 import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
 import type { SeatReservation } from "colyseus.js";
 import { adaptiveRenderDelay, bracket, hermitePosition, timeBasedPull } from "./interpolation.js";
@@ -411,6 +413,8 @@ export class NetGameSession extends GameSession {
   private readonly botEntities = new Set<EntityId>();
   private readonly arena: ArenaConfig;
   private readonly netConfigs: ConfigService;
+  /** Display-only kinetic rounds, reconstructed from fire events (see module doc). */
+  private readonly kineticTracers = new KineticTracerField();
   /** Pitch knobs for the predictor, read from the same tuning pack as the sim. */
   private readonly pitchTuning: { pitchRateMult: number; maxPitchRad: number | null };
   /** Immutable static collision data shared with the authoritative simulation. */
@@ -573,15 +577,19 @@ export class NetGameSession extends GameSession {
         }
       });
     session.net.onFireEvent = (event) =>
-      session.deferred(() =>
+      session.deferred(() => {
         session.events.push({
           type: "projectileFired",
           ownerId: event.shooterEntityId,
           moduleId: event.moduleId,
           kind: event.type,
           targetId: event.targetEntityId,
-        }),
-      );
+        });
+        // Kinetic rounds are not replicated (missiles are the only schema
+        // projectile), so the fire event is the ONLY thing the client ever
+        // hears about one — the visible round is reconstructed here.
+        if (event.type === "kinetic") session.spawnKineticTracer(event.shooterEntityId, event.targetEntityId, event.moduleId);
+      });
     session.net.onSimEvent = (event) =>
       session.deferred(() => {
         // matchRewards isn't a sim.SimEvent (it's a net-only per-player message,
@@ -590,6 +598,14 @@ export class NetGameSession extends GameSession {
         if (event.type === "matchRewards") {
           session.onMatchRewards?.(event);
           return;
+        }
+        // A kinetic damage report naming a shooter retires that shooter's
+        // oldest tracer, so the visible round ends where the sim says the hit
+        // landed instead of flying on through the hull. Same-frame with the
+        // event push above: the view's evidence-first despawn then draws the
+        // impact from the very damage report that ended the round.
+        if (event.type === "damage" && event.damageType === "kinetic" && event.sourceId !== null) {
+          session.kineticTracers.onKineticDamage(event.sourceId);
         }
         session.events.push(event as SimEvent);
       });
@@ -683,6 +699,7 @@ export class NetGameSession extends GameSession {
     this.net.dispose();
     this.snapshots.length = 0;
     this.events.length = 0;
+    this.kineticTracers.clear();
     this.lagQueue.length = 0;
     this.flight.clear();
     this.flagTrails.clear();
@@ -769,10 +786,59 @@ export class NetGameSession extends GameSession {
     const after = iz >= 0 && iz + 1 < this.snapshots.length ? this.snapshots[iz + 1]! : null;
 
     this.previous = this.current;
-    this.current = interpolate(a, z, t, before, after, this.playerId);
+    const frame = interpolate(a, z, t, before, after, this.playerId);
+    // Synthetic kinetic rounds ride the same projectiles array the pool
+    // renderer already draws. COPY before appending: `interpolate` reuses the
+    // buffered snapshot's array by reference, and pushing into that would leak
+    // tracers into the interpolation history.
+    if (this.kineticTracers.size > 0) {
+      frame.projectiles = frame.projectiles.slice();
+      this.kineticTracers.sample(now, frame.projectiles);
+    }
+    this.current = frame;
     this.trackServerVelocity(a, z);
     this.applyPrediction(dt, now);
     this.applyPendingToggles(now);
+  }
+
+  /**
+   * Launch the visible round for one kinetic fire event, from the DISPLAYED
+   * world: origin at the displayed shooter, aim at the displayed target (the
+   * sim aims a kinetic at the target's current position and leads nothing, so
+   * this reproduces the real trajectory up to interpolation error), ballistics
+   * from the module config. Display-only — damage stays entirely the sim's.
+   */
+  private spawnKineticTracer(shooterId: EntityId, targetId: EntityId | null, moduleId: string): void {
+    const shooter = this.current.ships.find((s) => s.id === shooterId);
+    if (!shooter) return; // shooter not displayed yet — nothing to launch from
+    const fire = this.netConfigs.get<ModuleConfig>("module", moduleId)?.fire;
+    const speed = fire?.projectile?.speed ?? 60;
+    const lifetime = fire?.projectile?.lifetime ?? 1.5;
+    const ttlSec = Math.min(lifetime, fire?.range !== undefined && speed > 0 ? fire.range / speed : lifetime);
+    const target = targetId === null ? undefined : this.current.ships.find((s) => s.id === targetId);
+    const dir = { x: 0, y: 0, z: 0 };
+    if (target) {
+      dir.x = target.pos.x - shooter.pos.x;
+      dir.y = target.pos.y - shooter.pos.y;
+      dir.z = target.pos.z - shooter.pos.z;
+    } else {
+      facingVec(shooter.heading, shooter.pitch, dir);
+    }
+    const len = Math.hypot(dir.x, dir.y, dir.z);
+    if (!(len > 1e-6)) return;
+    // Muzzle a hull-length ahead so the round never spawns inside the shooter.
+    const muzzle = 1.2;
+    this.kineticTracers.spawn(
+      shooterId,
+      performance.now(),
+      {
+        x: shooter.pos.x + (dir.x / len) * muzzle,
+        y: shooter.pos.y + (dir.y / len) * muzzle,
+        z: shooter.pos.z + (dir.z / len) * muzzle,
+      },
+      dir,
+      { speed, ttlSec },
+    );
   }
 
   /**
