@@ -11,9 +11,9 @@ import {
 
 /** localStorage key holding the live bot overlay's on/off state. */
 export const BOT_OVERLAY_STORAGE_KEY = "sa.botOverlay";
-/** Window event fired whenever the flag changes (editor checkbox ⇄ hotkey). */
+/** Window event fired whenever the flag changes, whoever wrote it. */
 export const BOT_OVERLAY_EVENT = "sa:bot-overlay";
-/** Key that toggles the overlay (F9 is the net telemetry overlay, F10 the editor). */
+/** Key that toggles the overlay (F9 is the net telemetry overlay). */
 export const BOT_OVERLAY_KEY = "F8";
 
 /** Read the persisted overlay flag (defaults to off; private mode safe). */

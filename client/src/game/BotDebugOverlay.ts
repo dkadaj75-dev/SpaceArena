@@ -62,8 +62,8 @@ interface LineNodes {
  * chosen move point and a line-of-sight ray to the target (green = clear,
  * red = blocked).
  *
- * Toggled with {@link BOT_OVERLAY_KEY} or the Bots tab's "show live overlay"
- * checkbox (persisted in localStorage). Completely inert while hidden: no DOM
+ * Toggled with {@link BOT_OVERLAY_KEY} (persisted in localStorage through
+ * `botOverlayModel`). Completely inert while hidden: no DOM
  * writes, no snapshot scans, no meshes enabled. Every visible-frame update
  * mutates pooled rows/meshes — no per-frame allocation.
  */
