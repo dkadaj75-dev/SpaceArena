@@ -43,6 +43,13 @@ interface RunResult {
   minVerticalGap: number;
   /** Every module state a bot ship was ever seen in. */
   seenStates: Set<string>;
+  /**
+   * Hottest any single bot rack ever got, as a fraction of its OWN capacity.
+   * The continuous measure behind `seenStates.has("overheated")`: a lockout is
+   * this reaching 1, and it keeps the heat assertion meaningful in matches that
+   * stress a rack hard without quite tripping it.
+   */
+  peakModuleHeat: number;
   /** Highest normalized lock progress any bot reached (FLIGHT.md §2). */
   peakLockProgress: number;
   /** Sim seconds at which a bot first completed a lock (Infinity if never). */
@@ -125,6 +132,7 @@ function runMatch(
 
   const events: SimEvent[] = [];
   const seenStates = new Set<string>();
+  let peakModuleHeat = 0;
   const orderKinds: Record<string, number> = {};
   let orders = 0;
   let nowMs = 0;
@@ -150,7 +158,10 @@ function runMatch(
     duration = snapshot.elapsed;
     for (const s of snapshot.ships) {
       if (!drivers.has(s.id)) continue;
-      for (const m of s.modules) seenStates.add(m.state);
+      for (const m of s.modules) {
+        seenStates.add(m.state);
+        if (m.heatCapacity > 0) peakModuleHeat = Math.max(peakModuleHeat, m.heat / m.heatCapacity);
+      }
       peakLockProgress = Math.max(peakLockProgress, s.lockProgress);
       peakPitch = Math.max(peakPitch, Math.abs(s.pitch));
       if (s.locked && firstLockAt === Infinity) firstLockAt = snapshot.elapsed;
@@ -209,6 +220,7 @@ function runMatch(
     end,
     botIds,
     seenStates,
+    peakModuleHeat,
     peakLockProgress,
     firstLockAt,
     firstWeaponHitAt,
@@ -452,13 +464,36 @@ describe("bots in a live ArenaSimulation", () => {
   });
 
   it("keeps weapon heat meaningful at x10 without stalling bot combat", () => {
-    // Missiles retain room for one launch, while the doubled laser shot heat
-    // can legitimately trigger its own rack lockout. The bot must still re-arm
-    // and land damage rather than stalling permanently.
+    // RE-RECORDED 2026-08-18 (autocannon ×0.8 / laser ×1.3). This used to assert
+    // `seenStates.has("overheated")` — that a bot duel cooks a rack outright.
+    // It no longer does, at ANY seed: a scan of seeds 1-24 for this matchup
+    // produces zero lockouts after the laser buff, where seeds 7 and 11 produced
+    // them before. The mechanism is not subtle — `fire.damage` is the only thing
+    // that moved, bot fire discipline never reads it, and heat per shot is
+    // untouched — so what changed is the FIGHT: a 30% stronger laser puts both
+    // cautious bots under their `retreat` hull trigger sooner, and two bots at
+    // distance never sustain fire long enough to fill a rack.
+    //
+    // Note the assertion was already seed-fragile BEFORE this pass (seed 3 saw
+    // no lockout either, and no `aggressive` matchup ever did), so re-seeding
+    // would only have hidden that. Pinning the CONTINUOUS measure instead is
+    // what this test was really trying to say all along: heat must still be a
+    // live pressure on a bot rack, and the bot must still fight through it.
+    //
+    // Rack lockout → cool-down → re-arm itself remains covered deterministically
+    // by the synthetic HOT_LASER bench in `sim/balanceRegression.test.ts`, which
+    // does not depend on two bots choosing to hold an engagement.
     const result = runMatch(["bot.cautious", "bot.cautious"], 11, undefined, { configService: heatConfigs });
-    expect(result.seenStates.has("overheated")).toBe(true);
     expect(result.seenStates.has("active")).toBe(true);
-    expect(result.weaponDamage).toBeGreaterThan(0);
+    // Heat is genuinely engaged, not decorative: the hottest rack reached 0.568
+    // of its own capacity in this match. The floor is set below that with room
+    // for drift, but far above zero — if a balance change ever stops bot racks
+    // heating at all, this fails instead of passing quietly.
+    expect(result.peakModuleHeat).toBeGreaterThan(0.4);
+    // …and the rack never actually locked, which is the fact recorded above.
+    expect(result.seenStates.has("overheated")).toBe(false);
+    // The bot fought rather than stalling: damage landed, and kept landing.
+    expect(result.weaponDamage).toBeGreaterThan(40);
   });
 
   /**

@@ -13,6 +13,17 @@ import type { World } from "./World.js";
 export interface DamageTally {
   hull: number;
   absorbed: Map<number, number>;
+  /**
+   * Hull the shield SAVED its owner, by absorbing hardpoint index — the same
+   * soak as {@link DamageTally.absorbed} carried forward through stage 4, i.e.
+   * `soaked × hullMult × (1 - resist)`. Banked separately because the two
+   * numbers answer different questions and differ by up to 2x: an energy hit
+   * soaked for 10 points of shield charge would only ever have cost 5 hull
+   * (`hullMult` 0.5). The HUD floats THIS one — a "damage avoided" readout must
+   * be comparable to the damage numbers next to it, not to the shield's
+   * internal accounting.
+   */
+  avoided: Map<number, number>;
 }
 
 /**
@@ -42,7 +53,11 @@ export interface DamageTally {
  *      could not cover simply STAYS in the hit and carries on to hull, so a
  *      shield collapsing mid-hit loses no damage. Absorbing marks the shield
  *      worked-this-tick (EnergySystem also bills its upkeep) and emits
- *      `shieldAbsorb` with what the shield actually soaked.
+ *      `shieldAbsorb` with what the shield actually soaked, alongside
+ *      `hullAvoided` — that same soak carried through stage 4, i.e. the hull the
+ *      shield SAVED. A shield that spends its charge to 0 also starts its
+ *      collapse cooldown, but that is EnergySystem's call, not this one's: the
+ *      flameout is what collapses a shield, whichever way the tank emptied.
  *      A damage type with no authored/shipped profile falls back to the module's
  *      own `mitigation.damageReduction`, i.e. the pre-triangle behaviour.
  *   3. innate ship shield hp (shieldMax is 0 in MVP — ships have no innate shield;
@@ -76,11 +91,14 @@ export function applyDamageToShip(
 ): void {
   const core = world.shipCores.get(targetId);
   if (!core || core.hull <= 0) return;
+  // A ship the sim is flying (pad hold / launch run) cannot defend itself, so
+  // it takes no damage either — no events, no tallies, as if never hit.
+  if (world.launchProtected.has(targetId)) return;
 
   const scaled = baseAmount * world.tuning.globalDamageMult;
   // Banked either way: a composite hit has to re-join its shares before it can
   // emit, and the tally the beams pass in is that same accumulator.
-  const sink: DamageTally = tally ?? { hull: 0, absorbed: new Map() };
+  const sink: DamageTally = tally ?? { hull: 0, absorbed: new Map(), avoided: new Map() };
 
   for (const part of damageComponentsOf(world.tuning, type)) {
     // A share that already killed the target ends the hit: the rest of the
@@ -91,7 +109,15 @@ export function applyDamageToShip(
 
   if (!tally) {
     for (const [hardpointIndex, amount] of sink.absorbed) {
-      world.emit({ type: "shieldAbsorb", targetId, sourceId, hardpointIndex, amount, damageType: type });
+      world.emit({
+        type: "shieldAbsorb",
+        targetId,
+        sourceId,
+        hardpointIndex,
+        amount,
+        hullAvoided: sink.avoided.get(hardpointIndex) ?? 0,
+        damageType: type,
+      });
     }
     if (sink.hull > 0) {
       world.emit({ type: "damage", targetId, sourceId, amount: sink.hull, damageType: type, isAsteroid: false });
@@ -130,6 +156,12 @@ function applyTypedShare(
   let dmg = amount;
   if (dmg <= 0) return;
 
+  // Stage 4's conversion, hoisted: what one point of damage costs the HULL once
+  // it gets there. Needed up here because a point a shield stops is a point of
+  // hull SAVED at exactly this rate, and that is the number the HUD floats.
+  const resist = type === "kinetic" ? core.resists.kinetic : core.resists.energy;
+  const hullFactor = profile.hullMult * (1 - resist);
+
   // (2) active shield mitigation
   const mods = world.modules.get(targetId);
   if (mods) {
@@ -161,6 +193,7 @@ function applyTypedShare(
       if (m.energyCapacity > 0) m.energy -= reduced;
       m.workedThisTick = true;
       sink.absorbed.set(m.hardpointIndex, (sink.absorbed.get(m.hardpointIndex) ?? 0) + reduced);
+      sink.avoided.set(m.hardpointIndex, (sink.avoided.get(m.hardpointIndex) ?? 0) + reduced * hullFactor);
     }
   }
 
@@ -173,8 +206,7 @@ function applyTypedShare(
 
   // (4) hull: type effectiveness, then the hull's own resist
   if (dmg <= 0) return;
-  const resist = type === "kinetic" ? core.resists.kinetic : core.resists.energy;
-  const hullDmg = dmg * profile.hullMult * (1 - resist);
+  const hullDmg = dmg * hullFactor;
   if (hullDmg <= 0) return;
   core.hull -= hullDmg;
   sink.hull += hullDmg;

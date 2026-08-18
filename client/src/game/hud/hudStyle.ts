@@ -333,6 +333,13 @@ const CSS = `
   opacity: 0.9;
   background: conic-gradient(var(--sa-white) calc(var(--ring, 0) * 1%), transparent 0);
 }
+/* Shield collapse lockout. The reload sweep's shape (a filling arc that means
+   "ready when full") in the muted tone, because unlike a reload this is not the
+   module working — it is the module unavailable. */
+.hud-module-btn.ring-cooldown > .ring {
+  opacity: 0.85;
+  background: conic-gradient(var(--hud-muted, var(--sa-n-400)) calc(var(--ring, 0) * 1%), transparent 0);
+}
 .hud-module-btn.ring-danger > .ring {
   opacity: 0.92;
   background: conic-gradient(var(--hud-danger, var(--sa-red-500)) calc(var(--ring, 0) * 1%), transparent 0);
@@ -1266,8 +1273,9 @@ const CSS = `
   font-family: var(--hud-font-display, system-ui, sans-serif);
   /* 11px is ~60% of the original 18px base: the value stays legible over the
      terrain but no longer crowds the ship it belongs to. The per-label
-     --hud-damage-scale (set from the hit size) still rides on top unchanged. */
-  font-size: calc(11px * var(--hud-damage-scale, 1));
+     --hud-damage-scale (set from the hit size) still rides on top unchanged,
+     and --hud-damage-size lets one layer size itself down (see .shield). */
+  font-size: calc(var(--hud-damage-size, 11px) * var(--hud-damage-scale, 1));
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -1277,11 +1285,21 @@ const CSS = `
   will-change: transform, opacity;
 }
 /* Colour reads WHO was hit (design system v1.0): red is threat to my side,
-   white is neutral information about theirs. The shield/hull distinction is
-   kept as weight and alpha so it never competes with that signal. */
+   white is neutral information about theirs. */
 .hud-damage-number.friendly { color: var(--hud-danger, var(--sa-red-500)); }
 .hud-damage-number.hostile { color: var(--hud-text, var(--sa-white)); }
-.hud-damage-number.shield { opacity: .85; font-weight: 700; }
+/* Shield absorbs are damage AVOIDED, not damage taken, so they are the one
+   value that leaves the red/white axis: the HUD's own blue (--hud-primary, the
+   same token the rims, ticks and armed rings use — no bespoke hex) and 8px
+   against the 11px base, so an absorb reads as a smaller, cooler footnote to
+   the hull number beside it rather than competing with it. Declared AFTER the
+   two relation rules, which it deliberately overrides at equal specificity. */
+.hud-damage-number.shield {
+  --hud-damage-size: 8px;
+  color: var(--hud-primary, var(--sa-blue-500));
+  opacity: .9;
+  font-weight: 700;
+}
 
 /* --- Results overlay --- */
 .hud-results {

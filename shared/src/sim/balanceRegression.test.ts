@@ -792,21 +792,45 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   //  - The AUTOCANNON was not touched, so the brawler's own column barely moves
   //    (10.1 → 9.467 in the mirror) while everyone shooting AT it speeds up.
   //
-  // The fastest cell (brawler vs light, 3.367 s) now sits at 1.26× the 2.67 s
-  // evaporation floor — the closest this matrix has ever run to it. Another
-  // damage pass without touching that floor's rationale will trip it, and
-  // should: at that point "a hull may not evaporate" is genuinely in question.
+  // RE-RECORDED A FIFTH TIME 2026-08-18, for the autocannon/laser split pass:
+  // kinetic `fire.damage` × 0.8 (all four autocannon modules) and laser
+  // `fire.damage` × 1.3 (all seven laser-family modules, beams included).
+  // Nothing else moved — no cycleTime, no heat, no damage type. Two opposite
+  // moves on two families, and the matrix separates cleanly along which family
+  // each attacker actually carries:
+  //
+  //  - The BRAWLER's three columns barely move (3.367 → 3.233, 9.467 → 9.333,
+  //    4.833 → 4.833). It is the one stock hull carrying BOTH a laser and an
+  //    autocannon, so the +30% on one and the −20% on the other very nearly
+  //    cancel on its output — which is the pass working as intended rather than
+  //    a coincidence, and the clearest evidence in the suite that the two
+  //    changes were sized against each other.
+  //  - The INTERCEPTOR and SUPPORT columns collapse (−21% to −42%). Neither
+  //    carries an autocannon at all, so for them this pass is a straight laser
+  //    buff. The support's two-laser fit and the interceptor's laser+missile fit
+  //    both lose their slowest cells hardest.
+  //  - The interceptor mirror falls furthest (8.333 → 4.833, −42%) because it is
+  //    the cell most exposed to MISSILE LUMPINESS: at a 9.6 s missile cycle,
+  //    +30% laser is enough to finish the target on the first warhead instead of
+  //    waiting out most of a second cycle. The step is large because the clock
+  //    is discrete, not because the DPS change was.
+  //
+  // The fastest cell is now brawler vs light at 3.233 s, 1.21× the 2.67 s
+  // evaporation floor (it was 1.26× before this pass). It got closer even though
+  // the autocannon was NERFED, because the brawler's laser gained slightly more
+  // than its cannon lost. The floor's warning from the previous re-record stands
+  // and tightens: this cell has ~0.56 s of headroom left.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    // typed damage + clips → ×2 all weapons → 2026-08-16 laser ×2 / missile ×3@¼ rate
-    ["ship.interceptor", "ship.interceptor", 22, 8.333], //  15.633 → 12.067
-    ["ship.interceptor", "ship.brawler", 22, 16.1], //       32.6   → 24.4
-    ["ship.interceptor", "ship.support", 22, 10.133], //     22.3   → 17.3
-    ["ship.brawler", "ship.interceptor", 22, 3.367], //       8.367 →  4.833
-    ["ship.brawler", "ship.brawler", 22, 9.467], //          18.6   → 10.1
-    ["ship.brawler", "ship.support", 22, 4.833], //          12.6   →  6.5
-    ["ship.support", "ship.interceptor", 22, 6.433], //      13.733 → 12.067
-    ["ship.support", "ship.brawler", 22, 14.2], //           28.8   → 22.5
-    ["ship.support", "ship.support", 22, 10.133], //         20.4   → 16.867
+    // ×2 all weapons → laser ×2 / missile ×3@¼ rate → 2026-08-18 cannon ×0.8 / laser ×1.3
+    ["ship.interceptor", "ship.interceptor", 22, 4.833], //  12.067 →  8.333
+    ["ship.interceptor", "ship.brawler", 22, 11], //         24.4   → 16.1
+    ["ship.interceptor", "ship.support", 22, 9.933], //      17.3   → 10.133
+    ["ship.brawler", "ship.interceptor", 22, 3.233], //       4.833 →  3.367
+    ["ship.brawler", "ship.brawler", 22, 9.333], //          10.1   →  9.467
+    ["ship.brawler", "ship.support", 22, 4.833], //           6.5   →  4.833
+    ["ship.support", "ship.interceptor", 22, 4.833], //      12.067 →  6.433
+    ["ship.support", "ship.brawler", 22, 11], //             22.5   → 14.2
+    ["ship.support", "ship.support", 22, 8.033], //          16.867 → 10.133
   ];
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {

@@ -24,6 +24,9 @@ import type { World } from "../World.js";
  * **ENERGY** (boost tanks, shield reserves, active utilities)
  *   - a module that WORKED drains `energy.drawPerSec × efficiency.energyDraw × dt`
  *     and, at zero, is cut offline (a flameout — the tank is empty, not the ship);
+ *     a flamed-out SHIELD has collapsed and additionally starts its
+ *     `mitigation.collapseCooldownSec` lockout on its own `cycleTimer`
+ *     (ModuleSystem counts it down and refuses the toggle while it runs);
  *   - a module that did not work refills at
  *     `energy.rechargePerSec × recharge.multiplier × dt` up to its capacity.
  *
@@ -74,6 +77,14 @@ function stepEnergy(
   m.energy = 0;
   m.workedThisTick = false;
   if (m.state !== "retracted" && m.state !== "overheated") {
+    // A SHIELD flaming out is a COLLAPSE, and a collapse costs the authored
+    // lockout before the bubble can be raised again. This is the single point
+    // both collapse causes pass through — fire that drained the reserve
+    // (damage.ts stage 2 spends the same tank) and upkeep that simply outran
+    // the recharge — so neither needs its own rule, and neither can dodge it.
+    // Only a collapse arms it: a pilot who drops the shield deliberately, or a
+    // shield shed by the power rail, still comes straight back.
+    if (cfg.mitigation) m.cycleTimer = cfg.mitigation.collapseCooldownSec;
     transition(world, id, m, "retracted", cfg.onDeactivate);
   }
 }

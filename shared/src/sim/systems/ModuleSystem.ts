@@ -16,9 +16,30 @@ import type { World } from "../World.js";
  * The whole heat/energy half — generation, cooling, the overheat trip AND the
  * re-arm, tank drain and refill — lives in EnergySystem (after combat), because
  * all of it depends on the worked-this-tick flags. Since the 2026-08-07 overhaul
- * a lockout is not timed at all, so nothing about it is counted down here.
+ * a heat lockout is not timed at all, so nothing about it is counted down here.
+ *
+ * The one timer this system does own is the SHIELD COLLAPSE cooldown: a shield
+ * whose reserve empties (to fire or to upkeep) is flamed out by EnergySystem,
+ * which stamps `mitigation.collapseCooldownSec` onto the module's `cycleTimer`.
+ * Counting it down and refusing the raise while it runs happens here, with every
+ * other toggle rule — see {@link collapseReady}.
  */
 export function moduleSystem(world: World, dt: number): void {
+  // Shield collapse cooldowns tick down FIRST, so a toggle arriving on the tick
+  // one expires is honoured rather than held for another frame. Shields carry no
+  // `fire` block, so their `cycleTimer` is free for this exactly as the
+  // heatsink's is free for the jettison cooldown (JettisonSystem).
+  for (const id of world.shipIds()) {
+    const mods = world.modules.get(id);
+    if (!mods) continue;
+    for (const m of mods.modules) {
+      if (m.cycleTimer <= 0) continue;
+      if (world.configs.get<ModuleConfig>("module", m.moduleId)?.mitigation) {
+        m.cycleTimer = Math.max(0, m.cycleTimer - dt);
+      }
+    }
+  }
+
   // Apply toggle orders. Modules are addressed by hardpoint index (the modules
   // array is sparse-safe: empty hardpoints have no runtime entry), so find the
   // module occupying the ordered hardpoint rather than indexing by position.
@@ -66,6 +87,7 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
       // energy twin of the overheat re-arm, and what stops an empty boost
       // bottle from stuttering one tick of thrust per three of trickle-charge.
       if (!tankReady(m, cfg)) return;
+      if (!collapseReady(m, cfg)) return;
       // POWER RAIL (2026-07-31): bringing this up may mean taking others down.
       // That is the intended trade, and it happens AUTOMATICALLY — the pilot
       // clicks the big shield, the guns drop offline, no fitting-screen error.
@@ -91,6 +113,7 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
     case "retracting": {
       // Re-deploy.
       if (!tankReady(m, cfg)) return;
+      if (!collapseReady(m, cfg)) return;
       if (!clearRailFor(world, entityId, m, siblings)) return;
       m.stateTimer = cfg.activation.deployTime;
       transition(world, entityId, m, cfg.activation.deployTime <= 0 ? "active" : "deploying", cfg.onActivate);
@@ -111,6 +134,20 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
 export function tankReady(m: ModuleRuntime, cfg: ModuleConfig | undefined): boolean {
   if (m.energyCapacity <= 0 || !cfg?.energy) return true;
   return m.energy >= m.energyCapacity * cfg.energy.rearmAbove;
+}
+
+/**
+ * Whether a shield is off its COLLAPSE cooldown (`mitigation.collapseCooldownSec`,
+ * banked on the module's own `cycleTimer` by the EnergySystem flameout).
+ * Non-shields are always ready — they have no such lockout, and their
+ * `cycleTimer` means the weapon cadence instead.
+ *
+ * Exported for the same reason {@link tankReady} is: the HUD and the bots must
+ * be able to ask the question the sim answers, rather than offering a toggle the
+ * sim will silently refuse.
+ */
+export function collapseReady(m: ModuleRuntime, cfg: ModuleConfig | undefined): boolean {
+  return !cfg?.mitigation || m.cycleTimer <= 0;
 }
 
 /**

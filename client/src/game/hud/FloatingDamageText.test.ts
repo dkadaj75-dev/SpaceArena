@@ -111,7 +111,7 @@ describe("FloatingDamageText", () => {
     });
     const text = new FloatingDamageText(root, PLAYER, { project });
     text.consumeEvents([damage(3), damage(4), {
-      type: "shieldAbsorb", targetId: ENEMY, sourceId: PLAYER, hardpointIndex: 0, amount: 2, damageType: "energy",
+      type: "shieldAbsorb", targetId: ENEMY, sourceId: PLAYER, hardpointIndex: 0, amount: 4, hullAvoided: 2, damageType: "energy",
     }]);
     text.update(snapshot(), snapshot(), 1, 16);
 
@@ -121,6 +121,11 @@ describe("FloatingDamageText", () => {
     expect(labels[0]?.classList.contains("hull")).toBe(true);
     expect(labels[0]?.classList.contains("hostile")).toBe(true);
     expect(labels[1]?.classList.contains("shield")).toBe(true);
+    // A shield label quotes the damage AVOIDED (`hullAvoided`), never the charge
+    // the shield spent (`amount`). The fixture deliberately gives the two
+    // different values so this cannot pass by coincidence: the 4 points of
+    // reserve an energy hit costs only ever saved 2 points of hull.
+    expect(labels[1]?.textContent).toBe("2");
     expect(project).toHaveBeenCalled();
     text.dispose();
   });
@@ -185,7 +190,7 @@ describe("FloatingDamageText", () => {
       // A teammate and an enemy duelling somewhere else on the map.
       { type: "damage", targetId: TEAMMATE, sourceId: ENEMY, amount: 5, damageType: "energy", isAsteroid: false },
       { type: "damage", targetId: ENEMY, sourceId: TEAMMATE, amount: 6, damageType: "energy", isAsteroid: false },
-      { type: "shieldAbsorb", targetId: TEAMMATE, sourceId: ENEMY, hardpointIndex: 0, amount: 4, damageType: "energy" },
+      { type: "shieldAbsorb", targetId: TEAMMATE, sourceId: ENEMY, hardpointIndex: 0, amount: 8, hullAvoided: 4, damageType: "energy" },
       // An unattributed hit on someone else — no source to claim it either.
       { type: "damage", targetId: TEAMMATE, sourceId: null, amount: 7, damageType: "kinetic", isAsteroid: false },
     ]);

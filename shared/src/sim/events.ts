@@ -53,7 +53,16 @@ export type SimEvent =
       targetId: EntityId;
       sourceId: EntityId | null;
       hardpointIndex: number;
+      /** Shield CHARGE spent soaking the hit — the module's own accounting. */
       amount: number;
+      /**
+       * Hull the soak SAVED: `amount` carried through the hull stage
+       * (`× hullMult × (1 - resist)`). Distinct from `amount` — an energy hit
+       * soaked for 10 charge only ever threatened 5 hull — and it is this one a
+       * HUD floats, because a "damage avoided" number is only readable next to
+       * the damage numbers if it is measured the same way.
+       */
+      hullAvoided: number;
       damageType: DamageType;
     }
   | {

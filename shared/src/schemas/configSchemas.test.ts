@@ -628,6 +628,24 @@ describe("module schema", () => {
     expect(mutated("module", withShield({ damageReduction: 1.01 }))).toBe(false);
     expect(mutated("module", withShield({ damageReduction: 0.5, coversFamilies: ["thermal"] }))).toBe(false);
     expect(mutated("module", withBlock("mitigation", { damageReduction: 0.5 }))).toBe(false); // no tank
+    // The collapse cooldown is designer-tunable but RANGE-BOUND (2026-08-18):
+    // under 5 s a collapse is a stutter the pilot taps through, over 15 s it
+    // removes the module for the rest of the fight. The schema is where that
+    // judgement lives, so an out-of-range author fails at content-load time
+    // rather than shipping a shield nobody can play around.
+    expect(mutated("module", withShield({ damageReduction: 0.5, collapseCooldownSec: 5 }))).toBe(true);
+    expect(mutated("module", withShield({ damageReduction: 0.5, collapseCooldownSec: 15 }))).toBe(true);
+    expect(mutated("module", withShield({ damageReduction: 0.5, collapseCooldownSec: 4.9 }))).toBe(false);
+    expect(mutated("module", withShield({ damageReduction: 0.5, collapseCooldownSec: 15.1 }))).toBe(false);
+    // Omitting it is legal and lands on the shipped 8 s, so an existing shield
+    // needs no edit to acquire the rule.
+    const defaulted = clone(VALID["module"]) as Record<string, unknown>;
+    withShield({ damageReduction: 0.5 })(defaulted);
+    const parsed = CONFIG_SCHEMAS["module"].safeParse(defaulted);
+    expect(parsed.success).toBe(true);
+    expect(
+      parsed.success ? (parsed.data as { mitigation?: { collapseCooldownSec: number } }).mitigation : undefined,
+    ).toMatchObject({ collapseCooldownSec: 8 });
     // A boost block belongs to the ENGINE that provides it (2026-07-31), so the
     // family has to move with it.
     const withBoost = (boost: unknown) => (d: Record<string, unknown>) => {

@@ -13,12 +13,23 @@ export const DAMAGE_FULL_VISIBLE_DISTANCE = 400;
 /** Distance (world units) at and beyond which a damage value is never drawn. */
 export const DAMAGE_HIDDEN_DISTANCE = 500;
 
+/**
+ * Which layer of the target the value describes. `hull` is damage DEALT and is
+ * coloured by {@link DamageRelation}; `shield` is damage AVOIDED by an active
+ * shield, and reads small and blue for everyone — see the note on
+ * {@link DamageRelation} for why that exception is deliberate.
+ */
 type DamageLayer = "shield" | "hull";
 /**
  * Board semantics (design system v1.0): red is threat/damage to MY side, white
  * is neutral information. So a value is coloured by WHO took the hit, not by
  * who threw it — my own hull, a teammate's hull and an enemy's hull read the
  * same way every time.
+ *
+ * Shield values sit OUTSIDE that axis: damage a bubble avoided is not a threat
+ * to anyone, so it takes the HUD's own blue (`--hud-primary`) and a smaller
+ * type size regardless of relation, and the relation is kept on the slot only so
+ * a friendly and a hostile absorb never merge into one label.
  */
 type DamageRelation = "friendly" | "hostile";
 
@@ -144,7 +155,11 @@ export class FloatingDamageText {
         this.add(event.targetId, event.amount, "hull");
       } else if (event.type === "shieldAbsorb") {
         if (!this.isMine(event.sourceId, event.targetId)) continue;
-        this.add(event.targetId, event.amount, "shield");
+        // `hullAvoided`, NOT `amount`: the shield layer floats the damage the
+        // bubble AVOIDED, which is the number a pilot can weigh against the
+        // white/red one beside it. `amount` is the shield's own charge ledger and
+        // runs up to 2x higher for the same hit (see the sim's shieldAbsorb doc).
+        this.add(event.targetId, event.hullAvoided, "shield");
       }
     }
   }

@@ -153,7 +153,15 @@ export type SimEventMessage =
       targetId: EntityId;
       sourceId: EntityId | null;
       hardpointIndex: number;
+      /** Shield charge spent on the soak. */
       amount: number;
+      /**
+       * Hull the soak saved. Travels alongside `amount` rather than being
+       * derived client-side: recovering it would mean re-running the damage
+       * pipeline's type/resist arithmetic on the client, which is exactly the
+       * kind of duplicated rule that drifts from the sim.
+       */
+      hullAvoided: number;
       damageType: string;
     }
   | {

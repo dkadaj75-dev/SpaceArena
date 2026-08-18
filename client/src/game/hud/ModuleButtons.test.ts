@@ -37,7 +37,7 @@ function fakeConfigs(heatSystem = true): ConfigService {
       energy: { capacity: 60, rechargePerSec: 8, drawPerSec: 20, rearmAbove: 0.25 },
       boost: { speedMult: 1.8 },
     },
-    "module.shield-mk1": { name: "Deflector Shield Mk I", family: "shield", ui: { icon: "S", label: "Shield" }, activation: { deployTime: 1, retractTime: 1 }, energy: { capacity: 40, rechargePerSec: 4, drawPerSec: 4, rearmAbove: 0.25 }, mitigation: { damageReduction: 0.5 } },
+    "module.shield-mk1": { name: "Deflector Shield Mk I", family: "shield", ui: { icon: "S", label: "Shield" }, activation: { deployTime: 1, retractTime: 1 }, energy: { capacity: 40, rechargePerSec: 4, drawPerSec: 4, rearmAbove: 0.25 }, mitigation: { damageReduction: 0.5, collapseCooldownSec: 8 } },
     "module.missile-mk1": {
       name: "Seeker Missile Mk I",
       family: "missile",

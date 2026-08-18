@@ -125,6 +125,8 @@ export interface ChannelRuntime {
   hull: number;
   /** Damage soaked since the last flush, by absorbing shield hardpoint index. */
   absorbed: Map<number, number>;
+  /** Hull that soak SAVED over the same window (see `DamageTally.avoided`). */
+  avoided: Map<number, number>;
   /** Seconds since the last flush. */
   eventTimer: number;
 }

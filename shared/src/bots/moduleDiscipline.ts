@@ -53,6 +53,11 @@ function moduleHeatFraction(m: ModuleSnapshot): number {
  *    load would thrash deploy timers).
  *  - **shieldOnlyWhenEngaged** — shield-family modules follow the chosen
  *    behaviour's `engaged` flag.
+ *  - **collapse cooldown** — a shield whose reserve emptied is locked out by the
+ *    sim for its authored `mitigation.collapseCooldownSec`; a bot waits it out
+ *    rather than re-asking every tick. Not a profile knob: it is a sim rule that
+ *    binds bots and players identically, and this is only the bot declining to
+ *    shout at a closed door.
  *
  * Modules mid-transition (`deploying`/`retracting`) and force-`overheated` ones
  * are never toggled: the first would waste the deploy timer, the second is
@@ -100,6 +105,13 @@ export function planModuleOrders(
       continue; // still too hot to come back
     } else if ((m.energyCapacity > 0 ? m.energy / m.energyCapacity : 1) < discipline.energyReserve) {
       continue; // reserve keeps a charge in the module tanks
+    } else if (isShield && m.cycleTimer > 0) {
+      // Collapsed shield, still serving `mitigation.collapseCooldownSec`. The
+      // sim would refuse the raise anyway (ModuleSystem.collapseReady), so this
+      // guard changes no outcome — it stops the bot re-issuing a dead toggle
+      // every tick for up to 15 s, which would otherwise flood the order stream
+      // and the Behavior Editor's decision log with a choice that never lands.
+      continue;
     } else {
       want = true;
       reason = isShield && discipline.shieldOnlyWhenEngaged ? "shield-engaged" : "heat-cooled";

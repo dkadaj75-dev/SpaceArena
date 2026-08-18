@@ -260,7 +260,7 @@ describe("missile impact explosion", () => {
     const { closer, gone } = approach(view, target);
 
     view.consumeEvents(
-      [{ type: "shieldAbsorb", targetId: 3, sourceId: 1, hardpointIndex: 0, amount: 9, damageType: "kinetic" }],
+      [{ type: "shieldAbsorb", targetId: 3, sourceId: 1, hardpointIndex: 0, amount: 9, hullAvoided: 8.1, damageType: "kinetic" }],
       gone,
     );
     view.render(closer, gone, 1, 16);

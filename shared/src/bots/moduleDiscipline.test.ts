@@ -219,3 +219,33 @@ describe("moduleDiscipline", () => {
     expect(planModuleOrders(contextFor(self), configs, discipline, true).orders).toEqual([]);
   });
 });
+
+describe("shield collapse cooldown", () => {
+  /** The shield hardpoint of the test fitting, with `cycleTimer` seconds left on its lockout. */
+  function collapsedShield(secondsLeft: number): ShipSnapshot {
+    const self = shipWith(["active", "retracted"]);
+    const shield = self.modules[TOGGLEABLE_SLOTS]!;
+    return {
+      ...self,
+      modules: self.modules.map((m) => (m === shield ? { ...m, cycleTimer: secondsLeft } : m)),
+    };
+  }
+
+  it("does not re-issue a toggle the sim would refuse", () => {
+    // Everything else says raise it — engaged, cool, tank full — so the ONLY
+    // thing holding the order back is the collapse lockout.
+    const self = collapsedShield(6);
+    const plan = planModuleOrders(contextFor(self), configs, discipline, true);
+    expect(plan.orders).toHaveLength(0);
+    expect(plan.decisions).toHaveLength(0);
+  });
+
+  it("raises it again as soon as the lockout expires", () => {
+    // Same snapshot with the clock run out: the bot must not stay shy of a
+    // shield it is now allowed to use.
+    const self = collapsedShield(0);
+    const plan = planModuleOrders(contextFor(self), configs, discipline, true);
+    expect(plan.orders).toHaveLength(1);
+    expect(plan.decisions[0]).toMatchObject({ hardpointIndex: TOGGLEABLE_SLOTS, activate: true });
+  });
+});

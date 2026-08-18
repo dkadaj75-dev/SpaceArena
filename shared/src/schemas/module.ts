@@ -56,6 +56,22 @@ const fireBlock = z.object({
 const mitigationBlock = z.object({
   damageReduction: z.number().min(0).max(1),
   coversFamilies: z.array(damageType).optional(),
+  /**
+   * Seconds a COLLAPSED shield stays down before it can be raised again. A
+   * shield collapses when its reserve empties — whether fire drained it (stage 2
+   * of the damage pipeline) or its own upkeep did — and both routes are the same
+   * flameout in EnergySystem, so both pay this.
+   *
+   * The range is enforced rather than advisory. Below ~5 s a collapse is a
+   * stutter the pilot rides out with a second tap and the shield stops being a
+   * resource; above ~15 s one bad trade removes the module for the rest of a
+   * typical engagement. 8 s is the shipped default: long enough that dropping a
+   * bubble is a decision, short enough to come back inside one fight.
+   *
+   * Note this is a floor on top of `energy.rearmAbove`, not a replacement — a
+   * shield off cooldown still needs its tank back over the rearm fraction.
+   */
+  collapseCooldownSec: z.number().min(5).max(15).default(8),
 });
 
 /**

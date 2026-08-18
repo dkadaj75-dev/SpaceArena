@@ -84,7 +84,7 @@ describe("balanceMath", () => {
       mod("module.shield", "shield", {
         heat: undefined,
         energy: { capacity: 20, rechargePerSec: 4, drawPerSec: 4, rearmAbove: 0.25 },
-        mitigation: { damageReduction: 0.5 },
+        mitigation: { damageReduction: 0.5, collapseCooldownSec: 8 },
       }),
     ];
     const cfg = lookup(modules);

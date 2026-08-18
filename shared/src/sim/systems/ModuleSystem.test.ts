@@ -418,3 +418,76 @@ describe("ModuleSystem overheat exit (hysteresis, not a timer)", () => {
     expect(core.hull).toBe(startHull);
   });
 });
+
+/**
+ * The raise side of the shield collapse cooldown (2026-08-18). EnergySystem
+ * stamps `mitigation.collapseCooldownSec` on the module's `cycleTimer` when the
+ * bubble goes down for lack of charge; refusing the raise until that runs out —
+ * and counting it down at all — is this system's half of the rule.
+ */
+describe("ModuleSystem — shield collapse cooldown", () => {
+  const SHIELD = 1;
+  const COOLDOWN = 8; // module.shield-mk1's authored collapseCooldownSec
+
+  /** Collapse the fitted shield for real, by holding it up until the tank dies. */
+  function collapse(world: World, id: number): { shield: ReturnType<typeof shieldOf> } {
+    const shield = shieldOf(world, id);
+    shield.state = "active";
+    shield.energy = 0.01;
+    energySystem(world, DT);
+    return { shield };
+  }
+
+  const shieldOf = (world: World, id: number) => world.modules.get(id)!.modules[SHIELD]!;
+
+  it("refuses to raise a collapsed shield, and lets it up the moment the clock clears", () => {
+    const { world, id } = shieldWorld();
+    const { shield } = collapse(world, id);
+    expect(shield.state).toBe("retracted");
+    expect(shield.cycleTimer).toBe(COOLDOWN);
+
+    // A pilot mashing the button through the lockout gets nothing — and the
+    // refusal is silent, exactly like the tank and rail refusals beside it.
+    for (let t = 0; t < 30; t++) {
+      world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: SHIELD });
+      moduleSystem(world, DT);
+      expect(shield.state).toBe("retracted");
+    }
+
+    // Run the clock out. The tank refills meanwhile (EnergySystem), so once the
+    // cooldown clears the only remaining gate — `energy.rearmAbove` — is
+    // satisfied and the bubble comes back on the next toggle.
+    for (let t = 0; t < Math.ceil(COOLDOWN / DT) + 2; t++) {
+      moduleSystem(world, DT);
+      energySystem(world, DT);
+    }
+    expect(shield.cycleTimer).toBe(0);
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: SHIELD });
+    moduleSystem(world, DT);
+    expect(shield.state).not.toBe("retracted");
+  });
+
+  it("counts the cooldown down at real time, not per toggle", () => {
+    const { world, id } = shieldWorld();
+    const { shield } = collapse(world, id);
+    for (let t = 0; t < 30; t++) moduleSystem(world, DT); // one second, no orders
+    expect(shield.cycleTimer).toBeCloseTo(COOLDOWN - 1, 6);
+  });
+
+  it("charges NOTHING to a pilot who lowers a healthy shield deliberately", () => {
+    // The distinction the whole rule rests on: a collapse is the tank dying, not
+    // the bubble going down. Retracting a charged shield must cost no lockout,
+    // or the button becomes a trap.
+    const { world, id } = shieldWorld();
+    const shield = shieldOf(world, id);
+    shield.state = "active";
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: SHIELD });
+    moduleSystem(world, DT);
+    expect(shield.cycleTimer).toBe(0);
+    // …and it can be raised straight back.
+    tickModules(world, 30);
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: SHIELD });
+    moduleSystem(world, DT);
+    expect(shield.state).not.toBe("retracted");
+  });
+});

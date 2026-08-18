@@ -160,6 +160,20 @@ export class World {
     this.orderQueue.push({ entityId, order });
   }
 
+  /**
+   * Ships currently damage-immune because the sim, not the pilot, is flying
+   * them (pad hold / hangar launch run). Maintained by ArenaSimulation's
+   * launch sequences; read by the damage pipeline.
+   */
+  readonly launchProtected = new Set<EntityId>();
+
+  /** Drop every queued order addressed to an id in `ids` (launch-sequence gate). */
+  dropOrdersFor(ids: ReadonlyMap<EntityId, unknown> | ReadonlySet<EntityId>): void {
+    for (let i = this.orderQueue.length - 1; i >= 0; i--) {
+      if (ids.has(this.orderQueue[i]!.entityId)) this.orderQueue.splice(i, 1);
+    }
+  }
+
   /** Remove and return all queued orders of a given kind (id order preserved). */
   takeOrders<K extends Order["kind"]>(kind: K): Array<QueuedOrder & { order: Extract<Order, { kind: K }> }> {
     const out: Array<QueuedOrder & { order: Extract<Order, { kind: K }> }> = [];

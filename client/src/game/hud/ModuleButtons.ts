@@ -50,7 +50,7 @@ interface ButtonEntry {
   // Last-rendered values so we only touch the DOM on change.
   lastState: ModuleState | null;
   lastRing: number;
-  lastRingKind: "heat" | "energy" | "reload" | null;
+  lastRingKind: "heat" | "energy" | "reload" | "cooldown" | null;
   lastRounds: number;
   lastDanger: boolean;
   lastNoEnergy: boolean;
@@ -215,8 +215,15 @@ export class ModuleButtons {
       if (!entry) continue;
 
       const reloading = m.state === "reloading" && entry.cfg?.fire?.clip !== undefined;
+      // A COLLAPSED shield is serving `mitigation.collapseCooldownSec` on its own
+      // cycleTimer (ModuleSystem). While that runs it outranks the energy ring:
+      // the tank refilling tells the pilot nothing about the only thing keeping
+      // the bubble down, and the button would otherwise look ready and do nothing.
+      const collapsed = entry.cfg?.mitigation !== undefined && m.cycleTimer > 0;
       const ringKind = reloading
         ? "reload"
+        : collapsed
+        ? "cooldown"
         : heatEnabled && entry.cfg?.fire && m.heatCapacity > 0
         ? "heat"
         : m.energyCapacity > 0
@@ -224,6 +231,13 @@ export class ModuleButtons {
           : null;
       const ringPct = ringKind === "reload"
         ? resourcePct(entry.cfg!.fire!.clip!.reloadSec - m.stateTimer, entry.cfg!.fire!.clip!.reloadSec)
+        : ringKind === "cooldown"
+        // Fills as the lockout burns off, matching the reload sweep beside it:
+        // on this rail a filling arc always means "ready when full".
+        ? resourcePct(
+            entry.cfg!.mitigation!.collapseCooldownSec - m.cycleTimer,
+            entry.cfg!.mitigation!.collapseCooldownSec,
+          )
         : ringKind === "heat"
         ? m.state === "overheated"
           ? 100
@@ -235,7 +249,10 @@ export class ModuleButtons {
 
       const noEnergy = ringKind === "energy" && m.energy <= 0;
       const armed = m.state === "active" && entry.cfg?.fire !== undefined;
-      const cooling = m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0;
+      // `cooling` is the rail's generic "this module is counting down" state. It
+      // covers a weapon between shots and, since the collapse rule, a shield
+      // locked out after its bubble went down.
+      const cooling = (m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0) || collapsed;
       // Only homing weapons still hard-require a lock; straight-fire weapons
       // (laser/kinetic/beam) shoot down the nose without one and never grey out.
       const unarmable =
@@ -255,6 +272,7 @@ export class ModuleButtons {
         entry.root.classList.toggle("ring-heat", ringKind === "heat");
         entry.root.classList.toggle("ring-energy", ringKind === "energy");
         entry.root.classList.toggle("ring-reload", ringKind === "reload");
+        entry.root.classList.toggle("ring-cooldown", ringKind === "cooldown");
         entry.lastRingKind = ringKind;
       }
       const rounds = m.rounds ?? 0;

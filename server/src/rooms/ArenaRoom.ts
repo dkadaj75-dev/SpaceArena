@@ -1007,6 +1007,7 @@ function toSimEventMessage(ev: SimEvent): SimEventMessage | null {
         sourceId: ev.sourceId,
         hardpointIndex: ev.hardpointIndex,
         amount: ev.amount,
+        hullAvoided: ev.hullAvoided,
         damageType: ev.damageType,
       };
     // Lock flips: one message per acquire/break, which is the rate a lock can

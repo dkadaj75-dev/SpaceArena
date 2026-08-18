@@ -22,7 +22,7 @@
     "mode": "held",
     "range": 85,
     "cycleTime": 0.13333333333333333,
-    "damage": 12.62,
+    "damage": 10.1,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
     "clip": { "size": 32, "reloadSec": 2.2 },

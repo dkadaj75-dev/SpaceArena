@@ -342,7 +342,7 @@ function channelStep(world: World, ctx: ChannelCtx): void {
   // trigger pull instead of 30 times a second.
   if (m.channel === null || m.channel.targetId !== targetId) {
     if (m.channel !== null) flushChannel(world, id, m); // target switch: bank belongs to the old ship
-    m.channel = { targetId, hull: 0, absorbed: new Map(), eventTimer: 0 };
+    m.channel = { targetId, hull: 0, absorbed: new Map(), avoided: new Map(), eventTimer: 0 };
     world.emit({
       type: "projectileFired",
       ownerId: id,
@@ -421,7 +421,7 @@ function emitChannelEvents(
   ownerId: EntityId,
   m: ModuleRuntime,
   targetId: EntityId,
-  channel: { hull: number; absorbed: Map<number, number> },
+  channel: { hull: number; absorbed: Map<number, number>; avoided: Map<number, number> },
 ): void {
   for (const [hardpointIndex, amount] of channel.absorbed) {
     if (amount > 0) {
@@ -432,11 +432,13 @@ function emitChannelEvents(
         sourceId: ownerId,
         hardpointIndex,
         amount,
+        hullAvoided: channel.avoided.get(hardpointIndex) ?? 0,
         damageType: cfg?.fire?.damageType ?? "energy",
       });
     }
   }
   channel.absorbed.clear();
+  channel.avoided.clear();
   if (channel.hull > 0) {
     const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
     world.emit({

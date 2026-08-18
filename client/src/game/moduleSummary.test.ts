@@ -68,9 +68,11 @@ describe("moduleStats — the numbers each family is judged on", () => {
   it("shows a weapon's dps, range, power and its thermal rhythm", () => {
     expect(labels("module.laser-mk1")).toEqual(["DPS", "Range", "Power", "Burn", "Cool"]);
     // 7.2 → 14.5 on 2026-08-14 (`fire.damage` × 2 across the catalogue), then
-    // 14.5 → 29 on 2026-08-16 (the owner's blanket laser × 2): the chip quotes
-    // 14.48 per shot every 0.5 s.
-    expect(valueOf("module.laser-mk1", "DPS")).toBe("29");
+    // 14.5 → 29 on 2026-08-16 (the owner's blanket laser × 2), then 29 → 37.6 on
+    // 2026-08-18 (laser × 1.3): the chip quotes 18.82 per shot every 0.5 s.
+    // Purely derived — `moduleStats` reads the authored damage and cycleTime, so
+    // this literal tracks content and pins nothing of its own.
+    expect(valueOf("module.laser-mk1", "DPS")).toBe("37.6");
     // "Power" is the flat rail current the module holds while online; "Burn" and
     // "Cool" are the seconds a pilot actually feels (2026-08-07). A weapon has
     // no energy chip at all — it costs none.
@@ -134,7 +136,9 @@ describe("moduleSummaryLine", () => {
   // ×1.6) the same rack burns ~5 s and cools in 2.5 s — see the feel bench.
   it("joins the chips into one readable line", () => {
     expect(moduleSummaryLine(mod("module.laser-mk1"))).toBe(
-      "DPS 29 · Range 95 · Power 2.5 · Burn 2.2s · Cool 4s",
+      // DPS tracks the authored laser damage (× 1.3 on 2026-08-18); Burn/Cool
+      // are unchanged because that pass moved no heat number.
+      "DPS 37.6 · Range 95 · Power 2.5 · Burn 2.2s · Cool 4s",
     );
   });
 

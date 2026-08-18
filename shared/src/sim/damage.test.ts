@@ -83,6 +83,13 @@ function absorbed(world: World): number {
     .reduce((sum, e) => sum + (e as { amount: number }).amount, 0);
 }
 
+/** Total hull SAVED across every `shieldAbsorb` event emitted so far. */
+function avoided(world: World): number {
+  return world.events
+    .filter((e) => e.type === "shieldAbsorb")
+    .reduce((sum, e) => sum + (e as { hullAvoided: number }).hullAvoided, 0);
+}
+
 /** The single `damage` event's amount, or 0 when the hit emitted none. */
 function damageEvent(world: World): number {
   const ev = world.events.filter((e) => e.type === "damage");
@@ -228,17 +235,50 @@ describe("damage types — event semantics", () => {
     expect(damageEvent(world)).toBeCloseTo(2, 6);
   });
 
+  it("hullAvoided is the SOAK carried through the hull stage, not the soak itself", () => {
+    // The blue number on the HUD. An energy hit is soaked at 0.8 but would only
+    // ever have landed on hull at 0.5, so the charge spent (16) and the hull
+    // saved (8) are different numbers — floating the first would tell a pilot
+    // their shield stopped twice the damage it actually stopped.
+    const { world, id } = shielded();
+    hullLoss(world, id, HIT, "energy");
+    expect(absorbed(world)).toBeCloseTo(16, 6);
+    expect(avoided(world)).toBeCloseTo(16 * 0.5 * (1 - ENERGY_RESIST), 6);
+  });
+
+  it("carries the hull RESIST too, so the saving is the one the hull would have felt", () => {
+    const { world, id } = shielded();
+    hullLoss(world, id, HIT, "kinetic");
+    // Kinetic: 4 soaked, and on this hull a point of kinetic costs 0.9 hull.
+    expect(absorbed(world)).toBeCloseTo(4, 6);
+    expect(avoided(world)).toBeCloseTo(4 * 1.0 * (1 - KINETIC_RESIST), 6);
+  });
+
+  it("BALANCES: what the hull lost plus what the shield saved is the bare-hull hit", () => {
+    // The identity that makes `hullAvoided` meaningful rather than merely
+    // plausible — the two floated numbers must account for the whole hit, or the
+    // blue one is quoting a saving that was never on the table. Asserted for
+    // every leaf and composite type, since each splits differently.
+    for (const type of ["energy", "kinetic", "hybrid"] as const) {
+      const bare = lossOnFresh(unshielded(), HIT, type);
+      const { world, id } = shielded();
+      const loss = hullLoss(world, id, HIT, type);
+      expect(loss + avoided(world), `${type}: saved + lost must equal the bare-hull hit`).toBeCloseTo(bare, 6);
+    }
+  });
+
   it("a banked tally matches the emitted events point for point", () => {
     // A channelling beam banks instead of emitting; the mechanics must not care.
     const emitted = shielded();
     const emittedLoss = hullLoss(emitted.world, emitted.id, HIT, "kinetic");
 
     const banked = shielded();
-    const tally: DamageTally = { hull: 0, absorbed: new Map() };
+    const tally: DamageTally = { hull: 0, absorbed: new Map(), avoided: new Map() };
     applyDamageToShip(banked.world, banked.id, null, HIT, "kinetic", tally);
 
     expect(tally.hull).toBeCloseTo(emittedLoss, 6);
     expect(tally.absorbed.get(SHIELD)).toBeCloseTo(absorbed(emitted.world), 6);
+    expect(tally.avoided.get(SHIELD)).toBeCloseTo(avoided(emitted.world), 6);
     expect(banked.world.events.some((e) => e.type === "damage" || e.type === "shieldAbsorb")).toBe(false);
   });
 });
@@ -316,6 +356,9 @@ describe("damage types — the hybrid warhead (split at damage time)", () => {
     expect((damages[0] as { damageType: string }).damageType).toBe("hybrid");
     expect((absorbs[0] as { damageType: string }).damageType).toBe("hybrid");
     expect((absorbs[0] as { amount: number }).amount).toBeCloseTo(10, 6);
+    // …and its saving is re-joined the same way: the kinetic half's 2 soaked at
+    // 0.9 hull effect plus the energy half's 8 at 0.5 — one absorb, one number.
+    expect((absorbs[0] as { hullAvoided: number }).hullAvoided).toBeCloseTo(2 * 0.9 + 8 * 0.5, 6);
   });
 
   it("banks a split hit into a tally exactly as it would have emitted it", () => {
@@ -323,11 +366,12 @@ describe("damage types — the hybrid warhead (split at damage time)", () => {
     const emittedLoss = hullLoss(emitted.world, emitted.id, HIT, "hybrid");
 
     const banked = shielded();
-    const tally: DamageTally = { hull: 0, absorbed: new Map() };
+    const tally: DamageTally = { hull: 0, absorbed: new Map(), avoided: new Map() };
     applyDamageToShip(banked.world, banked.id, null, HIT, "hybrid", tally);
 
     expect(tally.hull).toBeCloseTo(emittedLoss, 6);
     expect(tally.absorbed.get(SHIELD)).toBeCloseTo(absorbed(emitted.world), 6);
+    expect(tally.avoided.get(SHIELD)).toBeCloseTo(avoided(emitted.world), 6);
     expect(banked.world.events.some((e) => e.type === "damage" || e.type === "shieldAbsorb")).toBe(false);
   });
 
