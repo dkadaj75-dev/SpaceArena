@@ -1,0 +1,361 @@
+{
+  "id": "ship.talon",
+  "type": "ship",
+  "version": 1,
+  "name": "Talon",
+  "class": "light",
+  "core": {
+    "hull": {
+      "base": 120,
+      "resists": {
+        "kinetic": 0.1,
+        "energy": 0
+      }
+    },
+    "engine": {
+      "nominalSpeed": 27,
+      "accel": 18,
+      "turnRate": 3
+    },
+    "cooling": {
+      "multiplier": 1
+    },
+    "recharge": {
+      "multiplier": 1
+    },
+    "heatStore": {
+      "multiplier": 1
+    },
+    "energyStore": {
+      "multiplier": 1
+    },
+    "power": {
+      "capacity": 10
+    },
+    "efficiency": {
+      "energyDraw": 1,
+      "heatGen": 1
+    },
+    "sensors": {
+      "lockRange": 195,
+      "lockTimeSec": 0.7,
+      "coneDeg": 60
+    }
+  },
+  "upgradeTracks": {
+    "hull": "upgrade.hull-std",
+    "engine": "upgrade.engine-std",
+    "energy": "upgrade.energy-std",
+    "heat": "upgrade.heat-std"
+  },
+  "sockets": [
+    {
+      "id": "hp-nose",
+      "transform": {
+        "pos": [
+          0,
+          0.0316,
+          1.6316
+        ]
+      },
+      "kind": "hardpoint",
+      "accepts": [
+        "laser",
+        "kinetic"
+      ]
+    },
+    {
+      "id": "hp-wing-l",
+      "transform": {
+        "pos": [
+          -1,
+          -0.0526,
+          -0.9474
+        ]
+      },
+      "kind": "hardpoint",
+      "accepts": [
+        "missile",
+        "kinetic",
+        "shield"
+      ]
+    },
+    {
+      "id": "in-engine",
+      "transform": {
+        "pos": [
+          0,
+          -0.0737,
+          -1.85
+        ]
+      },
+      "kind": "internal",
+      "accepts": [
+        "engine"
+      ]
+    },
+    {
+      "id": "in-generator",
+      "transform": {
+        "pos": [
+          0,
+          0.2105,
+          0.2105
+        ]
+      },
+      "kind": "internal",
+      "accepts": [
+        "generator"
+      ]
+    },
+    {
+      "id": "in-transformer",
+      "transform": {
+        "pos": [
+          0.35,
+          0.05,
+          -0.4
+        ]
+      },
+      "kind": "internal",
+      "accepts": [
+        "transformer"
+      ]
+    },
+    {
+      "id": "in-heatsink",
+      "transform": {
+        "pos": [
+          -0.35,
+          0.05,
+          -0.4
+        ]
+      },
+      "kind": "internal",
+      "accepts": [
+        "heatsink"
+      ]
+    },
+    {
+      "id": "in-sensors",
+      "transform": {
+        "pos": [
+          0,
+          0.24,
+          0.95
+        ]
+      },
+      "kind": "internal",
+      "accepts": [
+        "sensors"
+      ]
+    },
+    {
+      "id": "hp-wing-r",
+      "transform": {
+        "pos": [
+          1,
+          -0.0526,
+          -0.9474
+        ]
+      },
+      "kind": "hardpoint",
+      "accepts": [
+        "utility"
+      ]
+    },
+    {
+      "id": "eng-l",
+      "transform": {
+        "pos": [
+          -0.1053,
+          -0.0737,
+          -1.9684
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
+      },
+      "kind": "emitter",
+      "effect": "fx.engine-trail",
+      "bindings": [
+        {
+          "source": "throttle",
+          "param": "emitRate",
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              120
+            ]
+          ]
+        },
+        {
+          "source": "boostActive",
+          "param": "speedMax",
+          "curve": [
+            [
+              0,
+              8
+            ],
+            [
+              1,
+              16
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "eng-r",
+      "transform": {
+        "pos": [
+          0.1053,
+          -0.0737,
+          -1.9684
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
+      },
+      "kind": "emitter",
+      "effect": "fx.engine-trail",
+      "bindings": [
+        {
+          "source": "throttle",
+          "param": "emitRate",
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              120
+            ]
+          ]
+        },
+        {
+          "source": "boostActive",
+          "param": "speedMax",
+          "curve": [
+            [
+              0,
+              8
+            ],
+            [
+              1,
+              16
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "smoke-hull",
+      "transform": {
+        "pos": [
+          0.2105,
+          0.1579,
+          0.3158
+        ]
+      },
+      "kind": "emitter",
+      "effect": "fx.damage-smoke",
+      "bindings": [
+        {
+          "source": "hullFraction",
+          "param": "emitRate",
+          "curve": [
+            [
+              1,
+              0
+            ],
+            [
+              0.5,
+              0
+            ],
+            [
+              0.2,
+              60
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boost-plume",
+      "transform": {
+        "pos": [
+          0,
+          -0.0737,
+          -2.1579
+        ]
+      },
+      "kind": "emitter",
+      "effect": "fx.boost-trail",
+      "bindings": [
+        {
+          "source": "boostActive",
+          "param": "emitRate",
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              140
+            ]
+          ]
+        },
+        {
+          "source": "speedFraction",
+          "param": "sizeMax",
+          "curve": [
+            [
+              0,
+              0.5
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "defaultFitting": [
+    "module.laser-mk1",
+    "module.missile-mk1",
+    "module.engine-civ",
+    "module.generator-compact",
+    "module.transformer-stock",
+    "module.heatsink-basic",
+    "module.sensors-basic"
+  ],
+  "render": {
+    "recipe": "procedural.arrowhead",
+    "palette": {
+      "primary": "#3a8f7a",
+      "accent": "#6ff2c8"
+    },
+    "model": "ships/talon_light_lod0.glb",
+    "modelScale": 3.31,
+    "modelRotationY": 0
+  },
+  "collider": {
+    "shape": "circle",
+    "radius": 1.4
+  }
+}

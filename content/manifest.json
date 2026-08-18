@@ -86,6 +86,7 @@
     "ships/interceptor.json",
     "ships/brawler.json",
     "ships/support.json",
+    "ships/talon.json",
     "modules/laser-mk1.json",
     "modules/laser-mk2.json",
     "modules/laser-burst.json",

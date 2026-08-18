@@ -14,7 +14,8 @@
     "shipPool": [
       "ship.interceptor",
       "ship.brawler",
-      "ship.support"
+      "ship.support",
+      "ship.talon"
     ]
   },
   "defaultArena": "arena.ring-nebula",
