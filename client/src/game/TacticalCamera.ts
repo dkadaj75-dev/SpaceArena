@@ -70,7 +70,7 @@ export const HANGAR_STAGE_RADIUS = 9;
  *
  *  - **chase** — the in-match view (FLIGHT.md §3): yaw driven by the ship's
  *    heading, beta/radius pinned to the `chase` block, no player look-around.
- *  - **editor** — the free orbit/pan the Constellation viewport runs on.
+ *  - **editor** — the dev stage's free orbit/pan (F10).
  *  - **hangar** — a tight free orbit around a staged ship.
  *
  * Outside those it is a plain smoothed follow rig on a target `TransformNode`,

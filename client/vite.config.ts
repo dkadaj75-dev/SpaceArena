@@ -224,12 +224,14 @@ function isDeleteRequest(value: unknown): value is { path: string } {
  *   vendor          — colyseus.js, @colyseus/schema, zod. Small, stable.
  *   index (entry)   — game code + @space-arena/shared.
  *
- * The editor is deliberately NOT listed here. Rollup already splits it on the
- * `import("./editor/ConstellationApp.js")` in main.ts, emitting a lazy
- * `ConstellationApp-*.js`; naming it in manualChunks instead makes Vite treat it
- * as a chunk of the entry and emit a `<link rel=modulepreload>` for it — the
- * exact opposite of what we want. (tools/bundle-budget.ts asserts that, and
- * fails on editor code in any initial chunk.)
+ * The dev editor is deliberately NOT listed here. Rollup already splits it on
+ * the `import("./editor/EditorShell.js")` in main.ts, emitting a lazy
+ * `EditorShell-*.js`; naming it in manualChunks instead makes Vite treat it as a
+ * chunk of the entry and emit a `<link rel=modulepreload>` for it — the exact
+ * opposite of what we want. (In a production build the whole
+ * `import.meta.env.DEV` branch is tree-shaken and no editor chunk exists at all;
+ * tools/bundle-budget.ts asserts that, and fails on editor code in any initial
+ * chunk.)
  *
  * The graph is a DAG (entry → vendor/babylon-*, babylon-loaders → babylon-core),
  * so there is no cross-chunk initialization cycle.

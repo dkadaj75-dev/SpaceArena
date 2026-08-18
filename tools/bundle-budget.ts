@@ -8,24 +8,24 @@
  * chunk the built `index.html` names, either as an entry `<script type=module>`
  * or as a `<link rel=modulepreload>`. Anything Rollup emitted that index.html
  * does NOT name is reached through a dynamic `import()` and is therefore lazy —
- * which is exactly what the Constellation editor chunk is (`main.ts` imports
- * `./editor/ConstellationApp.js` from `openConstellation()`).
+ * which is exactly what the dev editor chunk is (`main.ts` imports
+ * `./editor/EditorShell.js` behind the F10 key).
  *
  * The editor is checked twice, because "excluded from the budget" must never
  * become a way to smuggle it into the shell (§11 6.3):
  *
  *   1. By NAME. Rollup names the lazy chunk after the dynamically imported
- *      module (`ConstellationApp-*.js`). Such a chunk that index.html
- *      *references* is eagerly loaded, so the gate FAILS rather than quietly
- *      excusing it; one nothing references is lazy, and excluded from the
- *      budget as before.
+ *      module (`EditorShell-*.js`). Such a chunk that index.html *references* is
+ *      eagerly loaded, so the gate FAILS rather than quietly excusing it; one
+ *      nothing references is lazy, and excluded from the budget as before.
  *   2. By CONTENT. Every initial chunk is scanned for `/__editor/` — a string
  *      literal that exists nowhere but client/src/editor/** and survives
  *      minification. That catches the subtler regression where editor modules
  *      get merged into an initial chunk and the name signal disappears entirely.
  *
- * In a correct build neither fires: the editor is only ever reached through the
- * dynamic import, so its chunk exists but nothing in index.html names it.
+ * In a correct production build neither fires: main.ts guards the editor behind
+ * `import.meta.env.DEV`, so Rollup tree-shakes the branch and no editor chunk is
+ * emitted at all.
  *
  * The budget is measured on GZIP size — that is what is actually shipped over
  * the wire — using the same level (9) a CDN would use. Raw sizes are printed too
@@ -99,13 +99,8 @@ const FIRST_PARTY_STEM = "index";
  */
 const FIRST_PARTY_GZIP_BYTES = 260 * 1024;
 
-/**
- * A chunk whose name marks it as the lazily-imported editor bundle. Rollup names
- * it after the dynamically imported entry module, so this has to match both the
- * `*Editor*` names (`EditorRepository-*.js`) and Constellation's own
- * (`ConstellationApp-*.js`).
- */
-const EDITOR_CHUNK = /editor|constellation/i;
+/** A chunk whose name marks it as the lazily-imported dev editor bundle. */
+const EDITOR_CHUNK = /editor/i;
 
 /**
  * Drop Rollup's content hash: `index-bri4-xw_.js` → `index`. The hash is 8
@@ -232,16 +227,16 @@ function main(): void {
   const leaked = initial.filter((c) => editorCodeChunks.has(c.file));
   if (leaked.length > 0) {
     fail(
-      `the editor is in the INITIAL payload — index.html eagerly loads ${leaked.map((c) => c.file).join(", ")}. ` +
-        `The editor must stay behind the lazy \`import("./editor/ConstellationApp.js")\` in main.ts. ` +
-        `Check manualChunks in client/vite.config.ts.`,
+      `the dev editor is in the INITIAL payload — index.html eagerly loads ${leaked.map((c) => c.file).join(", ")}. ` +
+        `The editor must stay behind the lazy \`import("./editor/EditorShell.js")\` in main.ts ` +
+        `(and behind \`import.meta.env.DEV\`). Check manualChunks in client/vite.config.ts.`,
     );
   }
   const lazyEditor = chunks.filter((c) => editorCodeChunks.has(c.file));
   console.log(
     lazyEditor.length > 0
       ? `  editor code: ${lazyEditor.map((c) => c.file).join(", ")} — lazy, excluded from the budget.`
-      : "  editor code: absent from the build (no reachable dynamic import — tree-shaken).",
+      : "  editor code: absent from the build (DEV-gated in main.ts and tree-shaken).",
   );
 
   // Structural gate: exactly which chunks does index.html pull before the first

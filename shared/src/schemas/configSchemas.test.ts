@@ -27,6 +27,7 @@ import { encodeFloat32Array, encodeUint32Array } from "../collision/base64.js";
  *
  * Deliberately NOT duplicated here (already covered elsewhere, kept green):
  *  - ship socket graph ordering / duplicate socket ids  → `socket.test.ts`
+ *  - theme hud cluster + orientation + haptics blocks   → `client/.../ThemeEditor.test.ts`
  *  - `ship.defaultFitting` vs hardpoints (relational)   → `core/ConfigService.test.ts`
  *  - dangling-reference resolution end to end           → `core/referenceGraph.test.ts`
  */
@@ -1210,44 +1211,6 @@ describe("theme schema — 5.7/5.8 blocks", () => {
     expect(mutated("theme", (d) => (d["menu"] = { ...menu, colors: { base: 0 } }))).toBe(false);
     // Empty subtitle is meaningful (hides the tagline), not a validation error.
     expect(mutated("theme", (d) => (d["menu"] = { title: { subtitle: "" } }))).toBe(true);
-  });
-
-  // Migrated from the retired client-side theme editor's test file: these are
-  // schema laws, not editor behaviour, so they outlive the tool that authored
-  // them. Whole-document fixtures (not `mutated`) on purpose — the point is that
-  // a theme written before 5.4 still parses with none of the newer blocks.
-  it("accepts a pre-5.4 theme with only the legacy hud fields", () => {
-    const legacy = {
-      id: "theme.legacy",
-      type: "theme",
-      version: 1,
-      colors: { "--hud-primary": "#57d8ff" },
-      hud: { scale: 1, moduleButtonRadiusPx: 34, safeAreaInsetPx: 12, moduleButtonGapPx: 14 },
-    };
-    expect(CONFIG_SCHEMAS.theme.safeParse(legacy).success).toBe(true);
-  });
-
-  it("accepts the new cluster / orientation / haptics blocks", () => {
-    const modern = {
-      id: "theme.modern",
-      type: "theme",
-      version: 1,
-      colors: {},
-      hud: {
-        thumbZoneFraction: 0.4,
-        moduleCluster: { anchor: "bottom-left", layout: "arc", arcRadiusPx: 120, arcStartDeg: 0, arcSweepDeg: 90 },
-        landscape: { scale: 0.85, moduleCluster: { arcRadiusPx: 90 } },
-      },
-      haptics: { enabled: true, overheatPattern: [60, 50, 120], killPattern: [25] },
-    };
-    expect(CONFIG_SCHEMAS.theme.safeParse(modern).success).toBe(true);
-  });
-
-  it("rejects an out-of-range thumb zone or a negative vibrate step", () => {
-    const bad = { id: "theme.bad", type: "theme", version: 1, colors: {}, hud: { thumbZoneFraction: 1.5 } };
-    expect(CONFIG_SCHEMAS.theme.safeParse(bad).success).toBe(false);
-    const badHaptics = { id: "theme.bad2", type: "theme", version: 1, colors: {}, haptics: { overheatPattern: [-1] } };
-    expect(CONFIG_SCHEMAS.theme.safeParse(badHaptics).success).toBe(false);
   });
 });
 
