@@ -44,7 +44,7 @@ export interface LobbyCallbacks {
 }
 
 /**
- * The tutorial's own menu entry heads the single Play list; all following mode
+ * The tutorial's own menu entry closes the single Play list; preceding mode
  * rows are online and share one launch path.
  */
 const TUTORIAL_LABEL = "Tutorial";
@@ -149,26 +149,25 @@ export class Lobby {
   }
 
   /**
-   * One Play list: offline Tutorial first, followed by every online gamemode.
+   * One Play list: every online gamemode, followed by the offline Tutorial.
    * Fleet destinations keep their own accent-marked section.
    */
   private buildSections(): void {
     const gamemodes = this.configs.getAll<GamemodeConfig>("gamemode");
 
     const play = this.section("Play", "primary");
-    // Onboarding first, and only when the pack actually ships one: the tutorial
-    // is a content config, so a pack without it simply has no button.
-    if (this.hasTutorial()) {
-      this.addButton(play, TUTORIAL_LABEL, () => this.choose({ kind: "tutorial" }), false, undefined, "tutorial");
-    }
     play.append(this.offlineBadge);
     for (const gm of gamemodes) {
       if (gm.launch === "offline" || gm.hidden) continue;
       this.addButton(play, gm.name ?? gm.id, () => this.choose({ kind: "online", gamemode: gm.id }), true);
     }
-
     const fleet = this.section("Fleet", "accent");
     this.addButton(fleet, "Hangar", () => this.callbacks.onHangarRequested(), false, "accent", "hangar");
+    // Directly below the Hangar, and only when the pack actually ships one:
+    // the tutorial is a content config, so a pack without it has no button.
+    if (this.hasTutorial()) {
+      this.addButton(fleet, TUTORIAL_LABEL, () => this.choose({ kind: "tutorial" }), false, undefined, "tutorial");
+    }
     // Offline-capable like the Hangar: the ledger is local without an account,
     // so a pilot with no login can still buy (contract §3).
     this.addButton(fleet, "Shop", () => this.callbacks.onShopRequested(), false, "accent", "shop");

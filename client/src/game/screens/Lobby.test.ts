@@ -154,11 +154,13 @@ describe("Lobby tutorial entry", () => {
     });
   }
 
-  it("heads the single Play section — a first-time pilot reads down from the top", () => {
+  it("shelves the tutorial in the Fleet section, directly below the Hangar", () => {
     const lobby = mount(tutorialConfigs(), vi.fn());
     const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
-    const labels = [...play.querySelectorAll("button")].map((b) => b.textContent);
-    expect(labels[0]).toBe("Tutorial");
+    expect([...play.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Tutorial");
+    const fleet = document.querySelector<HTMLElement>('[data-section="fleet"]')!;
+    const labels = [...fleet.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels.indexOf("Tutorial")).toBe(labels.indexOf("Hangar") + 1);
     lobby.hide();
   });
 
