@@ -56,6 +56,10 @@ export class MapEditor implements EditorPanel {
     this.gizmos.scaleGizmoEnabled = true;
     this.unbindGizmoSuspend = bindGizmoCameraSuspend(this.gizmos, (on) => host.suspendCameraGestures(on));
     this.arenaId = host.configService.getAll<ArenaConfig>("arena")[0]?.id ?? "";
+    // The scene may still show whatever arena the last match/playtest built —
+    // stage the arena this panel actually opens on (stale-only, so re-entering
+    // the Map tab on the same arena costs nothing).
+    host.rebuildArena(this.arenaId, true);
     this.inferPairs();
     this.applySnap();
     this.renderUi(); this.rebuildPreview();
@@ -145,7 +149,7 @@ export class MapEditor implements EditorPanel {
     const arena = this.arena();
     if (arena?.bounds.shape === "box") this.element.append(toggle("Ceiling preview", this.ceilingPreview, (value) => { this.ceilingPreview = value; this.rebuildPreview(); }));
     if (arena) {
-      const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: this.host.configService, onProblem: (p) => this.report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => { this.host.rebuildArena(); this.rebuildPreview(); } });
+      const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: this.host.configService, onProblem: (p) => this.report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => { this.host.rebuildArena(this.arenaId); this.rebuildPreview(); } });
       this.element.append(form.element);
     }
   }
@@ -329,7 +333,7 @@ export class MapEditor implements EditorPanel {
   }
   private frameSelection(): void { if (!this.selected) return; const camera = this.host.scene.activeCamera as unknown as { setTarget?: (value: Vector3) => void; radius?: number }; camera?.setTarget?.(this.selected.mesh.getAbsolutePosition()); if (camera && typeof camera.radius === "number") { const radius = this.selected.mesh instanceof AbstractMesh ? this.selected.mesh.getBoundingInfo().boundingSphere.radiusWorld : 4; camera.radius = Math.max(12, radius * 5); } }
   private clearSelection(): void { this.selected = null; this.gizmos.attachToMesh(null); this.ctx.hide(); }
-  private resetSession(): void { this.clearSelection(); this.navSelection = []; this.pairs = { asteroid: new Map(), prop: new Map(), spawn: new Map(), flag: new Map(), nav: new Map() }; this.inferPairs(); this.rebuildPreview(); this.renderUi(); }
+  private resetSession(): void { this.clearSelection(); this.navSelection = []; this.pairs = { asteroid: new Map(), prop: new Map(), spawn: new Map(), flag: new Map(), nav: new Map() }; this.inferPairs(); this.host.rebuildArena(this.arenaId, true); this.rebuildPreview(); this.renderUi(); }
 
   /**
    * "Game view": the arena exactly as a match shows it — markers, rings, nav
@@ -457,7 +461,7 @@ export class MapEditor implements EditorPanel {
     }
   }
   private applyScenePropVisibility(): void { for (const mesh of this.host.scene.meshes) { const meta = mesh.metadata as { editorKind?: string; editorIndex?: number } | null; if (meta?.editorKind === "prop" && meta.editorIndex !== undefined && !mesh.name.startsWith("editor.")) mesh.setEnabled(this.layers.get(this.governingLayer("prop", meta.editorIndex))!.visible); } }
-  private replace(arena: ArenaConfig): void { const result = this.host.configService.replace(arena); if (!result.ok) { this.report(result.errors.map((error) => `${error.path}: ${error.message}`).join("; ")); return; } this.host.rebuildArena(); this.rebuildPreview(); this.renderUi(); }
+  private replace(arena: ArenaConfig): void { const result = this.host.configService.replace(arena); if (!result.ok) { this.report(result.errors.map((error) => `${error.path}: ${error.message}`).join("; ")); return; } this.host.rebuildArena(this.arenaId); this.rebuildPreview(); this.renderUi(); }
   private async save(): Promise<void> { const arena = this.arena(); if (!arena) return; const parsed = arenaSchema.safeParse(arena); if (!parsed.success) { this.report(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")); return; } const error = await saveConfig(parsed.data); this.report(error); }
   private async playtest(gamemodeId: string): Promise<void> { const arena = this.arena(); if (!arena) return; const problems = playtestArenaProblems(arena); if (problems.length) { this.report(problems.join("; ")); return; } try { await this.host.launchPlaytest(arena.id, gamemodeId); } catch (error) { this.report(error instanceof Error ? error.message : String(error)); } }
 

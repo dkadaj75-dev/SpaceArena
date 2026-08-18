@@ -105,6 +105,8 @@ export class ShipManager implements EditorPanel {
   private selectedSocketBox: HTMLElement | null = null;
   /** Persistent, dismissable warnings (reorder DB-fitting remaps) — survive replace() success. */
   private readonly sticky = new StickyWarnings();
+  /** Ship ids whose GLB hull load has been kicked — one background load per ship, no retry loop on failure. */
+  private readonly hullLoadKicked = new Set<string>();
   /** A candidate ship replace() rejected for fitting incompatibility, awaiting a one-click fix. */
   private blockedCandidate: ShipConfig | null = null;
   /**
@@ -813,6 +815,17 @@ export class ShipManager implements EditorPanel {
     const ship = this.ship();
     if (!ship) return;
 
+    // `getShipMaster` only returns the GLB when it is ALREADY loaded (a match or
+    // the hangar preloads it; a cold editor open has not) — otherwise it falls
+    // back to the procedural recipe. Kick the real load and rebuild once, per
+    // ship, when it lands; a failed load stays procedural without retry loops.
+    const hullKey = `${ship.id}:${ship.render.model ?? ""}`;
+    if (ship.render.model && !this.hullLoadKicked.has(hullKey)) {
+      this.hullLoadKicked.add(hullKey);
+      void this.assets.ensureModel(ship.render).then((master) => {
+        if (master && this.ship()?.id === ship.id) { this.rebuildPreview(); this.renderUi(); }
+      });
+    }
     const master = this.assets.getShipMaster(ship.render);
     this.hullIsPlaceholder = master.name.includes("placeholder");
     const hull = master.clone(`shipPreviewHull.${ship.id}`);

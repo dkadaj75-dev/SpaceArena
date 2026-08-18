@@ -336,6 +336,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   function setArena(arenaId: string): void {
     if (arenaId === currentArenaId) return;
     currentArenaId = arenaId;
+    stagedArenaId = arenaId;
     sceneBuilder.buildArena(currentArenaId);
     void preloadArenaModels(preloadAssets, configService, currentArenaId);
   }
@@ -1553,6 +1554,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // (/__editor/*) do not exist in a production build: the button is for looking
   // at the UI, not for authoring against it.
   let editorShell: import("./editor/EditorShell.js").EditorShell | null = null;
+  /** Arena the editor last staged via `rebuildArena(id)`, if it differs from the game's. */
+  let editorArenaId: string | null = null;
+  /** Arena the SceneBuilder currently shows — lets stale-only rebuilds no-op. */
+  let stagedArenaId: string | null = null;
   const editorHost = {
     scene,
     configService,
@@ -1568,9 +1573,24 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       // The Quality panel writes `sa.quality` directly — pick up whatever the
       // dev changed while the editor was open (5.8 store owns the rest).
       userSettings.refresh();
+      // The Map tool may have staged a different arena than the one the game
+      // was on; the sim/minimap still read `currentArenaId`, so the scene must
+      // return to it or a resumed match plays over the wrong floor and skybox.
+      const gameArena = currentArenaId ?? FALLBACK_ARENA_ID;
+      if (editorArenaId !== null && editorArenaId !== gameArena) { stagedArenaId = gameArena; sceneBuilder.buildArena(gameArena); }
+      editorArenaId = null;
     },
-    rebuildArena: () => {
-      sceneBuilder.buildArena(currentArenaId ?? FALLBACK_ARENA_ID);
+    rebuildArena: (arenaId?: string, onlyIfStale?: boolean) => {
+      // The Map tool passes the arena it is editing — which is not necessarily
+      // the arena the last match played (`currentArenaId`); without the
+      // override, switching maps in the editor kept the old floor and skybox.
+      const id = arenaId ?? currentArenaId ?? FALLBACK_ARENA_ID;
+      editorArenaId = arenaId ?? null;
+      if (onlyIfStale && id === stagedArenaId) return;
+      stagedArenaId = id;
+      sceneBuilder.buildArena(id);
+      // GLB props/terrain for a never-played arena are not in the registry yet.
+      void preloadArenaModels(preloadAssets, configService, id);
     },
     // The editor takes over the canvas: the live match (HUD, entity views) is
     // hidden so nothing of the running game shows through behind the editor's

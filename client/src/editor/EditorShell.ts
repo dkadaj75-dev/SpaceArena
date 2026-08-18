@@ -24,7 +24,14 @@ export interface EditorHost {
   bus: EventBus<ConfigEvents>;
   pauseSim(): void;
   resumeSim(): void;
-  rebuildArena(): void;
+  /**
+   * Rebuild the scene's static arena. Pass the arena being EDITED — the host
+   * otherwise falls back to the last-played arena, which is wrong the moment
+   * the Map tool's arena dropdown moves off it (floor/skybox would stay stale).
+   * `onlyIfStale` skips the (expensive) rebuild when that arena is already
+   * staged — for opening the Map tab, not for committing edits.
+   */
+  rebuildArena(arenaId?: string, onlyIfStale?: boolean): void;
   /**
    * Hide/show the live match entirely — HUD, entity views, order markers — and
    * gate gameplay tap orders. The editor owns the canvas while it is open.
@@ -540,7 +547,7 @@ function text(message: string): HTMLDivElement { const element = document.create
 function arenaInspector(host: EditorHost, report: (message: string | null) => void): EditorPanel {
   const arena = host.configService.getAll<ArenaConfig>("arena")[0];
   if (!arena) return placeholder("No arena config loaded.");
-  const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: host.configService, onProblem: (p) => report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => host.rebuildArena() });
+  const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: host.configService, onProblem: (p) => report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => host.rebuildArena(arena.id) });
   const element = document.createElement("div");
   element.append(applicationNotice("arena"), form.element);
   return { element, dispose() {} };
