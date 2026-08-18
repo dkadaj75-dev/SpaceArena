@@ -1,6 +1,7 @@
 import { z, type ZodType } from "zod";
 import type { ConfigService, ConfigType } from "@space-arena/shared";
 import { referenceTypesFor } from "./referenceFields.js";
+import { AccordionState, accordion, humanizeLabel, listAccordion, singularLabel } from "./accordion.js";
 
 export interface FormProblem {
   path: string;
@@ -37,7 +38,7 @@ export interface SchemaFormOptions<T> {
   /**
    * Bespoke renderers by dotted path (e.g. `"behaviors"`). Escape hatch for
    * shapes with no enumerable JSON-schema properties — a `z.record(...)` of
-   * addable keys is the canonical case (see `BotProfileEditor`).
+   * addable keys (botprofile `behaviors`) is the canonical case.
    */
   fields?: Record<string, FieldRenderer>;
   /**
@@ -46,6 +47,26 @@ export interface SchemaFormOptions<T> {
    * table does not describe — every shipped config type is already covered.
    */
   references?: Record<string, ConfigType | readonly ConfigType[]>;
+  /**
+   * Namespace for remembered accordion open/closed state. Pass the config type
+   * so folding a list stays folded when you come back to another config of the
+   * same shape; omit it (or pass "") to keep the memory in this form only.
+   */
+  accordionScope?: string;
+  /** Injectable memory — tests pass their own so surfaces stay isolated. */
+  accordions?: AccordionState;
+}
+
+/** How one subtree of the schema walk should be drawn. */
+interface FieldOptions {
+  /** The config root: a plain container, never a disclosure. */
+  root?: boolean;
+  /**
+   * Open state for a group the user has no remembered preference for. Nested
+   * object groups stay open (they are small, single-purpose forms); rows of a
+   * long list pass `false` so a 24-prop arena does not unroll on sight.
+   */
+  defaultOpen?: boolean;
 }
 
 export type JsonSchema = {
@@ -78,8 +99,11 @@ export class SchemaFormGen<T> {
   readonly element: HTMLFormElement;
   private value: T;
   private readonly json: JsonSchema;
+  /** Survives this form's own re-renders, so an edit never refolds the group. */
+  private readonly accordions: AccordionState;
 
   constructor(private readonly options: SchemaFormOptions<T>) {
+    this.accordions = options.accordions ?? new AccordionState(options.accordionScope ?? "");
     this.value = structuredClone(options.value);
     // Zod 4 exposes this stable conversion API; using it preserves constraints
     // such as min/max and enums without coupling the editor to private defs.
@@ -94,7 +118,7 @@ export class SchemaFormGen<T> {
   }
 
   private render(): void {
-    this.element.replaceChildren(this.field(this.json, this.value, [], "Config", true));
+    this.element.replaceChildren(this.field(this.json, this.value, [], "Config", { root: true }));
   }
 
   private resolve(schema: JsonSchema): JsonSchema {
@@ -103,8 +127,9 @@ export class SchemaFormGen<T> {
     return (key && this.json.$defs?.[key]) || schema;
   }
 
-  private field(raw: JsonSchema, value: unknown, path: string[], label: string, root = false): HTMLElement {
+  private field(raw: JsonSchema, value: unknown, path: string[], label: string, opts: FieldOptions = {}): HTMLElement {
     const schema = this.resolve(raw);
+    const root = opts.root === true;
     if (!root) {
       const custom = this.options.fields?.[path.join(".")];
       const element = custom?.({ value, path, label, change: (p, next) => this.change(p, next) });
@@ -119,23 +144,19 @@ export class SchemaFormGen<T> {
         return this.scalarField({ type: typeof literals[0] === "number" ? "number" : "string", enum: literals }, value, path, label);
       }
       const tagged = branches.length > 1 ? discriminatorOf(branches) : null;
-      if (tagged) return this.unionField(branches, tagged, value, path, label);
-      return this.field(branches[0] ?? union[0]!, value, path, label, root);
+      if (tagged) return this.unionField(branches, tagged, value, path, label, opts);
+      return this.field(branches[0] ?? union[0]!, value, path, label, opts);
     }
     if (schema.type === "object" || schema.properties) {
       // z.record/z.unknown/free-form objects have no enumerable properties in
       // JSON Schema. A labelled JSON editor keeps every value authorable while
       // friendly controls remain in place for known shapes.
       if (!root && Object.keys(schema.properties ?? {}).length === 0) return this.jsonField(value, path, label);
-      const box = document.createElement(root ? "div" : "details");
-      box.className = root ? "ed-form-root" : "ed-group";
-      if (!root) {
-        (box as HTMLDetailsElement).open = true;
-        const summary = document.createElement("summary");
-        summary.className = "ed-group-title";
-        summary.textContent = label;
-        box.append(summary);
-      }
+      const box = root
+        ? Object.assign(document.createElement("div"), { className: "ed-form-root" })
+        // A named group is a disclosure. Small nested forms (`bounds`, `render`)
+        // keep their open default; a row inside a long list is handed `false`.
+        : accordion(this.accordions, { key: path.join("."), title: label, defaultOpen: opts.defaultOpen ?? true });
       const properties = schema.properties ?? {};
       for (const [key, child] of Object.entries(properties)) {
         const childValue = value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
@@ -171,7 +192,7 @@ export class SchemaFormGen<T> {
    * Switching the discriminator replaces the whole subtree with that branch's
    * defaults, so the value never sits in a shape no branch accepts.
    */
-  private unionField(branches: JsonSchema[], key: string, value: unknown, path: string[], label: string): HTMLElement {
+  private unionField(branches: JsonSchema[], key: string, value: unknown, path: string[], label: string, opts: FieldOptions = {}): HTMLElement {
     const current = value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
     const index = Math.max(0, branches.findIndex((b) => this.resolve(b.properties?.[key] ?? {}).const === current));
     const branch = branches[index]!;
@@ -182,6 +203,7 @@ export class SchemaFormGen<T> {
       value,
       path,
       label,
+      opts,
     );
 
     const row = document.createElement("label");
@@ -198,36 +220,56 @@ export class SchemaFormGen<T> {
     select.addEventListener("change", () => this.change(path, defaultFor(branches[Number(select.value)] ?? branch, this.json.$defs)));
     row.append(title, select);
 
-    // `body` is a <details> group (never root here) — the picker goes first.
-    const summary = body.querySelector(":scope > summary");
-    if (summary) summary.after(row);
+    // `body` is a <details> group (never root here) — the picker goes directly
+    // after the disclosure's own summary. Read as a first child rather than via
+    // `:scope`, which happy-dom does not implement (the test DOM would silently
+    // take the prepend branch and put the picker above the summary).
+    const summary = body.firstElementChild;
+    if (summary?.tagName === "SUMMARY") summary.after(row);
     else body.prepend(row);
     return body;
   }
 
+  /**
+   * Every list in every tool: a folded "Prop placements (24)" disclosure whose
+   * first child is the create action and whose second is a folded "List of …"
+   * holding the rows — each row folded in turn. See `accordion.ts` for why.
+   */
   private arrayField(schema: JsonSchema, values: unknown[], path: string[], label: string): HTMLElement {
-    const wrap = this.wrap(label);
-    const list = document.createElement("div");
-    list.className = "editor-array";
-    values.forEach((item, index) => {
+    const title = humanizeLabel(label);
+    const singular = singularLabel(label);
+    const rowTitle = humanizeLabel(singular);
+    const items = values.map((item, index) => {
       const row = document.createElement("div");
       row.className = "editor-array-row";
-      row.append(this.field(schema.items ?? {}, item, [...path, String(index)], `${label} ${index + 1}`));
+      row.append(this.field(schema.items ?? {}, item, [...path, String(index)], `${rowTitle} ${index + 1}`, { defaultOpen: false }));
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "ed-btn ed-btn--danger ed-btn--sm";
+      remove.dataset.action = "remove";
       remove.textContent = "Remove";
       remove.addEventListener("click", () => this.change(path, values.filter((_, i) => i !== index)));
       row.append(remove);
-      list.append(row);
+      return row;
     });
-    const add = document.createElement("button");
-    add.type = "button";
-    add.className = "ed-btn ed-btn--sm";
-    add.textContent = "Add";
-    add.addEventListener("click", () => this.change(path, [...values, defaultFor(schema.items ?? {}, this.json.$defs)]));
-    wrap.append(list, add);
-    return wrap;
+    return listAccordion(this.accordions, {
+      key: path.join("."),
+      title,
+      items,
+      listTitle: `List of ${title.toLowerCase()}`,
+      emptyLabel: `No ${title.toLowerCase()} yet — use “New ${singular}”.`,
+      create: {
+        label: `New ${singular}`,
+        onCreate: () => {
+          // Creating something must show it: open the list and the fresh row
+          // before the commit re-renders. (Remembered flags are keyed by index,
+          // so removing a row shifts the folds — acceptable for a disclosure.)
+          this.accordions.set(`${path.join(".")}[]`, true);
+          this.accordions.set([...path, String(values.length)].join("."), true);
+          this.change(path, [...values, defaultFor(schema.items ?? {}, this.json.$defs)]);
+        },
+      },
+    });
   }
 
   private scalarField(schema: JsonSchema, value: unknown, path: string[], label: string): HTMLElement {

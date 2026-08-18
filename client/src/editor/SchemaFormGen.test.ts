@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { ConfigService } from "@space-arena/shared";
+import { CONFIG_SCHEMAS, type ConfigService } from "@space-arena/shared";
+import { AccordionState } from "./accordion.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 
 const testSchema = z.object({
@@ -32,11 +35,30 @@ function fakeConfigService(overrides: Partial<Pick<ConfigService, "getAll" | "re
   };
 }
 
+/**
+ * A repo-root file, for the smoke test that renders real shipped content. Vite
+ * rewrites `import.meta.url` to an http URL in this project, so the lookup walks
+ * up from the cwd (repo root or `client/`, depending on how vitest was invoked).
+ */
+function repoFile(relative: string): string {
+  for (const prefix of ["", "..", "../.."]) {
+    const candidate = resolve(process.cwd(), prefix, relative);
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(`cannot locate ${relative} from ${process.cwd()}`);
+}
+
 function input(form: SchemaFormGen<TestConfig>, name: string): HTMLInputElement | HTMLSelectElement {
   const el = form.element.querySelector(`[name="${name}"]`);
   if (!el) throw new Error(`no input named ${name}`);
   return el as HTMLInputElement | HTMLSelectElement;
 }
+
+// Fold state is namespaced per config type when a scope is given; clear it so
+// one test's disclosure never decides another's starting shape.
+beforeEach(() => {
+  localStorage.clear();
+});
 
 describe("SchemaFormGen", () => {
   it("renders inputs for nested objects, optional fields, enum fields, and array fields", () => {
@@ -66,10 +88,76 @@ describe("SchemaFormGen", () => {
     expect(Array.from(modeSelect.options).map((o) => o.value)).toEqual(["a", "b", "c"]);
     expect(modeSelect.value).toBe("b");
 
-    // Array field -> add/remove UI, one row per element.
+    // Array field -> folded list accordion, one row per element.
     const arrayWrap = form.element.querySelector(".editor-array")!;
     expect(arrayWrap.querySelectorAll(".editor-array-row")).toHaveLength(2);
     expect(form.element.querySelector('[name="tags.0"]')).not.toBeNull();
+  });
+
+  it("renders every array as a folded New-first-then-List accordion", () => {
+    const schema = z.object({
+      id: z.string(),
+      propPlacements: z.array(z.object({ propId: z.string(), scale: z.number() })),
+    });
+    const form = new SchemaFormGen({
+      schema,
+      value: { id: "arena.x", propPlacements: [{ propId: "a", scale: 1 }, { propId: "b", scale: 2 }] },
+      configService: fakeConfigService(),
+      accordions: new AccordionState("", null),
+    });
+
+    const list = form.element.querySelector<HTMLDetailsElement>('[data-accordion="propPlacements"]')!;
+    expect(list.open).toBe(false);
+    expect(list.firstElementChild!.textContent).toContain("Prop Placements");
+
+    // Create action comes before the list, and the list is folded too.
+    const add = list.querySelector<HTMLButtonElement>('.ed-list-create [data-action="add"]')!;
+    expect(add.textContent).toBe("New prop placement");
+    const inner = form.element.querySelector<HTMLDetailsElement>('[data-accordion="propPlacements[]"]')!;
+    expect(inner.open).toBe(false);
+    expect(list.compareDocumentPosition(inner) & Node.DOCUMENT_POSITION_CONTAINED_BY).toBeTruthy();
+
+    // Each row is itself folded — this is what stopped 24 props flooding the panel.
+    const rows = inner.querySelectorAll<HTMLDetailsElement>(".editor-array-row > details");
+    expect(rows).toHaveLength(2);
+    expect(Array.from(rows).map((row) => row.open)).toEqual([false, false]);
+    expect(rows[0]!.firstElementChild!.textContent).toContain("Prop placement 1");
+
+    // A plain nested object is NOT a list and keeps its open default.
+    expect(form.element.querySelector<HTMLDetailsElement>('[data-accordion="propPlacements.0"]')!.open).toBe(false);
+  });
+
+  it("keeps opened groups open across the re-render an edit triggers, and reveals what New creates", () => {
+    const schema = z.object({ id: z.string(), sockets: z.array(z.object({ kind: z.string() })) });
+    const form = new SchemaFormGen({
+      schema,
+      value: { id: "ship.x", sockets: [{ kind: "hardpoint" }] },
+      configService: fakeConfigService(),
+      accordions: new AccordionState("", null),
+    });
+
+    const open = (selector: string): void => {
+      const box = form.element.querySelector<HTMLDetailsElement>(selector)!;
+      box.open = true;
+      box.dispatchEvent(new Event("toggle"));
+    };
+    open('[data-accordion="sockets"]');
+    open('[data-accordion="sockets[]"]');
+    open('[data-accordion="sockets.0"]');
+
+    const kind = form.element.querySelector<HTMLInputElement>('[name="sockets.0.kind"]')!;
+    kind.value = "emitter";
+    kind.dispatchEvent(new Event("change"));
+
+    // Without the remembered state the form would refold under the cursor.
+    expect(form.element.querySelector<HTMLDetailsElement>('[data-accordion="sockets"]')!.open).toBe(true);
+    expect(form.element.querySelector<HTMLDetailsElement>('[data-accordion="sockets.0"]')!.open).toBe(true);
+
+    // "New socket" must show the thing it just made.
+    form.element.querySelector<HTMLButtonElement>('[data-accordion="sockets"] > .ed-list-create [data-action="add"]')!.click();
+    expect(form.getValue().sockets).toHaveLength(2);
+    expect(form.element.querySelector<HTMLDetailsElement>('[data-accordion="sockets[]"]')!.open).toBe(true);
+    expect(form.element.querySelector<HTMLDetailsElement>('[data-accordion="sockets.1"]')!.open).toBe(true);
   });
 
   it("triggers configService.replace with the updated value on a valid edit", () => {
@@ -105,11 +193,13 @@ describe("SchemaFormGen", () => {
     const configService = fakeConfigService();
     const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService });
 
-    const addButton = Array.from(form.element.querySelectorAll("button")).find((b) => b.textContent === "Add")!;
+    // The generic "Add" is now a named create action at the top of the list.
+    const addButton = form.element.querySelector<HTMLButtonElement>('[data-accordion="tags"] [data-action="add"]')!;
+    expect(addButton.textContent).toBe("New tag");
     addButton.click();
     expect(form.getValue().tags).toEqual(["one", "two", ""]);
 
-    const removeButtons = Array.from(form.element.querySelectorAll("button")).filter((b) => b.textContent === "Remove");
+    const removeButtons = Array.from(form.element.querySelectorAll<HTMLButtonElement>('[data-action="remove"]'));
     // Remove the first row ("one").
     removeButtons[0]!.click();
     expect(form.getValue().tags).toEqual(["two", ""]);
@@ -310,6 +400,35 @@ describe("SchemaFormGen", () => {
     expect(select.tagName).toBe("SELECT");
     expect(Array.from(select.options).map((o) => o.value)).toEqual(["box", "sphere", "cone"]);
     expect(select.value).toBe("sphere");
+  });
+
+  it("keeps the shipped 129-prop arena folded instead of flooding the panel", () => {
+    // The arena that motivated this: lunar-rift ships 129 prop placements, and
+    // every one of them used to render as an open object form on selection.
+    const arena = JSON.parse(readFileSync(repoFile("content/arenas/lunar-rift.json"), "utf8")) as unknown;
+    const form = new SchemaFormGen({
+      schema: CONFIG_SCHEMAS.arena,
+      value: CONFIG_SCHEMAS.arena.parse(arena),
+      configService: fakeConfigService(),
+      accordions: new AccordionState("", null),
+    });
+
+    const props = form.element.querySelector<HTMLDetailsElement>('[data-accordion="propPlacements"]')!;
+    expect(props.open).toBe(false);
+    expect(props.firstElementChild!.querySelector(".ed-count")?.textContent).toBe("129");
+    expect(props.querySelector<HTMLButtonElement>('.ed-list-create [data-action="add"]')!.textContent).toBe("New prop placement");
+    expect(form.element.querySelector<HTMLDetailsElement>('[data-accordion="propPlacements[]"]')!.open).toBe(false);
+    // EVERY list on the arena tool follows the same rule — not just props.
+    const lists = Array.from(form.element.querySelectorAll<HTMLDetailsElement>("details.ed-list"));
+    expect(lists.length).toBeGreaterThan(3);
+    expect(lists.filter((box) => box.open)).toHaveLength(0);
+
+    // What is left open on sight is only small single-purpose forms (`bounds`,
+    // `sky`, …) — the useful defaults the fold was never meant to destroy.
+    const exposed = Array.from(form.element.querySelectorAll<HTMLDetailsElement>("details[open]"))
+      .filter((box) => !box.parentElement?.closest("details:not([open])"));
+    expect(exposed.every((box) => !box.classList.contains("ed-list"))).toBe(true);
+    expect(exposed.length).toBeLessThan(12);
   });
 
   it("edits arbitrary record keys through the JSON fallback and retains invalid text", () => {

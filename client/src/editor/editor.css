@@ -52,10 +52,10 @@
   z-index: 1000;
   display: grid;
   /*
-   * Two-level navigation: category row inside the top bar, tools of the active
-   * category in the row under it. The `viewport` cell is the authority on where
-   * the 3D canvas is inset to (EditorShell.applyViewportRect) — anything added
-   * to this grid above/beside it shrinks the canvas rather than covering it.
+   * Default grid for an editor root. Constellation replaces it wholesale via
+   * `.constellation-standalone` below; this stays as the fallback layout (and
+   * as the carrier of the shared `--ed-*` tokens, chrome colours and the
+   * pointer-events rule that every editor surface inherits).
    */
   grid-template-rows: var(--ed-topbar-h) auto 1fr;
   grid-template-columns: 1fr auto;
@@ -81,8 +81,30 @@
   pointer-events: auto;
   overflow: hidden;
 }
-.sa-editor.constellation-standalone .ed-topbar { grid-area: top; min-height: 56px; align-items: center; }
+.sa-editor.constellation-standalone .ed-topbar { grid-area: top; min-height: 56px; align-items: center; flex-wrap: wrap; row-gap: 4px; }
 .constellation-status { margin-left: auto; color: var(--ed-text-dim); font-family: ui-monospace, monospace; }
+
+/*
+ * The save cluster. Permanently in the top bar (never the scrolling footer),
+ * because an editor that cannot show whether your work is safe is an editor
+ * that loses it. Order: badge → Save → Download fallback → reason.
+ */
+/* Wraps rather than overflowing: on a phone the cluster stacks onto its own
+ * rows instead of sliding the Save button off the right edge. */
+.constellation-save { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 1 1 auto; flex-wrap: wrap; min-width: 0; }
+.constellation-dirty { flex: 0 1 auto; padding: 4px 8px; font: var(--ed-mono); border: 1px solid var(--ed-border-soft); border-radius: var(--ed-radius); white-space: nowrap; }
+.constellation-dirty[data-tone="clean"] { color: var(--ed-text-faint); }
+.constellation-dirty[data-tone="saved"] { color: #c9f7e0; background: rgba(70, 227, 155, 0.1); border-color: rgba(70, 227, 155, 0.35); }
+.constellation-dirty[data-tone="dirty"] { color: #ffe2b0; background: rgba(255, 178, 44, 0.12); border-color: rgba(255, 178, 44, 0.45); }
+.constellation-dirty[data-tone="dirty"]::before { content: "● "; color: var(--ed-warn, #ffb22c); }
+/* The reason rides beside the buttons while there is room and drops to its own
+ * row when there is not — it must stay readable rather than be truncated. */
+.constellation-save-hint { flex: 1 1 100%; max-width: 46ch; margin-left: auto; color: #ffe2b0; font-size: 11px; line-height: 1.25; text-align: right; }
+.constellation-save-hint[hidden] { display: none; }
+/* A disabled Save must still read as a control, not as chrome that vanished. */
+.constellation-save .ed-btn:disabled { opacity: 0.75; cursor: not-allowed; }
+/* Screen-reader-only outcome channel: save results, publishes, failures. */
+.constellation-announce { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .constellation-workspace { grid-area: work; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
 /*
  * Engine-style workspace: nav rail | list | inspector | viewport. The viewport
@@ -122,9 +144,9 @@
 
 /*
  * Viewport mode. The editor is no longer a page painted over the game — it is
- * chrome floating around a live scene, exactly like the F10 shell: the root
- * drops its gradient and its pointer capture, and each real panel takes both
- * back for itself so the transparent centre column reaches the canvas.
+ * chrome floating around a live scene: the root drops its gradient and its
+ * pointer capture, and each real panel takes both back for itself so the
+ * transparent centre column reaches the canvas.
  */
 .constellation-standalone[data-viewport="on"] { background: none; pointer-events: none; }
 .constellation-standalone[data-viewport="on"] > .ed-topbar,
@@ -133,6 +155,23 @@
 .constellation-standalone[data-viewport="on"] .constellation-form,
 .constellation-standalone[data-viewport="on"] .constellation-problems-dock,
 .constellation-standalone[data-viewport="on"] .constellation-actions { pointer-events: auto; background: var(--ed-panel); }
+
+/*
+ * Phone: the save cluster is the one thing in the top bar worth vertical space,
+ * so the wordmark goes and the status line drops below it. (iPad, the primary
+ * layout, is wide enough to keep both on one or two rows.)
+ *
+ * Every item is ordered explicitly. Ordering only some of them left `Exit` —
+ * the one destructive control up here — on its default `order: 0` and therefore
+ * FIRST, top-left, exactly where a thumb lands.
+ */
+@media (max-width: 700px) {
+  .sa-editor.constellation-standalone .ed-brand { display: none; }
+  .constellation-save { order: 1; }
+  .constellation-exit { order: 2; }
+  .constellation-status { order: 3; flex: 1 1 100%; margin-left: 0; text-align: right; }
+  .constellation-dirty { font-size: 11px; }
+}
 
 @media (max-width: 900px) {
   .constellation-workspace { grid-template: minmax(0, 1fr) auto / 1fr; }
@@ -999,6 +1038,42 @@
   background: rgba(255, 77, 94, 0.08);
 }
 
+/* ------------------------------------------------- folded list accordions --
+ *
+ * Built by `accordion.ts`. The outer disclosure is the field, the inner one is
+ * "List of …", and the create button sits between them so it is reachable one
+ * click after opening instead of past a scroll of expanded rows.
+ */
+
+.sa-editor .ed-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sa-editor .ed-count {
+  padding: 0 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--ed-text-dim);
+  background: rgba(87, 216, 255, 0.08);
+  border: 1px solid var(--ed-border-soft);
+  border-radius: 999px;
+}
+
+.sa-editor .ed-list > .ed-list-create {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.sa-editor .ed-list-empty {
+  margin: 4px 0;
+  color: var(--ed-text-faint);
+  font-size: 11px;
+}
+
 /* ------------------------------------ discriminated unions + record editors */
 
 /* The `type` picker of a discriminated union (win condition, boundary rule). */
@@ -1508,6 +1583,54 @@ body.sa-editor-open .game-screen {
   border-color: var(--ed-accent);
   color: var(--ed-accent);
   box-shadow: inset 0 0 12px rgba(87, 216, 255, .12);
+}
+
+/* ------------------------------------------------------------ viewport tools */
+
+/*
+ * The arena/ship tool rail, docked at the top of the form column rather than
+ * floating over the scene: the viewport cell is a quarter of a phone screen and
+ * the selection card already owns it. Groups follow the shared accordion
+ * vocabulary (`.ed-group`), so this only supplies the rail's own spacing.
+ */
+.sa-editor .ed-vptools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
+.sa-editor .ed-vptools-group {
+  background: rgba(4, 12, 20, 0.48);
+}
+
+.sa-editor .ed-vptools-group > .ed-layer-row,
+.sa-editor .ed-vptools-group > .ed-check,
+.sa-editor .ed-vptools-group > .ed-btn {
+  margin: 4px 8px;
+}
+
+.sa-editor .ed-vptools-group > .ed-btn {
+  display: block;
+  width: calc(100% - 16px);
+  text-align: left;
+}
+
+.sa-editor .ed-vptools-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sa-editor .ed-vptools-bar .ed-btn {
+  flex: 1 1 auto;
+}
+
+.sa-editor .ed-vptools-hint {
+  margin: 6px 8px;
+  color: var(--ed-text-faint);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .sa-editor .ed-apply-scope {
