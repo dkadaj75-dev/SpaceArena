@@ -41,6 +41,8 @@ export interface RelativeSteerLayout {
   deadzonePx: number;
   expo: number;
   mouseSensitivity: number;
+  /** Half-life (ms) of the mouse offset's spring back to center; 0 = hold forever. */
+  mouseCenterHalfLifeMs: number;
   originRadiusPx: number;
   currentRadiusPx: number;
   vectorWidthPx: number;
@@ -246,6 +248,11 @@ export const FLIGHT_HUD_DEFAULTS = {
     deadzonePx: 9,
     expo: 1.35,
     mouseSensitivity: 0.012,
+    // A touch drag ends by lifting the finger; a mouse never lifts. The
+    // accumulated offset springs back with this half-life, so a stationary
+    // mouse means "stop steering" on desktop the way a lifted finger does on
+    // touch. ~3 half-lives (~0.5s) to visually settle at center.
+    mouseCenterHalfLifeMs: 160,
     originRadiusPx: 7,
     currentRadiusPx: 12,
     vectorWidthPx: 2,
@@ -582,6 +589,7 @@ export function resolveFlightHudLayout(
       deadzonePx: (relativeSteer.deadzonePx ?? d.relativeSteer.deadzonePx) * scale,
       expo: relativeSteer.expo ?? d.relativeSteer.expo,
       mouseSensitivity: relativeSteer.mouseSensitivity ?? d.relativeSteer.mouseSensitivity,
+      mouseCenterHalfLifeMs: relativeSteer.mouseCenterHalfLifeMs ?? d.relativeSteer.mouseCenterHalfLifeMs,
       originRadiusPx: (relativeSteer.originRadiusPx ?? d.relativeSteer.originRadiusPx) * scale,
       currentRadiusPx: (relativeSteer.currentRadiusPx ?? d.relativeSteer.currentRadiusPx) * scale,
       vectorWidthPx: (relativeSteer.vectorWidthPx ?? d.relativeSteer.vectorWidthPx) * scale,

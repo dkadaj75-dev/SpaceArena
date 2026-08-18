@@ -221,3 +221,43 @@ describe("RelativeSteerInput", () => {
     canvas.remove();
   });
 });
+
+describe("desktop auto-center", () => {
+  it("a stationary mouse springs back to neutral while the drag stays live", () => {
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { frames.push(cb); return frames.length; });
+    const caf = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const { canvas, input } = mount();
+    canvas.dispatchEvent(pointer("pointerdown", { id: 1, pointerType: "mouse", button: 2, x: 100, y: 100 }));
+    document.dispatchEvent(pointer("pointermove", { id: 1, pointerType: "mouse", x: 160, y: 80, movementX: 60, movementY: -20 }));
+    expect(Math.abs(input.turn)).toBeGreaterThan(0);
+    const deflected = Math.abs(input.turn);
+
+    // ~2 s of frames with the mouse perfectly still: the offset decays through
+    // its 160 ms half-life and snaps to exact zero, but the drag stays live.
+    let now = performance.now();
+    for (let i = 0; i < 40 && frames.length; i++) { now += 50; frames.shift()!(now); }
+    expect(input.turn).toBe(0);
+    expect(input.pitchStick).toBe(0);
+    expect(input.active).toBe(true);
+
+    // Movement immediately deflects again — decay only wins while stationary.
+    document.dispatchEvent(pointer("pointermove", { id: 1, pointerType: "mouse", x: 220, y: 80, movementX: 60 }));
+    expect(Math.abs(input.turn)).toBeGreaterThanOrEqual(deflected * 0.5);
+    raf.mockRestore(); caf.mockRestore();
+  });
+
+  it("touch steering is untouched: offset holds while the finger rests", () => {
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { frames.push(cb); return frames.length; });
+    const { canvas, input } = mount();
+    canvas.dispatchEvent(pointer("pointerdown", { id: 7, pointerType: "touch", x: 100, y: 100 }));
+    document.dispatchEvent(pointer("pointermove", { id: 7, pointerType: "touch", x: 150, y: 100 }));
+    const held = input.turn;
+    expect(Math.abs(held)).toBeGreaterThan(0);
+    let now = performance.now();
+    for (let i = 0; i < 40 && frames.length; i++) { now += 50; frames.shift()!(now); }
+    expect(input.turn).toBe(held);
+    raf.mockRestore();
+  });
+});

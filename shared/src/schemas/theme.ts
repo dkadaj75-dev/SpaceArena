@@ -126,6 +126,13 @@ export const relativeSteerSchema = z.object({
   expo: z.number().positive().optional(),
   /** Normalized stick deflection added per desktop mouse-delta pixel. */
   mouseSensitivity: z.number().positive().optional(),
+  /**
+   * Desktop auto-center: half-life (ms) of the accumulated mouse offset. A
+   * finger lifting resets touch steering, but a mouse never "lifts" — so a
+   * stationary mouse lets the virtual stick spring back and steering stops.
+   * 0 disables and restores the old hold-forever behaviour.
+   */
+  mouseCenterHalfLifeMs: z.number().nonnegative().optional(),
   /** Radius of the floating origin marker. */
   originRadiusPx: z.number().positive().optional(),
   /** Radius of the marker at the current drag position. */

@@ -20,6 +20,9 @@ export class RelativeSteerInput {
   private dx = 0;
   private dy = 0;
   private enabled = true;
+  /** rAF handle of the desktop auto-center loop; null while no mouse drag is live. */
+  private centerRaf: number | null = null;
+  private centerLastTs = 0;
   private invertPitch = false;
   private mouseSensitivityMultiplier = 1;
   private touchSensitivityMultiplier = 1;
@@ -53,9 +56,42 @@ export class RelativeSteerInput {
         // Unsupported/denied synchronous implementations use the fallback.
       }
     }
+    if (ev.pointerType === "mouse") this.startAutoCenter();
     this.render();
     ev.preventDefault();
   };
+
+  /**
+   * Desktop steering parity with touch: lifting a finger resets the stick, but
+   * a mouse never lifts — so while a mouse drag is live, the accumulated
+   * offset decays exponentially toward center. Moving the mouse out-pushes the
+   * decay; a stationary mouse settles to neutral and steering stops.
+   */
+  private startAutoCenter(): void {
+    if (this.centerRaf !== null) return;
+    this.centerLastTs = performance.now();
+    const tick = (ts: number): void => {
+      this.centerRaf = null;
+      if (this.pointerId === null || this.pointerType !== "mouse") return;
+      const halfLife = this.layout.relativeSteer.mouseCenterHalfLifeMs;
+      if (halfLife > 0 && (this.dx !== 0 || this.dy !== 0)) {
+        const factor = Math.pow(0.5, (ts - this.centerLastTs) / halfLife);
+        this.dx *= factor;
+        this.dy *= factor;
+        // Snap the sub-pixel tail so axes read exactly zero at rest.
+        if (Math.hypot(this.dx, this.dy) < 0.5) { this.dx = 0; this.dy = 0; }
+        this.updateAxes();
+        this.render();
+      }
+      this.centerLastTs = ts;
+      this.centerRaf = requestAnimationFrame(tick);
+    };
+    this.centerRaf = requestAnimationFrame(tick);
+  }
+
+  private stopAutoCenter(): void {
+    if (this.centerRaf !== null) { cancelAnimationFrame(this.centerRaf); this.centerRaf = null; }
+  }
 
   private readonly onPointerMove = (ev: PointerEvent): void => {
     if (ev.pointerId !== this.pointerId) return;
@@ -217,6 +253,7 @@ export class RelativeSteerInput {
       }
     }
     this.captureTarget = null;
+    this.stopAutoCenter();
     if (exitPointerLock && document.pointerLockElement === this.surface) {
       document.exitPointerLock?.();
     }
