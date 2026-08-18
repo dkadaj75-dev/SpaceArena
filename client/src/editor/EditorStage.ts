@@ -36,14 +36,16 @@ export class EditorStage {
     const root = new TransformNode("editorStageRoot", this.scene);
     this.root = root;
 
+    // Kept close to HangarBay's exposure (key 0.7): fill+key+IBL stack, and the
+    // first cut (0.65 + 1.4) blew textured hulls out to white.
     const fill = new HemisphericLight("editorStageLight", new Vector3(0.3, 1, 0.2), this.scene);
-    fill.intensity = 0.65;
+    fill.intensity = 0.4;
     fill.diffuse = new Color3(0.95, 0.97, 1);
     fill.groundColor = new Color3(0.18, 0.22, 0.3);
     fill.parent = root;
 
     const key = new DirectionalLight("editorStageKey", new Vector3(-0.45, -0.8, -0.4), this.scene);
-    key.intensity = 1.4;
+    key.intensity = 0.75;
     key.diffuse = new Color3(1, 0.96, 0.9);
     key.specular = new Color3(1, 0.98, 0.95);
     key.parent = root;

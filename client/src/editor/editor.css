@@ -243,7 +243,7 @@
 }
 
 /* Level 1: category buttons. Wider hit area and quieter than an active tool. */
-.sa-editor .ed-group {
+.sa-editor .ed-nav-group {
   appearance: none;
   flex: 0 0 auto;
   height: var(--ed-control-h);
@@ -263,13 +263,13 @@
   transition: color 0.12s, background 0.12s, border-color 0.12s;
 }
 
-.sa-editor .ed-group:hover {
+.sa-editor .ed-nav-group:hover {
   color: var(--ed-text);
   background: rgba(24, 38, 60, 0.85);
   border-color: var(--ed-border-soft);
 }
 
-.sa-editor .ed-group.is-active {
+.sa-editor .ed-nav-group.is-active {
   color: var(--ed-accent);
   background: var(--ed-accent-faint);
   border-color: var(--ed-accent-dim);
@@ -1338,7 +1338,7 @@
   }
 
   .sa-editor .ed-tab,
-  .sa-editor .ed-group,
+  .sa-editor .ed-nav-group,
   .sa-editor button,
   .sa-editor .ed-btn,
   .sa-editor .ed-status {
@@ -1548,7 +1548,7 @@ body.sa-editor-open .game-screen {
 
 @media (pointer: coarse) {
   .sa-editor .ed-tab,
-  .sa-editor .ed-group,
+  .sa-editor .ed-nav-group,
   .sa-editor button,
   .sa-editor .ed-btn,
   .sa-editor .ed-status { min-height: 44px; min-width: 44px; }

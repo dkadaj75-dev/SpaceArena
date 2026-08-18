@@ -278,7 +278,7 @@ export class EditorShell {
     for (const name of this.groupNames()) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "ed-group";
+      button.className = "ed-nav-group";
       button.dataset.group = name;
       button.textContent = name;
       // Picking a category shows its first tool — a category is never a
@@ -461,7 +461,7 @@ export class EditorShell {
     this.group = entry.group;
     if (this.title) this.title.textContent = name;
     if (this.crumb) this.crumb.textContent = entry.group;
-    for (const button of this.groupsBar?.querySelectorAll<HTMLElement>(".ed-group") ?? []) {
+    for (const button of this.groupsBar?.querySelectorAll<HTMLElement>(".ed-nav-group") ?? []) {
       button.classList.toggle("is-active", button.dataset.group === entry.group);
       button.setAttribute("aria-selected", String(button.dataset.group === entry.group));
     }

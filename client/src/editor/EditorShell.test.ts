@@ -77,10 +77,10 @@ describe("EditorShell chrome", () => {
     const { shell, dispose } = openShell();
     shells.push(dispose);
     const root = document.getElementById("space-arena-editor")!;
-    const groups = [...root.querySelectorAll<HTMLElement>(".ed-group")].map((b) => b.textContent);
+    const groups = [...root.querySelectorAll<HTMLElement>(".ed-nav-group")].map((b) => b.textContent);
     expect(groups).toEqual(["World", "Ships", "Content", "Balance", "System"]);
     // Problems lives in System, so that category — not the first one — is active.
-    expect(root.querySelector(".ed-group.is-active")?.textContent).toBe("System");
+    expect(root.querySelector(".ed-nav-group.is-active")?.textContent).toBe("System");
     const tools = [...root.querySelectorAll<HTMLElement>(".ed-toolrow .ed-tab")].map((b) => b.textContent);
     expect(tools).toEqual(["Theme", "Quality", "Console", "Problems"]);
     expect(root.querySelector(".ed-toolrow .ed-tab.is-active")?.textContent).toBe("Problems");
@@ -116,10 +116,10 @@ describe("EditorShell chrome", () => {
     shell.toggle();
     const root = document.getElementById("space-arena-editor")!;
     const groupOf = (tool: string): string | undefined =>
-      [...root.querySelectorAll<HTMLElement>(".ed-group")]
+      [...root.querySelectorAll<HTMLElement>(".ed-nav-group")]
         .map((b) => b.textContent ?? "")
         .find((group) => {
-          (root.querySelector<HTMLElement>(`.ed-group[data-group="${group}"]`))?.click();
+          (root.querySelector<HTMLElement>(`.ed-nav-group[data-group="${group}"]`))?.click();
           return [...root.querySelectorAll<HTMLElement>(".ed-toolrow .ed-tab")].some((t) => t.textContent === tool);
         });
     expect(groupOf("Widgets")).toBe("World");

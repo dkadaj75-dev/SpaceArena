@@ -885,14 +885,33 @@ export class ShipManager implements EditorPanel {
     const rect = canvas.getBoundingClientRect();
     const rw = engine.getRenderWidth();
     const rh = engine.getRenderHeight();
+    // Project every visible label first, then de-clutter: with the ship small
+    // on screen every socket projects into the same few pixels and the labels
+    // pile into an unreadable blob. Stack colliders downward instead, and keep
+    // the selected socket's label on top at full strength.
+    const placed: { index: number; label: HTMLDivElement; x: number; y: number }[] = [];
     for (const [index, label] of this.labels) {
       const marker = this.markers.get(index);
       if (!marker) continue;
       const p = Vector3.Project(marker.getAbsolutePosition(), Matrix.Identity(), this.scene.getTransformMatrix(), cam.viewport.toGlobal(rw, rh));
       const onScreen = p.z > 0 && p.z < 1 && p.x >= 0 && p.x <= rw && p.y >= 0 && p.y <= rh;
       label.style.display = onScreen ? "block" : "none";
-      label.style.left = `${rect.left + (p.x / rw) * rect.width}px`;
-      label.style.top = `${rect.top + (p.y / rh) * rect.height}px`;
+      if (!onScreen) continue;
+      placed.push({ index, label, x: rect.left + (p.x / rw) * rect.width, y: rect.top + (p.y / rh) * rect.height });
+    }
+    placed.sort((a, b) => a.y - b.y || a.x - b.x);
+    const ROW = 15;
+    for (let i = 0; i < placed.length; i++) {
+      const item = placed[i]!;
+      for (let j = 0; j < i; j++) {
+        const other = placed[j]!;
+        if (Math.abs(other.x - item.x) < 110 && Math.abs(other.y - item.y) < ROW) item.y = other.y + ROW;
+      }
+      const selected = item.index === this.selectedIndex;
+      item.label.style.left = `${item.x}px`;
+      item.label.style.top = `${item.y}px`;
+      item.label.style.opacity = selected ? "1" : "0.62";
+      item.label.style.zIndex = selected ? "1000" : "999";
     }
   }
 
