@@ -315,6 +315,28 @@ export class ShipManager implements EditorPanel {
     yawInput.type = "number";
     yawInput.step = "0.1";
     yawInput.value = String(ship.render.modelRotationY ?? 0);
+    // Scale/yaw commit THEMSELVES when a model is already set — "Apply" is only
+    // needed to swap the model path. Without this, editing the number and
+    // pressing Save wrote the untouched config (the "scale does not work" trap).
+    const commitTransform = (): void => {
+      const current = this.ship();
+      if (!current?.render.model) return;
+      const scale = Number(scaleInput.value);
+      const yaw = Number(yawInput.value);
+      if (!Number.isFinite(scale) || scale <= 0 || !Number.isFinite(yaw)) return;
+      if (current.render.modelScale === scale && (current.render.modelRotationY ?? 0) === yaw) return;
+      const render = { ...current.render, modelScale: scale, modelRotationY: yaw };
+      // Load the re-keyed master first so the preview swap is immediate.
+      this.pendingModelApply = this.assets.ensureModel(render).then(() => {
+        this.replace({ ...current, render });
+        this.pendingModelApply = null;
+      });
+    };
+    for (const input of [scaleInput, yawInput]) {
+      input.addEventListener("change", commitTransform);
+      // Spinner/scroll steps emit `input` with no inputType; commit them live.
+      input.addEventListener("input", (ev) => { if (!(ev as InputEvent).inputType) commitTransform(); });
+    }
 
     const apply = button("Apply", () => {
       const path = pathInput.value.trim();
@@ -819,7 +841,13 @@ export class ShipManager implements EditorPanel {
     // the hangar preloads it; a cold editor open has not) — otherwise it falls
     // back to the procedural recipe. Kick the real load and rebuild once, per
     // ship, when it lands; a failed load stays procedural without retry loops.
-    const hullKey = `${ship.id}:${ship.render.model ?? ""}`;
+    //
+    // The key must carry scale AND rotation: the registry caches masters under
+    // model+scale+rotation (`modelKey`), so editing `modelScale` in the form
+    // creates a brand-new cache entry. Keying the kick by path alone meant the
+    // first load claimed the path forever and every later scale edit rendered a
+    // stale mesh — the "scale number changes but the model doesn't" bug.
+    const hullKey = `${ship.id}:${ship.render.model ?? ""}:s${ship.render.modelScale ?? 1}:r${ship.render.modelRotationY ?? 0}`;
     if (ship.render.model && !this.hullLoadKicked.has(hullKey)) {
       this.hullLoadKicked.add(hullKey);
       void this.assets.ensureModel(ship.render).then((master) => {

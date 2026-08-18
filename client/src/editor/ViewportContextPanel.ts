@@ -130,6 +130,13 @@ export class ViewportContextPanel {
       input.className = "ed-input ed-num";
       input.value = String(trimNumber(field.value));
       input.addEventListener("change", () => { const value = Number(input.value); if (Number.isFinite(value)) field.onCommit(value); });
+      // Spinner/scroll steps (input events with no inputType) commit at once —
+      // some engines defer `change` to blur for stepped number values.
+      input.addEventListener("input", (ev) => {
+        if ((ev as InputEvent).inputType) return;
+        const value = Number(input.value);
+        if (Number.isFinite(value)) field.onCommit(value);
+      });
       if (field.key) this.numbers.set(field.key, input);
       row.append(input);
     } else if (field.kind === "select") {

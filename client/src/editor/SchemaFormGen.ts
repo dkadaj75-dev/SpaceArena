@@ -304,6 +304,17 @@ export class SchemaFormGen<T> {
 
     input.name = name;
     input.addEventListener("change", () => this.change(path, inputValue(input, schema)));
+    // Spinner arrows / scroll steps on a number input emit `input` events with
+    // NO `inputType` (typing carries one, e.g. "insertText"). Some engines only
+    // fire `change` on blur for stepped values, so the model would lag every
+    // arrow click until focus left the field — commit steps immediately, and
+    // leave typing to the `change` commit above.
+    if (input instanceof HTMLInputElement && input.type === "number") {
+      input.addEventListener("input", (ev) => {
+        if ((ev as InputEvent).inputType) return;
+        this.change(path, inputValue(input, schema));
+      });
+    }
 
     if (input instanceof HTMLInputElement && input.type === "checkbox") {
       // Toggle switch: the visual track is a sibling styled off :checked.
