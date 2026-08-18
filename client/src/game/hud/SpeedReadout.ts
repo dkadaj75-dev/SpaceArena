@@ -97,10 +97,29 @@ export class SpeedReadout {
    * Sample actual speed at 10 Hz. `nowMs` is the render-loop clock; elapsed
    * values are simulation seconds and therefore independent of render FPS.
    */
-  update(cur: ShipSnapshot, prev: ShipSnapshot, elapsedDeltaSec: number, nowMs: number): void {
+  /** Ship pose at the last written sample: the measurement window's anchor. */
+  private anchor: { x: number; y: number; z: number; elapsed: number } | null = null;
+
+  /**
+   * Speed is measured over the WHOLE 10 Hz display window rather than one
+   * frame pair. Online, the own ship's predicted position advances in fixed
+   * 30 Hz steps while `elapsed` interpolates smoothly per frame — a per-frame
+   * quotient therefore flaps between 0 and ~2x the true speed depending on
+   * whether a predict tick landed inside the frame. Across a 100 ms window
+   * (≥3 fixed steps) the quantization averages out for every session type.
+   */
+  update(cur: ShipSnapshot, elapsedSec: number, nowMs: number): void {
     if (nowMs - this.lastUpdateMs < UPDATE_INTERVAL_MS) return;
     this.lastUpdateMs = nowMs;
-    const speedMps = Math.max(0, Math.round(snapshotSpeedMps(cur, prev, elapsedDeltaSec) * this.metersPerUnit));
+    const anchor = this.anchor;
+    this.anchor = { x: cur.pos.x, y: cur.pos.y, z: cur.pos.z, elapsed: elapsedSec };
+    if (!anchor) return;
+    const windowSec = elapsedSec - anchor.elapsed;
+    // A hold (interpolation buffer starved) or a rewound clock (rematch) gives
+    // no usable window — keep showing the last measured speed rather than 0.
+    if (!(windowSec > 0)) return;
+    const dist = Math.hypot(cur.pos.x - anchor.x, cur.pos.y - anchor.y, cur.pos.z - anchor.z);
+    const speedMps = Math.max(0, Math.round((dist / windowSec) * this.metersPerUnit));
     if (speedMps === this.lastSpeedMps) return;
     this.lastSpeedMps = speedMps;
     this.value.textContent = `${speedMps} m/s`;

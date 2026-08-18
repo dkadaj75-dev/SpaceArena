@@ -133,8 +133,22 @@ export const tuningSchema = z.object({
   beamFadeMs: z.number().positive().optional(),
   /** Client render: per-kind projectile mesh pool size (no per-shot allocations). */
   projectilePoolSize: z.number().int().positive().optional(),
-  /** Client netcode: milliseconds rendered behind the newest server patch. */
+  /**
+   * Client netcode: milliseconds rendered behind the newest server patch, as a
+   * MINIMUM. The client widens past this on its own when the observed patch
+   * cadence needs it (`client/src/net/interpolation.ts`), so this is the calm-
+   * network floor, not the whole story. Default 100.
+   */
   netRenderDelayMs: z.number().nonnegative().optional(),
+  /**
+   * Client netcode: hard ceiling on that adaptive widening, in ms. Raising it
+   * buys smoothness on a bursty link (phone Wi-Fi power-save batches receives
+   * into 100-300 ms clumps) at the cost of showing enemies further into the
+   * past; lowering it keeps enemies current and lets the buffer starve instead.
+   * Clamped up to `netRenderDelayMs` — a ceiling below the floor is not a
+   * setting. Default 350.
+   */
+  netRenderDelayMaxMs: z.number().nonnegative().optional(),
   /** Client netcode: exponential local correction rate, per second. */
   netCorrectionRate: z.number().positive().optional(),
   /** Server: max client orders/sec accepted per player before drop + abuse count. */

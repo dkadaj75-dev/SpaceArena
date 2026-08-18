@@ -45,7 +45,15 @@ import { GameSession } from "../game/GameSession.js";
 import { KineticTracerField } from "./kineticTracers.js";
 import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
 import type { SeatReservation } from "colyseus.js";
-import { adaptiveRenderDelay, bracket, hermitePosition, timeBasedPull } from "./interpolation.js";
+import {
+  adaptiveRenderDelay,
+  bracket,
+  createSnapshotClock,
+  hermitePosition,
+  RENDER_DELAY_CEIL_MS,
+  stampSnapshot,
+  timeBasedPull,
+} from "./interpolation.js";
 
 const log = createLogger("NetGameSession");
 const MAX_SNAPSHOTS = 32;
@@ -407,6 +415,15 @@ export class NetGameSession extends GameSession {
    */
   private readonly arrivalGaps: number[] = [];
   private lastPatchAt: number | null = null;
+  /** Hard ceiling on the adaptive render delay; `netRenderDelayMaxMs` overrides it. */
+  private readonly renderDelayCeil: number;
+  /**
+   * Maps the server's `matchTimer` onto the local playback timeline, so the
+   * buffer is spaced by SIMULATED time rather than by receive time. See
+   * {@link stampSnapshot} — this is what stops remote hulls surging 1.33x/0.67x
+   * at 10 Hz because the room ticks at 30 Hz and patches at 20 Hz.
+   */
+  private readonly snapClock = createSnapshotClock();
   private readonly correctionRate: number;
   private readonly shipIds = new Map<EntityId, string>();
   private readonly displayNames = new Map<EntityId, string>();
@@ -519,6 +536,9 @@ export class NetGameSession extends GameSession {
     this.pitchTuning = pitchTuningOf(tuning);
     this.renderDelayFloor = tuning?.netRenderDelayMs ?? 100;
     this.renderDelay = this.renderDelayFloor;
+    // Never below the floor: a ceiling under the authored delay would make the
+    // adaptive delay fight the designer's own minimum every frame.
+    this.renderDelayCeil = Math.max(this.renderDelayFloor, tuning?.netRenderDelayMaxMs ?? RENDER_DELAY_CEIL_MS);
     this.correctionRate = tuning?.netCorrectionRate ?? 12;
     this.fakeLagMs = Number(new URLSearchParams(location.search).get("fakelag")) || 0;
   }
@@ -780,6 +800,23 @@ export class NetGameSession extends GameSession {
     const snap = this.decode(state);
     const now = performance.now();
     this.latest = snap;
+    // The buffer is spaced by the SERVER's clock, not by receive time — see
+    // `stampSnapshot`. A reset means the mapping changed under us (the match went
+    // live and `matchTimer` left 0; a reconnect; a restart), so everything already
+    // buffered is filed against a timeline that no longer exists and has to go.
+    const stamp = stampSnapshot(this.snapClock, snap.elapsed * 1000, now);
+    if (stamp.reset) {
+      this.snapshots.length = 0;
+      // The live render delay goes back to the authored floor with it. It is a
+      // measurement OF the discarded timeline — and specifically, a lobby holds
+      // `matchTimer` at 0 for its whole length, which leaves the buffer's newest
+      // timestamp minutes behind `now` and pegs the shortfall term at the ceiling.
+      // Carrying that into the match would open every round with ~350 ms of
+      // display latency, bled off at 15 ms/s: sixteen seconds of lag for nothing.
+      // `arrivalGaps` deliberately survives — it measures the network, which a
+      // clock reset says nothing about.
+      this.renderDelay = this.renderDelayFloor;
+    }
     if (this.snapshots.length === 0) {
       // First authoritative state: replace the inherited local-sim snapshot
       // immediately so consumers built right after join() see server entities,
@@ -787,7 +824,7 @@ export class NetGameSession extends GameSession {
       this.previous = snap;
       this.current = snap;
     }
-    this.snapshots.push({ time: now, snapshot: snap });
+    this.snapshots.push({ time: stamp.timeMs, snapshot: snap });
     if (this.snapshots.length > MAX_SNAPSHOTS) this.snapshots.shift();
     // Feed the adaptive render delay (see `renderAt`). Same ring size as the
     // snapshot buffer: ~1.6 s of history at the nominal patch rate, enough to
@@ -815,7 +852,21 @@ export class NetGameSession extends GameSession {
     // delay leaves the bracket dry the moment arrivals burst past it, and a dry
     // bracket is a remote ship frozen at the newest snapshot until the next
     // patch shoves it forward. See adaptiveRenderDelay for the measurements.
-    this.renderDelay = adaptiveRenderDelay(this.renderDelay, this.arrivalGaps, this.renderDelayFloor, dt);
+    //
+    // The SHORTFALL is the closed-loop half of that: how far this frame's render
+    // point has actually overrun the newest buffered sample, measured rather than
+    // predicted. It is the direct signal that the delay is too tight, and it
+    // reads zero whenever the buffer is healthy.
+    const newest = this.snapshots.length > 0 ? this.snapshots[this.snapshots.length - 1]!.time : null;
+    const shortfall = newest === null ? 0 : Math.max(0, now - this.renderDelay - newest);
+    this.renderDelay = adaptiveRenderDelay(
+      this.renderDelay,
+      this.arrivalGaps,
+      this.renderDelayFloor,
+      dt,
+      this.renderDelayCeil,
+      shortfall,
+    );
     const b = bracket(this.snapshots, now - this.renderDelay);
     if (!b) return;
     const [a, z, t] = b;
@@ -1202,9 +1253,60 @@ export function interpolate(
       heading: lerpFrame.heading,
       pitch: lerpFrame.pitch,
       up: { x: lerpFrame.up.x, y: lerpFrame.up.y, z: lerpFrame.up.z },
-      modules: s.modules.map((m) => ({ ...m })),
+      // Only the LOCAL ship's modules are ever written to on a rendered frame
+      // (`applyPendingToggles` overlays the optimistic deploy/retract state), so
+      // only that one needs defensive copies. Cloning every remote ship's
+      // modules as well cost ~4 short-lived objects per remote hull per DRAWN
+      // frame — several thousand a second whose only job was to be collected.
+      modules: s.id === localPlayerId ? s.modules.map((m) => ({ ...m })) : s.modules,
     };
   });
   const elapsed = a.snapshot.elapsed + (b.snapshot.elapsed - a.snapshot.elapsed) * t;
-  return { ...b.snapshot, elapsed, ships };
+  return {
+    ...b.snapshot,
+    elapsed,
+    ships,
+    projectiles: lerpPositions(a.snapshot.projectiles, b.snapshot.projectiles, t),
+    decoys: lerpPositions(a.snapshot.decoys, b.snapshot.decoys, t),
+    flags: lerpPositions(a.snapshot.flags, b.snapshot.flags, t),
+  };
+}
+
+/**
+ * Position-lerp one entity list against its counterpart in the older snapshot,
+ * matched by id.
+ *
+ * Ships had this and nothing else did: `projectiles`, `decoys` and `flags` came
+ * off the newer snapshot verbatim. Offline that is invisible, because the
+ * renderer blends the pair itself with the loop's alpha — but an online session
+ * hands the renderer `alpha = 1` (it has already resampled for this frame, see
+ * `sampleForRender`), so verbatim meant those three STEPPED at the 20 Hz patch
+ * rate while every hull around them moved smoothly. Missiles were the loudest:
+ * `EntityView.syncProjectiles` poses a missile along its frame-to-frame
+ * displacement, which was zero on ~2 frames in 3 and a whole patch-step on the
+ * rest, so the nose snapped between the velocity pose and the flat replicated
+ * heading several times a second. A carried CTF flag showed it too, jittering
+ * against the smoothly-drawn hull carrying it.
+ *
+ * Entities with no counterpart in the older snapshot (a missile launched inside
+ * this segment) are passed through BY REFERENCE, as is the whole list at `t = 1`:
+ * nothing mutates these three on a rendered frame — only ships are written to —
+ * so sharing is free, and the alternative is an allocation per shot per frame.
+ */
+function lerpPositions<T extends { id: number; pos: { x: number; y: number; z: number } }>(
+  from: readonly T[],
+  to: readonly T[],
+  t: number,
+): T[] {
+  if (t >= 1 || to.length === 0) return to as T[];
+  const out: T[] = new Array(to.length);
+  for (let i = 0; i < to.length; i++) {
+    const s = to[i]!;
+    let p: T | undefined;
+    for (let j = 0; j < from.length; j++) if (from[j]!.id === s.id) { p = from[j]!; break; }
+    out[i] = p
+      ? { ...s, pos: { x: p.pos.x + (s.pos.x - p.pos.x) * t, y: p.pos.y + (s.pos.y - p.pos.y) * t, z: p.pos.z + (s.pos.z - p.pos.z) * t } }
+      : s;
+  }
+  return out;
 }

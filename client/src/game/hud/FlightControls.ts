@@ -364,7 +364,7 @@ export class FlightControls {
     this.updateReticle(cur, prev, alpha, ship);
     this.updateEnemyArrows(cur, prev, alpha, ship);
     const prevShip = findShip(prev, this.playerId) ?? ship;
-    this.speedReadout.update(ship, prevShip, cur.elapsed - prev.elapsed, nowMs);
+    this.speedReadout.update(ship, cur.elapsed, nowMs);
   }
 
   /** Zone circle + target bracket for this frame. */

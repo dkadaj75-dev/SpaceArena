@@ -6,17 +6,45 @@ export function lerpHeading(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
+/**
+ * Phase of `renderTime` inside the segment `[a, b]`, clamped to 0..1.
+ *
+ * A ZERO-LENGTH segment answers 1 (the newer sample) rather than dividing. The
+ * playback timeline is no longer the strictly-increasing local receive clock
+ * (see {@link stampSnapshot}), so two samples CAN share an instant — a server
+ * that missed a sim tick republishes the same `matchTimer` — and a naive divide
+ * there produces NaN, which propagates straight into every mesh position.
+ */
+function phase(aTime: number, bTime: number, renderTime: number): number {
+  const span = bTime - aTime;
+  if (!(span > 0)) return 1;
+  return Math.max(0, Math.min(1, (renderTime - aTime) / span));
+}
+
 export function bracket<T extends { time: number }>(items: readonly T[], renderTime: number): [T, T, number] | null {
   if (!items.length) return null;
   if (items.length === 1 || renderTime <= items[0]!.time) return [items[0]!, items[0]!, 0];
   for (let i = 1; i < items.length; i++) {
     const b = items[i]!;
     const a = items[i - 1]!;
-    if (renderTime <= b.time) return [a, b, Math.max(0, Math.min(1, (renderTime - a.time) / (b.time - a.time)))];
+    if (renderTime <= b.time) return [a, b, phase(a.time, b.time, renderTime)];
   }
+  // DRY BRACKET: the render point has overrun the newest sample. Hold on that
+  // sample (t = 1) — never extrapolate, and above all never REWIND.
+  //
+  // This branch used to answer `(renderTime − last.time) / interval` clamped to
+  // 0..1, which is the phase measured from the WRONG end of the pair it returns.
+  // One frame before the overrun the loop above answers ≈1 and the ship is drawn
+  // at `last`; one frame after, this line answers ≈0 and the ship is drawn at
+  // `prev` — a teleport BACKWARD by a whole segment (33–67 ms of travel, ~4 units
+  // at cruise), followed by a real-time replay of the segment it had already
+  // flown. Every momentary starve therefore cost a visible rewind-and-repeat
+  // rather than the freeze the buffer is supposed to degrade to. Clamping is the
+  // honest failure: the newest thing we know is where the ship was, so draw it
+  // there until something newer lands.
   const last = items[items.length - 1]!;
   const prev = items[items.length - 2]!;
-  return [prev, last, Math.min(1, Math.max(0, (renderTime - last.time) / (last.time - prev.time)))];
+  return [prev, last, 1];
 }
 
 export function decayCorrection(offset: number, dtSeconds: number, rate: number, snapDistance = 3): number {
@@ -191,20 +219,206 @@ export const WIDEN_MS_PER_SECOND = 120;
 const NARROW_MS_PER_SECOND = 15;
 const HEADROOM_PATCHES = 2;
 
+/**
+ * `shortfallMs` closes the loop. The p90 target above is OPEN loop: it predicts
+ * the delay the arrival cadence should need. `shortfallMs` is the delay the last
+ * frame actually MISSED BY — how far `now − delay` overran the newest playback
+ * timestamp — measured on the very quantity the buffer exists to protect. Any
+ * frame that starved raises the target by exactly its own shortfall, so a
+ * cadence the p90 estimate does not describe (a duplicated `matchTimer`, a
+ * server tick lost to GC, a burst the ring has already forgotten) still widens
+ * the delay instead of waiting for the estimator to notice. Zero on a healthy
+ * frame, which leaves the tuned open-loop behaviour untouched.
+ */
 export function adaptiveRenderDelay(
   currentMs: number,
   arrivalGapsMs: readonly number[],
   floorMs: number,
   dtSeconds: number,
   ceilMs = RENDER_DELAY_CEIL_MS,
+  shortfallMs = 0,
 ): number {
   let target = floorMs;
   if (arrivalGapsMs.length >= 4) {
     const sorted = [...arrivalGapsMs].sort((a, b) => a - b);
     const p90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))]!;
-    target = Math.min(ceilMs, Math.max(floorMs, p90 * HEADROOM_PATCHES));
+    target = Math.max(floorMs, p90 * HEADROOM_PATCHES);
   }
+  if (shortfallMs > 0) target = Math.max(target, currentMs + shortfallMs);
+  target = Math.min(ceilMs, Math.max(floorMs, target));
   const dt = Math.max(0, dtSeconds);
   if (target > currentMs) return Math.min(target, currentMs + WIDEN_MS_PER_SECOND * dt);
   return Math.max(target, currentMs - NARROW_MS_PER_SECOND * dt);
+}
+
+/* ------------------------------------------------------------------------- *
+ * Snapshot playback clock
+ * ------------------------------------------------------------------------- */
+
+/**
+ * State of the map from SERVER time to the local playback timeline. Plain data
+ * and mutated in place: it is touched once per patch (20 Hz), and keeping it
+ * inspectable is what lets the drift control be tested rather than described.
+ */
+export interface SnapshotClockState {
+  /** `playback = serverMs + offsetMs`. Slewed, never stepped. */
+  offsetMs: number;
+  /** Recent `arrival − serverMs` observations; the MINIMUM is the honest offset. */
+  readonly instants: number[];
+  lastServerMs: number;
+  lastPlaybackMs: number;
+  seeded: boolean;
+}
+
+export interface SnapshotStamp {
+  /** Timestamp to file this snapshot under on the interpolation timeline. */
+  timeMs: number;
+  /** True when the mapping was (re)seeded — buffered samples are now stale. */
+  reset: boolean;
+}
+
+/** How many `arrival − server` observations the offset estimate looks back over. */
+const CLOCK_WINDOW = 32;
+/**
+ * Offset error that stops being drift and starts being a different clock: a
+ * match going live (`matchTimer` leaves 0 after a lobby of any length), a
+ * reconnect, a server restart. Chosen just above {@link RENDER_DELAY_CEIL_MS} —
+ * an error the render delay could still absorb is one worth slewing out rather
+ * than resetting for, and anything larger cannot be absorbed at all.
+ */
+export const SNAPSHOT_CLOCK_RESET_MS = 400;
+/**
+ * Ceiling on how much of a segment the drift correction may eat, as a fraction
+ * of that segment. The correction is applied by moving one sample's timestamp,
+ * which stretches or squeezes the segment ending there — i.e. it IS a playback
+ * speed error, the exact artefact this clock exists to remove. At 3% of a 50 ms
+ * segment that is 1.5 ms per patch, ~30 ms/s of authority: comfortably more than
+ * the ~1-2% by which a fixed-`dt` server sim clock drifts against wall time, and
+ * far below the ~10% speed error an eye starts to resolve on a moving hull.
+ */
+const CLOCK_SLEW_FRACTION = 0.03;
+/** Minimum spacing forced between two playback timestamps (see {@link phase}). */
+const MIN_SEGMENT_MS = 1;
+
+export function createSnapshotClock(): SnapshotClockState {
+  return { offsetMs: 0, instants: [], lastServerMs: 0, lastPlaybackMs: 0, seeded: false };
+}
+
+/**
+ * Place one snapshot on the interpolation timeline, using the SERVER's own clock
+ * for its spacing and the local clock only for its alignment.
+ *
+ * ## Why arrival time is the wrong timeline
+ *
+ * `ArenaRoom` steps the sim at 30 Hz (`SIM_TICK_RATE`) and broadcasts patches at
+ * 20 Hz (`PATCH_RATE_MS = 50`). Those are two independent timers, so a patch
+ * carries whichever sim tick was the most recent when it fired: consecutive
+ * patches are ONE tick apart (33.3 ms of simulated travel) and then TWO
+ * (66.7 ms), alternating, forever, on a perfect network.
+ *
+ * Stamping those samples with their local ARRIVAL time — uniform 50 ms — plays
+ * 66.7 ms of travel back over 50 ms and then 33.3 ms of travel over 50 ms. Every
+ * remote hull therefore renders at 1.33x its true speed, then 0.67x, ten times a
+ * second, on LAN, on localhost, at any frame rate, with a perfectly full buffer.
+ * A 2:1 sawtooth in velocity is exactly what "janky" describes, and no amount of
+ * buffer depth, C1 curve fitting or render-delay adaptation can remove it,
+ * because all three faithfully interpolate a timeline that is itself wrong.
+ * (`renderPacing.test.ts` could not see it either: it modelled the server as
+ * sampling the world every 50 ms, which is the assumption at fault.)
+ *
+ * `snapshot.elapsed` is `matchTimer`, already on the wire, already frozen into
+ * the field contract — the sim's own accumulated time, advancing by exactly one
+ * `FIXED_DT` per tick. Spacing samples by THAT restores true playback speed.
+ *
+ * ## Why the offset has to be controlled rather than measured once
+ *
+ * `offsetMs` aligns the two clocks; it cannot simply be latched at join. The
+ * server advances `elapsed` by a fixed `1/30` per tick while its timer fires on
+ * a real, slightly-off interval, so the sim clock runs 1-2% away from wall time
+ * in whichever direction the host's timers land. Left alone, that ratio walks
+ * the whole buffer out of the render window inside a minute — dry every frame if
+ * the server clock runs slow, seconds of added latency if it runs fast.
+ *
+ * The estimate is the MINIMUM of `arrival − serverMs` over the recent window:
+ * the least-delayed patch is the one that saw the least queueing, so it is the
+ * closest thing to the true offset the client can observe, and a min over a
+ * moving window follows drift for free while ignoring every late arrival (which
+ * is the render delay's job, not this one's). Convergence onto that estimate is
+ * rate-limited to {@link CLOCK_SLEW_FRACTION} of a segment, because a STEP in
+ * the offset is a step in the playback clock — the same mistake the first cut of
+ * {@link adaptiveRenderDelay} made, and one the owner could see.
+ */
+export function stampSnapshot(clock: SnapshotClockState, serverMs: number, arrivalMs: number): SnapshotStamp {
+  const instant = arrivalMs - serverMs;
+  if (!clock.seeded) return seedSnapshotClock(clock, serverMs, arrivalMs);
+  if (!Number.isFinite(instant)) {
+    // No usable server clock on this patch (a peer whose `matchTimer` decoded to
+    // nothing). Fall back to arrival stamping for this one sample rather than
+    // resetting: a reset would discard the buffer, and one unusable timestamp is
+    // not evidence that the mapping is wrong.
+    const fallback = Math.max(arrivalMs, clock.lastPlaybackMs + MIN_SEGMENT_MS);
+    clock.lastPlaybackMs = fallback;
+    return { timeMs: fallback, reset: false };
+  }
+
+  const serverStep = serverMs - clock.lastServerMs;
+  // The server clock RAN BACKWARD. Within one match that cannot happen — a
+  // room's `matchTimer` only ever accumulates — so this is a different match on
+  // the same socket (a restart replaying from 0). Reset at once rather than wait
+  // for the observation window to notice: until the mapping is repaired, every
+  // buffered timestamp is a minute in the past and the bracket is dry on every
+  // single frame.
+  if (serverStep < 0) return seedSnapshotClock(clock, serverMs, arrivalMs);
+  if (serverStep === 0) {
+    // The server clock is FROZEN: a lobby or the start countdown, where the sim
+    // is not stepped at all (`ArenaSimulation.tick` returns before `elapsed +=`),
+    // or a single sim tick starved on the host. Nothing in the world moved, so
+    // there is nothing to time — hold the mapping and only stay monotonic.
+    //
+    // The observation window is DROPPED because these arrivals measure how long
+    // the clock has been frozen, not how long the network took: keeping them
+    // would drag the offset estimate up by the whole lobby, and clearing them is
+    // also what lets the very first moving patch be recognised as the clock jump
+    // it is (GO, after a lobby of arbitrary length).
+    clock.instants.length = 0;
+    const held = clock.lastPlaybackMs + MIN_SEGMENT_MS;
+    clock.lastPlaybackMs = held;
+    return { timeMs: held, reset: false };
+  }
+
+  clock.instants.push(instant);
+  if (clock.instants.length > CLOCK_WINDOW) clock.instants.shift();
+  let target = Infinity;
+  for (const v of clock.instants) if (v < target) target = v;
+  // Even the BEST patch in the whole window is far off the current mapping, so
+  // the server clock moved rather than drifted (a match going live after a
+  // lobby; a route change that added a fixed leg of latency). Slewing across
+  // that at 30 ms/s would leave the buffer unusable for the whole crossing.
+  if (Math.abs(target - clock.offsetMs) > SNAPSHOT_CLOCK_RESET_MS) {
+    return seedSnapshotClock(clock, serverMs, arrivalMs);
+  }
+
+  const budget = serverStep * CLOCK_SLEW_FRACTION;
+  clock.offsetMs += Math.max(-budget, Math.min(budget, target - clock.offsetMs));
+  clock.lastServerMs = serverMs;
+  // The `max` is the monotonicity backstop for a server clock that stalled: a
+  // room whose sim tick was starved republishes the same `matchTimer`, and a
+  // buffer whose timestamps do not increase is a divide by zero in `bracket`.
+  const timeMs = Math.max(serverMs + clock.offsetMs, clock.lastPlaybackMs + MIN_SEGMENT_MS);
+  clock.lastPlaybackMs = timeMs;
+  return { timeMs, reset: false };
+}
+
+function seedSnapshotClock(clock: SnapshotClockState, serverMs: number, arrivalMs: number): SnapshotStamp {
+  const offset = Number.isFinite(arrivalMs - serverMs) ? arrivalMs - serverMs : 0;
+  clock.seeded = true;
+  clock.offsetMs = offset;
+  clock.instants.length = 0;
+  clock.instants.push(offset);
+  clock.lastServerMs = serverMs;
+  // Seeding lands the sample on its own arrival instant, which is where the old
+  // arrival-time stamping would have put it — so the first frame after a reset
+  // is never worse than the behaviour this replaced.
+  clock.lastPlaybackMs = arrivalMs;
+  return { timeMs: arrivalMs, reset: true };
 }

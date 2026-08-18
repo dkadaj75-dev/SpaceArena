@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GameLoop, type ShipSnapshot, type Snapshot } from "@space-arena/shared";
-import { bracket } from "./interpolation.js";
+import { bracket, createSnapshotClock, stampSnapshot } from "./interpolation.js";
 import { interpolate } from "./NetGameSession.js";
 
 /**
@@ -238,5 +238,128 @@ describe("online render pacing", () => {
     expect(b.elapsed).toBeGreaterThan(a.elapsed);
     // One frame of match time, to the millisecond — not zero, and not 50 ms.
     expect(b.elapsed - a.elapsed).toBeCloseTo(FRAME_MS / 1000, 4);
+  });
+});
+
+/**
+ * **The server does not sample the world every 50 ms (2026-08-18).**
+ *
+ * Everything above models a patch as carrying the world AT the instant it was
+ * broadcast. `ArenaRoom` does not work that way, and the difference is the jank
+ * the owner kept reporting after all of the above shipped:
+ *
+ *   - `setSimulationInterval(..., 1000 / SIM_TICK_RATE)` steps the sim at 30 Hz;
+ *   - `setPatchRate(PATCH_RATE_MS)` broadcasts at 20 Hz.
+ *
+ * Two independent timers. A patch therefore carries whichever sim tick was most
+ * recent when it fired, so consecutive patches are ONE tick apart (33.3 ms of
+ * simulated travel) and then TWO (66.7 ms), alternating, forever — while
+ * arriving a uniform 50 ms apart. Filing them under their ARRIVAL time plays
+ * 66.7 ms of travel back over 50 ms and then 33.3 over 50: every remote hull in
+ * the arena surges to 1.33x and stalls to 0.67x, ten times a second, on a
+ * perfect network, at any frame rate, with a full buffer.
+ *
+ * No amount of buffer depth, C1 curve fitting or render-delay adaptation can
+ * touch it, because all three faithfully interpolate a timeline that is itself
+ * wrong. `stampSnapshot` files each sample under the SERVER clock it was taken
+ * at (`matchTimer`, already on the wire) instead.
+ */
+describe("online pacing against the room's REAL tick/patch cadence", () => {
+  const TICK_MS = 1000 / 30; // ArenaRoom: SIM_TICK_RATE
+  /** The world sample a patch broadcast at `patchMs` actually carries. */
+  const tickBefore = (patchMs: number): number => Math.floor(patchMs / TICK_MS) * TICK_MS;
+
+  function buildRealBuffer(durationMs: number, stamping: "arrival" | "server"): { time: number; snapshot: Snapshot }[] {
+    const clock = createSnapshotClock();
+    const out: { time: number; snapshot: Snapshot }[] = [];
+    for (let patch = 0; patch <= durationMs; patch += PATCH_MS) {
+      const snapshot = snapshotAt(tickBefore(patch));
+      const time = stamping === "arrival" ? patch : stampSnapshot(clock, snapshot.elapsed * 1000, patch).timeMs;
+      out.push({ time, snapshot });
+    }
+    return out;
+  }
+
+  const dts = frameTimes(420, 0.15);
+
+  it("CHARACTERIZES arrival-time stamping: a 2:1 speed sawtooth on a perfect network", () => {
+    // Guard rail. These frame times have only ±15% jitter and the buffer never
+    // starves — every millisecond of this spread is the tick/patch beat being
+    // replayed on the wrong clock.
+    const spread = speedSpread(drawFrames(buildRealBuffer(8000, "arrival"), dts, "render"));
+    // Measures 0.667x-1.485x here: the 2:1 beat itself, plus what frame jitter
+    // compounds on top of it.
+    expect(spread.max).toBeGreaterThan(1.25);
+    expect(spread.min).toBeLessThan(0.8);
+  });
+
+  it("draws the same ship at a constant speed once samples are stamped with the server clock", () => {
+    const spread = speedSpread(drawFrames(buildRealBuffer(8000, "server"), dts, "render"));
+    // Same bound as the idealised-cadence test above: all that is left is the
+    // Hermite curve's chord approximation of a circle.
+    expect(spread.min).toBeGreaterThan(0.97);
+    expect(spread.max).toBeLessThan(1.03);
+  });
+});
+
+describe("interpolating the entity kinds that used to step at the patch rate", () => {
+  const t = 0.5;
+  const pair = (from: Snapshot, to: Snapshot): Snapshot =>
+    interpolate({ time: 0, snapshot: from }, { time: PATCH_MS, snapshot: to }, t, null, null, LOCAL_ID);
+
+  const withExtras = (x: number): Snapshot => ({
+    ...snapshotAt(0),
+    projectiles: [{ id: 9, kind: "missile", pos: { x, y: 0, z: 0 }, heading: 0 }],
+    decoys: [{ id: 8, team: 0, pos: { x, y: 0, z: 0 }, radius: 1, lifeFraction: 0.5 }],
+    flags: [
+      {
+        id: 7,
+        team: 1,
+        state: "carried",
+        carrierId: LOCAL_ID,
+        pos: { x, y: 0, z: 0 },
+        home: { x: 0, y: 0, z: 0 },
+        baseRadius: 5,
+        dropRemaining: 0,
+        trail: [],
+      },
+    ],
+  });
+
+  it("moves missiles, decoys and carried flags between patches", () => {
+    // Online the renderer is handed `alpha = 1` (the session has already resampled
+    // for this frame), so anything left un-interpolated here is drawn at the raw
+    // 20 Hz patch rate while every hull around it moves smoothly. Missiles were
+    // the loudest: `EntityView.syncProjectiles` poses one along its frame-to-frame
+    // displacement, which read zero on most frames and a whole patch-step on the
+    // rest, flipping the nose between two different poses several times a second.
+    const mid = pair(withExtras(0), withExtras(10));
+    expect(mid.projectiles[0]!.pos.x).toBeCloseTo(5, 6);
+    expect(mid.decoys[0]!.pos.x).toBeCloseTo(5, 6);
+    expect(mid.flags[0]!.pos.x).toBeCloseTo(5, 6);
+    // Everything else still comes off the newer sample verbatim.
+    expect(mid.flags[0]!.state).toBe("carried");
+    expect(mid.projectiles[0]!.kind).toBe("missile");
+  });
+
+  it("passes a shot launched inside the segment through untouched", () => {
+    const spawned = pair(snapshotAt(0), withExtras(10));
+    expect(spawned.projectiles[0]!.pos.x).toBe(10);
+  });
+
+  it("does not clone remote ships' modules on every drawn frame", () => {
+    // The local ship's modules ARE cloned: `applyPendingToggles` writes the
+    // optimistic deploy state onto them, and must not reach into the buffer.
+    const mod = { hardpointIndex: 0, moduleId: "m", state: "retracted" as const, rounds: 0, heat: 0, heatCapacity: 1, energy: 0, energyCapacity: 1, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 };
+    const base = snapshotAt(0);
+    const armed: Snapshot = {
+      ...base,
+      ships: base.ships.map((s) => ({ ...s, modules: [{ ...mod }] })),
+    };
+    const out = interpolate({ time: 0, snapshot: armed }, { time: PATCH_MS, snapshot: armed }, t, null, null, LOCAL_ID);
+    const remote = armed.ships.find((s) => s.id === REMOTE_ID)!;
+    expect(out.ships.find((s) => s.id === REMOTE_ID)!.modules[0]).toBe(remote.modules[0]);
+    const local = armed.ships.find((s) => s.id === LOCAL_ID)!;
+    expect(out.ships.find((s) => s.id === LOCAL_ID)!.modules[0]).not.toBe(local.modules[0]);
   });
 });
