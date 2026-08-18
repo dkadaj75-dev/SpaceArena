@@ -1,8 +1,9 @@
 import {
-  AbstractMesh, Color3, GizmoManager, Mesh, MeshBuilder, PointerEventTypes, StandardMaterial,
-  TransformNode, Vector3, type Observer, type PointerInfo, type Scene,
+  AbstractMesh, Color3, GizmoManager, Mesh, MeshBuilder, PointerEventTypes, Quaternion, StandardMaterial,
+  TransformNode, Vector3, type InstancedMesh, type Observer, type PointerInfo, type Scene,
 } from "@babylonjs/core";
-import { arenaSchema, propSchema, type ArenaConfig, type AsteroidConfig, type GamemodeConfig, type PropConfig } from "@space-arena/shared";
+import { arenaSchema, propSchema, rockOrientationAt, rockSpinFor, type ArenaConfig, type AsteroidConfig, type GamemodeConfig, type PropConfig, type QualityConfig, type RockSpin } from "@space-arena/shared";
+import { AssetRegistry } from "../core/AssetRegistry.js";
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
@@ -43,6 +44,10 @@ export class MapEditor implements EditorPanel {
   private ceilingPreview = true;
   /** "Game view" preview: all editor furniture off, free camera kept. */
   private gameView = false;
+  /** Game view's real spinning rocks (match asteroids are sim entities the editor scene lacks). */
+  private gameViewAssets: AssetRegistry | null = null;
+  private gameViewRoot: TransformNode | null = null;
+  private gameViewSpin: Observer<Scene> | null = null;
   private readonly ctx = new ViewportContextPanel(() => this.clearSelection());
   // Terrain defaults LOCKED so stray clicks never drag the floor; the layer row
   // is the obvious way in (replaces the old one-shot "Unlock terrain" button).
@@ -361,7 +366,7 @@ export class MapEditor implements EditorPanel {
   }
   private frameSelection(): void { if (!this.selected) return; const camera = this.host.scene.activeCamera as unknown as { setTarget?: (value: Vector3) => void; radius?: number }; camera?.setTarget?.(this.selected.mesh.getAbsolutePosition()); if (camera && typeof camera.radius === "number") { const radius = this.selected.mesh instanceof AbstractMesh ? this.selected.mesh.getBoundingInfo().boundingSphere.radiusWorld : 4; camera.radius = Math.max(12, radius * 5); } }
   private clearSelection(): void { this.selected = null; this.gizmos.attachToMesh(null); this.ctx.hide(); }
-  private resetSession(): void { this.clearSelection(); this.navSelection = []; this.pairs = { asteroid: new Map(), prop: new Map(), spawn: new Map(), flag: new Map(), nav: new Map() }; this.inferPairs(); this.host.rebuildArena(this.arenaId, true); this.rebuildPreview(); this.renderUi(); }
+  private resetSession(): void { this.clearSelection(); this.navSelection = []; this.pairs = { asteroid: new Map(), prop: new Map(), spawn: new Map(), flag: new Map(), nav: new Map() }; this.inferPairs(); this.host.rebuildArena(this.arenaId, true); this.rebuildPreview(); if (this.gameView) this.buildGameViewAsteroids(); this.renderUi(); }
 
   /**
    * "Game view": the arena exactly as a match shows it — markers, rings, nav
@@ -373,9 +378,63 @@ export class MapEditor implements EditorPanel {
     this.gameView = !this.gameView;
     this.root.setEnabled(!this.gameView);
     this.host.setSpawnMarkersForced(!this.gameView);
-    if (this.gameView) { this.gizmos.attachToMesh(null); this.ctx.hide(); }
-    else if (this.selected) { this.gizmos.attachToNode(this.selected.mesh); this.ctx.show(this.contextView()); }
+    if (this.gameView) { this.gizmos.attachToMesh(null); this.ctx.hide(); this.buildGameViewAsteroids(); }
+    else {
+      this.disposeGameViewAsteroids();
+      if (this.selected) { this.gizmos.attachToNode(this.selected.mesh); this.ctx.show(this.contextView()); }
+    }
     this.renderUi();
+  }
+
+  /**
+   * In a live match asteroids are SIM entities — the editor scene never has
+   * them (SceneBuilder stages floor/skybox/props only, and this tool draws mere
+   * markers). Game view therefore builds real rocks the way EntityView does:
+   * same shaped/recipe masters, same `cfg.radius × placement.scale` sizing,
+   * same closed-form tumble off the placement index. Purely visual — nothing
+   * here is pickable or simulated.
+   */
+  private buildGameViewAsteroids(): void {
+    this.disposeGameViewAsteroids();
+    const arena = this.arena();
+    if (!arena) return;
+    if (!this.gameViewAssets) {
+      this.gameViewAssets = new AssetRegistry(this.host.scene);
+      // Game view previews at ULTRA regardless of the device's current tier —
+      // the designer is judging authored content, not this machine's budget.
+      const ultra = this.host.configService.getAll<QualityConfig>("quality").find((q) => q.tier === "ultra");
+      if (ultra) this.gameViewAssets.setAsteroidLod(ultra.asteroids);
+    }
+    const root = new TransformNode("editorGameViewAsteroids", this.host.scene);
+    const rocks: Array<{ instance: InstancedMesh; spin: RockSpin; baseRotationY: number }> = [];
+    arena.asteroidPlacements.forEach((p, index) => {
+      const cfg = this.host.configService.get<AsteroidConfig>("asteroid", p.asteroidId);
+      if (!cfg) return;
+      const { mesh: master, radiusScale } = this.gameViewAssets!.getShapedAsteroidMaster(cfg) ?? this.gameViewAssets!.getAsteroidMaster(cfg.render);
+      const instance = master.createInstance(`editorGameView.asteroid.${index}`);
+      instance.scaling.setAll(cfg.radius * (p.scale ?? 1) * radiusScale);
+      instance.rotationQuaternion = Quaternion.Identity();
+      instance.position.set(p.position.x, p.position.y ?? 0, p.position.z);
+      instance.isPickable = false;
+      instance.parent = root;
+      rocks.push({ instance, spin: rockSpinFor(index, cfg.render.spin), baseRotationY: p.rotation ?? 0 });
+    });
+    // The match derives tumble from its snapshot clock; the editor has none, so
+    // game view runs its own — rocks spin from rest exactly as a match opens.
+    const startedAt = performance.now();
+    this.gameViewSpin = this.host.scene.onBeforeRenderObservable.add(() => {
+      const seconds = (performance.now() - startedAt) / 1000;
+      for (const rock of rocks) rockOrientationAt(rock.spin, rock.baseRotationY, seconds, rock.instance.rotationQuaternion!);
+    });
+    this.gameViewRoot = root;
+  }
+
+  private disposeGameViewAsteroids(): void {
+    if (this.gameViewSpin) { this.host.scene.onBeforeRenderObservable.remove(this.gameViewSpin); this.gameViewSpin = null; }
+    // NOT dispose(false, true): the instances share the cached masters'
+    // materials, and disposing those textures blanks every later game view.
+    this.gameViewRoot?.dispose(false);
+    this.gameViewRoot = null;
   }
 
   /** Stream the live gizmo drag into the context panel's transform fields. */
@@ -510,7 +569,7 @@ export class MapEditor implements EditorPanel {
     panel.append(form.element, button("Save imported prop", () => void (async () => { const value = form.getValue(); const error = await saveConfig(value); this.report(error); if (!error) this.renderUi(); })(), "ed-btn--primary")); this.element.prepend(panel);
   }
 
-  dispose(): void { for (const mesh of this.host.scene.meshes) if ((mesh.metadata as { editorKind?: string } | null)?.editorKind === "prop") mesh.setEnabled(true); if (this.gameView) this.host.setSpawnMarkersForced(true); /* shell owns the release on close */ this.ctx.dispose(); this.unbindGizmoSuspend(); if (this.observer) this.host.scene.onPointerObservable.remove(this.observer); if (this.beforeRenderObserver) this.host.scene.onBeforeRenderObservable.remove(this.beforeRenderObserver); window.removeEventListener("keydown", this.onKey); this.gizmos.dispose(); this.root.dispose(false, true); }
+  dispose(): void { this.disposeGameViewAsteroids(); for (const mesh of this.host.scene.meshes) if ((mesh.metadata as { editorKind?: string } | null)?.editorKind === "prop") mesh.setEnabled(true); if (this.gameView) this.host.setSpawnMarkersForced(true); /* shell owns the release on close */ this.ctx.dispose(); this.unbindGizmoSuspend(); if (this.observer) this.host.scene.onPointerObservable.remove(this.observer); if (this.beforeRenderObserver) this.host.scene.onBeforeRenderObservable.remove(this.beforeRenderObserver); window.removeEventListener("keydown", this.onKey); this.gizmos.dispose(); this.root.dispose(false, true); }
 }
 
 function listFor(arena: ArenaConfig, kind: Selection["kind"]): EditorPlacement[] | undefined { if (kind === "asteroid") return arena.asteroidPlacements as EditorPlacement[]; if (kind === "prop") return arena.propPlacements as EditorPlacement[] | undefined; if (kind === "spawn") return arena.spawnPoints as EditorPlacement[]; if (kind === "flag") return arena.flagBases as EditorPlacement[] | undefined; return arena.navGraph?.nodes as EditorPlacement[] | undefined; }
