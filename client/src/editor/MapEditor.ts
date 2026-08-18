@@ -216,13 +216,13 @@ export class MapEditor implements EditorPanel {
 
   private previewAsteroids(arena: ArenaConfig): void {
     const state = this.layers.get("asteroid")!; if (!state.visible) return;
-    arena.asteroidPlacements.forEach((p, index) => this.marker("asteroid", index, new Vector3(p.position.x, p.position.y ?? 0, p.position.z), 2.2 * (p.scale ?? 1), new Color3(.55, .44, .28), p.rotation ?? 0));
+    arena.asteroidPlacements.forEach((p, index) => this.marker("asteroid", index, new Vector3(p.position.x, p.position.y ?? 0, p.position.z), 2.2, new Color3(.55, .44, .28), p.rotation ?? 0, p.scale ?? 1));
   }
   private previewProps(arena: ArenaConfig): void {
     arena.propPlacements?.forEach((p, index) => {
       if (!this.layers.get(this.governingLayer("prop", index))!.visible) return;
       const prop = this.host.configService.get<PropConfig>("prop", p.propId);
-      const mesh = this.marker("prop", index, new Vector3(p.position.x, p.position.y ?? 0, p.position.z), 2.5 * (p.scale ?? 1), prop?.category === "terrain" ? new Color3(.28, .34, .38) : new Color3(.28, .72, .56), p.rotation?.y ?? 0);
+      const mesh = this.marker("prop", index, new Vector3(p.position.x, p.position.y ?? 0, p.position.z), 2.5, prop?.category === "terrain" ? new Color3(.28, .34, .38) : new Color3(.28, .72, .56), p.rotation?.y ?? 0, p.scale ?? 1);
       mesh.isVisible = false; // real SceneBuilder prop remains visible and carries matching metadata.
     });
   }
@@ -253,9 +253,16 @@ export class MapEditor implements EditorPanel {
     const mat = material(this.host, "editorCeilingPreviewMat", new Color3(.15, .65, 1)); mat.alpha = .12; mat.backFaceCulling = false; mesh.material = mat;
   }
 
-  private marker(kind: Selection["kind"], index: number, position: Vector3, radius: number, color: Color3, rotationY = 0): Mesh {
+  /**
+   * `scale` lives in `mesh.scaling`, NEVER baked into the geometry: both the
+   * gizmo commit (`p.scale = uniformScale(mesh.scaling)`) and the context
+   * panel's per-frame sync read `mesh.scaling` back as the authored placement
+   * scale. Baking it into `radius` left scaling at 1, so merely MOVING a
+   * scaled asteroid silently reset its authored scale to 1 on commit.
+   */
+  private marker(kind: Selection["kind"], index: number, position: Vector3, radius: number, color: Color3, rotationY = 0, scale = 1): Mesh {
     const mesh = kind === "spawn" || kind === "flag" ? MeshBuilder.CreateCylinder(`editor.${kind}.${index}`, { diameter: radius * 2, height: kind === "flag" ? 4 : .3 }, this.host.scene) : MeshBuilder.CreateIcoSphere(`editor.${kind}.${index}`, { radius, subdivisions: 1 }, this.host.scene);
-    mesh.position.copyFrom(position); mesh.rotation.y = rotationY; mesh.parent = this.root; mesh.metadata = { editorKind: kind, editorIndex: index }; mesh.material = material(this.host, `editorMat.${kind}.${index}`, color); mesh.isPickable = this.canSelect(kind, index); return mesh;
+    mesh.position.copyFrom(position); mesh.rotation.y = rotationY; mesh.scaling.setAll(scale); mesh.parent = this.root; mesh.metadata = { editorKind: kind, editorIndex: index }; mesh.material = material(this.host, `editorMat.${kind}.${index}`, color); mesh.isPickable = this.canSelect(kind, index); return mesh;
   }
 
   /** Locked/ground props answer to the Terrain pseudo-layer, everything else to its own row. */
