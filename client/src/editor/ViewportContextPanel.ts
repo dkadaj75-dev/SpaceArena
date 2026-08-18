@@ -1,10 +1,16 @@
 /**
- * Floating selection-context panel for viewport tools (Map, Ships). One shared
- * chrome: a draggable notched card INSIDE the shell's `.ed-viewport` cell —
- * the cell is pointer-events:none so the scene stays interactive, and only the
- * panel itself takes events back. Callers describe content declaratively
- * (`CtxView`) and re-show on every model change; per-frame gizmo motion streams
- * through {@link ViewportContextPanel.setNumber} without a rebuild.
+ * Floating selection-context panel for Constellation's viewport.
+ *
+ * One shared chrome: a draggable notched card mounted INSIDE the viewport cell
+ * — the cell is `pointer-events: none` so the scene stays interactive, and only
+ * the panel itself takes events back. Callers describe content declaratively
+ * ({@link CtxView}) and re-show on every model change; per-frame gizmo motion
+ * streams through {@link ViewportContextPanel.setNumber} without a rebuild.
+ *
+ * Deliberately knows nothing about arenas, ships or the draft store: the arena
+ * and ship subjects in {@link import("./ViewportEditor.js").ViewportEditor} both
+ * describe themselves as a `CtxView`, which is the whole point of the shared
+ * card.
  */
 
 /** Rotation-per-minute is the designer-facing unit; configs store deg/sec. */
@@ -34,6 +40,19 @@ export type CtxField =
 export interface CtxAction { label: string; onClick: () => void; danger?: boolean }
 export interface CtxView { title: string; subtitle?: string; fields: CtxField[]; actions: CtxAction[] }
 
+/** Where the card docks. Resolved lazily so the cell may be built after the panel. */
+export type CtxMount = () => HTMLElement | null;
+
+/**
+ * Constellation's viewport cell, falling back to the document body so tests and
+ * a forms-only layout still get a working (if unanchored) panel.
+ */
+function defaultMount(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(".sa-editor .constellation-viewport")
+    ?? document.querySelector<HTMLElement>(".sa-editor .ed-viewport")
+    ?? document.body;
+}
+
 export class ViewportContextPanel {
   private readonly root = document.createElement("div");
   private readonly head = document.createElement("div");
@@ -43,7 +62,7 @@ export class ViewportContextPanel {
   private readonly footer = document.createElement("div");
   private readonly numbers = new Map<string, HTMLInputElement>();
 
-  constructor(private readonly onClose: () => void) {
+  constructor(private readonly onClose: () => void, private readonly resolveMount: CtxMount = defaultMount) {
     this.root.className = "ed-ctx ed-frame";
     this.root.style.display = "none";
     this.head.className = "ed-ctx-head";
@@ -62,14 +81,21 @@ export class ViewportContextPanel {
     this.bindDrag(close);
   }
 
-  /** The shell's viewport cell when open; body as a fallback (tests, staging). */
+  /**
+   * Re-home the card whenever it is shown. Constellation rebuilds the whole
+   * workspace on an import or a discard, so a panel mounted once would be left
+   * hanging off a detached cell — visible in the DOM tree it no longer belongs
+   * to and invisible on screen.
+   */
   private mount(): void {
-    if (this.root.isConnected) return;
-    const cell = document.querySelector<HTMLElement>(".sa-editor .ed-viewport") ?? document.body;
+    const cell = this.resolveMount() ?? document.body;
+    if (this.root.parentElement === cell) return;
     cell.append(this.root);
   }
 
   get visible(): boolean { return this.root.style.display !== "none"; }
+  /** The card itself — the editor uses it to keep clicks off the scene. */
+  get element(): HTMLElement { return this.root; }
 
   show(view: CtxView): void {
     this.mount();

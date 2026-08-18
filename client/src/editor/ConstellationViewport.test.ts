@@ -15,6 +15,10 @@ function fakeHost(): { host: ConstellationHost; scene: Scene; calls: Record<stri
     setArenaVisible: vi.fn(),
     pauseSim: vi.fn(),
     resumeSim: vi.fn(),
+    stageArena: vi.fn(),
+    setSpawnMarkersForced: vi.fn(),
+    setPropPickingForced: vi.fn(),
+    suspendCameraGestures: vi.fn(),
   };
   return { host: { scene, ...calls }, scene, calls };
 }

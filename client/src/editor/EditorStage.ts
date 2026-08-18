@@ -1,6 +1,6 @@
 import {
-  BaseTexture, Color3, Constants, DirectionalLight, HemisphericLight, MeshBuilder, RawCubeTexture,
-  Texture, TransformNode, Vector3, type GizmoManager, type LinesMesh, type Scene,
+  BaseTexture, Color3, Constants, DirectionalLight, GizmoManager, HemisphericLight, MeshBuilder, RawCubeTexture,
+  Texture, TransformNode, Vector3, type LinesMesh, type Scene,
 } from "@babylonjs/core";
 
 /** Half-extent of the backdrop grid, in world units. */
@@ -85,6 +85,51 @@ export class EditorStage {
 }
 
 /**
+ * Freeze the editor camera's pointer gestures for the duration of a gizmo drag.
+ *
+ * The tactical camera and the gizmo both read the same pointer stream, so
+ * without this a drag on a translate handle also orbits the scene and the
+ * marker appears to fly away from the cursor. Bound once per GizmoManager and
+ * released on teardown — the returned unbind always clears the suspension, so a
+ * panel disposed mid-drag cannot strand the camera frozen.
+ */
+export function bindGizmoCameraSuspend(gizmos: GizmoManager, suspend: (on: boolean) => void): () => void {
+  const unbind: Array<() => void> = [];
+  for (const gizmo of [gizmos.gizmos.positionGizmo, gizmos.gizmos.rotationGizmo, gizmos.gizmos.scaleGizmo]) {
+    if (!gizmo) continue;
+    const start = gizmo.onDragStartObservable.add(() => suspend(true));
+    const end = gizmo.onDragEndObservable.add(() => suspend(false));
+    unbind.push(() => {
+      gizmo.onDragStartObservable.remove(start);
+      gizmo.onDragEndObservable.remove(end);
+    });
+  }
+  return () => {
+    for (const off of unbind) off();
+    // Never leave the camera stuck in the suspended state.
+    suspend(false);
+  };
+}
+
+/**
+ * Keep transform commits wired across marker rebuilds. Every committed edit
+ * replaces the markers, but the GizmoManager (and its observables) live for the
+ * whole editing session — so the commit hook is bound to the MANAGER once, not
+ * re-armed per selection with `addOnce`.
+ */
+export function bindGizmoDragCommit(gizmos: GizmoManager, commit: () => void): () => void {
+  const observables = [
+    gizmos.gizmos.positionGizmo?.onDragEndObservable,
+    gizmos.gizmos.rotationGizmo?.onDragEndObservable,
+    gizmos.gizmos.scaleGizmo?.onDragEndObservable,
+  ].filter((observable) => observable !== undefined);
+  const observers = observables.map((observable) => ({ observable, observer: observable.add(commit) }));
+  return () => {
+    for (const { observable, observer } of observers) observable.remove(observer);
+  };
+}
+
+/**
  * Tiny synthetic IBL cube: cool sky above, warm horizon, dark floor. NullEngine
  * has no texture backend, so tests (no rendering canvas) skip it — the same
  * guard HangarBay uses.
@@ -107,33 +152,8 @@ function createStageEnvironment(scene: Scene): RawCubeTexture | null {
     environment.level = 0.7;
     return environment;
   } catch {
-    // A NullEngine given a mock canvas (shell smoke tests) has no texture
+    // A NullEngine given a mock canvas (headless tests) has no texture
     // backend; the analytic lights still cover the staging.
     return null;
   }
-}
-
-/**
- * Makes a gizmo drag suspend the editor camera's own pointer gestures, so
- * dragging a transform handle moves only the attached mesh.
- *
- * `GizmoManager` builds its gizmos lazily, so this must run after the
- * position/rotation/scale gizmos have been enabled. Returns an unbind function.
- */
-export function bindGizmoCameraSuspend(gizmos: GizmoManager, suspend: (on: boolean) => void): () => void {
-  const unbind: Array<() => void> = [];
-  for (const gizmo of [gizmos.gizmos.positionGizmo, gizmos.gizmos.rotationGizmo, gizmos.gizmos.scaleGizmo]) {
-    if (!gizmo) continue;
-    const start = gizmo.onDragStartObservable.add(() => suspend(true));
-    const end = gizmo.onDragEndObservable.add(() => suspend(false));
-    unbind.push(() => {
-      gizmo.onDragStartObservable.remove(start);
-      gizmo.onDragEndObservable.remove(end);
-    });
-  }
-  return () => {
-    for (const off of unbind) off();
-    // Never leave the camera stuck in the suspended state.
-    suspend(false);
-  };
 }

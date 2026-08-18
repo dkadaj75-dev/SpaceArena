@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clampPanelPosition, degPerSecToRpm, rpmToDegPerSec, trimNumber, ViewportContextPanel } from "./ViewportContextPanel.js";
 
@@ -36,6 +35,7 @@ describe("ViewportContextPanel", () => {
     const onClose = vi.fn();
     const onNumber = vi.fn();
     const onSelect = vi.fn();
+    const onToggle = vi.fn();
     const panel = new ViewportContextPanel(onClose);
     panel.show({
       title: "Prop #2",
@@ -44,6 +44,7 @@ describe("ViewportContextPanel", () => {
         { kind: "static", label: "kind", value: "structure" },
         { kind: "number", label: "pos x", key: "px", value: 4.25, onCommit: onNumber },
         { kind: "select", label: "prop", value: "a", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], onCommit: onSelect },
+        { kind: "toggle", label: "locked", value: false, onCommit: onToggle },
         { kind: "note", text: "shared config" },
       ],
       actions: [{ label: "Delete", onClick: vi.fn(), danger: true }],
@@ -60,6 +61,11 @@ describe("ViewportContextPanel", () => {
     select.value = "b";
     select.dispatchEvent(new Event("change"));
     expect(onSelect).toHaveBeenCalledWith("b");
+
+    const check = root.querySelector<HTMLInputElement>(".ed-toggle input[type=checkbox]")!;
+    check.checked = true;
+    check.dispatchEvent(new Event("change"));
+    expect(onToggle).toHaveBeenCalledWith(true);
 
     // Gizmo-drag streaming updates the keyed field without a re-render.
     panel.setNumber("px", 9.12345);
@@ -79,6 +85,26 @@ describe("ViewportContextPanel", () => {
     panel.show({ title: "T2", fields: [], actions: [] });
     expect(document.querySelectorAll(".ed-ctx")).toHaveLength(1);
     expect(document.querySelector(".ed-ctx-title")!.textContent).toBe("T2");
+    panel.dispose();
+  });
+
+  it("re-homes itself when the workspace that held it is replaced", () => {
+    // Constellation rebuilds the whole workspace on an import or a discard. A
+    // panel mounted once would be left hanging off the detached cell: present in
+    // a DOM tree nothing renders, and gone from the screen.
+    let cell = document.createElement("div");
+    document.body.append(cell);
+    const panel = new ViewportContextPanel(vi.fn(), () => cell);
+    panel.show({ title: "First", fields: [], actions: [] });
+    expect(cell.querySelector(".ed-ctx")).not.toBeNull();
+
+    const replacement = document.createElement("div");
+    cell.replaceWith(replacement);
+    cell = replacement;
+    panel.show({ title: "Second", fields: [], actions: [] });
+
+    expect(replacement.querySelector(".ed-ctx")).not.toBeNull();
+    expect(document.querySelectorAll(".ed-ctx")).toHaveLength(1);
     panel.dispose();
   });
 });
