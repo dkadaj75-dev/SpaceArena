@@ -320,9 +320,12 @@ export const FLIGHT_HUD_DEFAULTS = {
     fadeFarUnits: 320,
     minOpacity: 0.35,
     outOfRangeScale: 0.6,
-    outOfRangeOpacity: 0.4,
-    markerMinOpacity: 0.35,
-    markerSizePx: 10,
+    // A 10px diamond at 0.4 alpha was invisible in a live deathmatch (probe
+    // 2026-08-18): every unlocked enemy DID get its contact cue, but nobody
+    // could see it. Faint must still mean findable.
+    outOfRangeOpacity: 0.55,
+    markerMinOpacity: 0.6,
+    markerSizePx: 16,
   },
   orders: {
     throttleEpsilon: 0.02,

@@ -99,7 +99,9 @@ describe("EnemyArrows distance labels", () => {
     expect(marker.classList).toContain("on-screen-marker");
     expect(marker.classList).toContain("out-of-range");
     expect(marker.style.transform).toContain(`scale(${LAYOUT.enemyArrows.outOfRangeScale})`);
-    expect(marker.style.opacity).toBe(String(LAYOUT.enemyArrows.outOfRangeOpacity));
+    expect(marker.style.opacity).toBe(
+      String(Math.max(LAYOUT.enemyArrows.markerMinOpacity, LAYOUT.enemyArrows.outOfRangeOpacity)),
+    );
 
     // Crossing the lock-relevance threshold makes LockReticle own today's full
     // bracket; the dim pooled marker disappears instead of doubling it.

@@ -186,9 +186,9 @@
         "fadeFarUnits": 320,
         "minOpacity": 0.35,
         "outOfRangeScale": 0.6,
-        "outOfRangeOpacity": 0.4,
-        "markerMinOpacity": 0.35,
-        "markerSizePx": 10,
+        "outOfRangeOpacity": 0.55,
+        "markerMinOpacity": 0.6,
+        "markerSizePx": 16,
         "ringRadiusPx": 92,
         "ringOffsetYPx": 8
       },

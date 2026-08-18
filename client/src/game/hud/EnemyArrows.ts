@@ -101,7 +101,7 @@ export class EnemyArrows {
         top: 50%;
         display: none;
         box-sizing: border-box;
-        border: 1.25px solid var(--hud-danger, var(--sa-red-500));
+        border: 2px solid var(--hud-danger, var(--sa-red-500));
         background: transparent;
         transform: translate(-50%, -50%) rotate(45deg);
         filter: drop-shadow(0 0 calc(3px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
