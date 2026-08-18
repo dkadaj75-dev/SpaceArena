@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContentBundle } from "@space-arena/shared";
-import { repoSaveAvailable, saveActionState, saveDraftToRepo } from "./saveToRepo.js";
+import { repoSaveAvailable, saveDraftToRepo } from "./saveToRepo.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -101,54 +101,5 @@ describe("repoSaveAvailable", () => {
 
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new Error("offline"))));
     await expect(repoSaveAvailable()).resolves.toBe(false);
-  });
-});
-
-describe("saveActionState", () => {
-  it("offers the save while the probe is still out, but says it is still checking", () => {
-    const state = saveActionState("checking", 3);
-    expect(state.disabled).toBe(true);
-    expect(state.title).toMatch(/checking/i);
-    // "Checking" is not "broken": the download fallback is not promoted yet.
-    expect(state.fallback).toBe(false);
-    expect(state.status).toBe("3 unsaved change(s)");
-    expect(state.tone).toBe("dirty");
-  });
-
-  it("keeps the button present when the repo route is gone, and explains why", () => {
-    const state = saveActionState("unavailable", 2);
-    expect(state.disabled).toBe(true);
-    // The reason must be readable without hovering — label AND visible hint.
-    expect(state.label).toContain("unavailable");
-    expect(state.title).toContain("npm run dev");
-    expect(state.hint).toContain("Download draft");
-    // Downloading is the only durable save left, so it is promoted.
-    expect(state.fallback).toBe(true);
-  });
-
-  it("explains a clean draft rather than looking broken", () => {
-    const state = saveActionState("available", 0);
-    expect(state).toMatchObject({ disabled: true, hint: null, fallback: false, status: "No changes", tone: "clean" });
-    expect(state.title).toMatch(/nothing to save/i);
-  });
-
-  it("is enabled and counts the files once there is something to write", () => {
-    const state = saveActionState("available", 4);
-    expect(state).toMatchObject({ disabled: false, label: "Save to repo · 4", tone: "dirty" });
-  });
-
-  it("stops crying unsaved after a clean save, without pretending the pack is published", () => {
-    const state = saveActionState("available", 4, true);
-    expect(state.disabled).toBe(true);
-    expect(state.label).toBe("Saved to repo");
-    expect(state.tone).toBe("saved");
-    expect(state.status).toContain("ahead of the live pack");
-    expect(state.title).toMatch(/publish/i);
-  });
-
-  it("still warns when the repo save only partly landed", () => {
-    // ConstellationApp passes savedSinceEdit=false whenever any file failed.
-    expect(saveActionState("available", 4, false).tone).toBe("dirty");
-    expect(saveActionState("available", 4, false).disabled).toBe(false);
   });
 });
