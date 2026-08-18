@@ -299,14 +299,14 @@
       "scale": 0.85
     },
     {
-      "asteroidId": "asteroid.large-hazard",
+      "asteroidId": "asteroid.cratered-boulder",
       "position": {
         "x": 5.5,
-        "z": 59.2,
-        "y": -86
+        "y": -86,
+        "z": 59.2
       },
       "rotation": 1.9,
-      "scale": 11
+      "scale": 1.19
     },
     {
       "asteroidId": "asteroid.cratered-boulder",
