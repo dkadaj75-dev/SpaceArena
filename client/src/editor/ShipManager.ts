@@ -761,7 +761,7 @@ export class ShipManager implements EditorPanel {
     if (rerenderUi) this.renderUi();
   }
 
-  private async save(): Promise<void> {
+  async save(): Promise<void> {
     // A model Apply may still be loading its GLB; without this, Save writes
     // the pre-Apply config while the preview already shows the new model.
     if (this.pendingModelApply) await this.pendingModelApply;

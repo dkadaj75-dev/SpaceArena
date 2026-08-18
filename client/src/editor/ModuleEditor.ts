@@ -208,7 +208,7 @@ export class ModuleEditor implements EditorPanel {
     return button;
   }
 
-  private async save(): Promise<void> {
+  async save(): Promise<void> {
     if (this.pendingModelApply) await this.pendingModelApply;
     if (!this.form) return;
     const error = await saveConfig(this.form.getValue());

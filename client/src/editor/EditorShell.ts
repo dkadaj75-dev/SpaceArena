@@ -15,6 +15,7 @@ import { ThemeEditor } from "./ThemeEditor.js";
 import { QualityEditor } from "./QualityEditor.js";
 import { ConsolePanel } from "./ConsolePanel.js";
 import { EditorStage } from "./EditorStage.js";
+import { onConfigSaved } from "./saveConfig.js";
 import "./editor.css";
 import { applicationNotice } from "./applicationScope.js";
 
@@ -55,7 +56,16 @@ export interface EditorHost {
 }
 
 export type EditorPanelFactory = (host: EditorHost, report: (message: string | null) => void) => EditorPanel;
-export interface EditorPanel { element: HTMLElement; dispose(): void; }
+export interface EditorPanel {
+  element: HTMLElement;
+  dispose(): void;
+  /**
+   * Write the panel's edited config(s) to disk. Panels that edit configs expose
+   * their own "Save to disk" action here too, so the shell can offer one
+   * always-visible Save in the top bar regardless of which tool is open.
+   */
+  save?(): Promise<void>;
+}
 
 const TAB_STORAGE_KEY = "sa-editor.tab";
 /**
@@ -172,6 +182,21 @@ export class EditorShell {
   private crumb: HTMLSpanElement | null = null;
   private statusButton: HTMLButtonElement | null = null;
   private statusCount: HTMLSpanElement | null = null;
+  private saveButton: HTMLButtonElement | null = null;
+  private dirtyBadge: HTMLSpanElement | null = null;
+  /**
+   * Configs edited (via `config:changed`) but not yet written to disk, keyed
+   * `type:id`. Survives shell close/reopen — the edits live in the in-memory
+   * ConfigService either way, and are only truly lost on page unload, which is
+   * what the beforeunload guard below covers.
+   */
+  private readonly dirtyConfigs = new Set<string>();
+  private readonly onBeforeUnload = (event: BeforeUnloadEvent): void => {
+    if (this.dirtyConfigs.size === 0) return;
+    event.preventDefault();
+    // Chrome requires returnValue for the prompt to show.
+    event.returnValue = "";
+  };
   private renderProblems: (() => void) | null = null;
   private sheet: SheetState = "half";
   private stage: EditorStage | null = null;
@@ -185,6 +210,12 @@ export class EditorShell {
   private canvasStyles: Partial<Record<(typeof CANVAS_STYLE_KEYS)[number], string>> | null = null;
 
   constructor(private readonly host: EditorHost) {
+    // Dirty tracking outlives open/close: edits sit in the ConfigService until
+    // saved, so the unload guard must too. The shell instance is a singleton
+    // held by main.ts, so neither listener needs a teardown path.
+    this.host.bus.on("config:changed", ({ id, type }) => { this.dirtyConfigs.add(`${type}:${id}`); this.updateStatus(); });
+    onConfigSaved((config) => { this.dirtyConfigs.delete(`${config.type}:${config.id}`); this.updateStatus(); });
+    window.addEventListener("beforeunload", this.onBeforeUnload);
     this.registerPanel("Map", (h, report) => new MapEditor(h, report));
     this.registerPanel("Inspector", (host, report) => arenaInspector(host, report));
     this.registerPanel("Tuning", (h, report) => new TuningPanel(h, report));
@@ -307,6 +338,21 @@ export class EditorShell {
     this.statusButton = status;
     this.statusCount = count;
 
+    // One always-visible Save regardless of which tool is open: it forwards to
+    // the active panel's own save. Edits live only in the in-memory
+    // ConfigService until saved, so this must never be buried inside a panel.
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "ed-btn ed-btn--primary";
+    save.textContent = "Save to disk";
+    save.addEventListener("click", () => void this.saveActive());
+    this.saveButton = save;
+
+    const dirty = document.createElement("span");
+    dirty.className = "ed-dirty";
+    dirty.title = "Configs edited since their last save to disk";
+    this.dirtyBadge = dirty;
+
     const close = document.createElement("button");
     close.type = "button";
     close.className = "ed-btn ed-btn--danger";
@@ -315,7 +361,7 @@ export class EditorShell {
     close.title = "Close the designer (F10)";
     close.addEventListener("click", () => this.close());
 
-    right.append(status, close);
+    right.append(dirty, save, status, close);
     bar.append(brand, groups, right);
     return bar;
   }
@@ -479,6 +525,8 @@ export class EditorShell {
     });
     this.active.element.classList.add("editor-panel", "ed-panel-root");
     body.append(this.active.element);
+    // The top-bar Save follows the active tool (enabled only when it can save).
+    this.updateStatus();
   }
 
   private problemsPanel(): EditorPanel {
@@ -520,6 +568,25 @@ export class EditorShell {
     this.statusButton?.classList.toggle("is-bad", count > 0);
     if (this.statusCount) this.statusCount.textContent = count > 0 ? String(count) : "OK";
     if (this.statusButton) this.statusButton.title = count > 0 ? `${count} validation problem(s) — click to open Problems` : "No validation problems";
+    const dirty = this.dirtyConfigs.size;
+    if (this.dirtyBadge) {
+      this.dirtyBadge.textContent = dirty > 0 ? `${dirty} unsaved` : "";
+      this.dirtyBadge.classList.toggle("is-dirty", dirty > 0);
+    }
+    if (this.saveButton) {
+      const savable = typeof this.active?.save === "function";
+      this.saveButton.disabled = !savable;
+      this.saveButton.title = savable
+        ? "Write this tool's edited config(s) to content/ on disk"
+        : "This tool has no file of its own to save — use a tool's Save for its configs";
+    }
+  }
+
+  /** The top-bar Save: forward to the active panel's own save-to-disk. */
+  private async saveActive(): Promise<void> {
+    if (!this.active?.save) return;
+    await this.active.save();
+    this.updateStatus();
   }
 
   close(): void {
@@ -533,6 +600,7 @@ export class EditorShell {
     this.viewport = null; this.inspector = null;
     this.groupsBar = null; this.crumb = null;
     this.tabsBar = null; this.body = null; this.title = null; this.statusButton = null; this.statusCount = null;
+    this.saveButton = null; this.dirtyBadge = null;
     this.stage?.dispose(); this.stage = null;
     this.host.suspendCameraGestures(false);
     this.host.setSpawnMarkersForced(false);

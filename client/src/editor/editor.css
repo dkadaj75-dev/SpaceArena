@@ -1564,3 +1564,13 @@ body.sa-editor-open .game-screen {
   .constellation-actions { position: sticky; bottom: 0; padding-bottom: max(8px, env(safe-area-inset-bottom)); overflow-x: auto; flex-wrap: nowrap; }
   .constellation-actions > * { flex: 0 0 auto; }
 }
+
+/* ---- Shell top-bar save + dirty badge -------------------------------------
+   One always-visible Save regardless of tool; the badge counts configs edited
+   since their last write to disk (EditorShell.dirtyConfigs). */
+.ed-dirty { font: 600 11px/1 var(--ed-font, "Rajdhani", sans-serif); letter-spacing: 0.06em; color: #8fa3bd; }
+.ed-dirty.is-dirty { color: #ffb454; }
+.ed-dirty:empty { display: none; }
+
+/* Folded list groups (SchemaFormGen arrays, Map asset browser). */
+.ed-group--list > .editor-array { max-height: 48dvh; overflow: auto; }

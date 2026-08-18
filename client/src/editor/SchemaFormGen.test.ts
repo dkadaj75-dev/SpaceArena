@@ -105,7 +105,7 @@ describe("SchemaFormGen", () => {
     const configService = fakeConfigService();
     const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService });
 
-    const addButton = Array.from(form.element.querySelectorAll("button")).find((b) => b.textContent === "Add")!;
+    const addButton = Array.from(form.element.querySelectorAll("button")).find((b) => b.textContent === "New tags")!;
     addButton.click();
     expect(form.getValue().tags).toEqual(["one", "two", ""]);
 
@@ -324,5 +324,54 @@ describe("SchemaFormGen", () => {
     rerendered.value = "{"; rerendered.dispatchEvent(new Event("change"));
     expect(rerendered.value).toBe("{");
     expect(onProblems).toHaveBeenLastCalledWith([{ path: "params", message: "Enter valid JSON" }]);
+  });
+});
+
+describe("SchemaFormGen folded accordions", () => {
+  it("renders groups and array lists folded by default", () => {
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService });
+
+    const nested = form.element.querySelector<HTMLDetailsElement>('[name="nested.speed"]')!.closest("details")!;
+    expect(nested.open).toBe(false);
+
+    const list = form.element.querySelector<HTMLDetailsElement>("details.ed-group--list")!;
+    expect(list.open).toBe(false);
+    expect(list.querySelector("summary")!.textContent).toBe("List of tags (2)");
+    // The create action sits before the folded list, visible without opening it.
+    const newButton = Array.from(form.element.querySelectorAll("button")).find((b) => b.textContent === "New tags")!;
+    expect(newButton.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("remembers opened groups across the full re-render a commit causes", () => {
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService });
+
+    const nested = form.element.querySelector<HTMLDetailsElement>('[name="nested.speed"]')!.closest("details")!;
+    nested.open = true;
+    nested.dispatchEvent(new Event("toggle"));
+
+    // A committed edit rebuilds the whole form.
+    const speed = input(form, "nested.speed") as HTMLInputElement;
+    speed.value = "7";
+    speed.dispatchEvent(new Event("change"));
+
+    const rebuilt = form.element.querySelector<HTMLDetailsElement>('[name="nested.speed"]')!.closest("details")!;
+    expect(rebuilt).not.toBe(nested);
+    expect(rebuilt.open).toBe(true);
+    // Untouched groups stay folded.
+    expect(form.element.querySelector<HTMLDetailsElement>("details.ed-group--list")!.open).toBe(false);
+  });
+
+  it("New opens the list and reveals the row it just created", () => {
+    const configService = fakeConfigService();
+    const form = new SchemaFormGen({ schema: testSchema, value: baseValue, configService });
+
+    Array.from(form.element.querySelectorAll("button")).find((b) => b.textContent === "New tags")!.click();
+
+    expect(form.getValue().tags).toEqual(["one", "two", ""]);
+    const list = form.element.querySelector<HTMLDetailsElement>("details.ed-group--list")!;
+    expect(list.open).toBe(true);
+    expect(list.querySelector("summary")!.textContent).toBe("List of tags (3)");
   });
 });

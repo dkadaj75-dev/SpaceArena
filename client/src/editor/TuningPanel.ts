@@ -62,7 +62,7 @@ class ConfigSection<T extends TuningConfig | CameraConfig> {
   private readonly report: (message: string | null) => void;
   getValue: () => T;
 
-  private async save(): Promise<void> {
+  async save(): Promise<void> {
     const error = await saveConfig(this.getValue());
     this.report(error);
   }

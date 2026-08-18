@@ -70,7 +70,7 @@ export class NotificationEditor implements EditorPanel {
     this.render();
   }
 
-  private async save(): Promise<void> {
+  async save(): Promise<void> {
     if (!this.form) return;
     const error = await saveConfig(this.form.getValue());
     if (error) this.report(error);

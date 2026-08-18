@@ -35,6 +35,8 @@ export class MapEditor implements EditorPanel {
   private selected: Selection | null = null;
   private navSelection: number[] = [];
   private armed: AssetChoice | "nav" | null = null;
+  /** Asset-browser fold state, keyed by group — renderUi() rebuilds the DOM, so `<details>` can't remember on its own. */
+  private readonly assetFolds: Record<string, boolean> = {};
   private mirror = true;
   private translateSnap = true;
   private rotateSnap = true;
@@ -105,6 +107,19 @@ export class MapEditor implements EditorPanel {
     else if (event.key.toLowerCase() === "g") { event.preventDefault(); this.toggleGameView(); }
   };
 
+  /** A folded-by-default `<details>` group whose open state survives renderUi() rebuilds. */
+  private foldGroup(key: string, title: string): HTMLDetailsElement {
+    const box = document.createElement("details");
+    box.className = "ed-group";
+    box.open = this.assetFolds[key] ?? false;
+    const summary = document.createElement("summary");
+    summary.className = "ed-group-title";
+    summary.textContent = title;
+    box.append(summary);
+    box.addEventListener("toggle", () => { this.assetFolds[key] = box.open; });
+    return box;
+  }
+
   private renderUi(): void {
     this.element.replaceChildren();
     const toolbar = row("ed-toolbar");
@@ -128,13 +143,26 @@ export class MapEditor implements EditorPanel {
     }
     this.element.append(layers);
 
+    // The full catalogue floods the sidebar (100+ props on a real pack), so the
+    // browser is nested folded accordions: Props ▸ New prop, then List of props
+    // ▸ the catalogue. Fold state lives on the instance because renderUi()
+    // rebuilds this DOM on every arm/selection change.
     const assets = section("Asset browser");
-    for (const prop of this.host.configService.getAll<PropConfig>("prop")) {
+    const allProps = this.host.configService.getAll<PropConfig>("prop");
+    const props = this.foldGroup("props", `Props (${allProps.length})`);
+    props.append(button("New prop (import GLB…)", () => void this.importGlb(), "ed-btn--primary"));
+    const propList = this.foldGroup("propList", "List of props");
+    for (const prop of allProps) {
       const tris = prop.collision ? collisionTriangles(prop.collision.indices) : 0;
-      assets.append(button(`${prop.name} · ${prop.category}${tris ? ` · ${tris} tris` : ""}`, () => { this.armed = { kind: "prop", id: prop.id }; this.renderUi(); }, armedIs(this.armed, "prop", prop.id) ? "is-active" : ""));
+      propList.append(button(`${prop.name} · ${prop.category}${tris ? ` · ${tris} tris` : ""}`, () => { this.armed = { kind: "prop", id: prop.id }; this.renderUi(); }, armedIs(this.armed, "prop", prop.id) ? "is-active" : ""));
     }
-    for (const asteroid of this.host.configService.getAll<AsteroidConfig>("asteroid")) assets.append(button(`${asteroid.name} · asteroid`, () => { this.armed = { kind: "asteroid", id: asteroid.id }; this.renderUi(); }));
-    assets.append(button("Place nav node", () => { this.armed = "nav"; this.renderUi(); }), button("Import GLB…", () => void this.importGlb()));
+    props.append(propList);
+    const allAsteroids = this.host.configService.getAll<AsteroidConfig>("asteroid");
+    const asteroids = this.foldGroup("asteroids", `Asteroids (${allAsteroids.length})`);
+    const asteroidList = this.foldGroup("asteroidList", "List of asteroids");
+    for (const asteroid of allAsteroids) asteroidList.append(button(`${asteroid.name} · asteroid`, () => { this.armed = { kind: "asteroid", id: asteroid.id }; this.renderUi(); }, armedIs(this.armed, "asteroid", asteroid.id) ? "is-active" : ""));
+    asteroids.append(asteroidList);
+    assets.append(props, asteroids, button("Place nav node", () => { this.armed = "nav"; this.renderUi(); }));
     this.element.append(assets);
 
     const transforms = section("Transforms");
@@ -462,7 +490,7 @@ export class MapEditor implements EditorPanel {
   }
   private applyScenePropVisibility(): void { for (const mesh of this.host.scene.meshes) { const meta = mesh.metadata as { editorKind?: string; editorIndex?: number } | null; if (meta?.editorKind === "prop" && meta.editorIndex !== undefined && !mesh.name.startsWith("editor.")) mesh.setEnabled(this.layers.get(this.governingLayer("prop", meta.editorIndex))!.visible); } }
   private replace(arena: ArenaConfig): void { const result = this.host.configService.replace(arena); if (!result.ok) { this.report(result.errors.map((error) => `${error.path}: ${error.message}`).join("; ")); return; } this.host.rebuildArena(this.arenaId); this.rebuildPreview(); this.renderUi(); }
-  private async save(): Promise<void> { const arena = this.arena(); if (!arena) return; const parsed = arenaSchema.safeParse(arena); if (!parsed.success) { this.report(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")); return; } const error = await saveConfig(parsed.data); this.report(error); }
+  async save(): Promise<void> { const arena = this.arena(); if (!arena) return; const parsed = arenaSchema.safeParse(arena); if (!parsed.success) { this.report(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")); return; } const error = await saveConfig(parsed.data); this.report(error); }
   private async playtest(gamemodeId: string): Promise<void> { const arena = this.arena(); if (!arena) return; const problems = playtestArenaProblems(arena); if (problems.length) { this.report(problems.join("; ")); return; } try { await this.host.launchPlaytest(arena.id, gamemodeId); } catch (error) { this.report(error instanceof Error ? error.message : String(error)); } }
 
   private async importGlb(): Promise<void> {

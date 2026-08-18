@@ -77,6 +77,13 @@ const NO_REFERENCE = "— none —";
 export class SchemaFormGen<T> {
   readonly element: HTMLFormElement;
   private value: T;
+  /**
+   * Remembered accordion opens, keyed by field path (`propPlacements.3`,
+   * `render[]`). Instance-scoped on purpose: a new form (new config selected)
+   * starts folded again, but render()'s full rebuild on every commit restores
+   * the opens the designer made in THIS form.
+   */
+  private readonly folds = new Map<string, boolean>();
   private readonly json: JsonSchema;
 
   constructor(private readonly options: SchemaFormOptions<T>) {
@@ -130,7 +137,13 @@ export class SchemaFormGen<T> {
       const box = document.createElement(root ? "div" : "details");
       box.className = root ? "ed-form-root" : "ed-group";
       if (!root) {
-        (box as HTMLDetailsElement).open = true;
+        // Folded by default: a real pack renders hundreds of groups, and a wall
+        // of open accordions buries the one being edited. `folds` remembers the
+        // designer's opens because render() rebuilds this DOM on every commit —
+        // without it the group under the cursor would slam shut on each edit.
+        const key = path.join(".");
+        (box as HTMLDetailsElement).open = this.folds.get(key) ?? false;
+        box.addEventListener("toggle", () => this.folds.set(key, (box as HTMLDetailsElement).open));
         const summary = document.createElement("summary");
         summary.className = "ed-group-title";
         summary.textContent = label;
@@ -205,8 +218,34 @@ export class SchemaFormGen<T> {
     return body;
   }
 
+  /**
+   * Arrays render as: the "New" action first, then a folded "List of …" group
+   * holding every row (each row's own group folded too). A 129-placement arena
+   * used to open all of them at once and flood the panel.
+   */
   private arrayField(schema: JsonSchema, values: unknown[], path: string[], label: string): HTMLElement {
     const wrap = this.wrap(label);
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "ed-btn ed-btn--sm";
+    add.textContent = `New ${label}`;
+    add.addEventListener("click", () => {
+      // Reveal what was just created: the list and the new row open themselves.
+      this.folds.set(`${path.join(".")}[]`, true);
+      this.folds.set([...path, String(values.length)].join("."), true);
+      this.change(path, [...values, defaultFor(schema.items ?? {}, this.json.$defs)]);
+    });
+
+    const listKey = `${path.join(".")}[]`;
+    const listBox = document.createElement("details");
+    listBox.className = "ed-group ed-group--list";
+    listBox.open = this.folds.get(listKey) ?? false;
+    listBox.addEventListener("toggle", () => this.folds.set(listKey, listBox.open));
+    const summary = document.createElement("summary");
+    summary.className = "ed-group-title";
+    summary.textContent = `List of ${label} (${values.length})`;
+    listBox.append(summary);
+
     const list = document.createElement("div");
     list.className = "editor-array";
     values.forEach((item, index) => {
@@ -221,12 +260,8 @@ export class SchemaFormGen<T> {
       row.append(remove);
       list.append(row);
     });
-    const add = document.createElement("button");
-    add.type = "button";
-    add.className = "ed-btn ed-btn--sm";
-    add.textContent = "Add";
-    add.addEventListener("click", () => this.change(path, [...values, defaultFor(schema.items ?? {}, this.json.$defs)]));
-    wrap.append(list, add);
+    listBox.append(list);
+    wrap.append(add, listBox);
     return wrap;
   }
 
@@ -458,7 +493,7 @@ function inputValue(input: HTMLInputElement | HTMLSelectElement, schema: JsonSch
 /**
  * The value a field should hold when it first appears — enabling an optional,
  * switching a union branch, adding an array element, or seeding a whole new
- * config (see `newConfig.ts`). `defs` resolves `$ref`s, which a schema converted
+ * config. `defs` resolves `$ref`s, which a schema converted
  * from a shared sub-schema is full of.
  */
 export function defaultFor(raw: JsonSchema, defs?: Record<string, JsonSchema>): unknown {
