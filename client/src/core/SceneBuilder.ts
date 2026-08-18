@@ -177,12 +177,6 @@ export class SceneBuilder {
   private spawnMarkerOverride: boolean | null = null;
   /** Editor-only override; match props remain excluded from pointer picking. */
   private propPickingOverride = false;
-  /**
-   * An arena handed straight to {@link stageArena} rather than resolved through
-   * the ConfigService. Non-null only while Constellation is staging an
-   * unpublished draft, and it wins over `arenaId` for any internal rebuild.
-   */
-  private stagedArena: ArenaConfig | null = null;
   private readonly boundaryBlue = new Color3();
   private readonly boundaryRed = new Color3();
   private readonly boundaryColor = new Color3();
@@ -215,8 +209,8 @@ export class SceneBuilder {
       // at construction, so a tier swap rebuilds rather than mutating it.
       !sameDust(previous.scene.dust, quality.scene.dust) ||
       !sameTerrain(previous.scene.terrain, quality.scene.terrain);
-    if (needsRebuild) {
-      const arena = this.stagedArena ?? (this.arenaId ? this.configService.get<ArenaConfig>("arena", this.arenaId) : null);
+    if (needsRebuild && this.arenaId) {
+      const arena = this.configService.get<ArenaConfig>("arena", this.arenaId);
       if (arena) {
         this.rebuild(arena);
         return;
@@ -237,9 +231,6 @@ export class SceneBuilder {
       return;
     }
     this.arenaId = arenaId;
-    // Naming an arena by id hands control back to the registry, whatever the
-    // editor may have staged (see {@link stageArena}).
-    this.stagedArena = null;
 
     this.rebuild(arena);
 
@@ -255,33 +246,6 @@ export class SceneBuilder {
         }
       }),
     );
-  }
-
-  /**
-   * Stage an arena the caller is holding in memory instead of one the
-   * ConfigService owns.
-   *
-   * Constellation edits a DRAFT pack, and a draft never reaches the live
-   * registry — so `buildArena(id)` would show the published arena behind an
-   * editor full of unpublished placements. Passing the config itself keeps the
-   * floor, skybox, terrain and prop instances in step with the markers on top
-   * of them.
-   *
-   * The hot-reload subscription is dropped for the duration: a `content:changed`
-   * event resolves the arena out of the registry, which would silently stomp the
-   * staged draft. `null` releases the staging and rebuilds whatever arena
-   * {@link buildArena} last named, so the game gets its own scene back.
-   */
-  stageArena(arena: ArenaConfig | null): void {
-    if (!arena) {
-      if (!this.stagedArena) return;
-      this.stagedArena = null;
-      if (this.arenaId) this.buildArena(this.arenaId);
-      return;
-    }
-    this.stagedArena = arena;
-    this.clearSubscriptions();
-    this.rebuild(arena);
   }
 
   private rebuild(arena: ArenaConfig): void {

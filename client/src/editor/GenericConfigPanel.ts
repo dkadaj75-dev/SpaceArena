@@ -5,15 +5,11 @@ import type { DraftPackStore } from "./DraftPackStore.js";
 import { PANEL_REGISTRY, registeredContentPath } from "./panelRegistry.js";
 import { renderPreview } from "./previewAdapters.js";
 import { isViewportType, type ConstellationViewport } from "./ConstellationViewport.js";
-import { ViewportEditor, editableTypeOf } from "./ViewportEditor.js";
-import { AccordionState } from "./accordion.js";
 import { newConfigId, newConfigOf } from "./newConfig.js";
 
 export interface GenericConfigPanelOptions {
   /** Live 3D stage for the selected entity; null when no scene host is available. */
   viewport?: ConstellationViewport | null;
-  /** Viewport selection + gizmo editing; null keeps the stage read-only. */
-  editor?: ViewportEditor | null;
   /** Announces whether the centre cell currently shows 3D content. */
   onViewport?: (active: boolean) => void;
 }
@@ -24,17 +20,8 @@ export class GenericConfigPanel {
   private selectedPath = "";
   private disposePreview: (() => void) | null = null;
   private readonly viewport: ConstellationViewport | null;
-  private readonly editor: ViewportEditor | null;
   private readonly viewportCell = document.createElement("div");
   private readonly viewportStatus = document.createElement("p");
-  /**
-   * Owned here rather than inside each `SchemaFormGen` so a viewport selection
-   * can unfold the row it just picked (see {@link reveal}) — the form is rebuilt
-   * on every edit, and the fold state has to outlive it either way.
-   */
-  private readonly accordions = new Map<ConfigType, AccordionState>();
-  /** Field path the viewport asked to expose once the form is next built. */
-  private pendingReveal: string | null = null;
 
   constructor(
     private readonly draft: DraftPackStore,
@@ -43,7 +30,6 @@ export class GenericConfigPanel {
   ) {
     this.element.className = "constellation-catalog";
     this.viewport = options.viewport ?? null;
-    this.editor = options.editor ?? null;
     this.viewportCell.className = "constellation-viewport";
     this.viewportStatus.className = "constellation-viewport-status";
     this.viewportCell.append(this.viewportStatus);
@@ -52,14 +38,7 @@ export class GenericConfigPanel {
     this.render();
   }
 
-  /**
-   * Rebuild the catalogue.
-   *
-   * `restage` is off for a redraw the viewport editor itself triggered: it has
-   * already committed to the draft and owns the restage, and a second one here
-   * would tear the gizmo off the marker it is still attached to.
-   */
-  render(restage = true): void {
+  render(): void {
     this.disposePreview?.(); this.disposePreview = null;
     const bundle = this.draft.snapshot();
     const configs = entriesOf(bundle, this.type);
@@ -74,9 +53,11 @@ export class GenericConfigPanel {
 
     const sidebar = document.createElement("aside"); sidebar.className = "constellation-list";
     const heading = document.createElement("h2"); heading.textContent = `${PANEL_REGISTRY[this.type].label} (${configs.length})`; sidebar.append(heading);
-    // New-first, then the list — the same order every folded list in the forms
-    // uses. The catalogue itself stays expanded: it is the navigation, and
-    // folding it would leave nothing to select.
+    for (const [path, config] of configs) {
+      const button = document.createElement("button"); button.type = "button"; button.className = "constellation-item";
+      button.classList.toggle("is-active", path === this.selectedPath); button.textContent = config.id;
+      button.addEventListener("click", () => { this.selectedPath = path; this.render(); }); sidebar.append(button);
+    }
     const actions = document.createElement("div"); actions.className = "constellation-list-actions";
     const fresh = document.createElement("button"); fresh.type = "button"; fresh.className = "ed-btn ed-btn--primary";
     fresh.textContent = `New ${PANEL_REGISTRY[this.type].label.replace(/s$/, "").toLowerCase()}`;
@@ -85,74 +66,34 @@ export class GenericConfigPanel {
     create.disabled = !this.selectedPath;
     create.addEventListener("click", () => this.duplicate());
     actions.append(fresh, create); sidebar.append(actions);
-    for (const [path, config] of configs) {
-      const button = document.createElement("button"); button.type = "button"; button.className = "constellation-item";
-      button.classList.toggle("is-active", path === this.selectedPath); button.textContent = config.id;
-      button.addEventListener("click", () => { this.selectedPath = path; this.render(); }); sidebar.append(button);
-    }
 
     const editor = document.createElement("main"); editor.className = "constellation-form";
     const selected = configs.find(([path]) => path === this.selectedPath);
     if (selected) this.renderEditor(editor, bundle, selected[0], selected[1]);
     else { const empty = document.createElement("p"); empty.className = "ed-empty"; empty.textContent = "This pack has no config of this type. Duplicate requires a source config."; editor.append(empty); }
     this.element.replaceChildren(nav, sidebar, editor, this.viewportCell);
-    void this.updateViewport(selected?.[1] ?? null, selected?.[0] ?? "", bundle, restage);
+    void this.updateViewport(selected?.[1] ?? null, bundle);
   }
 
   /**
    * Stage (or tear down) the selected entity in the game scene. The chrome only
    * goes transparent once something is really built, so a type with no 3D
    * subject keeps a readable opaque background.
-   *
-   * The editing session is pointed at the subject BEFORE the markers are built
-   * (its policy decides which of them are pickable) and re-bound to its
-   * selection after — that pair is what keeps the gizmo attached across the
-   * rebuild every committed edit causes.
    */
-  private async updateViewport(config: AnyConfig | null, path: string, bundle: ContentBundle, restage = true): Promise<void> {
+  private async updateViewport(config: AnyConfig | null, bundle: ContentBundle): Promise<void> {
     if (!this.viewport) return;
     if (!config || !isViewportType(config.type)) {
-      this.editor?.detach();
       this.viewport.clear();
       this.element.dataset.viewport = "off";
       this.options.onViewport?.(false);
       return;
     }
-    if (config.type !== "arena" && config.type !== "ship") this.editor?.detach();
-    else this.editor?.setSubject(path, config);
-    if (!restage) return;
     const staged = await this.viewport.show(config, (type, id) => lookupIn(bundle, type, id));
     // A later selection may have landed while a model was loading — that call
     // owns the chrome state, so only the winning one reports.
     if (!staged) return;
-    this.editor?.afterStage();
     this.element.dataset.viewport = "on";
     this.options.onViewport?.(true);
-  }
-
-  /**
-   * Unfold the form row a viewport pick corresponds to, and scroll to it. The
-   * card in the viewport carries the quick fields; the generated form is where
-   * the rest of the placement (or socket) lives, so a selection has to be able
-   * to reach it in one action rather than a hunt through a folded list.
-   */
-  reveal(fieldPath: string): void {
-    const state = this.accordionsFor(this.type);
-    const segments = fieldPath.split(".");
-    // Open every ancestor: "propPlacements" → "propPlacements[]" → "propPlacements.7".
-    for (let end = 1; end <= segments.length; end++) {
-      const key = segments.slice(0, end).join(".");
-      state.set(key, true);
-      if (end < segments.length) state.set(`${key}[]`, true);
-    }
-    this.pendingReveal = fieldPath;
-    this.render(false);
-  }
-
-  private accordionsFor(type: ConfigType): AccordionState {
-    let state = this.accordions.get(type);
-    if (!state) { state = new AccordionState(type); this.accordions.set(type, state); }
-    return state;
   }
 
   private renderEditor(target: HTMLElement, bundle: ContentBundle, path: string, config: AnyConfig): void {
@@ -170,32 +111,16 @@ export class GenericConfigPanel {
       const form = new SchemaFormGen({
         schema: CONFIG_SCHEMAS[this.type], value: config, configService: service,
         allowPackInvalid: true,
-        // Structural fold state is remembered per config type, so opening "Prop
-        // placements" on one arena leaves it open on the next. Row-level folds
-        // are not: this form is rebuilt on every selection change, and its
-        // per-document state goes with it (see `accordion.ts`).
-        accordions: this.accordionsFor(this.type),
         onProblems: (problems) => this.onProblems(problems.map((problem) => ({ file: path, ...problem }))),
         onSaved: (value) => {
           this.draft.setFile(path, value); void this.preflight();
           void this.updatePreview(livePreview, value, baseConfig);
-          void this.updateViewport(value, path, this.draft.snapshot());
+          void this.updateViewport(value, this.draft.snapshot());
         },
       });
-      const tools = this.editor && editableTypeOf(config) ? [this.editor.element] : [];
-      target.append(head, deployed, preview, applicationNotice(this.type), ...tools, this.workflowHelp(config), livePreview, form.element);
+      target.append(head, deployed, preview, applicationNotice(this.type), this.workflowHelp(config), livePreview, form.element);
       void this.updatePreview(livePreview, config, baseConfig);
-      this.applyPendingReveal(form.element);
     });
-  }
-
-  /** Scroll to the row {@link reveal} unfolded, once the form that holds it exists. */
-  private applyPendingReveal(form: HTMLElement): void {
-    const target = this.pendingReveal;
-    this.pendingReveal = null;
-    if (!target) return;
-    const row = form.querySelector<HTMLElement>(`[data-accordion="${cssEscape(target)}"]`);
-    row?.scrollIntoView?.({ block: "nearest" });
   }
 
   private async updatePreview(target: HTMLElement, config: AnyConfig, baseConfig?: AnyConfig): Promise<void> {
@@ -256,16 +181,6 @@ export class GenericConfigPanel {
   }
 
   private async preflight(): Promise<void> { const result = await this.draft.preflight(); this.onProblems(result.errors); }
-}
-
-/**
- * Escape a dotted field path for use INSIDE the quotes of an attribute
- * selector. Not `CSS.escape`, which quotes identifiers: a quoted attribute
- * value only has to survive `"` and `\`, and field paths are schema keys and
- * array indices anyway.
- */
-function cssEscape(value: string): string {
-  return value.replace(/["\\]/g, "\\$&");
 }
 
 /** Resolve one referenced config out of the draft bundle (arena placements…). */
