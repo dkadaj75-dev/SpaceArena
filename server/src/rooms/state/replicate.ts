@@ -87,6 +87,9 @@ export function applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
   const qThrottle = encodeUnit(ship.throttle);
   const qLock = encodeUnit(ship.lockProgress);
   if (ps.throttle !== qThrottle) ps.throttle = qThrottle;
+  // Tenths of a second, saturating: the pad hold is 3 s, far under the cap.
+  const qHold = Math.min(255, Math.round((ship.launchHold ?? 0) * 10));
+  if (ps.launchHold !== qHold) ps.launchHold = qHold;
   if (ps.lockProgress !== qLock) ps.lockProgress = qLock;
   if (ps.locked !== ship.locked) ps.locked = ship.locked;
   const targetId = ship.targetId ?? -1;

@@ -170,6 +170,8 @@ export function decodeShip(p: any): ShipSnapshot {
     // schema field is a plain number.
     targetId: p.targetId === undefined || p.targetId < 0 ? null : Number(p.targetId),
     throttle: decodeUnit(p.throttle ?? 0),
+    // Tenths of a second on the wire (see ArenaState.launchHold).
+    launchHold: (p.launchHold ?? 0) / 10,
     lockProgress: decodeUnit(p.lockProgress ?? 0),
     locked: Boolean(p.locked),
     cosmeticId: decodeCosmeticId(p.cosmeticId),

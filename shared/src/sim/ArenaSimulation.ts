@@ -87,6 +87,11 @@ export interface ShipSnapshot {
   hullMax: number;
   targetId: EntityId | null;
   /**
+   * Seconds left on this ship's pad hold (the 3-2-1-0 a respawn shows), 0 when
+   * flying free or on the launch run. Display with `Math.ceil`.
+   */
+  launchHold?: number;
+  /**
    * Commanded throttle 0..1 — the ship's actual FlightState value, 0 when it has
    * none (unordered or move-order driven). Client signals read this instead of
    * inferring engine output from per-snapshot displacement.
@@ -215,6 +220,26 @@ const COUNTDOWN_EPSILON = 1e-9;
  */
 const SPAWN_CLEARANCE_FACTOR = 1.1;
 
+/**
+ * Launch sequence (CTF hangar spawns, but applied to every pad spawn so the
+ * rule is one rule): a freshly spawned ship holds on its pad for
+ * {@link SPAWN_HOLD_SEC} (the 3-2-1-0 the HUD shows), then is propelled at
+ * {@link LAUNCH_THROTTLE} along its spawn heading until it has cleared
+ * {@link LAUNCH_CLEAR_DIST} of runway — the CTF hangar interior is ~15u from
+ * pad to mouth — and only then is control handed over. The whole sequence is
+ * damage-protected: a ship frozen on a pad (or gliding out of a bay on rails)
+ * cannot defend itself, so it cannot be hurt either.
+ *
+ * The initial wave enrolls with hold 0 — the match's own 3-2-1 countdown IS
+ * their hold — and starts its launch run on the first live tick. Respawns and
+ * mid-match joiners hold the full {@link SPAWN_HOLD_SEC} individually.
+ */
+const SPAWN_HOLD_SEC = 3;
+const LAUNCH_THROTTLE = 0.5;
+const LAUNCH_CLEAR_DIST = 22;
+/** Hard cap on the launch run — a blocked bay must never hold a ship forever. */
+const LAUNCH_MAX_SEC = 4;
+
 /** One team's running kill count (frag-limit scoreboards; draws stay visible). */
 export interface TeamScore {
   team: number;
@@ -338,6 +363,8 @@ export class ArenaSimulation {
   private readonly pendingRespawns: { entityId: EntityId; timer: number }[] = [];
   /** Deterministic spawn-point picker for respawns (own stream off the session seed). */
   private readonly respawnRng: () => number;
+  /** Ships still in their pad-hold / launch run (see the launch-sequence doc above). */
+  private readonly launchSequences = new Map<EntityId, { hold: number; sx: number; sz: number; heading: number; boostSec: number }>();
   /**
    * Initial placement belongs to a TEAM, not to the world-wide entity counter.
    * A side joining after deaths (or after the other side filled its pads) must
@@ -435,7 +462,82 @@ export class ArenaSimulation {
       sp.pitch ?? 0,
     );
     this.spawnRecords.set(id, { shipId, fitting, team, upgradeLevels, cosmeticId: this.paintFor(shipId, cosmeticId) });
+    // The pre-match wave's hold is the match countdown itself; a mid-match
+    // joiner sits out the full pad hold like any respawn.
+    this.enrollLaunch(id, sp.position, sp.heading, this.phase === "live" ? SPAWN_HOLD_SEC : 0);
     return id;
+  }
+
+  /**
+   * Immediately complete every pad hold / launch run, handing control over now.
+   * Host/test escape hatch — a scripted scenario (or a test teleporting ships)
+   * must not fight the sequence's pose pinning and damage protection.
+   */
+  releaseLaunchSequences(): void {
+    for (const id of this.launchSequences.keys()) this.world.launchProtected.delete(id);
+    this.launchSequences.clear();
+  }
+
+  private enrollLaunch(id: EntityId, position: { x: number; z: number }, heading: number, hold: number): void {
+    // Only arenas whose pads sit inside bays run the sequence (arena.spawnLaunch)
+    // — on an open pad the hold would just be a free shot at a frozen ship.
+    if (!this.world.arena.spawnLaunch) return;
+    this.launchSequences.set(id, { hold, sx: position.x, sz: position.z, heading, boostSec: 0 });
+    this.world.launchProtected.add(id);
+  }
+
+  /**
+   * Hold-then-launch, run first thing on every live tick so it wins over any
+   * queued player/bot order: queued orders for enrolled ships are dropped and
+   * the FlightState is overwritten outright — navigation then integrates the
+   * forced inputs like any other tick, so the run stays deterministic and
+   * collision-aware (a blocked bay still slides along the wall, and the
+   * {@link LAUNCH_MAX_SEC} cap frees a truly stuck ship).
+   */
+  private tickLaunchSequences(dt: number): void {
+    if (this.launchSequences.size === 0) return;
+    this.world.dropOrdersFor(this.launchSequences);
+    for (const [id, seq] of this.launchSequences) {
+      const tf = this.world.transforms.get(id);
+      if (!this.world.isAlive(id) || !tf) {
+        this.launchSequences.delete(id);
+        this.world.launchProtected.delete(id);
+        continue;
+      }
+      // A fresh spawn has no FlightState until its first order — the launch
+      // run IS its first order, so create the held state the way navigation
+      // would.
+      let flight = this.world.flightStates.get(id);
+      if (!flight) {
+        flight = { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false, firePrev: false };
+        this.world.flightStates.set(id, flight);
+      }
+      flight.turn = 0;
+      flight.pitchStick = 0;
+      flight.boost = false;
+      flight.fire = false;
+      flight.firePrev = false;
+      if (seq.hold > 0) {
+        seq.hold = Math.max(0, seq.hold - dt);
+        flight.throttle = 0;
+        // Pin the pad pose: static contacts must not walk a held ship around.
+        tf.pos.x = seq.sx;
+        tf.pos.z = seq.sz;
+        tf.heading = seq.heading;
+        const vel = this.world.velocities.get(id);
+        if (vel) { vel.x = 0; vel.y = 0; vel.z = 0; }
+        continue;
+      }
+      seq.boostSec += dt;
+      flight.throttle = LAUNCH_THROTTLE;
+      tf.heading = seq.heading;
+      const dx = tf.pos.x - seq.sx;
+      const dz = tf.pos.z - seq.sz;
+      if (dx * dx + dz * dz >= LAUNCH_CLEAR_DIST * LAUNCH_CLEAR_DIST || seq.boostSec >= LAUNCH_MAX_SEC) {
+        this.launchSequences.delete(id);
+        this.world.launchProtected.delete(id);
+      }
+    }
   }
 
   /**
@@ -664,6 +766,8 @@ export class ArenaSimulation {
       w.spatial.insert(id, t.pos.x, t.pos.z, c.radius);
     }
 
+    // Pad holds / launch runs override queued orders BEFORE navigation drains them.
+    this.tickLaunchSequences(dt);
     navigationSystem(w, dt);
     moduleSystem(w, dt);
     // Before targeting: a heatsink jettisoned this tick must already be luring
@@ -752,6 +856,7 @@ export class ArenaSimulation {
         sp.pitch ?? 0,
         pending.entityId,
       );
+      this.enrollLaunch(pending.entityId, sp.position, sp.heading, SPAWN_HOLD_SEC);
     }
 
     for (const ev of this.world.events) {
@@ -949,6 +1054,7 @@ export class ArenaSimulation {
         hull: core.hull,
         hullMax: core.hullMax,
         targetId: ref?.targetId ?? null,
+        launchHold: this.launchSequences.get(id)?.hold ?? 0,
         throttle: w.flightStates.get(id)?.throttle ?? 0,
         velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
         sensorRange: core.sensors.lockRange,

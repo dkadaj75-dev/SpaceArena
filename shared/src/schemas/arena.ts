@@ -255,6 +255,13 @@ export const arenaSchema = z
     propPlacements: z.array(propPlacement).optional(),
     navGraph: navGraph.optional(),
     spawnPoints: z.array(spawnPoint).min(1),
+    /**
+     * Pads sit inside enclosing structures (hangar bays): every pad spawn runs
+     * the launch sequence — 3-2-1-0 hold on the pad, then a sim-flown 50%%
+     * throttle run out of the bay before control is handed over. Arenas with
+     * open pads leave this off and spawn ships free immediately.
+     */
+    spawnLaunch: z.boolean().optional(),
     /** Per-team flag bases; required only by capture-the-flag gamemodes. */
     flagBases: z.array(flagBase).optional(),
     lighting: z

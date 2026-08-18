@@ -243,10 +243,12 @@ describe("shipped canyon arena geometry", () => {
 
   it("pins the generated placement count and preserves 180-degree placement symmetry", () => {
     expect(arena.bounds.shape).toBe("box");
-    // 128 generated (16 terrain chunks + 56 twinned pairs) plus the one
-    // hand-authored centrepiece — the He-3 extraction plant, which sits on the
-    // symmetry point itself and is therefore its own 180-degree twin.
-    expect(propPlacements).toHaveLength(129);
+    // 124 generated (16 terrain chunks + 54 twinned pairs — the designer
+    // removed both approach-beacon pairs in the hangar spawn rework) plus the
+    // hand-authored He-3 extraction plant centrepiece, which sits on the
+    // symmetry point itself and is therefore its own 180-degree twin — plus
+    // the ten CTF spawn hangar bays (five per team, authored as twinned pairs).
+    expect(propPlacements).toHaveLength(135);
     const placements = propPlacements.map((placement) => ({
       propId: placement.propId,
       position: positionOf(placement.position),

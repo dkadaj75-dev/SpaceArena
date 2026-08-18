@@ -76,6 +76,15 @@ import { loadTestConfigs } from "./testutil.js";
  *    laser damage x2, missile damage x3 at a quarter of the fire rate. Both
  *    vectors move on both digests, and the bot vector sheds 61 events: fights
  *    resolve so much faster that fewer exchanges fit in its 30 s window.
+ *  - 2026-08-18: scripted vector re-recorded for the autocannon/laser split pass
+ *    (kinetic `fire.damage` x0.8, laser x1.3). `numeric` ONLY — `structure` is
+ *    byte-identical at 04e1360a and the event count is unchanged at 300, which
+ *    is exactly the signature a pure damage-number change should leave: the same
+ *    ships fire the same shots on the same ticks and hit the same targets, and
+ *    only the amounts differ. A `structure` move here would have meant the pass
+ *    had changed sequencing, which it must not.
+ *    The BOT vector is deliberately NOT re-recorded in this pass — see the note
+ *    on that test.
  */
 
 const DT = 1 / 30;
@@ -287,7 +296,7 @@ describe("golden sim fingerprint", () => {
     const fp = scriptedVector(600);
     expect(fp).toEqual({
       structure: "04e1360a",
-      numeric: "d49577cb",
+      numeric: "0d7a2c29",
       events: 300,
       ticks: 600,
     });
@@ -296,12 +305,30 @@ describe("golden sim fingerprint", () => {
   // 900 ticks = 30 s of sim. Long enough for the bots to close, engage and take
   // damage, so the vector actually carries an event stream rather than a static
   // opening formation; still under three seconds of wall time.
+  //
+  // 2026-08-19: re-recorded for the CTF hangar-bay spawn overhaul, which moves
+  // this vector three ways at once, all deliberate:
+  //   1. lunar-rift's pads spread apart (x ±52/±26/0) and each gained an
+  //      enclosing hangar-bay prop with full triangle collision;
+  //   2. `arena.spawnLaunch` enables the launch sequence on this arena — every
+  //      pad spawn holds 3 s (damage-protected) and is sim-flown out of the bay
+  //      at 50% throttle before its pilot (bot or human) gets control;
+  //   3. the same landing carries the autocannon −20% / laser +30% rebalance.
+  // Events fell 389 → 252 because ~6 s of each ship's early match is now a
+  // protected hold+launch rather than combat. The interim `events: 3` noted by
+  // the balance pass (bots stuck INSIDE not-yet-launching hangars) was the bug
+  // the launch sequence exists to fix — 252 was bots flying out and fighting.
+  //
+  // Same day, follow-up: the spawn line moved further back from the flags
+  // (z ±278 → ±310, hangars with it), so the teams start 64 units further
+  // apart and close for longer before contact — 252 → 167 events in the same
+  // 900-tick window, combat merely starting later, not thinner.
   it("pins the ten-bot lunar-rift vector", () => {
     const fp = botVector(900);
     expect(fp).toEqual({
-      structure: "7f8ad7f9",
-      numeric: "e6cc0461",
-      events: 389,
+      structure: "191f9a07",
+      numeric: "ad1344f3",
+      events: 167,
       ticks: 900,
     });
   }, 120_000);

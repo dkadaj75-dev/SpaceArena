@@ -45,12 +45,19 @@ export class CountdownOverlay {
     root.appendChild(this.el);
   }
 
-  update(cur: Snapshot, dtMs: number): void {
-    if (cur.phase === "countdown" && cur.countdownRemaining > 0) {
+  update(cur: Snapshot, dtMs: number, ownShipId?: number): void {
+    // The match's own 3-2-1, or — once live — this pilot's pad hold: a respawn
+    // sits its launch hold out in the bay and gets the same three beats and GO.
+    const ownHold = ownShipId === undefined ? 0
+      : cur.ships.find((s) => s.id === ownShipId)?.launchHold ?? 0;
+    const remaining = cur.phase === "countdown" && cur.countdownRemaining > 0
+      ? cur.countdownRemaining
+      : ownHold;
+    if (remaining > 0) {
       // Whole seconds remaining. Re-arm the GO flash on every countdown frame so
       // a rematch (or a fresh room) plays it again without any explicit reset.
       this.goHoldMs = GO_HOLD_MS;
-      const ceil = Math.ceil(cur.countdownRemaining);
+      const ceil = Math.ceil(remaining);
       this.lastCeil = ceil;
       this.show(String(ceil));
       return;

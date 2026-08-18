@@ -136,6 +136,11 @@ export class PlayerState extends Schema {
    * from displacement (FLIGHT.md §1/§5).
    */
   @type("uint8") throttle = 0;
+  /**
+   * Seconds left on the ship's pad hold (respawn 3-2-1-0), in tenths as uint8
+   * (0..255 = 0..25.5 s). 0 while flying free or on the launch run.
+   */
+  @type("uint8") launchHold = 0;
   /** Sensor lock warm-up, normalized 0..1 as uint8 (shared `decodeUnit`). */
   @type("uint8") lockProgress = 0;
   /** True once the lock completed — the sim's weapons gate (FLIGHT.md §2). */

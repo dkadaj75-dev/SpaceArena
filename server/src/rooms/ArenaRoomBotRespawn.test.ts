@@ -54,6 +54,7 @@ interface RoomInternals {
   botDrivers: Map<number, unknown>;
   sim: {
     hasShip(entityId: number): boolean;
+    releaseLaunchSequences(): void;
     world: {
       shipCores: Map<number, { hull: number }>;
       transforms: Map<number, { pos: { x: number; y: number; z: number } }>;
@@ -91,7 +92,9 @@ describe("ArenaRoom bot drivers across a respawn (owner 2026-08-16)", () => {
     const botId = [...internal.botDrivers.keys()][0]!;
 
     // Kill it the way live ships die (boundary damage), so the destruction
-    // emits the event the respawn pipeline consumes.
+    // emits the event the respawn pipeline consumes. The spawnLaunch hold is
+    // released first — its damage protection would shrug the boundary off.
+    internal.sim.releaseLaunchSequences();
     internal.sim.world.shipCores.get(botId)!.hull = 0.01;
     internal.sim.world.transforms.get(botId)!.pos.x = 30_000;
     for (let tick = 0; tick < 90 && internal.sim.hasShip(botId); tick++) await advance(room, 1);

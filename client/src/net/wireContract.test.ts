@@ -28,7 +28,7 @@ function wireState(): Record<string, unknown> {
         entityId: 7, team: 0, shipId: "ship.interceptor", displayName: "Pilot", isBot: false,
         alive: true, cosmeticId: "", x: encodeCenti(1), y: encodeCenti(2), z: encodeCenti(3),
         heading: 0, pitch: 0, upX: 0, upY: 1, upZ: 0, hull: 50, hullMax: 60,
-        shieldPool: 0, throttle: 0, lockProgress: 0, locked: false, targetId: -1,
+        shieldPool: 0, throttle: 0, launchHold: 0, lockProgress: 0, locked: false, targetId: -1,
         modules: [{
           moduleId: "module.laser-mk1", hardpointIndex: 0, state: 2, stateTimer: 0, rounds: 0,
           heat: 0, heatCapacity: 4, energy: 0, energyCapacity: 0, cycleTimer: 0,

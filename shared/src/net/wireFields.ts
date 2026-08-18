@@ -89,6 +89,7 @@ export const WIRE_FIELDS = {
     "hullMax",
     "shieldPool",
     "throttle",
+    "launchHold",
     "lockProgress",
     "locked",
     "targetId",

@@ -1174,8 +1174,11 @@ describe("ArenaRoom", () => {
 
     const player = room.state.players.get(human.sessionId)!;
     const internal = colyseus.getRoomById(room.roomId) as unknown as {
-      sim: { world: { shipCores: Map<number, { hull: number }>; transforms: Map<number, { pos: { x: number; y: number; z: number } }> } };
+      sim: { releaseLaunchSequences(): void; world: { shipCores: Map<number, { hull: number }>; transforms: Map<number, { pos: { x: number; y: number; z: number } }> } };
     };
+    // Skip the spawnLaunch hold: the boundary kill below teleports the ship
+    // out of bounds, which the launch sequence's protection would ignore.
+    internal.sim.releaseLaunchSequences();
     internal.sim.world.shipCores.get(player.entityId)!.hull = 0.01;
     internal.sim.world.transforms.get(player.entityId)!.pos.x = 30_000;
     await advance(room, 1);
@@ -1214,6 +1217,7 @@ describe("ArenaRoom", () => {
   interface CtfInternals {
     sim: {
       applyOrder(entityId: number, order: unknown): void;
+      releaseLaunchSequences(): void;
       world: {
         transforms: Map<number, { pos: { x: number; y: number; z: number } }>;
         shipCores: Map<number, { hull: number }>;
@@ -1233,6 +1237,10 @@ describe("ArenaRoom", () => {
     await advance(room, 1);
     expect(room.state.matchPhase).toBe("live");
     const internal = colyseus.getRoomById(room.roomId) as unknown as CtfInternals;
+    // lunar-rift is a `spawnLaunch` arena: every pad spawn opens with a pinned,
+    // damage-protected hold + launch run. These tests TELEPORT ships around, so
+    // the sequence's pose pinning would silently undo the setup — skip it.
+    internal.sim.releaseLaunchSequences();
     const arena = configs.get<ArenaConfig>("arena", "arena.lunar-rift")!;
     return { room, human, internal, arena };
   }
