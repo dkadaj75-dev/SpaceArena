@@ -6,16 +6,16 @@
   "class": "light",
   "core": {
     "hull": {
-      "base": 120,
+      "base": 165,
       "resists": {
         "kinetic": 0.1,
-        "energy": 0
+        "energy": 0.2755
       }
     },
     "engine": {
-      "nominalSpeed": 27,
-      "accel": 18,
-      "turnRate": 3
+      "nominalSpeed": 33,
+      "accel": 20,
+      "turnRate": 4
     },
     "cooling": {
       "multiplier": 1
@@ -351,7 +351,7 @@
       "accent": "#6ff2c8"
     },
     "model": "ships/talon_light_lod0.glb",
-    "modelScale": 3.31,
+    "modelScale": 4.11,
     "modelRotationY": 0
   },
   "collider": {
