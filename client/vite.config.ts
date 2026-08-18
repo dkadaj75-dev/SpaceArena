@@ -316,14 +316,14 @@ export default defineConfig(({ command }) => ({
         //    `unicode-range: U+0900-097F,…`, so a browser never requests them —
         //    but `woff2` in the pattern above downloads all three at SW install
         //    anyway: 232,528 B, 69% of the entire woff2 payload.
-        //  - The Constellation editor chunks. Admin-only, reached through a
-        //    dynamic import (main.ts:946), and already excluded from the page-load
-        //    budget by tools/bundle-budget.ts — they have no business in the
-        //    install cost either.
+        //  - The Constellation designer-shell chunks. Admin-only, reached
+        //    through `openDesigner()`'s dynamic imports, and already excluded
+        //    from the page-load budget by tools/bundle-budget.ts — they have
+        //    no business in the install cost either.
         //
         // Both stay in dist/ and stay servable on demand; they are only dropped
         // from the up-front precache. Together 249,281 B of a 2.07 MB install.
-        // Globbed, not named: the Constellation hash changes every build.
+        // Globbed, not named: the chunk hashes change every build.
         //
         // NOT done by switching to @fontsource's `latin-*` subset entrypoints:
         // those files declare their @font-face with NO `unicode-range`, so
@@ -332,8 +332,11 @@ export default defineConfig(({ command }) => ({
         // falls back to system-ui. (Orbitron has no latin-ext entrypoint at all.)
         globIgnores: [
           "**/*-devanagari-*-normal-*.woff2",
-          "**/ConstellationApp-*.js",
-          "**/ConstellationApp-*.css",
+          "**/EditorShell-*.js",
+          "**/EditorShell-*.css",
+          "**/ModuleEditor-*.js",
+          "**/ModuleEditor-*.css",
+          "**/ShipManagerModules-*.js",
         ],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // Nothing under these prefixes is a navigation: /api and the Colyseus

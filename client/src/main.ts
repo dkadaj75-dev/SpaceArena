@@ -977,7 +977,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     authService,
     () => {
       authScreen.hide();
-      if (new URLSearchParams(window.location.search).has("editor")) void openConstellation();
+      if (new URLSearchParams(window.location.search).has("editor")) void openDesigner();
       else {
         music.setScreen("menu");
         lobby.show();
@@ -994,54 +994,24 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   );
   authScreen.hide();
 
-  let constellation: import("./editor/ConstellationApp.js").ConstellationApp | null = null;
   let designToolsEntry: HTMLButtonElement | null = null;
-  /**
-   * Scene/camera capabilities Constellation needs to use the game's canvas as
-   * its 3D viewport. Assigned once the editor host below is built (further down
-   * this bootstrap); Constellation degrades to a forms-only layout while null.
-   */
-  let constellationHost: import("./editor/ConstellationViewport.js").ConstellationHost | null = null;
-  async function openConstellation(): Promise<void> {
-    try {
-      const [{ ConstellationApp }, { AdminContentRepository }] = await Promise.all([
-        import("./editor/ConstellationApp.js"), import("./editor/repository/AdminContentRepository.js"),
-      ]);
-      lobby.hide(); authScreen.hide(); music.setScreen("shop");
-      constellation = new ConstellationApp(new AdminContentRepository(authService), () => {
-        constellation = null;
-        music.setScreen("menu");
-        lobby.show();
-      }, constellationHost);
-      await constellation.open();
-    } catch (error) {
-      log.warn("Constellation access denied or unavailable", error);
-      if (authService.getState().status !== "authed") { lobby.hide(); music.setScreen("menu"); authScreen.show(); return; }
-      music.setScreen("menu"); lobby.showError(error instanceof Error ? error.message : "Admin access required"); lobby.show();
-    }
-  }
-  async function installDesignToolsEntry(): Promise<void> {
+  function installDesignToolsEntry(): void {
     const state = authService.getState();
     if (state.status !== "authed" || designToolsEntry) return;
-    // Players never probe the admin surface: an unauthorized status call is a
-    // guaranteed 403 in the console for every guest (the smoke's zero-error
-    // gate caught exactly that). The profile role gates the ATTEMPT; the
-    // server stays authoritative on every actual editor call.
+    // The profile role gates the ATTEMPT only: the shell's actual writes go
+    // through the dev middleware (`/__editor/*`), which simply isn't there
+    // outside a dev serve — the server stays authoritative on every call.
     if (state.profile.role !== "admin") return;
-    try {
-      const { AdminContentRepository } = await import("./editor/repository/AdminContentRepository.js");
-      await new AdminContentRepository(authService).status();
-      designToolsEntry = document.createElement("button"); designToolsEntry.type = "button";
-      designToolsEntry.className = "sa-design-tools-entry"; designToolsEntry.textContent = "DESIGN TOOLS";
-      Object.assign(designToolsEntry.style, { position: "fixed", right: "max(16px, env(safe-area-inset-right))", bottom: "max(16px, env(safe-area-inset-bottom))", zIndex: "35", minHeight: "44px", padding: "0 18px", color: "#dceaf7", background: "#0d1524", border: "1px solid #57d8ff", font: "600 13px Orbitron, sans-serif", letterSpacing: ".1em" });
-      designToolsEntry.setAttribute("aria-label", "Open Constellation design tools");
-      designToolsEntry.addEventListener("click", () => void openConstellation()); document.body.append(designToolsEntry);
-    } catch { /* Capability probe is authoritative: players see no entry. */ }
+    designToolsEntry = document.createElement("button"); designToolsEntry.type = "button";
+    designToolsEntry.className = "sa-design-tools-entry"; designToolsEntry.textContent = "DESIGN TOOLS";
+    Object.assign(designToolsEntry.style, { position: "fixed", right: "max(16px, env(safe-area-inset-right))", bottom: "max(16px, env(safe-area-inset-bottom))", zIndex: "35", minHeight: "44px", padding: "0 18px", color: "#dceaf7", background: "#0d1524", border: "1px solid #57d8ff", font: "600 13px Orbitron, sans-serif", letterSpacing: ".1em" });
+    designToolsEntry.setAttribute("aria-label", "Open the Constellation designer shell");
+    designToolsEntry.addEventListener("click", () => void openDesigner()); document.body.append(designToolsEntry);
   }
   // Eager, then self-healing: this call is a no-op while the restore above is
   // still in flight, and the subscription re-runs it the moment a session lands.
-  void installDesignToolsEntry();
-  authService.onChange(() => void installDesignToolsEntry());
+  installDesignToolsEntry();
+  authService.onChange(() => installDesignToolsEntry());
 
   boot?.settle("interface", "ok", "theme · fonts · menu");
 
@@ -1084,7 +1054,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     if (ok) log.info("dev-login: authenticated as admin (use ?login=1 to test the auth screen)");
   }
 
-  if (new URLSearchParams(window.location.search).has("editor") && authService.getState().status === "authed") void openConstellation();
+  if (new URLSearchParams(window.location.search).has("editor") && authService.getState().status === "authed") void openDesigner();
 
   // --- Boot stage 3: is the game server actually there? ---
   //
@@ -1541,8 +1511,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   });
 
   // Editor host capabilities. Built unconditionally (not DEV-gated) because the
-  // admin-only Constellation tools use the same scene/camera hooks for their 3D
-  // viewport in every build; only the F10 shell binding below stays DEV-only.
+  // designer shell uses these scene/camera hooks for its 3D viewport in every
+  // build; only the F10 shell binding below stays DEV-only.
   //
   // TEMPORARY(designer-access): remove with the settings-screen designer button.
   // `openDesigner()` also sits outside the DEV gate for one reason only — the
@@ -1635,7 +1605,6 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       tacticalCamera.setGesturesSuspended(suspended);
     },
   };
-  constellationHost = editorHost;
 
   /**
    * Open (or close) the Constellation designer shell. One entry point for both
