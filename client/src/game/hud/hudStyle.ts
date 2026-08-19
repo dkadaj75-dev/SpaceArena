@@ -1770,6 +1770,25 @@ const CSS = `
   font-family: var(--hud-font-body, system-ui, sans-serif);
   font-size: clamp(13px, 2.5vw, 16px);
 }
+/* Hangar launch hold: the establishing shot IS the content, so the numerals
+   step aside to a small top-centre strip and drop the centre scrim entirely.
+   Placement only — the beat, the GO tint and the animations are shared. */
+.hud-countdown.hangar {
+  inset: 0 0 auto 0;
+  align-items: flex-start;
+  padding-top: max(2.5vh, env(safe-area-inset-top, 0px));
+  font-size: clamp(26px, 6vh, 52px);
+  letter-spacing: 0.22em;
+  /* Trailing letter-spacing on the last glyph would read as an off-centre
+     numeral against a strip this narrow. */
+  text-indent: 0.22em;
+  background: none;
+}
+.hud-countdown.hangar.go {
+  font-size: clamp(22px, 5vh, 44px);
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+}
 /* GO reads as a release, not a fourth beat: accent tint, wider, snappier. */
 .hud-countdown.go {
   color: var(--hud-accent, var(--sa-white));

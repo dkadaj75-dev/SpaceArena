@@ -18,9 +18,36 @@ function snapshot(phase: Snapshot["phase"], countdownRemaining: number): Snapsho
   };
 }
 
-function mount(): { overlay: CountdownOverlay; el: HTMLElement; root: HTMLElement } {
+/** A live snapshot whose only ship is the local pilot, mid pad hold. */
+function padHold(launchHold: number, launchLocked = launchHold > 0): Snapshot {
+  const snap = snapshot("live", 0);
+  snap.ships = [{
+    id: 7,
+    team: 0,
+    pos: { x: 0, y: 0, z: 0 },
+    heading: 0,
+    pitch: 0,
+    up: { x: 0, y: 1, z: 0 },
+    hull: 100,
+    hullMax: 100,
+    targetId: null,
+    launchHold,
+    launchLocked,
+    throttle: 0,
+    lockProgress: 0,
+    locked: false,
+    modules: [],
+  }];
+  return snap;
+}
+
+function mount(playSound?: (id: string) => void): {
+  overlay: CountdownOverlay;
+  el: HTMLElement;
+  root: HTMLElement;
+} {
   const root = document.createElement("div");
-  const overlay = new CountdownOverlay(root);
+  const overlay = new CountdownOverlay(root, playSound ?? null);
   return { overlay, el: root.querySelector<HTMLElement>(".hud-countdown")!, root };
 }
 
@@ -128,5 +155,85 @@ describe("CountdownOverlay (match start)", () => {
     const { overlay, root } = mount();
     overlay.dispose();
     expect(root.querySelector(".hud-countdown")).toBeNull();
+  });
+});
+
+describe("CountdownOverlay (hangar pad hold)", () => {
+  /**
+   * The whole point of the placement split: a pad hold plays over a cinematic
+   * establishing shot of the player's own ship, so the numerals must not be the
+   * viewport-height glyph the match countdown gets.
+   */
+  it("counts the pad hold small and at the top, never as the centre numerals", () => {
+    const { overlay, el } = mount();
+    overlay.update(padHold(2.4), 16, 7);
+    expect(el.textContent).toBe("3");
+    expect(el.classList.contains("hangar")).toBe(true);
+    expect(overlay.isHangarPlacement).toBe(true);
+    overlay.dispose();
+  });
+
+  it("keeps GO in the top strip rather than jumping to centre on the last beat", () => {
+    const { overlay, el } = mount();
+    overlay.update(padHold(0.4), 16, 7);
+    expect(el.textContent).toBe("1");
+    overlay.update(padHold(0), 16, 7);
+    expect(el.textContent).toBe("GO");
+    expect(el.classList.contains("hangar")).toBe(true);
+    expect(el.classList.contains("go")).toBe(true);
+    overlay.dispose();
+  });
+
+  it("gives the match countdown the centre placement back after a pad hold", () => {
+    const { overlay, el } = mount();
+    overlay.update(padHold(1.5), 16, 7);
+    expect(el.classList.contains("hangar")).toBe(true);
+    overlay.update(padHold(0), 1000, 7);
+    expect(overlay.currentText).toBeNull();
+
+    overlay.update(snapshot("countdown", 3), 16, 7);
+    expect(el.classList.contains("hangar")).toBe(false);
+    expect(overlay.isHangarPlacement).toBe(false);
+    overlay.dispose();
+  });
+
+  /**
+   * The hold's cues are cued from the DISPLAYED value, so they land exactly with
+   * the numeral. The match countdown's are not: those come from the sim's own
+   * replicated `countdownTick`/`matchStarted` events, and cueing them here too
+   * would play every beat twice.
+   */
+  it("plays one hangar cue per numeral, and the GO stinger at zero", () => {
+    const played: string[] = [];
+    const { overlay } = mount((id) => played.push(id));
+    for (const remaining of [3, 2.8, 2.4, 2, 1.6, 1, 0.5]) {
+      overlay.update(padHold(remaining), 16, 7);
+    }
+    expect(played).toEqual([
+      "hangar_countdown_tick",
+      "hangar_countdown_tick",
+      "hangar_countdown_tick",
+    ]);
+    overlay.update(padHold(0), 16, 7);
+    expect(played.at(-1)).toBe("hangar_countdown_go");
+    overlay.dispose();
+  });
+
+  it("stays silent through a match countdown, which the sim already cues", () => {
+    const played: string[] = [];
+    const { overlay } = mount((id) => played.push(id));
+    for (const remaining of [3, 2, 1]) overlay.update(snapshot("countdown", remaining), 16, 7);
+    overlay.update(snapshot("live", 0), 16, 7);
+    expect(played).toEqual([]);
+    overlay.dispose();
+  });
+
+  it("ignores another pilot's pad hold", () => {
+    const { overlay, el } = mount();
+    // Ship 7 is holding; the local player is 9 and is flying.
+    overlay.update(padHold(3), 16, 9);
+    expect(overlay.currentText).toBeNull();
+    expect(el.textContent).toBe("");
+    overlay.dispose();
   });
 });

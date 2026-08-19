@@ -289,3 +289,152 @@ describe("TacticalCamera staged screen offset", () => {
     expect(rigCamera.camera.targetScreenOffset.y).toBe(0);
   });
 });
+
+describe("TacticalCamera cinematic shot (hangar launch)", () => {
+  const EYE = { x: -46.5, y: 13.5, z: -314 };
+  const AIM = { x: -52, y: 8, z: -305 };
+
+  /**
+   * The rig has to reach an ARBITRARY world pose from chase mode, which pins the
+   * orbit radius and rolls `upVector` with the ship. Both have to be undone or
+   * Babylon clamps the shot back onto the chase orbit.
+   */
+  it("places the camera on the supplied pose out of a rolled, radius-pinned chase", () => {
+    const rigCamera = rig();
+    rigCamera.setChaseFrame(1.2, 0.6, { x: 0.3, y: -0.4, z: 0.86 });
+    rigCamera.setChaseMode(true);
+
+    rigCamera.setCinematicShot(EYE, AIM);
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+
+    expect(rigCamera.isCinematic).toBe(true);
+    expect(rigCamera.camera.position.x).toBeCloseTo(EYE.x, 4);
+    expect(rigCamera.camera.position.y).toBeCloseTo(EYE.y, 4);
+    expect(rigCamera.camera.position.z).toBeCloseTo(EYE.z, 4);
+    expect(rigCamera.camera.target.x).toBeCloseTo(AIM.x, 6);
+    expect(rigCamera.camera.target.z).toBeCloseTo(AIM.z, 6);
+    // Levelled: an establishing shot does not inherit the ship's roll.
+    expect(rigCamera.camera.upVector.y).toBeCloseTo(1, 9);
+  });
+
+  /**
+   * The trap this guards: Babylon rebuilds its position from alpha/beta/radius
+   * plus the target every view matrix, so a "fixed" shot that only writes the
+   * target gets towed along behind the ship it is watching leave.
+   */
+  it("holds the eye still while the aim point tracks a ship flying away", () => {
+    const rigCamera = rig();
+    rigCamera.setChaseMode(true);
+    rigCamera.setCinematicShot(EYE, AIM);
+    rigCamera.update(1 / 60);
+
+    for (let i = 1; i <= 20; i++) {
+      rigCamera.setCinematicShot(EYE, { ...AIM, z: AIM.z + i * 2 });
+      rigCamera.update(1 / 60);
+    }
+    rigCamera.camera.getViewMatrix(true);
+
+    expect(rigCamera.camera.position.z).toBeCloseTo(EYE.z, 4);
+    expect(rigCamera.camera.target.z).toBeCloseTo(AIM.z + 40, 6);
+  });
+
+  it("widens the FOV over the pursuit rig's, and hands it straight back on the cut", () => {
+    const rigCamera = rig();
+    rigCamera.setChaseMode(true);
+    const chaseFov = rigCamera.camera.fov;
+
+    rigCamera.setCinematicShot(EYE, AIM);
+    expect(rigCamera.camera.fov).toBeGreaterThan(chaseFov);
+
+    rigCamera.setCinematicShot(null);
+    expect(rigCamera.isCinematic).toBe(false);
+    expect(rigCamera.camera.fov).toBeCloseTo(chaseFov, 9);
+    // The chase radius pin is back, so wheel/pinch stay inert after the cut.
+    expect(rigCamera.camera.lowerRadiusLimit).toBeCloseTo(rigCamera.camera.upperRadiusLimit!, 9);
+  });
+
+  /**
+   * Control returns on a beat the player is watching for, so the return to
+   * pursuit is a CUT. If the smoothers were left seeded the camera would lerp
+   * out of the bay corner and arrive seconds after the pilot had the stick.
+   */
+  it("cuts rather than lerps back — the first pursuit frame is already behind the ship", () => {
+    const rigCamera = rig();
+    const follow = new TransformNode("follow", rigCamera.camera.getScene());
+    follow.position.set(0, 0, 0);
+    rigCamera.follow(follow);
+    rigCamera.setChaseFrame(0, 0, { x: 0, y: 1, z: 0 });
+    rigCamera.setChaseMode(true);
+
+    rigCamera.setCinematicShot(EYE, AIM);
+    rigCamera.update(1 / 60);
+    follow.position.set(0, 0, 40); // the ship flew out while the shot ran
+    rigCamera.setCinematicShot(null);
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+
+    // One frame later the rig is on the ship at its chase radius, not still
+    // somewhere between the bay corner and the ship.
+    expect(rigCamera.camera.position.subtract(follow.position).length()).toBeLessThan(14);
+  });
+
+  it("is idempotent in both directions", () => {
+    const rigCamera = rig();
+    rigCamera.setChaseMode(true);
+    rigCamera.setCinematicShot(null); // never started
+    expect(rigCamera.isCinematic).toBe(false);
+
+    rigCamera.setCinematicShot(EYE, AIM);
+    const fov = rigCamera.camera.fov;
+    rigCamera.setCinematicShot(EYE, AIM);
+    expect(rigCamera.camera.fov).toBeCloseTo(fov, 9);
+    rigCamera.setCinematicShot(null);
+    rigCamera.setCinematicShot(null);
+    expect(rigCamera.isCinematic).toBe(false);
+  });
+});
+
+describe("TacticalCamera cinematic shot — geometry safety net", () => {
+  /**
+   * The bug this guards: a bay whose interior is smaller than the shot was
+   * sized for seats the eye inside the ceiling, and the player gets the inside
+   * of a roof slab for the whole spawn. Framing stays the shot's job; this only
+   * refuses to render from inside a wall.
+   */
+  it("pushes an eye that lands inside geometry back out along the contact normal", () => {
+    const rigCamera = rig();
+    rigCamera.setStaticWorld({
+      isEmpty: false,
+      raycast: () => null,
+      sphereContact: () => ({
+        depth: 0.75, point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: -1, z: 0 }, placementIndex: 0,
+      }),
+    } as never);
+    rigCamera.setChaseMode(true);
+
+    rigCamera.setCinematicShot({ x: -47, y: 10, z: -311.5 }, { x: -52, y: 8, z: -306.5 });
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+
+    // Down and out from under the roof it was buried in.
+    expect(rigCamera.camera.position.y).toBeCloseTo(10 - 0.75, 4);
+    expect(rigCamera.camera.position.x).toBeCloseTo(-47, 4);
+  });
+
+  it("leaves a clear shot exactly where it was composed", () => {
+    const rigCamera = rig();
+    rigCamera.setStaticWorld({
+      isEmpty: false, raycast: () => null, sphereContact: () => null,
+    } as never);
+    rigCamera.setChaseMode(true);
+
+    rigCamera.setCinematicShot({ x: -47, y: 10, z: -311.5 }, { x: -52, y: 8, z: -306.5 });
+    rigCamera.update(1 / 60);
+    rigCamera.camera.getViewMatrix(true);
+
+    expect(rigCamera.camera.position.x).toBeCloseTo(-47, 4);
+    expect(rigCamera.camera.position.y).toBeCloseTo(10, 4);
+    expect(rigCamera.camera.position.z).toBeCloseTo(-311.5, 4);
+  });
+});

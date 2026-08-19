@@ -215,6 +215,35 @@ export const SOUND_SYNTHS: Record<string, SynthFn> = {
       tone(t, { type: "sine", from: 1440, to: 1440, duration: 0.3, peak: 0.12, attack: 0.05, delay: 0.12 }),
     ),
 
+  // --- hangar launch sequence (PLACEHOLDERS) -------------------------------
+  // Deliberately separate ids from the match countdown above: this beat is a
+  // bay PA talking to one pilot, not the arena-wide start gun, and the two are
+  // heard back to back at match start. All three are stubs — swap the synth for
+  // a sample without touching a call site (see {@link HANGAR_LAUNCH_SOUNDS}).
+  /** "3 … 2 … 1": a dull bay klaxon pip, an octave under the match tick. */
+  hangar_countdown_tick: (t) =>
+    longest(
+      tone(t, { type: "square", from: 360, to: 360, duration: 0.11, peak: 0.11 }),
+      noise(t, { duration: 0.06, peak: 0.05, filter: { type: "lowpass", from: 700, to: 220 } }),
+    ),
+  /** Clearance granted — the doors are open and the pad is yours. */
+  hangar_countdown_go: (t) =>
+    longest(
+      tone(t, { type: "sawtooth", from: 300, to: 600, duration: 0.22, peak: 0.14, attack: 0.06 }),
+      tone(t, { type: "sine", from: 900, to: 900, duration: 0.36, peak: 0.1, attack: 0.08, delay: 0.16 }),
+    ),
+  /**
+   * Engine ramp for the sim-flown run: a low rumble swelling under a rising
+   * sawtooth. Sized to the launch run (~1.5 s) so it lands with the ship
+   * leaving the bay rather than trailing behind it.
+   */
+  launch_thrust: (t) =>
+    longest(
+      noise(t, { duration: 1.5, peak: 0.26, filter: { type: "lowpass", from: 240, to: 1400 } }),
+      tone(t, { type: "sawtooth", from: 55, to: 190, duration: 1.4, peak: 0.2, attack: 0.35 }),
+      tone(t, { type: "sine", from: 38, to: 90, duration: 1.5, peak: 0.24, attack: 0.25 }),
+    ),
+
   // --- explosions (variants selected from effect configs) ------------------
   /** Light hull: quick crack. */
   explosion_light: (t) =>

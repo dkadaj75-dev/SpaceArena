@@ -43,6 +43,7 @@ import {
 } from "./core/serverHealth.js";
 import { TelemetryClient } from "./core/TelemetryClient.js";
 import { TacticalCamera } from "./game/TacticalCamera.js";
+import { LaunchCinematic } from "./game/launchCinematic.js";
 import { GameSession } from "./game/GameSession.js";
 import { ViewManager } from "./game/EntityView.js";
 import { Hud } from "./game/hud/Hud.js";
@@ -135,6 +136,8 @@ interface MatchRuntime {
   audioFeedback: AudioFeedback;
   /** Sim events → additive camera micro-shake (§10 5.7). */
   screenShake: ScreenShake;
+  /** Hangar spawn establishing shot, while the sim is flying the local hull. */
+  launchCinematic: LaunchCinematic;
   netOverlay: NetDebugOverlay | null;
   botOverlay: BotDebugOverlay | null;
   dispose(): void;
@@ -526,6 +529,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       entityPosition: (id) => session.curSnapshot.ships.find((s) => s.id === id)?.pos ?? null,
     });
     const screenShake = new ScreenShake(configService, session.playerId, tacticalCamera, bus);
+    // Takes the camera off the chase rig for the hangar spawn sequence. Built
+    // per match because the pad it captures belongs to this session's arena.
+    const launchCinematic = new LaunchCinematic(tacticalCamera, (id) => void audio.play(id));
 
     let disposed = false;
     return {
@@ -534,6 +540,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       hud,
       audioFeedback,
       screenShake,
+      launchCinematic,
       netOverlay,
       botOverlay,
       dispose(): void {
@@ -548,6 +555,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           { label: "session", run: () => { if (session instanceof NetGameSession) session.dispose(); } },
           { label: "audioFeedback", run: () => audioFeedback.dispose() },
           { label: "screenShake", run: () => screenShake.dispose() },
+          { label: "launchCinematic", run: () => launchCinematic.stop() },
           { label: "netOverlay", run: () => netOverlay?.dispose() },
           { label: "botOverlay", run: () => botOverlay?.dispose() },
           { label: "hud", run: () => hud.dispose() },
@@ -656,6 +664,9 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         label: "camera",
         run: () => {
           mvpStaged = false;
+          // Before the mode flips below: leaving the shot restores whichever
+          // mode is live, and that has to be the one this teardown lands on.
+          tacticalCamera.setCinematicShot(null);
           tacticalCamera.clearStageScreenOffset();
           tacticalCamera.setStaticWorld(null);
           tacticalCamera.setChaseMode(false);
@@ -1455,6 +1466,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         interpolateFrame(fp.heading, fp.pitch, fp.up, pc.heading, pc.pitch, pc.up, alpha, chaseFrameScratch);
         tacticalCamera.setChaseFrame(chaseFrameScratch.heading, chaseFrameScratch.pitch, chaseFrameScratch.up);
       }
+      // After the chase frame, not instead of it: the pursuit rig keeps being
+      // fed through the whole sequence so the cut back at control-return is
+      // already pointing the right way. Runs on a null `pc` too — a dead player
+      // has no sequence, and that is how the shot gets torn down.
+      runtime.launchCinematic.update(pc, playerFollow.position, dtMs);
 
       // Consume this frame's sim events, then render dynamic views + markers + HUD.
       const events = runtime.session.drainFrameEvents();

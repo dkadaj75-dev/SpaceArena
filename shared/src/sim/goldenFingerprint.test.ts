@@ -85,6 +85,13 @@ import { loadTestConfigs } from "./testutil.js";
  *    had changed sequencing, which it must not.
  *    The BOT vector is deliberately NOT re-recorded in this pass — see the note
  *    on that test.
+ *  - 2026-08-18 (later): bot vector re-recorded for the cinematic launch
+ *    retiming — half the pad hold is now a full-throttle sim-flown run and
+ *    control returns on the countdown's zero. Both digests move and the event
+ *    count rises 167 → 300; the full reasoning is on that test. The scripted
+ *    vector plays on `arena.ring-nebula`, which has no `spawnLaunch`, and is
+ *    byte-identical — which is the corroboration that this pass touched the
+ *    launch sequence and nothing else.
  */
 
 const DT = 1 / 30;
@@ -323,12 +330,20 @@ describe("golden sim fingerprint", () => {
   // (z ±278 → ±310, hangars with it), so the teams start 64 units further
   // apart and close for longer before contact — 252 → 167 events in the same
   // 900-tick window, combat merely starting later, not thinner.
+  //
+  // 2026-08-18: re-recorded for the cinematic launch retiming. The 3 s pad hold
+  // now spends only its first 1.5 s pinned; the rest is a sim-flown run at FULL
+  // throttle (was 50%), and control returns on the countdown's own zero instead
+  // of when 22 u of runway had been covered. Every ship therefore leaves its bay
+  // faster and is flying under bot control ~1.5 s earlier, so the teams close
+  // sooner and 167 → 300 events fit the same 900-tick window. Both digests move,
+  // as they must: this changes when and how fast every hull moves.
   it("pins the ten-bot lunar-rift vector", () => {
     const fp = botVector(900);
     expect(fp).toEqual({
-      structure: "191f9a07",
-      numeric: "ad1344f3",
-      events: 167,
+      structure: "a437bc83",
+      numeric: "144b3acc",
+      events: 300,
       ticks: 900,
     });
   }, 120_000);

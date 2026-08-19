@@ -76,6 +76,18 @@ export function applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
   if (ps.upX !== qux) ps.upX = qux;
   if (ps.upY !== quy) ps.upY = quy;
   if (ps.upZ !== quz) ps.upZ = quz;
+  // Velocity, on the same int16 deci-unit codec as the position triple (see
+  // PlayerState.vx). A snapshot with no `velocity` at all replicates zeroes
+  // rather than stale values — the client's decoder treats a zero-vector as
+  // "no usable velocity" and falls back to finite differences, which is the
+  // pre-velocity behaviour and always safe.
+  const vel = ship.velocity;
+  const qvx = vel ? encodeCenti(vel.x) : 0;
+  const qvy = vel ? encodeCenti(vel.y) : 0;
+  const qvz = vel ? encodeCenti(vel.z) : 0;
+  if (ps.vx !== qvx) ps.vx = qvx;
+  if (ps.vy !== qvy) ps.vy = qvy;
+  if (ps.vz !== qvz) ps.vz = qvz;
   if (ps.hull !== ship.hull) ps.hull = ship.hull;
   // Resolved maxima (ship class + upgrades + module passives): the sim already
   // resolved these into the snapshot at spawn, so mirror them straight through.
@@ -90,6 +102,8 @@ export function applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
   // Tenths of a second, saturating: the pad hold is 3 s, far under the cap.
   const qHold = Math.min(255, Math.round((ship.launchHold ?? 0) * 10));
   if (ps.launchHold !== qHold) ps.launchHold = qHold;
+  const launchLocked = ship.launchLocked ?? false;
+  if (ps.launchLocked !== launchLocked) ps.launchLocked = launchLocked;
   if (ps.lockProgress !== qLock) ps.lockProgress = qLock;
   if (ps.locked !== ship.locked) ps.locked = ship.locked;
   const targetId = ship.targetId ?? -1;

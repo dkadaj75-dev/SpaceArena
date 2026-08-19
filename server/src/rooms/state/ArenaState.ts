@@ -9,9 +9,10 @@ import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
  *  - Beams and kinetics are one-shot fire events (protocol `fireEvent`), NOT
  *    schema entities. Only **missiles** get a {@link ProjectileState} entry
  *    (task 2.7).
- *  - Positions are quantized to int16 centi-units and headings to uint16 (see
- *    shared `net/quantize`), documented there. Velocity is NOT replicated at
- *    all — see the note on {@link PlayerState}.
+ *  - Positions and per-ship VELOCITY are quantized to int16 deci-units and
+ *    headings to uint16 (see shared `net/quantize`), documented there. Velocity
+ *    rides for ships only — see the note on {@link PlayerState.vx}; missiles
+ *    and decoys still send position alone.
  *
  * Uses @colyseus/schema's `@type` decorators (server tsconfig enables
  * `experimentalDecorators` + `useDefineForClassFields:false`, the combination
@@ -101,24 +102,43 @@ export class PlayerState extends Schema {
   @type("float32") upY = 1;
   @type("float32") upZ = 0;
 
-  /*
-   * NO VELOCITY FIELDS HERE, deliberately — this documents an absence.
+  /**
+   * Authoritative world velocity in units/second, int16 deci-units — the SAME
+   * codec as the position triple above (shared `encodeCenti`/`decodeCenti`), so
+   * 0.1 u/s of resolution over ±3276.7 u/s. A cruising interceptor is under
+   * 100 u/s, so the range is enormous headroom and the resolution is roughly
+   * three orders of magnitude finer than any speed difference an eye or a HUD
+   * readout resolves.
    *
-   * Two int16 centi-unit fields, `vx` and `vz`, sat at this spot until protocol
-   * 7. Nothing ever wrote them and nothing ever read them, so they replicated
-   * zeroes for their whole life. Do not put them back as they were: a `vx`/`vz`
-   * pair with no `vy` is a 2D subset of a 3D flight model (BUBBLE.md §B — the
-   * bubble's vertical axis is a real degree of freedom), so a client that
-   * trusted the pair would be wrong the moment a ship pitched.
+   * ## The history, because this field was deliberately absent for a long time
    *
-   * The client already has velocity: `trackServerVelocity` in
-   * `client/src/net/NetGameSession.ts` DIFFERENCES the two interpolated
-   * snapshot positions it is already holding, in all three axes. That is the
-   * supported mechanism. If replicated velocity is ever genuinely wanted (the
-   * quantization noise on a differenced pair is the argument for it), add all
-   * THREE components, with a writer in `replicate.ts` and a decoder to match,
-   * and bump the protocol again.
+   * A `vx`/`vz` PAIR sat at this spot until protocol 7. Nothing wrote them and
+   * nothing read them, so they replicated zeroes for their whole life, and they
+   * were deleted with a comment warning against restoring them as they were: a
+   * two-component velocity is a 2D subset of a 3D flight model (BUBBLE.md §B —
+   * the bubble's vertical axis is a real degree of freedom), so a client that
+   * trusted the pair would be wrong the moment a ship pitched. That warning is
+   * honoured here — all THREE components travel, with a writer in `replicate.ts`
+   * and a decoder in `shared/src/net/decodeState.ts`.
+   *
+   * The comment also named the then-supported alternative: the client
+   * DIFFERENCED the two interpolated snapshot positions it was already holding.
+   * That is what this replaces, and the reason is that a difference is not a
+   * velocity — it is the average velocity over the segment, delayed by half a
+   * segment, carrying the quantization noise of both endpoints amplified by
+   * 1/h (at h = 66.7 ms, the ±0.05 u position codec alone is ±1.5 u/s of noise),
+   * and undefined at the newest sample, which is exactly where the client's
+   * dead-reckoning needs it. Two consumers wanted the real thing:
+   *
+   *  - `hermitePosition` builds its interpolation tangents from it, replacing
+   *    Catmull-Rom finite differences that could only ever describe the samples
+   *    already in the buffer;
+   *  - the HUD speed readout reads |v| straight off the newest snapshot instead
+   *    of differentiating a rendered position against a playback clock.
    */
+  @type("int16") vx = 0;
+  @type("int16") vy = 0;
+  @type("int16") vz = 0;
 
   @type("float32") hull = 0;
   /** Resolved max hull (ship class + upgrades + module passives) — for HUD bars. */
@@ -138,9 +158,16 @@ export class PlayerState extends Schema {
   @type("uint8") throttle = 0;
   /**
    * Seconds left on the ship's pad hold (respawn 3-2-1-0), in tenths as uint8
-   * (0..255 = 0..25.5 s). 0 while flying free or on the launch run.
+   * (0..255 = 0..25.5 s). 0 once control has returned.
    */
   @type("uint8") launchHold = 0;
+  /**
+   * True while the sim owns this hull — pad hold or launch run — and the
+   * pilot's orders are dropped. Not derivable from `launchHold`: the opening
+   * wave's countdown is the MATCH countdown, so it flies its run with
+   * `launchHold` already at 0. The client's spawn cinematic keys off this.
+   */
+  @type("boolean") launchLocked = false;
   /** Sensor lock warm-up, normalized 0..1 as uint8 (shared `decodeUnit`). */
   @type("uint8") lockProgress = 0;
   /** True once the lock completed — the sim's weapons gate (FLIGHT.md §2). */

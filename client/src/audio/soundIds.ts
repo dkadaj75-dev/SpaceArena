@@ -136,6 +136,25 @@ export function actionIdsForEvent(
 
 const EMPTY: readonly string[] = [];
 
+/**
+ * The hangar launch sequence's cues.
+ *
+ * These are the one family that is NOT content-driven, and deliberately so: the
+ * sequence is a sim mechanic (`ShipSnapshot.launchLocked` / `launchHold`), not
+ * a module hook, an effect or a theme-authored player cue — there is no config
+ * object that owns it. Naming them here keeps the ids in the same file as every
+ * other id policy, so a real sample replaces a synth stub by editing
+ * `synths.ts` alone.
+ */
+export const HANGAR_LAUNCH_SOUNDS = {
+  /** One per whole second of the pad hold (3 / 2 / 1). */
+  countdownTick: "hangar_countdown_tick",
+  /** The hold reaching zero — control handed to the pilot. */
+  countdownGo: "hangar_countdown_go",
+  /** Engine ramp, fired once when the sim-flown run starts. */
+  thrust: "launch_thrust",
+} as const;
+
 /** Player-feedback cue ids, already placeholder-resolved (null = silent). */
 export interface AudioCueMap {
   playerDamaged: string | null;

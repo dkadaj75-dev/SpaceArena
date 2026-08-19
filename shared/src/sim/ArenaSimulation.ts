@@ -87,10 +87,19 @@ export interface ShipSnapshot {
   hullMax: number;
   targetId: EntityId | null;
   /**
-   * Seconds left on this ship's pad hold (the 3-2-1-0 a respawn shows), 0 when
-   * flying free or on the launch run. Display with `Math.ceil`.
+   * Seconds left on this ship's pad hold (the 3-2-1-0 a respawn shows), 0 once
+   * control has returned. Display with `Math.ceil`.
    */
   launchHold?: number;
+  /**
+   * True while the SIM is flying this hull — pinned on the pad or on its launch
+   * run — so the pilot's orders are being dropped. Distinct from
+   * {@link launchHold}, which is only the visible countdown: the opening wave's
+   * hold is the match countdown, so those ships fly a run with `launchHold` at
+   * 0. Presentation (the hangar establishing shot, the launch cue) keys off
+   * THIS, and `throttle` separates the pinned half from the run.
+   */
+  launchLocked?: boolean;
   /**
    * Commanded throttle 0..1 — the ship's actual FlightState value, 0 when it has
    * none (unordered or move-order driven). Client signals read this instead of
@@ -222,23 +231,43 @@ const SPAWN_CLEARANCE_FACTOR = 1.1;
 
 /**
  * Launch sequence (CTF hangar spawns, but applied to every pad spawn so the
- * rule is one rule): a freshly spawned ship holds on its pad for
- * {@link SPAWN_HOLD_SEC} (the 3-2-1-0 the HUD shows), then is propelled at
- * {@link LAUNCH_THROTTLE} along its spawn heading until it has cleared
- * {@link LAUNCH_CLEAR_DIST} of runway — the CTF hangar interior is ~15u from
- * pad to mouth — and only then is control handed over. The whole sequence is
- * damage-protected: a ship frozen on a pad (or gliding out of a bay on rails)
- * cannot defend itself, so it cannot be hurt either.
+ * rule is one rule). A freshly spawned ship gets {@link SPAWN_HOLD_SEC} of hold
+ * — the 3-2-1-0 the HUD shows — split in two:
+ *
+ *  - while more than {@link LAUNCH_RUN_SEC} is left the ship is PINNED to its
+ *    pad pose at zero throttle;
+ *  - the last {@link LAUNCH_RUN_SEC} is the RUN: the sim flies the ship out of
+ *    the bay itself at {@link LAUNCH_THROTTLE} along the spawn heading. The
+ *    pilot is still locked out, and the run is sized so the ~15u bay interior
+ *    is behind the ship by the time the hold reaches zero.
+ *
+ * Control returns the instant the hold hits 0 — that beat is the whole point of
+ * the countdown, so nothing is allowed to extend it. Damage protection is the
+ * one thing that outlives it: a ship still crossing its own bay mouth cannot
+ * fight, so {@link tickLaunchProtection} keeps it untouchable for the rest of
+ * {@link LAUNCH_CLEAR_DIST} of runway.
  *
  * The initial wave enrolls with hold 0 — the match's own 3-2-1 countdown IS
- * their hold — and starts its launch run on the first live tick. Respawns and
- * mid-match joiners hold the full {@link SPAWN_HOLD_SEC} individually.
+ * their hold, and the countdown phase runs no physics, so they are pinned by it
+ * for free — and flies its run on the first live ticks. Respawns and mid-match
+ * joiners hold the full {@link SPAWN_HOLD_SEC} individually.
  */
 const SPAWN_HOLD_SEC = 3;
-const LAUNCH_THROTTLE = 0.5;
+export const LAUNCH_RUN_SEC = 1.5;
+/**
+ * Full throttle, not a half-throttle glide: the run has a fixed 1.5 s to put the
+ * bay behind the ship. Boost is deliberately NOT used — a fresh hull's booster
+ * module spawns retracted, so asking for it would either do nothing or drain a
+ * tank the pilot is about to want.
+ */
+const LAUNCH_THROTTLE = 1;
 const LAUNCH_CLEAR_DIST = 22;
-/** Hard cap on the launch run — a blocked bay must never hold a ship forever. */
-const LAUNCH_MAX_SEC = 4;
+/**
+ * Cap on the post-handover protection. A blocked bay must never leave a ship
+ * invulnerable forever, and by this point it has had control for that whole
+ * time anyway.
+ */
+const LAUNCH_PROTECT_MAX_SEC = 2.5;
 
 /** One team's running kill count (frag-limit scoreboards; draws stay visible). */
 export interface TeamScore {
@@ -363,8 +392,14 @@ export class ArenaSimulation {
   private readonly pendingRespawns: { entityId: EntityId; timer: number }[] = [];
   /** Deterministic spawn-point picker for respawns (own stream off the session seed). */
   private readonly respawnRng: () => number;
-  /** Ships still in their pad-hold / launch run (see the launch-sequence doc above). */
-  private readonly launchSequences = new Map<EntityId, { hold: number; sx: number; sz: number; heading: number; boostSec: number }>();
+  /** Ships the sim is still flying — pad hold or launch run (launch-sequence doc above). */
+  private readonly launchSequences = new Map<EntityId, { hold: number; run: number; sx: number; sz: number; heading: number }>();
+  /**
+   * Ships whose pilot has control back but which are still damage-protected
+   * until they are clear of their own bay. Disjoint from
+   * {@link launchSequences} — an id moves from one to the other exactly once.
+   */
+  private readonly launchProtection = new Map<EntityId, { sx: number; sz: number; sec: number }>();
   /**
    * Initial placement belongs to a TEAM, not to the world-wide entity counter.
    * A side joining after deaths (or after the other side filled its pads) must
@@ -475,14 +510,16 @@ export class ArenaSimulation {
    */
   releaseLaunchSequences(): void {
     for (const id of this.launchSequences.keys()) this.world.launchProtected.delete(id);
+    for (const id of this.launchProtection.keys()) this.world.launchProtected.delete(id);
     this.launchSequences.clear();
+    this.launchProtection.clear();
   }
 
   private enrollLaunch(id: EntityId, position: { x: number; z: number }, heading: number, hold: number): void {
     // Only arenas whose pads sit inside bays run the sequence (arena.spawnLaunch)
     // — on an open pad the hold would just be a free shot at a frozen ship.
     if (!this.world.arena.spawnLaunch) return;
-    this.launchSequences.set(id, { hold, sx: position.x, sz: position.z, heading, boostSec: 0 });
+    this.launchSequences.set(id, { hold, run: LAUNCH_RUN_SEC, sx: position.x, sz: position.z, heading });
     this.world.launchProtected.add(id);
   }
 
@@ -491,10 +528,14 @@ export class ArenaSimulation {
    * queued player/bot order: queued orders for enrolled ships are dropped and
    * the FlightState is overwritten outright — navigation then integrates the
    * forced inputs like any other tick, so the run stays deterministic and
-   * collision-aware (a blocked bay still slides along the wall, and the
-   * {@link LAUNCH_MAX_SEC} cap frees a truly stuck ship).
+   * collision-aware (a blocked bay still slides along the wall).
+   *
+   * The run is time-boxed rather than distance-boxed: control has to come back
+   * on the countdown's own beat, so a ship that failed to clear its bay is
+   * handed over anyway and merely stays protected a while longer.
    */
   private tickLaunchSequences(dt: number): void {
+    this.tickLaunchProtection(dt);
     if (this.launchSequences.size === 0) return;
     this.world.dropOrdersFor(this.launchSequences);
     for (const [id, seq] of this.launchSequences) {
@@ -517,8 +558,11 @@ export class ArenaSimulation {
       flight.boost = false;
       flight.fire = false;
       flight.firePrev = false;
-      if (seq.hold > 0) {
-        seq.hold = Math.max(0, seq.hold - dt);
+      // Pinned while the hold has more than the run left on it. Clamped DOWN to
+      // `run` rather than to 0 so the two clocks meet exactly, whatever `dt` is:
+      // from here they drain together and reach zero on the same tick.
+      if (seq.hold > seq.run) {
+        seq.hold = Math.max(seq.run, seq.hold - dt);
         flight.throttle = 0;
         // Pin the pad pose: static contacts must not walk a held ship around.
         tf.pos.x = seq.sx;
@@ -528,13 +572,41 @@ export class ArenaSimulation {
         if (vel) { vel.x = 0; vel.y = 0; vel.z = 0; }
         continue;
       }
-      seq.boostSec += dt;
+      // The run. Heading stays pinned so the ship cannot be nudged off the bay
+      // axis by a wall graze, but position is integrated normally — a blocked
+      // mouth slides along the wall instead of clipping through it.
+      seq.hold = Math.max(0, seq.hold - dt);
+      seq.run -= dt;
       flight.throttle = LAUNCH_THROTTLE;
       tf.heading = seq.heading;
-      const dx = tf.pos.x - seq.sx;
-      const dz = tf.pos.z - seq.sz;
-      if (dx * dx + dz * dz >= LAUNCH_CLEAR_DIST * LAUNCH_CLEAR_DIST || seq.boostSec >= LAUNCH_MAX_SEC) {
+      if (seq.run <= 0) {
         this.launchSequences.delete(id);
+        this.launchProtection.set(id, { sx: seq.sx, sz: seq.sz, sec: 0 });
+      }
+    }
+  }
+
+  /**
+   * Damage protection for a ship that already has control back. It is still
+   * crossing its own bay mouth with no room to manoeuvre, so it stays
+   * untouchable until {@link LAUNCH_CLEAR_DIST} of runway is behind it — or
+   * until {@link LAUNCH_PROTECT_MAX_SEC}, which frees a ship the geometry has
+   * trapped rather than leaving it invulnerable in the fight.
+   */
+  private tickLaunchProtection(dt: number): void {
+    if (this.launchProtection.size === 0) return;
+    for (const [id, prot] of this.launchProtection) {
+      const tf = this.world.transforms.get(id);
+      if (!this.world.isAlive(id) || !tf) {
+        this.launchProtection.delete(id);
+        this.world.launchProtected.delete(id);
+        continue;
+      }
+      prot.sec += dt;
+      const dx = tf.pos.x - prot.sx;
+      const dz = tf.pos.z - prot.sz;
+      if (dx * dx + dz * dz >= LAUNCH_CLEAR_DIST * LAUNCH_CLEAR_DIST || prot.sec >= LAUNCH_PROTECT_MAX_SEC) {
+        this.launchProtection.delete(id);
         this.world.launchProtected.delete(id);
       }
     }
@@ -1055,6 +1127,7 @@ export class ArenaSimulation {
         hullMax: core.hullMax,
         targetId: ref?.targetId ?? null,
         launchHold: this.launchSequences.get(id)?.hold ?? 0,
+        launchLocked: this.launchSequences.has(id),
         throttle: w.flightStates.get(id)?.throttle ?? 0,
         velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
         sensorRange: core.sensors.lockRange,

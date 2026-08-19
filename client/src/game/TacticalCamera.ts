@@ -55,6 +55,22 @@ const CHASE_COLLISION_RADIUS = 0.5;
 const CHASE_COLLISION_RECOVER_PER_SEC = 6;
 
 /**
+ * Establishing-shot FOV, as a multiple of the pursuit rig's. Wide on purpose,
+ * and by more than it looks like it needs: a hangar shot sits ~5 units from the
+ * ship inside a room ~8 across, and the subject and the bay opening it is
+ * leaving through are ~55° apart from there. The combat FOV frames neither.
+ *
+ * Babylon's default `FOVMODE_VERTICAL_FIXED` makes this the VERTICAL angle, so
+ * it is the binding one in portrait — which is the aspect the framing was
+ * checked against.
+ */
+const CINEMATIC_FOV_SCALE = 1.5;
+/** Ceiling on that widening — past this the hull skews at the frame edge. */
+const CINEMATIC_FOV_MAX = 1.25;
+/** Orbit radius band opened up while a fixed shot drives the rig. */
+const CINEMATIC_RADIUS_LIMIT = 400;
+
+/**
  * The CANONICAL hangar framing — the orbit a fresh Hangar boot uses, and the
  * one {@link TacticalCamera.resetStageOrbit} snaps back to on every entry.
  * Exported so the Hangar (and its tests) name the same three numbers this rig
@@ -99,6 +115,15 @@ export class TacticalCamera {
    * gated off while it is active (see {@link onPointer}).
    */
   private chaseMode = false;
+  /**
+   * Fixed establishing shot (hangar launch). Outranks every other mode while
+   * set: its whole job is to take the camera off the ship for a few seconds.
+   */
+  private cinematicActive = false;
+  private readonly cinematicEye = new Vector3();
+  private readonly cinematicTarget = new Vector3();
+  /** A cinematic is level in WORLD space — it is not riding the ship's roll. */
+  private readonly cinematicUp = new Vector3(0, 1, 0);
   private chase: ChaseSettings = DEFAULT_CHASE_SETTINGS;
   /** Player-local multiplier over the content-authored chase radius. */
   private chaseDistanceScale = 1;
@@ -411,6 +436,56 @@ export class TacticalCamera {
   /** True while the in-match chase rig is driving the camera. */
   get isChaseMode(): boolean {
     return this.chaseMode;
+  }
+
+  /**
+   * Park the rig on a FIXED world-space shot — eye and aim point both supplied
+   * per frame by whoever owns the sequence (the hangar launch establishing shot,
+   * `LaunchCinematic`). Passing a null eye cuts back to whatever mode was
+   * underneath, which in a match is the pursuit rig.
+   *
+   * The pose is applied verbatim: no follow smoothing, no terrain avoidance and
+   * no shake. A shot placed inside a bay by construction has nothing to avoid,
+   * and lag on a camera that is not tracking anything only reads as drift.
+   *
+   * Leaving re-seeds both smoothers so the return to pursuit is a CUT. Letting
+   * them lerp would fly the camera across the hangar and out of the bay behind
+   * the ship, arriving several seconds after the player got control.
+   */
+  setCinematicShot(eye: { x: number; y: number; z: number } | null, target?: { x: number; y: number; z: number }): void {
+    if (!eye) {
+      if (!this.cinematicActive) return;
+      this.cinematicActive = false;
+      this.seeded = false;
+      this.chaseSeeded = false;
+      this.chaseCollisionRadius = null;
+      if (this.chaseMode) {
+        this.applyChaseLimits();
+        return;
+      }
+      this.camera.fov = this.defaultFov;
+      this.applyLimits(this.configService.get<CameraConfig>("camera", CAMERA_CONFIG_ID));
+      return;
+    }
+    this.cinematicEye.set(eye.x, eye.y, eye.z);
+    if (target) this.cinematicTarget.set(target.x, target.y, target.z);
+    if (this.cinematicActive) return;
+    this.cinematicActive = true;
+    this.activeTouches.clear();
+    // Chase mode pins the orbit radius and rolls `upVector` with the ship; a
+    // fixed shot needs both undone, because `rebuildAnglesAndRadius` solves for
+    // alpha/beta/radius against exactly those and Babylon re-clamps every frame.
+    this.camera.upVector = this.cinematicUp;
+    this.camera.lowerBetaLimit = 0;
+    this.camera.upperBetaLimit = Math.PI;
+    this.camera.lowerRadiusLimit = 0.1;
+    this.camera.upperRadiusLimit = CINEMATIC_RADIUS_LIMIT;
+    this.camera.fov = Math.min(CINEMATIC_FOV_MAX, (this.chase.fov ?? this.defaultFov) * CINEMATIC_FOV_SCALE);
+  }
+
+  /** True while a fixed establishing shot is driving the camera. */
+  get isCinematic(): boolean {
+    return this.cinematicActive;
   }
 
   /**
@@ -755,6 +830,27 @@ export class TacticalCamera {
 
   /** Call once per render frame. `dt` in seconds. No allocations. */
   update(dt: number): void {
+    if (this.cinematicActive) {
+      // Both halves are re-solved every frame, and BOTH are needed: Babylon
+      // rebuilds its position from alpha/beta/radius + target on each view
+      // matrix, so writing the target alone would drag the "fixed" eye along
+      // with the ship it is watching leave.
+      this.camera.target.copyFrom(this.cinematicTarget);
+      this.camera.position.copyFrom(this.cinematicEye);
+      // Safety net, NOT framing. The shot's offsets are sized to one bay's
+      // measured interior; a bay tighter than that would seat the eye inside a
+      // wall and render the back of the geometry, which is unrecoverable on the
+      // player's side. Push-out only — the chase rig's pull-toward-subject would
+      // re-compose a shot whose whole value is that it was composed.
+      const contact = this.staticWorld?.sphereContact(this.camera.position, CHASE_COLLISION_RADIUS);
+      if (contact?.depth) {
+        this.camera.position.x += contact.normal.x * contact.depth;
+        this.camera.position.y += contact.normal.y * contact.depth;
+        this.camera.position.z += contact.normal.z * contact.depth;
+      }
+      this.camera.rebuildAnglesAndRadius();
+      return;
+    }
     if (this.hangarMode && this.mvpOrbitRadPerSec !== 0) {
       this.camera.alpha += this.mvpOrbitRadPerSec * Math.max(0, dt);
     }

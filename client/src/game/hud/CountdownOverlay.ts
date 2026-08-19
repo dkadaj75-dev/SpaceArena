@@ -1,4 +1,5 @@
 import type { Snapshot } from "@space-arena/shared";
+import { HANGAR_LAUNCH_SOUNDS } from "../../audio/soundIds.js";
 
 /**
  * How long the "GO" flash stays up after the countdown reaches zero, in ms. Not
@@ -11,14 +12,24 @@ const GO_HOLD_MS = 700;
 const GO_TEXT = "GO";
 
 /**
- * Match-start countdown: big centre-screen numerals counting 3 → 2 → 1 → GO.
+ * Countdown numerals, counting 3 → 2 → 1 → GO, in one of two placements:
  *
- * Reads `snapshot.countdownRemaining` and NOTHING else — no local timer. That
- * matters more than it looks: online, the value is written by the server from the
- * authoritative sim (`ArenaState.countdownRemaining`), so both players see the
- * same numeral on the same beat and the match genuinely starts together. A
+ *  - **match start** — big centre-screen numerals. Nothing else is happening,
+ *    so the screen is the countdown's to take.
+ *  - **hangar launch** — small, top-centre. A pad hold is a CINEMATIC: the
+ *    player is watching their own ship on an establishing shot inside the bay,
+ *    and a numeral the height of the viewport would sit on top of the one thing
+ *    the sequence exists to show. The `hangar` class is what moves it; the
+ *    counting logic is shared.
+ *
+ * Reads `snapshot.countdownRemaining` / `ships[].launchHold` and NOTHING else —
+ * no local timer. That matters more than it looks: online, the value is written
+ * by the server from the authoritative sim (`ArenaState`), so both players see
+ * the same numeral on the same beat and the match genuinely starts together. A
  * client-side timer started on "match found" would drift by exactly the two
  * players' latency difference, which is the bug this feature exists to prevent.
+ * (`dtMs` is used for the GO flash's fade-out only — that one is decoration,
+ * not a clock anyone synchronizes on.)
  *
  * Ceil, not round: `2.4 s` left is still "3" on screen, so each numeral is shown
  * for a full second and the "1" does not vanish early.
@@ -35,8 +46,14 @@ export class CountdownOverlay {
   private lastCeil = -1;
   /** Remaining hold on the "GO" flash, ms; 0 when idle. */
   private goHoldMs = 0;
+  /**
+   * Whether the sequence being shown is a hangar pad hold. Latched for the whole
+   * sequence INCLUDING its GO flash: the numerals must not jump from the top of
+   * the screen to the middle on the last beat.
+   */
+  private hangar = false;
 
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, private readonly playSound: ((id: string) => void) | null = null) {
     this.el = document.createElement("div");
     this.el.className = "hud-countdown";
     // Announced politely rather than assertively: it is a rhythmic three-beat
@@ -50,13 +67,13 @@ export class CountdownOverlay {
     // sits its launch hold out in the bay and gets the same three beats and GO.
     const ownHold = ownShipId === undefined ? 0
       : cur.ships.find((s) => s.id === ownShipId)?.launchHold ?? 0;
-    const remaining = cur.phase === "countdown" && cur.countdownRemaining > 0
-      ? cur.countdownRemaining
-      : ownHold;
+    const matchCountdown = cur.phase === "countdown" && cur.countdownRemaining > 0;
+    const remaining = matchCountdown ? cur.countdownRemaining : ownHold;
     if (remaining > 0) {
       // Whole seconds remaining. Re-arm the GO flash on every countdown frame so
       // a rematch (or a fresh room) plays it again without any explicit reset.
       this.goHoldMs = GO_HOLD_MS;
+      this.hangar = !matchCountdown;
       const ceil = Math.ceil(remaining);
       this.lastCeil = ceil;
       this.show(String(ceil));
@@ -80,17 +97,27 @@ export class CountdownOverlay {
    * per-value scale/fade animation in CSS: re-setting `textContent` alone would
    * not restart a running animation, so the element is toggled through the
    * hidden state's `display:none`, which does.
+   *
+   * The audio cue rides the same change detector, so a beat is played exactly
+   * when its numeral appears — and only for the hangar sequence. The match
+   * countdown's own beats come from the sim's `countdownTick`/`matchStarted`
+   * events (`soundIds.cueSoundFor`), which every client in the room hears on the
+   * same tick; cueing those from here as well would double them.
    */
   private show(text: string | null): void {
     if (text === this.shown) return;
     this.shown = text;
     if (text === null) {
-      this.el.classList.remove("visible", "go");
+      this.el.classList.remove("visible", "go", "hangar");
       this.el.textContent = "";
       return;
     }
+    if (this.hangar) {
+      this.playSound?.(text === GO_TEXT ? HANGAR_LAUNCH_SOUNDS.countdownGo : HANGAR_LAUNCH_SOUNDS.countdownTick);
+    }
     this.el.textContent = text;
     this.el.classList.toggle("go", text === GO_TEXT);
+    this.el.classList.toggle("hangar", this.hangar);
     // Force a reflow between removing and adding the class so the keyframe
     // animation replays for each numeral instead of only for the first.
     this.el.classList.remove("visible");
@@ -101,6 +128,11 @@ export class CountdownOverlay {
   /** Current on-screen text, or null when hidden (test hook). */
   get currentText(): string | null {
     return this.shown;
+  }
+
+  /** True while the displayed sequence is a hangar pad hold (test hook). */
+  get isHangarPlacement(): boolean {
+    return this.hangar;
   }
 
   dispose(): void {

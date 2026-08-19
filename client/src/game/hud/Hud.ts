@@ -157,7 +157,7 @@ export class Hud {
     this.damageFx = new DamageFeedback(this.root, playerId);
     this.floatingDamage = new FloatingDamageText(this.root, playerId, options.flight ?? null);
     this.matchStatus = new MatchStatus(this.root, session);
-    this.countdown = new CountdownOverlay(this.root);
+    this.countdown = new CountdownOverlay(this.root, options.playSound ?? null);
     this.lobbyWaiting = new LobbyWaitingOverlay(this.root, configs);
     this.killAnnouncements = new KillAnnouncements(this.root, playerId);
     this.killFeed = new KillFeed(this.root, session, playerId);

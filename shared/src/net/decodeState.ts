@@ -146,6 +146,31 @@ export function decodeUp(
   return orthonormalizeUp(heading, pitch, up);
 }
 
+/**
+ * Replicated velocity triple → the snapshot's optional `velocity`, or
+ * `undefined` when the wire carries nothing usable.
+ *
+ * "Nothing usable" is an all-zero (or non-finite, or missing) triple, and that
+ * is the whole point of the check: a peer running a pre-velocity server sends no
+ * field at all, `?? 0` turns that into a legal-looking standstill, and every
+ * consumer would then confidently draw a cruising hull as parked. Reporting
+ * ABSENCE routes all three consumers to their documented fallbacks instead — and
+ * costs nothing for a ship that really is stopped, since those fallbacks derive
+ * zero from its unchanging position anyway.
+ */
+export function decodeVelocity(
+  vx: unknown,
+  vy: unknown,
+  vz: unknown,
+): { x: number; y: number; z: number } | undefined {
+  const x = Number(vx);
+  const y = Number(vy);
+  const z = Number(vz);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return undefined;
+  if (x === 0 && y === 0 && z === 0) return undefined;
+  return { x: decodeCenti(x), y: decodeCenti(y), z: decodeCenti(z) };
+}
+
 /** One replicated `PlayerState` → the shared `ShipSnapshot` the whole client reads. */
 export function decodeShip(p: any): ShipSnapshot {
   const heading = decodeHeading(p.heading);
@@ -160,6 +185,14 @@ export function decodeShip(p: any): ShipSnapshot {
     heading,
     pitch,
     up: decodeUp(p.upX, p.upY, p.upZ, heading, pitch),
+    // Authoritative velocity (units/sec), same int16 deci-unit codec as `pos`.
+    // ABSENT rather than a zero vector when the wire carries nothing usable: the
+    // consumers (Hermite tangents, bounded dead reckoning, the HUD speed
+    // readout) all have a defined fallback for "this sample has no velocity",
+    // and `{0,0,0}` would instead assert that a moving ship is stopped. A ship
+    // genuinely at rest is indistinguishable from an absent field here, which is
+    // harmless: the fallbacks agree with zero for a stationary hull.
+    velocity: decodeVelocity(p.vx, p.vy, p.vz),
     hull: p.hull,
     // Server-resolved maxima (upgrade + passive-resolved), replicated verbatim —
     // never reconstructed from the base ship config, which would ignore
@@ -172,6 +205,7 @@ export function decodeShip(p: any): ShipSnapshot {
     throttle: decodeUnit(p.throttle ?? 0),
     // Tenths of a second on the wire (see ArenaState.launchHold).
     launchHold: (p.launchHold ?? 0) / 10,
+    launchLocked: Boolean(p.launchLocked),
     lockProgress: decodeUnit(p.lockProgress ?? 0),
     locked: Boolean(p.locked),
     cosmeticId: decodeCosmeticId(p.cosmeticId),
