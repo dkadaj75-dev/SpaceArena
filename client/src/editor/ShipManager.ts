@@ -216,6 +216,7 @@ export class ShipManager implements EditorPanel {
     }
 
     this.element.append(this.modelSection(ship));
+    this.element.append(this.emissiveSection(ship));
     this.element.append(this.socketListSection(ship));
     this.element.append(this.selectedSocketSection(ship));
     this.element.append(this.defaultFittingSection(ship));
@@ -376,6 +377,65 @@ export class ShipManager implements EditorPanel {
       row(text("Path "), pathInput, apply),
       row(text("Scale "), scaleInput, text(" Yaw correction (rad) "), yawInput),
       hint("Convention: nose must face +Z. Use yaw correction for models authored facing another axis."),
+    );
+    return box;
+  }
+
+  /**
+   * Emissive light picker (render.emissiveGlow): every material slot of the
+   * ship's GLB in a dropdown (plus "None"), and the sim signal that drives the
+   * glow — the selected slot emits its own texture as light, 10% at signal 0 up
+   * to 100% at signal 1, per ship instance. Commits itself like scale/yaw and
+   * re-wires the already-loaded master so the preview updates immediately.
+   */
+  private emissiveSection(ship: ShipConfig): HTMLElement {
+    const box = section("Emissive light");
+
+    const materialSelect = document.createElement("select");
+    const signalSelect = document.createElement("select");
+    for (const id of signalId.options) signalSelect.append(new Option(id, id));
+    signalSelect.value = ship.render.emissiveGlow?.source ?? "throttle";
+
+    const populate = (names: string[]): void => {
+      const current = this.ship()?.render.emissiveGlow?.material ?? "";
+      materialSelect.replaceChildren(new Option("None", ""));
+      for (const name of names) materialSelect.append(new Option(name, name));
+      if (current && !names.includes(current)) materialSelect.append(new Option(`${current} (not in model)`, current));
+      materialSelect.value = current;
+      signalSelect.disabled = current === "";
+    };
+    populate(this.assets.materialSlotNames(ship.render));
+    // The master may still be loading when the form renders; refresh the list
+    // once it lands (an absent/failed model just leaves "None").
+    if (ship.render.model) {
+      void this.assets.ensureModel(ship.render).then((master) => {
+        const current = this.ship();
+        if (master && current) populate(this.assets.materialSlotNames(current.render));
+      });
+    }
+
+    const commit = (): void => {
+      const current = this.ship();
+      if (!current) return;
+      const material = materialSelect.value;
+      const source = signalSelect.value as SignalId;
+      signalSelect.disabled = material === "";
+      const previous = current.render.emissiveGlow;
+      if (material === "" ? previous === undefined : previous?.material === material && (previous.source ?? "throttle") === source) return;
+      const render = { ...current.render };
+      if (material === "") delete render.emissiveGlow;
+      else render.emissiveGlow = { material, source };
+      // Re-wire the cached master in place (its cache key ignores the glow
+      // block) so the staged preview shows the change immediately.
+      this.assets.applyEmissiveGlow(render);
+      this.replace({ ...current, render });
+    };
+    materialSelect.addEventListener("change", commit);
+    signalSelect.addEventListener("change", commit);
+
+    box.append(
+      row(text("Texture "), materialSelect, text(" Signal "), signalSelect),
+      hint('The selected GLB material emits its own texture as light: 10% at signal 0, 100% at signal 1 (e.g. thrust via "throttle"). None = no emissive light.'),
     );
     return box;
   }

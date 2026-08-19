@@ -84,6 +84,39 @@ export type Vec3 = z.infer<typeof vec3>;
 export const palette = z.record(z.string(), z.string());
 export type Palette = z.infer<typeof palette>;
 
+/**
+ * Runtime signal ids an emitter socket or emissive-glow block can bind to. Each
+ * id names a scalar that {@link import("../sim/signals.js").SIGNAL_REGISTRY}
+ * computes as a pure function of a ship snapshot (and optionally the previous
+ * snapshot). Lives here (not socket.ts) so `renderRecipe` below can reference it
+ * without a common → socket cycle; socket.ts re-exports it unchanged.
+ * **Adding a signal = one entry here plus one registry entry there.**
+ */
+export const signalId = z.enum([
+  "throttle",
+  "boostActive",
+  "hullFraction",
+  "shieldActive",
+  "heatFraction",
+  "firing",
+  "speedFraction",
+]);
+export type SignalId = z.infer<typeof signalId>;
+
+/**
+ * Designer-selected emissive light on a GLB hull (F10 ship tool): the named
+ * material slot emits its own albedo texture as light, scaled live by `source`
+ * (default `throttle`) from 10% at signal 0 up to 100% at signal 1. Absent =
+ * no signal-driven emissive light; any emissive the GLB authors is untouched.
+ */
+export const emissiveGlow = z.object({
+  /** GLB material (sub-material) name acting as the emissive light. */
+  material: z.string().min(1),
+  /** Driving signal; defaults to `throttle`. */
+  source: signalId.optional(),
+});
+export type EmissiveGlow = z.infer<typeof emissiveGlow>;
+
 /** Procedural / glTF visual recipe reference plus optional palette. */
 export const renderRecipe = z.object({
   recipe: z.string(),
@@ -99,6 +132,8 @@ export const renderRecipe = z.object({
   modelRotationY: z.number().optional(),
   /** Authored lower-detail models, selected at monotonically increasing world distances. */
   lods: z.array(z.object({ model: z.string().min(1), distance: z.number().positive() })).optional(),
+  /** Signal-driven emissive light on one of the model's material slots. */
+  emissiveGlow: emissiveGlow.optional(),
 });
 export type RenderRecipe = z.infer<typeof renderRecipe>;
 

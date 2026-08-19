@@ -13,9 +13,11 @@ import {
 import {
   bodyYawDelta,
   createLogger,
+  evalSignal,
   facingVec,
   hardpointsOf,
   interpolateFrame,
+  type SignalId,
   type AsteroidConfig,
   type AsteroidSnapshot,
   type ConfigService,
@@ -34,6 +36,7 @@ import {
   type FrameAttitude,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
+import { setThrustGlow } from "../core/thrustGlow.js";
 import { pinInstanceLod0 } from "../core/modelLod.js";
 import { cosmeticIdOf, ShipPaintBank } from "./shipPaint.js";
 import { ShipSocketRig } from "./ShipSocketRig.js";
@@ -147,6 +150,8 @@ interface ShipView {
    * paint arriving a tick after the ship does still lands.
    */
   cosmeticId: string | null;
+  /** Signal driving the hull's emissive light (render.emissiveGlow); null = none. */
+  glowSource: SignalId | null;
 }
 
 interface AsteroidView {
@@ -917,6 +922,8 @@ export class ViewManager {
 
       view.rig?.updateModules(s.modules);
       view.rig?.updateEmitters(s, prevShip, nowMs);
+      // Per-instance emissive light (render.emissiveGlow): signal → 10%..100%.
+      if (view.glowSource) setThrustGlow(view.node, evalSignal(view.glowSource, s, prevShip));
       // Re-asserted every frame rather than cached on the view: a ship can
       // change teams (mode swaps, rejoin) and the bubble ignores a relation it
       // is already wearing, so this costs a comparison and no Babylon writes.
@@ -963,7 +970,8 @@ export class ViewManager {
       { isLocal: s.id === this.localPlayerId },
     );
 
-    return { node, rig, roll: 0, rollTarget: 0, quat, velocity: new Vector3(), cosmeticId };
+    const glowSource: SignalId | null = ship.render.emissiveGlow ? (ship.render.emissiveGlow.source ?? "throttle") : null;
+    return { node, rig, roll: 0, rollTarget: 0, quat, velocity: new Vector3(), cosmeticId, glowSource };
   }
 
   private syncAsteroids(cur: Snapshot, frameDtMs: number): void {

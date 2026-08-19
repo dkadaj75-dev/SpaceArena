@@ -17,6 +17,7 @@ import {
 } from "@babylonjs/core";
 import { createLogger, type AsteroidConfig, type ModuleConfig, type Palette, type RenderRecipe } from "@space-arena/shared";
 import { buildRockGeometry, buildRockMaterial, preloadRockTextures } from "./rockMesh.js";
+import { applyThrustGlowToMesh } from "./thrustGlow.js";
 
 const log = createLogger("AssetRegistry");
 
@@ -808,6 +809,7 @@ export class AssetRegistry {
       // never leave scene-wide canonicals referenced by half-imported meshes.
       this.canonicalizePbrMaterials(parts);
       this.applyPbrModeToMaster(master);
+      for (const part of parts) applyThrustGlowToMesh(part, render.emissiveGlow);
       master.setEnabled(false);
       AssetRegistry.modelRenderMeta.set(master, render);
       masters.set(key, master);
@@ -847,6 +849,7 @@ export class AssetRegistry {
     // fallback. Hangar switches this registry to authored values while its
     // scoped procedural environment is active.
     this.applyPbrModeToMaster(merged);
+    applyThrustGlowToMesh(merged, render.emissiveGlow);
     merged.name = `master.model.${path}`;
     merged.setEnabled(false);
     AssetRegistry.modelRenderMeta.set(merged, render);
@@ -880,6 +883,7 @@ export class AssetRegistry {
           model: lod.model,
           modelScale: sourceRender?.modelScale,
           modelRotationY: sourceRender?.modelRotationY,
+          emissiveGlow: sourceRender?.emissiveGlow,
         },
         { mergeParts },
       );
@@ -904,6 +908,9 @@ export class AssetRegistry {
         // instance at range, including for unmerged terrain-prop hierarchies.
         variant.setEnabled(true);
         variant.isVisible = false;
+        // The clone shares the LOD master's (already wired) materials but not
+        // its instanced-buffer storage — instances at range render through it.
+        applyThrustGlowToMesh(variant, sourceRender?.emissiveGlow);
         base.addLODLevel(lod.distance * distScale, variant);
         const tracked = this.authoredLodMeshes.get(base) ?? [];
         tracked.push(variant);
@@ -931,6 +938,30 @@ export class AssetRegistry {
     const master = this.loadedModel(render);
     if (master) return master;
     return this.getMesh(render.recipe, render.palette ?? {});
+  }
+
+  /**
+   * Re-wire the emissive-light slot on an already-loaded hull master after the
+   * F10 ship tool edits `render.emissiveGlow` — the master's cache key ignores
+   * the glow block, so the existing master (and its authored LOD substitutes)
+   * must be updated in place.
+   */
+  applyEmissiveGlow(render: RenderRecipe): void {
+    const master = this.loadedModel(render);
+    if (!master) return;
+    applyThrustGlowToMesh(master, render.emissiveGlow);
+    for (const level of master.getLODLevels()) {
+      if (level.mesh instanceof Mesh) applyThrustGlowToMesh(level.mesh, render.emissiveGlow);
+    }
+  }
+
+  /** Material slot names of an already-loaded hull master (F10 emissive-light dropdown). */
+  materialSlotNames(render: RenderRecipe): string[] {
+    const master = this.loadedModel(render);
+    if (!master) return [];
+    const flat = master.material;
+    const slots = flat instanceof MultiMaterial ? flat.subMaterials : [flat];
+    return slots.filter((slot): slot is Material => slot !== null).map((slot) => slot.name);
   }
 
   /**

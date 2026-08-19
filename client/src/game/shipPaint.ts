@@ -1,5 +1,6 @@
 import { Color3, Mesh, MultiMaterial, type Material, type Scene } from "@babylonjs/core";
 import type { ConfigService, ShipSnapshot } from "@space-arena/shared";
+import { mirrorThrustGlow } from "../core/thrustGlow.js";
 import { cosmeticById, type CosmeticPaint } from "./cosmetics.js";
 
 /**
@@ -142,6 +143,10 @@ export class ShipPaintBank {
     for (const child of clone.getChildMeshes(false)) {
       child.material = this.paintedMaterial(child.material, cosmetic.id, cosmetic.paint, materials);
     }
+    // Signal-driven emissive light (render.emissiveGlow): the material clones
+    // above copied the wired emissive values but not the plugin, and Mesh.clone
+    // never copies instanced-buffer storage.
+    mirrorThrustGlow(clone, base);
 
     // Mesh.clone intentionally drops Babylon LOD levels. Rebuild the authored
     // ladder with painted clones so a cosmetic does not silently force LOD0.
@@ -158,6 +163,7 @@ export class ShipPaintBank {
       }
       lod.setEnabled(true);
       lod.isVisible = false;
+      mirrorThrustGlow(lod, level.mesh);
       clone.addLODLevel(level.distanceOrScreenCoverage, lod);
       lodMeshes.push(lod);
     }

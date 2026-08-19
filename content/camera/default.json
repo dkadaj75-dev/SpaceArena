@@ -12,11 +12,21 @@
     "default": 0.9
   },
   "radius": {
-    "min": 30,
-    "max": 90,
-    "default": 55
+    "min": 8,
+    "max": 50,
+    "default": 18
   },
   "followLag": 0.15,
+  "shake": {
+    "enabled": true,
+    "hitAmplitude": 0.28,
+    "killAmplitude": 0.55,
+    "durationMs": 260,
+    "frequencyHz": 22,
+    "maxAmplitude": 0.9,
+    "damageReference": 14,
+    "minDamageScale": 0.35
+  },
   "chase": {
     "radius": 12,
     "height": 1.4,
@@ -28,15 +38,5 @@
   },
   "pan": {
     "sensitivity": 1
-  },
-  "shake": {
-    "enabled": true,
-    "hitAmplitude": 0.28,
-    "killAmplitude": 0.55,
-    "durationMs": 260,
-    "frequencyHz": 22,
-    "maxAmplitude": 0.9,
-    "damageReference": 14,
-    "minDamageScale": 0.35
   }
 }

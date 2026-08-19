@@ -1,27 +1,15 @@
 import { z } from "zod";
-import { moduleFamily } from "./common.js";
+import { moduleFamily, signalId } from "./common.js";
+import type { SignalId } from "./common.js";
 
 /**
- * Runtime signal ids an emitter socket can bind to. Each id names a scalar that
- * {@link import("../sim/signals.js").SIGNAL_REGISTRY} computes as a pure function
- * of a ship snapshot (and optionally the previous snapshot).
- *
- * The zod enum lives here (schema layer) rather than in `shared/src/sim` so the
- * socket schema can reference it without a schemas → sim import cycle (sim
- * already imports schemas). `shared/src/sim/signals.ts` re-exports `SignalId`
- * and owns the actual compute functions. **Adding a signal = one entry here plus
- * one registry entry there.**
+ * Runtime signal ids an emitter socket can bind to. The zod enum moved to
+ * common.ts so `renderRecipe.emissiveGlow` can reference it without an import
+ * cycle; re-exported here unchanged for existing consumers.
+ * `shared/src/sim/signals.ts` owns the actual compute functions.
  */
-export const signalId = z.enum([
-  "throttle",
-  "boostActive",
-  "hullFraction",
-  "shieldActive",
-  "heatFraction",
-  "firing",
-  "speedFraction",
-]);
-export type SignalId = z.infer<typeof signalId>;
+export { signalId };
+export type { SignalId };
 
 /**
  * A 3D transform relative to the ship hull origin. `pos` is required; `rot`
