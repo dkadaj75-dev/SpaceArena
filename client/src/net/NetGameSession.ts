@@ -49,6 +49,7 @@ import {
   adaptiveRenderDelay,
   bracket,
   createSnapshotClock,
+  ExtrapolationBlender,
   hermitePosition,
   RENDER_DELAY_CEIL_MS,
   stampSnapshot,
@@ -424,6 +425,13 @@ export class NetGameSession extends GameSession {
    * at 10 Hz because the room ticks at 30 Hz and patches at 20 Hz.
    */
   private readonly snapClock = createSnapshotClock();
+  /**
+   * Bounded dead reckoning for REMOTE hulls on a starved buffer, plus the
+   * rewind-free way back onto the interpolated path. See
+   * {@link ExtrapolationBlender} — it carries per-ship state, so it lives with
+   * the session rather than being rebuilt per frame.
+   */
+  private readonly extrapolation = new ExtrapolationBlender();
   private readonly correctionRate: number;
   private readonly shipIds = new Map<EntityId, string>();
   private readonly displayNames = new Map<EntityId, string>();
@@ -759,6 +767,7 @@ export class NetGameSession extends GameSession {
     this.lagQueue.length = 0;
     this.flight.clear();
     this.flagTrails.clear();
+    this.extrapolation.clear();
   }
 
   /** True once {@link dispose} ran — the session accepts no further work. */
@@ -869,7 +878,11 @@ export class NetGameSession extends GameSession {
     );
     const b = bracket(this.snapshots, now - this.renderDelay);
     if (!b) return;
-    const [a, z, t] = b;
+    // `leadMs` is 0 on every healthy frame. It is non-zero only when the render
+    // point has overrun the newest sample — the starve `shortfall` above has
+    // just widened the delay for — and it is the BOUNDED lead the remote hulls
+    // dead-reckon along instead of freezing. See `ExtrapolationBlender`.
+    const [a, z, t, leadMs] = b;
     // The samples flanking the bracketed segment feed the C1 position curve for
     // remote ships (see `interpolate`). Identity lookup, not a re-search: these
     // are the very objects `bracket` just returned, and the buffer is ≤32 long.
@@ -879,7 +892,11 @@ export class NetGameSession extends GameSession {
     const after = iz >= 0 && iz + 1 < this.snapshots.length ? this.snapshots[iz + 1]! : null;
 
     this.previous = this.current;
-    const frame = interpolate(a, z, t, before, after, this.playerId);
+    const frame = interpolate(a, z, t, before, after, this.playerId, {
+      blender: this.extrapolation,
+      leadMs,
+      dtSeconds: dt,
+    });
     // Synthetic kinetic rounds ride the same projectiles array the pool
     // renderer already draws. COPY before appending: `interpolate` reuses the
     // buffered snapshot's array by reference, and pushing into that would leak
@@ -1189,14 +1206,33 @@ export function boostMult(configs: ConfigService, fittedModuleIds: readonly stri
 const lerpFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 
 /**
+ * The dead-reckoning half of a rendered frame, threaded through {@link interpolate}.
+ *
+ * Optional because most callers (tests, the pacing suite) want the pure blend
+ * with no session state attached. Passing it in is what turns a starved buffer
+ * from a freeze into a bounded, rewind-free extrapolation.
+ */
+export interface ExtrapolateOptions {
+  /** Per-ship residual state; lives on the session, not the frame. */
+  blender: ExtrapolationBlender;
+  /** `bracket`'s bounded overrun past the newest sample; 0 when healthy. */
+  leadMs: number;
+  /** Frame delta, for the residual decay. */
+  dtSeconds: number;
+}
+
+/**
  * Blend the bracketed snapshot pair into the frame's render state.
  *
  * REMOTE ship positions ride the C1 Hermite curve ({@link hermitePosition})
  * through the samples flanking the segment: plain lerp is C0, and its velocity
- * step at every ~20 Hz sample boundary reads as a faint shudder at 60 fps even
- * under a perfect playback timeline. `before`/`after` are the buffer
- * neighbours of `a`/`b`; a ship missing from either (just spawned, buffer still
- * filling) degrades that end of its curve to the old lerp.
+ * step at every sample boundary reads as a faint shudder at 60 fps even under a
+ * perfect playback timeline. The curve's tangents are the samples' own
+ * REPLICATED velocities where the wire carries them; `before`/`after` are the
+ * buffer neighbours of `a`/`b` and supply the finite-difference fallback for a
+ * sample that does not. A ship missing from every one of those (just spawned,
+ * buffer still filling, no velocity) degrades that end of its curve to the old
+ * lerp.
  *
  * The LOCAL player's position stays plain lerp on purpose: it is not a display
  * position — the hull renders from the predictor — it is the CORRECTION TARGET
@@ -1221,8 +1257,11 @@ export function interpolate(
   before: TimedSnapshot | null,
   after: TimedSnapshot | null,
   localPlayerId: EntityId,
+  extrapolate?: ExtrapolateOptions,
 ): Snapshot {
+  const live = extrapolate ? new Set<EntityId>() : null;
   const ships = b.snapshot.ships.map((s) => {
+    live?.add(s.id);
     const p = a.snapshot.ships.find((x) => x.id === s.id) ?? s;
     // The ORIENTATION is interpolated as one frame (nose + up nlerp'd and
     // re-orthonormalized), never as heading and pitch independently: near the
@@ -1238,14 +1277,25 @@ export function interpolate(
     } else {
       const pPrev = before?.snapshot.ships.find((x) => x.id === s.id);
       const pNext = after?.snapshot.ships.find((x) => x.id === s.id);
+      // The two segment endpoints hand their REPLICATED velocity to the curve,
+      // which uses `M = v·h` in place of a finite difference wherever it has
+      // one. `pPrev`/`pNext` still travel because a sample that carries no
+      // velocity (a pre-velocity server, a decoded all-zero triple) falls back
+      // to the old Catmull-Rom tangent at that end.
       hermitePosition(
         pPrev ? { time: before!.time, pos: pPrev.pos } : null,
-        { time: a.time, pos: p.pos },
-        { time: b.time, pos: s.pos },
+        { time: a.time, pos: p.pos, vel: p.velocity },
+        { time: b.time, pos: s.pos, vel: s.velocity },
         pNext ? { time: after!.time, pos: pNext.pos } : null,
         t,
         pos,
       );
+      // Bounded dead reckoning on a starved buffer, and the residual it repays
+      // afterwards. A no-op whenever the buffer is healthy — `leadMs` is 0 and
+      // no residual is outstanding — so the curve above is what gets drawn.
+      if (extrapolate) {
+        extrapolate.blender.resolve(s.id, pos, s.velocity, extrapolate.leadMs, extrapolate.dtSeconds, pos);
+      }
     }
     return {
       ...s,
@@ -1261,6 +1311,7 @@ export function interpolate(
       modules: s.id === localPlayerId ? s.modules.map((m) => ({ ...m })) : s.modules,
     };
   });
+  if (live) extrapolate!.blender.retain(live);
   const elapsed = a.snapshot.elapsed + (b.snapshot.elapsed - a.snapshot.elapsed) * t;
   return {
     ...b.snapshot,

@@ -21,16 +21,43 @@ function phase(aTime: number, bTime: number, renderTime: number): number {
   return Math.max(0, Math.min(1, (renderTime - aTime) / span));
 }
 
-export function bracket<T extends { time: number }>(items: readonly T[], renderTime: number): [T, T, number] | null {
+/**
+ * Ceiling on bounded dead reckoning past the newest sample — one patch gap.
+ *
+ * The room broadcasts every 2 sim ticks (66.7 ms), so a starve of up to ~100 ms
+ * is one missed patch plus jitter: the ship is overwhelmingly likely to still be
+ * doing what it was doing, and straight-line extrapolation is a better guess
+ * than a freeze. Past that the guess stops being cheap — a ship at cruise covers
+ * ~10 units per 100 ms, and a hull drawn a second of travel from where it
+ * actually is misleads the pilot aiming at it far more than a stalled one does.
+ * So the lead SATURATES here rather than growing: a long outage degrades to the
+ * old freeze behaviour, just 100 ms further along.
+ */
+export const MAX_EXTRAPOLATION_MS = 100;
+
+/**
+ * The two samples `renderTime` falls between, the phase within them, and the
+ * bounded EXTRAPOLATION LEAD in milliseconds.
+ *
+ * `leadMs` is 0 on every healthy frame — `[a, b, t]` destructuring stays exactly
+ * correct and is what most callers want. It is non-zero only on a dry bracket,
+ * where it reports how far past the newest sample the render point has reached,
+ * saturated at {@link MAX_EXTRAPOLATION_MS}. See {@link ExtrapolationBlender}
+ * for what may safely be done with it.
+ */
+export type Bracket<T> = [T, T, number, number];
+
+export function bracket<T extends { time: number }>(items: readonly T[], renderTime: number): Bracket<T> | null {
   if (!items.length) return null;
-  if (items.length === 1 || renderTime <= items[0]!.time) return [items[0]!, items[0]!, 0];
+  if (items.length === 1 || renderTime <= items[0]!.time) return [items[0]!, items[0]!, 0, 0];
   for (let i = 1; i < items.length; i++) {
     const b = items[i]!;
     const a = items[i - 1]!;
-    if (renderTime <= b.time) return [a, b, phase(a.time, b.time, renderTime)];
+    if (renderTime <= b.time) return [a, b, phase(a.time, b.time, renderTime), 0];
   }
-  // DRY BRACKET: the render point has overrun the newest sample. Hold on that
-  // sample (t = 1) — never extrapolate, and above all never REWIND.
+  // DRY BRACKET: the render point has overrun the newest sample. The pair and
+  // the phase still clamp to that sample (t = 1) — never a phase measured from
+  // the wrong end, and above all never a REWIND.
   //
   // This branch used to answer `(renderTime − last.time) / interval` clamped to
   // 0..1, which is the phase measured from the WRONG end of the pair it returns.
@@ -40,11 +67,15 @@ export function bracket<T extends { time: number }>(items: readonly T[], renderT
   // at cruise), followed by a real-time replay of the segment it had already
   // flown. Every momentary starve therefore cost a visible rewind-and-repeat
   // rather than the freeze the buffer is supposed to degrade to. Clamping is the
-  // honest failure: the newest thing we know is where the ship was, so draw it
-  // there until something newer lands.
+  // honest failure, and it is still what this returns.
+  //
+  // What is NEW is the fourth element: the overrun itself, so a caller holding a
+  // replicated velocity can carry the ship FORWARD along its last known heading
+  // instead of parking it. That is strictly additive — the clamped pair is
+  // unchanged, the lead is bounded, and the blend back is the blender's job.
   const last = items[items.length - 1]!;
   const prev = items[items.length - 2]!;
-  return [prev, last, 1];
+  return [prev, last, 1, Math.min(renderTime - last.time, MAX_EXTRAPOLATION_MS)];
 }
 
 export function decayCorrection(offset: number, dtSeconds: number, rate: number, snapDistance = 3): number {
@@ -62,6 +93,13 @@ export interface Vec3 {
 export interface TimedPos {
   readonly time: number;
   readonly pos: { readonly x: number; readonly y: number; readonly z: number };
+  /**
+   * The sample's REPLICATED velocity in world units per SECOND, when it has one.
+   * Absent for a sample that carries none — a pre-velocity server, a ship that
+   * decoded an all-zero triple — which routes that end of the curve back to the
+   * finite-difference tangent it always used.
+   */
+  readonly vel?: { readonly x: number; readonly y: number; readonly z: number } | undefined;
 }
 
 /**
@@ -77,13 +115,29 @@ export interface TimedPos {
  * evaluate the SAME finite-difference tangent there, so the interpolated
  * velocity is continuous through it (C1), not just the position.
  *
- * Tangent choice: `m_k = (p_{k+1} − p_{k−1}) / (t_{k+1} − t_{k−1})` — the
- * non-uniform Catmull-Rom finite difference. It is the gap-weighted average of
- * the two adjacent chord velocities, so its magnitude can never exceed the
- * faster neighbouring chord: a well-behaved bound to build the overshoot
- * guards on. A missing neighbour (fewer than 3 samples around the segment, or
- * a ship that only just spawned) falls back to the segment's own chord slope,
- * which degrades that end to the old lerp exactly — never worse than before.
+ * Tangent choice, best first — each end of the segment is decided independently,
+ * so a segment can mix them:
+ *
+ *  1. The sample's own REPLICATED VELOCITY, scaled onto the segment
+ *     (`M = v · h`). This is the tangent the curve actually wants: the true
+ *     instantaneous derivative at the knot, straight off the server, rather than
+ *     an estimate reconstructed from where the hull happened to be sampled
+ *     nearby. Two things follow that finite differences cannot give. The knot
+ *     tangent no longer depends on a NEIGHBOUR sample, so the newest segment in
+ *     the buffer — the one being drawn, which by construction has no `next` — is
+ *     as accurate as any interior one instead of degrading to a chord. And the
+ *     curve now describes motion BETWEEN samples that the samples do not show:
+ *     a hull that swung out and back inside one 66.7 ms patch gap reads as the
+ *     swing, where a finite difference reads it as a straight line.
+ *  2. `m_k = (p_{k+1} − p_{k−1}) / (t_{k+1} − t_{k−1})` — the non-uniform
+ *     Catmull-Rom finite difference, used when the sample carries no velocity
+ *     (a pre-velocity server; a decoded all-zero triple). It is the gap-weighted
+ *     average of the two adjacent chord velocities, so its magnitude can never
+ *     exceed the faster neighbouring chord.
+ *  3. The segment's own chord slope, when there is no velocity AND no
+ *     neighbour (fewer than 3 samples around the segment, or a ship that only
+ *     just spawned). That degrades the end to the old lerp exactly — never
+ *     worse than before.
  *
  * Overshoot guards, because Catmull-Rom is not shape-preserving and a ship
  * that BOUNCES off a rock between two samples must not be drawn inside it:
@@ -92,14 +146,52 @@ export interface TimedPos {
  *    travelled span, so the segment degrades to plain lerp. This deliberately
  *    spends C1 at the knot: around a physical impact the velocity really is
  *    discontinuous, and smoothing through it would be lying about the bounce.
- *  - a tangent LONGER than the chord (a respawn teleport in the neighbour
- *    sample, or a hard brake) is clamped to the chord length, which caps the
- *    curve's deviation from the chord at (4/27)·(|M1|+|M2|) ≤ ~0.3·|chord|.
+ *  - a tangent that is too LONG for the chord it spans (a respawn teleport in
+ *    the neighbour sample, a hard brake, a stale velocity) is clamped, which
+ *    bounds the curve's deviation from the chord at (4/27)·(|M1|+|M2|).
+ *
+ * ## Why the length bound differs by tangent source
+ *
+ * The bound is `|M| ≤ chord` for a finite-difference tangent and
+ * `|M| ≤ {@link VELOCITY_TANGENT_CHORD_LIMIT}·chord` for a replicated-velocity
+ * one, and that is not a loosening for its own sake — it is the same guard
+ * applied to two quantities with different natural sizes.
+ *
+ * A Catmull-Rom finite difference is the gap-weighted average of the two
+ * adjacent chord velocities, so it can never exceed the faster neighbour. On any
+ * ordinary flight path it is already at or under the chord, and `|M| > chord`
+ * means something is wrong with the SAMPLES — a teleport, a respawn. 1x is
+ * therefore free there, fires only on pathology, and is left exactly as it was.
+ *
+ * A true velocity is not bounded that way. The chord is the AVERAGE velocity
+ * over the segment; the endpoint velocities straddle it whenever the ship is
+ * accelerating, so `|M| > chord` at the faster end is the NORMAL state of a hull
+ * under thrust. (Curvature does it too: on a circle the ratio is
+ * `(ωh/2)/sin(ωh/2)`, though at the shipped cadence that is only 1.0001.)
+ * Clamping those at 1x would discard the acceleration information that
+ * replicating velocity was meant to deliver, at exactly the moments it is worth
+ * having, and would do it silently — the curve would look like a slightly worse
+ * finite difference. So the velocity bound is 3x, which is the Fritsch-Carlson
+ * monotonicity limit for cubic Hermite: the largest tangent that still cannot
+ * make the interpolant reverse direction inside a monotone segment. It admits
+ * every physically-reachable acceleration (a ship would have to change speed by
+ * more than 2x the segment's average within one 66.7 ms patch gap to reach it)
+ * while still bounding the excursion, at (4/27)·3 ≈ 0.44·|chord| per tangent
+ * rather than 0.15·|chord|, and it still catches the pathology the guard exists
+ * for: a 300 u/s velocity reported across a segment that travelled one unit is
+ * clamped just as hard as a teleported neighbour is.
  *
  * Pure and allocation-free (writes into `out`): the render loop calls this per
  * remote ship per tick, and pure is what keeps the C1/overshoot claims provable
  * in unit tests rather than asserted in a comment.
  */
+/**
+ * Length bound on a REPLICATED-VELOCITY tangent, as a multiple of the segment's
+ * chord — the Fritsch-Carlson monotonicity limit. See {@link hermitePosition}
+ * for why a true velocity needs a different bound than a finite difference.
+ */
+export const VELOCITY_TANGENT_CHORD_LIMIT = 3;
+
 export function hermitePosition(
   prev: TimedPos | null,
   from: TimedPos,
@@ -123,13 +215,29 @@ export function hermitePosition(
   // which makes a neighbourless end EXACTLY linear rather than approximately so.
   let m1x = dx, m1y = dy, m1z = dz;
   let m2x = dx, m2y = dy, m2z = dz;
-  if (prev && from.time - prev.time > 0) {
+  // Replicated velocity is in units per SECOND and `h` is in milliseconds, so
+  // the scale onto the segment is h/1000 — getting this wrong by 1000x would
+  // trip the magnitude clamp on every frame and silently look like plain lerp.
+  const hSec = h / 1000;
+  let limit1 = 1;
+  let limit2 = 1;
+  if (from.vel) {
+    m1x = from.vel.x * hSec;
+    m1y = from.vel.y * hSec;
+    m1z = from.vel.z * hSec;
+    limit1 = VELOCITY_TANGENT_CHORD_LIMIT;
+  } else if (prev && from.time - prev.time > 0) {
     const k = h / (to.time - prev.time);
     m1x = (to.pos.x - prev.pos.x) * k;
     m1y = (to.pos.y - prev.pos.y) * k;
     m1z = (to.pos.z - prev.pos.z) * k;
   }
-  if (next && next.time - to.time > 0) {
+  if (to.vel) {
+    m2x = to.vel.x * hSec;
+    m2y = to.vel.y * hSec;
+    m2z = to.vel.z * hSec;
+    limit2 = VELOCITY_TANGENT_CHORD_LIMIT;
+  } else if (next && next.time - to.time > 0) {
     const k = h / (next.time - from.time);
     m2x = (next.pos.x - from.pos.x) * k;
     m2y = (next.pos.y - from.pos.y) * k;
@@ -143,16 +251,18 @@ export function hermitePosition(
     return out;
   }
   const chord = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const cap1 = chord * limit1;
   const l1 = Math.sqrt(m1x * m1x + m1y * m1y + m1z * m1z);
-  if (l1 > chord) {
-    const k = chord / l1;
+  if (l1 > cap1) {
+    const k = cap1 / l1;
     m1x *= k;
     m1y *= k;
     m1z *= k;
   }
+  const cap2 = chord * limit2;
   const l2 = Math.sqrt(m2x * m2x + m2y * m2y + m2z * m2z);
-  if (l2 > chord) {
-    const k = chord / l2;
+  if (l2 > cap2) {
+    const k = cap2 / l2;
     m2x *= k;
     m2y *= k;
     m2z *= k;
@@ -170,6 +280,185 @@ export function hermitePosition(
 }
 
 /**
+ * How fast a post-extrapolation residual is repaid, per second, as an
+ * exponential rate. At 8/s a 1-unit residual is under 5 cm after 375 ms — inside
+ * half a second of ordinary flight, and slow enough that the repayment velocity
+ * (`|residual| · rate`, ≤ 8 u/s for the residuals this can produce) never
+ * outruns the hull it is riding on and so can never read as a stutter.
+ */
+const RESIDUAL_DECAY_PER_SEC = 8;
+/** Residual below which the ship is simply released back onto the curve. */
+const RESIDUAL_EPSILON = 0.001;
+/**
+ * A residual this large is not a mispredicted 100 ms of flight, it is a
+ * different position: a respawn, a bounce off a rock the extrapolation flew
+ * straight through, a teleport. Blending across it would drag the hull through
+ * the arena for half a second, so it is dropped outright and the ship appears
+ * where the server says it is — the same judgement `decayCorrection` makes with
+ * its `snapDistance`, and for the same reason.
+ */
+const RESIDUAL_SNAP_DISTANCE = 12;
+
+/**
+ * Bounded dead reckoning past the newest sample, and the seamless way back.
+ *
+ * ## The problem this solves
+ *
+ * {@link bracket}'s dry branch clamps to the newest sample, so a remote hull
+ * FREEZES the moment the render point overruns the buffer and then lurches when
+ * the next patch lands. {@link adaptiveRenderDelay} exists to make that rare, but
+ * it cannot make it never: a Wi-Fi power-save burst, one dropped patch, a GC
+ * pause on the host. A freeze is the honest failure for a client that knows only
+ * where the ship WAS — but with a replicated velocity it also knows where the
+ * ship is GOING, and a hull continuing straight for one patch gap is a far
+ * better picture of a live match than a hull parked in space.
+ *
+ * ## Why it needs state at all
+ *
+ * Because the way BACK is the hard half, and the repo has scar tissue about it.
+ * Extrapolation is a guess; when the fresh patch lands, the true path is
+ * somewhere else. Snapping onto it is a teleport, and if the guess ran ahead of
+ * reality — which is exactly what happens when the ship was decelerating or
+ * turning — that teleport is BACKWARD. Backward teleports on remote hulls are
+ * the specific regression that {@link bracket}'s dry branch and
+ * {@link adaptiveRenderDelay}'s widening rate limit were both written to kill;
+ * re-introducing one here in the name of smoothness would trade a freeze for the
+ * worse artefact.
+ *
+ * So the transition is made EXACT rather than approximately smooth. On the first
+ * wet frame after a dry spell the blender records the residual — where it drew
+ * the ship last frame, minus where the curve now says it is — and returns
+ * `curve + residual`, which is precisely last frame's position. Zero
+ * discontinuity, by construction, whatever the guess did. That residual then
+ * decays exponentially to nothing, so the hull slides onto its true path over a
+ * few hundred milliseconds while always moving forward along it.
+ *
+ * While dry the residual is FROZEN rather than decayed, and the fresh
+ * extrapolation is added on top of it. That keeps the other direction continuous
+ * too: a starve that begins during a repayment does not step, it just stops
+ * repaying until the buffer recovers.
+ *
+ * State is per entity id and is dropped by {@link retain}, the same shape as
+ * `FlagTrailAccumulator` in shared's decoders.
+ */
+export class ExtrapolationBlender {
+  private readonly residuals = new Map<number, Vec3>();
+  /** Last position this blender DREW for an id — the anchor for re-entry. */
+  private readonly drawn = new Map<number, Vec3>();
+  private readonly dry = new Set<number>();
+
+  /**
+   * Resolve one ship's displayed position for this frame.
+   *
+   * @param id         entity id, the key for this ship's carried residual.
+   * @param base       the interpolated position `bracket`/`hermitePosition` gave.
+   * @param vel        the newest sample's replicated velocity, if it has one.
+   * @param leadMs     `bracket`'s bounded overrun; 0 on a healthy frame.
+   * @param dtSeconds  frame delta, for the residual decay.
+   * @param out        written in place and returned (the render loop is hot).
+   */
+  resolve(
+    id: number,
+    base: { readonly x: number; readonly y: number; readonly z: number },
+    vel: { readonly x: number; readonly y: number; readonly z: number } | undefined,
+    leadMs: number,
+    dtSeconds: number,
+    out: Vec3,
+  ): Vec3 {
+    const extrapolating = leadMs > 0 && vel !== undefined;
+    let residual = this.residuals.get(id);
+
+    if (extrapolating) {
+      // Dry: hold the residual where it is and dead-reckon on top of it. The
+      // lead grows continuously from 0 as the bracket runs out, so entering this
+      // branch is itself smooth — there is nothing to blend on the way IN.
+      const lead = leadMs / 1000;
+      out.x = base.x + (residual?.x ?? 0) + vel.x * lead;
+      out.y = base.y + (residual?.y ?? 0) + vel.y * lead;
+      out.z = base.z + (residual?.z ?? 0) + vel.z * lead;
+    } else {
+      if (this.dry.has(id)) {
+        // First wet frame after a dry spell: re-anchor on what was DRAWN, so the
+        // displayed position is continuous rather than snapping onto the curve.
+        // See the class doc — this is the no-rewind guarantee.
+        //
+        // The anchor is `drawn + v·dt`, not `drawn`: continuity of VELOCITY, not
+        // just of position. Anchoring on `drawn` alone is what a naive reading
+        // suggests, and it is subtly wrong — it makes the handback frame draw
+        // ZERO motion, because it pins the hull to exactly where it was last
+        // frame. Meanwhile `base` has advanced by a frame of render time (~1.6
+        // units at cruise), so the effect is a one-frame stall followed by a
+        // catch-up: the freeze this class exists to remove, moved to the moment
+        // of recovery and made harder to see. Carrying the last known velocity
+        // across the seam costs nothing (the ship was already moving at it) and
+        // makes the residual very nearly zero on a straight course, which is
+        // why the repayment below is usually imperceptible.
+        const last = this.drawn.get(id);
+        residual = last
+          ? {
+              x: last.x + (vel?.x ?? 0) * dtSeconds - base.x,
+              y: last.y + (vel?.y ?? 0) * dtSeconds - base.y,
+              z: last.z + (vel?.z ?? 0) * dtSeconds - base.z,
+            }
+          : undefined;
+        if (residual && Math.hypot(residual.x, residual.y, residual.z) > RESIDUAL_SNAP_DISTANCE) {
+          residual = undefined; // too far to blend: show the truth at once
+        }
+        if (residual) this.residuals.set(id, residual);
+        else this.residuals.delete(id);
+      } else if (residual) {
+        const k = Math.exp(-RESIDUAL_DECAY_PER_SEC * Math.max(0, dtSeconds));
+        residual.x *= k;
+        residual.y *= k;
+        residual.z *= k;
+        if (Math.abs(residual.x) + Math.abs(residual.y) + Math.abs(residual.z) < RESIDUAL_EPSILON) {
+          this.residuals.delete(id);
+          residual = undefined;
+        }
+      }
+      out.x = base.x + (residual?.x ?? 0);
+      out.y = base.y + (residual?.y ?? 0);
+      out.z = base.z + (residual?.z ?? 0);
+    }
+
+    if (extrapolating) this.dry.add(id);
+    else this.dry.delete(id);
+    const drawn = this.drawn.get(id);
+    if (drawn) {
+      drawn.x = out.x;
+      drawn.y = out.y;
+      drawn.z = out.z;
+    } else {
+      this.drawn.set(id, { x: out.x, y: out.y, z: out.z });
+    }
+    return out;
+  }
+
+  /** Forget every ship not in `ids` (left the match, died, was culled). */
+  retain(ids: ReadonlySet<number>): void {
+    for (const id of this.drawn.keys()) {
+      if (ids.has(id)) continue;
+      this.drawn.delete(id);
+      this.residuals.delete(id);
+      this.dry.delete(id);
+    }
+  }
+
+  /** Drop everything — a reconnect, a rematch, a snapshot-clock reset. */
+  clear(): void {
+    this.residuals.clear();
+    this.drawn.clear();
+    this.dry.clear();
+  }
+
+  /** Test/telemetry probe: the residual this id is currently carrying. */
+  residualOf(id: number): Vec3 | undefined {
+    const r = this.residuals.get(id);
+    return r ? { x: r.x, y: r.y, z: r.z } : undefined;
+  }
+}
+
+/**
  * Convert a legacy per-frame pull authored at `referenceHz` into a dt-stable
  * exponential fraction. At 60 Hz, 0.15 remains exactly 0.15.
  */
@@ -182,13 +471,21 @@ export function timeBasedPull(referencePull: number, dtSeconds: number, referenc
  * cadence the network is actually delivering.
  *
  * A FIXED delay is only correct on the network it was tuned for. Measured on
- * localhost — the best case there is — patches nominally 50 ms apart arrive at
+ * localhost — the best case there is — patches nominally 50 ms apart arrived at
  * a median of ~62 ms with bursts past 95 ms, so a fixed 100 ms delay left the
  * render time ahead of the newest snapshot on ~16% of frames. A dry bracket
  * clamps to the newest snapshot, so the remote ship FREEZES there and then
  * lurches when the next patch lands — precisely the "ships jump between server
  * updates" the interpolation buffer exists to hide. On phone Wi-Fi, whose
  * power-save batches receives into 100-300 ms bursts, it is the normal state.
+ *
+ * (The nominal gap is 66.7 ms since the room's patch phase lock; the measurement
+ * above is left as taken, because what it establishes — that arrival jitter is a
+ * large fraction of the nominal gap and bursts well past it — is a property of
+ * the network, not of the cadence. `HEADROOM_PATCHES` multiplies the OBSERVED
+ * p90, so the target scales with whatever the room is actually sending and
+ * needed no retuning. {@link MAX_EXTRAPOLATION_MS} is the second line of defence
+ * for the frames that starve anyway.)
  *
  * The target keeps `headroomPatches` of the p90 arrival gap between the render
  * point and the newest snapshot. BOTH directions are rate-limited, because the
@@ -310,18 +607,18 @@ export function createSnapshotClock(): SnapshotClockState {
  *
  * ## Why arrival time is the wrong timeline
  *
- * `ArenaRoom` steps the sim at 30 Hz (`SIM_TICK_RATE`) and broadcasts patches at
- * 20 Hz (`PATCH_RATE_MS = 50`). Those are two independent timers, so a patch
- * carries whichever sim tick was the most recent when it fired: consecutive
- * patches are ONE tick apart (33.3 ms of simulated travel) and then TWO
+ * `ArenaRoom` used to step the sim at 30 Hz (`SIM_TICK_RATE`) and broadcast
+ * patches from an INDEPENDENT 20 Hz timer. Nothing synchronised the two, so a
+ * patch carried whichever sim tick was the most recent when it fired:
+ * consecutive patches ONE tick apart (33.3 ms of simulated travel) and then TWO
  * (66.7 ms), alternating, forever, on a perfect network.
  *
- * Stamping those samples with their local ARRIVAL time — uniform 50 ms — plays
+ * Stamping those samples with their local ARRIVAL time — uniform 50 ms — played
  * 66.7 ms of travel back over 50 ms and then 33.3 ms of travel over 50 ms. Every
- * remote hull therefore renders at 1.33x its true speed, then 0.67x, ten times a
+ * remote hull therefore rendered at 1.33x its true speed, then 0.67x, ten times a
  * second, on LAN, on localhost, at any frame rate, with a perfectly full buffer.
  * A 2:1 sawtooth in velocity is exactly what "janky" describes, and no amount of
- * buffer depth, C1 curve fitting or render-delay adaptation can remove it,
+ * buffer depth, C1 curve fitting or render-delay adaptation could remove it,
  * because all three faithfully interpolate a timeline that is itself wrong.
  * (`renderPacing.test.ts` could not see it either: it modelled the server as
  * sampling the world every 50 ms, which is the assumption at fault.)
@@ -329,6 +626,15 @@ export function createSnapshotClock(): SnapshotClockState {
  * `snapshot.elapsed` is `matchTimer`, already on the wire, already frozen into
  * the field contract — the sim's own accumulated time, advancing by exactly one
  * `FIXED_DT` per tick. Spacing samples by THAT restores true playback speed.
+ *
+ * The room has since been fixed at the source as well: it broadcasts from the
+ * sim loop, phase-locked, every 2 ticks (`PATCH_EVERY_TICKS`), so the alternating
+ * cadence is gone and every patch carries a fresh tick. **This function is not
+ * redundant now, and must not be reverted to arrival stamping.** It is what
+ * keeps playback honest for everything the room cannot control — a host whose
+ * timers slip, a tick starved by GC, a duplicated `matchTimer`, and the network
+ * jitter that is the whole reason a buffer exists. The phase lock removed the
+ * SYSTEMATIC error; this removes the rest.
  *
  * ## Why the offset has to be controlled rather than measured once
  *

@@ -363,7 +363,10 @@ export class FlightControls {
     this.reticle.updateFeedback(dtMs);
     this.updateReticle(cur, prev, alpha, ship);
     this.updateEnemyArrows(cur, prev, alpha, ship);
-    const prevShip = findShip(prev, this.playerId) ?? ship;
+    // The readout reads the ship's own replicated velocity now, so it needs
+    // neither the previous frame's ship (the `prevShip` lookup that used to sit
+    // here) nor a match-clock window — see SpeedReadout's doc. `cur.elapsed` is
+    // still passed for signature compatibility and is ignored.
     this.speedReadout.update(ship, cur.elapsed, nowMs);
   }
 

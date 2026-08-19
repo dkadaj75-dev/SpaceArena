@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GameLoop, type ShipSnapshot, type Snapshot } from "@space-arena/shared";
-import { bracket, createSnapshotClock, stampSnapshot } from "./interpolation.js";
+import { bracket, createSnapshotClock, ExtrapolationBlender, MAX_EXTRAPOLATION_MS, stampSnapshot } from "./interpolation.js";
 import { interpolate } from "./NetGameSession.js";
 
 /**
@@ -30,8 +30,19 @@ import { interpolate } from "./NetGameSession.js";
 
 const REMOTE_ID = 2;
 const LOCAL_ID = 1;
-/** Server patch interval (ArenaRoom PATCH_RATE_MS). */
-const PATCH_MS = 50;
+/** ArenaRoom SIM_TICK_RATE. */
+const TICK_MS = 1000 / 30;
+/**
+ * The room's patch interval: `PATCH_EVERY_TICKS` (2) sim ticks, broadcast from
+ * the sim loop itself. Uniform 66.7 ms, every patch carrying a fresh tick.
+ */
+const PATCH_MS = 2 * TICK_MS;
+/**
+ * The 20 Hz free-running patch timer this replaced. Kept as a constant because
+ * the characterization tests at the bottom of this file still model it — that is
+ * what makes them guard rails rather than folklore.
+ */
+const LEGACY_PATCH_MS = 50;
 const RENDER_DELAY_MS = 100; // tuning.netRenderDelayMs
 const FRAME_MS = 1000 / 60;
 
@@ -43,6 +54,12 @@ function truePos(ms: number): { x: number; y: number; z: number } {
   return { x: RADIUS * Math.cos(a), y: 0, z: RADIUS * Math.sin(a) };
 }
 const TRUE_SPEED = RADIUS * OMEGA;
+
+/** True velocity (units/second) of the circling ship at `ms` — what the wire carries. */
+function trueVel(ms: number): { x: number; y: number; z: number } {
+  const a = (OMEGA * ms) / 1000;
+  return { x: -RADIUS * OMEGA * Math.sin(a), y: 0, z: RADIUS * OMEGA * Math.cos(a) };
+}
 
 function ship(id: number, pos: { x: number; y: number; z: number }): ShipSnapshot {
   // Only the fields the interpolator and these assertions touch are meaningful;
@@ -242,37 +259,44 @@ describe("online render pacing", () => {
 });
 
 /**
- * **The server does not sample the world every 50 ms (2026-08-18).**
+ * **The server used not to sample the world on the beat it broadcast (2026-08-18).**
  *
  * Everything above models a patch as carrying the world AT the instant it was
- * broadcast. `ArenaRoom` does not work that way, and the difference is the jank
+ * broadcast. `ArenaRoom` did not work that way, and the difference is the jank
  * the owner kept reporting after all of the above shipped:
  *
- *   - `setSimulationInterval(..., 1000 / SIM_TICK_RATE)` steps the sim at 30 Hz;
- *   - `setPatchRate(PATCH_RATE_MS)` broadcasts at 20 Hz.
+ *   - `setSimulationInterval(..., 1000 / SIM_TICK_RATE)` stepped the sim at 30 Hz;
+ *   - `setPatchRate(50)` broadcast from an INDEPENDENT 20 Hz timer.
  *
- * Two independent timers. A patch therefore carries whichever sim tick was most
- * recent when it fired, so consecutive patches are ONE tick apart (33.3 ms of
- * simulated travel) and then TWO (66.7 ms), alternating, forever — while
+ * Two unsynchronised timers. A patch therefore carried whichever sim tick was
+ * most recent when it fired, so consecutive patches were ONE tick apart (33.3 ms
+ * of simulated travel) and then TWO (66.7 ms), alternating, forever — while
  * arriving a uniform 50 ms apart. Filing them under their ARRIVAL time plays
  * 66.7 ms of travel back over 50 ms and then 33.3 over 50: every remote hull in
  * the arena surges to 1.33x and stalls to 0.67x, ten times a second, on a
  * perfect network, at any frame rate, with a full buffer.
  *
- * No amount of buffer depth, C1 curve fitting or render-delay adaptation can
+ * No amount of buffer depth, C1 curve fitting or render-delay adaptation could
  * touch it, because all three faithfully interpolate a timeline that is itself
- * wrong. `stampSnapshot` files each sample under the SERVER clock it was taken
- * at (`matchTimer`, already on the wire) instead.
+ * wrong. Two fixes landed, and they are independent:
+ *
+ *  1. `stampSnapshot` files each sample under the SERVER clock it was taken at
+ *     (`matchTimer`, already on the wire), which repairs the TIMELINE for any
+ *     cadence at all — including the ones a host's timer slip still produces.
+ *  2. the room now broadcasts from the sim loop, phase-locked every 2 ticks, so
+ *     the alternating cadence does not happen in the first place and every patch
+ *     carries a world the client has not already been shown.
+ *
+ * Both are asserted below, the old cadence as a characterization guard rail.
  */
 describe("online pacing against the room's REAL tick/patch cadence", () => {
-  const TICK_MS = 1000 / 30; // ArenaRoom: SIM_TICK_RATE
-  /** The world sample a patch broadcast at `patchMs` actually carries. */
+  /** The world sample a patch broadcast at `patchMs` carries, under a free timer. */
   const tickBefore = (patchMs: number): number => Math.floor(patchMs / TICK_MS) * TICK_MS;
 
-  function buildRealBuffer(durationMs: number, stamping: "arrival" | "server"): { time: number; snapshot: Snapshot }[] {
+  function buildLegacyBuffer(durationMs: number, stamping: "arrival" | "server"): { time: number; snapshot: Snapshot }[] {
     const clock = createSnapshotClock();
     const out: { time: number; snapshot: Snapshot }[] = [];
-    for (let patch = 0; patch <= durationMs; patch += PATCH_MS) {
+    for (let patch = 0; patch <= durationMs; patch += LEGACY_PATCH_MS) {
       const snapshot = snapshotAt(tickBefore(patch));
       const time = stamping === "arrival" ? patch : stampSnapshot(clock, snapshot.elapsed * 1000, patch).timeMs;
       out.push({ time, snapshot });
@@ -280,13 +304,26 @@ describe("online pacing against the room's REAL tick/patch cadence", () => {
     return out;
   }
 
+  /** The room as it is now: a patch every 2 sim ticks, straight from the loop. */
+  function buildPhaseLockedBuffer(durationMs: number, stamping: "arrival" | "server"): { time: number; snapshot: Snapshot }[] {
+    const clock = createSnapshotClock();
+    const out: { time: number; snapshot: Snapshot }[] = [];
+    for (let tick = 0; tick * TICK_MS <= durationMs; tick += 2) {
+      const simMs = tick * TICK_MS;
+      const snapshot = snapshotAt(simMs);
+      const time = stamping === "arrival" ? simMs : stampSnapshot(clock, snapshot.elapsed * 1000, simMs).timeMs;
+      out.push({ time, snapshot });
+    }
+    return out;
+  }
+
   const dts = frameTimes(420, 0.15);
 
-  it("CHARACTERIZES arrival-time stamping: a 2:1 speed sawtooth on a perfect network", () => {
+  it("CHARACTERIZES the old free-running 20 Hz timer: a 2:1 speed sawtooth on a perfect network", () => {
     // Guard rail. These frame times have only ±15% jitter and the buffer never
     // starves — every millisecond of this spread is the tick/patch beat being
     // replayed on the wrong clock.
-    const spread = speedSpread(drawFrames(buildRealBuffer(8000, "arrival"), dts, "render"));
+    const spread = speedSpread(drawFrames(buildLegacyBuffer(8000, "arrival"), dts, "render"));
     // Measures 0.667x-1.485x here: the 2:1 beat itself, plus what frame jitter
     // compounds on top of it.
     expect(spread.max).toBeGreaterThan(1.25);
@@ -294,11 +331,36 @@ describe("online pacing against the room's REAL tick/patch cadence", () => {
   });
 
   it("draws the same ship at a constant speed once samples are stamped with the server clock", () => {
-    const spread = speedSpread(drawFrames(buildRealBuffer(8000, "server"), dts, "render"));
+    const spread = speedSpread(drawFrames(buildLegacyBuffer(8000, "server"), dts, "render"));
     // Same bound as the idealised-cadence test above: all that is left is the
     // Hermite curve's chord approximation of a circle.
     expect(spread.min).toBeGreaterThan(0.97);
     expect(spread.max).toBeLessThan(1.03);
+  });
+
+  it("phase-locks every patch onto a fresh sim tick, so the sample spacing is UNIFORM", () => {
+    // The room-side half of the fix, stated as the property it buys: consecutive
+    // patches are exactly 2 ticks of simulated travel apart. Under the old timer
+    // this alternated 1, 2, 1, 2 — which is what halved the effective sample
+    // rate of a remote hull's motion on every other patch, whatever the client
+    // then did with the timestamps.
+    const buf = buildPhaseLockedBuffer(2000, "arrival");
+    const steps = buf.slice(1).map((s, i) => s.snapshot.elapsed - buf[i]!.snapshot.elapsed);
+    for (const step of steps) expect(step).toBeCloseTo((2 * TICK_MS) / 1000, 12);
+    expect(new Set(steps.map((s) => s.toFixed(9))).size).toBe(1);
+  });
+
+  it("is smooth under BOTH stampings once phase-locked — the timeline is no longer skewed", () => {
+    // With sampling and broadcast on the same beat, arrival time and server time
+    // describe the same spacing, so the arrival-stamped buffer is now as smooth
+    // as the server-stamped one. That is the point: the client's clock work is
+    // no longer compensating for a systematic server-side error, and is free to
+    // spend its authority on the jitter it was written for.
+    for (const stamping of ["arrival", "server"] as const) {
+      const spread = speedSpread(drawFrames(buildPhaseLockedBuffer(8000, stamping), dts, "render"));
+      expect(spread.min, stamping).toBeGreaterThan(0.97);
+      expect(spread.max, stamping).toBeLessThan(1.03);
+    }
   });
 });
 
@@ -347,6 +409,17 @@ describe("interpolating the entity kinds that used to step at the patch rate", (
     expect(spawned.projectiles[0]!.pos.x).toBe(10);
   });
 
+  it("carries the replicated velocity through to the drawn frame", () => {
+    // The Hermite tangents and the HUD speed readout both read `velocity` off
+    // the frame `interpolate` produces, so it has to survive the blend.
+    const withVel = (ms: number): Snapshot => {
+      const s = snapshotAt(ms);
+      return { ...s, ships: s.ships.map((x) => ({ ...x, velocity: trueVel(ms) })) };
+    };
+    const mid = interpolate({ time: 0, snapshot: withVel(0) }, { time: PATCH_MS, snapshot: withVel(PATCH_MS) }, 0.5, null, null, LOCAL_ID);
+    expect(mid.ships[0]!.velocity).toEqual(trueVel(PATCH_MS));
+  });
+
   it("does not clone remote ships' modules on every drawn frame", () => {
     // The local ship's modules ARE cloned: `applyPendingToggles` writes the
     // optimistic deploy state onto them, and must not reach into the buffer.
@@ -361,5 +434,150 @@ describe("interpolating the entity kinds that used to step at the patch rate", (
     expect(out.ships.find((s) => s.id === REMOTE_ID)!.modules[0]).toBe(remote.modules[0]);
     const local = armed.ships.find((s) => s.id === LOCAL_ID)!;
     expect(out.ships.find((s) => s.id === LOCAL_ID)!.modules[0]).not.toBe(local.modules[0]);
+  });
+});
+
+/**
+ * **A starved buffer no longer freezes the arena (2026-08-18).**
+ *
+ * `adaptiveRenderDelay` exists to keep the bracket wet, and it cannot always
+ * win: one dropped patch, a Wi-Fi power-save burst, a GC pause on the host, and
+ * the render point overruns the newest sample. Until now that meant every remote
+ * hull stopped dead until the next patch shoved it forward.
+ *
+ * With velocity on the wire the client can do better, and the constraint on
+ * "better" is absolute: it must NEVER rewind. This suite drives the real
+ * `bracket` + `interpolate` + `ExtrapolationBlender` through a real starve and
+ * asserts both halves — the ship keeps moving through the gap, and its drawn
+ * position never once steps backward along its path, including on the frame the
+ * fresh patch lands.
+ */
+describe("bounded dead reckoning through a starved buffer", () => {
+  /** A buffer that stops being fed at `starveAtMs`, carrying true velocities. */
+  function buildBufferWithVelocity(durationMs: number): { time: number; snapshot: Snapshot }[] {
+    const out: { time: number; snapshot: Snapshot }[] = [];
+    for (let t = 0; t <= durationMs; t += PATCH_MS) {
+      const base = snapshotAt(t);
+      out.push({
+        time: t,
+        snapshot: { ...base, ships: base.ships.map((s) => ({ ...s, velocity: s.id === REMOTE_ID ? trueVel(t) : { x: 0, y: 0, z: 0 } })) },
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Draw the remote ship every 16.67 ms across a window in which the buffer is
+   * frozen for `starveMs` and then catches up — the real render path, with the
+   * session's own blender.
+   */
+  function drawThroughStarve(starveMs: number): { atMs: number; pos: { x: number; y: number; z: number } }[] {
+    const full = buildBufferWithVelocity(4000);
+    const blender = new ExtrapolationBlender();
+    const drawn: { atMs: number; pos: { x: number; y: number; z: number } }[] = [];
+    const STARVE_AT = 1500;
+    let lastNow = 1000;
+    for (let now = 1000; now <= 2600; now += FRAME_MS) {
+      // The buffer the client HAS at this instant: everything that had arrived
+      // by `now`, minus whatever the starve window swallowed.
+      const cutoff = now > STARVE_AT && now < STARVE_AT + starveMs ? STARVE_AT : now;
+      const buffer = full.filter((s) => s.time <= cutoff);
+      const b = bracket(buffer, now - RENDER_DELAY_MS);
+      if (!b) continue;
+      const [a, z, t, leadMs] = b;
+      const ia = buffer.indexOf(a);
+      const iz = buffer.indexOf(z);
+      const frame = interpolate(
+        a,
+        z,
+        t,
+        ia > 0 ? buffer[ia - 1]! : null,
+        iz >= 0 && iz + 1 < buffer.length ? buffer[iz + 1]! : null,
+        LOCAL_ID,
+        { blender, leadMs, dtSeconds: (now - lastNow) / 1000 },
+      );
+      lastNow = now;
+      drawn.push({ atMs: now, pos: frame.ships.find((s) => s.id === REMOTE_ID)!.pos });
+    }
+    return drawn;
+  }
+
+  /** Progress along the circle, unwrapped — the quantity that must never decrease. */
+  function arcLength(drawn: { pos: { x: number; y: number; z: number } }[]): number[] {
+    const out: number[] = [];
+    let total = 0;
+    let prevAngle = Math.atan2(drawn[0]!.pos.z, drawn[0]!.pos.x);
+    for (const d of drawn) {
+      const angle = Math.atan2(d.pos.z, d.pos.x);
+      let step = angle - prevAngle;
+      if (step > Math.PI) step -= Math.PI * 2;
+      if (step < -Math.PI) step += Math.PI * 2;
+      total += step * RADIUS;
+      prevAngle = angle;
+      out.push(total);
+    }
+    return out;
+  }
+
+  /** Frames that drew less than a third of the true travel — i.e. froze. */
+  function stalledFrames(drawn: { pos: { x: number; y: number; z: number } }[]): number {
+    const s = arcLength(drawn);
+    let stalled = 0;
+    for (let i = 1; i < s.length; i++) {
+      if (s[i]! - s[i - 1]! < TRUE_SPEED * (FRAME_MS / 1000) * 0.33) stalled++;
+    }
+    return stalled;
+  }
+
+  it("keeps the hull moving through a starve INSIDE the extrapolation budget", () => {
+    // A 150 ms gap between patches overruns the 100 ms render delay by ~83 ms,
+    // which the 100 ms budget covers entirely: not one frame freezes, where
+    // every frame past the overrun used to.
+    expect(stalledFrames(drawThroughStarve(150))).toBe(0);
+    expect(drawThroughStarve(0).length).toBe(drawThroughStarve(150).length);
+  });
+
+  it("degrades to the old freeze past the budget rather than guessing further", () => {
+    // The bound is the whole point (see MAX_EXTRAPOLATION_MS): a long outage
+    // must not have the client inventing a second of flight. Past 100 ms of
+    // overrun the hull parks, exactly as it always did — just 100 ms of real
+    // travel further along, and without a rewind when the patch finally lands.
+    expect(stalledFrames(drawThroughStarve(900))).toBeGreaterThan(0);
+    // Still strictly better than freezing at the overrun: the long starve draws
+    // fewer frozen frames than the whole dry window is long.
+    expect(stalledFrames(drawThroughStarve(900))).toBeLessThan(
+      Math.round((900 - RENDER_DELAY_MS) / FRAME_MS),
+    );
+  });
+
+  it("NEVER draws the hull backward, including on the frame the patch lands", () => {
+    for (const starveMs of [80, 150, 200, 400, 900]) {
+      const arc = arcLength(drawThroughStarve(starveMs));
+      for (let i = 1; i < arc.length; i++) {
+        expect(arc[i]! - arc[i - 1]!, `starve ${starveMs}ms, frame ${i}`).toBeGreaterThanOrEqual(-1e-9);
+      }
+    }
+  });
+
+  it("saturates the guess and rejoins the true path once the buffer refills", () => {
+    const starved = drawThroughStarve(200);
+    const truth = drawThroughStarve(0);
+    const last = starved.length - 1;
+    // By the end of the window the residual has been repaid and the two runs
+    // agree — the extrapolation is a transient, not a permanent lead.
+    expect(Math.hypot(
+      starved[last]!.pos.x - truth[last]!.pos.x,
+      starved[last]!.pos.z - truth[last]!.pos.z,
+    )).toBeLessThan(0.5);
+    // And the excursion during the starve was bounded: one patch gap of travel
+    // (~6.4 units at this speed) plus the curve's own slack, never unbounded.
+    let maxLead = 0;
+    for (let i = 0; i < starved.length; i++) {
+      maxLead = Math.max(maxLead, Math.hypot(
+        starved[i]!.pos.x - truth[i]!.pos.x,
+        starved[i]!.pos.z - truth[i]!.pos.z,
+      ));
+    }
+    expect(maxLead).toBeLessThan(TRUE_SPEED * (MAX_EXTRAPOLATION_MS / 1000) * 1.5);
   });
 });

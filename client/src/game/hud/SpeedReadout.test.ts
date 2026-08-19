@@ -8,11 +8,12 @@ import {
   SpeedReadout,
 } from "./SpeedReadout.js";
 
-function ship(x: number, y: number, z: number): ShipSnapshot {
+/** A ship carrying an authoritative velocity — what the readout actually reads. */
+function ship(vx: number, vy = 0, vz = 0): ShipSnapshot {
   return {
     id: 1,
     team: 0,
-    pos: { x, y, z },
+    pos: { x: 0, y: 0, z: 0 },
     heading: 0,
     pitch: 0,
     up: { x: 0, y: 1, z: 0 },
@@ -20,10 +21,18 @@ function ship(x: number, y: number, z: number): ShipSnapshot {
     hullMax: 100,
     targetId: null,
     throttle: 0,
+    velocity: { x: vx, y: vy, z: vz },
     lockProgress: 0,
     locked: false,
     modules: [],
   };
+}
+
+/** Same ship with the velocity field absent (a pre-velocity server). */
+function velocitylessShip(): ShipSnapshot {
+  const s = ship(0);
+  delete s.velocity;
+  return s;
 }
 
 describe("HUD measurement formatting", () => {
@@ -35,33 +44,37 @@ describe("HUD measurement formatting", () => {
 });
 
 describe("SpeedReadout", () => {
-  it("derives true 3D metres per second from successive snapshots", () => {
-    expect(snapshotSpeedMps(ship(3, 4, 12), ship(0, 0, 0), 0.5)).toBe(26);
-    expect(snapshotSpeedMps(ship(3, 4, 12), ship(0, 0, 0), 0)).toBe(0);
+  it("reads true 3D metres per second off the snapshot's replicated velocity", () => {
+    expect(snapshotSpeedMps(ship(3, 4, 12))).toBe(13);
+    // A sample with no velocity at all (pre-velocity server) reads 0, not NaN.
+    expect(snapshotSpeedMps(velocitylessShip())).toBe(0);
   });
 
-  it("updates at 10 Hz over the display window and reuses its text node", () => {
+  it("updates at 10 Hz and reuses its text node", () => {
     const root = document.createElement("div");
     const readout = new SpeedReadout(
       root,
       resolveFlightHudLayout(undefined, { width: 400, height: 800 }),
     );
     const value = root.querySelector<HTMLElement>(".hud-speed-value")!;
-    readout.update(ship(0, 0, 0), 0, 0);          // anchor sample — nothing to show yet
-    readout.update(ship(1, 0, 0), 0.1, 99);       // inside the 10 Hz window: ignored
-    readout.update(ship(1, 0, 0), 0.1, 100);      // 1 unit over 0.1 s
+    readout.update(ship(10), 0, 0);
     expect(value.textContent).toBe("10 m/s");
-    readout.update(ship(5, 0, 0), 0.2, 200);      // 4 more units over the next 0.1 s
+    readout.update(ship(40), 0.1, 99); // inside the 10 Hz window: ignored
+    expect(value.textContent).toBe("10 m/s");
+    readout.update(ship(40), 0.1, 100);
     expect(root.querySelector(".hud-speed-value")).toBe(value);
     expect(value.textContent).toBe("40 m/s");
     readout.dispose();
   });
 
-  it("averages out fixed-step position quantization instead of flapping to 0 (online own-ship)", () => {
-    // Online the own ship's predicted position advances in 33 ms sim steps
-    // while `elapsed` interpolates smoothly: frame pairs alternate between "no
-    // movement" and "a whole step of movement". The windowed measure must read
-    // the TRUE speed (10 u/s here), never 0, on every written sample.
+  it("is immune to the prediction-correction wobble that the differenced measure had", () => {
+    // The bug: online, the own ship is drawn by the PREDICTOR, whose position is
+    // pulled toward the authoritative path by a correction term every frame.
+    // Differentiating that position added the correction's own motion to the
+    // measured speed, so the readout wandered whenever the pilot steered — even
+    // at a dead-steady throttle. Velocity comes off the authoritative snapshot,
+    // which the correction cannot touch: a steady 42 u/s reads 42 on every
+    // single sample, whatever the rendered position is doing.
     const root = document.createElement("div");
     const readout = new SpeedReadout(
       root,
@@ -69,35 +82,43 @@ describe("SpeedReadout", () => {
     );
     const value = root.querySelector<HTMLElement>(".hud-speed-value")!;
     const written: string[] = [];
-    let x = 0;
     for (let frame = 0; frame <= 60; frame++) {
       const nowMs = frame * 16.667;
-      const elapsed = nowMs / 1000;
-      // A predict tick lands on every OTHER frame: position moves in 0.333-unit
-      // steps (10 u/s at 30 Hz) while elapsed advances every frame.
-      if (frame % 2 === 0 && frame > 0) x += 10 * (2 * 16.667) / 1000;
+      const s = ship(42);
+      // A correction of up to ±0.4 units per frame riding on the rendered pose,
+      // exactly as reconciliation produces. It must not reach the readout.
+      s.pos.x = 42 * (nowMs / 1000) + Math.sin(frame) * 0.4;
       const before = value.textContent;
-      readout.update(ship(x, 0, 0), elapsed, nowMs);
+      readout.update(s, nowMs / 1000, nowMs);
       if (value.textContent !== before && value.textContent) written.push(value.textContent);
     }
-    expect(written.length).toBeGreaterThan(0);
-    for (const text of written) expect(text).toBe("10 m/s");
+    expect(written).toEqual(["42 m/s"]);
     readout.dispose();
   });
 
-  it("holds the last reading through a starved window instead of reporting 0", () => {
+  it("holds its reading through a starved buffer replaying the same snapshot", () => {
     const root = document.createElement("div");
     const readout = new SpeedReadout(
       root,
       resolveFlightHudLayout(undefined, { width: 400, height: 800 }),
     );
     const value = root.querySelector<HTMLElement>(".hud-speed-value")!;
-    readout.update(ship(0, 0, 0), 0, 0);
-    readout.update(ship(1, 0, 0), 0.1, 100);
+    readout.update(ship(10), 0, 0);
     expect(value.textContent).toBe("10 m/s");
-    // Interpolation hold: same snapshot served again — elapsed did not move.
-    readout.update(ship(1, 0, 0), 0.1, 200);
+    // Interpolation hold: the same snapshot served again, match clock frozen.
+    readout.update(ship(10), 0, 100);
+    readout.update(ship(10), 0, 200);
     expect(value.textContent).toBe("10 m/s");
+    readout.dispose();
+  });
+
+  it("scales by the theme's display-only metres-per-unit factor", () => {
+    const root = document.createElement("div");
+    const layout = resolveFlightHudLayout(undefined, { width: 400, height: 800 });
+    const readout = new SpeedReadout(root, { ...layout, metersPerUnit: 2 });
+    const value = root.querySelector<HTMLElement>(".hud-speed-value")!;
+    readout.update(ship(0, 0, 30), 0, 0);
+    expect(value.textContent).toBe("60 m/s");
     readout.dispose();
   });
 

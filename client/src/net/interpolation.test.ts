@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adaptiveRenderDelay, bracket, createSnapshotClock, decayCorrection, hermitePosition, lerpHeading, RENDER_DELAY_CEIL_MS, stampSnapshot, timeBasedPull, WIDEN_MS_PER_SECOND, type TimedPos, type Vec3 } from "./interpolation.js";
+import { adaptiveRenderDelay, bracket, createSnapshotClock, decayCorrection, ExtrapolationBlender, hermitePosition, lerpHeading, MAX_EXTRAPOLATION_MS, VELOCITY_TANGENT_CHORD_LIMIT, RENDER_DELAY_CEIL_MS, stampSnapshot, timeBasedPull, WIDEN_MS_PER_SECOND, type TimedPos, type Vec3 } from "./interpolation.js";
 import { decodeCenti, decodeHeading, encodeCenti, encodeHeading } from "@space-arena/shared";
 
 describe("net interpolation", () => {
@@ -166,6 +166,324 @@ describe("hermitePosition", () => {
     expect(at(null, still, still, null, 0.5)).toEqual({ x: 3, y: 4, z: 5 });
     const moved = at(P(0, -8, 0, 0), P(50, 3, 4, 5), P(100, 3, 4, 5), P(150, 9, 4, 5), 0.5);
     expect(moved).toEqual({ x: 3, y: 4, z: 5 });
+  });
+});
+
+/**
+ * Velocity-tangent Hermite (2026-08-18), the second half of the patch phase-lock
+ * work: `PlayerState` now replicates the ship's own velocity, so the curve's end
+ * tangents can be the TRUE derivative at each knot instead of an estimate
+ * reconstructed from where the hull happened to be sampled nearby.
+ */
+describe("hermitePosition with replicated velocity", () => {
+  /** `time` in ms, `vel` in units per SECOND — the units the wire uses. */
+  const V = (time: number, x: number, vx: number): TimedPos => ({
+    time,
+    pos: { x, y: 0, z: 0 },
+    vel: { x: vx, y: 0, z: 0 },
+  });
+  const P = (time: number, x: number): TimedPos => ({ time, pos: { x, y: 0, z: 0 } });
+  const at = (prev: TimedPos | null, from: TimedPos, to: TimedPos, next: TimedPos | null, t: number): Vec3 =>
+    hermitePosition(prev, from, to, next, t, { x: 0, y: 0, z: 0 });
+
+  /** The room's real cadence: 2 sim ticks at 30 Hz. */
+  const H = 1000 / 15;
+
+  it("makes the curve's derivative at a knot the sample's OWN velocity", () => {
+    // This is the whole claim. A finite difference answers the average slope of
+    // the neighbourhood; the replicated value answers what the ship was actually
+    // doing at that instant, which is what a tangent is supposed to be.
+    const from = V(0, 0, 30);
+    const to = V(H, 3, 60);
+    const eps = 1e-6;
+    const dAt = (t: number): number =>
+      (at(null, from, to, null, t + eps).x - at(null, from, to, null, t - eps).x) / (2 * eps * (H / 1000));
+    expect(dAt(0)).toBeCloseTo(30, 6);
+    expect(dAt(1)).toBeCloseTo(60, 6);
+  });
+
+  it("reproduces a CUBIC path exactly, which finite differences cannot", () => {
+    // Cubic Hermite with exact end tangents is exact on any cubic. A
+    // Catmull-Rom finite difference is not: on x = t³ it overestimates the
+    // tangent by h², so the reconstructed path bulges. This is the accuracy
+    // difference in its cleanest form — and it is not academic, it is what
+    // "motion the samples do not show" means for a hull whose thrust is
+    // changing inside one 66.7 ms patch gap.
+    const x = (ms: number): number => Math.pow(ms / 1000, 3);
+    const v = (ms: number): number => 3 * Math.pow(ms / 1000, 2); // units per second
+    const times = [0, H, 2 * H, 3 * H];
+    const withVel = times.map((ms) => V(ms, x(ms), v(ms)));
+    const withoutVel = times.map((ms) => P(ms, x(ms)));
+
+    let velErr = 0;
+    let fdErr = 0;
+    for (let i = 0; i <= 32; i++) {
+      const t = i / 32;
+      const atMs = H + t * H; // the middle segment, which HAS both neighbours
+      velErr = Math.max(velErr, Math.abs(at(withVel[0]!, withVel[1]!, withVel[2]!, withVel[3]!, t).x - x(atMs)));
+      fdErr = Math.max(fdErr, Math.abs(at(withoutVel[0]!, withoutVel[1]!, withoutVel[2]!, withoutVel[3]!, t).x - x(atMs)));
+    }
+    expect(velErr).toBeLessThan(1e-12);
+    expect(fdErr).toBeGreaterThan(velErr * 1000);
+  });
+
+  it("keeps the NEWEST segment curved, where a finite difference has no neighbour", () => {
+    // The buffer's last segment has no `next` sample by construction, so the
+    // finite-difference path degrades that end to the chord — i.e. to lerp —
+    // exactly on the segment closest to what the pilot is looking at. The
+    // replicated velocity needs no neighbour at all.
+    const from = V(0, 0, 30);
+    const to = V(H, 3, 60);
+    const eps = 1e-6;
+    const endSlope = (a: TimedPos, b: TimedPos): number =>
+      (at(null, a, b, null, 1).x - at(null, a, b, null, 1 - eps).x) / (eps * (H / 1000));
+    expect(endSlope(from, to)).toBeCloseTo(60, 4);
+    // Same samples with the velocity stripped: the end slope is just the chord.
+    expect(endSlope(P(0, 0), P(H, 3))).toBeCloseTo(3 / (H / 1000), 4);
+  });
+
+  it("falls back to finite differences per END, so a mixed pair still works", () => {
+    // Back-compat: a sample with no velocity (pre-velocity server, decoded
+    // all-zero triple) must not poison the end that does have one.
+    const prev = P(-H, -3);
+    const from = P(0, 0); // no velocity: falls back to the Catmull-Rom tangent
+    const to = V(H, 3, 60); // velocity: exact tangent
+    const eps = 1e-6;
+    const slope = (t: number): number =>
+      (at(prev, from, to, null, t + eps).x - at(prev, from, to, null, t - eps).x) / (2 * eps * (H / 1000));
+    expect(slope(1)).toBeCloseTo(60, 4); // the velocity end is exact
+    expect(slope(0)).toBeCloseTo(45, 4); // the other is (3 − −3)/(2H) = 45 u/s
+  });
+
+  it("is byte-identical to the old curve when NO sample carries velocity", () => {
+    const s = [P(0, 0), P(H, 6), P(2 * H, 9), P(3 * H, 5)];
+    // Same fixtures as the finite-difference suite above; nothing about adding
+    // an optional field may move a curve for a peer that does not send it.
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16;
+      expect(at(s[0]!, s[1]!, s[2]!, s[3]!, t).x).toBe(
+        hermitePosition(s[0]!, s[1]!, s[2]!, s[3]!, t, { x: 0, y: 0, z: 0 }).x,
+      );
+    }
+  });
+
+  it("still degrades a REVERSAL to lerp — a velocity tangent is not a licence to overshoot", () => {
+    // The ship bounced inside this segment: it is still travelling +x at the
+    // `from` knot but the segment's chord runs −x. Smoothing through that would
+    // draw the hull inside the rock it hit.
+    const from = V(0, 9, 40);
+    const to = V(H, 5, -40);
+    for (const t of [0.2, 0.5, 0.8]) {
+      expect(at(null, from, to, null, t).x).toBeCloseTo(9 - 4 * t, 12);
+    }
+  });
+
+  it("still clamps a velocity far longer than the chord — a hard brake", () => {
+    // Reported 300 u/s into a segment that only travelled 1 unit: the ship
+    // stopped dead inside the gap, so |M1| is 20x the chord. The velocity bound
+    // is looser than the finite-difference one (3x the chord, the
+    // Fritsch-Carlson limit) but it is still a bound: the excursion past the
+    // chord stays under (4/27)·3 ≈ 0.45·|chord|.
+    const from = V(0, 0, 300);
+    const to = V(H, 1, 0);
+    for (let i = 0; i <= 32; i++) {
+      const t = i / 32;
+      expect(Math.abs(at(null, from, to, null, t).x - t)).toBeLessThanOrEqual(0.45);
+    }
+  });
+
+  it("lets an ACCELERATING ship's true tangent through, where a 1x chord cap would not", () => {
+    // A hull under thrust has endpoint velocities that straddle the chord's
+    // average by construction, so a 1x cap would fire on every accelerating
+    // ship on every frame — silently throwing away exactly the information
+    // velocity was replicated to provide. Here 30→60 u/s across the segment.
+    const from = V(0, 0, 30);
+    const to = V(H, 3, 60);
+    const eps = 1e-6;
+    const slope = (t: number): number =>
+      (at(null, from, to, null, t + eps).x - at(null, from, to, null, t - eps).x) / (2 * eps * (H / 1000));
+    expect(slope(0)).toBeCloseTo(30, 4);
+    expect(slope(1)).toBeCloseTo(60, 4);
+    // |M2| here is 4 against a chord of 3 — 1.33x, comfortably inside the 3x
+    // bound and comfortably outside the old one.
+    expect(60 * (H / 1000)).toBeGreaterThan(3);
+    expect(60 * (H / 1000)).toBeLessThan(3 * VELOCITY_TANGENT_CHORD_LIMIT);
+  });
+
+  it("still passes exactly through both bracketing samples", () => {
+    const from = V(0, 4, 25);
+    const to = V(H, 8, -12);
+    expect(at(null, from, to, null, 0).x).toBe(4);
+    expect(at(null, from, to, null, 1).x).toBe(8);
+  });
+});
+
+/**
+ * Bounded dead reckoning past the newest sample (2026-08-18).
+ *
+ * `bracket` still clamps its PAIR and PHASE to the newest sample — the dry-branch
+ * rewind regression it was written to fix stays fixed — and now additionally
+ * reports how far the render point overran, so a caller holding a replicated
+ * velocity can carry the hull forward instead of parking it.
+ */
+describe("bracket extrapolation lead", () => {
+  const buf = [{ time: 0 }, { time: 66 }, { time: 132 }];
+
+  it("reports no lead while the bracket is wet", () => {
+    expect(bracket(buf, 0)![3]).toBe(0);
+    expect(bracket(buf, 100)![3]).toBe(0);
+    expect(bracket(buf, 132)![3]).toBe(0);
+    expect(bracket(buf, -500)![3]).toBe(0);
+    expect(bracket([{ time: 5 }], 900)![3]).toBe(0);
+  });
+
+  it("reports the overrun once dry, and SATURATES at one patch gap", () => {
+    expect(bracket(buf, 152)![3]).toBe(20);
+    expect(bracket(buf, 232)![3]).toBe(MAX_EXTRAPOLATION_MS);
+    // A long outage does not keep growing the guess: it degrades to the old
+    // freeze, just 100 ms further along.
+    expect(bracket(buf, 5000)![3]).toBe(MAX_EXTRAPOLATION_MS);
+  });
+
+  it("leaves the clamped pair and phase exactly as they were", () => {
+    const dry = bracket(buf, 400)!;
+    expect(dry[0]).toBe(buf[1]);
+    expect(dry[1]).toBe(buf[2]);
+    expect(dry[2]).toBe(1);
+  });
+});
+
+describe("ExtrapolationBlender", () => {
+  const V = { x: 10, y: 0, z: 0 };
+  const at = (x: number): Vec3 => ({ x, y: 0, z: 0 });
+  const DT = 1 / 60;
+
+  it("is a pure pass-through while the buffer is healthy", () => {
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    for (let i = 0; i < 10; i++) {
+      expect(b.resolve(1, at(i), V, 0, DT, out)).toEqual({ x: i, y: 0, z: 0 });
+    }
+    expect(b.residualOf(1)).toBeUndefined();
+  });
+
+  it("carries the hull forward along its velocity instead of freezing", () => {
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    b.resolve(1, at(0), V, 0, DT, out);
+    // `base` is frozen at the newest sample (bracket clamps t = 1) while the
+    // lead grows — so all the motion here comes from the dead reckoning.
+    expect(b.resolve(1, at(0), V, 16, DT, out).x).toBeCloseTo(0.16, 12);
+    expect(b.resolve(1, at(0), V, 50, DT, out).x).toBeCloseTo(0.5, 12);
+    expect(b.resolve(1, at(0), V, 100, DT, out).x).toBeCloseTo(1, 12);
+  });
+
+  it("freezes, exactly as before, for a sample with no velocity", () => {
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    expect(b.resolve(1, at(7), undefined, 100, DT, out)).toEqual({ x: 7, y: 0, z: 0 });
+  });
+
+  it("NEVER rewinds when a fresh sample lands under an over-eager guess", () => {
+    // The regression this class exists to avoid. The ship was decelerating, so
+    // the straight-line guess ran ahead of where it really went: a naive
+    // hand-back would teleport the hull BACKWARD onto the curve.
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    b.resolve(1, at(0), V, 0, DT, out);
+    const guessed = b.resolve(1, at(0), V, 100, DT, out).x;
+    expect(guessed).toBeCloseTo(1, 12);
+    // Patch lands: the true path only reached 0.4 in that time.
+    const handback = b.resolve(1, at(0.4), V, 0, DT, out).x;
+    // Continuous in VELOCITY, not merely in position: the hull carries its last
+    // known speed across the seam (`+ v·dt`) rather than being pinned to exactly
+    // where it was, which would draw a stalled frame. Never backward.
+    expect(handback).toBeCloseTo(guessed + 10 * DT, 12);
+    expect(handback).toBeGreaterThan(guessed);
+    expect(b.residualOf(1)!.x).toBeCloseTo(1 + 10 * DT - 0.4, 12);
+  });
+
+  it("draws a FULL frame of motion on the handback, not a stalled one", () => {
+    // Position-only continuity (`anchor = drawn`) passes every no-rewind
+    // assertion and still costs one frozen frame at the exact moment the buffer
+    // recovers — the freeze this class removes, relocated. The handback frame
+    // must advance by a normal frame's travel.
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    b.resolve(1, at(0), V, 0, DT, out);
+    const last = b.resolve(1, at(0), V, 100, DT, out).x;
+    const handback = b.resolve(1, at(1.0), V, 0, DT, out).x;
+    expect(handback - last).toBeCloseTo(10 * DT, 12);
+  });
+
+  it("repays the residual smoothly, always moving forward, and lets go", () => {
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    b.resolve(1, at(0), V, 0, DT, out);
+    b.resolve(1, at(0), V, 100, DT, out); // guess reaches 1.0
+    let base = 0.4;
+    let last = b.resolve(1, at(base), V, 0, DT, out).x;
+    const drawn: number[] = [last];
+    for (let frame = 0; frame < 120; frame++) {
+      base += 10 * DT; // the true path resumes at cruise
+      const x = b.resolve(1, at(base), V, 0, DT, out).x;
+      expect(x).toBeGreaterThanOrEqual(last - 1e-12); // monotone: no rewind, ever
+      last = x;
+      drawn.push(x);
+    }
+    // Converged onto the authoritative path and released its state.
+    expect(last).toBeCloseTo(base, 6);
+    expect(b.residualOf(1)).toBeUndefined();
+    // And it got there quickly — the residual is gone well inside a second.
+    expect(drawn[36]! - (0.4 + 36 * 10 * DT)).toBeLessThan(0.05);
+  });
+
+  it("stays continuous when a second starve interrupts a repayment", () => {
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    b.resolve(1, at(0), V, 0, DT, out);
+    b.resolve(1, at(0), V, 100, DT, out);
+    const afterFirst = b.resolve(1, at(0.4), V, 0, DT, out).x;
+    b.resolve(1, at(0.4), V, 0, DT, out); // one frame of decay
+    const beforeSecond = b.resolve(1, at(0.4), V, 0, DT, out).x;
+    // Dry again: the residual FREEZES and the new lead is added on top of it,
+    // so the very first dry frame does not step either.
+    const firstDry = b.resolve(1, at(0.4), V, 1, DT, out).x;
+    expect(firstDry).toBeGreaterThan(beforeSecond);
+    expect(firstDry - beforeSecond).toBeLessThan(0.02);
+    expect(afterFirst).toBeGreaterThan(beforeSecond); // it really had been decaying
+  });
+
+  it("snaps rather than blending across a respawn-sized residual", () => {
+    // A blend would drag the hull across the arena for half a second. Same
+    // judgement `decayCorrection` makes with its snapDistance.
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    b.resolve(1, at(0), V, 0, DT, out);
+    b.resolve(1, at(0), V, 100, DT, out);
+    expect(b.resolve(1, at(-400), V, 0, DT, out)).toEqual({ x: -400, y: 0, z: 0 });
+    expect(b.residualOf(1)).toBeUndefined();
+  });
+
+  it("keeps ships independent and forgets the ones that leave", () => {
+    const b = new ExtrapolationBlender();
+    const out = { x: 0, y: 0, z: 0 };
+    for (const id of [1, 2]) {
+      b.resolve(id, at(0), V, 0, DT, out);
+      b.resolve(id, at(0), V, 100, DT, out);
+      b.resolve(id, at(0.4), V, 0, DT, out);
+    }
+    const expected = 1 + 10 * DT - 0.4; // the velocity-continuous re-anchor
+    expect(b.residualOf(1)!.x).toBeCloseTo(expected, 12);
+    expect(b.residualOf(2)!.x).toBeCloseTo(expected, 12);
+    b.retain(new Set([1]));
+    expect(b.residualOf(1)).toBeDefined();
+    expect(b.residualOf(2)).toBeUndefined();
+    // A ship that left and came back starts clean rather than inheriting a
+    // residual measured against a position it no longer has.
+    expect(b.resolve(2, at(80), V, 0, DT, out)).toEqual({ x: 80, y: 0, z: 0 });
+    b.clear();
+    expect(b.residualOf(1)).toBeUndefined();
   });
 });
 

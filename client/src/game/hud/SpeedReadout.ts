@@ -13,23 +13,43 @@ export function formatHudDistance(distanceM: number): string {
   return `${roundedHudMeters(distanceM)}m`;
 }
 
-/** Authoritative 3D speed implied by two simulation snapshots. */
-export function snapshotSpeedMps(
-  cur: ShipSnapshot,
-  prev: ShipSnapshot,
-  elapsedDeltaSec: number,
-): number {
-  if (!(elapsedDeltaSec > 0) || !Number.isFinite(elapsedDeltaSec)) return 0;
-  return (
-    Math.hypot(cur.pos.x - prev.pos.x, cur.pos.y - prev.pos.y, cur.pos.z - prev.pos.z) /
-    elapsedDeltaSec
-  );
+/**
+ * Authoritative 3D speed of one ship, in world units per second.
+ *
+ * Reads the snapshot's REPLICATED velocity — the sim's own value, not an
+ * estimate. `0` for a ship whose sample carries none (a pre-velocity server, a
+ * genuinely stationary hull), which is the same number the differencing this
+ * replaced produced for a hull that was not moving.
+ */
+export function snapshotSpeedMps(ship: ShipSnapshot): number {
+  const v = ship.velocity;
+  if (!v) return 0;
+  const speed = Math.hypot(v.x, v.y, v.z);
+  return Number.isFinite(speed) ? speed : 0;
 }
 
 /**
  * Small actual-speed instrument associated with the themed throttle strip.
- * Snapshot position deltas are used because ShipSnapshot intentionally carries
- * no velocity. Text is sampled at 10 Hz and only written when the integer moves.
+ *
+ * ## Why this reads velocity instead of measuring displacement
+ *
+ * It used to DIFFERENTIATE the own ship's rendered position over a 100 ms
+ * window, dividing by the snapshot playback clock's `elapsed`. Two different
+ * clocks: online, the numerator is the PREDICTED hull (client-side, advancing in
+ * fixed 30 Hz steps, and pulled around every frame by the prediction-correction
+ * offset) while the denominator is the interpolated server match clock. The
+ * window averaging hid the fixed-step quantization, but nothing could hide the
+ * correction term — every reconciliation nudge added or removed real distance
+ * from the numerator, so the readout visibly wandered whenever the pilot was
+ * steering, which is the bug that was reported. Worse, the two clocks disagree
+ * by construction: the corrections exist precisely because the predicted path
+ * and the authoritative path are not the same path.
+ *
+ * The ship's velocity is now on the wire, so there is nothing left to measure.
+ * `|v|` off the authoritative snapshot is exact, needs no window, cannot be
+ * perturbed by prediction, and is the same number the server would print. The
+ * 10 Hz display cadence stays — it is a legibility choice (a digit changing 60
+ * times a second is unreadable), not a measurement one.
  */
 export class SpeedReadout {
   private readonly container: HTMLDivElement;
@@ -94,32 +114,24 @@ export class SpeedReadout {
   }
 
   /**
-   * Sample actual speed at 10 Hz. `nowMs` is the render-loop clock; elapsed
-   * values are simulation seconds and therefore independent of render FPS.
+   * Show the own ship's authoritative speed, rewritten at most at 10 Hz.
+   *
+   * `nowMs` is the render-loop clock and paces the DISPLAY only. There is no
+   * measurement window any more and therefore no second clock to disagree with:
+   * every call reads the current snapshot's own velocity, and the 10 Hz gate
+   * decides whether that reading is worth repainting. A starved buffer replays
+   * the last snapshot, so the readout holds its value through it for free —
+   * where the old windowed measure had to special-case a zero-length window to
+   * avoid printing 0.
+   *
+   * `elapsedSec` is retained in the signature (unused) so the HUD call site and
+   * every test keep working across this change; the whole point is that the
+   * match clock is no longer part of the measurement.
    */
-  /** Ship pose at the last written sample: the measurement window's anchor. */
-  private anchor: { x: number; y: number; z: number; elapsed: number } | null = null;
-
-  /**
-   * Speed is measured over the WHOLE 10 Hz display window rather than one
-   * frame pair. Online, the own ship's predicted position advances in fixed
-   * 30 Hz steps while `elapsed` interpolates smoothly per frame — a per-frame
-   * quotient therefore flaps between 0 and ~2x the true speed depending on
-   * whether a predict tick landed inside the frame. Across a 100 ms window
-   * (≥3 fixed steps) the quantization averages out for every session type.
-   */
-  update(cur: ShipSnapshot, elapsedSec: number, nowMs: number): void {
+  update(cur: ShipSnapshot, _elapsedSec: number, nowMs: number): void {
     if (nowMs - this.lastUpdateMs < UPDATE_INTERVAL_MS) return;
     this.lastUpdateMs = nowMs;
-    const anchor = this.anchor;
-    this.anchor = { x: cur.pos.x, y: cur.pos.y, z: cur.pos.z, elapsed: elapsedSec };
-    if (!anchor) return;
-    const windowSec = elapsedSec - anchor.elapsed;
-    // A hold (interpolation buffer starved) or a rewound clock (rematch) gives
-    // no usable window — keep showing the last measured speed rather than 0.
-    if (!(windowSec > 0)) return;
-    const dist = Math.hypot(cur.pos.x - anchor.x, cur.pos.y - anchor.y, cur.pos.z - anchor.z);
-    const speedMps = Math.max(0, Math.round((dist / windowSec) * this.metersPerUnit));
+    const speedMps = Math.max(0, Math.round(snapshotSpeedMps(cur) * this.metersPerUnit));
     if (speedMps === this.lastSpeedMps) return;
     this.lastSpeedMps = speedMps;
     this.value.textContent = `${speedMps} m/s`;

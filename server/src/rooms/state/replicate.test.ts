@@ -41,8 +41,10 @@ setGlobalLogLevel("error");
  * the tolerance of its own codec (positions are int16 deci-units, headings
  * uint16 over a full turn, throttle/lock uint8 over 0..1, floats are float32).
  * A field the wire deliberately DROPS is asserted absent rather than skipped —
- * `velocity`, `colliderRadius` and `sensorRange` are not sent, and a decoder
- * that started inventing them would be just as wrong as one that lost a field.
+ * `colliderRadius` and `sensorRange` are not sent, and a decoder that started
+ * inventing them would be just as wrong as one that lost a field. (`velocity`
+ * used to be in that list; it has been replicated since 2026-08-18 and is now
+ * compared against the sim like any other field.)
  *
  * This is the half of the drift problem the field-name contract in
  * `shared/src/net/wireFields.ts` cannot see: names still line up perfectly when
@@ -168,6 +170,10 @@ describe("replication round trip", () => {
     const decoded = roundTrip(room, snap);
 
     expect(decoded.ships).toHaveLength(snap.ships.length);
+    // The velocity assertions below are conditional on a ship actually moving,
+    // so pin that at least one does — otherwise a dropped velocity writer could
+    // pass this suite by taking every branch that asserts absence.
+    expect(decoded.ships.some((s) => s.velocity !== undefined)).toBe(true);
     for (const ship of snap.ships) {
       const got = decoded.ships.find((s) => s.id === ship.id);
       expect(got, `ship ${ship.id} missing from the decoded snapshot`).toBeDefined();
@@ -190,10 +196,26 @@ describe("replication round trip", () => {
       expect(got.locked).toBe(ship.locked);
       expect(got.targetId).toBe(ship.targetId ?? null);
       expect(got.cosmeticId).toBe(ship.cosmeticId === "" ? undefined : ship.cosmeticId);
-      // Fields the wire deliberately drops. Asserted absent, not skipped: a
-      // decoder that started synthesizing them would be silently wrong in a way
-      // the bots (which DO read velocity offline) would inherit.
-      expect(got.velocity).toBeUndefined();
+      // Velocity IS replicated as of 2026-08-18 (three int16 deci-unit fields,
+      // same codec as `pos`) — the client's interpolation tangents, its bounded
+      // dead reckoning and the HUD speed readout all read it.
+      //
+      // A ship that has not been ordered anywhere is genuinely at rest, and the
+      // decoder reports an all-zero triple as ABSENT on purpose (a pre-velocity
+      // server sends nothing, and "no velocity" must not decode as a confident
+      // standstill). So the two cases are asserted separately rather than
+      // asserting `toBeDefined()` on a parked hull.
+      const simSpeed = Math.hypot(ship.velocity!.x, ship.velocity!.y, ship.velocity!.z);
+      if (simSpeed > POS_TOL) {
+        expect(got.velocity, `moving ship ${ship.id} lost its replicated velocity`).toBeDefined();
+        expect(Math.abs(got.velocity!.x - ship.velocity!.x)).toBeLessThanOrEqual(POS_TOL);
+        expect(Math.abs(got.velocity!.y - ship.velocity!.y)).toBeLessThanOrEqual(POS_TOL);
+        expect(Math.abs(got.velocity!.z - ship.velocity!.z)).toBeLessThanOrEqual(POS_TOL);
+      } else {
+        expect(got.velocity).toBeUndefined();
+      }
+      // Fields the wire still deliberately drops. Asserted absent, not skipped:
+      // a decoder that started synthesizing them would be silently wrong.
       expect(got.colliderRadius).toBeUndefined();
       expect(got.sensorRange).toBeUndefined();
     }

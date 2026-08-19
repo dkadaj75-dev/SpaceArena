@@ -48,8 +48,33 @@ const log = createLogger("ArenaRoom");
 
 /** Fixed sim step in seconds (matches the shared 30 Hz sim; see 0.9). */
 const FIXED_DT = 1 / SIM_TICK_RATE;
-/** Colyseus patch interval (ms) — 50 ms = 20 Hz, per Phase 2 perf notes. */
-const PATCH_RATE_MS = 50;
+/**
+ * Sim ticks per replicated patch — the room's patch cadence, PHASE-LOCKED to the
+ * simulation instead of run off a timer of its own.
+ *
+ * Until 2026-08-18 this was `setPatchRate(50)`: a second, INDEPENDENT interval
+ * broadcasting at 20 Hz beside a 30 Hz sim. Nothing synchronised the two, so a
+ * patch carried whichever tick happened to be the most recent when its timer
+ * fired — consecutive patches one tick apart (33.3 ms of simulated travel), then
+ * two (66.7 ms), alternating forever, on a perfect network. The client's
+ * `stampSnapshot` can absorb that in TIMING (it files each sample under the
+ * server's own `matchTimer` rather than its arrival instant), but it cannot undo
+ * the SAMPLING: half of all patches carried a world the client had already been
+ * shown, so the effective sample rate of a remote hull's motion alternated
+ * between 30 Hz and 15 Hz. Curve fitting through samples that are not there is
+ * still guesswork, and it read as the residual judder the owner kept reporting.
+ *
+ * Broadcasting from the sim loop instead makes every patch carry a FRESH tick,
+ * exactly `PATCH_EVERY_TICKS` apart. Two ticks (66.7 ms, 15 Hz uniform) is the
+ * bandwidth-neutral choice against the old 20 Hz alternating cadence — the
+ * per-patch payload grows by the one extra tick of movement, the patch count
+ * drops by a quarter — and it is what the client's interpolation buffer is
+ * sized for. One tick (30 Hz) would be strictly smoother and cost 2x the
+ * patches; three (10 Hz) starts to strain the render-delay ceiling.
+ */
+const PATCH_EVERY_TICKS = 2;
+/** Nominal ms between patches, for logs and telemetry — derived, never a timer. */
+const PATCH_INTERVAL_MS = (PATCH_EVERY_TICKS * 1000) / SIM_TICK_RATE;
 /** Grace period after match end before the room disconnects everyone. */
 const MATCH_END_GRACE_MS = 8000;
 /** Reconnection window (seconds) offered on an unconsented leave. */
@@ -174,6 +199,8 @@ export class ArenaRoom extends Room<ArenaState> {
    * seam Colyseus 0.16 offers.
    */
   private patchPhase = false;
+  /** Sim ticks since the last patch; see {@link PATCH_EVERY_TICKS}. */
+  private ticksSincePatch = 0;
   /** Humans who joined at any point this match (leavers included). */
   private humansJoined = 0;
   /** Bots spawned by backfill this match. */
@@ -244,7 +271,11 @@ export class ArenaRoom extends Room<ArenaState> {
     this.botBackfillMs = internal?.botBackfillMs ?? gamemode.bots?.backfillWaitMs ?? DEFAULT_BOT_BACKFILL_MS;
 
     this.setSimulationInterval(() => this.update(), 1000 / SIM_TICK_RATE);
-    this.setPatchRate(PATCH_RATE_MS);
+    // 0 disables colyseus' own patch interval entirely (see the `patchRate`
+    // setter in @colyseus/core's Room: 0 and null both clear it and start
+    // nothing). `update()` calls `broadcastPatch()` itself, phase-locked to the
+    // sim — see PATCH_EVERY_TICKS.
+    this.setPatchRate(0);
 
     this.onMessage(MSG_ORDER, (client, message) => this.handleOrder(client, message));
 
@@ -255,6 +286,7 @@ export class ArenaRoom extends Room<ArenaState> {
       arena: arenaId,
       maxClients: this.maxClients,
       fullAt: this.maxClients,
+      patchIntervalMs: PATCH_INTERVAL_MS,
     });
   }
 
@@ -751,6 +783,21 @@ export class ArenaRoom extends Room<ArenaState> {
    * this is measured always, not behind a dev flag.
    */
   private update(): void {
+    this.stepSim();
+
+    // PHASE-LOCKED PATCH. Counted and broadcast here, outside `stepSim`'s phase
+    // guards, because a patch is not a property of the sim being live: a lobby
+    // still replicates `lobbyRemainingSec` and the `matchPhase` flip that ends
+    // the wait, and the "ended" state written by `endMatch` above has to reach
+    // the clients that are about to see the results screen. Every phase patches
+    // on the same 2-tick beat; only the payload differs.
+    if (++this.ticksSincePatch < PATCH_EVERY_TICKS) return;
+    this.ticksSincePatch = 0;
+    this.broadcastPatch();
+  }
+
+  /** The sim half of {@link update}: one fixed step and its replication write. */
+  private stepSim(): void {
     if (this.state.matchPhase === "waiting") {
       this.syncLobbyRemaining();
       return;
