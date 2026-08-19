@@ -88,10 +88,14 @@ interface Exception {
  * offers through `/__editor/list-models` (see the middleware in
  * `client/vite.config.ts`, which recursively walks CONTENT_DIR for every
  * `.glb`/`.gltf` and hands the whole list to the picker — it does not consult
- * any config's `render.model`). These seven predate the switch to the
- * human_ / procedural-shape pipeline and are no longer wired into any shipped
- * config, but deleting them would silently shrink that picker out from under
- * an author reaching for a legacy hull or rock.
+ * any config's `render.model`). These three predate the switch to the human_
+ * hull pipeline and are no longer wired into any shipped config, but deleting
+ * them would silently shrink that picker out from under an author reaching for
+ * a legacy hull.
+ *
+ * The four legacy rock GLBs that used to sit here are gone: the six sculpted
+ * `asteroids/asteroid_*.glb` replaced every shipped rock and are referenced by
+ * their configs, so the picker offers real content rather than an orphan.
  *
  * `content/skyboxes/Skybox01.jpg` is deliberately NOT here: list-models
  * filters on `/\.gl(b|tf)$/` only, so nothing enumerates a lone skybox
@@ -102,10 +106,6 @@ const EXCEPTION_LIST: readonly Exception[] = [
   { path: "ships/HShip01.glb", reason: "F10 editor model library (list-models) — legacy hull, still author-selectable" },
   { path: "ships/LShip01.glb", reason: "F10 editor model library (list-models) — legacy hull, still author-selectable" },
   { path: "ships/MShip01.glb", reason: "F10 editor model library (list-models) — legacy hull, still author-selectable" },
-  { path: "asteroids/large_a.glb", reason: "F10 editor model library (list-models) — legacy rock, superseded by the procedural shape/surface pipeline" },
-  { path: "asteroids/large_b.glb", reason: "F10 editor model library (list-models) — legacy rock, superseded by the procedural shape/surface pipeline" },
-  { path: "asteroids/small_a.glb", reason: "F10 editor model library (list-models) — legacy rock, superseded by the procedural shape/surface pipeline" },
-  { path: "asteroids/small_b.glb", reason: "F10 editor model library (list-models) — legacy rock, superseded by the procedural shape/surface pipeline" },
 ];
 
 /**

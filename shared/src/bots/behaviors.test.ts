@@ -31,8 +31,15 @@ function ship(id: number, team: number, x: number, z: number, over: Partial<Ship
   };
 }
 
+/**
+ * A rock as it appears in a SNAPSHOT. The config id is deliberately fictional:
+ * `makeRockSurfaceProbe` falls back to the snapshot's own radius for a config it
+ * cannot resolve, which is the plain-sphere geometry these fixtures are written
+ * against. Naming a shipped rock would silently swap in that rock's mesh surface
+ * and move every clearance below.
+ */
 function rock(id: number, x: number, z: number, radius = 8, y = 0): AsteroidSnapshot {
-  return { id, configId: "asteroid.large-hazard", pos: { x, y, z }, radius, state: "intact" };
+  return { id, configId: "asteroid.fixture-sphere", pos: { x, y, z }, radius, state: "intact" };
 }
 
 const PROFILE: BotprofileConfig = botprofileSchema.parse({

@@ -345,9 +345,10 @@ export class RecoveryController {
 
   /**
    * Every surface whose COLLIDER gap has fallen inside the rendered-overhang
-   * band, nearest first. Both extents count: the lesson of the twin-titans
-   * heavies is that a hull can be visually buried in a rock while both colliders
-   * still report clearance, and the lesson before that is that rendered
+   * band, nearest first. Both extents count: the lesson of the heavy hulls in
+   * the old twin-titans field is that a hull can be visually buried in a rock
+   * while both colliders still report clearance, and the lesson before that is
+   * that rendered
    * proximity on its own is not contact either. The band is the honest middle.
    */
   private activeContacts(snapshot: Snapshot, self: ShipSnapshot): RestSurface[] {
@@ -357,8 +358,8 @@ export class RecoveryController {
       // The band is the OWN hull's rendered overhang, not the obstacle's. A
       // colossal whose rendered shell laps over the hull while both colliders
       // still report clearance is a ROUTE problem (rung 1) — calling it contact
-      // hijacked every slow flag arrival on lunar-crater and put both CTF
-      // acceptance seeds back on the 600 s cap.
+      // hijacked every slow flag arrival on the old lunar-crater CTF map and
+      // put both CTF acceptance seeds back on the 600 s cap.
       if (surface.clearance <= VISUAL_MARGIN + own) found.push(surface);
     }
     return found.sort((a, b) => a.clearance - b.clearance || (a.key < b.key ? -1 : 1));

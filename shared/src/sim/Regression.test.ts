@@ -6,7 +6,7 @@ import { dist } from "./math.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { navigationSystem } from "./systems/NavigationSystem.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "./testutil.js";
+import { INTERCEPTOR_FITTING, ROCK_SMALL, loadTestConfigs, makeWorld, rebuildSpatial, rockScaleFor } from "./testutil.js";
 
 const DT = 1 / 30;
 
@@ -18,7 +18,7 @@ beforeAll(async () => {
 describe("Bug 1 — collision grind death", () => {
   it("a ship flown into an asteroid takes one impact, not a grind, and never clips inside", () => {
     const world = makeWorld(configs);
-    const ast = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 0, z: 0 }); // r 3.5, impact 6
+    const ast = spawnAsteroid(world, configs, ROCK_SMALL, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_SMALL, 3.5)); // r 3.5, impact 6
     const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: -30 }, Math.PI / 2);
     const impactDamage = world.asteroids.get(ast)!.impactDamage;
     // "Never clips inside" is measured against the rock's real SURFACE now, not
@@ -50,7 +50,7 @@ describe("Bug 1 — collision grind death", () => {
 
   it("a sustained high-speed ram damages once, then respects the cooldown", () => {
     const world = makeWorld(configs);
-    const ast = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 0, z: 0 });
+    const ast = spawnAsteroid(world, configs, ROCK_SMALL, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_SMALL, 3.5));
     // Inside contact range from the first tick: this test never integrates
     // position (it calls `collisionSystem` directly), and the rock's collision
     // sphere is inscribed in its silhouette rather than matching its drawn

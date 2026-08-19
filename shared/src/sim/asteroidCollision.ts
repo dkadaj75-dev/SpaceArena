@@ -1,5 +1,10 @@
 import { rockOrientationAt } from "../collision/rockPose.js";
 import {
+  rockMeshSegmentEntry,
+  rockMeshSphereContact,
+  rockMeshWorldRadius,
+} from "../collision/rockCollider.js";
+import {
   rockSegmentEntry,
   rockSphereContact,
   rockWorldRadius,
@@ -10,15 +15,21 @@ import type { AsteroidTag, Transform3D } from "./components.js";
 import type { World } from "./World.js";
 
 /**
- * The sim's single seam onto the shared rock shape (see
- * `shared/src/collision/rockShape.ts`). Every gameplay consumer — ship push-out,
- * projectile sweeps, line of sight — comes through here, so there is exactly one
- * answer to "is this point inside that rock" and it is the same answer on the
- * client and the server.
+ * The sim's single seam onto a rock's real surface. Every gameplay consumer —
+ * ship push-out, projectile sweeps, line of sight — comes through here, so there
+ * is exactly one answer to "is this point inside that rock" and it is the same
+ * answer on the client and the server.
  *
- * Rocks that author no `shape` keep the legacy sphere: the helpers below fall
- * back to `collider.radius` so a content pack can adopt shapes one config at a
- * time.
+ * A rock resolves to one of three surfaces, in this order:
+ *
+ *  1. an authored radial FIELD (`collision/rockShape.ts`) — cheapest, and the
+ *     one the client can tessellate;
+ *  2. a baked triangle MESH (`collision/rockCollider.ts`) — for a sculpted GLB,
+ *     whose silhouette exists nowhere but its triangles;
+ *  3. the legacy `collider.radius` SPHERE, for a rock that authors neither.
+ *
+ * Both real surfaces are posed by the same closed form the renderer uses
+ * (`collision/rockPose.ts`), so a tumbling rock is hit where it is drawn.
  */
 
 /** Scratch contact — the narrowphase never allocates. */
@@ -58,6 +69,21 @@ export function asteroidContact(
 ): boolean {
   const shape = tag.shape;
   if (!shape) {
+    if (tag.mesh) {
+      return rockMeshSphereContact(
+        tag.mesh,
+        tag.visualRadius,
+        asteroidOrientation(world, tag),
+        transform.pos.x,
+        transform.pos.y,
+        transform.pos.z,
+        pointX,
+        pointY,
+        pointZ,
+        probeRadius,
+        rockContact,
+      );
+    }
     const dx = pointX - transform.pos.x;
     const dy = pointY - transform.pos.y;
     const dz = pointZ - transform.pos.z;
@@ -102,7 +128,17 @@ export function asteroidSurfaceRadiusToward(
   pointZ: number,
 ): number {
   const shape = tag.shape;
-  if (!shape) return boundRadius;
+  if (!shape) {
+    if (!tag.mesh) return boundRadius;
+    return rockMeshWorldRadius(
+      tag.mesh,
+      tag.visualRadius,
+      asteroidOrientation(world, tag),
+      pointX - transform.pos.x,
+      pointY - transform.pos.y,
+      pointZ - transform.pos.z,
+    );
+  }
   return rockWorldRadius(
     shape,
     tag.visualRadius,
@@ -131,7 +167,20 @@ export function asteroidSegmentEntry(
   probeRadius: number,
 ): number {
   const shape = tag.shape;
-  if (!shape) return sphereSegmentEntry(transform.pos, boundRadius + probeRadius, from, to);
+  if (!shape) {
+    if (!tag.mesh) return sphereSegmentEntry(transform.pos, boundRadius + probeRadius, from, to);
+    return rockMeshSegmentEntry(
+      tag.mesh,
+      tag.visualRadius,
+      asteroidOrientation(world, tag),
+      transform.pos.x,
+      transform.pos.y,
+      transform.pos.z,
+      from,
+      to,
+      probeRadius,
+    );
+  }
   return rockSegmentEntry(
     shape,
     tag.visualRadius,

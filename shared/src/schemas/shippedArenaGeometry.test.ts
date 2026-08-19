@@ -23,17 +23,14 @@ const CONTENT_ROOT = fileURLToPath(new URL("../../../content/", import.meta.url)
 /**
  * Placement counts are PINNED, not bounded: an arena's rock population is
  * authored content, so a change to it should show up as a deliberate edit here.
- * Re-recorded 2026-08-15 when the fields were restocked with the new shaped
- * silhouettes (shard / pebble / spindle / twin-lobe / rubble-knot /
- * angular-chunk / cratered-boulder / monolith) — see `distinctIds` below for
- * the variety floor that came with them.
+ *
+ * Down to one entry since 2026-08-18: deep-field, lunar-crater, broken-halo and
+ * twin-titans were deleted, leaving the Ring as the only asteroid arena.
+ * (lunar-rift is the other survivor, but its cover is PROPS — it has no asteroid
+ * placements at all and gets its own describe block below.)
  */
 const SHIPPED_ARENAS: readonly ShippedArena[] = [
-  { name: "deep-field", file: "deep-field.json", expectedCount: 148, maxExtent: 210 },
   { name: "ring-nebula", file: "ring-nebula.json", expectedCount: 46, maxExtent: 126 },
-  { name: "lunar-crater", file: "lunar-crater.json", expectedCount: 82, maxExtent: 360 },
-  { name: "broken-halo", file: "broken-halo.json", expectedCount: 52, maxExtent: 150 },
-  { name: "twin-titans", file: "twin-titans.json", expectedCount: 41, maxExtent: 100 },
 ];
 /** Every shipped rock, discovered rather than listed: a new config cannot be missed. */
 const asteroidFiles = readdirSync(`${CONTENT_ROOT}asteroids/`, { withFileTypes: true })
@@ -100,11 +97,13 @@ describe("shipped arena asteroid geometry", () => {
       expect(placements.length).toBe(shipped.expectedCount);
 
       // A field of identical rocks reads as wallpaper however many of them there
-      // are, so variety is an invariant of the arena, not a nice-to-have: at
-      // least eight distinct rock types, none of them more than 40% of the field.
+      // are, so variety is an invariant of the arena, not a nice-to-have: every
+      // shipped rock type must appear, none of them more than 40% of the field.
+      // The floor was eight in the field era; the sculpted catalogue is six, and
+      // the arena is expected to use all of it.
       const perId = new Map<string, number>();
       for (const placement of placements) perId.set(placement.asteroidId, (perId.get(placement.asteroidId) ?? 0) + 1);
-      expect(perId.size, `${arena.id} distinct rock types`).toBeGreaterThanOrEqual(8);
+      expect(perId.size, `${arena.id} distinct rock types`).toBe(asteroidFiles.length);
       for (const [id, count] of perId) {
         expect(count / placements.length, `${arena.id} share of ${id}`).toBeLessThanOrEqual(0.4);
       }
@@ -158,28 +157,16 @@ describe("shipped arena asteroid geometry", () => {
         expect(Math.min(...ys)).toBeLessThan(-25);
         expect(Math.max(...ys)).toBeGreaterThan(25);
       }
-      if (shipped.name === "deep-field") {
-        expect(ys.filter((y) => Math.abs(y) >= 70).length / ys.length).toBeGreaterThanOrEqual(0.55);
-        expect(ys.filter((y) => Math.abs(y) >= 105).length).toBeGreaterThanOrEqual(30);
-        expect(Math.min(...ys.map(Math.abs))).toBeLessThanOrEqual(28);
-        expect(Math.max(...ys.map(Math.abs))).toBeGreaterThanOrEqual(157.5);
-
-        const colossal = placements.filter((placement) => placement.asteroidId.startsWith("asteroid.colossal"));
-        expect(colossal.length).toBeGreaterThanOrEqual(4);
-        expect(colossal.length).toBeLessThanOrEqual(6);
-        for (const placement of colossal) {
-          const position = positionOf(placement.position);
-          const colliderRadius = radii.get(placement.asteroidId)! * (placement.scale ?? 1);
-          for (const spawn of arena.spawnPoints) {
-            expect(
-              distance(position, positionOf(spawn.position)) - colliderRadius,
-              `${arena.id} colossal ${placement.asteroidId} spawn surface clearance`,
-            ).toBeGreaterThanOrEqual(30);
-          }
-        }
-      } else if (arena.bounds.shape !== "sphere" || arena.bounds.floorY === undefined) {
+      if (arena.bounds.shape !== "sphere" || arena.bounds.floorY === undefined) {
         expect(Math.max(...ys.map(Math.abs))).toBeGreaterThanOrEqual(35);
       }
+
+      // The catalogue is one shape set used at every size, so the SIZE spread is
+      // carried entirely by placement scale. It still has to be a real spread:
+      // cover you can hide a heavy behind, and pebbles that only clip a wing.
+      const worldRadii = placements.map((placement) => radii.get(placement.asteroidId)! * (placement.scale ?? 1));
+      expect(Math.min(...worldRadii), `${arena.id} smallest rock`).toBeLessThanOrEqual(2.5);
+      expect(Math.max(...worldRadii), `${arena.id} largest rock`).toBeGreaterThanOrEqual(11);
     });
   }
 });

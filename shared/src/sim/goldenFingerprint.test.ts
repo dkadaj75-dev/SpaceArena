@@ -92,6 +92,18 @@ import { loadTestConfigs } from "./testutil.js";
  *    vector plays on `arena.ring-nebula`, which has no `spawnLaunch`, and is
  *    byte-identical — which is the corroboration that this pass touched the
  *    launch sequence and nothing else.
+ *  - 2026-08-18 (asteroid overhaul): SCRIPTED vector re-recorded. The Ring's 46
+ *    placements were re-authored onto the six sculpted rocks, and those rocks
+ *    collide against a baked triangle BVH posed by `rockPose` instead of an
+ *    authored radial field. Both the shapes a ship meets and the arithmetic that
+ *    resolves them changed, so BOTH digests move and the event count rises
+ *    300 -> 303. A `structure` move is expected here, not a warning sign: this
+ *    is a content + collision-representation change, not a refactor.
+ *    The BOT vector is deliberately NOT re-recorded and is byte-identical — it
+ *    plays on `arena.lunar-rift`, whose cover is PROPS through `StaticWorld`
+ *    and which has no asteroid placements at all. That is the corroboration
+ *    that this pass changed asteroid collision and left the static-prop path
+ *    alone.
  */
 
 const DT = 1 / 30;
@@ -302,9 +314,9 @@ describe("golden sim fingerprint", () => {
   it("pins the scripted asteroid-field vector", () => {
     const fp = scriptedVector(600);
     expect(fp).toEqual({
-      structure: "04e1360a",
-      numeric: "0d7a2c29",
-      events: 300,
+      structure: "e27f84b6",
+      numeric: "e0a6b73d",
+      events: 303,
       ticks: 600,
     });
   });

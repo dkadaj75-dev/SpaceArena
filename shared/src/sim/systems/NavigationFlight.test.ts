@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../../core/ConfigService.js";
 import { angleDelta, len, len3 } from "../math.js";
 import { spawnAsteroid, spawnShipFromConfig } from "../spawn.js";
-import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_BOOST, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
+import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_BOOST, ROCK_SMALL, loadTestConfigs, makeWorld, rebuildSpatial, rockScaleFor } from "../testutil.js";
 import type { World } from "../World.js";
 import { navigationSystem } from "./NavigationSystem.js";
 
@@ -96,7 +96,7 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
 
   it("ignores a flight order for a non-ship entity", () => {
     const world = makeWorld(configs);
-    const ast = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 5, z: 5 });
+    const ast = spawnAsteroid(world, configs, ROCK_SMALL, { x: 5, z: 5 }, rockScaleFor(configs, ROCK_SMALL, 3.5));
     world.queueOrder(ast, { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true });
     navigationSystem(world, DT);
     expect(world.flightStates.has(ast)).toBe(false);
@@ -187,7 +187,7 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
   it("flies straight through the avoidance zone of an asteroid (no flight avoidance)", () => {
     const world = makeWorld(configs);
     // Rock dead ahead: the move-order path would steer tangentially around it.
-    spawnAsteroid(world, configs, "asteroid.small-rock", { x: 25, z: 0 });
+    spawnAsteroid(world, configs, ROCK_SMALL, { x: 25, z: 0 }, rockScaleFor(configs, ROCK_SMALL, 3.5));
     const id = spawnPilot(world);
     world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true });
 

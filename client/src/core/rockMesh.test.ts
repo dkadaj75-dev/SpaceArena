@@ -1,5 +1,3 @@
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NullEngine, PBRMaterial, Scene, VertexBuffer } from "@babylonjs/core";
 import {
@@ -11,13 +9,86 @@ import {
 import { AssetRegistry, type AsteroidLod } from "./AssetRegistry.js";
 import { buildRockGeometry, buildRockMaterial } from "./rockMesh.js";
 
-const CONTENT_DIR = path.resolve(import.meta.dirname, "../../../content");
 const LOD: AsteroidLod = { lodMediumDistance: 85, lodLowDistance: 200, lodCullDistance: 620 };
 
-const shipped: AsteroidConfig[] = readdirSync(`${CONTENT_DIR}/asteroids`, { withFileTypes: true })
-  .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-  .map((entry) => asteroidSchema.parse(JSON.parse(readFileSync(`${CONTENT_DIR}/asteroids/${entry.name}`, "utf8"))))
-  .sort((a, b) => (a.id < b.id ? -1 : 1));
+/**
+ * FIXTURE rocks, not the shipped pack.
+ *
+ * The shipped catalogue moved to sculpted GLBs with baked triangle collision
+ * (2026-08-18), so no shipped config authors a `shape` any more. The radial-field
+ * pipeline this file covers is still live code — `AssetRegistry` prefers it over
+ * a model whenever a config does author one — so it keeps its tests, driven by
+ * configs authored here.
+ *
+ * They deliberately span what the assertions below need: two rocks sharing one
+ * texture set with different tints, a detail-4 body for the LOD ladder, and a
+ * range of radii.
+ */
+const fixtures: AsteroidConfig[] = [
+  {
+    id: "asteroid.fixture-potato",
+    radius: 3.5,
+    shape: {
+      seed: 1337,
+      lobes: [{ radii: [0.86, 0.71, 0.78] }],
+      noise: { amplitude: 0.19, frequency: 3.4, octaves: 3 },
+      craters: { count: 3, radiusDeg: 32, depth: 0.15, rim: 0.4 },
+    },
+    palette: { primary: "#5b5148", accent: "#7d7266" },
+    surface: "gray_rocks",
+    tileMeters: 3.2,
+    detail: 3,
+  },
+  {
+    id: "asteroid.fixture-twin",
+    radius: 18,
+    shape: {
+      seed: 40961,
+      lobes: [
+        { offset: [-0.34, 0.03, -0.02], radii: [0.6, 0.55, 0.56] },
+        { offset: [0.38, -0.05, 0.04], radii: [0.5, 0.44, 0.46] },
+      ],
+      noise: { amplitude: 0.13, frequency: 3, octaves: 3 },
+      craters: { count: 4, radiusDeg: 24, depth: 0.15, rim: 0.4 },
+    },
+    palette: { primary: "#463c33", accent: "#7a5c3f" },
+    surface: "gray_rocks",
+    tileMeters: 8,
+    detail: 4,
+  },
+  {
+    id: "asteroid.fixture-shard",
+    radius: 7,
+    shape: {
+      seed: 5501,
+      lobes: [{ radii: [0.9, 0.52, 0.66] }],
+      noise: { amplitude: 0.16, frequency: 4.2, octaves: 3 },
+      facets: { count: 8, depth: 0.24 },
+    },
+    palette: { primary: "#3f3831", accent: "#79654c" },
+    surface: "cliff_side",
+    tileMeters: 4,
+    detail: 3,
+  },
+].map((spec) =>
+  asteroidSchema.parse({
+    id: spec.id,
+    type: "asteroid",
+    version: 1,
+    name: spec.id,
+    radius: spec.radius,
+    shape: spec.shape,
+    destructible: false,
+    impactDamage: 10,
+    render: {
+      recipe: "procedural.rock-large",
+      palette: spec.palette,
+      detail: spec.detail,
+      surface: { textureSet: spec.surface, tileMeters: spec.tileMeters, roughness: 1, metallic: 0, normalStrength: 1.25 },
+      spin: { minDegPerSec: 1, maxDegPerSec: 6 },
+    },
+  }),
+);
 
 let engine: NullEngine;
 let scene: Scene;
@@ -37,7 +108,7 @@ describe("buildRockGeometry", () => {
     // The whole point of the shared shape: the drawn mesh is not APPROXIMATELY
     // the collision body, it is a sample of the identical field. If this drifts,
     // shots start missing visible rock again.
-    for (const config of shipped) {
+    for (const config of fixtures) {
       const resolved = resolveRockShape(config.shape!);
       const mesh = buildRockGeometry(scene, `test.${config.id}`, config.shape!, 2, 1);
       const positions = mesh.getVerticesData(VertexBuffer.PositionKind)!;
@@ -54,7 +125,7 @@ describe("buildRockGeometry", () => {
   });
 
   it("unwelds triangles and gives each one a box-projected UV", () => {
-    const mesh = buildRockGeometry(scene, "test.uv", shipped[0]!.shape!, 2, 4);
+    const mesh = buildRockGeometry(scene, "test.uv", fixtures[0]!.shape!, 2, 4);
     const positions = mesh.getVerticesData(VertexBuffer.PositionKind)!;
     const uvs = mesh.getVerticesData(VertexBuffer.UVKind)!;
     const indices = mesh.getIndices()!;
@@ -88,7 +159,7 @@ describe("buildRockGeometry", () => {
   it("scales UVs so tiling is a world size, not a per-rock accident", () => {
     // Two rocks of very different sizes, each asked for the same tile size,
     // must end up with the same texels per world unit.
-    const spec = shipped[0]!.shape!;
+    const spec = fixtures[0]!.shape!;
     const small = buildRockGeometry(scene, "test.small", spec, 2, 3.5 / 3.2);
     const large = buildRockGeometry(scene, "test.large", spec, 2, 18 / 3.2);
     const uvSpan = (mesh: ReturnType<typeof buildRockGeometry>) => {
@@ -107,7 +178,7 @@ describe("buildRockGeometry", () => {
 
 describe("buildRockMaterial", () => {
   it("wires albedo, normal, roughness and AO off one in-repo scan set", () => {
-    const config = shipped.find((c) => c.render.surface)!;
+    const config = fixtures.find((c) => c.render.surface)!;
     const material = buildRockMaterial(scene, "test.mat", config.render.surface!, config.render.palette ?? {}, "/");
     expect(material.albedoTexture?.name).toContain(`${config.render.surface!.textureSet}_diff_1k.jpg`);
     expect(material.bumpTexture?.name).toContain(`${config.render.surface!.textureSet}_nor_1k.jpg`);
@@ -123,7 +194,7 @@ describe("buildRockMaterial", () => {
 
   it("shares one texture instance across every rock that uses the same scan", () => {
     const bySet = new Map<string, PBRMaterial[]>();
-    for (const config of shipped) {
+    for (const config of fixtures) {
       const surface = config.render.surface!;
       const material = buildRockMaterial(scene, `test.${config.id}`, surface, config.render.palette ?? {}, "/");
       const list = bySet.get(surface.textureSet) ?? [];
@@ -135,7 +206,7 @@ describe("buildRockMaterial", () => {
       expect(materials[0]!.albedoTexture, `${set} albedo is shared`).toBe(materials[1]!.albedoTexture);
     }
     // ...but the tints differ, so two rocks on one scan do not read as clones.
-    const gray = shipped.filter((c) => c.render.surface!.textureSet === "gray_rocks");
+    const gray = fixtures.filter((c) => c.render.surface!.textureSet === "gray_rocks");
     if (gray.length >= 2) {
       const a = bySet.get("gray_rocks")![0]!.albedoColor;
       const b = bySet.get("gray_rocks")![1]!.albedoColor;
@@ -147,7 +218,7 @@ describe("buildRockMaterial", () => {
 describe("AssetRegistry shaped rock masters", () => {
   it("builds one master per config and reuses it", () => {
     const assets = new AssetRegistry(scene);
-    const config = shipped[0]!;
+    const config = fixtures[0]!;
     const first = assets.getShapedAsteroidMaster(config)!;
     expect(first.radiusScale).toBe(1);
     expect(assets.getShapedAsteroidMaster(config)!.mesh).toBe(first.mesh);
@@ -156,7 +227,7 @@ describe("AssetRegistry shaped rock masters", () => {
 
   it("returns null for a config with no shape, so the model path still applies", () => {
     const assets = new AssetRegistry(scene);
-    const shapeless: AsteroidConfig = { ...shipped[0]!, shape: undefined };
+    const shapeless: AsteroidConfig = { ...fixtures[0]!, shape: undefined };
     expect(assets.getShapedAsteroidMaster(shapeless)).toBeNull();
     assets.dispose();
   });
@@ -164,7 +235,7 @@ describe("AssetRegistry shaped rock masters", () => {
   it("hangs LOD levels that are the SAME body at lower detail", () => {
     const assets = new AssetRegistry(scene);
     assets.setAsteroidLod(LOD);
-    const config = shipped.find((c) => (c.render.detail ?? 0) >= 4)!;
+    const config = fixtures.find((c) => (c.render.detail ?? 0) >= 4)!;
     const { mesh } = assets.getShapedAsteroidMaster(config)!;
     const levels = mesh.getLODLevels();
     expect(levels.length).toBeGreaterThanOrEqual(2);

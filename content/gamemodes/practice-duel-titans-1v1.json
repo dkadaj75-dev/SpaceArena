@@ -2,11 +2,11 @@
   "id": "gamemode.practice-duel-titans-1v1",
   "type": "gamemode",
   "version": 1,
-  "name": "Titan Duel",
+  "name": "Ring Duel",
   "launch": "online",
   "hidden": true,
   "teams": "1v1",
-  "defaultArena": "arena.twin-titans",
+  "defaultArena": "arena.ring-nebula",
   "winCondition": {
     "type": "fragLimit",
     "count": 10

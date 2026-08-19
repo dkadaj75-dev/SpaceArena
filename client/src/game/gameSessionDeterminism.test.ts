@@ -113,7 +113,7 @@ describe("GameSession bot determinism (Finding 2)", () => {
   });
 
   it("fills server-backed modes to their authored team size for local fallback play", () => {
-    const duel = new GameSession(configs, "arena.deep-field", "gamemode.duel-1v1", 7, {
+    const duel = new GameSession(configs, "arena.ring-nebula", "gamemode.duel-1v1", 7, {
       fillBotTeams: true,
     });
     expect(duel.bots.size).toBe(1);

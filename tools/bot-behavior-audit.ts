@@ -123,15 +123,15 @@ const baselineMatches = [
   runMatch("deathmatch", 42, "arena.ring-nebula", "gamemode.practice-bots-5v5", DM_LIMIT_SEC),
 ];
 const duelMatches = [
-  ...duelSeeds.map((seed) => runMatch("duel-rookie", seed, "arena.twin-titans", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
+  ...duelSeeds.map((seed) => runMatch("duel-rookie", seed, "arena.ring-nebula", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
     { profile: "bot.rookie", ship: "ship.interceptor", team: 0 },
     { profile: "bot.rookie", ship: "ship.interceptor", team: 1 },
   ])),
-  ...duelSeeds.map((seed) => runMatch("duel-brawler", seed, "arena.twin-titans", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
+  ...duelSeeds.map((seed) => runMatch("duel-brawler", seed, "arena.ring-nebula", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
     { profile: "bot.rookie", ship: "ship.brawler", team: 0 },
     { profile: "bot.rookie", ship: "ship.brawler", team: 1 },
   ])),
-  ...duelSeeds.map((seed) => runMatch("duel-2v2", seed, "arena.twin-titans", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
+  ...duelSeeds.map((seed) => runMatch("duel-2v2", seed, "arena.ring-nebula", "gamemode.practice-duel-titans-1v1", DUEL_LIMIT_SEC, [
     { profile: "bot.rookie", ship: "ship.interceptor", team: 0 },
     { profile: "bot.rookie", ship: "ship.brawler", team: 0 },
     { profile: "bot.rookie", ship: "ship.interceptor", team: 1 },

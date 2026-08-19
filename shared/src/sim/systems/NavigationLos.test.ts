@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { ConfigService } from "../../core/ConfigService.js";
 import { hasLineOfSight } from "../los.js";
 import { spawnAsteroid, spawnShipFromConfig } from "../spawn.js";
-import { INTERCEPTOR_FITTING_BOOST, loadTestConfigs, makeWorld, rebuildSpatial } from "../testutil.js";
+import { INTERCEPTOR_FITTING_BOOST, ROCK_LARGE, loadTestConfigs, makeWorld, rebuildSpatial, rockScaleFor } from "../testutil.js";
 import { navigationSystem } from "./NavigationSystem.js";
 
 const DT = 1 / 30;
@@ -32,7 +32,7 @@ describe("NavigationSystem", () => {
 describe("Line of sight", () => {
   it("is blocked by an asteroid on the segment and clear when it is not", () => {
     const world = makeWorld(configs);
-    spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 });
+    spawnAsteroid(world, configs, ROCK_LARGE, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8));
     rebuildSpatial(world);
     expect(hasLineOfSight(world, { x: -30, z: 0 }, { x: 30, z: 0 })).toBe(false);
     expect(hasLineOfSight(world, { x: -30, z: 20 }, { x: 30, z: 20 })).toBe(true);

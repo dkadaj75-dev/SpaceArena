@@ -11,7 +11,7 @@ const SEED_COUNT = Number(process.env.BOT_REPRO_SEEDS ?? 5);
 const SLOW_SPEED = 0.5;
 const STUCK_SEC = 5;
 const MODE_ID = process.env.BOT_REPRO_MODE ?? "gamemode.practice-ctf-5v5";
-const ROCK_CONFIG_ID = "asteroid.colossal-a";
+const ROCK_CONFIG_ID = "asteroid.rock-b";
 
 type RosterKind = "heavy-only" | "mixed" | "light-only";
 interface BotRow {

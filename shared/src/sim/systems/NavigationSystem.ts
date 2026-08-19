@@ -45,8 +45,8 @@ function resolveBoostMult(world: World, id: EntityId): number {
  * written by `flight` orders. Stick turn, pitch and throttle are integrated every
  * tick, with no arrival concepts and no asteroid avoidance — the pilot (human or
  * bot) eats
- * `impactDamage` through CollisionSystem, which is what makes the deep-field
- * belts (§6) a real hazard rather than scenery the sim steers around.
+ * `impactDamage` through CollisionSystem, which is what makes the Ring's rock
+ * field (§6) a real hazard rather than scenery the sim steers around.
  *
  * A ship with no FlightState coasts: `tuning.dragCoefficient` bleeds whatever
  * velocity it still carries (a fresh spawn has none).

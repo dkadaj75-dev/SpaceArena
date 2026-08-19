@@ -22,6 +22,7 @@ import { tuningSchema, type TuningConfig } from "./tuning.js";
 import { upgradeSchema, type UpgradeConfig } from "./upgrade.js";
 
 export * from "./base.js";
+export * from "./collisionMesh.js";
 export * from "./common.js";
 export * from "./socket.js";
 export * from "./ship.js";

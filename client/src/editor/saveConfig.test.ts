@@ -14,7 +14,7 @@ describe("contentPathFor", () => {
     expect(contentPathFor({ id: "notification.overheat-warning", type: "notification" })).toBe(
       "notifications/overheat-warning.json",
     );
-    expect(contentPathFor({ id: "asteroid.small-rock", type: "asteroid" })).toBe("asteroids/small-rock.json");
+    expect(contentPathFor({ id: "asteroid.rock-a", type: "asteroid" })).toBe("asteroids/rock-a.json");
     expect(contentPathFor({ id: "camera.default", type: "camera" })).toBe("camera/default.json");
   });
 });

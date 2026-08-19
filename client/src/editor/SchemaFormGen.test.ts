@@ -21,12 +21,12 @@ const baseValue: TestConfig = {
   nested: { speed: 5 },
   mode: "b",
   tags: ["one", "two"],
-  asteroidId: "asteroid.small-rock",
+  asteroidId: "asteroid.rock-a",
 };
 
 function fakeConfigService(overrides: Partial<Pick<ConfigService, "getAll" | "replace">> = {}): Pick<ConfigService, "getAll" | "replace"> {
   return {
-    getAll: vi.fn(() => [{ id: "asteroid.small-rock" }, { id: "asteroid.large-hazard" }]) as unknown as ConfigService["getAll"],
+    getAll: vi.fn(() => [{ id: "asteroid.rock-a" }, { id: "asteroid.rock-b" }]) as unknown as ConfigService["getAll"],
     replace: vi.fn(() => ({ ok: true, errors: [] })) as unknown as ConfigService["replace"],
     ...overrides,
   };
@@ -122,13 +122,13 @@ describe("SchemaFormGen", () => {
     const reference = input(form, "asteroidId") as HTMLSelectElement;
     expect(reference.tagName).toBe("SELECT");
     expect(configService.getAll).toHaveBeenCalledWith("asteroid");
-    expect(reference.value).toBe("asteroid.small-rock");
+    expect(reference.value).toBe("asteroid.rock-a");
     // Sorted catalogue, preceded by the clear option.
-    expect(Array.from(reference.options).map((o) => o.value)).toEqual(["", "asteroid.large-hazard", "asteroid.small-rock"]);
+    expect(Array.from(reference.options).map((o) => o.value)).toEqual(["", "asteroid.rock-a", "asteroid.rock-b"]);
 
-    reference.value = "asteroid.large-hazard";
+    reference.value = "asteroid.rock-b";
     reference.dispatchEvent(new Event("change"));
-    expect(configService.replace).toHaveBeenCalledWith(expect.objectContaining({ asteroidId: "asteroid.large-hazard" }));
+    expect(configService.replace).toHaveBeenCalledWith(expect.objectContaining({ asteroidId: "asteroid.rock-b" }));
   });
 
   it("keeps a dangling reference selectable and marks it missing", () => {

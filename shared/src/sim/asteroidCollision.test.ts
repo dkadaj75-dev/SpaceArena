@@ -6,14 +6,21 @@ import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "./spawn.js"
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { projectileSystem } from "./systems/ProjectileSystem.js";
 import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "./testutil.js";
-import { asteroidSurfaceRadiusToward } from "./asteroidCollision.js";
+import { asteroidContact, asteroidSegmentEntry, asteroidSurfaceRadiusToward } from "./asteroidCollision.js";
+import { rockOrientationAt } from "../collision/rockPose.js";
+import { resolveRockMesh, rockMeshWorldRadius } from "../collision/rockCollider.js";
+import type { AsteroidConfig } from "../schemas/asteroid.js";
 import type { World } from "./World.js";
 
 const DT = 1 / 30;
-/** The shipped contact binary: a fat lobe at each end and a pinched waist. */
-const TWIN = "asteroid.twin-lobe";
-/** The shipped splinter: long on one axis, thin on the other two. */
-const SPINDLE = "asteroid.spindle";
+/**
+ * The shipped contact binary: a fat lobe at each end and a pinched waist, and
+ * the most concave thing in the pack — its nearest surface sits at 0.22 of its
+ * bounding radius, so most of that sphere is empty space.
+ */
+const TWIN = "asteroid.rock-d";
+/** The shipped fractured shard: lumpy enough that its thin axis is half its fat one. */
+const SHARD = "asteroid.rock-a";
 
 let configs: ConfigService;
 beforeAll(async () => {
@@ -76,7 +83,7 @@ function extremeAxes(world: World, id: number): { fat: [number, number, number];
   return { fat, thin };
 }
 
-describe("shaped asteroid collision", () => {
+describe("mesh-collided asteroids", () => {
   it("stops a shot on the lobe and lets one through beside it", () => {
     const world = makeWorld(configs);
     const rock = spawnAsteroid(world, configs, TWIN, { x: 0, y: 0, z: 0 });
@@ -121,7 +128,7 @@ describe("shaped asteroid collision", () => {
 
   it("rests a ship on the surface, not on the bounding sphere", () => {
     const world = makeWorld(configs);
-    const rock = spawnAsteroid(world, configs, SPINDLE, { x: 0, y: 0, z: 0 });
+    const rock = spawnAsteroid(world, configs, SHARD, { x: 0, y: 0, z: 0 });
     const bound = world.colliders.get(rock)!.radius;
     const { thin } = extremeAxes(world, rock);
     const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, y: 0, z: 0 }, 0);
@@ -139,8 +146,8 @@ describe("shaped asteroid collision", () => {
     const surface = surfaceAlong(world, rock, transform.pos.x, transform.pos.y, transform.pos.z);
     // Out of the rock...
     expect(distance).toBeGreaterThanOrEqual(surface + shipRadius - 1e-6);
-    // ...but nowhere near the old sphere, which would have shoved a fighter a
-    // spindle's whole length into clear space.
+    // ...but nowhere near the old sphere, which would have shoved a fighter
+    // half a rock's width into clear space.
     expect(distance).toBeLessThan(bound + shipRadius);
   });
 
@@ -158,6 +165,111 @@ describe("shaped asteroid collision", () => {
     expect(hasLineOfSight(world, from, to)).toBe(true);
     // Straight through the body is still blocked.
     expect(hasLineOfSight(world, { x: fat[0] * -80, y: fat[1] * -80, z: fat[2] * -80 }, { x: fat[0] * 80, y: fat[1] * 80, z: fat[2] * 80 })).toBe(false);
+  });
+
+  it("leaves the twin lobe's waist clear deep inside its bounding sphere", () => {
+    // The headline of the change. The contact binary's bounding sphere is mostly
+    // empty: at the pinch, the surface is a fraction of the way out. A hull
+    // parked in that gap is in CLEAR SPACE and must report no contact — the old
+    // sphere collider called all of it solid and killed pilots in open vacuum.
+    const world = makeWorld(configs);
+    const rock = spawnAsteroid(world, configs, TWIN, { x: 0, y: 0, z: 0 });
+    const tag = world.asteroids.get(rock)!;
+    const transform = world.transforms.get(rock)!;
+    const bound = world.colliders.get(rock)!.radius;
+    const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, y: 0, z: -200 }, 0);
+    const shipRadius = world.colliders.get(ship)!.radius;
+    const { thin } = extremeAxes(world, rock);
+    const surface = surfaceAlong(world, rock, ...thin);
+    // The gap has to be a real one, not a rounding error.
+    expect(bound).toBeGreaterThan(surface + 2 * shipRadius + 1);
+
+    const clearAt = surface + shipRadius + 0.5;
+    expect(
+      asteroidContact(world, tag, transform, bound, thin[0] * clearAt, thin[1] * clearAt, thin[2] * clearAt, shipRadius),
+      "hull just clear of the waist surface",
+    ).toBe(false);
+    // Still clear all the way out to the sphere the broadphase uses.
+    const deepInsideSphere = (clearAt + bound) / 2;
+    expect(
+      asteroidContact(world, tag, transform, bound, thin[0] * deepInsideSphere, thin[1] * deepInsideSphere, thin[2] * deepInsideSphere, shipRadius),
+      "hull deep inside the bounding sphere but outside the rock",
+    ).toBe(false);
+    // ...and the surface itself still stops it.
+    const touching = surface + shipRadius - 0.5;
+    expect(
+      asteroidContact(world, tag, transform, bound, thin[0] * touching, thin[1] * touching, thin[2] * touching, shipRadius),
+      "hull pressed into the waist surface",
+    ).toBe(true);
+  });
+
+  it("enters a raycast at the triangle surface, not at the bounding sphere", () => {
+    const world = makeWorld(configs);
+    const rock = spawnAsteroid(world, configs, TWIN, { x: 0, y: 0, z: 0 });
+    const tag = world.asteroids.get(rock)!;
+    const transform = world.transforms.get(rock)!;
+    const bound = world.colliders.get(rock)!.radius;
+    const { fat } = extremeAxes(world, rock);
+    const START = 100;
+    const from = { x: fat[0] * -START, y: fat[1] * -START, z: fat[2] * -START };
+    const to = { x: fat[0] * START, y: fat[1] * START, z: fat[2] * START };
+    const t = asteroidSegmentEntry(world, tag, transform, bound, from, to, 0);
+    expect(t).toBeGreaterThanOrEqual(0);
+    // Where the ray actually entered, as a distance from the body centre. It
+    // travels along +fat starting behind the rock, so it enters on the -fat face.
+    const entryDistance = START - t * 2 * START;
+    const surface = surfaceAlong(world, rock, -fat[0], -fat[1], -fat[2]);
+    expect(entryDistance, "entry sits on the mesh surface").toBeCloseTo(surface, 3);
+    // Which is strictly nearer the centre than the sphere would have reported.
+    expect(entryDistance).toBeLessThan(bound);
+  });
+
+  it("pushes a hull tunnelled deep inside the body back out", () => {
+    // `sphereDeepestContact` only sees triangles within the probe's own radius,
+    // so a hull further in than that finds nothing. Without the radial recovery
+    // it would sit inside the rock reporting clear space forever.
+    const world = makeWorld(configs);
+    const rock = spawnAsteroid(world, configs, SHARD, { x: 0, y: 0, z: 0 });
+    const ship = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, y: 0, z: 0 }, 0);
+    const shipRadius = world.colliders.get(ship)!.radius;
+    const transform = world.transforms.get(ship)!;
+    // Dead centre of the body — as deep as it gets.
+    transform.pos.x = 0;
+    transform.pos.y = 0;
+    transform.pos.z = 0;
+    for (let tick = 0; tick < 40; tick++) {
+      rebuildSpatial(world);
+      collisionSystem(world, DT);
+    }
+    const distance = Math.hypot(transform.pos.x, transform.pos.y, transform.pos.z);
+    const surface = surfaceAlong(world, rock, transform.pos.x, transform.pos.y, transform.pos.z);
+    expect(distance, "hull ends up outside the surface").toBeGreaterThanOrEqual(surface + shipRadius - 1e-6);
+  });
+
+  it("turns the collision surface with the rock's drawn tumble", () => {
+    // Pose is the one thing a baked mesh can get wrong that a sphere could not:
+    // the client draws the rock through `rockOrientationAt`, so the BVH has to be
+    // queried through the same pose or the collider drifts off the art.
+    const world = makeWorld(configs);
+    const rock = spawnAsteroid(world, configs, TWIN, { x: 0, y: 0, z: 0 }, 1, 3, 0);
+    const tag = world.asteroids.get(rock)!;
+    const transform = world.transforms.get(rock)!;
+    const bound = world.colliders.get(rock)!.radius;
+    const probe: [number, number, number] = [1, 0, 0];
+
+    world.matchElapsed = 0;
+    const atRest = asteroidSurfaceRadiusToward(world, tag, transform, bound, ...probe);
+    world.matchElapsed = 40;
+    const tumbled = asteroidSurfaceRadiusToward(world, tag, transform, bound, ...probe);
+    // 40 s of authored tumble swings a 4:1 body a long way past this direction.
+    expect(Math.abs(tumbled - atRest)).toBeGreaterThan(0.5);
+
+    // And it is the SAME body, merely turned: the mesh queried directly with the
+    // direction counter-rotated by the pose reproduces the posed answer.
+    const mesh = resolveRockMesh(configs.get<AsteroidConfig>("asteroid", TWIN)!)!;
+    const pose = { x: 0, y: 0, z: 0, w: 1 };
+    rockOrientationAt(tag.spin, tag.baseRotationY, 40, pose);
+    expect(rockMeshWorldRadius(mesh, tag.visualRadius, pose, ...probe)).toBeCloseTo(tumbled, 6);
   });
 
   it("is reproducible tick for tick", () => {
@@ -179,14 +291,26 @@ describe("shaped asteroid collision", () => {
     expect(run()).toEqual(run());
   });
 
-  it("keeps a rock with no authored shape on its legacy sphere", () => {
+  it("keeps a rock with neither shape nor mesh on its legacy sphere", () => {
     const world = makeWorld(configs);
-    // The shipped pack is fully shaped, so build the legacy case explicitly.
-    const legacy = { ...configs.get("asteroid", TWIN)!, id: "asteroid.legacy-sphere", shape: undefined, radius: 10, colliderScale: 0.8 };
+    // Every shipped rock authors a real surface, so build the legacy case
+    // explicitly — stripping BOTH representations, since the mesh is what the
+    // shipped configs carry.
+    const source = configs.get<AsteroidConfig>("asteroid", TWIN)!;
+    const legacy = {
+      ...source,
+      id: "asteroid.legacy-sphere",
+      shape: undefined,
+      collision: undefined,
+      render: { ...source.render, model: undefined },
+      radius: 10,
+      colliderScale: 0.8,
+    };
     configs.replace(legacy as never);
     const rock = spawnAsteroid(world, configs, "asteroid.legacy-sphere", { x: 0, y: 0, z: 0 });
     expect(world.colliders.get(rock)!.radius).toBeCloseTo(8, 6);
     expect(world.asteroids.get(rock)!.shape).toBeNull();
+    expect(world.asteroids.get(rock)!.mesh).toBeNull();
     rebuildSpatial(world);
     // A pure sphere blocks in every direction alike.
     expect(hasLineOfSight(world, { x: -50, y: 0, z: 0 }, { x: 50, y: 0, z: 0 })).toBe(false);

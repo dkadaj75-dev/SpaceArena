@@ -9,7 +9,7 @@ import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "./spawn.js"
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { navigationSystem } from "./systems/NavigationSystem.js";
 import { projectileSystem } from "./systems/ProjectileSystem.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "./testutil.js";
+import { INTERCEPTOR_FITTING, ROCK_LARGE, loadTestConfigs, makeWorld, rebuildSpatial, rockScaleFor } from "./testutil.js";
 import { World } from "./World.js";
 
 const DT = 1 / 30;
@@ -339,7 +339,7 @@ describe("CollisionSystem 3D narrowphase (BUBBLE.md §A)", () => {
 
   it("flies a ship clean over a rock it would have hit on the plane", () => {
     const world = makeWorld(configs);
-    const rock = spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 });
+    const rock = spawnAsteroid(world, configs, ROCK_LARGE, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8));
     const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
     const clearance = world.colliders.get(rock)!.radius + world.colliders.get(id)!.radius + 1;
     world.transforms.get(id)!.pos.y = clearance;
@@ -591,7 +591,7 @@ describe("Snapshots", () => {
   });
 
   it("carries y and pitch for ships, and y for asteroids and projectiles", () => {
-    const sim = new ArenaSimulation(configs, "arena.deep-field", "gamemode.duel-1v1");
+    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.duel-1v1");
     const flyer = sim.spawnPlayerAt("ship.interceptor", INTERCEPTOR_FITTING, 0, { x: 0, y: 12, z: 0 }, 0, undefined, 0.3);
 
     let snap = sim.snapshot();
@@ -599,8 +599,9 @@ describe("Snapshots", () => {
     expect(ship.pos.y).toBe(12);
     expect(ship.pitch).toBeCloseTo(0.3, 9);
 
-    // The deep field authors a y-banded belt, so the arena's own content proves
-    // asteroid y survives the placement → transform → snapshot path.
+    // The Ring authors rocks all through its bubble rather than on one plane,
+    // so the arena's own content proves asteroid y survives the
+    // placement → transform → snapshot path.
     expect(snap.asteroids.some((a) => a.pos.y !== 0)).toBe(true);
 
     // Climb under power and the replicated altitude follows.

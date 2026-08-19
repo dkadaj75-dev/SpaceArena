@@ -1,4 +1,5 @@
 import type { RockSpin } from "../collision/rockPose.js";
+import type { ResolvedRockMesh } from "../collision/rockCollider.js";
 import type { ResolvedRockShape, RockQuat } from "../collision/rockShape.js";
 import type { DamageType } from "../schemas/common.js";
 
@@ -236,10 +237,16 @@ export interface AsteroidTag {
    */
   placementIndex: number;
   /**
-   * Resolved body shape, or `null` for a legacy sphere-only rock. Shared by
-   * every placement of the same config — never mutated per entity.
+   * Resolved body shape, or `null` when the rock does not author a field.
+   * Shared by every placement of the same config — never mutated per entity.
    */
   shape: ResolvedRockShape | null;
+  /**
+   * Resolved collision MESH, for a rock drawn from a GLB. Consulted only when
+   * {@link AsteroidTag.shape} is null; `null` on both leaves the legacy sphere.
+   * Shared per config exactly as `shape` is — one BVH, many placements.
+   */
+  mesh: ResolvedRockMesh | null;
   /** Deterministic tumble; see `collision/rockPose.ts`. */
   spin: RockSpin;
   /** Authored placement yaw, applied under the tumble. */

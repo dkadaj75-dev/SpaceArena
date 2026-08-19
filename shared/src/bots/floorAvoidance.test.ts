@@ -17,7 +17,7 @@ beforeAll(async () => {
 
 describe("floored-arena bot avoidance", () => {
   it("never contacts terrain during a long scripted dive", () => {
-    const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-bots-1v1", 19);
+    const sim = new ArenaSimulation(configs, "arena.lunar-rift", "gamemode.practice-bots-1v1", 19);
     const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
     const id = sim.spawnPlayerAt("ship.interceptor", ship.defaultFitting, 0, { x: -50, y: 12, z: -55 }, 0, undefined, -0.8);
     const dive: BotBehavior = {
@@ -65,7 +65,7 @@ describe("floored-arena bot avoidance", () => {
   });
 
   it("actively climbs away after spawning on the floor collision plane", () => {
-    const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-bots-1v1", 21);
+    const sim = new ArenaSimulation(configs, "arena.lunar-rift", "gamemode.practice-bots-1v1", 21);
     const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
     const radius = 1.4;
     const id = sim.spawnPlayerAt(ship.id, ship.defaultFitting, 0, { x: 0, y: radius, z: 0 }, 0, undefined, 0);
@@ -85,10 +85,21 @@ describe("floored-arena bot avoidance", () => {
     expect(sim.world.transforms.get(id)!.pos.y).toBeGreaterThan(radius + 3);
   });
 
-  it.each(["terrain", "rock"] as const)(
-    "separates a zero-throttle bot parked nose-first against shipped lunar %s, then releases recovery",
-    (surface) => {
-      const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-ctf-5v5", 31);
+  // Two different collision worlds, one recovery behaviour: lunar-rift's cover is
+  // static PROPS (staticWorld/BVH), the Ring's is ASTEROIDS (per-rock mesh BVH).
+  // The rock case moved to the Ring on 2026-08-18 — lunar-rift has no asteroid
+  // placements at all, so it cannot host it.
+  it.each([
+    { surface: "terrain", arenaId: "arena.lunar-rift", gamemodeId: "gamemode.practice-ctf-5v5", seconds: 10 },
+    // Five seconds, not ten: the Ring is a radius-126 bubble and its rocks sit
+    // well out in it, so a hull that has separated and is flying free reaches
+    // the boundary — and has its throttle cut by the boundary rule — before a
+    // ten-second window is up. Recovery latches and releases inside two.
+    { surface: "rock", arenaId: "arena.ring-nebula", gamemodeId: "gamemode.practice-bots-5v5", seconds: 5 },
+  ] as const)(
+    "separates a zero-throttle bot parked nose-first against shipped $surface, then releases recovery",
+    ({ surface, arenaId, gamemodeId, seconds }) => {
+      const sim = new ArenaSimulation(configs, arenaId, gamemodeId, 31);
       const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
       const radius = 1.4;
       let position = { x: -120, y: radius, z: -120 };
@@ -145,7 +156,7 @@ describe("floored-arena bot avoidance", () => {
       let nowMs = 0;
       let recoverySeen = false;
       let released = false;
-      for (let tick = 0; tick < 10 / DT; tick++) {
+      for (let tick = 0; tick < seconds / DT; tick++) {
         nowMs += DT * 1000;
         const snapshot = sim.snapshot();
         for (const order of driver.update(snapshot, nowMs)) sim.applyOrder(id, order);

@@ -469,9 +469,9 @@ describe("ArenaRoom", () => {
   // -------------------------------------------------------------------------
 
   it("flies a wire pitch order off the ground plane and replicates y and pitch", async () => {
-    // Pin the arena: the y=7 spawn altitude below is deep-field's authored value,
-    // and the gamemode's defaultArena is editable content.
-    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", arena: "arena.deep-field", minPlayers: 1 });
+    // Pin the arena: the spawn altitude asserted below is ring-nebula's authored
+    // value, and the gamemode's defaultArena is editable content.
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", arena: "arena.ring-nebula", minPlayers: 1 });
     const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
     await advance(room, 1);
     expect(room.state.matchPhase).toBe("live");
@@ -480,7 +480,9 @@ describe("ArenaRoom", () => {
     // The authored spawn altitude is replicated before any order; the level nose
     // keeps the following climb attributable to the pitch input.
     const startY = decodeCenti(p1.y);
-    expect(startY).toBe(7);
+    // ring-nebula's first team-0 pad, and deliberately BELOW the plane: a spawn
+    // altitude of 0 would let a broken y codec pass this test.
+    expect(startY).toBe(-15);
     expect(p1.pitch).toBe(0);
 
     c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false, fire: true } });

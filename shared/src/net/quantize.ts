@@ -4,10 +4,10 @@
  * Positions/velocities travel as int16 **deci-units**: the float value is
  * multiplied by 10, rounded, and clamped to the signed-16-bit range. This gives
  * 0.1-world-unit precision over a ±3276.7-unit span — comfortably larger than
- * any shipped arena (deep-field is a radius-300 bubble, and BUBBLE.md §B keeps
- * the same codec for the new `y` axis: the vertical extent is the same sphere
- * radius, plus a little projectile overshoot before the bounds cull, which the
- * ±327 headroom absorbs). Values outside the range are clamped (they should
+ * any shipped arena (the Ring is a radius-126 bubble and lunar-rift's box is
+ * wider still, and BUBBLE.md §B keeps the same codec for the new `y` axis: the
+ * vertical extent is the same bound, plus a little projectile overshoot before
+ * the bounds cull, which the headroom absorbs). Values outside the range are clamped (they should
  * never occur for in-bounds entities).
  *
  * Headings travel as uint16 mapping the full 0..2π turn onto 0..65535, i.e.

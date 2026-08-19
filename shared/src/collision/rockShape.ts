@@ -36,20 +36,29 @@ import type { RockShapeConfig } from "../schemas/asteroid.js";
  *  - **craters**: angular bowls with a raised rim, subtracted from the surface.
  *  - **facets**: plane cuts, `min`-ed into the surface, for angular shards.
  *
- * ### Why not a convex hull / SAT, or a triangle BVH
+ * ### Why not a convex hull / SAT
  *
  * A convex hull cannot express the two things this content most needs — the
  * waist of a contact binary and the dish of a crater — so the "bounces off empty
- * space" complaint would simply move to the concavities. A triangle BVH does
- * express them, but it costs a baked mesh per rock in the pack, a tree walk per
- * query, and a second authoring pipeline to keep it in step with the renderer.
+ * space" complaint would simply move to the concavities.
  *
- * The radial field gives concavity support at a *lower* cost than either: one
- * evaluation is a handful of dot products plus ~9 `sin` calls, with no traversal,
- * no allocation and no per-instance data — the same resolved shape object is
- * shared by every placement of a config. See {@link rockSphereContact} and
+ * The radial field gives concavity support cheaply: one evaluation is a handful
+ * of dot products plus ~9 `sin` calls, with no traversal, no allocation and no
+ * per-instance data — the same resolved shape object is shared by every
+ * placement of a config. See {@link rockSphereContact} and
  * {@link rockSegmentEntry} for the bounding-sphere early-outs that keep it off
  * the hot path entirely for the rocks a ship is nowhere near.
+ *
+ * ### Its limit, and the mesh that sits beside it
+ *
+ * `r(d)` is single-valued, so the field can only describe a body that is
+ * STAR-SHAPED about its centre. A sculpted rock generally is not, and its
+ * silhouette exists nowhere but its triangles — refitting a field to one would
+ * produce a second, disagreeing shape. Since 2026-08-18 the shipped catalogue is
+ * exactly that: sculpted GLBs collided against a baked triangle BVH
+ * (`rockCollider.ts`), which is what the whole pack now uses. This field remains
+ * the cheaper representation and the one the client can tessellate, so a config
+ * that authors a `shape` still wins over one that authors a mesh.
  *
  * ## Determinism
  *

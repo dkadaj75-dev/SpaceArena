@@ -1,5 +1,6 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import { rockSpinFor } from "../collision/rockPose.js";
+import { resolveRockMesh } from "../collision/rockCollider.js";
 import { resolveRockShape } from "../collision/rockShape.js";
 import type { DamageType } from "../schemas/common.js";
 import { hardpointsOf, isInternalFamily, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
@@ -162,11 +163,19 @@ export function spawnAsteroid(
   world.transforms.set(id, { pos: { x: pos.x, y: pos.y ?? 0, z: pos.z }, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } });
   const visualRadius = cfg.radius * scale;
   const shape = cfg.shape ? resolveRockShape(cfg.shape) : null;
+  // A field beats a mesh when a rock authors both: it is the cheaper query and
+  // the one the client can tessellate, so a config that gained a shape would
+  // want it used. Nothing shipped authors both.
+  const mesh = shape ? null : resolveRockMesh(cfg);
   // `collider.radius` is the rock's BOUNDING sphere. It is what the spatial hash
   // is seeded with and what every narrowphase rejects against first, so it must
   // be a genuine upper bound on the surface — never the old inscribed sphere,
   // which would reject real contacts before the shape was ever consulted.
-  const boundRadius = shape ? shape.maxRadius * visualRadius : visualRadius * (cfg.colliderScale ?? 1);
+  const boundRadius = shape
+    ? shape.maxRadius * visualRadius
+    : mesh
+      ? mesh.maxRadius * visualRadius
+      : visualRadius * (cfg.colliderScale ?? 1);
   world.colliders.set(id, { radius: boundRadius });
   const hp = cfg.hp ?? Infinity;
   world.asteroids.set(id, {
@@ -178,14 +187,15 @@ export function spawnAsteroid(
     visualRadius,
     placementIndex,
     shape,
+    mesh,
     spin: rockSpinFor(placementIndex, cfg.render.spin),
     baseRotationY: rotationY,
     orientation: { x: 0, y: 0, z: 0, w: 1 },
     // NaN forces the first query of this rock to build its pose; no real match
     // time can equal it, so the cache can never be wrongly hit at t = 0.
     orientationTime: Number.NaN,
-    innerRadius: shape ? shape.minRadius * visualRadius : boundRadius,
-    meanRadius: shape ? shape.meanRadius * visualRadius : boundRadius,
+    innerRadius: shape ? shape.minRadius * visualRadius : mesh ? mesh.minRadius * visualRadius : boundRadius,
+    meanRadius: shape ? shape.meanRadius * visualRadius : mesh ? mesh.meanRadius * visualRadius : boundRadius,
     state: "intact",
   });
   return id;

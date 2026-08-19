@@ -22,6 +22,7 @@ import {
   MSG_ORDER,
   createLogger,
   type ArenaConfig,
+  resolveRockMesh,
   resolveRockShape,
   type AsteroidConfig,
   type ConfigService,
@@ -564,9 +565,12 @@ export class NetGameSession extends GameSession {
     const cfg = this.netConfigs.get<AsteroidConfig>("asteroid", configId);
     const radius = cfg?.radius ?? 1;
     const shape = cfg?.shape ? resolveRockShape(cfg.shape) : null;
+    const mesh = !shape && cfg ? resolveRockMesh(cfg) : null;
     const geometry = shape
       ? { radius, mean: radius * shape.meanRadius, bound: radius * shape.maxRadius }
-      : { radius, mean: radius * (cfg?.colliderScale ?? 1), bound: radius * (cfg?.colliderScale ?? 1) };
+      : mesh
+        ? { radius, mean: radius * mesh.meanRadius, bound: radius * mesh.maxRadius }
+        : { radius, mean: radius * (cfg?.colliderScale ?? 1), bound: radius * (cfg?.colliderScale ?? 1) };
     this.rockGeometryCache.set(configId, geometry);
     return geometry;
   }

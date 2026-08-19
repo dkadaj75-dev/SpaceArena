@@ -5,14 +5,7 @@ import type { ShipConfig } from "../../schemas/ship.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { hasLineOfSight } from "../los.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "../spawn.js";
-import {
-  INTERCEPTOR_FITTING,
-  INTERCEPTOR_FITTING_SHIELD,
-  loadTestConfigs,
-  makeWorld,
-  rebuildSpatial,
-  warmLock,
-} from "../testutil.js";
+import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_SHIELD, ROCK_LARGE, ROCK_SMALL, loadTestConfigs, makeWorld, rebuildSpatial, rockScaleFor, warmLock } from "../testutil.js";
 import { damageTypeProfileOf } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 import { combatSystem, latchFireState } from "./CombatSystem.js";
@@ -85,7 +78,7 @@ describe("CombatSystem beam", () => {
 
   it("does not fire without line of sight", () => {
     const { world, target } = duel({ x: 20, z: 0 });
-    spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 10, z: 0 });
+    spawnAsteroid(world, configs, ROCK_LARGE, { x: 10, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8));
     rebuildSpatial(world);
     const before = world.shipCores.get(target)!.hull;
     combatSystem(world, DT);
@@ -142,7 +135,7 @@ describe("CombatSystem straight fire — no lock, non-homing weapons (2026-07-31
 
   it("an asteroid on the nose line soaks the beam instead of the ship behind it", () => {
     const { world, target } = noLockDuel({ x: 20, z: 0 });
-    const rock = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 10, z: 0 });
+    const rock = spawnAsteroid(world, configs, ROCK_SMALL, { x: 10, z: 0 }, rockScaleFor(configs, ROCK_SMALL, 3.5));
     rebuildSpatial(world);
     const shipBefore = world.shipCores.get(target)!.hull;
     const rockBefore = world.asteroids.get(rock)!.hp;
@@ -470,18 +463,18 @@ describe("ProjectileSystem", () => {
 
   /**
    * Review Finding 8. A missile whose target dies stops homing and flies
-   * straight for the rest of its lifetime. On the radius-300 deep field that
-   * carries it hundreds of units past the rim — outside the ±327.67 int16 centi
-   * wire range, where `encodeCenti` silently clamps and the client renders a
-   * missile pinned to an invisible wall while the authoritative one flies on.
+   * straight for the rest of its lifetime. On the radius-126 Ring that carries
+   * it hundreds of units past the rim — outside the ±327.67 int16 centi wire
+   * range, where `encodeCenti` silently clamps and the client renders a missile
+   * pinned to an invisible wall while the authoritative one flies on.
    * The cull is in the SIM so offline and online agree and it stays deterministic.
    */
   describe("out-of-arena cull (Finding 8)", () => {
     const MARGIN = 20; // DEFAULT_BOUNDS_MARGIN; no tuning override in the pack
-    const RIM = 300; // arena.deep-field bounds radius
+    const RIM = 126; // arena.ring-nebula bounds radius
 
     function flyOutward(lifetime: number): { world: World; ticks: number; last: { x: number; z: number } } {
-      const world = makeWorld(configs, { arenaId: "arena.deep-field" });
+      const world = makeWorld(configs, { arenaId: "arena.ring-nebula" });
       const id = spawnProjectile(world, {
         kind: "missile",
         damage: 20,
@@ -509,7 +502,7 @@ describe("ProjectileSystem", () => {
     }
 
     it("despawns a missile that flies past the arena bounds, long before its lifetime expires", () => {
-      // 8 s at 90 u/s would reach ~1015 units — 3× the wire range.
+      // 8 s at 90 u/s would reach ~841 units — well past the wire range.
       const { world, ticks, last } = flyOutward(8);
       expect(world.projectileIds()).toHaveLength(0);
       expect(ticks).toBeLessThan(Math.ceil(8 / DT)); // culled by bounds, not lifetime
@@ -519,7 +512,7 @@ describe("ProjectileSystem", () => {
     });
 
     it("leaves a projectile travelling inside the bounds alone", () => {
-      const world = makeWorld(configs, { arenaId: "arena.deep-field" });
+      const world = makeWorld(configs, { arenaId: "arena.ring-nebula" });
       spawnProjectile(world, {
         kind: "kinetic",
         damage: 10,
@@ -713,7 +706,7 @@ describe("CombatSystem continuous channel", () => {
     const { world, shooter, target } = channelDuel();
     world.targets.get(shooter)!.locked = false;
     world.targets.get(shooter)!.targetId = null;
-    const rock = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 10, z: 0 });
+    const rock = spawnAsteroid(world, configs, ROCK_SMALL, { x: 10, z: 0 }, rockScaleFor(configs, ROCK_SMALL, 3.5));
     rebuildSpatial(world);
 
     const shipBefore = world.shipCores.get(target)!.hull;
@@ -742,7 +735,7 @@ describe("CombatSystem continuous channel", () => {
     expect(far.world.shipCores.get(far.target)!.hull).toBe(beforeFar);
 
     const blocked = channelDuel({ x: 20, z: 0 });
-    spawnAsteroid(blocked.world, configs, "asteroid.large-hazard", { x: 10, z: 0 });
+    spawnAsteroid(blocked.world, configs, ROCK_LARGE, { x: 10, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8));
     rebuildSpatial(blocked.world);
     const beforeBlocked = blocked.world.shipCores.get(blocked.target)!.hull;
     channelTick(blocked.world);
@@ -882,7 +875,7 @@ describe("CombatSystem continuous channel", () => {
 describe("Asteroid destruction updates LoS", () => {
   it("a destroyed asteroid no longer blocks line of sight", () => {
     const world = makeWorld(configs);
-    const ast = spawnAsteroid(world, configs, "asteroid.small-rock", { x: 0, z: 0 });
+    const ast = spawnAsteroid(world, configs, ROCK_SMALL, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_SMALL, 3.5));
     rebuildSpatial(world);
     expect(hasLineOfSight(world, { x: -20, z: 0 }, { x: 20, z: 0 })).toBe(false);
     applyDamageToAsteroid(world, ast, null, 100, "kinetic"); // hp 40 → destroyed

@@ -7,6 +7,7 @@ export * from "./schemas/index.js";
 export * from "./sim/index.js";
 export * from "./collision/base64.js";
 export * from "./collision/rockShape.js";
+export * from "./collision/rockCollider.js";
 export * from "./collision/rockPose.js";
 export * from "./collision/bvh.js";
 export * from "./collision/staticWorld.js";

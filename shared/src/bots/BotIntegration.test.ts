@@ -290,18 +290,18 @@ describe("bots in a live ArenaSimulation", () => {
     expect(fired.length === 0 || result.peakLockProgress === 1).toBe(true);
   });
 
-  it("finds, closes and fights across the radius-300 deep field", () => {
-    // The deep field spawns teams ~198 units apart — well outside every hull's
-    // lockRange (FLIGHT.md §6), so this asserts the thing the small arena cannot:
-    // bots that have to FIND each other still merge, lock and trade inside a
-    // 30 s match. Automatic sticky targeting is what makes that survivable —
-    // there is no target order left for a bot to pin the sensors with.
-    const result = runMatch(["bot.aggressive", "bot.cautious"], 7, "arena.deep-field");
+  it("finds, closes and fights across the width of the Ring", () => {
+    // The Ring spawns teams ~165 units apart — well outside every hull's
+    // lockRange (FLIGHT.md §6), so this asserts that bots which have to FIND
+    // each other still merge, lock and trade inside a 30 s match. Automatic
+    // sticky targeting is what makes that survivable — there is no target order
+    // left for a bot to pin the sensors with.
+    const result = runMatch(["bot.aggressive", "bot.cautious"], 7, "arena.ring-nebula");
 
     expect(result.orderKinds["flight"]).toBeGreaterThan(0);
     expect(result.peakLockProgress).toBe(1);
     expect(result.events.some((e) => e.type === "lockAcquired")).toBe(true);
-    // Closing 198 units at nominal speed is a couple of seconds, not a hunt.
+    // Closing 165 units at nominal speed is a couple of seconds, not a hunt.
     expect(result.firstLockAt).toBeLessThan(15);
     // At the 50% damage rebase a deep-field kill caps gun totals near the hull
     // pool while merge contact stays constant, so the old impact<weapon
@@ -676,13 +676,17 @@ describe("bots in a live ArenaSimulation", () => {
     expect(solo.defaultArena).toBe(duo.defaultArena);
   });
 
-  it("separates a nose-in BRAWLER from the shipped colossal CTF rock and resumes movement", () => {
-    const sim = new ArenaSimulation(configs, "arena.lunar-crater", "gamemode.practice-ctf-5v5", 17);
+  it("separates a nose-in BRAWLER from the biggest shipped rock and resumes movement", () => {
+    const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.practice-bots-5v5", 17);
     const hull = configs.get<ShipConfig>("ship", "ship.brawler")!;
     const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
     const botId = sim.spawnPlayerAt(hull.id, hull.defaultFitting, 0, { x: 0, y: 12, z: 0 }, -Math.PI / 2);
     sim.spawnPlayerAt("ship.interceptor", configs.get<ShipConfig>("ship", "ship.interceptor")!.defaultFitting, 1, { x: 250, y: 12, z: 250 });
-    const rockId = sim.world.asteroidIds().find((id) => sim.world.asteroids.get(id)?.configId === "asteroid.colossal-a")!;
+    // The largest placement in the field, whichever shape the arena gave it: the
+    // point is a collider big enough that a nose-in hull is deep in its shadow.
+    const rockId = sim.world.asteroidIds().reduce((best, id) =>
+      sim.world.colliders.get(id)!.radius > sim.world.colliders.get(best)!.radius ? id : best,
+    );
     const rock = sim.world.transforms.get(rockId)!;
     const rockRadius = sim.world.colliders.get(rockId)!.radius;
     const bot = sim.world.transforms.get(botId)!;

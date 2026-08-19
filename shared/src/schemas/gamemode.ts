@@ -104,7 +104,7 @@ export const gamemodeSchema = z.object({
   launch: z.enum(["online", "offline"]).optional().default("online"),
   /**
    * Ships in the pack but is NOT offered on the Play menu. For modes that exist
-   * to be *run*, not chosen: the bot-behaviour audit's twin-titans duel, the
+   * to be *run*, not chosen: the bot-behaviour audit's duel, the
    * 1v1 skirmish the sim tests build their worlds from. Distinct from
    * `launch: "offline"`, which says how a mode starts rather than whether a
    * player is ever shown it.

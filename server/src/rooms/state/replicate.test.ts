@@ -54,7 +54,7 @@ setGlobalLogLevel("error");
 
 const ARENA_ID = "arena.lunar-rift";
 /** The CTF gamemode's default arena has no rocks at all; this one has 82. */
-const ROCKY_ARENA_ID = "arena.lunar-crater";
+const ROCKY_ARENA_ID = "arena.ring-nebula";
 const GAMEMODE_ID = "gamemode.practice-ctf-5v5";
 /** Stock interceptor loadout with the JETTISONABLE sink, so decoys are reachable. */
 const FITTING = [

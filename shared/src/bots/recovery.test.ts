@@ -43,7 +43,7 @@ describe("L0 recovery controller (D1, owner 2026-08-08)", () => {
     // either one alone presses the hull into the other.
     const self = ship({ pos: { x: 0, y: 1.4, z: 0 } });
     const rock: AsteroidSnapshot = {
-      id: 9, configId: "asteroid.large-hazard", pos: { x: -9.4, y: 1.4, z: 0 }, radius: 8,
+      id: 9, configId: "asteroid.fixture-sphere", pos: { x: -9.4, y: 1.4, z: 0 }, radius: 8,
       colliderRadius: 8, state: "intact",
     };
     const controller = new RecoveryController({ floorY: 0, orbitSign: 1, visualRadius: 1.4 });
@@ -88,7 +88,7 @@ describe("L0 recovery controller (D1, owner 2026-08-08)", () => {
     // Collider gap 0.10 against a 2.20 rendered overhang: this is inside the
     // contact band and the hull is nonetheless travelling 2 units per decision.
     const rock: AsteroidSnapshot = {
-      id: 9, configId: "asteroid.large-hazard", pos: { x: -9.5, y: 40, z: 0 }, radius: 8,
+      id: 9, configId: "asteroid.fixture-sphere", pos: { x: -9.5, y: 40, z: 0 }, radius: 8,
       colliderRadius: 8, state: "intact",
     };
     const controller = new RecoveryController({ orbitSign: 1, visualRadius: 3.6 });

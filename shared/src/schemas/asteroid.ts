@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
+import { collisionMeshSchema, validateCollisionMesh } from "./collisionMesh.js";
 import { renderRecipe } from "./common.js";
 
 export const asteroidSpinSchema = z
@@ -159,14 +160,60 @@ export const asteroidSchema = z.object({
   /**
    * The rock's body shape. Present ⇒ the sim collides against this surface and
    * the client tessellates the same field, so the thing you hit is the thing you
-   * see. Absent ⇒ the legacy `colliderScale` sphere.
+   * see. Absent ⇒ {@link asteroidSchema.shape.collision}, or failing that the
+   * legacy `colliderScale` sphere.
    */
   shape: rockShapeSchema.optional(),
+  /**
+   * Baked triangle collision for a rock drawn from a GLB `render.model` — the
+   * other way to make "what you hit" and "what you see" the same surface, for
+   * bodies a radial field cannot express (see `collision/rockShape.ts` on why
+   * the field exists at all).
+   *
+   * Positions are in the model's own space, normalized so the body's maximum
+   * radial extent is at most 1: the sim scales the mesh by the rock's world
+   * radius, so the drawn GLB and the collider agree at every size. They are in
+   * ENGINE space, not raw glTF space — an asteroid model is imported down the
+   * merged path, which bakes Babylon's right-to-left-handed conversion into the
+   * vertices, so the bake mirrors X to match (`tools/bake-asteroid-collision.ts`).
+   *
+   * Ignored when `shape` is present; the field is the cheaper representation and
+   * stays the preferred one.
+   */
+  collision: collisionMeshSchema.optional(),
   hp: z.number().positive().optional(),
   destructible: z.boolean(),
   impactDamage: z.number().nonnegative(),
   render: asteroidRenderRecipe,
   states: z.array(assetState).optional(),
+}).superRefine((asteroid, ctx) => {
+  if (!asteroid.collision) return;
+  const decoded = validateCollisionMesh(asteroid.collision, ctx);
+  if (!decoded) return;
+  if (!asteroid.render.model) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["collision"],
+      message: "collision mesh needs a render.model to collide against",
+    });
+  }
+  // The bounding sphere the broadphase rejects against is the rock's world
+  // radius. A collider vertex beyond radius 1 would sit outside it and its
+  // contacts would be dropped before the mesh was ever consulted.
+  let maxRadiusSq = 0;
+  const { positions } = decoded;
+  for (let i = 0; i < positions.length; i += 3) {
+    const x = positions[i]!, y = positions[i + 1]!, z = positions[i + 2]!;
+    maxRadiusSq = Math.max(maxRadiusSq, x * x + y * y + z * z);
+  }
+  const maxRadius = Math.sqrt(maxRadiusSq);
+  if (maxRadius > 1.001) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["collision", "positions"],
+      message: `collision mesh must be unit-radius (max radial extent ${maxRadius.toFixed(4)} > 1)`,
+    });
+  }
 });
 
 export type AsteroidConfig = z.infer<typeof asteroidSchema>;

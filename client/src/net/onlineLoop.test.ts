@@ -139,7 +139,7 @@ function flyOnline({
   turn,
   ticks,
   latency = LATENCY_TICKS,
-  arenaId = "arena.deep-field",
+  arenaId = "arena.ring-nebula",
   gamemodeId = "gamemode.practice-bots-1v1",
   start = { x: 0, y: 0, z: 0, heading: 0.4, pitch: 0 },
 }: RunOptions) {

@@ -71,13 +71,11 @@ describe("shipped quality tiers — spawn markers and ambient dust", () => {
 });
 
 describe("shipped arenas — the painted star is the key light", () => {
+  // Trimmed to the two surviving arenas 2026-08-18; deep-field, lunar-crater,
+  // broken-halo and twin-titans were deleted with the asteroid overhaul.
   const EXPECTED = {
-    "deep-field.json": { dir: [0.777, 0.309, 0.55], color: "#ffecc8", intensity: 1.1 },
     "ring-nebula.json": { dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1.0 },
-    "lunar-crater.json": { dir: [-0.707, 0.5, -0.5], color: "#ffffff", intensity: 1.45 },
     "lunar-rift.json": { dir: [-0.707, 0.5, -0.5], color: "#ffffff", intensity: 1.45 },
-    "broken-halo.json": { dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1.0 },
-    "twin-titans.json": { dir: [0.777, 0.309, 0.55], color: "#ffecc8", intensity: 1.1 },
   } as const;
 
   for (const [file, expected] of Object.entries(EXPECTED)) {
@@ -102,7 +100,7 @@ describe("shipped arenas — the painted star is the key light", () => {
 });
 
 describe("shipped arenas — proximity-only boundary wireframes", () => {
-  const FILES = ["deep-field.json", "ring-nebula.json", "lunar-crater.json", "broken-halo.json", "twin-titans.json"];
+  const FILES = ["ring-nebula.json"];
 
   for (const file of FILES) {
     it(`${file} hides the shield until close range and uses fine hex wires`, () => {

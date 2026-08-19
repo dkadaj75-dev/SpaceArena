@@ -10,11 +10,11 @@ import {
 } from "./assetPreload.js";
 import type { AssetRegistry } from "./AssetRegistry.js";
 
-const SMALL_ROCK = {
-  id: "asteroid.small-rock",
+const FIXTURE_ROCK_A = {
+  id: "asteroid.fixture-rock-a",
   type: "asteroid",
   version: 1,
-  name: "Small Rock",
+  name: "Fixture Rock A",
   radius: 3.5,
   hp: 40,
   destructible: true,
@@ -31,17 +31,17 @@ const SMALL_ROCK = {
   ],
 } satisfies Record<string, unknown>;
 
-const SMALL_ROCK_B = {
-  ...SMALL_ROCK,
-  id: "asteroid.small-rock-b",
-  name: "Small Rock B",
-  render: { ...SMALL_ROCK.render, model: "fixtures/rock-b.glb" },
+const FIXTURE_ROCK_B = {
+  ...FIXTURE_ROCK_A,
+  id: "asteroid.fixture-rock-b",
+  name: "Fixture Rock B",
+  render: { ...FIXTURE_ROCK_A.render, model: "fixtures/rock-b.glb" },
   states: [{ id: "intact" }, { id: "destroyed", render: { recipe: "procedural.debris" } }],
 } satisfies Record<string, unknown>;
 
 /** Same gameplay stats, no model at all — the pre-model authoring style. */
 const PROCEDURAL_ROCK = {
-  ...SMALL_ROCK,
+  ...FIXTURE_ROCK_A,
   id: "asteroid.plain",
   name: "Plain Rock",
   render: { recipe: "procedural.rock-small" },
@@ -88,22 +88,22 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
   beforeEach(() => {
     const bus = new EventBus<ConfigEvents>();
     configs = new ConfigService(() => Promise.resolve(null), bus);
-    for (const cfg of [SMALL_ROCK, SMALL_ROCK_B, PROCEDURAL_ROCK, TERRAIN_PROP]) {
+    for (const cfg of [FIXTURE_ROCK_A, FIXTURE_ROCK_B, PROCEDURAL_ROCK, TERRAIN_PROP]) {
       expect(configs.replace(cfg).ok).toBe(true);
     }
   });
 
   it("returns one entry per distinct model, however many times it is placed", () => {
-    expect(configs.replace(arena(["asteroid.small-rock", "asteroid.small-rock", "asteroid.small-rock-b"])).ok).toBe(
+    expect(configs.replace(arena(["asteroid.fixture-rock-a", "asteroid.fixture-rock-a", "asteroid.fixture-rock-b"])).ok).toBe(
       true,
     );
     const models = arenaModelRenders(configs, "arena.test").map((r) => r.model);
-    // small_a once (placed twice), small_b once, plus small-rock's destroyed-state model.
+    // rock-a once (placed twice), rock-b once, plus rock-a's destroyed-state model.
     expect(models).toEqual(["fixtures/rock-a.glb", "fixtures/debris.glb", "fixtures/rock-b.glb"]);
   });
 
   it("carries the scale/yaw the registry keys its masters by", () => {
-    expect(configs.replace(arena(["asteroid.small-rock"])).ok).toBe(true);
+    expect(configs.replace(arena(["asteroid.fixture-rock-a"])).ok).toBe(true);
     const render = arenaModelRenders(configs, "arena.test")[0];
     expect(render?.modelScale).toBe(3.5);
   });
@@ -129,7 +129,7 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
   });
 
   it("waits for every distinct arena model before resolving", async () => {
-    expect(configs.replace(arena(["asteroid.small-rock", "asteroid.small-rock-b"])).ok).toBe(true);
+    expect(configs.replace(arena(["asteroid.fixture-rock-a", "asteroid.fixture-rock-b"])).ok).toBe(true);
     const releases: Array<() => void> = [];
     const ensureModel = vi.fn(
       () => new Promise<null>((resolve) => releases.push(() => resolve(null))),
@@ -142,7 +142,7 @@ describe("arenaModelRenders (per-arena GLB preloading)", () => {
     });
     await Promise.resolve();
 
-    // small_a, its authored destroyed state, and small_b are each loaded once.
+    // rock-a, its authored destroyed state, and rock-b are each loaded once.
     expect(ensureModel).toHaveBeenCalledTimes(3);
     expect(settled).toBe(false);
     releases[0]!();
@@ -183,7 +183,7 @@ describe("ship model preloading", () => {
 
   it("preloads match hulls, module cosmetics, asteroids, and arena prop LODs", async () => {
     const arenaConfig = {
-      ...arena([SMALL_ROCK.id]),
+      ...arena([FIXTURE_ROCK_A.id]),
       propPlacements: [{ propId: TERRAIN_PROP.id, position: { x: 0, z: 0 } }],
     };
     const ships = [{ id: "ship.one", render: { recipe: "ship", model: "ships/one.glb" } }];
@@ -191,7 +191,7 @@ describe("ship model preloading", () => {
     const configs = {
       get: vi.fn((type: string, id: string) => {
         if (type === "arena" && id === "arena.test") return arenaConfig;
-        if (type === "asteroid" && id === SMALL_ROCK.id) return SMALL_ROCK;
+        if (type === "asteroid" && id === FIXTURE_ROCK_A.id) return FIXTURE_ROCK_A;
         if (type === "prop" && id === TERRAIN_PROP.id) return TERRAIN_PROP;
         return undefined;
       }),
@@ -216,7 +216,7 @@ describe("ship model preloading", () => {
 
   it("reports monotonic load progress so the launch screen can show what is left", async () => {
     const arenaConfig = {
-      ...arena([SMALL_ROCK.id]),
+      ...arena([FIXTURE_ROCK_A.id]),
       propPlacements: [{ propId: TERRAIN_PROP.id, position: { x: 0, z: 0 } }],
     };
     const ships = [{ id: "ship.one", render: { recipe: "ship", model: "ships/one.glb" } }];
@@ -224,7 +224,7 @@ describe("ship model preloading", () => {
     const configs = {
       get: vi.fn((type: string, id: string) => {
         if (type === "arena" && id === "arena.test") return arenaConfig;
-        if (type === "asteroid" && id === SMALL_ROCK.id) return SMALL_ROCK;
+        if (type === "asteroid" && id === FIXTURE_ROCK_A.id) return FIXTURE_ROCK_A;
         if (type === "prop" && id === TERRAIN_PROP.id) return TERRAIN_PROP;
         return undefined;
       }),

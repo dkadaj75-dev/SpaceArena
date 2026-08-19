@@ -18,7 +18,7 @@ beforeAll(async () => {
 });
 
 function newSim(seed = 1): ArenaSimulation {
-  const sim = new ArenaSimulation(configs, "arena.deep-field", "gamemode.duel-1v1", seed);
+  const sim = new ArenaSimulation(configs, "arena.ring-nebula", "gamemode.duel-1v1", seed);
   sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0);
   sim.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 1);
   return sim;

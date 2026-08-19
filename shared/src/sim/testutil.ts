@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ConfigService } from "../core/ConfigService.js";
-import type { ArenaConfig, GamemodeConfig, TuningConfig } from "../schemas/index.js";
+import type { ArenaConfig, AsteroidConfig, GamemodeConfig, TuningConfig } from "../schemas/index.js";
 import type { EntityId } from "./components.js";
 import { targetingSystem } from "./systems/TargetingSystem.js";
 import { World } from "./World.js";
@@ -90,6 +90,30 @@ export function makeWorld(
   const base = configs.get<GamemodeConfig>("gamemode", opts.gamemodeId ?? "gamemode.practice-bots-1v1")!;
   const gamemode = { ...base, ...opts.gamemodeOverride } as GamemodeConfig;
   return new World(configs, tuning, arena, gamemode);
+}
+
+/**
+ * Stand-in rocks for sim fixtures, and the scale that sizes one.
+ *
+ * The pack used to ship a config per size band (`small-rock` at 3.5,
+ * `large-hazard` at 8, `colossal-a` at 18). Since 2026-08-18 it ships six
+ * SHAPES at one nominal radius and every placement states its own size through
+ * `scale`, so a fixture that cares about a rock's size says so explicitly
+ * instead of encoding it in the config id.
+ *
+ * Both stand-ins are the roundest bodies in the catalogue — a fixture that wants
+ * "a rock of radius R in the way" wants as little silhouette surprise as
+ * possible. Reach for a specific lumpy one (see `asteroidCollision.test.ts`) when
+ * the shape is the point.
+ */
+export const ROCK_LARGE = "asteroid.rock-b";
+export const ROCK_SMALL = "asteroid.rock-f";
+
+/** Placement scale that makes `asteroidId` span `worldRadius` world units. */
+export function rockScaleFor(configs: ConfigService, asteroidId: string, worldRadius: number): number {
+  const cfg = configs.get<AsteroidConfig>("asteroid", asteroidId);
+  if (!cfg) throw new Error(`unknown asteroid config: ${asteroidId}`);
+  return worldRadius / cfg.radius;
 }
 
 /** Rebuild the spatial hash from current asteroid + ship positions (what tick() does). */

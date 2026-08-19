@@ -4,7 +4,7 @@ import type { ConfigService } from "../core/ConfigService.js";
 import { hasLineOfSight, hasLineOfSightAmong, hasLineOfSightBetween } from "./los.js";
 import { pointSegmentDistSq3, segmentIntersectsSphere } from "./math.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs, makeWorld, rebuildSpatial } from "./testutil.js";
+import { INTERCEPTOR_FITTING, ROCK_LARGE, ROCK_SMALL, loadTestConfigs, makeWorld, rebuildSpatial, rockScaleFor } from "./testutil.js";
 
 /**
  * ROADMAP §11 6.1 — "LoS math". `systems/NavigationLos.test.ts` covers the one
@@ -92,7 +92,7 @@ describe("hasLineOfSightAmong (world-free variant used by bots/overlays)", () =>
 
   it("agrees with the World variant for the same geometry", () => {
     const world = makeWorld(configs);
-    const rock = spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 });
+    const rock = spawnAsteroid(world, configs, ROCK_LARGE, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8));
     rebuildSpatial(world);
     const blockers = [{ pos: { x: 0, z: 0 }, radius: world.colliders.get(rock)!.radius }];
     for (const [a, b] of [
@@ -109,7 +109,7 @@ describe("hasLineOfSightAmong (world-free variant used by bots/overlays)", () =>
 describe("hasLineOfSight (World + spatial broadphase)", () => {
   it("finds a blocker on an axis-aligned segment whose query AABB is degenerate", () => {
     const world = makeWorld(configs);
-    spawnAsteroid(world, configs, "asteroid.small-rock", { x: 0, z: 0 }); // radius 3.5
+    spawnAsteroid(world, configs, ROCK_SMALL, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_SMALL, 3.5)); // radius 3.5
     rebuildSpatial(world);
     // Vertical segment: minX === maxX. Horizontal: minZ === maxZ.
     expect(hasLineOfSight(world, { x: 0, z: -30 }, { x: 0, z: 30 })).toBe(false);
@@ -119,7 +119,7 @@ describe("hasLineOfSight (World + spatial broadphase)", () => {
 
   it("does not block on a rock that is inside the query AABB but off the segment", () => {
     const world = makeWorld(configs);
-    spawnAsteroid(world, configs, "asteroid.small-rock", { x: 25, z: -25 }); // corner of the diagonal's AABB
+    spawnAsteroid(world, configs, ROCK_SMALL, { x: 25, z: -25 }, rockScaleFor(configs, ROCK_SMALL, 3.5)); // corner of the diagonal's AABB
     rebuildSpatial(world);
     expect(hasLineOfSight(world, { x: -30, z: -30 }, { x: 30, z: 30 })).toBe(true);
   });
@@ -133,7 +133,7 @@ describe("hasLineOfSight (World + spatial broadphase)", () => {
 
   it("handles a zero-length segment (a point query)", () => {
     const world = makeWorld(configs);
-    spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 }); // radius 8
+    spawnAsteroid(world, configs, ROCK_LARGE, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8)); // radius 8
     rebuildSpatial(world);
     expect(hasLineOfSight(world, { x: 0, z: 0 }, { x: 0, z: 0 })).toBe(false);
     expect(hasLineOfSight(world, { x: 20, z: 0 }, { x: 20, z: 0 })).toBe(true);
@@ -145,7 +145,7 @@ describe("hasLineOfSight (World + spatial broadphase)", () => {
     expect(hasLineOfSight(empty, { x: -50, z: -50 }, { x: 50, z: 50 })).toBe(true);
 
     const world = makeWorld(configs);
-    spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 5, z: 5 });
+    spawnAsteroid(world, configs, ROCK_LARGE, { x: 5, z: 5 }, rockScaleFor(configs, ROCK_LARGE, 8));
     rebuildSpatial(world);
     const a = { x: -40, z: -12 };
     const b = { x: 40, z: 22 };
@@ -156,7 +156,7 @@ describe("hasLineOfSight (World + spatial broadphase)", () => {
 describe("hasLineOfSight in the bubble (BUBBLE.md §A)", () => {
   it("does not block on a rock that is planar-aligned but far below the sight line", () => {
     const world = makeWorld(configs);
-    const rock = spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 }); // radius 8
+    const rock = spawnAsteroid(world, configs, ROCK_LARGE, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8)); // radius 8
     world.transforms.get(rock)!.pos.y = -30;
     rebuildSpatial(world);
 
@@ -168,7 +168,7 @@ describe("hasLineOfSight in the bubble (BUBBLE.md §A)", () => {
 
   it("blocks a climbing shot that passes through a rock above the plane", () => {
     const world = makeWorld(configs);
-    const rock = spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 });
+    const rock = spawnAsteroid(world, configs, ROCK_LARGE, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8));
     world.transforms.get(rock)!.pos.y = 10;
     rebuildSpatial(world);
 
@@ -178,7 +178,7 @@ describe("hasLineOfSight in the bubble (BUBBLE.md §A)", () => {
 
   it("keeps the world-free variant in step with the World one, altitude included", () => {
     const world = makeWorld(configs);
-    const rock = spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 5, z: 0 });
+    const rock = spawnAsteroid(world, configs, ROCK_LARGE, { x: 5, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8));
     world.transforms.get(rock)!.pos.y = 12;
     rebuildSpatial(world);
     const blockers = [{ pos: { x: 5, y: 12, z: 0 }, radius: world.colliders.get(rock)!.radius }];
@@ -196,7 +196,7 @@ describe("hasLineOfSight in the bubble (BUBBLE.md §A)", () => {
 describe("hasLineOfSightBetween (per-tick pair cache)", () => {
   it("caches per unordered pair and re-evaluates once the cache is cleared", () => {
     const world = makeWorld(configs);
-    spawnAsteroid(world, configs, "asteroid.large-hazard", { x: 0, z: 0 });
+    spawnAsteroid(world, configs, ROCK_LARGE, { x: 0, z: 0 }, rockScaleFor(configs, ROCK_LARGE, 8));
     const a = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 0, { x: -30, z: 0 }, 0);
     const b = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, { x: 30, z: 0 }, 0);
     rebuildSpatial(world);

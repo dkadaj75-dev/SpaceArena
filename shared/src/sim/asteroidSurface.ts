@@ -1,5 +1,6 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import { rockOrientationAt, rockSpinFor } from "../collision/rockPose.js";
+import { resolveRockMesh, rockMeshWorldRadius } from "../collision/rockCollider.js";
 import { resolveRockShape, rockWorldRadius, type RockQuat } from "../collision/rockShape.js";
 import type { AsteroidConfig } from "../schemas/asteroid.js";
 import type { AsteroidSnapshot } from "./ArenaSimulation.js";
@@ -37,16 +38,14 @@ const probeQuat: RockQuat = { x: 0, y: 0, z: 0, w: 1 };
 export function makeRockSurfaceProbe(configs: ConfigService): RockSurfaceProbe {
   return (asteroid, toward, elapsedSec) => {
     const config = configs.get<AsteroidConfig>("asteroid", asteroid.configId);
-    if (!config?.shape) return asteroid.colliderRadius ?? asteroid.radius;
-    const shape = resolveRockShape(config.shape);
+    if (!config) return asteroid.colliderRadius ?? asteroid.radius;
+    const mesh = config.shape ? null : resolveRockMesh(config);
+    if (!config.shape && !mesh) return asteroid.colliderRadius ?? asteroid.radius;
     rockOrientationAt(rockSpinFor(asteroid.placementIndex ?? asteroid.id, config.render.spin), asteroid.rotationY ?? 0, elapsedSec, probeQuat);
-    return rockWorldRadius(
-      shape,
-      asteroid.radius,
-      probeQuat,
-      toward.x - asteroid.pos.x,
-      toward.y - asteroid.pos.y,
-      toward.z - asteroid.pos.z,
-    );
+    const dx = toward.x - asteroid.pos.x;
+    const dy = toward.y - asteroid.pos.y;
+    const dz = toward.z - asteroid.pos.z;
+    if (mesh) return rockMeshWorldRadius(mesh, asteroid.radius, probeQuat, dx, dy, dz);
+    return rockWorldRadius(resolveRockShape(config.shape!), asteroid.radius, probeQuat, dx, dy, dz);
   };
 }

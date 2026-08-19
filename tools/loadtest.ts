@@ -186,10 +186,10 @@ function prepareContentPack(options: Options): { dir: string; cleanup: () => voi
     version: 1,
     name: "Load Test",
     teams: "2v2",
-    // The big arena on purpose: 47 asteroids and a radius-300 spatial hash is
-    // the shape production actually runs (FLIGHT.md §6), and it is the case the
+    // The rock field on purpose: 46 mesh-collided asteroids and a radius-126
+    // spatial hash is the shape production actually runs, and it is the case the
     // per-tick collision/broadphase cost has to survive.
-    defaultArena: "arena.deep-field",
+    defaultArena: "arena.ring-nebula",
     // Backstop only: elimination normally ends the match first.
     winCondition: { type: "timeLimit", seconds: options.matchSeconds },
     eliminationEndsMatch: true,

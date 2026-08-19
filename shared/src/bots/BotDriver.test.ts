@@ -55,8 +55,15 @@ function flag(id: number, team: number, x: number, z: number, over: Partial<Flag
   };
 }
 
+/**
+ * A rock as it appears in a SNAPSHOT. The config id is deliberately fictional:
+ * `makeRockSurfaceProbe` falls back to the snapshot's own radius for a config it
+ * cannot resolve, which is the plain-sphere geometry these fixtures are written
+ * against. Naming a shipped rock would silently swap in that rock's mesh surface
+ * and move every clearance below.
+ */
 function rock(id: number, x: number, z: number, radius = 8): AsteroidSnapshot {
-  return { id, configId: "asteroid.large-hazard", pos: { x, y: 0, z }, radius, state: "intact" };
+  return { id, configId: "asteroid.fixture-sphere", pos: { x, y: 0, z }, radius, state: "intact" };
 }
 
 function profile(over: Record<string, unknown>): BotprofileConfig {
@@ -301,7 +308,7 @@ describe("BotDriver flight orders", () => {
     });
     const colossal = {
       ...rock(3, 0, 0, 25.2),
-      configId: "asteroid.colossal-a",
+      configId: "asteroid.fixture-sphere",
       colliderRadius: 23.94,
     };
     const pinned = snap([

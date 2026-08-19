@@ -359,8 +359,9 @@ function buildModuleFamily(scene: Scene, palette: Palette, family: string): Mesh
 
 /**
  * Icosphere + per-vertex noise displacement, shared by both asteroid recipes.
- * `subdivisions` and `displacement` let small-rock/large-hazard reuse one
- * builder with different roughness while keeping materials shared per palette.
+ * `subdivisions` and `displacement` let the small and large rock recipes reuse
+ * one builder with different roughness while keeping materials shared per
+ * palette.
  */
 function buildRock(
   scene: Scene,
@@ -1043,7 +1044,7 @@ export class AssetRegistry {
   /**
    * LOD for a shaped rock: the SAME body at fewer subdivisions, sharing the
    * master's material. Unlike the old icosphere stand-ins this cannot change the
-   * silhouette's identity — a spindle stays a spindle at range instead of
+   * silhouette's identity — a splinter stays a splinter at range instead of
    * popping into a ball — and unlike a GLB's LOD it needs no second material,
    * because box-projected UVs are generated identically at any detail.
    */

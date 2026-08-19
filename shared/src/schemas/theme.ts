@@ -879,8 +879,9 @@ export const themeSchema = z.object({
       /**
        * World-space half-extent shown on the minimap (units from center).
        * OMIT IT and the minimap fits the arena's own bounds — which is what
-       * you want once arenas differ in size (ring-nebula 90 vs deep-field 300,
-       * FLIGHT.md §6). Set it only to deliberately crop or zoom out.
+       * you want once arenas differ in size (the Ring's radius-126 bubble vs
+       * lunar-rift's box, FLIGHT.md §6). Set it only to deliberately crop or
+       * zoom out.
        */
       minimapRangeUnits: z.number().positive().optional(),
       /**
