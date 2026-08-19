@@ -149,8 +149,8 @@ export class Lobby {
   }
 
   /**
-   * One Play list: every online gamemode, followed by the offline Tutorial.
-   * Fleet destinations keep their own accent-marked section.
+   * Online modes, Fleet destinations, and the offline Tutorial each keep their
+   * own section.
    */
   private buildSections(): void {
     const gamemodes = this.configs.getAll<GamemodeConfig>("gamemode");
@@ -163,14 +163,15 @@ export class Lobby {
     }
     const fleet = this.section("Fleet", "accent");
     this.addButton(fleet, "Hangar", () => this.callbacks.onHangarRequested(), false, "accent", "hangar");
-    // Directly below the Hangar, and only when the pack actually ships one:
-    // the tutorial is a content config, so a pack without it has no button.
-    if (this.hasTutorial()) {
-      this.addButton(fleet, TUTORIAL_LABEL, () => this.choose({ kind: "tutorial" }), false, undefined, "tutorial");
-    }
     // Offline-capable like the Hangar: the ledger is local without an account,
     // so a pilot with no login can still buy (contract §3).
     this.addButton(fleet, "Shop", () => this.callbacks.onShopRequested(), false, "accent", "shop");
+
+    // The tutorial is a content config, so a pack without it has no button.
+    if (this.hasTutorial()) {
+      const training = this.section("Training", "primary");
+      this.addButton(training, TUTORIAL_LABEL, () => this.choose({ kind: "tutorial" }), false, undefined, "tutorial");
+    }
   }
 
   private section(title: string, accent: "primary" | "accent"): HTMLDivElement {

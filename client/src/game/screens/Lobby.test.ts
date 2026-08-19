@@ -154,13 +154,15 @@ describe("Lobby tutorial entry", () => {
     });
   }
 
-  it("shelves the tutorial in the Fleet section, directly below the Hangar", () => {
+  it("places the tutorial in the final Training section", () => {
     const lobby = mount(tutorialConfigs(), vi.fn());
     const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
     expect([...play.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Tutorial");
     const fleet = document.querySelector<HTMLElement>('[data-section="fleet"]')!;
-    const labels = [...fleet.querySelectorAll("button")].map((b) => b.textContent);
-    expect(labels.indexOf("Tutorial")).toBe(labels.indexOf("Hangar") + 1);
+    expect([...fleet.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Tutorial");
+    const sections = [...document.querySelectorAll<HTMLElement>(".sa-menu-section")];
+    expect(sections.map((section) => section.dataset["section"])).toEqual(["play", "fleet", "training"]);
+    expect([...sections[2]!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Tutorial"]);
     lobby.hide();
   });
 
