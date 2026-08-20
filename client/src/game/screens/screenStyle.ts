@@ -629,6 +629,8 @@ const CSS = `
   clip-path: polygon(7px 0%, 100% 0%, calc(100% - 7px) 100%, 0% 100%);
 }
 .sa-menu-offline-badge.visible { display: flex; }
+/* Its own line above the grid, and never wider than the grid it explains. */
+.sa-menu-sections > .sa-menu-offline-badge { align-self: center; max-width: min(1080px, 100%); }
 .sa-menu-offline-badge .dot {
   flex: 0 0 auto;
   width: 7px;

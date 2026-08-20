@@ -177,9 +177,13 @@ export class Lobby {
   private buildSections(): void {
     const gamemodes = this.configs.getAll<GamemodeConfig>("gamemode");
 
+    // The badge is about the SERVER, not about one group, so it sits above the
+    // whole grid rather than inside it — as a child of the wrapping grid it
+    // shared a row with the first group and sat on its heading.
+    this.sections.append(this.offlineBadge);
+
     const play = document.createElement("div");
     play.className = "sa-menu-play";
-    play.append(this.offlineBadge);
 
     for (const group of menuGroups(gamemodes)) {
       const box = document.createElement("div");
