@@ -20,8 +20,8 @@ function paintOf(s: ArenaSimulation, id: number): string | undefined {
 describe("cosmetic replication — offline spawn seam", () => {
   it("carries an equipped paint onto the ship snapshot", () => {
     const s = sim();
-    const id = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-interceptor-crimson");
-    expect(paintOf(s, id)).toBe("cosmetic.paint-interceptor-crimson");
+    const id = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-interceptor-red");
+    expect(paintOf(s, id)).toBe("cosmetic.paint-interceptor-red");
   });
 
   it("replicates the hull base paint for no selection", () => {
@@ -34,18 +34,18 @@ describe("cosmetic replication — offline spawn seam", () => {
     const s = sim();
     const bogus = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-nonexistent");
     // The Ironclad paint targets ship.brawler.
-    const wrongHull = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-brawler-ironclad");
+    const wrongHull = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-brawler-red");
     expect(paintOf(s, bogus)).toBe("cosmetic.paint-interceptor-standard");
     expect(paintOf(s, wrongHull)).toBe("cosmetic.paint-interceptor-standard");
   });
 
   it("keeps the paint across a respawn — the record, not the entity, wears it", () => {
     const s = sim();
-    const id = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-interceptor-void");
-    expect(paintOf(s, id)).toBe("cosmetic.paint-interceptor-void");
+    const id = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-interceptor-blue");
+    expect(paintOf(s, id)).toBe("cosmetic.paint-interceptor-blue");
     s.removeShip(id);
-    const again = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-interceptor-void");
-    expect(paintOf(s, again)).toBe("cosmetic.paint-interceptor-void");
+    const again = s.spawnPlayer("ship.interceptor", INTERCEPTOR_FITTING, 0, undefined, "cosmetic.paint-interceptor-blue");
+    expect(paintOf(s, again)).toBe("cosmetic.paint-interceptor-blue");
   });
 });
 

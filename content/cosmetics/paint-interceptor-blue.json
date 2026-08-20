@@ -1,13 +1,19 @@
 {
-  "id": "cosmetic.paint-interceptor-standard",
+  "id": "cosmetic.paint-interceptor-blue",
   "type": "cosmetic",
   "version": 2,
-  "name": "Standard Issue",
+  "name": "Blue",
   "kind": "paint",
   "price": 0,
   "target": "ship.interceptor",
   "paint": {
     "primary": "#2f6fb8",
     "accent": "#57d8ff"
-  }
+  },
+  "materials": [
+    {
+      "material": "HUM_LGT_Shell_White",
+      "channel": "primary"
+    }
+  ]
 }

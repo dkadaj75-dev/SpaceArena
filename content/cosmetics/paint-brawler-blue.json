@@ -1,0 +1,23 @@
+{
+  "id": "cosmetic.paint-brawler-blue",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Blue",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.brawler",
+  "paint": {
+    "primary": "#2f6fb8",
+    "accent": "#57d8ff"
+  },
+  "materials": [
+    {
+      "material": "HULL_PRIMARY",
+      "channel": "primary"
+    },
+    {
+      "material": "PANEL_SECONDARY",
+      "channel": "accent"
+    }
+  ]
+}

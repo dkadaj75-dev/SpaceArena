@@ -8,6 +8,7 @@ import { AssetEditor } from "./AssetEditor.js";
 import { ActionEditor } from "./ActionEditor.js";
 import { NotificationEditor } from "./NotificationEditor.js";
 import { ShipManager } from "./ShipManager.js";
+import { SkinEditor } from "./SkinEditor.js";
 import { BalanceWorkbench } from "./BalanceWorkbench.js";
 import { BotProfileEditor } from "./BotProfileEditor.js";
 import { GamemodeEditor } from "./GamemodeEditor.js";
@@ -86,6 +87,7 @@ const PANEL_GROUPS: Record<string, string> = {
   Map: "World",
   Inspector: "World",
   Ships: "Ships",
+  Skins: "Ships",
   Modules: "Ships",
   Assets: "Content",
   Actions: "Content",
@@ -117,6 +119,7 @@ const ARENA_VISIBLE_TABS: Record<string, boolean> = {
   Theme: true,
   Quality: true,
   Ships: false,
+  Skins: false,
   Assets: false,
   Balance: false,
 };
@@ -220,6 +223,7 @@ export class EditorShell {
     this.registerPanel("Inspector", (host, report) => arenaInspector(host, report));
     this.registerPanel("Tuning", (h, report) => new TuningPanel(h, report));
     this.registerPanel("Ships", (h, report) => new ShipManager(h, report));
+    this.registerPanel("Skins", (h, report) => new SkinEditor(h, report));
     this.registerPanel("Balance", (h, report) => new BalanceWorkbench(h, report));
     this.registerPanel("Assets", (h, report) => new AssetEditor(h, report));
     this.registerPanel("Actions", (h, report) => new ActionEditor(h, report));

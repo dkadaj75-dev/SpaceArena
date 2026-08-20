@@ -1,8 +1,8 @@
-import { Color3, NullEngine, Scene, StandardMaterial, MeshBuilder } from "@babylonjs/core";
+import { Color3, MultiMaterial, NullEngine, Scene, StandardMaterial, MeshBuilder, type Mesh } from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 import type { ShipSnapshot } from "@space-arena/shared";
-import { shopConfigs } from "./__fixtures__/shopContent.js";
-import { cosmeticIdOf, paintSlotOf, ShipPaintBank, tintMaterial } from "./shipPaint.js";
+import { COSMETICS, shopConfigs, TARGETED_COSMETICS } from "./__fixtures__/shopContent.js";
+import { cosmeticIdOf, paintSlotOf, ShipPaintBank, slotPlanFor, tintMaterial } from "./shipPaint.js";
 
 const CRIMSON = { primary: "#7a1f2b", accent: "#e0546a", emissive: "#ff8a3d" };
 
@@ -78,7 +78,7 @@ describe("painted masters", () => {
     mat.emissiveColor = new Color3(0.05, 0.13, 0.15);
     master.material = mat;
     master.setEnabled(false);
-    return { bank: new ShipPaintBank(scene, shopConfigs()), scene, master };
+    return { bank: new ShipPaintBank(scene, shopConfigs([...COSMETICS, ...TARGETED_COSMETICS])), scene, master };
   }
 
   it("hands the base master back for an absent or unknown cosmetic", () => {
@@ -142,5 +142,111 @@ describe("snapshot cosmetic id", () => {
     );
     expect(cosmeticIdOf({ id: 1 } as unknown as ShipSnapshot)).toBeNull();
     expect(cosmeticIdOf({ id: 1, cosmeticId: "" } as unknown as ShipSnapshot)).toBeNull();
+  });
+});
+
+describe("authored material targeting", () => {
+  const targeted = {
+    materials: [
+      { material: "SHELL_WHITE", channel: "primary" as const },
+      { material: "trim_plate", channel: "accent" as const, patterned: true },
+    ],
+  };
+
+  it("reads the channel off the authored list, not off the material name", () => {
+    // "trim_plate" would be trim by name anyway; "SHELL_WHITE" would NOT be
+    // primary by index if it landed anywhere but slot 0. The list decides.
+    expect(slotPlanFor(targeted, "SHELL_WHITE", 4)).toEqual({ slot: "hull", patterned: false });
+    expect(slotPlanFor(targeted, "trim_plate", 0)).toEqual({ slot: "trim", patterned: true });
+  });
+
+  it("matches material names case-insensitively", () => {
+    expect(slotPlanFor(targeted, "shell_white", 0).slot).toBe("hull");
+  });
+
+  it("leaves every material the list does not name completely alone", () => {
+    expect(slotPlanFor(targeted, "CANOPY_GLASS", 0)).toEqual({ slot: "none", patterned: false });
+    expect(slotPlanFor(targeted, "ENGINE_GLOW", 1)).toEqual({ slot: "none", patterned: false });
+    // An EMPTY list is still a list: it paints nothing at all.
+    expect(slotPlanFor({ materials: [] }, "SHELL_WHITE", 0).slot).toBe("none");
+  });
+
+  it("falls back to the name heuristics when a paint names no materials", () => {
+    expect(slotPlanFor({}, "HUM_engine_glow", 0)).toEqual({ slot: "glow", patterned: false });
+    expect(slotPlanFor({}, "mat.hull", 0)).toEqual({ slot: "hull", patterned: false });
+  });
+
+  it("is a no-op on an untargeted slot", () => {
+    const mat = mockMaterial();
+    const before = { diffuse: mat.diffuseColor.toHexString(), emissive: mat.emissiveColor.toHexString() };
+    tintMaterial(mat, "none", CRIMSON);
+    expect(mat.diffuseColor.toHexString()).toBe(before.diffuse);
+    expect(mat.emissiveColor.toHexString()).toBe(before.emissive);
+  });
+
+  it("keeps an authored hull tint out of the emissive channel", () => {
+    // The glow bleed exists for one-slot procedural recipes. A paint that NAMES
+    // its materials means that plate and nothing else — including its glow.
+    const mat = mockMaterial({ emissiveColor: new Color3(0.4, 0.4, 0.4) });
+    tintMaterial(mat, "hull", CRIMSON, { bleedGlow: false });
+    expect(mat.diffuseColor.toHexString().toLowerCase()).toBe("#7a1f2b");
+    expect(mat.emissiveColor.toHexString()).toBe(new Color3(0.4, 0.4, 0.4).toHexString());
+  });
+});
+
+describe("painting a multi-material hull", () => {
+  /** A merged GLB hull: one MultiMaterial, one slot per authored material. */
+  function multiHull(): { bank: ShipPaintBank; master: Mesh; slots: StandardMaterial[] } {
+    const scene = new Scene(new NullEngine());
+    const master = MeshBuilder.CreateBox("master.human_light", { size: 1 }, scene);
+    const names = ["SHELL_WHITE", "CANOPY_GLASS", "ENGINE_GLOW"];
+    const slots = names.map((name, index) => {
+      const mat = new StandardMaterial(name, scene);
+      mat.diffuseColor = new Color3(0.8, 0.8, 0.8);
+      mat.emissiveColor = index === 2 ? new Color3(0.2, 0.5, 1) : new Color3(0, 0, 0);
+      return mat;
+    });
+    const multi = new MultiMaterial("hull.multi", scene);
+    multi.subMaterials = slots;
+    master.material = multi;
+    master.setEnabled(false);
+    return { bank: new ShipPaintBank(scene, shopConfigs([...COSMETICS, ...TARGETED_COSMETICS])), master, slots };
+  }
+
+  it("tints only the named material and SHARES the untouched ones with the base", () => {
+    const { bank, master, slots } = multiHull();
+    const painted = bank.masterFor(master, "cosmetic.paint-interceptor-shellonly");
+    const subs = (painted.material as MultiMaterial).subMaterials as StandardMaterial[];
+
+    expect(subs[0]!.diffuseColor.toHexString().toLowerCase()).toBe("#c81f2b");
+    // Not a tinted copy, not a copy at all: the canopy and the engine bloom are
+    // the very same material objects the unpainted hull draws with.
+    expect(subs[1]).toBe(slots[1]);
+    expect(subs[2]).toBe(slots[2]);
+    // And the base master's own shell is untouched.
+    expect(slots[0]!.diffuseColor.toHexString().toLowerCase()).toBe("#cccccc");
+    bank.dispose();
+  });
+
+  it("never lets an authored paint brighten an untargeted engine glow", () => {
+    const { bank, master, slots } = multiHull();
+    const before = slots[2]!.emissiveColor.toHexString();
+    const painted = bank.masterFor(master, "cosmetic.paint-interceptor-shellonly");
+    const subs = (painted.material as MultiMaterial).subMaterials as StandardMaterial[];
+    expect(subs[2]!.emissiveColor.toHexString()).toBe(before);
+    bank.dispose();
+  });
+
+  it("still colours the targeted plate when a patterned paint cannot draw its texture", () => {
+    // Headless hosts have no 2D canvas, so the zebra stripes cannot be drawn.
+    // A skin that degrades to its flat primary is duller; a hull that renders
+    // untinted (or not at all) is a bug.
+    const { bank, master } = multiHull();
+    const painted = bank.masterFor(master, "cosmetic.paint-interceptor-zebra");
+    const subs = (painted.material as MultiMaterial).subMaterials as StandardMaterial[];
+    const shell = subs[0]!;
+    const drewStripes = shell.diffuseTexture !== null;
+    expect(shell.diffuseColor.toHexString().toLowerCase()).toBe(drewStripes ? "#ffffff" : "#f2f2f0");
+    bank.dispose();
   });
 });

@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-support-blue",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Blue",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.support",
+  "paint": {
+    "primary": "#2f6fb8",
+    "accent": "#57d8ff"
+  },
+  "materials": [
+    {
+      "material": "HULL_BODY",
+      "channel": "primary"
+    }
+  ]
+}

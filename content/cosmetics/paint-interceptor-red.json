@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-interceptor-red",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Red",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.interceptor",
+  "paint": {
+    "primary": "#b8342f",
+    "accent": "#ff7a57"
+  },
+  "materials": [
+    {
+      "material": "HUM_LGT_Shell_White",
+      "channel": "primary"
+    }
+  ]
+}

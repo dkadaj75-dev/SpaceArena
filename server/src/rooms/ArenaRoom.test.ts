@@ -981,21 +981,21 @@ describe("ArenaRoom", () => {
     it("replicates an owned, applicable paint and falls back to the DB selection", async () => {
       usersRepo.create({ id: "u-paint", email: null, pass_hash: null, guest_token: "gt-paint" });
       seedNewUser(configs, "u-paint", "Painter");
-      ownedCosmeticsRepo.grant("u-paint", "cosmetic.paint-interceptor-crimson");
+      ownedCosmeticsRepo.grant("u-paint", "cosmetic.paint-interceptor-red");
       const token = signAccessToken("u-paint");
 
       const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
-      const c = await colyseus.connectTo(room, { token, shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-interceptor-crimson" });
+      const c = await colyseus.connectTo(room, { token, shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-interceptor-red" });
       await advance(room, 1);
-      expect(room.state.players.get(c.sessionId)!.cosmeticId).toBe("cosmetic.paint-interceptor-crimson");
+      expect(room.state.players.get(c.sessionId)!.cosmeticId).toBe("cosmetic.paint-interceptor-red");
       await c.leave();
 
       // No join-option paint: the account's saved selection is what flies.
-      selectedCosmeticsRepo.set("u-paint", "ship.interceptor", "cosmetic.paint-interceptor-crimson");
+      selectedCosmeticsRepo.set("u-paint", "ship.interceptor", "cosmetic.paint-interceptor-red");
       const room2 = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
       const c2 = await colyseus.connectTo(room2, { token, shipId: "ship.interceptor" });
       await advance(room2, 1);
-      expect(room2.state.players.get(c2.sessionId)!.cosmeticId).toBe("cosmetic.paint-interceptor-crimson");
+      expect(room2.state.players.get(c2.sessionId)!.cosmeticId).toBe("cosmetic.paint-interceptor-red");
       await c2.leave();
     });
 
@@ -1003,10 +1003,10 @@ describe("ArenaRoom", () => {
       usersRepo.create({ id: "u-nopaint", email: null, pass_hash: null, guest_token: "gt-nopaint" });
       seedNewUser(configs, "u-nopaint", "Bare");
       // Owned but authored for ship.brawler only.
-      ownedCosmeticsRepo.grant("u-nopaint", "cosmetic.paint-brawler-ironclad");
+      ownedCosmeticsRepo.grant("u-nopaint", "cosmetic.paint-brawler-red");
       const token = signAccessToken("u-nopaint");
 
-      for (const cosmeticId of ["cosmetic.paint-violet", "cosmetic.paint-nonexistent", "cosmetic.paint-brawler-ironclad"]) {
+      for (const cosmeticId of ["cosmetic.paint-violet", "cosmetic.paint-nonexistent", "cosmetic.paint-brawler-red"]) {
         const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
         const c = await colyseus.connectTo(room, { token, shipId: "ship.interceptor", cosmeticId });
         await advance(room, 1);
@@ -1017,7 +1017,7 @@ describe("ArenaRoom", () => {
 
     it("gives an anonymous join no paint at all — it owns nothing to wear", async () => {
       const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
-      const c = await colyseus.connectTo(room, { shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-interceptor-crimson" });
+      const c = await colyseus.connectTo(room, { shipId: "ship.interceptor", cosmeticId: "cosmetic.paint-interceptor-red" });
       await advance(room, 1);
       expect(room.state.players.get(c.sessionId)!.cosmeticId).toBe("");
       await c.leave();

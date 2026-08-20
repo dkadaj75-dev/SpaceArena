@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-support-white",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "White",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.support",
+  "paint": {
+    "primary": "#eef2f6",
+    "accent": "#aab6c2"
+  },
+  "materials": [
+    {
+      "material": "HULL_BODY",
+      "channel": "primary"
+    }
+  ]
+}

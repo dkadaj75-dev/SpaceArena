@@ -85,33 +85,33 @@ describe("ownership store — offline backing", () => {
 
     await store.buyShip("ship.brawler");
     await store.buyModule("module.laser-mk2");
-    await store.buyCosmetic("cosmetic.paint-interceptor-crimson");
+    await store.buyCosmetic("cosmetic.paint-interceptor-red");
     expect(store.ownedShips().has("ship.brawler")).toBe(true);
     expect(store.ownedModules().has("module.laser-mk2")).toBe(true);
-    expect(store.ownedCosmetics().has("cosmetic.paint-interceptor-crimson")).toBe(true);
+    expect(store.ownedCosmetics().has("cosmetic.paint-interceptor-red")).toBe(true);
 
-    await store.selectCosmetic(STARTER_SHIP_ID, "cosmetic.paint-interceptor-crimson");
-    expect(store.selectedCosmetic(STARTER_SHIP_ID)).toBe("cosmetic.paint-interceptor-crimson");
+    await store.selectCosmetic(STARTER_SHIP_ID, "cosmetic.paint-interceptor-red");
+    expect(store.selectedCosmetic(STARTER_SHIP_ID)).toBe("cosmetic.paint-interceptor-red");
     expect(changes).toHaveBeenCalledTimes(4);
 
     off();
-    await store.buyCosmetic("cosmetic.paint-interceptor-violet");
+    await store.buyCosmetic("cosmetic.paint-interceptor-yellow");
     expect(changes).toHaveBeenCalledTimes(4); // unsubscribed
   });
 
   it("refuses to equip a paint that does not apply to the hull", async () => {
     const store = createOwnershipStore({ api: null, configs });
     await store.refresh();
-    await store.buyCosmetic("cosmetic.paint-brawler-ironclad");
-    await expect(store.selectCosmetic(STARTER_SHIP_ID, "cosmetic.paint-brawler-ironclad")).rejects.toThrow();
+    await store.buyCosmetic("cosmetic.paint-brawler-red");
+    await expect(store.selectCosmetic(STARTER_SHIP_ID, "cosmetic.paint-brawler-red")).rejects.toThrow();
     expect(store.selectedCosmetic(STARTER_SHIP_ID)).toBe("cosmetic.paint-interceptor-standard");
   });
 
   it("equips the hull-scoped base paint", async () => {
     const store = createOwnershipStore({ api: null, configs });
     await store.refresh();
-    await store.buyCosmetic("cosmetic.paint-interceptor-void");
-    await store.selectCosmetic(STARTER_SHIP_ID, "cosmetic.paint-interceptor-void");
+    await store.buyCosmetic("cosmetic.paint-interceptor-blue");
+    await store.selectCosmetic(STARTER_SHIP_ID, "cosmetic.paint-interceptor-blue");
     await store.selectCosmetic(STARTER_SHIP_ID, "cosmetic.paint-interceptor-standard");
     expect(store.selectedCosmetic(STARTER_SHIP_ID)).toBe("cosmetic.paint-interceptor-standard");
   });
@@ -130,9 +130,9 @@ describe("ownership store — authenticated backing", () => {
     expect(store.ownedShips().has("ship.support")).toBe(true);
 
     inventory.cosmetics.push("cosmetic.paint-support-standard");
-    await store.buyCosmetic("cosmetic.paint-support-jade");
-    await store.selectCosmetic("ship.support", "cosmetic.paint-support-jade");
-    expect(store.selectedCosmetic("ship.support")).toBe("cosmetic.paint-support-jade");
+    await store.buyCosmetic("cosmetic.paint-support-blue");
+    await store.selectCosmetic("ship.support", "cosmetic.paint-support-blue");
+    expect(store.selectedCosmetic("ship.support")).toBe("cosmetic.paint-support-blue");
   });
 
   it("does not touch the local ledger while signed in", async () => {
@@ -160,7 +160,7 @@ describe("ownership store — authenticated backing", () => {
     );
     const store = createOwnershipStore({ api, configs });
     await store.refresh();
-    await expect(store.buyCosmetic("cosmetic.paint-interceptor-violet")).rejects.toThrow(HangarApiError);
+    await expect(store.buyCosmetic("cosmetic.paint-interceptor-yellow")).rejects.toThrow(HangarApiError);
   });
 
   it("ignores a stale server selection the pilot no longer owns or may not wear", async () => {
@@ -170,8 +170,8 @@ describe("ownership store — authenticated backing", () => {
     await store.refresh();
     expect(store.selectedCosmetic("ship.interceptor")).toBe("cosmetic.paint-interceptor-standard");
 
-    inventory.cosmetics.push("cosmetic.paint-brawler-ironclad");
-    inventory.selections["ship.interceptor"] = "cosmetic.paint-brawler-ironclad";
+    inventory.cosmetics.push("cosmetic.paint-brawler-red");
+    inventory.selections["ship.interceptor"] = "cosmetic.paint-brawler-red";
     await store.refresh();
     expect(store.selectedCosmetic("ship.interceptor")).toBe("cosmetic.paint-interceptor-standard");
   });

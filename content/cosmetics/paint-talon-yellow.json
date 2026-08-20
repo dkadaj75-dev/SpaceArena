@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-talon-yellow",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Yellow",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.talon",
+  "paint": {
+    "primary": "#e3b325",
+    "accent": "#ffd97a"
+  },
+  "materials": [
+    {
+      "material": "material",
+      "channel": "primary"
+    }
+  ]
+}

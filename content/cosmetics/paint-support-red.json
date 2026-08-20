@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-support-red",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Red",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.support",
+  "paint": {
+    "primary": "#b8342f",
+    "accent": "#ff7a57"
+  },
+  "materials": [
+    {
+      "material": "HULL_BODY",
+      "channel": "primary"
+    }
+  ]
+}

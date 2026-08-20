@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-interceptor-white",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "White",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.interceptor",
+  "paint": {
+    "primary": "#eef2f6",
+    "accent": "#aab6c2"
+  },
+  "materials": [
+    {
+      "material": "HUM_LGT_Shell_White",
+      "channel": "primary"
+    }
+  ]
+}

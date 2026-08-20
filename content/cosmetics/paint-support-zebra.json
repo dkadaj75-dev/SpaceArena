@@ -1,0 +1,23 @@
+{
+  "id": "cosmetic.paint-support-zebra",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Zebra",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.support",
+  "paint": {
+    "primary": "#f2f2f0",
+    "accent": "#1b1c20",
+    "pattern": "zebra",
+    "patternColor": "#16171b",
+    "patternScale": 2
+  },
+  "materials": [
+    {
+      "material": "HULL_BODY",
+      "channel": "primary",
+      "patterned": true
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "cosmetic.paint-brawler-rusty",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Rusty",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.brawler",
+  "paint": {
+    "primary": "#9a6b4a",
+    "accent": "#4a3325",
+    "pattern": "rust",
+    "patternColor": "#7a3512",
+    "patternScale": 3
+  },
+  "materials": [
+    {
+      "material": "HULL_PRIMARY",
+      "channel": "primary",
+      "patterned": true
+    },
+    {
+      "material": "PANEL_SECONDARY",
+      "channel": "accent"
+    }
+  ]
+}

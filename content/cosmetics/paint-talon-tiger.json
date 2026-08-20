@@ -1,0 +1,23 @@
+{
+  "id": "cosmetic.paint-talon-tiger",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Tiger",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.talon",
+  "paint": {
+    "primary": "#e08a1e",
+    "accent": "#2a1a0a",
+    "pattern": "tiger",
+    "patternColor": "#1c1208",
+    "patternScale": 2
+  },
+  "materials": [
+    {
+      "material": "material",
+      "channel": "primary",
+      "patterned": true
+    }
+  ]
+}

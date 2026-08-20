@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-talon-white",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "White",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.talon",
+  "paint": {
+    "primary": "#eef2f6",
+    "accent": "#aab6c2"
+  },
+  "materials": [
+    {
+      "material": "material",
+      "channel": "primary"
+    }
+  ]
+}

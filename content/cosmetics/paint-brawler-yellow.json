@@ -1,0 +1,23 @@
+{
+  "id": "cosmetic.paint-brawler-yellow",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Yellow",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.brawler",
+  "paint": {
+    "primary": "#e3b325",
+    "accent": "#ffd97a"
+  },
+  "materials": [
+    {
+      "material": "HULL_PRIMARY",
+      "channel": "primary"
+    },
+    {
+      "material": "PANEL_SECONDARY",
+      "channel": "accent"
+    }
+  ]
+}

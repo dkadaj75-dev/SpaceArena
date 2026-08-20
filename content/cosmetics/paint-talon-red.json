@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-talon-red",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Red",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.talon",
+  "paint": {
+    "primary": "#b8342f",
+    "accent": "#ff7a57"
+  },
+  "materials": [
+    {
+      "material": "material",
+      "channel": "primary"
+    }
+  ]
+}

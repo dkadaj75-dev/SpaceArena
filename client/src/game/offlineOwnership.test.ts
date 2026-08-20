@@ -102,23 +102,23 @@ describe("offline ownership (owner 2026-07-31)", () => {
 
   it("derives the starter hull's base paint as owned and selected", () => {
     expect(ownsCosmetic(configs, "cosmetic.paint-interceptor-standard")).toBe(true);
-    expect(ownsCosmetic(configs, "cosmetic.paint-interceptor-crimson")).toBe(false);
+    expect(ownsCosmetic(configs, "cosmetic.paint-interceptor-red")).toBe(false);
     expect([...ownedCosmetics(configs)]).toEqual(["cosmetic.paint-interceptor-standard"]);
     expect(selectedCosmetic(configs, STARTER_SHIP_ID)).toBe("cosmetic.paint-interceptor-standard");
   });
 
   it("records a paint purchase and equips it per hull, surviving a reload", () => {
-    buyCosmeticLocal("cosmetic.paint-interceptor-crimson");
-    buyCosmeticLocal("cosmetic.paint-interceptor-crimson");
-    selectCosmeticLocal(configs, STARTER_SHIP_ID, "cosmetic.paint-interceptor-crimson");
-    expect(ownsCosmetic(configs, "cosmetic.paint-interceptor-crimson")).toBe(true);
-    expect(selectedCosmetic(configs, STARTER_SHIP_ID)).toBe("cosmetic.paint-interceptor-crimson");
+    buyCosmeticLocal("cosmetic.paint-interceptor-red");
+    buyCosmeticLocal("cosmetic.paint-interceptor-red");
+    selectCosmeticLocal(configs, STARTER_SHIP_ID, "cosmetic.paint-interceptor-red");
+    expect(ownsCosmetic(configs, "cosmetic.paint-interceptor-red")).toBe(true);
+    expect(selectedCosmetic(configs, STARTER_SHIP_ID)).toBe("cosmetic.paint-interceptor-red");
     // A fresh read is all a reload amounts to here.
     expect(selectedCosmetic(configs, "ship.brawler")).toBe("cosmetic.paint-brawler-standard");
   });
 
   it("refuses to equip a paint that was never bought", () => {
-    selectCosmeticLocal(configs, STARTER_SHIP_ID, "cosmetic.paint-interceptor-void");
+    selectCosmeticLocal(configs, STARTER_SHIP_ID, "cosmetic.paint-interceptor-blue");
     expect(selectedCosmetic(configs, STARTER_SHIP_ID)).toBe("cosmetic.paint-interceptor-standard");
   });
 
@@ -137,20 +137,20 @@ describe("offline ownership (owner 2026-07-31)", () => {
     expect([...ownedCosmetics(configs)].sort()).toEqual(["cosmetic.paint-brawler-standard", "cosmetic.paint-interceptor-standard"].sort());
 
     // The next write upgrades the record in place; nothing older is lost.
-    buyCosmeticLocal("cosmetic.paint-brawler-solar");
+    buyCosmeticLocal("cosmetic.paint-brawler-yellow");
     const stored = JSON.parse(localStorage.getItem("hangar.owned")!) as Record<string, unknown>;
     expect(stored.v).toBe(2);
     expect(stored.ships).toEqual(["ship.brawler"]);
     expect(stored.modules).toEqual(["module.laser-mk2"]);
-    expect(ownsCosmetic(configs, "cosmetic.paint-brawler-solar")).toBe(true);
+    expect(ownsCosmetic(configs, "cosmetic.paint-brawler-yellow")).toBe(true);
   });
 
   it("ignores junk selections rather than crashing", () => {
     localStorage.setItem(
       "hangar.owned",
-      JSON.stringify({ v: 2, cosmetics: ["cosmetic.paint-interceptor-void", 7], selections: { "ship.interceptor": 42 } }),
+      JSON.stringify({ v: 2, cosmetics: ["cosmetic.paint-interceptor-blue", 7], selections: { "ship.interceptor": 42 } }),
     );
-    expect([...ownedCosmetics(configs)].sort()).toEqual(["cosmetic.paint-interceptor-standard", "cosmetic.paint-interceptor-void"].sort());
+    expect([...ownedCosmetics(configs)].sort()).toEqual(["cosmetic.paint-interceptor-standard", "cosmetic.paint-interceptor-blue"].sort());
     expect(selectedCosmetic(configs, "ship.interceptor")).toBe("cosmetic.paint-interceptor-standard");
   });
 

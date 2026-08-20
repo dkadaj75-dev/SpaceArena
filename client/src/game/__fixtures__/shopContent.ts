@@ -1,7 +1,7 @@
 import type { ConfigService, ModuleConfig, ShipConfig } from "@space-arena/shared";
 import type { CosmeticConfig } from "../cosmetics.js";
 
-/** A minimal shipped-pack stand-in: two hulls, three modules, three paints. */
+/** A minimal shipped-pack stand-in: two hulls, three modules, four paints. */
 export const SHIPS = [
   ship("ship.interceptor", "Interceptor", "light", 120, 27, 3, 10),
   ship("ship.brawler", "Brawler", "heavy", 260, 18, 1.6, 16),
@@ -22,6 +22,28 @@ export const COSMETICS: CosmeticConfig[] = [
   paint("cosmetic.paint-interceptor-lance", "Lance Livery", "ship.interceptor", {
     primary: "#1d3f2e", accent: "#8ce0a8",
   }),
+];
+
+/**
+ * Paints that NAME the materials they touch — the shop screens never show these
+ * (their card assertions pin the catalogue above), but the renderer's tests do:
+ * a targeted paint has to reach the shell plates and nothing else.
+ */
+export const TARGETED_COSMETICS: CosmeticConfig[] = [
+  paint(
+    "cosmetic.paint-interceptor-shellonly",
+    "Shell Only",
+    "ship.interceptor",
+    { primary: "#c81f2b", accent: "#e0546a", emissive: "#ff8a3d" },
+    [{ material: "SHELL_WHITE", channel: "primary" }],
+  ),
+  paint(
+    "cosmetic.paint-interceptor-zebra",
+    "Zebra",
+    "ship.interceptor",
+    { primary: "#f2f2f0", accent: "#1b1c20", pattern: "zebra", patternColor: "#16171b", patternScale: 2 },
+    [{ material: "SHELL_WHITE", channel: "primary", patterned: true }],
+  ),
 ];
 
 /** A ConfigService stand-in that answers the three shop registries + the theme. */
@@ -90,6 +112,7 @@ function paint(
   name: string,
   target: CosmeticConfig["target"],
   paintColors: CosmeticConfig["paint"],
+  materials?: CosmeticConfig["materials"],
 ): CosmeticConfig {
-  return { id, type: "cosmetic", version: 1, name, kind: "paint", price: 0, target, paint: paintColors };
+  return { id, type: "cosmetic", version: 1, name, kind: "paint", price: 0, target, paint: paintColors, ...(materials ? { materials } : {}) };
 }

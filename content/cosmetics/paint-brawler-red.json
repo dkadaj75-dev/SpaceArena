@@ -1,0 +1,23 @@
+{
+  "id": "cosmetic.paint-brawler-red",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Red",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.brawler",
+  "paint": {
+    "primary": "#b8342f",
+    "accent": "#ff7a57"
+  },
+  "materials": [
+    {
+      "material": "HULL_PRIMARY",
+      "channel": "primary"
+    },
+    {
+      "material": "PANEL_SECONDARY",
+      "channel": "accent"
+    }
+  ]
+}

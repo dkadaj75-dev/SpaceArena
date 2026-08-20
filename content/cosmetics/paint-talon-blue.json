@@ -1,0 +1,19 @@
+{
+  "id": "cosmetic.paint-talon-blue",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "Blue",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.talon",
+  "paint": {
+    "primary": "#2f6fb8",
+    "accent": "#57d8ff"
+  },
+  "materials": [
+    {
+      "material": "material",
+      "channel": "primary"
+    }
+  ]
+}

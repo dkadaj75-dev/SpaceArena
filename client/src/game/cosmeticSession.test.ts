@@ -41,8 +41,8 @@ function paintOf(s: GameSession, id: number): string | undefined {
 
 describe("offline cosmetics", () => {
   it("flies the equipped paint", () => {
-    const s = session("cosmetic.paint-interceptor-crimson");
-    expect(paintOf(s, s.playerId)).toBe("cosmetic.paint-interceptor-crimson");
+    const s = session("cosmetic.paint-interceptor-red");
+    expect(paintOf(s, s.playerId)).toBe("cosmetic.paint-interceptor-red");
   });
 
   it("flies the authored look with no selection", () => {
@@ -51,7 +51,7 @@ describe("offline cosmetics", () => {
   });
 
   it("drops a paint the hull may not wear rather than spawning it", () => {
-    const s = session("cosmetic.paint-brawler-ironclad");
+    const s = session("cosmetic.paint-brawler-red");
     expect(paintOf(s, s.playerId)).toBe("cosmetic.paint-interceptor-standard");
   });
 

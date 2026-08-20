@@ -1,0 +1,23 @@
+{
+  "id": "cosmetic.paint-brawler-white",
+  "type": "cosmetic",
+  "version": 2,
+  "name": "White",
+  "kind": "paint",
+  "price": 0,
+  "target": "ship.brawler",
+  "paint": {
+    "primary": "#eef2f6",
+    "accent": "#aab6c2"
+  },
+  "materials": [
+    {
+      "material": "HULL_PRIMARY",
+      "channel": "primary"
+    },
+    {
+      "material": "PANEL_SECONDARY",
+      "channel": "accent"
+    }
+  ]
+}
