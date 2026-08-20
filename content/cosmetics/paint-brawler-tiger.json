@@ -7,11 +7,16 @@
   "price": 0,
   "target": "ship.brawler",
   "paint": {
-    "primary": "#e08a1e",
+    "primary": "#f07800",
     "accent": "#2a1a0a",
     "pattern": "tiger",
     "patternColor": "#1c1208",
-    "patternScale": 2
+    "patternScale": 2,
+    "finish": {
+      "gloss": 0.58,
+      "clearcoat": 0.45,
+      "glow": 0.1
+    }
   },
   "materials": [
     {

@@ -7,11 +7,17 @@
   "price": 0,
   "target": "ship.brawler",
   "paint": {
-    "primary": "#9a6b4a",
+    "primary": "#a8724d",
     "accent": "#4a3325",
     "pattern": "rust",
     "patternColor": "#7a3512",
-    "patternScale": 3
+    "patternScale": 3,
+    "finish": {
+      "gloss": 0.1,
+      "metallic": 0.25,
+      "clearcoat": 0,
+      "glow": 0
+    }
   },
   "materials": [
     {

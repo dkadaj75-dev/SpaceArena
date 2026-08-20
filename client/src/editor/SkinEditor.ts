@@ -7,6 +7,7 @@ import {
   paintTargetFor,
   type CosmeticConfig,
   type PaintChannel,
+  type PaintFinish,
   type PaintPattern,
   type ShipConfig,
 } from "@space-arena/shared";
@@ -51,6 +52,12 @@ export function slotNamesOf(master: Mesh | null): string[] {
   for (const child of master.getChildMeshes(false)) collect(child.material);
   return names;
 }
+
+/**
+ * What the surface override starts at: the shipped lacquer. Metallic is zero on
+ * purpose — see the second hint in {@link SkinEditor.surfaceSection}.
+ */
+const DEFAULT_FINISH = { gloss: 0.7, metallic: 0, clearcoat: 0.5, glow: 0.14 } as const;
 
 /** "Not painted" — the empty option of the per-material channel dropdown. */
 const NO_CHANNEL = "";
@@ -224,7 +231,12 @@ export class SkinEditor implements EditorPanel {
       this.element.append(hint("This hull has no skins yet. “New skin” starts one."));
       return;
     }
-    this.element.append(this.coloursSection(cosmetic), this.finishSection(cosmetic), this.materialsSection(cosmetic));
+    this.element.append(
+      this.coloursSection(cosmetic),
+      this.surfaceSection(cosmetic),
+      this.finishSection(cosmetic),
+      this.materialsSection(cosmetic),
+    );
   }
 
   /** The three authored channels. Emissive is opt-in: absent leaves the glow alone. */
@@ -253,9 +265,59 @@ export class SkinEditor implements EditorPanel {
     return box;
   }
 
-  /** Flat colour, or one of the procedural finishes drawn into the albedo. */
+  /**
+   * How the painted plate behaves under light. This is what separates a livery
+   * from primer: a saturated hue at the model's authored roughness is flat, and
+   * gloss + clear coat are what put the arena's reflection and a rolling white
+   * highlight on top of it. Off = keep whatever the artist authored.
+   */
+  private surfaceSection(cosmetic: CosmeticConfig): HTMLElement {
+    const box = section("Surface");
+    const finish = cosmetic.paint.finish;
+
+    const on = document.createElement("input");
+    on.type = "checkbox";
+    on.checked = finish !== undefined;
+    on.addEventListener("change", () => {
+      this.patchPaint({ finish: on.checked ? { ...DEFAULT_FINISH } : undefined });
+      this.renderUi();
+    });
+
+    const knob = (label: string, key: keyof PaintFinish): HTMLElement => {
+      const input = document.createElement("input");
+      input.type = "range";
+      input.min = "0";
+      input.max = "1";
+      input.step = "0.02";
+      input.value = String(finish?.[key] ?? 0);
+      input.disabled = finish === undefined;
+      const readout = text((finish?.[key] ?? 0).toFixed(2));
+      readout.className = "ed-mono";
+      input.addEventListener("input", () => (readout.textContent = Number(input.value).toFixed(2)));
+      input.addEventListener("change", () => {
+        // Read the LIVE finish, not the one captured at render: three knobs
+        // share this section and only the table re-renders between edits, so a
+        // captured copy would make each knob undo the one before it.
+        this.patchPaint({ finish: { ...this.cosmetic()?.paint.finish, [key]: Number(input.value) } });
+      });
+      return row(text(label), input, readout);
+    };
+
+    box.append(
+      row(on, text(" Override the artist's surface")),
+      knob("Gloss ", "gloss"),
+      knob("Metallic ", "metallic"),
+      knob("Clear coat ", "clearcoat"),
+      knob("Glow ", "glow"),
+      hint("Gloss 1 is a mirror; clear coat adds a lacquer layer whose white highlight is independent of the hue; glow lights the plate in its own colour so it still reads in a dark arena. Off leaves the model's own surface exactly as authored."),
+      hint("Metallic is a trap in these arenas: the IBL is small, so metal eats the diffuse term and turns a bright hue to mud. Leave it near zero unless the skin is meant to look like bare, unpainted plate."),
+    );
+    return box;
+  }
+
+  /** Flat colour, or one of the procedural patterns drawn into the albedo. */
   private finishSection(cosmetic: CosmeticConfig): HTMLElement {
-    const box = section("Finish");
+    const box = section("Pattern");
     const select = document.createElement("select");
     select.append(new Option("Flat colour", NO_CHANNEL));
     for (const pattern of paintPattern.options) select.append(new Option(titleCase(pattern), pattern));
@@ -524,6 +586,9 @@ function row(...children: Node[]): HTMLDivElement {
 function section(title: string): HTMLElement {
   const box = document.createElement("details");
   box.open = true;
+  // Stable hook for tests and the screenshot rig: the headings are prose and
+  // will be reworded, the slug is what code is allowed to reach for.
+  box.dataset["section"] = title.toLowerCase().replace(/\s+/g, "-");
   const summary = document.createElement("summary");
   summary.textContent = title;
   box.append(summary);

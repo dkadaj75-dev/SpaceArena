@@ -7,8 +7,14 @@
   "price": 0,
   "target": "ship.interceptor",
   "paint": {
-    "primary": "#eef2f6",
-    "accent": "#aab6c2"
+    "primary": "#ffffff",
+    "accent": "#8fa6bd",
+    "finish": {
+      "gloss": 0.8,
+      "metallic": 0,
+      "clearcoat": 0.7,
+      "glow": 0.08
+    }
   },
   "materials": [
     {

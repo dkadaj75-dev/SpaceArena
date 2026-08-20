@@ -7,11 +7,16 @@
   "price": 0,
   "target": "ship.interceptor",
   "paint": {
-    "primary": "#f2f2f0",
+    "primary": "#f7f7f5",
     "accent": "#1b1c20",
     "pattern": "zebra",
-    "patternColor": "#16171b",
-    "patternScale": 2
+    "patternColor": "#14151a",
+    "patternScale": 2,
+    "finish": {
+      "gloss": 0.62,
+      "clearcoat": 0.5,
+      "glow": 0.06
+    }
   },
   "materials": [
     {

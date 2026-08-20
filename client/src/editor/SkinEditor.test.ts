@@ -137,10 +137,53 @@ describe("SkinEditor panel", () => {
     panel.dispose();
   });
 
+  it("turns the surface override on, then edits one knob without resetting the others", () => {
+    const paints = [skin({ paint: { primary: "#e00d1e", accent: "#ff8a6a" } })];
+    const { host: editorHost, replace } = host(paints);
+    // Every commit lands back in the fake pack, so the panel reads its own edits.
+    replace.mockImplementation((next: CosmeticConfig) => {
+      paints[0] = next;
+      return { ok: true as const, errors: [] };
+    });
+    const panel = new SkinEditor(editorHost, vi.fn());
+
+    const toggle = panel.element.querySelector<HTMLInputElement>('[data-section="surface"] input[type="checkbox"]')!;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change"));
+    expect(paints[0]!.paint.finish).toEqual({ gloss: 0.7, metallic: 0, clearcoat: 0.5, glow: 0.14 });
+
+    const knobs = panel.element.querySelectorAll<HTMLInputElement>('[data-section="surface"] input[type="range"]');
+    expect(knobs).toHaveLength(4);
+    knobs[0]!.value = "0.5";
+    knobs[0]!.dispatchEvent(new Event("change"));
+    knobs[1]!.value = "0.1";
+    knobs[1]!.dispatchEvent(new Event("change"));
+    // The second knob must not have undone the first.
+    expect(paints[0]!.paint.finish).toEqual({ gloss: 0.5, metallic: 0.1, clearcoat: 0.5, glow: 0.14 });
+    panel.dispose();
+  });
+
+  it("drops the finish entirely when the override is switched off", () => {
+    const paints = [skin({ paint: { primary: "#e00d1e", accent: "#ff8a6a", finish: { gloss: 0.9 } } })];
+    const { host: editorHost, replace } = host(paints);
+    replace.mockImplementation((next: CosmeticConfig) => {
+      paints[0] = next;
+      return { ok: true as const, errors: [] };
+    });
+    const panel = new SkinEditor(editorHost, vi.fn());
+    const toggle = panel.element.querySelector<HTMLInputElement>('[data-section="surface"] input[type="checkbox"]')!;
+    expect(toggle.checked).toBe(true);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change"));
+    // Absent, not zeroed: the model keeps the artist's own roughness and metal.
+    expect(paints[0]!.paint).not.toHaveProperty("finish");
+    panel.dispose();
+  });
+
   it("commits a colour edit through ConfigService", () => {
     const { host: editorHost, replace } = host([skin()]);
     const panel = new SkinEditor(editorHost, vi.fn());
-    const color = panel.element.querySelector<HTMLInputElement>('input[type="color"]')!;
+    const color = panel.element.querySelector<HTMLInputElement>('[data-section="colours"] input[type="color"]')!;
     color.value = "#123456";
     color.dispatchEvent(new Event("change"));
     expect(replace).toHaveBeenCalledWith(expect.objectContaining({ paint: expect.objectContaining({ primary: "#123456" }) }));

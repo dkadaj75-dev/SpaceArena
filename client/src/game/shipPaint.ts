@@ -1,5 +1,5 @@
 import { Color3, Mesh, MultiMaterial, type BaseTexture, type Material, type Scene } from "@babylonjs/core";
-import type { ConfigService, CosmeticConfig, ShipSnapshot } from "@space-arena/shared";
+import type { ConfigService, CosmeticConfig, PaintFinish, ShipSnapshot } from "@space-arena/shared";
 import { paintTargetFor } from "@space-arena/shared";
 import { mirrorThrustGlow } from "../core/thrustGlow.js";
 import { cosmeticById, type CosmeticPaint } from "./cosmetics.js";
@@ -89,8 +89,15 @@ interface TintTarget {
   diffuseColor?: Color3;
   albedoColor?: Color3;
   emissiveColor?: Color3;
+  specularColor?: Color3;
   diffuseTexture?: BaseTexture | null;
   albedoTexture?: BaseTexture | null;
+  /** PBR (glTF hulls). */
+  roughness?: number | null;
+  metallic?: number | null;
+  clearCoat?: { isEnabled: boolean; intensity: number; roughness: number };
+  /** StandardMaterial (procedural recipes). */
+  specularPower?: number;
 }
 
 export interface TintOptions {
@@ -130,7 +137,14 @@ export function tintMaterial(
     if ("diffuseTexture" in target) target.diffuseTexture = options.texture;
     if (target.albedoColor) target.albedoColor = new Color3(1, 1, 1);
     if (target.diffuseColor) target.diffuseColor = new Color3(1, 1, 1);
-    if (slot === "hull" && options.bleedGlow !== false) tintEmissive(target, glow);
+    applyFinish(target, paint.finish);
+    // A patterned plate glows in its BASE hue: the stripes ride in the texture,
+    // and tinting the light by one of the two colours would wash them out.
+    if (paint.finish?.glow !== undefined) {
+      applyGlow(target, safeColor(slot === "trim" ? paint.accent : paint.primary) ?? new Color3(1, 1, 1), paint.finish.glow);
+    } else if (slot === "hull" && options.bleedGlow !== false) {
+      tintEmissive(target, glow);
+    }
     return;
   }
   const base = slot === "hull" ? paint.primary : paint.accent;
@@ -138,7 +152,51 @@ export function tintMaterial(
   if (!color) return;
   if (target.albedoColor) target.albedoColor = color;
   if (target.diffuseColor) target.diffuseColor = color;
-  if (slot === "hull" && options.bleedGlow !== false) tintEmissive(target, glow);
+  applyFinish(target, paint.finish);
+  if (paint.finish?.glow !== undefined) applyGlow(target, color, paint.finish.glow);
+  else if (slot === "hull" && options.bleedGlow !== false) tintEmissive(target, glow);
+}
+
+/**
+ * Give the painted plate its surface behaviour. Each field is independently
+ * optional: an absent one leaves the artist's own value, so a colour-only paint
+ * cannot flatten a hull's authored material work just by being applied.
+ *
+ * `gloss` is authored the way a designer thinks (1 = shiny) and inverted into
+ * PBR roughness here. A StandardMaterial has no roughness at all, so it gets
+ * the equivalent specular exponent instead — the procedural recipes are the
+ * only hulls that path serves, and a flat-shaded box with no highlight at all
+ * would read as a bug next to a glossy GLB.
+ */
+function applyFinish(target: TintTarget, finish: PaintFinish | undefined): void {
+  if (!finish) return;
+  if (finish.gloss !== undefined) {
+    if (target.roughness !== undefined) {
+      target.roughness = 1 - finish.gloss;
+    } else if (target.specularPower !== undefined) {
+      target.specularPower = 2 + finish.gloss * finish.gloss * 254;
+      if (target.specularColor) target.specularColor = new Color3(1, 1, 1).scale(0.15 + finish.gloss * 0.85);
+    }
+  }
+  if (finish.metallic !== undefined && target.metallic !== undefined) target.metallic = finish.metallic;
+  if (finish.clearcoat !== undefined && target.clearCoat) {
+    target.clearCoat.isEnabled = finish.clearcoat > 0;
+    target.clearCoat.intensity = finish.clearcoat;
+    // A lacquer coat is glass: its own roughness is near zero whatever the
+    // colour under it does, which is what puts the sharp white streak on top.
+    target.clearCoat.roughness = 0.04;
+  }
+}
+
+/**
+ * Self-illumination in the plate's own hue. Unlike {@link tintEmissive} this
+ * SETS the strength rather than preserving it: the glow is the paint's, not the
+ * model's, and the plates that wear a livery are the ones the artist left with
+ * no emissive at all.
+ */
+function applyGlow(target: TintTarget, color: Color3, glow: number): void {
+  if (!target.emissiveColor) return;
+  target.emissiveColor = color.scale(glow);
 }
 
 /**

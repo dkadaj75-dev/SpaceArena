@@ -1,4 +1,4 @@
-import { Color3, MultiMaterial, NullEngine, Scene, StandardMaterial, MeshBuilder, type Mesh } from "@babylonjs/core";
+import { Color3, MultiMaterial, NullEngine, Scene, StandardMaterial, MeshBuilder, type BaseTexture, type Mesh } from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 import type { ShipSnapshot } from "@space-arena/shared";
 import { COSMETICS, shopConfigs, TARGETED_COSMETICS } from "./__fixtures__/shopContent.js";
@@ -248,5 +248,66 @@ describe("painting a multi-material hull", () => {
     const drewStripes = shell.diffuseTexture !== null;
     expect(shell.diffuseColor.toHexString().toLowerCase()).toBe(drewStripes ? "#ffffff" : "#f2f2f0");
     bank.dispose();
+  });
+});
+
+describe("surface finish", () => {
+  const LACQUER = { primary: "#e00d1e", accent: "#ff8a6a", finish: { gloss: 0.9, metallic: 0.3, clearcoat: 0.8 } };
+
+  /** A PBR stand-in: the channels a glTF hull actually exposes. */
+  function pbr() {
+    return {
+      name: "SHELL",
+      albedoColor: new Color3(0.82, 0.83, 0.84),
+      emissiveColor: new Color3(0, 0, 0),
+      roughness: 0.38,
+      metallic: 0,
+      clearCoat: { isEnabled: true, intensity: 0.2, roughness: 0.1 },
+    };
+  }
+
+  it("turns gloss into roughness and drives metal and lacquer", () => {
+    const mat = pbr();
+    tintMaterial(mat, "hull", LACQUER, { bleedGlow: false });
+    expect(mat.roughness).toBeCloseTo(0.1, 5);
+    expect(mat.metallic).toBeCloseTo(0.3, 5);
+    expect(mat.clearCoat.intensity).toBeCloseTo(0.8, 5);
+    // The coat is glass whatever the colour under it does — that is the streak.
+    expect(mat.clearCoat.roughness).toBeLessThan(0.1);
+  });
+
+  it("keeps the artist's surface for a paint that authors no finish", () => {
+    const mat = pbr();
+    tintMaterial(mat, "hull", { primary: "#e00d1e", accent: "#ff8a6a" }, { bleedGlow: false });
+    expect(mat.albedoColor.toHexString().toLowerCase()).toBe("#e00d1e");
+    expect(mat.roughness).toBe(0.38);
+    expect(mat.metallic).toBe(0);
+    expect(mat.clearCoat.intensity).toBe(0.2);
+  });
+
+  it("leaves an unmentioned channel alone rather than zeroing it", () => {
+    const mat = pbr();
+    tintMaterial(mat, "hull", { primary: "#e00d1e", accent: "#ff8a6a", finish: { gloss: 0.5 } }, { bleedGlow: false });
+    expect(mat.roughness).toBeCloseTo(0.5, 5);
+    expect(mat.metallic).toBe(0);
+    expect(mat.clearCoat.intensity).toBe(0.2);
+  });
+
+  it("gives a StandardMaterial the equivalent specular, since it has no roughness", () => {
+    const mat = { name: "mat.arrowhead", diffuseColor: new Color3(1, 1, 1), specularColor: new Color3(0, 0, 0), specularPower: 32 };
+    tintMaterial(mat, "hull", LACQUER, { bleedGlow: false });
+    expect(mat.specularPower).toBeGreaterThan(150);
+    expect(mat.specularColor.r).toBeGreaterThan(0.8);
+  });
+
+  it("applies under a pattern too — corrosion has to be able to read as matte", () => {
+    const mat = { ...pbr(), albedoTexture: null as BaseTexture | null };
+    const stripes = { name: "rust" } as unknown as BaseTexture;
+    tintMaterial(mat, "hull", { primary: "#9a6b4a", accent: "#4a3325", finish: { gloss: 0.12 } }, {
+      bleedGlow: false,
+      texture: stripes,
+    });
+    expect(mat.albedoTexture).toBe(stripes);
+    expect(mat.roughness).toBeCloseTo(0.88, 5);
   });
 });

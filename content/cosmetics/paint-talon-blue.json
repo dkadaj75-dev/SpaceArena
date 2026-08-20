@@ -7,8 +7,14 @@
   "price": 0,
   "target": "ship.talon",
   "paint": {
-    "primary": "#2f6fb8",
-    "accent": "#57d8ff"
+    "primary": "#0b52e0",
+    "accent": "#8fe8ff",
+    "finish": {
+      "gloss": 0.7,
+      "metallic": 0,
+      "clearcoat": 0.5,
+      "glow": 0.14
+    }
   },
   "materials": [
     {

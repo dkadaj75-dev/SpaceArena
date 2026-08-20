@@ -43,6 +43,34 @@ export type PaintPattern = z.infer<typeof paintPattern>;
  * shell plates of the Interceptor without smearing itself over the canopy
  * glass, the dark tech recesses or the engine bloom.
  */
+/**
+ * How the painted plate BEHAVES under light, on top of what colour it is.
+ *
+ * Colour alone cannot make a livery look expensive: a saturated hue on a matte
+ * 0.38-roughness plate reads as primer. Gloss and clearcoat are what turn it
+ * into automotive lacquer — sharp white highlights and a real reflection of the
+ * arena riding over the hue. Every field is optional and ABSENT means "keep
+ * what the artist authored", so a paint opts into a finish rather than
+ * flattening the model's own material work by existing.
+ */
+export const paintFinish = z.object({
+  /** 0 = flat matte, 1 = mirror. Drives PBR roughness (and a StandardMaterial's specular). */
+  gloss: z.number().min(0).max(1).optional(),
+  /** 0 = painted dielectric, 1 = bare metal. Small values read as metallic flake. */
+  metallic: z.number().min(0).max(1).optional(),
+  /** Clear lacquer over the colour: a white highlight layer independent of the hue. */
+  clearcoat: z.number().min(0).max(1).optional(),
+  /**
+   * Self-illumination in the paint's OWN hue, 0..1. The arenas are dark and lit
+   * by a small IBL, so gloss alone buys a highlight and loses the rest of the
+   * plate to shadow; a little glow is what actually makes a livery read across
+   * the screen. Keep it low — this is candy paint catching light, not a
+   * light source, and the engine bloom has to stay the brightest thing on the hull.
+   */
+  glow: z.number().min(0).max(1).optional(),
+});
+export type PaintFinish = z.infer<typeof paintFinish>;
+
 export const paintMaterialTarget = z.object({
   material: z.string().min(1),
   channel: paintChannel,
@@ -70,6 +98,8 @@ export const cosmeticSchema = z.object({
     patternColor: hexColor.optional(),
     /** Pattern repeats across one UV tile. Bigger = finer stripes. */
     patternScale: z.number().positive().max(64).optional(),
+    /** Surface behaviour of the painted plates. Absent = the artist's own. */
+    finish: paintFinish.optional(),
   }),
   /**
    * Exactly which of the model's materials this paint touches. ABSENT means
