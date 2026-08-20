@@ -1103,7 +1103,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // Hold the boot screen a beat longer when it has bad news, so the player reads
   // it once here before meeting the same message as a lobby badge.
   boot?.subtitle(health.online ? "READY" : "READY — OFFLINE");
-  void boot?.dismiss(health.online ? 0 : 1600);
+
+  // AWAITED, not fired and forgotten. The launch sequence owns the screen until
+  // it removes itself, and the fullscreen offer below is a modal <dialog>: the
+  // browser paints those in the TOP LAYER, above every z-index on the page, so
+  // offering it early punches a card through the title screen.
+  await boot?.dismiss(health.online ? 0 : 1600);
 
   // Launch fullscreen offer, over whichever screen just appeared. The
   // Fullscreen API needs a user gesture, so this dialog's button IS the

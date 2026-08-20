@@ -65,34 +65,33 @@
       }
 
       /* ==========================================================
-         Boot loading screen (driven by src/game/screens/BootScreen.ts)
+         LAUNCH SEQUENCE (driven by src/game/screens/BootScreen.ts)
 
          Deliberately inline, static markup with literal colours: this is the
          ONE surface that must be on screen before any JavaScript runs — before
          the module graph is fetched, before the content pack (and therefore the
          theme) exists. Anything theme-driven here could only appear after the
-         very wait it is meant to explain. The palette matches
-         content/themes/default.json's `--hud-*` family so the hand-off into the
-         menu is seamless; the shape language (chamfered panel, hairline rim,
-         scan sweep, stage list) is the same one hudStyle.ts and screenStyle.ts
-         carry once they load.
+         very wait it is meant to explain.
+
+         Two phases, both on this one node:
+           1. PUBLISHER — "SEPTENTRION GAMES" fades up out of black and back
+              down into it, ~1s, while the content pack loads behind it.
+           2. TITLE — the wordmark over a live nebula shader, with a loading
+              indicator. Holds for a minimum beat so the brand registers, and
+              longer if loading has not finished.
          ========================================================== */
       #sa-boot {
         position: fixed;
         inset: 0;
         z-index: 90;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        display: grid;
+        place-items: center;
         padding: calc(env(safe-area-inset-top, 0px) + 16px) calc(env(safe-area-inset-right, 0px) + 16px)
           calc(env(safe-area-inset-bottom, 0px) + 16px) calc(env(safe-area-inset-left, 0px) + 16px);
         box-sizing: border-box;
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
         color: #dbe9ff;
-        background:
-          radial-gradient(60% 45% at 22% 24%, rgba(15, 79, 122, 0.5) 0%, transparent 70%),
-          radial-gradient(55% 40% at 80% 78%, rgba(122, 58, 18, 0.42) 0%, transparent 72%),
-          #05070d;
+        background: #000;
         opacity: 1;
         transition: opacity 320ms ease-out;
       }
@@ -102,204 +101,193 @@
         pointer-events: none;
       }
 
-      .sa-boot-panel {
+      /* Every phase layer stacks in the same grid cell and is cross-faded by
+         opacity — no reflow between phases, and the shader underneath never
+         restarts.
+         `position: relative` is load-bearing: the backdrop canvas is POSITIONED,
+         and a positioned element paints above its in-flow siblings whatever the
+         source order. Without this the nebula covers the wordmark. */
+      #sa-boot > * {
+        grid-area: 1 / 1;
         position: relative;
-        width: min(360px, 100%);
-        padding: 26px 24px 20px;
-        box-sizing: border-box;
-        /* Rim colour on the box, fill plate on ::before — the same chamfered
-           two-layer frame the HUD and menu stylesheets use, because clip-path
-           would cut a plain border's corners off and leave the bevel unlined. */
-        background: rgba(57, 191, 255, 0.34);
-        clip-path: polygon(
-          14px 0%,
-          calc(100% - 14px) 0%,
-          100% 14px,
-          100% calc(100% - 14px),
-          calc(100% - 14px) 100%,
-          14px 100%,
-          0% calc(100% - 14px),
-          0% 14px
-        );
       }
-      .sa-boot-panel::before {
-        content: "";
-        position: absolute;
-        inset: 1px;
-        clip-path: inherit;
-        background: rgba(11, 21, 38, 0.94);
-      }
-      .sa-boot-panel > * {
-        position: relative;
+      #sa-boot > .sa-boot-sky {
+        position: fixed;
       }
 
-      .sa-boot-title {
-        font-size: clamp(19px, 6.5vw, 26px);
-        font-weight: 500;
-        letter-spacing: 0.32em;
+      /* ---------- phase 1: publisher card ---------- */
+      .sa-boot-publisher {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        opacity: 0;
+        transition: opacity 380ms ease-in-out;
         text-align: center;
-        color: #39bfff;
-        text-shadow: 0 0 18px rgba(57, 191, 255, 0.55), 0 0 44px rgba(57, 191, 255, 0.25);
-        /* Tracking adds a trailing gap; nudge the block back into optical centre. */
-        padding-left: 0.32em;
+      }
+      #sa-boot[data-phase="publisher"] .sa-boot-publisher {
+        opacity: 1;
+      }
+      .sa-boot-publisher b {
+        font-size: clamp(17px, 3.6vw, 27px);
+        font-weight: 600;
+        letter-spacing: 0.42em;
+        /* The letter-spacing pads the right edge; pull it back so the wordmark
+           reads optically centred rather than shifted left. */
+        text-indent: 0.42em;
+        color: #eaf3ff;
+      }
+      .sa-boot-publisher i {
+        display: block;
+        width: 54px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(190, 220, 255, 0.55), transparent);
+      }
+
+      /* ---------- phase 2: title screen ---------- */
+      /* FIXED, not absolute: an absolutely-positioned child is laid out against
+         its parent's PADDING box, so it would still be inset by the safe-area
+         padding the rest of the layout needs and would draw a black frame
+         around itself. `#sa-boot` sets a stacking context (z-index + the
+         opacity transition), so a fixed child still fades out with it. */
+      .sa-boot-sky {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        opacity: 0;
+        transition: opacity 700ms ease-in;
+      }
+      .sa-boot-titlecard {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        opacity: 0;
+        transform: translateY(6px);
+        transition: opacity 620ms ease-out 180ms, transform 620ms ease-out 180ms;
+      }
+      #sa-boot[data-phase="title"] .sa-boot-sky,
+      #sa-boot[data-phase="title"] .sa-boot-titlecard {
+        opacity: 1;
+        transform: none;
+      }
+      .sa-boot-wordmark {
+        margin: 0;
+        font-size: clamp(30px, 8.5vw, 78px);
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-indent: 0.16em;
+        line-height: 1;
+        color: #f2f8ff;
+        text-shadow: 0 0 26px rgba(80, 170, 255, 0.5), 0 2px 30px rgba(0, 0, 0, 0.8);
       }
       .sa-boot-rule {
+        width: min(300px, 62vw);
         height: 1px;
-        margin: 10px 0 12px;
-        background: linear-gradient(90deg, transparent, #39bfff, #ffb35c, transparent);
-        opacity: 0.85;
+        background: linear-gradient(90deg, transparent, rgba(120, 200, 255, 0.75), transparent);
       }
       .sa-boot-sub {
-        font-size: 9.5px;
-        letter-spacing: 0.34em;
+        font-size: 10.5px;
+        letter-spacing: 0.28em;
+        text-indent: 0.28em;
+        color: rgba(190, 215, 245, 0.72);
         text-transform: uppercase;
-        text-align: center;
-        color: #8ba3c4;
-        min-height: 1.2em;
       }
 
-      /* Progress bar: a settled-stage fill plus a scan sweep that runs the whole
-         time, so the screen never looks frozen while one long stage works. */
-      .sa-boot-bar {
-        position: relative;
-        height: 4px;
-        margin: 14px 0 16px;
+      /* Names for the stage marks, for screen readers only — without this rule
+         they render as a pile of overlapping text in the corner. */
+      #sa-boot .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
         overflow: hidden;
-        background: rgba(57, 191, 255, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(57, 191, 255, 0.24);
-      }
-      .sa-boot-bar .fill {
-        position: absolute;
-        inset: 0 auto 0 0;
-        width: 0%;
-        background: linear-gradient(90deg, rgba(57, 191, 255, 0.5), #39bfff);
-        transition: width 280ms cubic-bezier(0.16, 1, 0.3, 1);
-      }
-      .sa-boot-bar .scan {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        width: 34%;
-        background: linear-gradient(90deg, transparent, rgba(219, 233, 255, 0.7), transparent);
-        animation: sa-boot-scan 1.5s linear infinite;
-      }
-      @keyframes sa-boot-scan {
-        from {
-          transform: translateX(-110%);
-        }
-        to {
-          transform: translateX(400%);
-        }
+        clip-path: inset(50%);
+        white-space: nowrap;
       }
 
+      /* ---------- loading indicator (bottom-right, title phase) ---------- */
+      .sa-boot-loader {
+        justify-self: end;
+        align-self: end;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        opacity: 0;
+        transition: opacity 400ms ease-out 500ms;
+      }
+      #sa-boot[data-phase="title"] .sa-boot-loader {
+        opacity: 1;
+      }
+      /* Settled marks turn the ring's track brighter as stages land, so the
+         indicator carries real progress rather than spinning decoratively. */
+      .sa-boot-ring {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid rgba(120, 200, 255, 0.22);
+        border-top-color: rgba(150, 215, 255, 0.95);
+        animation: sa-boot-spin 900ms linear infinite;
+      }
+      @keyframes sa-boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .sa-boot-ring {
+          animation-duration: 2600ms;
+        }
+      }
       .sa-boot-stages {
+        display: flex;
+        gap: 5px;
         margin: 0;
         padding: 0;
         list-style: none;
-        display: flex;
-        flex-direction: column;
-        gap: 7px;
       }
       .sa-boot-stages li {
-        display: flex;
-        align-items: baseline;
-        gap: 9px;
-        font-size: 12px;
-        letter-spacing: 0.03em;
-        color: #5d76a0;
-        transition: color 160ms linear;
-      }
-      .sa-boot-stages .mark {
-        flex: 0 0 auto;
-        width: 12px;
-        font-style: normal;
-        font-size: 11px;
-        text-align: center;
-      }
-      .sa-boot-stages .mark::before {
-        content: "·";
-      }
-      .sa-boot-stages .detail {
-        font-size: 10.5px;
-        color: #5d76a0;
-      }
-      /* No stage detail yet: collapse it so the flex gap does not open a hole. */
-      .sa-boot-stages .detail:empty {
-        display: none;
+        width: 16px;
+        height: 2px;
+        background: rgba(120, 200, 255, 0.2);
+        transition: background 260ms ease-out;
       }
       .sa-boot-stages li[data-state="active"] {
-        color: #dbe9ff;
-      }
-      .sa-boot-stages li[data-state="active"] .mark {
-        color: #39bfff;
-      }
-      .sa-boot-stages li[data-state="active"] .mark::before {
-        content: "»";
-        animation: sa-boot-blink 0.9s ease-in-out infinite;
+        background: rgba(150, 215, 255, 0.55);
       }
       .sa-boot-stages li[data-state="ok"] {
-        color: #a8c2e4;
-      }
-      .sa-boot-stages li[data-state="ok"] .mark {
-        color: #4ee6b8;
-      }
-      .sa-boot-stages li[data-state="ok"] .mark::before {
-        content: "\2713";
+        background: rgba(150, 215, 255, 0.95);
       }
       .sa-boot-stages li[data-state="warn"] {
-        color: #ffb35c;
-      }
-      .sa-boot-stages li[data-state="warn"] .mark {
-        color: #ffb35c;
-      }
-      .sa-boot-stages li[data-state="warn"] .mark::before {
-        content: "!";
+        background: #ffb545;
       }
       .sa-boot-stages li[data-state="fail"] {
-        color: #ff405c;
-      }
-      .sa-boot-stages li[data-state="fail"] .mark {
-        color: #ff405c;
-      }
-      .sa-boot-stages li[data-state="fail"] .mark::before {
-        content: "\2715";
-      }
-      @keyframes sa-boot-blink {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.35;
-        }
+        background: #ff5d6c;
       }
 
+      /* ---------- the outcome the player carries into the menu ---------- */
       .sa-boot-note {
-        margin-top: 14px;
-        min-height: 1.3em;
-        font-size: 10.5px;
-        letter-spacing: 0.08em;
+        justify-self: center;
+        align-self: end;
+        max-width: min(520px, 88vw);
+        margin-bottom: 46px;
+        font-size: 11.5px;
+        letter-spacing: 0.06em;
         text-align: center;
-        color: #5d76a0;
+        color: rgba(190, 215, 245, 0.75);
+        text-wrap: balance;
       }
       .sa-boot-note[data-tone="warn"] {
-        color: #ffb35c;
-        font-weight: 700;
-        letter-spacing: 0.1em;
+        color: #ffb545;
       }
-      #sa-boot[data-state="failed"] .sa-boot-bar .scan {
+      /* A boot that threw has no menu to reach: keep the reason on screen and
+         stop pretending anything is still loading. */
+      #sa-boot[data-state="failed"] .sa-boot-ring {
         animation: none;
-        opacity: 0;
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .sa-boot-bar .scan,
-        .sa-boot-stages li[data-state="active"] .mark::before {
-          animation: none;
-        }
-        #sa-boot {
-          transition: none;
-        }
+        border-top-color: #ff5d6c;
       }
     </style>
   </head>
@@ -309,32 +297,147 @@
 
     <!-- Static so it paints with the first frame the browser draws; driven from
          src/game/screens/BootScreen.ts once the module graph is up. -->
-    <div id="sa-boot" role="status" aria-live="polite">
-      <div class="sa-boot-panel">
-        <div class="sa-boot-title">ORION'S ARM</div>
+    <div id="sa-boot" role="status" aria-live="polite" data-phase="publisher">
+      <canvas class="sa-boot-sky" id="sa-boot-sky" aria-hidden="true"></canvas>
+      <div class="sa-boot-publisher"><b>SEPTENTRION GAMES</b><i aria-hidden="true"></i></div>
+      <div class="sa-boot-titlecard">
+        <h1 class="sa-boot-wordmark">ORION'S ARM</h1>
         <div class="sa-boot-rule" aria-hidden="true"></div>
-        <div class="sa-boot-sub" data-boot-sub>BOOTING SYSTEMS</div>
-        <div class="sa-boot-bar" aria-hidden="true">
-          <i class="fill" data-boot-fill></i>
-          <i class="scan"></i>
-        </div>
-        <ol class="sa-boot-stages">
-          <li data-boot-stage="content" data-state="pending">
-            <i class="mark" aria-hidden="true"></i><span class="text">Loading content pack</span
-            ><span class="detail" data-boot-detail></span>
-          </li>
-          <li data-boot-stage="interface" data-state="pending">
-            <i class="mark" aria-hidden="true"></i><span class="text">Preparing menu interface</span
-            ><span class="detail" data-boot-detail></span>
-          </li>
-          <li data-boot-stage="server" data-state="pending">
-            <i class="mark" aria-hidden="true"></i><span class="text">Contacting server</span
-            ><span class="detail" data-boot-detail></span>
-          </li>
-        </ol>
-        <div class="sa-boot-note" data-boot-note></div>
+        <div class="sa-boot-sub" data-boot-sub>LOADING</div>
       </div>
+      <div class="sa-boot-loader">
+        <ol class="sa-boot-stages">
+          <li data-boot-stage="content" data-state="pending"><span class="sr-only">Content pack</span></li>
+          <li data-boot-stage="interface" data-state="pending"><span class="sr-only">Menu interface</span></li>
+          <li data-boot-stage="server" data-state="pending"><span class="sr-only">Server</span></li>
+        </ol>
+        <i class="sa-boot-ring" aria-hidden="true"></i>
+      </div>
+      <div class="sa-boot-note" data-boot-note></div>
     </div>
+
+
+    <!-- ======================================================================
+         Title-screen backdrop: a live nebula, rendered by an inline WebGL
+         shader.
+
+         INLINE and dependency-free on purpose. This is the same rule the boot
+         markup follows — it has to be able to run before the module graph, the
+         engine or the content pack exist, because it IS what the player looks
+         at while those load. Importing anything would put it behind the very
+         wait it covers.
+
+         Everything degrades rather than throws: no WebGL, a failed compile or a
+         lost context all leave the canvas transparent over the black backdrop,
+         which is the boot screen's own colour. The loop stops the moment the
+         node leaves the document, so it cannot outlive the launch sequence and
+         steal frames from the game.
+         ====================================================================== -->
+    <script>
+      (function () {
+        var canvas = document.getElementById("sa-boot-sky");
+        if (!canvas) return;
+        var gl = null;
+        try {
+          gl = canvas.getContext("webgl", { alpha: true, antialias: false, depth: false });
+        } catch (e) {
+          return;
+        }
+        if (!gl) return;
+
+        var VERT =
+          "attribute vec2 p;varying vec2 uv;void main(){uv=p;gl_Position=vec4(p,0.,1.);}";
+
+        // fbm over value noise with one domain-warp pass: the warp is what
+        // turns smooth blobs into the filament structure real emission nebulae
+        // have. Two colour bands (hydrogen red, oxygen blue) are mixed by
+        // density, and the stars are a separate high-frequency hash so they
+        // stay pin-sharp while the gas drifts.
+        var FRAG = [
+          "precision highp float;",
+          "varying vec2 uv;",
+          "uniform float t;",
+          "uniform vec2 res;",
+          "float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
+          "float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);",
+          " return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}",
+          "float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<6;i++){s+=a*noise(p);p*=2.03;a*=.5;}return s;}",
+          "void main(){",
+          " vec2 q=uv*vec2(res.x/res.y,1.);",
+          " float drift=t*0.012;",
+          " vec2 w=vec2(fbm(q*1.7+drift),fbm(q*1.7+vec2(5.2,1.3)-drift));",
+          " float d=fbm(q*2.1+w*1.9+vec2(0.,drift*2.));",
+          " d=pow(max(d-0.28,0.)*1.55,1.7);",
+          // Emission bands. The blue rides the denser core so the cloud reads
+          // as lit from within rather than tinted flat.
+          " vec3 col=mix(vec3(0.35,0.06,0.12),vec3(0.10,0.30,0.72),smoothstep(0.15,0.75,d));",
+          " col+=vec3(0.55,0.22,0.42)*pow(d,2.4)*1.25;",
+          " col*=d*1.5;",
+          // Stars: sparse, twinkling, and pushed behind the gas by (1-d).
+          " vec2 sp=q*260.;vec2 si=floor(sp);float sh=hash(si);",
+          " float star=step(0.9975,sh)*(0.55+0.45*sin(t*2.2+sh*63.));",
+          " star*=smoothstep(0.42,0.0,length(fract(sp)-0.5));",
+          " col+=vec3(0.85,0.92,1.0)*star*(1.-min(d,0.9));",
+          // Vignette, and a floor so the frame never goes fully black.
+          " col*=1.0-0.55*dot(uv,uv);",
+          " col+=vec3(0.012,0.018,0.035);",
+          " gl_FragColor=vec4(col,1.);",
+          "}",
+        ].join("\n");
+
+        function compile(type, src) {
+          var sh = gl.createShader(type);
+          gl.shaderSource(sh, src);
+          gl.compileShader(sh);
+          return gl.getShaderParameter(sh, gl.COMPILE_STATUS) ? sh : null;
+        }
+        var vs = compile(gl.VERTEX_SHADER, VERT);
+        var fs = compile(gl.FRAGMENT_SHADER, FRAG);
+        if (!vs || !fs) return;
+        var prog = gl.createProgram();
+        gl.attachShader(prog, vs);
+        gl.attachShader(prog, fs);
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+        gl.useProgram(prog);
+
+        var buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+        var loc = gl.getAttribLocation(prog, "p");
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+        var uT = gl.getUniformLocation(prog, "t");
+        var uRes = gl.getUniformLocation(prog, "res");
+
+        // Half-resolution, capped: this runs while the engine is still booting
+        // and must not compete with it for GPU time. The blur it costs is
+        // invisible on a nebula.
+        function resize() {
+          var scale = Math.min(window.devicePixelRatio || 1, 1.5) * 0.5;
+          var w = Math.max(1, Math.round(canvas.clientWidth * scale));
+          var h = Math.max(1, Math.round(canvas.clientHeight * scale));
+          if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+            gl.viewport(0, 0, w, h);
+          }
+          gl.uniform2f(uRes, w, h);
+        }
+
+        var start = performance.now();
+        function frame(now) {
+          // The launch screen removes itself when the menu is ready; that is
+          // this loop's stop condition, so it can never outlive the sequence.
+          if (!canvas.isConnected) return;
+          resize();
+          gl.uniform1f(uT, (now - start) / 1000);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      })();
+    </script>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

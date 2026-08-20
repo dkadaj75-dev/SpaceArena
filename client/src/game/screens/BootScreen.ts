@@ -1,5 +1,5 @@
 /**
- * Driver for the boot loading screen.
+ * Driver for the launch sequence.
  *
  * The MARKUP lives in `client/index.html`, not here, and that is the whole
  * point: it is static, styled by an inline `<style>` in the same document, and
@@ -30,9 +30,39 @@ const STAGE_IDS: readonly BootStageId[] = ["content", "interface", "server"];
 /** How long the fade-out lasts. Must match `.sa-boot` transition in index.html. */
 const FADE_MS = 320;
 
+/**
+ * How long the publisher card owns the screen. Loading runs behind it the whole
+ * time — this beat costs the player nothing, it just spends a second of an
+ * unavoidable wait on the logo instead of on a progress bar.
+ */
+export const PUBLISHER_MS = 1000;
+
+/**
+ * The title screen's MINIMUM dwell. It stays at least this long so the wordmark
+ * and the nebula register, and longer whenever loading has not finished — the
+ * menu is never shown before it is real.
+ *
+ * (The design note said "1.5 s or until loaded, whichever is less". Taken
+ * literally the number can never bind: you cannot leave a title screen into a
+ * game that has not loaded, so the shorter of the two is always the load. Read
+ * as a MINIMUM it does what the note plainly wants — a title screen that is
+ * actually seen — so that is what this is.)
+ */
+export const TITLE_MIN_MS = 1500;
+
+/** The phases the markup cross-fades between. */
+export type BootPhase = "publisher" | "title";
+
 export class BootScreen {
   private readonly stages = new Map<BootStageId, HTMLElement>();
   private settled = 0;
+  /**
+   * The publisher → title timeline, started at construction so it runs
+   * CONCURRENTLY with the load rather than being sequenced by the caller.
+   * `dismiss` awaits it, which is what guarantees the title screen is seen
+   * even when the pack loads faster than the animation.
+   */
+  private readonly intro: Promise<void>;
 
   private constructor(
     private readonly root: HTMLElement,
@@ -44,6 +74,24 @@ export class BootScreen {
       const el = root.querySelector<HTMLElement>(`[data-boot-stage="${id}"]`);
       if (el) this.stages.set(id, el);
     }
+    this.intro = this.runIntro();
+  }
+
+  /**
+   * Publisher card, then the title screen, then the minimum title dwell.
+   * Nothing here waits on the load: the load is already running.
+   */
+  private async runIntro(): Promise<void> {
+    this.phase("publisher");
+    await delay(PUBLISHER_MS);
+    this.phase("title");
+    await delay(TITLE_MIN_MS);
+  }
+
+  /** Which phase the markup shows. No-op once the screen has been removed. */
+  private phase(phase: BootPhase): void {
+    if (!this.root.isConnected) return;
+    this.root.dataset["phase"] = phase;
   }
 
   /**
@@ -104,7 +152,10 @@ export class BootScreen {
    * outcome that tells the player nothing at all.
    */
   fail(reason: string): void {
-    this.subtitle("BOOT FAILED");
+    // A failure has something to say, so jump straight to the screen that has
+    // room to say it rather than announcing it over the publisher logo.
+    this.phase("title");
+    this.subtitle("LAUNCH FAILED");
     this.note(reason, "warn");
     this.root.dataset["state"] = "failed";
     for (const [id, el] of this.stages) {
@@ -120,6 +171,11 @@ export class BootScreen {
    * Resolves once the node is gone; safe to call twice.
    */
   async dismiss(holdMs = 0): Promise<void> {
+    if (!this.root.isConnected) return;
+    // The launch sequence owns its own minimum runtime. A pack that loads in
+    // 200 ms must not flash the publisher card and cut — the player would see
+    // a stutter of black and never read either screen.
+    await this.intro;
     if (!this.root.isConnected) return;
     if (holdMs > 0) await delay(holdMs);
     this.root.dataset["state"] = "done";
