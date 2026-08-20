@@ -1,0 +1,10 @@
+{
+  "id": "texture.hull-plate-scored",
+  "type": "texture",
+  "version": 1,
+  "name": "Scored Plate",
+  "category": "surface",
+  "source": "props/textures/game/cliff_side_diff_1k.jpg",
+  "normal": "props/textures/game/cliff_side_nor_1k.jpg",
+  "scale": 5
+}

@@ -4,7 +4,8 @@ import { moduleStats } from "./moduleSummary.js";
 import {
   allCosmetics,
   applicabilityLabel,
-  type CosmeticPaint,
+  cosmeticSwatch,
+  type CosmeticSwatch,
 } from "./cosmetics.js";
 
 /**
@@ -61,7 +62,7 @@ export interface PaintTarget {
 }
 
 export interface PaintEntry extends ShopEntry {
-  paint: CosmeticPaint;
+  paint: CosmeticSwatch;
   target: PaintTarget;
 }
 
@@ -170,7 +171,7 @@ export function paintEntries(
       price: cosmetic.price,
       state: target.equipped ? "equipped" : isOwned ? "owned" : "buy",
       chips: [],
-      paint: cosmetic.paint,
+      paint: cosmeticSwatch(cosmetic),
       target,
     } satisfies PaintEntry;
   });

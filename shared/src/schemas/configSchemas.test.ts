@@ -289,7 +289,20 @@ const cosmetic = {
   kind: "paint",
   price: 0,
   target: "ship.fixture-hull",
-  paint: { primary: "#112233", accent: "#445566" },
+  elements: {
+    body: { color: "#112233", finish: { gloss: 0.7 } },
+    wings: { texture: "texture.fixture-plate", color: "#445566" },
+    propulsion: { effect: "fx.fixture-trail" },
+  },
+};
+
+const texture = {
+  id: "texture.fixture-plate",
+  type: "texture",
+  version: 1,
+  name: "Fixture Plate",
+  source: "textures/fixture-plate.jpg",
+  scale: 3,
 };
 
 const tutorial = {
@@ -330,6 +343,7 @@ const VALID: Record<ConfigType, Record<string, unknown>> = {
   botprofile,
   quality,
   cosmetic,
+  texture,
   tutorial,
 };
 

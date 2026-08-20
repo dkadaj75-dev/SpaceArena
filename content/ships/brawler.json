@@ -1,7 +1,7 @@
 {
   "id": "ship.brawler",
   "type": "ship",
-  "version": 1,
+  "version": 4,
   "name": "Brawler",
   "class": "heavy",
   "core": {
@@ -446,6 +446,25 @@
         "model": "ships/human_heavy_lod2.glb",
         "distance": 90
       }
+    ]
+  },
+  "skin": {
+    "body": [
+      "HULL_PRIMARY"
+    ],
+    "canopy": [
+      "CANOPY_GLASS"
+    ],
+    "wings": [
+      "PANEL_SECONDARY"
+    ],
+    "emissive": [
+      "EMISSIVE_BLUE"
+    ],
+    "propulsion": [
+      "eng-l",
+      "eng-r",
+      "boost-plume"
     ]
   },
   "collider": {

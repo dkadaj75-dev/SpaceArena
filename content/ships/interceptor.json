@@ -1,7 +1,7 @@
 {
   "id": "ship.interceptor",
   "type": "ship",
-  "version": 3,
+  "version": 4,
   "name": "Interceptor",
   "class": "light",
   "core": {
@@ -21,19 +21,19 @@
       "capacity": 10
     },
     "cooling": {
-      "multiplier": 1.0
+      "multiplier": 1
     },
     "recharge": {
-      "multiplier": 1.0
+      "multiplier": 1
     },
     "heatStore": {
-      "multiplier": 1.0
+      "multiplier": 1
     },
     "energyStore": {
-      "multiplier": 1.0
+      "multiplier": 1
     },
     "sensors": {
-      "lockRange": 195.0,
+      "lockRange": 195,
       "lockTimeSec": 0.7,
       "coneDeg": 60
     },
@@ -354,9 +354,34 @@
     "modelScale": 0.655,
     "modelRotationY": 0,
     "lods": [
-      { "model": "ships/human_light_lod1.glb", "distance": 40 },
-      { "model": "ships/human_light_lod2.glb", "distance": 90 },
-      { "model": "ships/human_light_lod3.glb", "distance": 180 }
+      {
+        "model": "ships/human_light_lod1.glb",
+        "distance": 40
+      },
+      {
+        "model": "ships/human_light_lod2.glb",
+        "distance": 90
+      },
+      {
+        "model": "ships/human_light_lod3.glb",
+        "distance": 180
+      }
+    ]
+  },
+  "skin": {
+    "body": [
+      "HUM_LGT_Shell_White"
+    ],
+    "canopy": [
+      "HUM_LGT_Canopy_Glass"
+    ],
+    "emissive": [
+      "HUM_LGT_Emissive_Blue"
+    ],
+    "propulsion": [
+      "eng-l",
+      "eng-r",
+      "boost-plume"
     ]
   },
   "collider": {

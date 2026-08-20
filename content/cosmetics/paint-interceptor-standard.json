@@ -1,13 +1,14 @@
 {
   "id": "cosmetic.paint-interceptor-standard",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "Standard Issue",
   "kind": "paint",
   "price": 0,
   "target": "ship.interceptor",
-  "paint": {
-    "primary": "#2f6fb8",
-    "accent": "#57d8ff"
+  "elements": {
+    "body": {
+      "color": "#2f6fb8"
+    }
   }
 }

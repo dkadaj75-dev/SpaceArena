@@ -17,6 +17,7 @@ import {
   hardpointsOf,
   shieldShellUp,
   type ConfigService,
+  type CosmeticConfig,
   type EffectConfig,
   type ModuleConfig,
   type ModuleSnapshot,
@@ -26,6 +27,7 @@ import {
   type SocketTransform,
 } from "@space-arena/shared";
 import type { AssetRegistry } from "../core/AssetRegistry.js";
+import { propulsionEffectFor } from "./shipPaint.js";
 import { applyParticleParam } from "./particleParams.js";
 import { getParticleTexture } from "./particleTexture.js";
 import { deployProgressFor, hardpointPose } from "./juice/deployAnim.js";
@@ -145,6 +147,13 @@ export class ShipSocketRig {
     /** Deploy-sweep + shield-ripple knobs (theme `juice` block, §10 5.7). */
     juice: JuiceSettings = DEFAULT_JUICE_SETTINGS,
     private readonly effectOptions: { isLocal?: boolean } = {},
+    /**
+     * The equipped skin, for its PROPULSION element. Propulsion is the one part
+     * of a livery that is not a surface: it replaces the particle effect on the
+     * emitter sockets `ship.skin.propulsion` wires, and leaves every other
+     * emitter (damage smoke, boost plume if unwired) as authored.
+     */
+    private readonly cosmetic: Pick<CosmeticConfig, "elements"> | undefined = undefined,
   ) {
     this.particleQuality = particleQuality ?? DEFAULT_PARTICLE_QUALITY;
     this.juice = juice;
@@ -235,9 +244,14 @@ export class ShipSocketRig {
         distance: 0,
         inFrustum: true,
       })) continue;
-      const effect = this.configs.get<EffectConfig>("effect", socket.effect);
+      // A skin may swap this socket's effect for any effect in the project. An
+      // override that names something unknown falls back to the authored one
+      // rather than killing the emitter — a bad skin must not delete a thruster.
+      const override = propulsionEffectFor(this.ship, this.cosmetic, socket.id);
+      const effectId = (override && this.configs.get<EffectConfig>("effect", override)) ? override : socket.effect;
+      const effect = this.configs.get<EffectConfig>("effect", effectId);
       if (!effect) {
-        log.warn(`emitter socket "${socket.id}" on ${this.ship.id} references unknown effect ${socket.effect}`);
+        log.warn(`emitter socket "${socket.id}" on ${this.ship.id} references unknown effect ${effectId}`);
         continue;
       }
 

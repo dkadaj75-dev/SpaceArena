@@ -1,4 +1,4 @@
-import { allCosmetics, cosmeticAppliesTo, type ConfigService, type CosmeticConfig } from "@space-arena/shared";
+import { allCosmetics, cosmeticAppliesTo, cosmeticSwatch, type ConfigService, type CosmeticConfig, type CosmeticSwatch } from "@space-arena/shared";
 
 /**
  * Shop-side cosmetic reads. The queries themselves live in shared
@@ -15,9 +15,10 @@ export function applicabilityLabel(cosmetic: CosmeticConfig, shipName: (id: stri
   return cosmetic.target.startsWith("ship.") ? `Fits ${shipName(cosmetic.target)}` : `Fits module ${cosmetic.target}`;
 }
 
-/** The three authored colours of a paint. */
-export type CosmeticPaint = CosmeticConfig["paint"];
+/** The per-element look a skin authors. */
+export type CosmeticElements = CosmeticConfig["elements"];
 
-export { allCosmetics, cosmeticAppliesTo as appliesToShip };
+export { allCosmetics, cosmeticAppliesTo as appliesToShip, cosmeticSwatch };
+export type { CosmeticSwatch };
 export { baseCosmeticIdFor } from "@space-arena/shared";
 export type { CosmeticConfig } from "@space-arena/shared";

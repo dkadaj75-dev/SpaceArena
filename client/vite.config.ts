@@ -96,6 +96,32 @@ function contentPipelinePlugin(): Plugin {
           });
         });
       });
+      // Dev-only: list image assets under content/ for the Skins tool, so a
+      // designer who drops a plate under content/textures/ can point a texture
+      // config at it without typing the path.
+      server.middlewares.use("/__editor/list-textures", (req, res) => {
+        void (async () => {
+          const found: string[] = [];
+          const walk = async (dir: string): Promise<void> => {
+            for (const entry of await readdir(dir, { withFileTypes: true })) {
+              const abs = path.join(dir, entry.name);
+              if (entry.isDirectory()) await walk(abs);
+              else if (/\.(png|jpe?g|webp|ktx2)$/i.test(entry.name)) {
+                found.push(path.relative(CONTENT_DIR, abs).split(path.sep).join("/"));
+              }
+            }
+          };
+          try {
+            await walk(CONTENT_DIR);
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ textures: found.sort() }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ textures: [], error: String(error) }));
+          }
+        })();
+      });
+
       // Dev-only: list binary model assets under content/ for the Ship tool's picker.
       server.middlewares.use("/__editor/list-models", (req, res) => {
         void (async () => {

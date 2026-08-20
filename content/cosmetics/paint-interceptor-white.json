@@ -1,25 +1,20 @@
 {
   "id": "cosmetic.paint-interceptor-white",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "White",
   "kind": "paint",
   "price": 0,
   "target": "ship.interceptor",
-  "paint": {
-    "primary": "#ffffff",
-    "accent": "#8fa6bd",
-    "finish": {
-      "gloss": 0.8,
-      "metallic": 0,
-      "clearcoat": 0.7,
-      "glow": 0.08
+  "elements": {
+    "body": {
+      "color": "#ffffff",
+      "finish": {
+        "gloss": 0.8,
+        "metallic": 0,
+        "clearcoat": 0.7,
+        "glow": 0.08
+      }
     }
-  },
-  "materials": [
-    {
-      "material": "HUM_LGT_Shell_White",
-      "channel": "primary"
-    }
-  ]
+  }
 }

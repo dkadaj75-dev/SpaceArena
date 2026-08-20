@@ -1,7 +1,7 @@
 import type { ConfigService, ModuleConfig, ShipConfig } from "@space-arena/shared";
 import type { CosmeticConfig } from "../cosmetics.js";
 
-/** A minimal shipped-pack stand-in: two hulls, three modules, four paints. */
+/** A minimal shipped-pack stand-in: two hulls, three modules, four shop skins. */
 export const SHIPS = [
   ship("ship.interceptor", "Interceptor", "light", 120, 27, 3, 10),
   ship("ship.brawler", "Brawler", "heavy", 260, 18, 1.6, 16),
@@ -14,36 +14,39 @@ export const MODULES = [
 ] as const;
 
 export const COSMETICS: CosmeticConfig[] = [
-  paint("cosmetic.paint-interceptor-standard", "Standard Issue", "ship.interceptor", { primary: "#2f6fb8", accent: "#57d8ff" }),
-  paint("cosmetic.paint-interceptor-crimson", "Crimson Vector", "ship.interceptor", {
-    primary: "#7a1f2b", accent: "#e0546a", emissive: "#ff8a3d",
+  paint("cosmetic.paint-interceptor-standard", "Standard Issue", "ship.interceptor", {
+    body: { color: "#2f6fb8" },
+    wings: { color: "#57d8ff" },
   }),
-  paint("cosmetic.paint-brawler-standard", "Standard Issue", "ship.brawler", { primary: "#8a94a6", accent: "#c3ccd8" }),
+  paint("cosmetic.paint-interceptor-crimson", "Crimson Vector", "ship.interceptor", {
+    body: { color: "#7a1f2b", finish: { gloss: 0.7, glow: 0.14 } },
+    wings: { color: "#e0546a" },
+  }),
+  paint("cosmetic.paint-brawler-standard", "Standard Issue", "ship.brawler", {
+    body: { color: "#8a94a6" },
+    wings: { color: "#c3ccd8" },
+  }),
   paint("cosmetic.paint-interceptor-lance", "Lance Livery", "ship.interceptor", {
-    primary: "#1d3f2e", accent: "#8ce0a8",
+    body: { color: "#1d3f2e" },
+    wings: { color: "#8ce0a8" },
   }),
 ];
 
 /**
- * Paints that NAME the materials they touch — the shop screens never show these
- * (their card assertions pin the catalogue above), but the renderer's tests do:
- * a targeted paint has to reach the shell plates and nothing else.
+ * Skins the shop screens never show (their card assertions pin the catalogue
+ * above), but the renderer's tests do: a textured element, a patterned one, and
+ * a propulsion swap.
  */
-export const TARGETED_COSMETICS: CosmeticConfig[] = [
-  paint(
-    "cosmetic.paint-interceptor-shellonly",
-    "Shell Only",
-    "ship.interceptor",
-    { primary: "#c81f2b", accent: "#e0546a", emissive: "#ff8a3d" },
-    [{ material: "SHELL_WHITE", channel: "primary" }],
-  ),
-  paint(
-    "cosmetic.paint-interceptor-zebra",
-    "Zebra",
-    "ship.interceptor",
-    { primary: "#f2f2f0", accent: "#1b1c20", pattern: "zebra", patternColor: "#16171b", patternScale: 2 },
-    [{ material: "SHELL_WHITE", channel: "primary", patterned: true }],
-  ),
+export const RENDER_COSMETICS: CosmeticConfig[] = [
+  paint("cosmetic.paint-interceptor-shellonly", "Shell Only", "ship.interceptor", {
+    body: { color: "#c81f2b", finish: { gloss: 0.8 } },
+  }),
+  paint("cosmetic.paint-interceptor-zebra", "Zebra", "ship.interceptor", {
+    body: { color: "#f2f2f0", pattern: "zebra", patternColor: "#16171b", patternScale: 2 },
+  }),
+  paint("cosmetic.paint-interceptor-jets", "Jets", "ship.interceptor", {
+    propulsion: { effect: "fx.boost-trail" },
+  }),
 ];
 
 /** A ConfigService stand-in that answers the three shop registries + the theme. */
@@ -111,8 +114,7 @@ function paint(
   id: string,
   name: string,
   target: CosmeticConfig["target"],
-  paintColors: CosmeticConfig["paint"],
-  materials?: CosmeticConfig["materials"],
+  elements: CosmeticConfig["elements"],
 ): CosmeticConfig {
-  return { id, type: "cosmetic", version: 1, name, kind: "paint", price: 0, target, paint: paintColors, ...(materials ? { materials } : {}) };
+  return { id, type: "cosmetic", version: 3, name, kind: "paint", price: 0, target, elements };
 }

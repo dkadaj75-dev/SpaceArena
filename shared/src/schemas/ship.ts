@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
 import { collider, renderRecipe, resists } from "./common.js";
+import { shipSkinWiring } from "./skin.js";
 import {
   hardpointSocket,
   socketSchema,
@@ -123,6 +124,18 @@ export const shipSchema = z
     /** Module ids fitted by default, in hardpoint order. */
     defaultFitting: z.array(z.string()),
     render: renderRecipe,
+    /**
+     * SKINS LOGIC: which of THIS model's materials each skin element covers,
+     * and which emitter sockets count as propulsion. Authored once per hull in
+     * the F10 Ship tool; every skin targeting this hull then addresses elements
+     * rather than material names.
+     *
+     * An element wired to nothing is a GATE, not a default: a skin's canopy
+     * style cannot reach a hull whose canopy list is empty. That is deliberate
+     * — it is how a designer decides which plates of a specific model a livery
+     * is allowed to touch at all.
+     */
+    skin: shipSkinWiring.optional(),
     collider,
   })
   .superRefine((ship, ctx) => {

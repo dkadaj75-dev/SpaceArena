@@ -1,29 +1,29 @@
 {
   "id": "cosmetic.paint-brawler-yellow",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "Yellow",
   "kind": "paint",
   "price": 0,
   "target": "ship.brawler",
-  "paint": {
-    "primary": "#f0aa00",
-    "accent": "#fff6b0",
-    "finish": {
-      "gloss": 0.7,
-      "metallic": 0,
-      "clearcoat": 0.5,
-      "glow": 0.14
-    }
-  },
-  "materials": [
-    {
-      "material": "HULL_PRIMARY",
-      "channel": "primary"
+  "elements": {
+    "body": {
+      "color": "#f0aa00",
+      "finish": {
+        "gloss": 0.7,
+        "metallic": 0,
+        "clearcoat": 0.5,
+        "glow": 0.14
+      }
     },
-    {
-      "material": "PANEL_SECONDARY",
-      "channel": "accent"
+    "wings": {
+      "color": "#fff6b0",
+      "finish": {
+        "gloss": 0.7,
+        "metallic": 0,
+        "clearcoat": 0.5,
+        "glow": 0.14
+      }
     }
-  ]
+  }
 }

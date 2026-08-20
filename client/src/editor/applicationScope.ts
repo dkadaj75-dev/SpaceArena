@@ -64,6 +64,10 @@ export const APPLICATION_POLICY: Record<ConfigType, ApplicationPolicy> = {
     scope: "next-match",
     message: "Applies next match. Spawned ships keep the paint they were built with.",
   },
+  texture: {
+    scope: "next-match",
+    message: "Applies next match to skins that use it. Already-painted hulls keep the texture they were built with.",
+  },
 };
 
 export function applicationNotice(type: ConfigType): HTMLParagraphElement {

@@ -1,29 +1,29 @@
 {
   "id": "cosmetic.paint-brawler-blue",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "Blue",
   "kind": "paint",
   "price": 0,
   "target": "ship.brawler",
-  "paint": {
-    "primary": "#0b52e0",
-    "accent": "#8fe8ff",
-    "finish": {
-      "gloss": 0.7,
-      "metallic": 0,
-      "clearcoat": 0.5,
-      "glow": 0.14
-    }
-  },
-  "materials": [
-    {
-      "material": "HULL_PRIMARY",
-      "channel": "primary"
+  "elements": {
+    "body": {
+      "color": "#0b52e0",
+      "finish": {
+        "gloss": 0.7,
+        "metallic": 0,
+        "clearcoat": 0.5,
+        "glow": 0.14
+      }
     },
-    {
-      "material": "PANEL_SECONDARY",
-      "channel": "accent"
+    "wings": {
+      "color": "#8fe8ff",
+      "finish": {
+        "gloss": 0.7,
+        "metallic": 0,
+        "clearcoat": 0.5,
+        "glow": 0.14
+      }
     }
-  ]
+  }
 }

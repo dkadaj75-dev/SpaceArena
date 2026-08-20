@@ -400,7 +400,7 @@ function swatch(entry: PaintEntry): HTMLDivElement {
   el.setAttribute("aria-hidden", "true");
   el.style.setProperty("--shop-primary", entry.paint.primary);
   el.style.setProperty("--shop-accent", entry.paint.accent);
-  const glow = entry.paint.emissive;
+  const glow = entry.paint.glow;
   el.dataset["glow"] = String(Boolean(glow));
   if (glow) el.style.setProperty("--shop-glow", glow);
   return el;

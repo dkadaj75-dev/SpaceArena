@@ -38,6 +38,7 @@ import {
 import { AssetRegistry } from "../core/AssetRegistry.js";
 import { setThrustGlow } from "../core/thrustGlow.js";
 import { pinInstanceLod0 } from "../core/modelLod.js";
+import { cosmeticById } from "./cosmetics.js";
 import { cosmeticIdOf, ShipPaintBank } from "./shipPaint.js";
 import { ShipSocketRig } from "./ShipSocketRig.js";
 import { createFlagViews, type FlagViews } from "./flagView.js";
@@ -942,7 +943,7 @@ export class ViewManager {
     // A painted hull instances from its own tinted master, so every ship
     // wearing that paint still batches into one draw call (contract §5).
     const cosmeticId = cosmeticIdOf(s);
-    const master = this.paint.masterFor(this.assets.getShipMaster(ship.render), cosmeticId);
+    const master = this.paint.masterFor(this.assets.getShipMaster(ship.render), ship, cosmeticId);
     const node = master.createInstance(`ship.${s.id}`);
     if (s.id === this.localPlayerId) pinInstanceLod0(node);
     // Frame-based pose: the quaternion owns the rotation from here on (once
@@ -968,6 +969,7 @@ export class ViewManager {
       this.quality.particles,
       this.juice,
       { isLocal: s.id === this.localPlayerId },
+      cosmeticId ? cosmeticById(this.configs, cosmeticId) : undefined,
     );
 
     const glowSource: SignalId | null = ship.render.emissiveGlow ? (ship.render.emissiveGlow.source ?? "throttle") : null;

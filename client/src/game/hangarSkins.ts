@@ -1,4 +1,4 @@
-import { cosmeticsForShip, cosmeticDisplayName, type ConfigService } from "@space-arena/shared";
+import { cosmeticsForShip, cosmeticDisplayName, cosmeticSwatch, type ConfigService } from "@space-arena/shared";
 import type { OwnershipStore } from "./ownershipStore.js";
 
 export interface HangarSkinEntry {
@@ -18,15 +18,20 @@ export function hangarSkinEntries(
 ): HangarSkinEntry[] {
   const owned = ownership.ownedCosmetics();
   const selected = ownership.selectedCosmetic(shipId);
-  return cosmeticsForShip(configs, shipId).map((cosmetic) => ({
-    id: cosmetic.id,
-    name: cosmeticDisplayName(cosmetic),
-    price: cosmetic.price,
-    primary: cosmetic.paint.primary,
-    accent: cosmetic.paint.accent,
-    owned: owned.has(cosmetic.id),
-    equipped: selected === cosmetic.id,
-  }));
+  return cosmeticsForShip(configs, shipId).map((cosmetic) => {
+    // A skin has up to four surface colours now; the card shows two. See
+    // `cosmeticSwatch` for which two and why a texture-only skin still fills.
+    const swatch = cosmeticSwatch(cosmetic);
+    return {
+      id: cosmetic.id,
+      name: cosmeticDisplayName(cosmetic),
+      price: cosmetic.price,
+      primary: swatch.primary,
+      accent: swatch.accent,
+      owned: owned.has(cosmetic.id),
+      equipped: selected === cosmetic.id,
+    };
+  });
 }
 
 export async function buyAndEquipSkin(

@@ -1,13 +1,17 @@
 {
   "id": "cosmetic.paint-brawler-standard",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "Standard Issue",
   "kind": "paint",
   "price": 0,
   "target": "ship.brawler",
-  "paint": {
-    "primary": "#b8542f",
-    "accent": "#ffb257"
+  "elements": {
+    "body": {
+      "color": "#b8542f"
+    },
+    "wings": {
+      "color": "#ffb257"
+    }
   }
 }

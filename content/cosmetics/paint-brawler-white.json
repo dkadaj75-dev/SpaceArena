@@ -1,29 +1,29 @@
 {
   "id": "cosmetic.paint-brawler-white",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "White",
   "kind": "paint",
   "price": 0,
   "target": "ship.brawler",
-  "paint": {
-    "primary": "#ffffff",
-    "accent": "#8fa6bd",
-    "finish": {
-      "gloss": 0.8,
-      "metallic": 0,
-      "clearcoat": 0.7,
-      "glow": 0.08
-    }
-  },
-  "materials": [
-    {
-      "material": "HULL_PRIMARY",
-      "channel": "primary"
+  "elements": {
+    "body": {
+      "color": "#ffffff",
+      "finish": {
+        "gloss": 0.8,
+        "metallic": 0,
+        "clearcoat": 0.7,
+        "glow": 0.08
+      }
     },
-    {
-      "material": "PANEL_SECONDARY",
-      "channel": "accent"
+    "wings": {
+      "color": "#8fa6bd",
+      "finish": {
+        "gloss": 0.8,
+        "metallic": 0,
+        "clearcoat": 0.7,
+        "glow": 0.08
+      }
     }
-  ]
+  }
 }

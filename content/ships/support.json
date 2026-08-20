@@ -1,7 +1,7 @@
 {
   "id": "ship.support",
   "type": "ship",
-  "version": 1,
+  "version": 4,
   "name": "Support",
   "class": "medium",
   "core": {
@@ -385,7 +385,10 @@
     "model": "ships/human_medium_lod0.glb",
     "modelScale": 0.33,
     "modelRotationY": 0,
-    "emissiveGlow": { "material": "ENGINE_GLOW", "source": "throttle" },
+    "emissiveGlow": {
+      "material": "ENGINE_GLOW",
+      "source": "throttle"
+    },
     "lods": [
       {
         "model": "ships/human_medium_lod1.glb",
@@ -395,6 +398,19 @@
         "model": "ships/human_medium_lod2.glb",
         "distance": 90
       }
+    ]
+  },
+  "skin": {
+    "body": [
+      "HULL_BODY"
+    ],
+    "emissive": [
+      "ENGINE_GLOW"
+    ],
+    "propulsion": [
+      "eng-l",
+      "eng-r",
+      "boost-plume"
     ]
   },
   "collider": {

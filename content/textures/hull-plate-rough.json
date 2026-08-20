@@ -1,0 +1,10 @@
+{
+  "id": "texture.hull-plate-rough",
+  "type": "texture",
+  "version": 1,
+  "name": "Rough Plate",
+  "category": "surface",
+  "source": "props/textures/game/gray_rocks_diff_1k.jpg",
+  "normal": "props/textures/game/gray_rocks_nor_1k.jpg",
+  "scale": 4
+}

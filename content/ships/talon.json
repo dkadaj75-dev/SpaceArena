@@ -1,7 +1,7 @@
 {
   "id": "ship.talon",
   "type": "ship",
-  "version": 1,
+  "version": 4,
   "name": "Talon",
   "class": "light",
   "core": {
@@ -353,6 +353,16 @@
     "model": "ships/talon_light_lod0.glb",
     "modelScale": 4.11,
     "modelRotationY": 0
+  },
+  "skin": {
+    "body": [
+      "material"
+    ],
+    "propulsion": [
+      "eng-l",
+      "eng-r",
+      "boost-plume"
+    ]
   },
   "collider": {
     "shape": "circle",

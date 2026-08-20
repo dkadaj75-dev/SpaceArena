@@ -1,28 +1,22 @@
 {
   "id": "cosmetic.paint-interceptor-zebra",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "Zebra",
   "kind": "paint",
   "price": 0,
   "target": "ship.interceptor",
-  "paint": {
-    "primary": "#f7f7f5",
-    "accent": "#1b1c20",
-    "pattern": "zebra",
-    "patternColor": "#14151a",
-    "patternScale": 2,
-    "finish": {
-      "gloss": 0.62,
-      "clearcoat": 0.5,
-      "glow": 0.06
+  "elements": {
+    "body": {
+      "color": "#f7f7f5",
+      "finish": {
+        "gloss": 0.62,
+        "clearcoat": 0.5,
+        "glow": 0.06
+      },
+      "pattern": "zebra",
+      "patternColor": "#14151a",
+      "patternScale": 2
     }
-  },
-  "materials": [
-    {
-      "material": "HUM_LGT_Shell_White",
-      "channel": "primary",
-      "patterned": true
-    }
-  ]
+  }
 }

@@ -1,15 +1,24 @@
-import { MultiMaterial, TransformNode, Vector3, type Material, type Mesh, type Scene } from "@babylonjs/core";
+import { TransformNode, Vector3, type Mesh, type Scene } from "@babylonjs/core";
 import {
   allCosmetics,
   cosmeticDisplayName,
   cosmeticsForShip,
+  isSurfaceElement,
   paintPattern,
-  paintTargetFor,
+  SKIN_ELEMENT_LABEL,
+  SKIN_ELEMENTS,
+  styleIsEmpty,
+  textureDisplayName,
+  wiringFor,
   type CosmeticConfig,
-  type PaintChannel,
+  type EffectConfig,
   type PaintFinish,
   type PaintPattern,
   type ShipConfig,
+  type SkinElement,
+  type SkinElementStyle,
+  type SurfaceElement,
+  type TextureConfig,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
 import { pinCloneHierarchyLod0 } from "../core/modelLod.js";
@@ -19,134 +28,103 @@ import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { saveConfig } from "./saveConfig.js";
 
 /**
- * Skins (F10 → Ships → Skins) — the tool that decides WHICH of a hull's
- * materials a paint is allowed to touch.
+ * Skins (F10 → Ships → Skins) — where a livery is authored.
  *
- * A paint used to guess its targets from material names, which is how the
- * Interceptor ended up with tinted canopy glass and a recoloured engine bloom:
- * every slot of the model got some channel of the paint whether it was part of
- * the livery or not. Here the designer picks, per material, the channel it
- * wears — or leaves it unpainted, which is the default for a fresh skin and the
- * answer for most slots. The list is exhaustive: what it does not name renders
- * exactly as the artist shipped it, reflections, clearcoat and all.
+ * A skin is a look per ELEMENT: body, canopies, wings, emissive light,
+ * propulsion. It never names the model's materials. WHICH plates of a given
+ * hull each element covers is the Ship tool's business (`ship.skin`), and this
+ * panel only shows that wiring so a designer can see why an element is or is
+ * not landing: an element the hull wires to nothing is inert here, however
+ * fully it is filled in.
  *
  * The preview is the real renderer. It stages the hull through the same
- * {@link ShipPaintBank} the match and the Hangar use, so what this tool shows is
- * what a pilot flies — a paint that looks wrong here looks wrong in a match.
+ * {@link ShipPaintBank} the match and the Hangar use, so what this tool shows
+ * is what a pilot flies.
  */
 
-/**
- * Every material slot a hull master draws with, root and children, in draw
- * order and de-duplicated. Read off the UNPAINTED master: a painted clone
- * renames the slots it touched (`SHELL.cosmetic.paint-…`) and the table has to
- * show the names the GLB actually authored.
- */
-export function slotNamesOf(master: Mesh | null): string[] {
-  if (!master) return [];
-  const names: string[] = [];
-  const collect = (material: Material | null): void => {
-    const slots = material instanceof MultiMaterial ? material.subMaterials : [material];
-    for (const slot of slots) if (slot && !names.includes(slot.name)) names.push(slot.name);
-  };
-  collect(master.material);
-  for (const child of master.getChildMeshes(false)) collect(child.material);
-  return names;
+/** The empty option of every "pick one, or don't" dropdown. */
+const NONE = "";
+
+/** What the surface override starts at — the shipped lacquer. Metallic is zero on purpose. */
+export const DEFAULT_FINISH: PaintFinish = { gloss: 0.7, metallic: 0, clearcoat: 0.5, glow: 0.14 };
+
+/** The colour a fresh element starts at, so the first paint is visible immediately. */
+const DEFAULT_COLOR = "#8a94a6";
+
+/** One element as the panel needs to draw it. */
+export interface ElementRow {
+  element: SkinElement;
+  label: string;
+  /** Material names (or, for propulsion, socket ids) this hull wires to it. */
+  wired: readonly string[];
+  /** The skin says something here. */
+  styled: boolean;
+  /**
+   * Filled in but unreachable: the skin styles this element and the hull wires
+   * it to nothing, so the style renders nowhere. The one state worth warning
+   * about, because everything looks correct in the JSON.
+   */
+  inert: boolean;
 }
 
 /**
- * What the surface override starts at: the shipped lacquer. Metallic is zero on
- * purpose — see the second hint in {@link SkinEditor.surfaceSection}.
+ * Every element, with the hull's wiring and whether the skin fills it. Elements
+ * are always ALL listed, wired or not — a designer has to be able to see that
+ * canopies exist and are unwired, which a filtered list would hide.
  */
-const DEFAULT_FINISH = { gloss: 0.7, metallic: 0, clearcoat: 0.5, glow: 0.14 } as const;
-
-/** "Not painted" — the empty option of the per-material channel dropdown. */
-const NO_CHANNEL = "";
-
-const CHANNEL_LABEL: Record<PaintChannel, string> = {
-  primary: "Primary",
-  accent: "Accent",
-  emissive: "Emissive",
-};
-
-/** One row of the material table: a slot of the model and what the paint does to it. */
-export interface MaterialRow {
-  material: string;
-  channel: PaintChannel | null;
-  patterned: boolean;
-  /** Named by the paint but absent from the model — a rename left it dangling. */
-  missing: boolean;
-}
-
-/**
- * The table the tool draws: every material of the model, plus any the paint
- * still names after the model moved on. Nothing is silently dropped — a
- * dangling target is a thing the designer has to see to fix.
- */
-export function materialRows(cosmetic: CosmeticConfig, modelMaterials: readonly string[]): MaterialRow[] {
-  const rows: MaterialRow[] = modelMaterials.map((material) => {
-    const target = paintTargetFor(cosmetic, material);
-    return {
-      material,
-      channel: target?.channel ?? null,
-      patterned: target?.patterned === true,
-      missing: false,
-    };
+export function elementRows(
+  ship: Pick<ShipConfig, "skin"> | undefined,
+  cosmetic: Pick<CosmeticConfig, "elements">,
+): ElementRow[] {
+  return SKIN_ELEMENTS.map((element) => {
+    const wired = wiringFor(ship?.skin, element);
+    const styled = isSurfaceElement(element)
+      ? !styleIsEmpty(cosmetic.elements?.[element])
+      : cosmetic.elements?.propulsion?.effect !== undefined;
+    return { element, label: SKIN_ELEMENT_LABEL[element], wired, styled, inert: styled && wired.length === 0 };
   });
-  const known = new Set(modelMaterials.map((name) => name.trim().toLowerCase()));
-  for (const target of cosmetic.materials ?? []) {
-    if (known.has(target.material.trim().toLowerCase())) continue;
-    rows.push({ material: target.material, channel: target.channel, patterned: target.patterned === true, missing: true });
-  }
-  return rows;
 }
 
 /**
- * `cosmetic` with `material` assigned to `channel`, or dropped from the target
- * list when `channel` is null. Assigning ANY channel commits the paint to
- * explicit targeting: the list stops being absent, so every material the
- * designer has not named is now deliberately unpainted rather than guessed at.
+ * `cosmetic` with one surface element patched. An `undefined` value CLEARS that
+ * field rather than storing undefined, because "absent" is the renderer's
+ * "leave the artist's own" and a present-but-undefined key would serialise as
+ * noise into the content file.
  */
-export function withMaterialChannel(
+export function withElementStyle(
   cosmetic: CosmeticConfig,
-  material: string,
-  channel: PaintChannel | null,
+  element: SurfaceElement,
+  patch: Partial<SkinElementStyle>,
 ): CosmeticConfig {
-  const rest = (cosmetic.materials ?? []).filter(
-    (target) => target.material.trim().toLowerCase() !== material.trim().toLowerCase(),
-  );
-  if (!channel) return { ...cosmetic, materials: rest };
-  const previous = paintTargetFor(cosmetic, material);
-  const next = { material, channel, ...(previous?.patterned ? { patterned: true } : {}) };
-  return { ...cosmetic, materials: [...rest, next] };
+  const next: Record<string, unknown> = { ...cosmetic.elements?.[element], ...patch };
+  for (const [key, value] of Object.entries(patch)) if (value === undefined) delete next[key];
+  const elements = { ...cosmetic.elements, [element]: next as SkinElementStyle };
+  if (styleIsEmpty(elements[element])) delete elements[element];
+  return { ...cosmetic, elements };
 }
 
-/** `cosmetic` with the pattern drawn into (or lifted off) one already-targeted material. */
-export function withMaterialPatterned(cosmetic: CosmeticConfig, material: string, patterned: boolean): CosmeticConfig {
-  const target = paintTargetFor(cosmetic, material);
-  if (!target) return cosmetic;
-  return {
-    ...cosmetic,
-    materials: (cosmetic.materials ?? []).map((entry) =>
-      entry === target ? { material: entry.material, channel: entry.channel, ...(patterned ? { patterned: true } : {}) } : entry,
-    ),
-  };
+/** `cosmetic` with the propulsion effect set, or cleared when `effect` is null. */
+export function withPropulsionEffect(cosmetic: CosmeticConfig, effect: string | null): CosmeticConfig {
+  const elements = { ...cosmetic.elements };
+  if (effect) elements.propulsion = { effect };
+  else delete elements.propulsion;
+  return { ...cosmetic, elements };
 }
 
-/** A fresh paint for `ship`, targeting nothing — the designer picks the plates. */
-export function newSkinFor(ship: ShipConfig, existingIds: readonly string[]): CosmeticConfig {
+/** A fresh skin for `ship`, styling nothing — the designer fills the elements in. */
+export function newSkinFor(ship: Pick<ShipConfig, "id">, existingIds: readonly string[]): CosmeticConfig {
   const slug = ship.id.split(".").pop() ?? ship.id;
   let n = 1;
   while (existingIds.includes(`cosmetic.paint-${slug}-custom-${n}`)) n++;
   return {
     id: `cosmetic.paint-${slug}-custom-${n}`,
     type: "cosmetic",
-    version: 2,
+    version: 3,
     name: `Custom ${n}`,
     kind: "paint",
     price: 0,
     target: ship.id,
-    paint: { primary: "#8a94a6", accent: "#c3ccd8" },
-    materials: [],
+    elements: {},
   };
 }
 
@@ -157,12 +135,9 @@ export class SkinEditor implements EditorPanel {
   private readonly paint: ShipPaintBank;
   private readonly previewRoot: TransformNode;
   private previewMesh: Mesh | null = null;
-  /** Material slots of the staged hull's UNPAINTED master — the table's rows. */
-  private baseMaterials: string[] = [];
 
   private shipId: string;
   private cosmeticId: string;
-  /** Hull loads already kicked, keyed like ShipManager's so a scale edit re-kicks. */
   private readonly hullLoadKicked = new Set<string>();
 
   constructor(private readonly host: EditorHost, private readonly report: (message: string | null) => void) {
@@ -231,57 +206,83 @@ export class SkinEditor implements EditorPanel {
       this.element.append(hint("This hull has no skins yet. “New skin” starts one."));
       return;
     }
-    this.element.append(
-      this.coloursSection(cosmetic),
-      this.surfaceSection(cosmetic),
-      this.finishSection(cosmetic),
-      this.materialsSection(cosmetic),
-    );
-  }
 
-  /** The three authored channels. Emissive is opt-in: absent leaves the glow alone. */
-  private coloursSection(cosmetic: CosmeticConfig): HTMLElement {
-    const box = section("Colours");
-    const primary = colorInput(cosmetic.paint.primary, (value) => this.patchPaint({ primary: value }));
-    const accent = colorInput(cosmetic.paint.accent, (value) => this.patchPaint({ accent: value }));
-
-    const emissiveOn = document.createElement("input");
-    emissiveOn.type = "checkbox";
-    emissiveOn.checked = cosmetic.paint.emissive !== undefined;
-    const emissive = colorInput(cosmetic.paint.emissive ?? cosmetic.paint.accent, (value) =>
-      this.patchPaint({ emissive: value }),
-    );
-    emissive.disabled = !emissiveOn.checked;
-    emissiveOn.addEventListener("change", () => {
-      this.patchPaint({ emissive: emissiveOn.checked ? emissive.value : undefined });
-      this.renderUi();
-    });
-
-    box.append(
-      row(text("Primary "), primary, text(" Accent "), accent),
-      row(emissiveOn, text(" Emissive "), emissive),
-      hint("Primary and accent tint the base colour of the materials you assign below. Emissive recolours a glow slot's light while keeping its authored strength."),
-    );
-    return box;
+    const rows = elementRows(this.ship(), cosmetic);
+    if (rows.every((entry) => entry.wired.length === 0)) {
+      this.element.append(
+        warn("This hull wires no skin elements yet, so nothing authored here can land. Open Ships → Skins logic and assign its materials first."),
+      );
+    }
+    for (const entry of rows) {
+      this.element.append(
+        entry.element === "propulsion"
+          ? this.propulsionSection(cosmetic, entry)
+          : this.surfaceSection(cosmetic, entry.element as SurfaceElement, entry),
+      );
+    }
   }
 
   /**
-   * How the painted plate behaves under light. This is what separates a livery
-   * from primer: a saturated hue at the model's authored roughness is flat, and
-   * gloss + clear coat are what put the arena's reflection and a rolling white
-   * highlight on top of it. Off = keep whatever the artist authored.
+   * One surface element: what it covers on this hull, then texture, colour,
+   * pattern and surface. Every control is "off" by default, and off means the
+   * model keeps what the artist gave it.
    */
-  private surfaceSection(cosmetic: CosmeticConfig): HTMLElement {
-    const box = section("Surface");
-    const finish = cosmetic.paint.finish;
+  private surfaceSection(cosmetic: CosmeticConfig, element: SurfaceElement, info: ElementRow): HTMLElement {
+    const box = section(info.label, element);
+    const style = cosmetic.elements?.[element] ?? {};
+    const patch = (next: Partial<SkinElementStyle>, rerender = false): void => {
+      this.replace(withElementStyle(cosmetic, element, next));
+      if (rerender) this.renderUi();
+    };
 
-    const on = document.createElement("input");
-    on.type = "checkbox";
-    on.checked = finish !== undefined;
-    on.addEventListener("change", () => {
-      this.patchPaint({ finish: on.checked ? { ...DEFAULT_FINISH } : undefined });
-      this.renderUi();
-    });
+    box.append(this.wiringLine(info, "material"));
+
+    // --- texture -------------------------------------------------------
+    const textureSelect = document.createElement("select");
+    textureSelect.append(new Option("No texture", NONE));
+    for (const texture of this.host.configService.getAll<TextureConfig>("texture")) {
+      textureSelect.append(new Option(textureDisplayName(texture), texture.id));
+    }
+    if (style.texture && !textureSelect.querySelector(`option[value="${style.texture}"]`)) {
+      textureSelect.append(new Option(`${style.texture} (missing)`, style.texture));
+    }
+    textureSelect.value = style.texture ?? NONE;
+    textureSelect.addEventListener("change", () => patch({ texture: textureSelect.value || undefined }, true));
+
+    // --- colour --------------------------------------------------------
+    const colorOn = document.createElement("input");
+    colorOn.type = "checkbox";
+    colorOn.checked = style.color !== undefined;
+    const color = colorInput(style.color ?? DEFAULT_COLOR, (value) => patch({ color: value }));
+    color.disabled = !colorOn.checked;
+    colorOn.addEventListener("change", () => patch({ color: colorOn.checked ? color.value : undefined }, true));
+
+    box.append(
+      row(text("Texture "), textureSelect),
+      row(colorOn, text(" Colour "), color),
+      hint("A texture and a colour compose: the colour is the plate the texture (and any pattern) is drawn over. Both off leaves this element's own albedo alone."),
+    );
+
+    // --- pattern -------------------------------------------------------
+    const patternSelect = document.createElement("select");
+    patternSelect.append(new Option("No pattern", NONE));
+    for (const pattern of paintPattern.options) patternSelect.append(new Option(titleCase(pattern), pattern));
+    patternSelect.value = style.pattern ?? NONE;
+    patternSelect.addEventListener("change", () =>
+      patch({ pattern: (patternSelect.value || undefined) as PaintPattern | undefined }, true),
+    );
+    const patternColor = colorInput(style.patternColor ?? "#16171b", (value) => patch({ patternColor: value }));
+    patternColor.disabled = !style.pattern;
+    const scale = numberInput(style.patternScale ?? 3, 0.5, 64, (value) => patch({ patternScale: value }));
+    scale.disabled = !style.pattern && !style.texture;
+
+    box.append(row(text("Pattern "), patternSelect, text(" Marks "), patternColor, text(" Repeats "), scale));
+
+    // --- surface -------------------------------------------------------
+    const finishOn = document.createElement("input");
+    finishOn.type = "checkbox";
+    finishOn.checked = style.finish !== undefined;
+    finishOn.addEventListener("change", () => patch({ finish: finishOn.checked ? { ...DEFAULT_FINISH } : undefined }, true));
 
     const knob = (label: string, key: keyof PaintFinish): HTMLElement => {
       const input = document.createElement("input");
@@ -289,145 +290,72 @@ export class SkinEditor implements EditorPanel {
       input.min = "0";
       input.max = "1";
       input.step = "0.02";
-      input.value = String(finish?.[key] ?? 0);
-      input.disabled = finish === undefined;
-      const readout = text((finish?.[key] ?? 0).toFixed(2));
+      input.value = String(style.finish?.[key] ?? 0);
+      input.disabled = style.finish === undefined;
+      const readout = text((style.finish?.[key] ?? 0).toFixed(2));
       readout.className = "ed-mono";
       input.addEventListener("input", () => (readout.textContent = Number(input.value).toFixed(2)));
       input.addEventListener("change", () => {
-        // Read the LIVE finish, not the one captured at render: three knobs
-        // share this section and only the table re-renders between edits, so a
-        // captured copy would make each knob undo the one before it.
-        this.patchPaint({ finish: { ...this.cosmetic()?.paint.finish, [key]: Number(input.value) } });
+        // Read the LIVE finish, not the one captured at render: the knobs share
+        // this section and a captured copy would make each undo the one before.
+        const live = this.cosmetic()?.elements?.[element]?.finish;
+        patch({ finish: { ...live, [key]: Number(input.value) } });
       });
       return row(text(label), input, readout);
     };
 
     box.append(
-      row(on, text(" Override the artist's surface")),
+      row(finishOn, text(" Surface override")),
       knob("Gloss ", "gloss"),
       knob("Metallic ", "metallic"),
       knob("Clear coat ", "clearcoat"),
       knob("Glow ", "glow"),
-      hint("Gloss 1 is a mirror; clear coat adds a lacquer layer whose white highlight is independent of the hue; glow lights the plate in its own colour so it still reads in a dark arena. Off leaves the model's own surface exactly as authored."),
-      hint("Metallic is a trap in these arenas: the IBL is small, so metal eats the diffuse term and turns a bright hue to mud. Leave it near zero unless the skin is meant to look like bare, unpainted plate."),
+      hint("Gloss 1 is a mirror; clear coat adds a lacquer highlight independent of the hue; glow lights the plate in its own colour so it reads in a dark arena. Metallic is a trap here — the arenas' IBL is small and metal turns a bright hue to mud."),
     );
     return box;
   }
 
-  /** Flat colour, or one of the procedural patterns drawn into the albedo. */
-  private finishSection(cosmetic: CosmeticConfig): HTMLElement {
-    const box = section("Pattern");
+  /** Propulsion swaps the whole particle system on the hull's wired emitters. */
+  private propulsionSection(cosmetic: CosmeticConfig, info: ElementRow): HTMLElement {
+    const box = section(info.label, "propulsion");
+    box.append(this.wiringLine(info, "emitter socket"));
+
     const select = document.createElement("select");
-    select.append(new Option("Flat colour", NO_CHANNEL));
-    for (const pattern of paintPattern.options) select.append(new Option(titleCase(pattern), pattern));
-    select.value = cosmetic.paint.pattern ?? NO_CHANNEL;
+    select.append(new Option("Ship's own effect", NONE));
+    for (const effect of this.host.configService.getAll<EffectConfig>("effect")) {
+      select.append(new Option(effect.name ?? effect.id, effect.id));
+    }
+    const current = cosmetic.elements?.propulsion?.effect;
+    if (current && !select.querySelector(`option[value="${current}"]`)) {
+      select.append(new Option(`${current} (missing)`, current));
+    }
+    select.value = current ?? NONE;
     select.addEventListener("change", () => {
-      this.patchPaint({ pattern: (select.value || undefined) as PaintPattern | undefined });
+      this.replace(withPropulsionEffect(cosmetic, select.value || null));
       this.renderUi();
     });
 
-    const patternColor = colorInput(cosmetic.paint.patternColor ?? cosmetic.paint.accent, (value) =>
-      this.patchPaint({ patternColor: value }),
-    );
-    const scale = document.createElement("input");
-    scale.type = "number";
-    scale.className = "ed-input ed-num ed-num--sm";
-    scale.step = "0.5";
-    scale.min = "0.5";
-    scale.max = "64";
-    scale.value = String(cosmetic.paint.patternScale ?? 3);
-    scale.addEventListener("change", () => {
-      const value = Number(scale.value);
-      this.patchPaint({ patternScale: Number.isFinite(value) && value > 0 ? Math.min(64, value) : undefined });
-    });
-    patternColor.disabled = !cosmetic.paint.pattern;
-    scale.disabled = !cosmetic.paint.pattern;
-
     box.append(
-      row(text("Pattern "), select, text(" Stripe/rust colour "), patternColor, text(" Repeats "), scale),
-      hint("A pattern is drawn into the albedo of the materials you tick “Pattern” on below. Roughness, metal and clearcoat are untouched, so the finish still reflects like the plate it sits on."),
+      row(text("Effect "), select),
+      hint("Any particle effect in the project. It replaces the effect on the emitter sockets this hull wires to propulsion, and leaves every other emitter alone."),
     );
     return box;
   }
 
-  /**
-   * The point of the tool: one row per material of the hull's model, and the
-   * channel each wears. "Not painted" is the default, and it means exactly that.
-   */
-  private materialsSection(cosmetic: CosmeticConfig): HTMLElement {
-    const box = section("Painted materials");
-    const ship = this.ship();
-    const names = this.baseMaterials;
-    const rows = materialRows(cosmetic, names);
-
-    if (cosmetic.materials === undefined) {
-      box.append(
-        warn("This skin has no material list, so it falls back to guessing roles from material names — which is what smears paint over canopies and engine bloom. Assign a channel below to switch it to explicit targeting."),
-      );
+  /** What this element covers on this hull — and the loud case where it covers nothing. */
+  private wiringLine(info: ElementRow, noun: string): HTMLElement {
+    if (info.wired.length === 0) {
+      const message = `Not wired on this hull — assign its ${noun}s in Ships → Skins logic. Anything set here will not render.`;
+      return info.inert ? warn(message) : hint(message);
     }
-    if (names.length === 0) {
-      box.append(hint(ship?.render.model ? "Loading the hull's materials…" : "This hull renders from a procedural recipe, which has a single material slot."));
-    }
-
-    const table = document.createElement("table");
-    const head = document.createElement("tr");
-    for (const label of ["Material", "Wears", "Pattern"]) {
-      const th = document.createElement("th");
-      th.textContent = label;
-      head.append(th);
-    }
-    table.append(head);
-
-    for (const entry of rows) {
-      const channelSelect = document.createElement("select");
-      channelSelect.append(new Option("Not painted", NO_CHANNEL));
-      for (const channel of ["primary", "accent", "emissive"] as const) {
-        channelSelect.append(new Option(CHANNEL_LABEL[channel], channel));
-      }
-      channelSelect.value = entry.channel ?? NO_CHANNEL;
-      channelSelect.addEventListener("change", () => {
-        this.replace(withMaterialChannel(cosmetic, entry.material, (channelSelect.value || null) as PaintChannel | null));
-        this.renderUi();
-      });
-
-      const patterned = document.createElement("input");
-      patterned.type = "checkbox";
-      patterned.checked = entry.patterned;
-      // A glow slot emits light; there is nothing for a stripe to sit on.
-      patterned.disabled = !cosmetic.paint.pattern || entry.channel === null || entry.channel === "emissive";
-      patterned.addEventListener("change", () => {
-        this.replace(withMaterialPatterned(cosmetic, entry.material, patterned.checked));
-        this.renderUi();
-      });
-
-      const line = document.createElement("tr");
-      line.dataset["material"] = entry.material;
-      const name = document.createElement("td");
-      name.className = "ed-mono";
-      name.textContent = entry.missing ? `${entry.material} ⚠ not in this model` : entry.material;
-      if (entry.missing) name.title = "The paint still names this material, but the hull's model no longer has it.";
-      line.append(name, cell(channelSelect), cell(patterned));
-      table.append(line);
-    }
-    box.append(table);
-    box.append(hint("Anything left on “Not painted” renders exactly as the artist shipped it — glass, dark tech and engine bloom included."));
-    return box;
+    const line = hint(`Covers ${info.wired.length} ${noun}${info.wired.length === 1 ? "" : "s"}: ${info.wired.join(", ")}`);
+    line.classList.add("ed-mono");
+    return line;
   }
 
   // ----------------------------------------------------------- editing ----
 
-  private patchPaint(patch: Partial<CosmeticConfig["paint"]>): void {
-    const cosmetic = this.cosmetic();
-    if (!cosmetic) return;
-    const paint = { ...cosmetic.paint, ...patch };
-    for (const [key, value] of Object.entries(patch)) {
-      if (value === undefined) delete (paint as Record<string, unknown>)[key];
-    }
-    this.replace({ ...cosmetic, paint });
-  }
-
-  /** Commit through ConfigService, then re-stage the preview off the edited paint. */
+  /** Commit through ConfigService, then re-stage the preview off the edited skin. */
   private replace(next: CosmeticConfig): void {
     const result = this.host.configService.replace(next);
     if (!result.ok) {
@@ -459,16 +387,15 @@ export class SkinEditor implements EditorPanel {
   async save(): Promise<void> {
     const cosmetic = this.cosmetic();
     if (!cosmetic) return;
-    const error = await saveConfig(cosmetic);
-    this.report(error);
+    this.report(await saveConfig(cosmetic));
   }
 
   // ------------------------------------------------------------ preview ----
 
   /**
-   * Stage the hull wearing the edited paint. The bank caches painted masters by
+   * Stage the hull wearing the edited skin. The bank caches painted masters by
    * (hull, cosmetic), so the edited one has to be invalidated or the preview
-   * would keep showing the colours the paint had when it was first staged.
+   * would keep showing the look the skin had when it was first staged.
    */
   private rebuildPreview(): void {
     this.previewMesh?.dispose();
@@ -489,8 +416,7 @@ export class SkinEditor implements EditorPanel {
     }
 
     const base = this.assets.getShipMaster(ship.render);
-    this.baseMaterials = slotNamesOf(base);
-    const master = this.paint.masterFor(base, this.cosmeticId || null);
+    const master = this.paint.masterFor(base, ship, this.cosmeticId || null);
     const mesh = master.clone(`skinPreview.${ship.id}`);
     pinCloneHierarchyLod0(mesh);
     mesh.setEnabled(true);
@@ -548,6 +474,21 @@ function colorInput(value: string, onChange: (value: string) => void): HTMLInput
   return input;
 }
 
+function numberInput(value: number, min: number, max: number, onChange: (value: number) => void): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.className = "ed-input ed-num ed-num--sm";
+  input.step = "0.5";
+  input.min = String(min);
+  input.max = String(max);
+  input.value = String(value);
+  input.addEventListener("change", () => {
+    const next = Number(input.value);
+    onChange(Number.isFinite(next) ? Math.min(max, Math.max(min, next)) : min);
+  });
+  return input;
+}
+
 function text(value: string): HTMLSpanElement {
   const span = document.createElement("span");
   span.textContent = value;
@@ -570,12 +511,6 @@ function warn(message: string): HTMLElement {
   return element;
 }
 
-function cell(child: Node): HTMLTableCellElement {
-  const td = document.createElement("td");
-  td.append(child);
-  return td;
-}
-
 function row(...children: Node[]): HTMLDivElement {
   const div = document.createElement("div");
   div.className = "ed-row";
@@ -583,12 +518,12 @@ function row(...children: Node[]): HTMLDivElement {
   return div;
 }
 
-function section(title: string): HTMLElement {
+function section(title: string, slug: string): HTMLElement {
   const box = document.createElement("details");
   box.open = true;
   // Stable hook for tests and the screenshot rig: the headings are prose and
   // will be reworded, the slug is what code is allowed to reach for.
-  box.dataset["section"] = title.toLowerCase().replace(/\s+/g, "-");
+  box.dataset["section"] = slug;
   const summary = document.createElement("summary");
   summary.textContent = title;
   box.append(summary);

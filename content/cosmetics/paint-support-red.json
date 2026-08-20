@@ -1,25 +1,20 @@
 {
   "id": "cosmetic.paint-support-red",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "Red",
   "kind": "paint",
   "price": 0,
   "target": "ship.support",
-  "paint": {
-    "primary": "#cc0f06",
-    "accent": "#ff9a7a",
-    "finish": {
-      "gloss": 0.7,
-      "metallic": 0,
-      "clearcoat": 0.5,
-      "glow": 0.14
+  "elements": {
+    "body": {
+      "color": "#cc0f06",
+      "finish": {
+        "gloss": 0.7,
+        "metallic": 0,
+        "clearcoat": 0.5,
+        "glow": 0.14
+      }
     }
-  },
-  "materials": [
-    {
-      "material": "HULL_BODY",
-      "channel": "primary"
-    }
-  ]
+  }
 }

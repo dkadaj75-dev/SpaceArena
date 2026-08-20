@@ -16,6 +16,7 @@ import { progressionSchema, type ProgressionConfig } from "./progression.js";
 import { propSchema, type PropConfig } from "./prop.js";
 import { qualitySchema, type QualityConfig } from "./quality.js";
 import { hardpointsOf, shipSchema, type ShipConfig } from "./ship.js";
+import { textureSchema, type TextureConfig } from "./texture.js";
 import { themeSchema, type ThemeConfig } from "./theme.js";
 import { tutorialSchema, type TutorialConfig } from "./tutorial.js";
 import { tuningSchema, type TuningConfig } from "./tuning.js";
@@ -42,6 +43,8 @@ export * from "./progression.js";
 export * from "./prop.js";
 export * from "./quality.js";
 export * from "./botprofile.js";
+export * from "./skin.js";
+export * from "./texture.js";
 export * from "./cosmetic.js";
 export * from "./tutorial.js";
 export * from "./manifest.js";
@@ -70,6 +73,7 @@ export const CONFIG_SCHEMAS = {
   botprofile: botprofileSchema,
   quality: qualitySchema,
   cosmetic: cosmeticSchema,
+  texture: textureSchema,
   tutorial: tutorialSchema,
 } as const;
 
@@ -95,6 +99,7 @@ export type AnyConfig =
   | BotprofileConfig
   | QualityConfig
   | CosmeticConfig
+  | TextureConfig
   | TutorialConfig;
 
 export type { ManifestConfig };

@@ -1,33 +1,32 @@
 {
   "id": "cosmetic.paint-brawler-rusty",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "Rusty",
   "kind": "paint",
   "price": 0,
   "target": "ship.brawler",
-  "paint": {
-    "primary": "#a8724d",
-    "accent": "#4a3325",
-    "pattern": "rust",
-    "patternColor": "#7a3512",
-    "patternScale": 3,
-    "finish": {
-      "gloss": 0.1,
-      "metallic": 0.25,
-      "clearcoat": 0,
-      "glow": 0
-    }
-  },
-  "materials": [
-    {
-      "material": "HULL_PRIMARY",
-      "channel": "primary",
-      "patterned": true
+  "elements": {
+    "body": {
+      "color": "#a8724d",
+      "finish": {
+        "gloss": 0.1,
+        "metallic": 0.25,
+        "clearcoat": 0,
+        "glow": 0
+      },
+      "pattern": "rust",
+      "patternColor": "#7a3512",
+      "patternScale": 3
     },
-    {
-      "material": "PANEL_SECONDARY",
-      "channel": "accent"
+    "wings": {
+      "color": "#4a3325",
+      "finish": {
+        "gloss": 0.1,
+        "metallic": 0.25,
+        "clearcoat": 0,
+        "glow": 0
+      }
     }
-  ]
+  }
 }

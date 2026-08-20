@@ -1,0 +1,10 @@
+{
+  "id": "texture.hull-plate-pitted",
+  "type": "texture",
+  "version": 1,
+  "name": "Pitted Plate",
+  "category": "surface",
+  "source": "props/textures/game/moon_dusted_01_diff_1k.jpg",
+  "normal": "props/textures/game/moon_dusted_01_nor_1k.jpg",
+  "scale": 6
+}

@@ -1,13 +1,14 @@
 {
   "id": "cosmetic.paint-talon-standard",
   "type": "cosmetic",
-  "version": 2,
+  "version": 3,
   "name": "Standard Issue",
   "kind": "paint",
   "price": 0,
   "target": "ship.talon",
-  "paint": {
-    "primary": "#3a8f7a",
-    "accent": "#6ff2c8"
+  "elements": {
+    "body": {
+      "color": "#3a8f7a"
+    }
   }
 }

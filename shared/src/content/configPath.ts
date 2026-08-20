@@ -20,6 +20,7 @@ export const CONTENT_FOLDERS: Record<ConfigType, string> = {
   botprofile: "bots",
   quality: "quality",
   cosmetic: "cosmetics",
+  texture: "textures",
   tutorial: "tutorials",
 };
 

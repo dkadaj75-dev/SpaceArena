@@ -48,6 +48,7 @@ import type { OwnershipStore } from "../ownershipStore.js";
 import { hullOwned, moduleOwned } from "../hangarGating.js";
 import { priceLabel } from "../shopModel.js";
 import { buyAndEquipSkin, hangarSkinEntries, type HangarSkinEntry } from "../hangarSkins.js";
+import { cosmeticById } from "../cosmetics.js";
 import { ShipPaintBank } from "../shipPaint.js";
 import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
 import { HangarBay } from "./HangarBay.js";
@@ -729,6 +730,7 @@ export class Hangar {
     // selection is the authored look (contract §1).
     const master = this.paint.masterFor(
       this.assets.getShipMaster(ship.render),
+      ship,
       this.ownership?.selectedCosmetic(ship.id) ?? null,
     );
 
@@ -775,6 +777,7 @@ export class Hangar {
       // was the one place that did not.
       juiceSettingsOf(this.configs.get<ThemeConfig>("theme", THEME_ID)),
       { isLocal: true },
+      cosmeticById(this.configs, this.ownership?.selectedCosmetic(ship.id) ?? ""),
     );
     this.idleModules = this.slots
       .filter((s): s is HangarSlot & { moduleId: string } => s.moduleId !== null)

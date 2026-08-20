@@ -23,12 +23,16 @@ import {
   moduleFamily,
   shipSchema,
   signalId,
+  SKIN_ELEMENT_LABEL,
+  SKIN_ELEMENTS,
+  wiringFor,
   type EffectConfig,
   type EmitterBinding,
   type ModuleConfig,
   type ModuleFamily,
   type ShipConfig,
   type SignalId,
+  type SkinElement,
   type SocketConfig,
 } from "@space-arena/shared";
 import { AssetRegistry } from "../core/AssetRegistry.js";
@@ -217,6 +221,7 @@ export class ShipManager implements EditorPanel {
 
     this.element.append(this.modelSection(ship));
     this.element.append(this.emissiveSection(ship));
+    this.element.append(this.skinLogicSection(ship));
     this.element.append(this.socketListSection(ship));
     this.element.append(this.selectedSocketSection(ship));
     this.element.append(this.defaultFittingSection(ship));
@@ -379,6 +384,87 @@ export class ShipManager implements EditorPanel {
       hint("Convention: nose must face +Z. Use yaw correction for models authored facing another axis."),
     );
     return box;
+  }
+
+  /**
+   * SKINS LOGIC — which of THIS model's materials each skin element covers, and
+   * which emitter sockets count as propulsion.
+   *
+   * This is the half of the skin system that belongs to the hull rather than to
+   * the livery. A skin says what "body" looks like; this says what "body" IS on
+   * this model. An element wired to nothing is a GATE: a skin can fill its
+   * canopy row completely and it will still render nothing here, which is how a
+   * designer keeps a paint off the glass, the dark tech recesses or the bloom.
+   *
+   * The dropdowns list the model's real material slots (and the ship's real
+   * emitter sockets), so a name can only be added if it exists — and anything
+   * already wired that the model has since lost is shown flagged rather than
+   * dropped.
+   */
+  private skinLogicSection(ship: ShipConfig): HTMLElement {
+    const box = section("Skins logic");
+    const materials = this.assets.materialSlotNames(ship.render);
+    const sockets = emittersOf(ship).map((socket) => socket.id);
+
+    for (const element of SKIN_ELEMENTS) {
+      const isPropulsion = element === "propulsion";
+      const choices = isPropulsion ? sockets : materials;
+      const wired = wiringFor(ship.skin, element);
+
+      const select = document.createElement("select");
+      const unused = choices.filter((name) => !wired.some((w) => w.toLowerCase() === name.toLowerCase()));
+      for (const name of unused) select.append(new Option(name, name));
+      select.disabled = unused.length === 0;
+
+      const add = button("Add", () => {
+        if (!select.value) return;
+        this.setWiring(element, [...wiringFor(this.ship()?.skin, element), select.value]);
+      });
+      add.disabled = unused.length === 0;
+
+      const head = row(text(`${SKIN_ELEMENT_LABEL[element]} `), select, add);
+      head.dataset["skinElement"] = element;
+      box.append(head);
+
+      if (wired.length === 0) {
+        box.append(hint(`No ${isPropulsion ? "emitters" : "materials"} — skins leave this element alone on this hull.`));
+        continue;
+      }
+      for (const name of wired) {
+        const known = choices.some((choice) => choice.toLowerCase() === name.toLowerCase());
+        const label = text(known ? name : `${name} (not in this model)`);
+        label.className = known ? "ed-mono" : "ed-warn";
+        const line = row(
+          label,
+          button("Remove", () => {
+            this.setWiring(element, wiringFor(this.ship()?.skin, element).filter((entry) => entry !== name));
+          }),
+        );
+        line.dataset["wired"] = `${element}:${name}`;
+        box.append(line);
+      }
+    }
+
+    box.append(
+      hint("Materials come from the loaded GLB; propulsion takes emitter socket ids instead, because a skin swaps their particle effect rather than their surface."),
+    );
+    return box;
+  }
+
+  /** Commit one element's wiring, dropping the key entirely when it empties. */
+  private setWiring(element: SkinElement, names: string[]): void {
+    const current = this.ship();
+    if (!current) return;
+    const skin: Record<string, string[]> = { ...current.skin, [element]: names };
+    if (names.length === 0) delete skin[element];
+    // An all-empty wiring block is written as ABSENT, not as `{}`: "this hull
+    // wires nothing" and "this hull has no skins logic yet" are the same state,
+    // and only one of them should reach the content file.
+    const next: ShipConfig = Object.keys(skin).length === 0
+      ? { ...current, skin: undefined }
+      : { ...current, skin };
+    this.replace(next);
+    this.renderUi();
   }
 
   /**

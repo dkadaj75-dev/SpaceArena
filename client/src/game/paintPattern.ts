@@ -62,13 +62,18 @@ export function drawPaintPattern(
   base: string,
   mark: string,
 ): void {
+  // "transparent" base = composite over whatever is already on the canvas (a
+  // library plate), rather than covering it with a flat colour first.
+  if (base !== "transparent") {
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, size, size);
+  }
   ctx.globalAlpha = 1;
-  ctx.fillStyle = base;
-  ctx.fillRect(0, 0, size, size);
   ctx.fillStyle = mark;
   if (pattern === "zebra") drawZebra(ctx, size);
   else if (pattern === "tiger") drawTiger(ctx, size);
-  else drawRust(ctx, size, base, mark);
+  else drawRust(ctx, size, base === "transparent" ? mark : base, mark);
   ctx.globalAlpha = 1;
 }
 
@@ -158,30 +163,70 @@ function drawRust(ctx: PatternContext, size: number, base: string, mark: string)
   }
 }
 
+/** What an element's albedo is built from. All parts optional; at least one is set. */
+export interface AlbedoRecipe {
+  /** Library image URL drawn first, if any. Loads async and repaints on arrival. */
+  imageUrl?: string;
+  /** Pattern drawn OVER the image (or over `base` when there is no image). */
+  pattern?: PaintPattern;
+  /** Plate colour under everything. */
+  base: string;
+  /** Stripe/blotch colour. */
+  mark: string;
+  /** UV repeats. */
+  scale: number;
+}
+
 /**
- * A tiling albedo texture for `pattern`, or `null` when the host has no 2D
- * canvas (headless test runs) — callers fall back to the flat channel colour,
- * which is a duller skin but never a missing hull.
+ * The albedo map for one skin element, or `null` when the host has no 2D canvas
+ * (headless test runs) — callers fall back to the flat colour, which is a
+ * duller skin but never a missing hull.
+ *
+ * Everything is composited into ONE canvas rather than stacked as material
+ * layers, because a Babylon material has exactly one albedo slot: a library
+ * plate with tiger stripes over it has to become a single image or it cannot
+ * exist. The library image loads asynchronously and repaints the canvas when it
+ * lands, so the hull shows its pattern immediately and gains the plate a
+ * moment later rather than flashing untextured.
  */
-export function paintPatternTexture(
-  scene: Scene,
-  name: string,
-  pattern: PaintPattern,
-  base: string,
-  mark: string,
-  scale: number,
-): Texture | null {
+export function albedoTexture(scene: Scene, name: string, recipe: AlbedoRecipe): Texture | null {
   const texture = new DynamicTexture(name, { width: PATTERN_TEXTURE_SIZE, height: PATTERN_TEXTURE_SIZE }, scene, true);
   const ctx = texture.getContext() as unknown as PatternContext | null;
   if (!ctx || typeof ctx.fillRect !== "function") {
     texture.dispose();
     return null;
   }
-  drawPaintPattern(ctx, PATTERN_TEXTURE_SIZE, pattern, base, mark);
-  texture.update(false);
+  const paint = (image?: CanvasImageSource): void => {
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = recipe.base;
+    ctx.fillRect(0, 0, PATTERN_TEXTURE_SIZE, PATTERN_TEXTURE_SIZE);
+    if (image) {
+      (ctx as unknown as CanvasRenderingContext2D).drawImage(image, 0, 0, PATTERN_TEXTURE_SIZE, PATTERN_TEXTURE_SIZE);
+    }
+    if (recipe.pattern) drawPaintPattern(ctx, PATTERN_TEXTURE_SIZE, recipe.pattern, image ? "transparent" : recipe.base, recipe.mark);
+    texture.update(false);
+  };
+  paint();
+  // The texture may be disposed before a slow image lands (a skin re-edited in
+  // the tool); `getContext` on a freed DynamicTexture throws, so guard on the
+  // canvas still being there rather than on a disposal flag it does not have.
+  if (recipe.imageUrl) loadImage(recipe.imageUrl, (image) => { if (texture.getContext()) paint(image); });
   texture.wrapU = Texture.WRAP_ADDRESSMODE;
   texture.wrapV = Texture.WRAP_ADDRESSMODE;
-  texture.uScale = scale;
-  texture.vScale = scale;
+  texture.uScale = recipe.scale;
+  texture.vScale = recipe.scale;
   return texture;
+}
+
+/**
+ * Fetch a library image for compositing. Failure is silent BY DESIGN: a skin
+ * whose texture 404s renders as its colour and pattern, which is a degraded
+ * livery rather than a hull that never appears.
+ */
+function loadImage(url: string, onLoad: (image: CanvasImageSource) => void): void {
+  if (typeof Image !== "function") return;
+  const image = new Image();
+  image.crossOrigin = "anonymous";
+  image.addEventListener("load", () => onLoad(image));
+  image.src = url;
 }
