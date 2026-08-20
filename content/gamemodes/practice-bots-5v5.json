@@ -1,7 +1,7 @@
 {
   "id": "gamemode.practice-bots-5v5",
   "type": "gamemode",
-  "version": 1,
+  "version": 2,
   "name": "5v5 Team Deathmatch",
   "launch": "online",
   "teams": "5v5",
@@ -43,5 +43,12 @@
       }
     ]
   },
-  "timeLimitCapSec": 900
+  "timeLimitCapSec": 900,
+  "menu": {
+    "group": "Team Deathmatch",
+    "label": "5v5",
+    "blurb": "Full squads",
+    "order": 2,
+    "icon": "team"
+  }
 }

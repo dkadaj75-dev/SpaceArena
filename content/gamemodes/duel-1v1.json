@@ -1,7 +1,7 @@
 {
   "id": "gamemode.duel-1v1",
   "type": "gamemode",
-  "version": 1,
+  "version": 2,
   "name": "Duel",
   "teams": "1v1",
   "launch": "online",
@@ -37,5 +37,12 @@
     "win": 100,
     "loss": 25,
     "perKill": 10
+  },
+  "menu": {
+    "group": "Deathmatch",
+    "label": "Duel",
+    "blurb": "One on one, no respawns",
+    "order": 1,
+    "icon": "duel"
   }
 }

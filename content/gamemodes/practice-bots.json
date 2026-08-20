@@ -1,7 +1,7 @@
 {
   "id": "gamemode.practice-bots",
   "type": "gamemode",
-  "version": 1,
+  "version": 2,
   "name": "2v2 Team Deathmatch",
   "launch": "online",
   "teams": "2v2",
@@ -44,5 +44,12 @@
       }
     ]
   },
-  "timeLimitCapSec": 600
+  "timeLimitCapSec": 600,
+  "menu": {
+    "group": "Team Deathmatch",
+    "label": "2v2",
+    "blurb": "Fast pairs",
+    "order": 1,
+    "icon": "team"
+  }
 }

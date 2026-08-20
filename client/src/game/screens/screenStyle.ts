@@ -218,12 +218,14 @@ const CSS = `
  * nodes (which cannot receive position/z-index).
  */
 .sa-screen-btn,
-.sa-menu-section,
+.sa-menu-card,
+.sa-menu-destination,
 .sa-settings-group {
   isolation: isolate;
 }
 .sa-screen-btn::before,
-.sa-menu-section::before,
+.sa-menu-card::before,
+.sa-menu-destination::before,
 .sa-settings-group::before {
   z-index: -1;
 }
@@ -416,57 +418,197 @@ const CSS = `
 .sa-menu-rule::before { left: 12%; }
 .sa-menu-rule::after { right: 12%; background: var(--sa-menu-accent, var(--sa-white)); }
 
-/* --- Grouped play sections --- */
-.sa-menu-sections { display: flex; flex-direction: column; gap: 14px; width: min(340px, 100%); }
-.sa-menu-section {
-  position: relative;
+/* ============================================================ MAIN MENU
+   The menu sits over a live 3D diorama (the pilot's hull on lunar regolith,
+   Earth on the horizon), so it is a SCRIM, not a panel: a gradient anchored to
+   the bottom that keeps the type legible while leaving the Earth and the top of
+   the ship in clear frame. A solid card here would simply hide what it is
+   standing on.
+   ==================================================================== */
+.sa-screen.sa-menu[data-diorama="on"] {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+  background:
+    linear-gradient(to top, rgba(3, 6, 11, .93) 0%, rgba(3, 6, 11, .78) 26%, rgba(3, 6, 11, .30) 52%, rgba(3, 6, 11, 0) 74%);
+}
+/* .sa-screen centres its stack with a pair of flexible ::before/::after
+   spacers, and those absorb free space whatever justify-content says — which
+   is why setting flex-end here does nothing on its own. Collapsing the trailing
+   spacer is what actually bottom-anchors the grid, and leaving the leading one
+   flexible keeps it scrolling from the top once the content stops fitting. */
+.sa-menu[data-diorama="on"]::after { flex: 0 0 0; }
+
+/* The wordmark leaves the flow and pins to the top-left, so the diorama's
+   centre stays clear and the menu reads as a HUD over a place. */
+.sa-menu[data-diorama="on"] .sa-menu-titlewrap {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 18px);
+  left: max(env(safe-area-inset-left, 0px), 26px);
+  align-items: flex-start;
+  margin: 0;
+  text-align: left;
+}
+.sa-menu[data-diorama="on"] .sa-menu-titlewrap .sa-menu-rule { align-self: stretch; }
+/* The account chip and gear pin to the top RIGHT, opposite the wordmark.
+   Left in the flow they land on top of it, because the wordmark is out of the
+   flow and the header is the first thing in it. */
+.sa-menu[data-diorama="on"] .sa-screen-header {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  right: max(env(safe-area-inset-right, 0px), 22px);
+  left: auto;
+  width: auto;
+  justify-content: flex-end;
+  margin: 0;
+}
+/* Nothing else may claim vertical space: the grid is bottom-anchored, and an
+   empty status line pushing it up leaves the menu floating mid-screen. */
+.sa-menu[data-diorama="on"] .sa-screen-status:empty { display: none; }
+.sa-menu[data-diorama="on"] .sa-menu-sections {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border: 0;
-  /* Rim colour on the box, fill plate on ::before — see the header note. */
-  background: var(--sa-rim-color);
-  clip-path: var(--sa-clip);
+  align-items: center;
+  gap: 14px;
+  width: 100%;
 }
-.sa-menu-section::before {
+.sa-menu[data-diorama="on"] .sa-menu-rule::before,
+.sa-menu[data-diorama="on"] .sa-menu-rule::after { display: none; }
+
+/* --- Play grid: one column per group, side by side while there is room --- */
+.sa-menu-play {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 18px 30px;
+  width: 100%;
+  max-width: 1080px;
+}
+.sa-menu-group { display: flex; flex-direction: column; gap: 9px; }
+.sa-menu-group-title {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .26em;
+  text-transform: uppercase;
+  color: var(--sa-menu-muted, var(--sa-n-400));
+  /* A rule that stops at the text rather than spanning the column: the group
+     heading labels its own cards, and a full-width rule implies it labels the
+     row. */
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.sa-menu-group-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--sa-menu-border, var(--sa-n-700)), transparent);
+}
+.sa-menu-cards { display: flex; flex-wrap: wrap; gap: 9px; }
+
+/* --- A match you can start --- */
+.sa-menu-card,
+.sa-menu-destination {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 58px;
+  padding: 10px 16px 10px 13px;
+  color: var(--sa-white);
+  background: var(--sa-rim-color);
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  clip-path: var(--sa-clip);
+  transition: transform 140ms ease-out, background 140ms ease-out;
+  touch-action: manipulation;
+}
+.sa-menu-card { min-width: 152px; }
+.sa-menu-card::before,
+.sa-menu-destination::before {
   content: "";
   position: absolute;
   inset: var(--sa-rim);
   clip-path: var(--sa-clip);
   background: var(--sa-panel-fill);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  transition: background 140ms ease-out;
 }
-.sa-menu-section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  letter-spacing: .28em;
+.sa-menu-card:hover:not(:disabled),
+.sa-menu-card:focus-visible,
+.sa-menu-destination:hover:not(:disabled),
+.sa-menu-destination:focus-visible {
+  background: var(--sa-menu-primary, var(--sa-blue-500));
+  transform: translateY(-2px);
+}
+.sa-menu-card:hover:not(:disabled)::before,
+.sa-menu-card:focus-visible::before,
+.sa-menu-destination:hover:not(:disabled)::before,
+.sa-menu-destination:focus-visible::before {
+  background: color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 24%, rgba(6, 11, 18, .92));
+}
+.sa-menu-card:active:not(:disabled),
+.sa-menu-destination:active:not(:disabled) { transform: translateY(0); }
+.sa-menu-card:disabled,
+.sa-menu-destination:disabled { opacity: .45; cursor: default; }
+
+.sa-menu-icon { display: flex; flex: 0 0 auto; color: var(--sa-menu-primary, var(--sa-blue-400)); }
+.sa-menu-icon svg { width: 26px; height: 26px; display: block; }
+.sa-menu-card:hover:not(:disabled) .sa-menu-icon,
+.sa-menu-card:focus-visible .sa-menu-icon,
+.sa-menu-destination:hover:not(:disabled) .sa-menu-icon,
+.sa-menu-destination:focus-visible .sa-menu-icon { color: var(--sa-white); }
+
+.sa-menu-card-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sa-menu-card-label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .08em;
   text-transform: uppercase;
+  line-height: 1.15;
+}
+.sa-menu-card-blurb {
+  font-size: 10.5px;
+  letter-spacing: .04em;
   color: var(--sa-menu-muted, var(--sa-n-400));
+  line-height: 1.3;
 }
-/* Bracket accent: an open corner tick rather than a plain dash. */
-.sa-menu-section-title::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  flex: 0 0 auto;
-  border-left: 2px solid var(--sa-menu-primary, var(--sa-blue-500));
-  border-top: 2px solid var(--sa-menu-primary, var(--sa-blue-500));
+.sa-menu-card:hover:not(:disabled) .sa-menu-card-blurb,
+.sa-menu-card:focus-visible .sa-menu-card-blurb,
+.sa-menu-destination:hover:not(:disabled) .sa-menu-card-blurb,
+.sa-menu-destination:focus-visible .sa-menu-card-blurb { color: rgba(255, 255, 255, .82); }
+
+/* --- Places you go: wider, quieter, and visibly not a match --- */
+.sa-menu-destinations {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  max-width: 1080px;
+  margin-top: 4px;
 }
-.sa-menu-section-title::after {
-  content: "";
-  flex: 1 1 auto;
-  height: 1px;
-  background: linear-gradient(90deg, var(--sa-menu-border, var(--sa-n-600)), transparent);
+.sa-menu-destination { min-width: 186px; }
+.sa-menu-destination .sa-menu-icon { color: var(--sa-menu-accent, var(--sa-n-300)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sa-menu-card, .sa-menu-destination { transition: background 140ms ease-out; }
+  .sa-menu-card:hover:not(:disabled), .sa-menu-destination:hover:not(:disabled) { transform: none; }
 }
-.sa-menu-section[data-accent="accent"] .sa-menu-section-title::before {
-  border-left-color: var(--sa-menu-accent, var(--sa-white));
-  border-top-color: var(--sa-menu-accent, var(--sa-white));
+
+@media (max-width: 720px) {
+  .sa-menu-play { gap: 14px 18px; }
+  .sa-menu-card { min-width: 128px; flex: 1 1 128px; }
+  .sa-menu-destination { min-width: 0; flex: 1 1 150px; }
+  .sa-menu[data-diorama="on"] .sa-menu-titlewrap { top: calc(env(safe-area-inset-top, 0px) + 12px); left: 16px; }
 }
-.sa-menu-section .sa-screen-btn { width: 100%; }
+
+/* The sections column. In diorama mode this is overridden above to run
+   full-width and bottom-anchored; this is the fallback for a pack that ships
+   no 3D backdrop. */
+.sa-menu-sections { display: flex; flex-direction: column; align-items: center; gap: 14px; width: min(560px, 100%); }
 
 /* Persistent "the game server did not answer" mark on the online section.
    Deliberately a banner inside the section rather than a toast: an offline
@@ -720,7 +862,6 @@ const CSS = `
   .sa-screen-title { margin-bottom: 2px; }
   .sa-screen-btn { min-height: 44px; padding: 9px 16px; }
   .sa-menu-sections { width: min(460px, 100%); }
-  .sa-menu-section { padding: 10px 12px; gap: 6px; }
   .sa-menu-rule { margin: 4px 0 0; }
   .sa-menu-bg .grid { opacity: .1; }
 }

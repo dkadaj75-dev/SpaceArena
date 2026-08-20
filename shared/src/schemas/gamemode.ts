@@ -110,6 +110,34 @@ export const gamemodeSchema = z.object({
    * player is ever shown it.
    */
   hidden: z.boolean().optional().default(false),
+  /**
+   * How this mode is presented on the main menu.
+   *
+   * The menu's SECTIONS are fixed in shape but not in content: a pack that adds
+   * a mode gets a menu entry with no code change, and the grouping is authored
+   * here rather than hardcoded in the screen. Absent ⇒ the mode lands under the
+   * catch-all heading with its full name.
+   */
+  menu: z
+    .object({
+      /** Section heading to file this mode under, e.g. "Team Deathmatch". */
+      group: z.string().min(1),
+      /**
+       * Short face on the card ("2v2"), when the group heading already carries
+       * the mode name. Absent ⇒ the mode's own `name`.
+       */
+      label: z.string().min(1).optional(),
+      /** One line under the label, for what a player cannot infer from "5v5". */
+      blurb: z.string().optional(),
+      /** Sort key inside the group; ties fall back to pack order. */
+      order: z.number().optional(),
+      /**
+       * Icon key the menu draws. Unknown keys fall back to the group's own icon,
+       * so a pack naming an icon this client does not ship still gets a button.
+       */
+      icon: z.string().optional(),
+    })
+    .optional(),
   /** Optional bot roster / backfill policy (Phase 5 5.1). Omitted ⇒ no bots. */
   bots: gamemodeBots.optional(),
   /** Optional default arena id this mode is played on when the room gets none. */

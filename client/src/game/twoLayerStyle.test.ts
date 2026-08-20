@@ -20,7 +20,8 @@ describe("two-layer chamfer stacking", () => {
 
     for (const host of [
       ".sa-screen-btn",
-      ".sa-menu-section",
+      ".sa-menu-card",
+      ".sa-menu-destination",
       ".sa-settings-group",
     ]) {
       const escaped = host.replace(".", "\\.");

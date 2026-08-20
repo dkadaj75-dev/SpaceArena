@@ -14,6 +14,8 @@ import {
   type ServerHealthState,
 } from "../../core/serverHealth.js";
 import { applyMenuTheme, createMenuBackdrop, injectScreenStyle } from "./screenStyle.js";
+import { iconElement } from "./menuIcons.js";
+import { menuGroups } from "./menuModes.js";
 import type { MenuTheme } from "./menuTheme.js";
 
 const log = createLogger("Lobby");
@@ -163,65 +165,118 @@ export class Lobby {
   }
 
   /**
-   * Online modes, Fleet destinations, and the offline Tutorial each keep their
-   * own section.
+   * The Play grid, then the destinations row.
+   *
+   * Modes are grouped by their authored `menu.group` — the sections' SHAPE is
+   * fixed here, their content is not, so a pack that adds a mode still gets a
+   * menu entry with no code change. Destinations (Hangar, Shop, Tutorial) are
+   * deliberately a different shape from modes: they are places you go, not
+   * matches you start, and a player should never have to read a label to tell
+   * the two apart.
    */
   private buildSections(): void {
     const gamemodes = this.configs.getAll<GamemodeConfig>("gamemode");
 
-    const play = this.section("Play", "primary");
+    const play = document.createElement("div");
+    play.className = "sa-menu-play";
     play.append(this.offlineBadge);
-    for (const gm of gamemodes) {
-      if (gm.launch === "offline" || gm.hidden) continue;
-      this.addButton(play, gm.name ?? gm.id, () => this.choose({ kind: "online", gamemode: gm.id }), true);
-    }
-    const fleet = this.section("Fleet", "accent");
-    this.addButton(fleet, "Hangar", () => this.callbacks.onHangarRequested(), false, "accent", "hangar");
-    // Offline-capable like the Hangar: the ledger is local without an account,
-    // so a pilot with no login can still buy (contract §3).
-    this.addButton(fleet, "Shop", () => this.callbacks.onShopRequested(), false, "accent", "shop");
 
+    for (const group of menuGroups(gamemodes)) {
+      const box = document.createElement("div");
+      box.className = "sa-menu-group";
+      box.dataset["group"] = group.title.toLowerCase();
+
+      const heading = document.createElement("h2");
+      heading.className = "sa-menu-group-title";
+      heading.textContent = group.title;
+      box.append(heading);
+
+      const cards = document.createElement("div");
+      cards.className = "sa-menu-cards";
+      for (const mode of group.modes) {
+        cards.append(this.modeCard(mode.id, mode.label, mode.blurb, mode.icon, mode.teams));
+      }
+      box.append(cards);
+      play.append(box);
+    }
+    this.sections.append(play);
+
+    const destinations = document.createElement("div");
+    destinations.className = "sa-menu-destinations";
+    destinations.append(
+      this.destination("Hangar", "Fit and paint your ship", "hangar", () => this.callbacks.onHangarRequested()),
+      // Offline-capable like the Hangar: the ledger is local without an account,
+      // so a pilot with no login can still buy (contract §3).
+      this.destination("Shop", "Hulls, modules, skins", "shop", () => this.callbacks.onShopRequested()),
+    );
     // The tutorial is a content config, so a pack without it has no button.
     if (this.hasTutorial()) {
-      const training = this.section("Training", "primary");
-      this.addButton(training, TUTORIAL_LABEL, () => this.choose({ kind: "tutorial" }), false, undefined, "tutorial");
+      destinations.append(
+        this.destination(TUTORIAL_LABEL, "Learn to fly", "tutorial", () => this.choose({ kind: "tutorial" })),
+      );
     }
+    this.sections.append(destinations);
   }
 
-  private section(title: string, accent: "primary" | "accent"): HTMLDivElement {
-    const box = document.createElement("div");
-    box.className = "sa-menu-section";
-    box.dataset["accent"] = accent;
-    box.dataset["section"] = title.toLowerCase();
-    const heading = document.createElement("div");
-    heading.className = "sa-menu-section-title";
-    heading.textContent = title;
-    box.append(heading);
-    this.sections.append(box);
-    return box;
+  /** A match you can start: icon, the short label, and what it actually is. */
+  private modeCard(
+    gamemode: string,
+    label: string,
+    blurb: string,
+    icon: string | undefined,
+    teams: string,
+  ): HTMLButtonElement {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "sa-menu-card";
+    card.dataset["gamemode"] = gamemode;
+    card.append(iconElement(icon, teams));
+
+    const text = document.createElement("span");
+    text.className = "sa-menu-card-text";
+    const name = document.createElement("span");
+    name.className = "sa-menu-card-label";
+    name.textContent = label;
+    text.append(name);
+    if (blurb) {
+      const sub = document.createElement("span");
+      sub.className = "sa-menu-card-blurb";
+      sub.textContent = blurb;
+      text.append(sub);
+    }
+    card.append(text);
+    card.addEventListener("click", () => this.choose({ kind: "online", gamemode }));
+    this.buttons.push({ el: card, online: true });
+    return card;
+  }
+
+  /** A place you go rather than a match you start — quieter, and wider. */
+  private destination(label: string, blurb: string, icon: string, onClick: () => void): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sa-menu-destination";
+    button.dataset["lobbyAction"] = icon;
+    button.append(iconElement(icon));
+
+    const text = document.createElement("span");
+    text.className = "sa-menu-card-text";
+    const name = document.createElement("span");
+    name.className = "sa-menu-card-label";
+    name.textContent = label;
+    const sub = document.createElement("span");
+    sub.className = "sa-menu-card-blurb";
+    sub.textContent = blurb;
+    text.append(name, sub);
+    button.append(text);
+
+    button.addEventListener("click", onClick);
+    this.buttons.push({ el: button, online: false });
+    return button;
   }
 
   /** Whether this pack ships a tutorial for the button to launch. */
   private hasTutorial(): boolean {
     return this.configs.getAll<TutorialConfig>("tutorial").length > 0;
-  }
-
-  private addButton(
-    parent: HTMLElement,
-    label: string,
-    onClick: () => void,
-    online: boolean,
-    variant?: "primary" | "accent",
-    /** Stable hook for the tutorial's coach mark (and for tests) to find a destination. */
-    action?: string,
-  ): void {
-    const b = document.createElement("button");
-    b.textContent = label;
-    b.className = `sa-screen-btn sa-button sa-button--${variant === "primary" ? "primary" : "secondary"}${variant ? ` sa-screen-btn--${variant}` : ""}`;
-    if (action) b.dataset["lobbyAction"] = action;
-    b.addEventListener("click", onClick);
-    this.buttons.push({ el: b, online });
-    parent.append(b);
   }
 
   private renderHeader(state: AuthState): void {

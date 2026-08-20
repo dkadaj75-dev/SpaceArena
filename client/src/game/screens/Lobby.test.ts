@@ -31,7 +31,9 @@ function practiceConfigs(): ConfigService {
       type: "gamemode",
       version: 1,
       name: "Skirmish 1v1",
+      teams: "1v1",
       launch: "online",
+      menu: { group: "Deathmatch", label: "Duel", order: 1 },
       bots: { defaultProfile: "bot.rookie", roster: [{ profile: "bot.rookie", team: 1, count: 1 }] },
     },
     {
@@ -39,7 +41,9 @@ function practiceConfigs(): ConfigService {
       type: "gamemode",
       version: 1,
       name: "Skirmish 2v2",
+      teams: "2v2",
       launch: "online",
+      menu: { group: "Team Deathmatch", label: "2v2", blurb: "Fast pairs", order: 1 },
       bots: {
         defaultProfile: "bot.rookie",
         roster: [
@@ -68,7 +72,12 @@ afterEach(() => {
   document.head.replaceChildren();
 });
 
-describe("Lobby mode list", () => {
+/** Every mode card on screen, in DOM order. */
+function cards(): HTMLButtonElement[] {
+  return [...document.querySelectorAll<HTMLButtonElement>(".sa-menu-card")];
+}
+
+describe("Lobby mode grid", () => {
   function mount(onChoose: () => void): Lobby {
     return new Lobby(document.body, practiceConfigs(), auth(), new ServerHealthState(vi.fn()), {
       onChoose,
@@ -80,19 +89,47 @@ describe("Lobby mode list", () => {
     });
   }
 
-  it("offers every non-tutorial mode in one online-gated list", () => {
+  it("files each mode under its authored group, in pack order", () => {
     const lobby = mount(vi.fn());
-    const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
-    const labels = [...play.querySelectorAll("button")].map((b) => b.textContent);
-    expect(labels).toEqual(["Skirmish 1v1", "Skirmish 2v2"]);
-    expect([...play.querySelectorAll("button")].every((b) => !b.disabled)).toBe(true);
+    const groups = [...document.querySelectorAll<HTMLElement>(".sa-menu-group")];
+    expect(groups.map((g) => g.dataset["group"])).toEqual(["deathmatch", "team deathmatch"]);
+    expect(cards().map((c) => c.dataset["gamemode"])).toEqual([
+      "gamemode.practice-bots-1v1",
+      "gamemode.practice-bots",
+    ]);
+    expect(cards().every((c) => !c.disabled)).toBe(true);
     lobby.hide();
   });
 
-  it("leaves a hidden mode off the list — it ships as a fixture, not a destination", () => {
+  it("shows the short label and its blurb, not the mode's full name", () => {
+    // The group heading already says "Team Deathmatch"; repeating it on the card
+    // is how a menu ends up reading "Team Deathmatch / Skirmish 2v2".
+    const lobby = mount(vi.fn());
+    const card = document.querySelector<HTMLElement>('[data-gamemode="gamemode.practice-bots"]')!;
+    expect(card.querySelector(".sa-menu-card-label")?.textContent).toBe("2v2");
+    expect(card.querySelector(".sa-menu-card-blurb")?.textContent).toBe("Fast pairs");
+    expect(card.textContent).not.toContain("Skirmish");
+    lobby.hide();
+  });
+
+  it("draws an icon on every card", () => {
+    const lobby = mount(vi.fn());
+    expect(cards().every((c) => c.querySelector(".sa-menu-icon svg") !== null)).toBe(true);
+    lobby.hide();
+  });
+
+  it("leaves a hidden mode off the grid — it ships as a fixture, not a destination", () => {
     const modes = [
-      { id: "gamemode.duel-1v1", type: "gamemode", version: 1, name: "Duel", launch: "online" },
-      { id: "gamemode.practice-bots-1v1", type: "gamemode", version: 1, name: "Skirmish 1v1", launch: "online", hidden: true },
+      { id: "gamemode.duel-1v1", type: "gamemode", version: 1, name: "Duel", teams: "1v1", launch: "online" },
+      {
+        id: "gamemode.practice-bots-1v1",
+        type: "gamemode",
+        version: 1,
+        name: "Skirmish 1v1",
+        teams: "1v1",
+        launch: "online",
+        hidden: true,
+      },
     ] as unknown as GamemodeConfig[];
     const lobby = new Lobby(
       document.body,
@@ -108,22 +145,17 @@ describe("Lobby mode list", () => {
         onSettingsRequested: vi.fn(),
       },
     );
-    const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
-    expect([...play.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Duel"]);
+    expect(cards().map((c) => c.dataset["gamemode"])).toEqual(["gamemode.duel-1v1"]);
     lobby.hide();
   });
 
   it("routes every mode through the same online join path", () => {
     // One lobby per click: choosing sets the busy guard that disables the whole
-    // row, so a second click on the same instance is correctly a no-op.
-    for (const [index, gamemode] of [
-      [0, "gamemode.practice-bots-1v1"],
-      [1, "gamemode.practice-bots"],
-    ] as const) {
+    // grid, so a second click on the same instance is correctly a no-op.
+    for (const gamemode of ["gamemode.practice-bots-1v1", "gamemode.practice-bots"]) {
       const onChoose = vi.fn();
       const lobby = mount(onChoose);
-      const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
-      play.querySelectorAll<HTMLButtonElement>("button")[index]!.click();
+      document.querySelector<HTMLButtonElement>(`[data-gamemode="${gamemode}"]`)!.click();
       expect(onChoose).toHaveBeenCalledWith({ kind: "online", gamemode });
       lobby.hide();
       document.body.replaceChildren();
@@ -154,15 +186,12 @@ describe("Lobby tutorial entry", () => {
     });
   }
 
-  it("places the tutorial in the final Training section", () => {
+  it("is a destination, not a mode card — it is a place you go, not a match", () => {
     const lobby = mount(tutorialConfigs(), vi.fn());
-    const play = document.querySelector<HTMLElement>('[data-section="play"]')!;
-    expect([...play.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Tutorial");
-    const fleet = document.querySelector<HTMLElement>('[data-section="fleet"]')!;
-    expect([...fleet.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Tutorial");
-    const sections = [...document.querySelectorAll<HTMLElement>(".sa-menu-section")];
-    expect(sections.map((section) => section.dataset["section"])).toEqual(["play", "fleet", "training"]);
-    expect([...sections[2]!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Tutorial"]);
+    expect(cards().map((c) => c.dataset["gamemode"])).not.toContain(undefined);
+    const destinations = [...document.querySelectorAll<HTMLElement>(".sa-menu-destination")];
+    expect(destinations.map((d) => d.dataset["lobbyAction"])).toEqual(["hangar", "shop", "tutorial"]);
+    expect(destinations[2]!.querySelector(".sa-menu-card-label")?.textContent).toBe("Tutorial");
     lobby.hide();
   });
 
@@ -208,7 +237,7 @@ describe("Lobby tutorial entry", () => {
   });
 });
 
-describe("Lobby fleet section", () => {
+describe("Lobby destinations", () => {
   it("offers SHOP beside the Hangar, both usable without an account", () => {
     const onShopRequested = vi.fn();
     new Lobby(document.body, practiceConfigs(), auth(), new ServerHealthState(vi.fn()), {
@@ -219,9 +248,8 @@ describe("Lobby fleet section", () => {
       onShopRequested,
       onSettingsRequested: vi.fn(),
     });
-    const fleet = document.querySelector<HTMLElement>('[data-section="fleet"]')!;
-    const buttons = [...fleet.querySelectorAll<HTMLButtonElement>("button")];
-    expect(buttons.map((b) => b.textContent)).toEqual(["Hangar", "Shop"]);
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".sa-menu-destination")];
+    expect(buttons.map((b) => b.querySelector(".sa-menu-card-label")?.textContent)).toEqual(["Hangar", "Shop"]);
     // The coach mark finds its destinations by these hooks, not by label.
     expect(buttons.map((b) => b.dataset["lobbyAction"])).toEqual(["hangar", "shop"]);
     // The ledger is local without a login, so the shop never gates on the server.

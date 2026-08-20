@@ -1,7 +1,7 @@
 {
   "id": "gamemode.practice-ctf-5v5",
   "type": "gamemode",
-  "version": 1,
+  "version": 2,
   "name": "5v5 Capture the Flag",
   "launch": "online",
   "teams": "5v5",
@@ -36,14 +36,49 @@
     "backfillWaitMs": 10000,
     "randomizeLoadouts": true,
     "roster": [
-      { "profile": "bot.flagrunner", "team": 0, "count": 2 },
-      { "profile": "bot.aggressive", "team": 0, "count": 1 },
-      { "profile": "bot.cautious", "team": 0, "count": 1 },
-      { "profile": "bot.flagrunner", "team": 1, "count": 2 },
-      { "profile": "bot.aggressive", "team": 1, "count": 1 },
-      { "profile": "bot.cautious", "team": 1, "count": 1 },
-      { "profile": "bot.rookie", "team": 1, "count": 1 }
+      {
+        "profile": "bot.flagrunner",
+        "team": 0,
+        "count": 2
+      },
+      {
+        "profile": "bot.aggressive",
+        "team": 0,
+        "count": 1
+      },
+      {
+        "profile": "bot.cautious",
+        "team": 0,
+        "count": 1
+      },
+      {
+        "profile": "bot.flagrunner",
+        "team": 1,
+        "count": 2
+      },
+      {
+        "profile": "bot.aggressive",
+        "team": 1,
+        "count": 1
+      },
+      {
+        "profile": "bot.cautious",
+        "team": 1,
+        "count": 1
+      },
+      {
+        "profile": "bot.rookie",
+        "team": 1,
+        "count": 1
+      }
     ]
   },
-  "timeLimitCapSec": 600
+  "timeLimitCapSec": 600,
+  "menu": {
+    "group": "Capture the Flag",
+    "label": "5v5",
+    "blurb": "Take theirs, hold yours",
+    "order": 1,
+    "icon": "flag"
+  }
 }
