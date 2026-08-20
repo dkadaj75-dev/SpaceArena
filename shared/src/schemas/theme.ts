@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { baseShape } from "./base.js";
+import { baseShape, configId } from "./base.js";
 
 /** Screen corner the module-button cluster hangs off. */
 export const hudAnchor = z.enum(["bottom-right", "bottom-left", "top-right", "top-left"]);
@@ -770,6 +770,69 @@ export const menuSchema = z.object({
       starDensity: z.number().min(0).max(1).optional(),
       /** Corner darkening 0..1. */
       vignette: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
+  /**
+   * The main menu's 3D backdrop: the player's main hull parked on lunar
+   * regolith, with Earth rising behind it.
+   *
+   * Every asset path lives here rather than in the renderer so the content pack
+   * owns its own art — the reachability sweep in `tools/validate-content.ts`
+   * resolves these the same way it resolves `render.model`, and a pack that
+   * omits the block simply keeps the CSS backdrop.
+   */
+  diorama: z
+    .object({
+      /** False (or an absent block) keeps the flat CSS nebula backdrop. */
+      enabled: z.boolean().optional(),
+      /** The regolith plain the hull is parked on. */
+      ground: z
+        .object({
+          albedo: z.string().min(1),
+          normal: z.string().min(1).optional(),
+          /** Ambient-occlusion map, if the set ships one. */
+          ao: z.string().min(1).optional(),
+          /** UV repeats across the plain. Regolith needs a lot of them. */
+          tiling: z.number().positive().optional(),
+          /** World radius of the plain. Big enough that its edge is off-camera. */
+          radius: z.number().positive().optional(),
+          /** Height of the gentle undulation displaced into it, in world units. */
+          relief: z.number().nonnegative().optional(),
+        })
+        .optional(),
+      /** Prop ids scattered across the plain (boulders). Absent = a bare plain. */
+      rocks: z.array(configId).optional(),
+      /** Earth on the horizon. Equirectangular maps, content-relative. */
+      earth: z
+        .object({
+          albedo: z.string().min(1),
+          /** Grayscale cloud COVERAGE, read as opacity — see the texture credits. */
+          clouds: z.string().min(1).optional(),
+          /** City lights, shown only on the night side. */
+          night: z.string().min(1).optional(),
+          normal: z.string().min(1).optional(),
+          /** Land/water mask; water gets the specular glint. */
+          ocean: z.string().min(1).optional(),
+          /** Apparent diameter on screen, as a fraction of viewport height. */
+          apparentSize: z.number().positive().max(2).optional(),
+          /** Degrees left(-)/right(+) of the camera's forward. */
+          azimuthDeg: z.number().optional(),
+          /** Degrees above the horizon. Small values are the "rise". */
+          elevationDeg: z.number().optional(),
+          /** Axial tilt, degrees. */
+          tiltDeg: z.number().optional(),
+          /** Rotation rate, degrees per second. Slow enough to notice, not to watch. */
+          spinDegPerSec: z.number().optional(),
+        })
+        .optional(),
+      /** Sun direction, in degrees. Drives the hull's key light and Earth's terminator. */
+      sun: z
+        .object({
+          azimuthDeg: z.number().optional(),
+          elevationDeg: z.number().optional(),
+          intensity: z.number().nonnegative().optional(),
+        })
+        .optional(),
     })
     .optional(),
   /** Title treatment for the main menu. */

@@ -16,6 +16,7 @@ import {
   type TuningConfig,
   type ShipSnapshot,
   type EntityId,
+  type ShipConfig,
   type ThemeConfig,
   type FrameAttitude,
   type ArenaConfig,
@@ -31,6 +32,7 @@ import { createUpdateGate } from "./core/swUpdate.js";
 import { installTouchGuards } from "./core/touchGuards.js";
 import { preloadArenaModels, preloadMatchModels, preloadShipModels, type MatchPreload } from "./core/assetPreload.js";
 import { createBootAssetRegistry } from "./core/bootAssets.js";
+import { MenuDiorama } from "./game/screens/MenuDiorama.js";
 import { ModelLoadQueue } from "./core/modelLoadQueue.js";
 import { QualityManager, readWebglRenderer } from "./core/QualityManager.js";
 import { engineAntialiasForProbe, probeDevice } from "./core/qualityTier.js";
@@ -740,6 +742,28 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     runtime?.audioFeedback.refresh();
   });
 
+  /**
+   * The menu's 3D backdrop — the pilot's main hull on lunar regolith with Earth
+   * behind it. Built lazily on first show (the pack may not author one) and torn
+   * down when the menu closes, because it owns the scene's camera, environment
+   * texture and clear colour and must not hold them while a match runs.
+   */
+  let menuDiorama: MenuDiorama | null = null;
+  function setMenuDiorama(visible: boolean): void {
+    if (!visible) {
+      menuDiorama?.dispose();
+      menuDiorama = null;
+      return;
+    }
+    const authored = configService.get<ThemeConfig>("theme", "theme.default")?.menu?.diorama;
+    if (!authored?.enabled) return;
+    if (!menuDiorama) menuDiorama = new MenuDiorama(scene, configService, preloadAssets, authored);
+    const selection = loadHangarSelection();
+    const shipId = selection.shipId ?? configService.getAll<ShipConfig>("ship")[0]?.id ?? null;
+    menuDiorama.showHull(shipId, shipId ? ownership.selectedCosmetic(shipId) : null);
+    menuDiorama.activate();
+  }
+
   const lobby = new Lobby(
     document.body,
     configService,
@@ -779,10 +803,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       // The settings overlay stacks ON TOP of the lobby (z-index 40 vs 20), so
       // there is nothing to restore when it closes.
       onSettingsRequested: () => openSettings("menu"),
+      onVisibilityChange: (visible) => setMenuDiorama(visible),
     },
     bus,
   );
   lobby.hide();
+
 
   const matchLoading = new MatchLoadingScreen(document.body, configService, bus);
 

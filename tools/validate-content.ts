@@ -145,13 +145,33 @@ async function glbImageUris(absPath: string): Promise<string[]> {
 }
 
 /**
- * Recursively collect every string value at a key literally named `model` or
- * `texture` — the two field names every model/texture reference in the
- * schema pack uses (`render.model`, `render.lods[].model`,
- * `arena.render.skybox.texture`, and any future recipe that reuses either
- * name). Walking the already-validated config tree, rather than grepping raw
- * JSON, means a field zod would have rejected can never smuggle in a bogus
- * path.
+ * Field names that hold a content-relative asset path anywhere in the schema
+ * pack: `render.model`, `render.lods[].model`, `arena.render.skybox.texture`,
+ * `texture.source` and its companion maps, and `theme.menu.diorama`'s ground
+ * and Earth maps.
+ *
+ * Over-inclusive on purpose. A key called `normal` that happens to hold a
+ * non-path string only ever ADDS a reachable entry, and the worst case is one
+ * binary going unflagged in a warning-only sweep — whereas a missing key name
+ * reports real, referenced art as orphaned and invites someone to delete it.
+ */
+const ASSET_PATH_KEYS = new Set([
+  "model",
+  "texture",
+  "source",
+  "albedo",
+  "normal",
+  "ao",
+  "metallicRoughness",
+  "clouds",
+  "night",
+  "ocean",
+]);
+
+/**
+ * Recursively collect every string value at one of {@link ASSET_PATH_KEYS}.
+ * Walking the already-validated config tree, rather than grepping raw JSON,
+ * means a field zod would have rejected can never smuggle in a bogus path.
  */
 function collectModelTextureRefs(value: unknown, out: Set<string>): void {
   if (Array.isArray(value)) {
@@ -160,7 +180,7 @@ function collectModelTextureRefs(value: unknown, out: Set<string>): void {
   }
   if (value === null || typeof value !== "object") return;
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if ((key === "model" || key === "texture") && typeof child === "string" && child.length > 0) {
+    if (ASSET_PATH_KEYS.has(key) && typeof child === "string" && child.length > 0) {
       out.add(child);
     } else {
       collectModelTextureRefs(child, out);

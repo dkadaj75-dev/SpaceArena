@@ -41,6 +41,13 @@ export interface LobbyCallbacks {
   onShopRequested: () => void;
   /** Gear button — opens the 5.8 settings screen over the lobby. */
   onSettingsRequested: () => void;
+  /**
+   * Called whenever the menu appears or disappears, so the caller can raise and
+   * drop the 3D diorama behind it. The lobby is shown from a dozen call sites,
+   * which is exactly why the backdrop is driven from here rather than from each
+   * of them.
+   */
+  onVisibilityChange?: (visible: boolean) => void;
 }
 
 /**
@@ -92,7 +99,14 @@ export class Lobby {
     this.root = document.createElement("div");
     this.root.className = "lobby-overlay game-screen sa-screen sa-menu";
     this.root.style.zIndex = "20";
-    this.root.append(createMenuBackdrop());
+    // The CSS nebula is the FALLBACK backdrop. When the pack authors a 3D
+    // diorama the scene renders behind this overlay instead, so the flat
+    // backdrop would simply hide it.
+    if (!this.configs.get<ThemeConfig>("theme", THEME_ID)?.menu?.diorama?.enabled) {
+      this.root.append(createMenuBackdrop());
+    } else {
+      this.root.dataset["diorama"] = "on";
+    }
 
     this.header = document.createElement("div");
     this.header.className = "sa-screen-header";
@@ -331,10 +345,12 @@ export class Lobby {
     this.setBusy(false, "");
     void this.serverHealth.refresh();
     this.syncHealthRefreshTimer();
+    this.callbacks.onVisibilityChange?.(true);
   }
   hide(): void {
     this.root.style.display = "none";
     this.stopHealthRefreshTimer();
+    this.callbacks.onVisibilityChange?.(false);
   }
   dispose(): void {
     this.unsubscribeAuth();
