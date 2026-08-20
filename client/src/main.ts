@@ -146,6 +146,13 @@ interface MatchRuntime {
 }
 
 async function bootstrap(boot: BootScreen | null): Promise<void> {
+  // Asked FIRST, over the publisher card, while the content pack loads behind
+  // it — so the answer is given during a wait the player was having anyway, and
+  // the title screen is never interrupted by a dialog. The Fullscreen API needs
+  // a user gesture, so this panel's button IS the gesture; the page cannot
+  // simply requestFullscreen() on load.
+  const fullscreenOffer = FullscreenPrompt.maybeShow();
+
   const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
   if (!canvas) {
     throw new Error("#renderCanvas not found");
@@ -1134,16 +1141,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // it once here before meeting the same message as a lobby badge.
   boot?.subtitle(health.online ? "READY" : "READY — OFFLINE");
 
-  // AWAITED, not fired and forgotten. The launch sequence owns the screen until
-  // it removes itself, and the fullscreen offer below is a modal <dialog>: the
-  // browser paints those in the TOP LAYER, above every z-index on the page, so
-  // offering it early punches a card through the title screen.
+  // Both AWAITED, and in this order. The fullscreen offer was made over the
+  // publisher card at the top of the launch (see `fullscreenOffer`), so the
+  // player has had the whole sequence to answer it; waiting on it here is what
+  // stops the menu being revealed underneath a dialog they never dismissed.
+  await fullscreenOffer?.closed;
   await boot?.dismiss(health.online ? 0 : 1600);
-
-  // Launch fullscreen offer, over whichever screen just appeared. The
-  // Fullscreen API needs a user gesture, so this dialog's button IS the
-  // gesture — the page cannot simply requestFullscreen() on load.
-  FullscreenPrompt.maybeShow();
 
   /** The Hangar's last-saved ship/fitting choice (ROADMAP §9 4.5), as additive NetGameSession join options. */
   function hangarJoinOptions(): { shipId?: string; fittingId?: string; cosmeticId?: string } {

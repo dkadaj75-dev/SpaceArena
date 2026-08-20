@@ -4,32 +4,42 @@ import { injectScreenStyle } from "./screenStyle.js";
 const STYLE_ID = "sa-fullscreen-prompt-style";
 
 const CSS = `
+/* SELF-CONTAINED colours, no theme variables.
+   This panel is now part of the LAUNCH sequence — it is offered over the
+   publisher card, before the content pack (and therefore the theme) has loaded,
+   so anything keyed on --sa-menu-* or the design tokens resolves to nothing and
+   renders dark-on-dark. Same rule the boot markup in index.html follows, and
+   the palette is matched to it so the two read as one screen.
+   A theme CAN still tint it once one exists: every value below is a var() with
+   a literal terminal fallback rather than a bare literal. */
 .sa-fullscreen-prompt {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  /* Above the launch screen (#sa-boot is 90): the offer is made over the
+     publisher card, so it sits on top of it rather than behind it. */
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(3, 8, 18, 0.55);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgba(3, 6, 11, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  font-family: var(--sa-menu-font-body, system-ui, -apple-system, "Segoe UI", sans-serif);
 }
 .sa-fullscreen-prompt-panel {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  width: min(340px, 100%);
-  padding: 22px 20px 18px;
+  align-items: stretch;
+  gap: 14px;
+  width: min(360px, 100%);
+  padding: 24px 22px 20px;
   box-sizing: border-box;
-  background: color-mix(in srgb, var(--sa-n-800, #0B1118) 93%, transparent);
-  border: 1px solid color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 40%, transparent);
-  clip-path: polygon(12px 0%, calc(100% - 12px) 0%, 100% 12px, 100% calc(100% - 12px),
-    calc(100% - 12px) 100%, 12px 100%, 0% calc(100% - 12px), 0% 12px);
-  color: var(--sa-menu-text, var(--sa-white));
-  font-family: var(--sa-menu-font-body, system-ui, sans-serif);
+  background: var(--sa-menu-panel, #0b1522);
+  border: 1px solid var(--sa-menu-primary, #3b82f6);
+  clip-path: polygon(14px 0%, calc(100% - 14px) 0%, 100% 14px, 100% calc(100% - 14px),
+    calc(100% - 14px) 100%, 14px 100%, 0% calc(100% - 14px), 0% 14px);
+  color: var(--sa-menu-text, #dbe7f5);
   text-align: center;
 }
 .sa-fullscreen-prompt-title {
@@ -38,14 +48,47 @@ const CSS = `
   font-weight: 600;
   letter-spacing: .24em;
   text-transform: uppercase;
-  color: var(--sa-menu-primary, var(--sa-blue-500));
+  color: var(--sa-menu-primary, #4fc3f7);
 }
 .sa-fullscreen-prompt-text {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--sa-menu-muted, var(--sa-n-400));
+  color: var(--sa-menu-muted, #8ea3bd);
 }
+/* The two actions carry their own look for the same reason: .sa-screen-btn
+   builds its plate from custom properties defined on .sa-screen, which this
+   panel is not inside. */
+.sa-fullscreen-prompt-go {
+  padding: 12px 18px;
+  min-height: 44px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #061019;
+  background: var(--sa-menu-primary, #4fc3f7);
+  border: 0;
+  cursor: pointer;
+  clip-path: polygon(10px 0%, 100% 0%, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0% 100%, 0% 10px);
+  transition: filter 140ms ease-out;
+}
+.sa-fullscreen-prompt-go:hover { filter: brightness(1.12); }
+.sa-fullscreen-prompt-skip {
+  padding: 4px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: .06em;
+  color: var(--sa-menu-muted, #8ea3bd);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.sa-fullscreen-prompt-skip:hover { color: var(--sa-menu-text, #dbe7f5); }
+.sa-fullscreen-prompt :focus-visible { outline: 2px solid var(--sa-menu-primary, #4fc3f7); outline-offset: 2px; }
 `;
 
 /** Injected seams so the prompt is unit-testable without a real Fullscreen API. */
@@ -74,10 +117,21 @@ const browserDeps: FullscreenPromptDeps = {
  * means (the Settings toggle, F11-driven `fullscreenchange`) while it shows.
  */
 export class FullscreenPrompt {
+  /**
+   * Resolves once the player has answered — either way, and including the case
+   * where they went fullscreen by some other route. The launch sequence waits
+   * on this before handing over to the menu, so the game is never revealed
+   * underneath an unanswered dialog.
+   */
+  readonly closed: Promise<void>;
+  private resolveClosed!: () => void;
   private readonly root: HTMLDivElement;
   private readonly offChange: () => void;
 
   private constructor(parent: HTMLElement, deps: FullscreenPromptDeps) {
+    this.closed = new Promise<void>((resolve) => {
+      this.resolveClosed = resolve;
+    });
     injectScreenStyle();
     if (!document.getElementById(STYLE_ID)) {
       const style = document.createElement("style");
@@ -104,15 +158,17 @@ export class FullscreenPrompt {
     text.textContent = "Orion's Arm plays best without the browser chrome.";
 
     const go = document.createElement("button");
-    go.className = "sa-screen-btn sa-screen-btn--primary sa-button sa-button--primary";
-    go.textContent = "GO FULLSCREEN";
+    go.type = "button";
+    go.className = "sa-fullscreen-prompt-go";
+    go.textContent = "Go fullscreen";
     go.addEventListener("click", () => {
       void deps.request();
       this.dismiss();
     });
 
-    const skip = document.createElement("span");
-    skip.className = "sa-screen-link muted";
+    const skip = document.createElement("button");
+    skip.type = "button";
+    skip.className = "sa-fullscreen-prompt-skip";
     skip.textContent = "Not now";
     skip.addEventListener("click", () => this.dismiss());
 
@@ -140,5 +196,6 @@ export class FullscreenPrompt {
   dismiss(): void {
     this.offChange();
     this.root.remove();
+    this.resolveClosed();
   }
 }

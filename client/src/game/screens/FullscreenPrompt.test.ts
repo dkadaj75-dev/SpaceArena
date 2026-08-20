@@ -44,7 +44,7 @@ describe("FullscreenPrompt", () => {
   it("GO FULLSCREEN requests fullscreen (the required user gesture) and closes", () => {
     const deps = makeDeps();
     const prompt = FullscreenPrompt.maybeShow(document.body, deps)!;
-    (document.querySelector(".sa-screen-btn--primary") as HTMLButtonElement).click();
+    (document.querySelector(".sa-fullscreen-prompt-go") as HTMLButtonElement).click();
     expect(deps.request).toHaveBeenCalledTimes(1);
     expect(prompt.visible).toBe(false);
   });
@@ -52,7 +52,7 @@ describe("FullscreenPrompt", () => {
   it("'Not now' closes without requesting", () => {
     const deps = makeDeps();
     const prompt = FullscreenPrompt.maybeShow(document.body, deps)!;
-    (document.querySelector(".sa-screen-link") as HTMLElement).click();
+    (document.querySelector(".sa-fullscreen-prompt-skip") as HTMLButtonElement).click();
     expect(deps.request).not.toHaveBeenCalled();
     expect(prompt.visible).toBe(false);
   });
@@ -64,5 +64,40 @@ describe("FullscreenPrompt", () => {
     active = true;
     deps.fireChange();
     expect(prompt.visible).toBe(false);
+  });
+});
+
+describe("FullscreenPrompt closed promise", () => {
+  /**
+   * The launch sequence waits on this before handing over to the menu, so a
+   * promise that never settles would strand the player on the title screen.
+   */
+  it("resolves when the player accepts", async () => {
+    const prompt = FullscreenPrompt.maybeShow(document.body, makeDeps())!;
+    let settled = false;
+    void prompt.closed.then(() => (settled = true));
+    (document.querySelector(".sa-fullscreen-prompt-go") as HTMLButtonElement).click();
+    await prompt.closed;
+    expect(settled).toBe(true);
+  });
+
+  it("resolves when the player declines", async () => {
+    const prompt = FullscreenPrompt.maybeShow(document.body, makeDeps())!;
+    (document.querySelector(".sa-fullscreen-prompt-skip") as HTMLButtonElement).click();
+    await expect(prompt.closed).resolves.toBeUndefined();
+  });
+
+  it("resolves when fullscreen is reached some other way", async () => {
+    // F11, or the browser's own control: the question has been answered even
+    // though nothing on the panel was clicked.
+    let fire = () => {};
+    let active = false;
+    const prompt = FullscreenPrompt.maybeShow(
+      document.body,
+      makeDeps({ active: () => active, onChange: (h) => { fire = h; return () => {}; } }),
+    )!;
+    active = true;
+    fire();
+    await expect(prompt.closed).resolves.toBeUndefined();
   });
 });
