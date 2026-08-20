@@ -347,6 +347,11 @@ export class Lobby {
     this.syncHealthRefreshTimer();
     this.callbacks.onVisibilityChange?.(true);
   }
+  /** Whether the menu is the screen currently on show. */
+  get visible(): boolean {
+    return this.root.style.display !== "none";
+  }
+
   hide(): void {
     this.root.style.display = "none";
     this.stopHealthRefreshTimer();

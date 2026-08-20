@@ -749,6 +749,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
    * texture and clear colour and must not hold them while a match runs.
    */
   let menuDiorama: MenuDiorama | null = null;
+  /** Whether the main menu is the screen on show (the editor asks before restoring). */
+  function isMenuVisible(): boolean {
+    return lobby.visible;
+  }
   function setMenuDiorama(visible: boolean): void {
     if (!visible) {
       menuDiorama?.dispose();
@@ -1619,6 +1623,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       document.body.classList.toggle("sa-editor-open", !visible);
       runtime?.viewManager.setVisible(visible);
       runtime?.botOverlay?.setSuppressed(!visible);
+      // The menu's diorama is not a DOM overlay: it owns the scene's CAMERA,
+      // environment texture and clear colour, and parks a hull at the origin.
+      // Left up, the editor's own stage renders through the menu's camera with
+      // the menu's ship standing in the middle of it.
+      setMenuDiorama(visible && isMenuVisible());
     },
     setArenaVisible: (visible: boolean) => {
       sceneBuilder.setVisible(visible);
