@@ -82,21 +82,28 @@ export class BalanceWorkbench implements EditorPanel {
   }
 
   private statTable(rows: FitRow[]): HTMLElement {
-    const cols: [string, (m: FitMetrics) => string][] = [
-      ["Hull", (m) => fmt(m.hull)],
-      ["EHP", (m) => fmt(m.ehp)],
-      ["Speed", (m) => fmt(m.speed)],
-      ["Tanks", (m) => fmt(m.energyReserve)],
-      ["Recharge x", (m) => fmt(m.rechargeMult)],
-      ["Burst DPS", (m) => fmt(m.burstDps)],
-      ["Sustained DPS", (m) => fmt(m.sustainedDps)],
-      ["Shield", (m) => fmt(m.shieldPool)],
+    // Header text carries the UNIT and, where the name is not self-evident, a
+    // tooltip of the formula — "Tanks" and "Recharge x" said nothing about what
+    // was being counted, and a bare "Speed" could be read as m/s or as a rating.
+    const cols: [string, (m: FitMetrics) => string, string][] = [
+      ["Hull", (m) => fmt(m.hull), "Base hull pool, before resists."],
+      ["EHP", (m) => fmt(m.ehp), "Effective HP: hull x (1 + average resist)."],
+      ["Speed (u/s)", (m) => fmt(m.speed), "Engine nominal speed, world units per second."],
+      ["Energy tanks", (m) => fmt(m.energyReserve), "Sum of every fitted module's own energy tank."],
+      ["Recharge (x)", (m) => fmt(m.rechargeMult), "Hull-wide recharge multiplier: generator + passives."],
+      ["Burst DPS", (m) => fmt(m.burstDps), "Sum of weapon damage / cycle time — the trigger-down rate."],
+      ["Sustained DPS", (m) => fmt(m.sustainedDps), "Burst DPS with each weapon's magazine downtime paid."],
+      ["Shield", (m) => fmt(m.shieldPool), "Total fitted shield pool."],
     ];
     const table = document.createElement("table");
     table.className = "ed-table";
     const head = table.insertRow();
     head.append(th("Fit"));
-    for (const [name] of cols) head.append(th(name));
+    for (const [name, , doc] of cols) {
+      const cell = th(name);
+      cell.title = doc;
+      head.append(cell);
+    }
     for (const r of rows) {
       const tr = table.insertRow();
       tr.append(td(r.label, true));
@@ -109,7 +116,7 @@ export class BalanceWorkbench implements EditorPanel {
     const table = document.createElement("table");
     table.className = "ed-table";
     const head = table.insertRow();
-    head.append(th("atk \\ def"));
+    head.append(th("Attacker \\ defender"));
     for (const r of rows) head.append(th(shortLabel(r.label)));
     for (const atk of rows) {
       const tr = table.insertRow();
@@ -139,7 +146,7 @@ export class BalanceWorkbench implements EditorPanel {
       this.customModules.length = 0;
       this.render();
     });
-    box.append(labeled("ship", shipSelect));
+    box.append(labeled("Ship", shipSelect));
 
     const ship = cfg.get<ShipConfig>("ship", this.customShipId);
     if (ship) {
@@ -169,7 +176,7 @@ export class BalanceWorkbench implements EditorPanel {
       this.selectedFitKey = select.value;
       this.render();
     });
-    box.append(labeled("fit", select));
+    box.append(labeled("Fit", select));
 
     const row = rows.find((r) => r.key === this.selectedFitKey);
     if (!row) return box;

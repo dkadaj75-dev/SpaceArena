@@ -119,9 +119,12 @@ export class TuningPanel implements EditorPanel {
     const search = document.createElement("input");
     search.type = "search";
     search.className = "ed-input";
-    search.placeholder = "Filter fields…";
+    search.placeholder = "e.g. damage, netRenderDelayMs";
     search.addEventListener("input", () => this.filter(search.value));
-    toolbar.append(search);
+    const searchLabel = document.createElement("span");
+    searchLabel.className = "ed-label";
+    searchLabel.textContent = "Find field";
+    toolbar.append(searchLabel, search);
     this.element.append(toolbar);
 
     for (const tuning of host.configService.getAll<TuningConfig>("tuning")) {
@@ -145,6 +148,15 @@ export class TuningPanel implements EditorPanel {
       const section = new ConfigSection(host, report, camera.name ?? camera.id, form, "camera");
       this.sections.push(section);
       this.element.append(section.element);
+    }
+
+    // Every section is folded, so a pack with no tuning/camera configs would
+    // otherwise show a lone search box over nothing and read as a broken tool.
+    if (this.sections.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ed-empty";
+      empty.textContent = "This content pack ships no tuning or camera configs.";
+      this.element.append(empty);
     }
   }
 

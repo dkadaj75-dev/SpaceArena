@@ -13,10 +13,11 @@ function nextId(existing: string[]): string {
  * CRUD editor for action configs (1.15). `action.ts` is a flat schema with a
  * `kind` enum field (not a Zod discriminated union), so SchemaFormGen already
  * renders `kind` as a dropdown and no per-variant form-switching is needed.
- * Note: `params` is a free-form `z.record(string, unknown())` bag with no
- * enumerable JSON-schema properties, so SchemaFormGen renders it as an empty
- * object today — editing existing param keys works through the underlying
- * value, but adding new keys isn't yet exposed in the generated form.
+ * `params` is a free-form `z.record(string, unknown())` bag with no enumerable
+ * JSON-schema properties, so SchemaFormGen falls back to its labelled JSON
+ * field for it — every key stays authorable (including new ones), it is simply
+ * typed as JSON rather than as generated controls, because the runtime reads a
+ * different shape per `kind`.
  */
 export class ActionEditor implements EditorPanel {
   readonly element = document.createElement("div");
@@ -34,6 +35,7 @@ export class ActionEditor implements EditorPanel {
     const toolbar = document.createElement("div");
     toolbar.className = "ed-toolbar";
     const select = document.createElement("select");
+    select.className = "ed-select";
     for (const config of configs) select.append(new Option(config.name ?? config.id, config.id, false, config.id === this.selectedId));
     select.addEventListener("change", () => {
       this.selectedId = select.value;
@@ -42,13 +44,22 @@ export class ActionEditor implements EditorPanel {
     const add = document.createElement("button");
     add.type = "button";
     add.className = "ed-btn";
-    add.textContent = "New";
+    add.textContent = "New action";
     add.addEventListener("click", () => this.createFrom(configs));
-    toolbar.append(select, add);
+    toolbar.append(label("Action"), select, add);
     this.element.append(toolbar);
 
     const selected = configs.find((c) => c.id === this.selectedId);
-    if (!selected) return;
+    if (!selected) {
+      // An unexplained blank panel reads as a broken tool. Say which it is.
+      const empty = document.createElement("div");
+      empty.className = "ed-empty";
+      empty.textContent = configs.length
+        ? "Pick an action above to edit it."
+        : "No action configs loaded. “New action” starts one.";
+      this.element.append(empty);
+      return;
+    }
     this.form = new SchemaFormGen({
       schema: actionSchema,
       value: selected,
@@ -87,4 +98,11 @@ export class ActionEditor implements EditorPanel {
   dispose(): void {
     this.element.replaceChildren();
   }
+}
+
+function label(value: string): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = "ed-label";
+  span.textContent = value;
+  return span;
 }

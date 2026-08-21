@@ -31,6 +31,7 @@ export class AssetEditor implements EditorPanel {
     const toolbar = document.createElement("div");
     toolbar.className = "ed-toolbar";
     const select = document.createElement("select");
+    select.className = "ed-select";
     for (const config of configs) select.append(new Option(config.name ?? config.id, config.id, false, config.id === this.selectedId));
     select.addEventListener("change", () => {
       this.selectedId = select.value;
@@ -41,11 +42,19 @@ export class AssetEditor implements EditorPanel {
     add.className = "ed-btn";
     add.textContent = "New asteroid";
     add.addEventListener("click", () => this.createFrom(configs));
-    toolbar.append(select, add);
+    toolbar.append(label("Asteroid"), select, add);
     this.element.append(toolbar, applicationNotice("asteroid"));
 
     const selected = configs.find((c) => c.id === this.selectedId);
-    if (!selected) return;
+    if (!selected) {
+      const empty = document.createElement("div");
+      empty.className = "ed-empty";
+      empty.textContent = configs.length
+        ? "Pick an asteroid above to edit it."
+        : "No asteroid configs loaded. “New asteroid” starts one.";
+      this.element.append(empty);
+      return;
+    }
     this.form = new SchemaFormGen({
       schema: asteroidSchema,
       value: selected,
@@ -94,4 +103,11 @@ export class AssetEditor implements EditorPanel {
   dispose(): void {
     this.element.replaceChildren();
   }
+}
+
+function label(value: string): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = "ed-label";
+  span.textContent = value;
+  return span;
 }

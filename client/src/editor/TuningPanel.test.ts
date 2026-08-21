@@ -85,6 +85,26 @@ describe("TuningPanel accordions", () => {
     panel.element.remove();
   });
 
+  it("says so when the pack ships no tuning or camera configs", () => {
+    const configService = {
+      getAll: vi.fn(() => []),
+      replace: vi.fn(() => ({ ok: true as const, errors: [] })),
+    } as unknown as ConfigService;
+    const panel = new TuningPanel({ configService } as unknown as EditorHost, vi.fn());
+
+    // Every section is folded now, so with no configs at all this panel would
+    // otherwise be a lone search box over nothing.
+    expect(panel.element.querySelector(".ed-empty")?.textContent).toContain("no tuning or camera configs");
+    panel.dispose();
+  });
+
+  it("names the search box rather than leaving a bare input in the toolbar", () => {
+    const panel = panelWith();
+    expect([...panel.element.querySelectorAll(".ed-label")].map((el) => el.textContent)).toContain("Find field");
+    panel.dispose();
+    panel.element.remove();
+  });
+
   it("misses fold the section rather than leaving it open on nothing", () => {
     const panel = panelWith();
     const section = panel.element.querySelector<HTMLDetailsElement>("details")!;

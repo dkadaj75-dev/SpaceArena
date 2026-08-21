@@ -16,7 +16,7 @@ import { ThemeEditor } from "./ThemeEditor.js";
 import { QualityEditor } from "./QualityEditor.js";
 import { ConsolePanel } from "./ConsolePanel.js";
 import { EditorStage } from "./EditorStage.js";
-import { onConfigSaved } from "./saveConfig.js";
+import { onConfigSaved, saveConfig } from "./saveConfig.js";
 import "./editor.css";
 import { applicationNotice } from "./applicationScope.js";
 
@@ -616,11 +616,30 @@ export class EditorShell {
 }
 function placeholder(message: string): EditorPanel { return { element: text(message), dispose() {} }; }
 function text(message: string): HTMLDivElement { const element = document.createElement("div"); element.textContent = message; element.className = "ed-empty"; return element; }
+/**
+ * World ▸ Inspector: the raw generated form over ONE arena, for reading and
+ * editing fields the Map tool's viewport does not draw handles for.
+ *
+ * It deliberately has no arena picker — Map owns choosing the arena, and two
+ * pickers disagreeing about "the arena" is how a designer ends up editing the
+ * one they are not looking at. It does now SAY which arena it is showing, and
+ * exposes save() so the shell's always-visible Save writes this arena's file
+ * instead of sitting disabled on a panel that plainly edits a config.
+ */
 function arenaInspector(host: EditorHost, report: (message: string | null) => void): EditorPanel {
   const arena = host.configService.getAll<ArenaConfig>("arena")[0];
   if (!arena) return placeholder("No arena config loaded.");
   const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: host.configService, onProblem: (p) => report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => host.rebuildArena(arena.id) });
   const element = document.createElement("div");
-  element.append(applicationNotice("arena"), form.element);
-  return { element, dispose() {} };
+  const subject = document.createElement("div");
+  subject.className = "ed-note";
+  subject.textContent = `Showing ${arena.name ?? arena.id} (${arena.id}). Switch arenas in World ▸ Map.`;
+  element.append(subject, applicationNotice("arena"), form.element);
+  return {
+    element,
+    async save() {
+      report(await saveConfig(form.getValue()));
+    },
+    dispose() {},
+  };
 }

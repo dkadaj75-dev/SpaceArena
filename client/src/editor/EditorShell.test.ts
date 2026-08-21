@@ -127,3 +127,62 @@ describe("EditorShell chrome", () => {
     shell.close();
   });
 });
+
+/**
+ * World ▸ Inspector is the generated arena form. It always shows the FIRST
+ * arena and has no picker of its own (Map owns choosing the arena), which is
+ * fine — as long as it says which arena that is, and as long as the shell's
+ * always-visible Save is not left disabled on a panel that plainly edits one.
+ */
+describe("EditorShell arena Inspector", () => {
+  const arena = {
+    id: "arena.ring-nebula", type: "arena", version: 1, name: "Ring Nebula",
+    bounds: { shape: "sphere", radius: 120 },
+    asteroidPlacements: [],
+    spawnPoints: [{ id: "s0", team: 0, position: { x: 0, z: 0 }, heading: 0 }],
+  };
+
+  function shellWithArena(): { shell: EditorShell; dispose: () => void } {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const canvas = document.createElement("canvas");
+    vi.spyOn(engine, "getRenderingCanvas").mockReturnValue(canvas);
+    vi.spyOn(engine, "resize").mockImplementation(vi.fn());
+    const host = {
+      scene,
+      configService: { getAll: (type: string) => (type === "arena" ? [arena] : []), get: () => undefined, replace: () => ({ ok: true, errors: [] }) },
+      bus: { on: () => () => {} },
+      pauseSim: vi.fn(), resumeSim: vi.fn(), rebuildArena: vi.fn(), setGameVisible: vi.fn(),
+      setArenaVisible: vi.fn(), setSpawnMarkersForced: vi.fn(), setPropPickingForced: vi.fn(),
+      launchPlaytest: vi.fn(), suspendCameraGestures: vi.fn(),
+    } as unknown as EditorHost;
+    localStorage.setItem("sa-editor.tab", "Inspector");
+    const shell = new EditorShell(host);
+    shell.toggle();
+    return { shell, dispose: () => { scene.dispose(); engine.dispose(); } };
+  }
+
+  it("names the arena it is showing and points at Map for switching", () => {
+    const { shell, dispose } = shellWithArena();
+    shells.push(dispose);
+    const root = document.getElementById("space-arena-editor")!;
+
+    const note = [...root.querySelectorAll(".ed-note")].map((n) => n.textContent ?? "").find((t) => t.includes("Ring Nebula"));
+    expect(note).toBeDefined();
+    expect(note).toContain("arena.ring-nebula");
+    expect(note).toContain("Map");
+
+    shell.close();
+  });
+
+  it("leaves the top-bar Save enabled, because this panel does edit a config", () => {
+    const { shell, dispose } = shellWithArena();
+    shells.push(dispose);
+    const root = document.getElementById("space-arena-editor")!;
+
+    const save = [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("Save"))!;
+    expect(save.disabled).toBe(false);
+
+    shell.close();
+  });
+});
