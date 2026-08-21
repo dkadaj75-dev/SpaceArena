@@ -76,6 +76,11 @@ export function moduleSystem(world: World, dt: number): void {
 function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: readonly ModuleRuntime[]): void {
   const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
   if (!cfg) return;
+  // Weapons have no toggle since 2026-08-21: their HUD button is a trigger, and
+  // a rack that could be switched off would be a rack a mis-tap could silence
+  // mid-fight. They spawn online and stay online. Ignored rather than rejected —
+  // an old client, a recorded order stream or a bot may still send one.
+  if (cfg.fire) return;
   switch (m.state) {
     case "retracted": {
       // A flamed-out tank must charge past its own `rearmAbove` before the

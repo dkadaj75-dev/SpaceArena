@@ -151,7 +151,6 @@ const CSS = `
 .hud-frame,
 .hud-module-btn,
 .hud-throttle-track,
-.hud-fire-btn,
 .hud-boost-btn,
 .hud-jettison-btn,
 .hud-results-panel {
@@ -163,8 +162,6 @@ const CSS = `
 .hud-module-btn::after,
 .hud-throttle-track::before,
 .hud-throttle-track::after,
-.hud-fire-btn::before,
-.hud-fire-btn::after,
 .hud-boost-btn::before,
 .hud-boost-btn::after,
 .hud-jettison-btn::before,
@@ -442,7 +439,6 @@ const CSS = `
 /* Zero-size pivots pinned to the themed anchor corner, exactly like .hud-modules. */
 .hud-joystick,
 .hud-throttle,
-.hud-fire,
 .hud-boost,
 .hud-jettison {
   position: absolute;
@@ -494,22 +490,18 @@ const CSS = `
 }
 .hud-joystick[data-anchor="bottom-right"],
 .hud-throttle[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
-.hud-fire[data-anchor="bottom-right"],
 .hud-boost[data-anchor="bottom-right"],
 .hud-jettison[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
 .hud-joystick[data-anchor="bottom-left"],
 .hud-throttle[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
-.hud-fire[data-anchor="bottom-left"],
 .hud-boost[data-anchor="bottom-left"],
 .hud-jettison[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
 .hud-joystick[data-anchor="top-right"],
 .hud-throttle[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
-.hud-fire[data-anchor="top-right"],
 .hud-boost[data-anchor="top-right"],
 .hud-jettison[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
 .hud-joystick[data-anchor="top-left"],
 .hud-throttle[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
-.hud-fire[data-anchor="top-left"],
 .hud-boost[data-anchor="top-left"],
 .hud-jettison[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
 
@@ -632,90 +624,58 @@ const CSS = `
   white-space: nowrap;
 }
 
-/* FIRE: momentary, held for as long as a pointer is down. */
-.hud-fire-btn {
-  pointer-events: auto;
+/* WEAPON TRIGGERS (2026-08-21). The dedicated FIRE button is gone: every weapon
+   is its own button on the module rail, and the pilot's PRIMARY weapon inherits
+   FIRE's pedestal — same footprint, same theme tokens, so a theme that dressed
+   FIRE still dresses the control that replaced it. */
+.hud-module-btn.trigger { touch-action: none; }
+/* Held: the same brightened rim + fill FIRE used, so "I am shooting" reads at a
+   glance and from the corner of the eye. */
+.hud-module-btn.trigger.firing {
+  --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 82%, var(--sa-white));
+  --hud-btn-fill: color-mix(in srgb, var(--hud-module-family-color) var(--hud-fire-armed-fill-pct, 52%), transparent);
+  transform: scale(0.96);
+}
+.hud-module-btn.trigger.firing::before {
+  filter: drop-shadow(0 0 var(--hud-fire-armed-glow, 18px) var(--hud-module-family-color));
+}
+/* The pedestal. Its size comes from the layout (inline width/height), so this is
+   only the weight the bigger target has to carry to read as the primary control. */
+.hud-module-btn.primary {
+  --hud-btn-rim: var(--hud-module-family-color);
+  --hud-btn-fill: color-mix(in srgb, var(--hud-module-family-color) var(--hud-fire-fill-pct, 30%), var(--hud-bg));
+}
+.hud-module-btn.primary::before {
+  filter: drop-shadow(0 0 var(--hud-fire-glow, 10px) var(--hud-module-family-color));
+}
+.hud-module-btn.primary > .icon .hud-icon-svg { width: 34px; height: auto; }
+/* Names are gone from the buttons (owner 2026-08-21): the glyph is what a pilot
+   reads mid-turn, and a truncated caption under it read as neither. The text
+   stays in the DOM for assistive tech. */
+.hud-module-btn .label.sr-only {
   position: absolute;
-  box-sizing: border-box;
-  touch-action: none;
-  width: calc(var(--hud-fire-radius, 34px) * 2);
-  height: calc(var(--hud-fire-radius, 34px) * 2);
-  background: transparent;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
   border: 0;
-  color: var(--sa-white);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1em;
-  line-height: 1;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  --hud-btn-rim: var(--hud-fire-color, var(--sa-red-500));
-  transition: transform 0.1s ease, filter 0.15s linear, opacity 0.15s linear;
 }
-.hud-fire-btn {
-  z-index: 1;
-  color: var(--sa-white);
-  font-size: 0.75em;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-.hud-fire-btn::before {
-  filter: drop-shadow(0 0 var(--hud-fire-glow, 10px) var(--hud-fire-color, var(--sa-red-500)));
-}
-.hud-fire-btn::before,
-.hud-fire-btn::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
+/* A weapon the power rail could not seat. It has no toggle, so it stays cold for
+   the whole match — struck through, drained of colour, and inert. */
+.hud-module-btn.unpowered {
+  --hud-btn-rim: var(--hud-neutral, var(--sa-n-400));
+  filter: saturate(0) brightness(0.6);
+  opacity: 0.65;
   pointer-events: none;
 }
-.hud-fire-btn::before {
-  inset: 0;
-  background: var(--hud-btn-rim);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-border, 2px)), #000 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-border, 2px)), #000 0);
-}
-.hud-fire-btn::after {
-  inset: var(--hud-fire-border, 2px);
-  background: radial-gradient(circle at 42% 36%, color-mix(in srgb, var(--hud-fire-color) 58%, var(--hud-text)), color-mix(in srgb, var(--hud-fire-color) var(--hud-fire-fill-pct, 30%), var(--hud-bg)) 62%, var(--hud-bg) 100%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hud-bg) 58%, transparent), inset 0 -4px 8px color-mix(in srgb, var(--hud-bg) 55%, transparent);
-}
-.hud-fire-btn > * { position: relative; z-index: 1; }
-.hud-fire-btn .label {
-  color: var(--sa-white);
-  font: 800 1em/1 var(--hud-font-display, system-ui, sans-serif);
-}
-.hud-fire-btn .label .hud-icon-svg { width: 30px; height: auto; display: block; }
-.hud-fire-ring {
-  position: absolute;
-  z-index: 0;
-  box-sizing: border-box;
-  border-radius: 50%;
-  background: repeating-conic-gradient(from -45deg, var(--hud-fire-color) 0 calc(90deg - var(--hud-fire-ring-tick-gap, 3deg)), transparent calc(90deg - var(--hud-fire-ring-tick-gap, 3deg)) 90deg);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-ring-stroke, 2px)), #000 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-fire-ring-stroke, 2px)), #000 0);
-  filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) var(--hud-fire-color, var(--sa-red-500)));
-  pointer-events: none;
-}
-.hud-fire-btn.active { --hud-btn-rim: color-mix(in srgb, var(--hud-fire-color, var(--sa-red-500)) 78%, var(--sa-white)); }
-.hud-fire-btn.active::after {
-  background: color-mix(
-    in srgb,
-    var(--hud-fire-color, var(--sa-red-500)) var(--hud-fire-armed-fill-pct, 52%),
-    transparent
-  );
-}
-.hud-fire-btn.active::before {
-  filter: drop-shadow(0 0 var(--hud-fire-armed-glow, 18px) var(--hud-fire-color, var(--sa-red-500)));
-}
-.hud-fire-btn.active { transform: scale(0.96); }
-.hud-fire-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.18) brightness(0.72); }
-.hud-fire-btn.disabled::before { --hud-btn-rim: var(--hud-danger); filter: none; }
-.hud-fire-btn.active .label {
-  filter: drop-shadow(0 0 calc(7px * var(--hud-glow)) var(--sa-white));
-}
+
+/* Gated rail (dead pilot, results screen): every button reads as unavailable,
+   and ModuleButtons.setEnabled has already released whatever was held. */
+.hud-modules.disabled { pointer-events: none; }
+.hud-modules.disabled .hud-module-btn { opacity: 0.58; filter: saturate(0.18) brightness(0.72); }
 
 /* BOOST: a compact circular module-language action: dark plate, thin family
    rim, glyph, and a caption below the circle. */

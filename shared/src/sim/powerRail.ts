@@ -13,25 +13,46 @@ import type { ModuleRuntime } from "./components.js";
  * (mostly supplied by the fitted transformer).
  *
  * The consequence, and the point: a hull whose transformer delivers 15 can
- * carry two 10-draw lasers, but only ever run one. Bringing the second up takes
- * the first down, automatically. A heavy shield can be authored to need the
- * whole rail, so raising it shuts every gun off — a real decision rather than a
+ * carry a 10-draw laser and an 8-draw shield, but never run both. Raising the
+ * shield is refused while the gun holds the rail — a real decision rather than a
  * fitting-screen error.
  *
  * Over-subscribed fittings are deliberately LEGAL: the Hangar warns, the match
  * simply cannot have everything online. That is what lets a player carry a
  * situational heavy module they only bring up when it matters.
  *
- * INTERNALS never contend. They are the ship's own systems — the very things
- * that *supply* the rail — and they have no toggle, so pricing them here would
- * only mean a bay that can shut itself off. The schema rejects `power.draw` on
- * an internal family for the same reason.
+ * WHICH SIDE GIVES WAY changed on 2026-08-21, when weapons stopped being
+ * toggleable. The rail used to shed guns to make room for a shield; a shed gun
+ * now has no control that could bring it back, so the DEPLOYABLE is refused
+ * instead and weapons hold the rail for the whole match. See
+ * {@link isRailPermanent}.
+ *
+ * INTERNALS never contend, and never did. They are the ship's own systems — the
+ * very things that *supply* the rail — and they have no toggle, so pricing them
+ * here would only mean a bay that can shut itself off. The schema rejects
+ * `power.draw` on an internal family for the same reason.
  */
 
 /** Rail current this module occupies while active. Absent block ⇒ free. */
 export function powerDrawOf(cfg: ModuleConfig | undefined): number {
   if (!cfg || isInternalFamily(cfg.family)) return 0;
   return cfg.power?.draw ?? 0;
+}
+
+/**
+ * Modules the rail may never take DOWN: internals and, since 2026-08-21,
+ * weapons.
+ *
+ * A weapon has no toggle any more — its HUD button is a trigger — so a weapon
+ * shed to make room for a shield could never be brought back, and the pilot
+ * would lose a gun for the rest of the match with no control that could undo
+ * it. Making them permanent keeps the rail's actual decision intact and moves
+ * it to the only side that can still act on it: the DEPLOYABLE is what gets
+ * refused when the rail is full, not the gun.
+ */
+export function isRailPermanent(cfg: ModuleConfig | undefined): boolean {
+  if (!cfg) return false;
+  return isInternalFamily(cfg.family) || cfg.fire !== undefined;
 }
 
 /** States that hold the rail: anything that is up or on its way up. */
@@ -59,8 +80,9 @@ export function activePowerDraw(
  * on a thin rail — the Hangar warns about this, and the sim refuses it).
  *
  * Shedding order is reverse slot index, matching the brown-out convention
- * elsewhere: deterministic, and it drops the later-fitted extras before the
- * hull's primary weapon.
+ * elsewhere: deterministic, and it drops the later-fitted extras first. Rail
+ * PERMANENTS (internals and weapons) are never candidates, so a target that can
+ * only be fed by taking a gun down is simply refused.
  */
 export function modulesToShedFor(
   configs: Pick<ConfigService, "get">,
@@ -79,7 +101,9 @@ export function modulesToShedFor(
   for (let i = modules.length - 1; i >= 0; i--) {
     const m = modules[i]!;
     if (m === target || !occupiesRail(m)) continue;
-    const draw = powerDrawOf(configs.get<ModuleConfig>("module", m.moduleId));
+    const cfg = configs.get<ModuleConfig>("module", m.moduleId);
+    if (isRailPermanent(cfg)) continue; // never sheds — see isRailPermanent
+    const draw = powerDrawOf(cfg);
     if (draw === 0) continue;
     shed.push(m);
     committed -= draw;
@@ -103,7 +127,15 @@ export function railAdmitted(
 ): Set<ModuleRuntime> {
   const admitted = new Set<ModuleRuntime>();
   let committed = 0;
-  for (const m of [...modules].sort((a, b) => a.hardpointIndex - b.hardpointIndex)) {
+  // Permanents first, then everything else, each group in slot order. They can
+  // never be shed later (see {@link isRailPermanent}), so a rail that seats a
+  // deployable ahead of a gun would strand the gun for the whole match.
+  const order = [...modules].sort((a, b) => {
+    const pa = isRailPermanent(configs.get<ModuleConfig>("module", a.moduleId)) ? 0 : 1;
+    const pb = isRailPermanent(configs.get<ModuleConfig>("module", b.moduleId)) ? 0 : 1;
+    return pa !== pb ? pa - pb : a.hardpointIndex - b.hardpointIndex;
+  });
+  for (const m of order) {
     const draw = powerDrawOf(configs.get<ModuleConfig>("module", m.moduleId));
     if (draw === 0) {
       admitted.add(m);

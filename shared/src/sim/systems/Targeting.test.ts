@@ -53,6 +53,7 @@ function scene(
     boost: false,
     fire: true,
     firePrev: false,
+    triggers: 0,
   });
   const foe = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING, 1, enemyPos, Math.PI);
   rebuildSpatial(world);

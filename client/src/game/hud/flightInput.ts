@@ -15,7 +15,14 @@ export interface FlightInputState {
   /** -1..1, sim convention (positive noses UP — BUBBLE.md §A). */
   pitchStick: number;
   boost: boolean;
+  /** Ship-wide "fire everything" — the space bar and the canvas tap. */
   fire: boolean;
+  /**
+   * Per-weapon trigger bitmask over hardpoint index (2026-08-21): bit `i` is set
+   * while the button for the weapon in hardpoint `i` is held. ORed with
+   * {@link FlightInputState.fire} by the sim, so the two controls compose.
+   */
+  triggers: number;
 }
 
 export interface RelativeSteerAxes {

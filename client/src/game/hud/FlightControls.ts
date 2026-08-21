@@ -14,7 +14,6 @@ import {
 import type { GameSession } from "../GameSession.js";
 import { VirtualJoystick } from "./VirtualJoystick.js";
 import { ThrottleStrip } from "./ThrottleStrip.js";
-import { FireButton } from "./FireButton.js";
 import { BoostButton, type BoostButtonState } from "./BoostButton.js";
 import { JettisonButton, type JettisonButtonState } from "./JettisonButton.js";
 import { CanvasFireInput } from "./CanvasFireInput.js";
@@ -99,7 +98,7 @@ export interface FlightHudBinding {
 }
 
 /**
- * The flight HUD: relative steering + reusable joystick, throttle, FIRE,
+ * The flight HUD: relative steering + reusable joystick, throttle,
  * reticle, enemy arrows, desktop keys, and the `flight` order sender.
  * orders.
  *
@@ -117,7 +116,6 @@ export class FlightControls {
   private readonly joystick: VirtualJoystick;
   private readonly relativeSteer: RelativeSteerInput;
   private readonly throttleStrip: ThrottleStrip;
-  private readonly fireButton: FireButton;
   private readonly boostButton: BoostButton;
   private readonly jettisonButton: JettisonButton;
   private readonly canvasFire: CanvasFireInput;
@@ -142,6 +140,7 @@ export class FlightControls {
     pitchStick: 0,
     boost: false,
     fire: false,
+    triggers: 0,
   };
   private fireWasHeld = false;
   /** First fitted boost-family module, used by the Shift convenience toggle. */
@@ -200,6 +199,14 @@ export class FlightControls {
     private readonly binding: FlightHudBinding,
     layout: FlightHudLayout,
     private readonly onBlockedFire: (() => void) | null = null,
+    /**
+     * The weapon-trigger bitmask, read every frame from the module rail
+     * (2026-08-21). The FIRE button is gone: each weapon has its own button, and
+     * those buttons live in {@link import("./ModuleButtons.js").ModuleButtons}
+     * because that is where a fitting's buttons are built. This is the seam
+     * between the two — a getter, so neither owns the other.
+     */
+    private readonly weaponTriggers: (() => number) | null = null,
   ) {
     this.layout = layout;
 
@@ -210,7 +217,6 @@ export class FlightControls {
     this.joystick = new VirtualJoystick(this.container, layout);
     this.relativeSteer = new RelativeSteerInput(this.container, binding.inputSurface, layout);
     this.throttleStrip = new ThrottleStrip(this.container, layout);
-    this.fireButton = new FireButton(this.container, layout);
     // Same order path as the Shift shortcut below — one way to ask for boost.
     this.boostButton = new BoostButton(this.container, layout, (hardpointIndex) =>
       this.toggleBoost(hardpointIndex),
@@ -238,7 +244,6 @@ export class FlightControls {
     this.joystick.applyLayout(layout);
     this.relativeSteer.applyLayout(layout);
     this.throttleStrip.applyLayout(layout);
-    this.fireButton.applyLayout(layout);
     this.boostButton.applyLayout(layout);
     this.jettisonButton.applyLayout(layout);
     this.reticle.applyLayout(layout);
@@ -280,7 +285,6 @@ export class FlightControls {
     }
     this.relativeSteer.setEnabled(enabled);
     this.canvasFire.setEnabled(enabled);
-    this.fireButton.setEnabled(enabled);
   }
 
   /**
@@ -342,22 +346,28 @@ export class FlightControls {
     this.refreshBoostState(cur, ship);
     this.refreshJettisonState(ship);
     this.refreshActionArc(ship);
-    const fire = this.fireButton.held || this.canvasFire.held || keys.fire;
-    this.fireButton.setKeyActive(this.canvasFire.held || keys.fire);
+    // Two trigger sources, and they mean different things (2026-08-21). `fire`
+    // is "everything at once" — the space bar and the canvas tap, which have no
+    // way to name a weapon. `triggers` is the per-weapon mask from the module
+    // rail's buttons. The sim ORs them, so a pilot may use either or both.
+    const fire = this.canvasFire.held || keys.fire;
+    const triggers = this.weaponTriggers?.() ?? 0;
+    const pulling = fire || triggers !== 0;
     // "NO LOCK" feedback only when the pull genuinely does nothing — i.e. every
     // fitted weapon is a homing one that still hard-requires a lock. Straight-
     // fire weapons (laser/kinetic/beam) now shoot down the nose without a lock.
-    if (fire && !this.fireWasHeld && !ship.locked && !this.hasStraightFireWeapon(ship)) {
+    if (pulling && !this.fireWasHeld && !ship.locked && !this.hasStraightFireWeapon(ship)) {
       this.reticle.flashNoLock();
       this.onBlockedFire?.();
     }
-    this.fireWasHeld = fire;
+    this.fireWasHeld = pulling;
 
     this.input.throttle = this.throttleStrip.throttle;
     this.input.turn = turn;
     this.input.pitchStick = pitchStick;
     this.input.boost = this.boostActive;
     this.input.fire = fire;
+    this.input.triggers = triggers;
     this.sender.update(this.input, nowMs);
 
     this.reticle.updateFeedback(dtMs);
@@ -584,14 +594,20 @@ export class FlightControls {
   private refreshActionArc(ship: ShipSnapshot): void {
     if (!this.layout.actionArc) return;
     let moduleCount = 0;
+    let hasWeapon = false;
     for (const module of ship.modules) {
-      const family = this.configs.get<ModuleConfig>("module", module.moduleId)?.family;
+      const cfg = this.configs.get<ModuleConfig>("module", module.moduleId);
+      const family = cfg?.family;
       if (family !== "boost" && !isInternalFamily(family ?? "utility")) moduleCount++;
+      if (cfg?.fire) hasWeapon = true;
     }
     if (moduleCount === this.actionArcModuleCount) return;
     this.actionArcModuleCount = moduleCount;
-    this.boostButton.applyArcLayout(this.layout, moduleCount);
-    this.jettisonButton.applyArcLayout(this.layout, moduleCount);
+    // The rail sorts weapon-first, so a fitting with any weapon at all puts one
+    // on the FIRE pedestal and leaves one fewer slot for BOOST/JETTISON to sit
+    // behind — the two must be told, or they land one slot too far out.
+    this.boostButton.applyArcLayout(this.layout, moduleCount, hasWeapon);
+    this.jettisonButton.applyArcLayout(this.layout, moduleCount, hasWeapon);
   }
 
   /** Whether any fitted weapon can fire without a lock (non-homing `fire`). */
@@ -630,7 +646,6 @@ export class FlightControls {
     this.joystick.dispose();
     this.relativeSteer.dispose();
     this.throttleStrip.dispose();
-    this.fireButton.dispose();
     this.boostButton.dispose();
     this.jettisonButton.dispose();
     this.canvasFire.dispose();

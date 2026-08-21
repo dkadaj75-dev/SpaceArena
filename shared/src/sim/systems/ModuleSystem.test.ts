@@ -83,25 +83,39 @@ describe("ModuleSystem state machine", () => {
   });
 
   it("cycles retracted → deploying → active → retracting → retracted", () => {
-    const { world, id } = shipWorld();
-    const mod = world.modules.get(id)!.modules[LASER]!;
-    // Weapons spawn active now; park it retracted to walk the full cycle with
-    // the laser's authored timers (deploy 0.5s / retract 0.35s).
-    mod.state = "retracted";
+    // A SHIELD, because weapons have no toggle since 2026-08-21 — the machine
+    // itself is unchanged, only which families reach it.
+    const { world, id } = shieldWorld();
+    const mod = world.modules.get(id)!.modules[1]!;
+    expect(mod.state).toBe("retracted"); // deployables spawn down
 
-    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: 1 });
     moduleSystem(world, DT);
     expect(mod.state).toBe("deploying");
 
-    tickModules(world, 45); // well past deployTime (0.5s)
+    tickModules(world, 45); // well past deployTime (0.4s)
     expect(mod.state).toBe("active");
 
-    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: 1 });
     moduleSystem(world, DT);
     expect(mod.state).toBe("retracting");
 
-    tickModules(world, 30); // well past retractTime (0.35s)
+    tickModules(world, 30); // well past retractTime (0.3s)
     expect(mod.state).toBe("retracted");
+  });
+
+  it("IGNORES a toggle addressed at a weapon — its button is a trigger now", () => {
+    const { world, id } = shipWorld();
+    const laser = world.modules.get(id)!.modules[LASER]!;
+    expect(laser.state).toBe("active");
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
+    moduleSystem(world, DT);
+    expect(laser.state).toBe("active");
+    // …and it stays ignored from every state, so nothing can strand a rack.
+    laser.state = "retracted";
+    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
+    moduleSystem(world, DT);
+    expect(laser.state).toBe("retracted");
   });
 
   it("emits moduleStateChanged with activate action ids", () => {
@@ -161,39 +175,37 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
       .map((e) => `${e.from}->${e.to}` as const);
 
   it("a toggle mid-deploy reverses straight into retracting (deploy is cancellable)", () => {
-    const { world, id } = shipWorld();
-    const mod = world.modules.get(id)!.modules[LASER]!;
-    mod.state = "retracted"; // weapons spawn active; the test wants the deploy edge
-    toggle(world, id, LASER);
-    advance(world, id, 5); // 0.17s into a 0.5s deploy
+    const { world, id } = shieldWorld();
+    const mod = world.modules.get(id)!.modules[SHIELD]!;
+    toggle(world, id, SHIELD);
+    advance(world, id, 5); // 0.17s into a 0.4s deploy
     expect(mod.state).toBe("deploying");
 
     const mark = world.events.length;
-    toggle(world, id, LASER);
+    toggle(world, id, SHIELD);
     expect(mod.state).toBe("retracting");
     expect(transitions(world, mark)).toEqual(["deploying->retracting"]);
-    expect(mod.stateTimer).toBeCloseTo(0.35 - DT, 6); // full retractTime, not the remaining deploy
+    expect(mod.stateTimer).toBeCloseTo(0.3 - DT, 6); // full retractTime, not the remaining deploy
 
     advance(world, id, 30);
     expect(mod.state).toBe("retracted");
   });
 
   it("a toggle mid-retract re-deploys from the start of deployTime", () => {
-    const { world, id } = shipWorld();
-    const mod = world.modules.get(id)!.modules[LASER]!;
-    mod.state = "retracted"; // weapons spawn active; the test wants the deploy edge
-    toggle(world, id, LASER);
+    const { world, id } = shieldWorld();
+    const mod = world.modules.get(id)!.modules[SHIELD]!;
+    toggle(world, id, SHIELD);
     advance(world, id, 45);
     expect(mod.state).toBe("active");
-    toggle(world, id, LASER);
-    advance(world, id, 6); // 0.2s into a 0.35s retract
+    toggle(world, id, SHIELD);
+    advance(world, id, 6); // 0.2s into a 0.3s retract
     expect(mod.state).toBe("retracting");
 
     const mark = world.events.length;
-    toggle(world, id, LASER);
+    toggle(world, id, SHIELD);
     expect(mod.state).toBe("deploying");
     expect(transitions(world, mark)).toEqual(["retracting->deploying"]);
-    expect(mod.stateTimer).toBeCloseTo(0.5 - DT, 6);
+    expect(mod.stateTimer).toBeCloseTo(0.4 - DT, 6);
 
     advance(world, id, 45);
     expect(mod.state).toBe("active");

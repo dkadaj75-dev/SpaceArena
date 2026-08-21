@@ -15,7 +15,7 @@ const POLICY: FlightOrderPolicy = {
 };
 
 /** A centred-stick flight order — the payload every assertion below starts from. */
-const NEUTRAL = { kind: "flight", throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false } as const;
+const NEUTRAL = { kind: "flight", throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false, triggers: 0 } as const;
 
 interface Harness {
   sender: FlightOrderSender;
@@ -29,7 +29,7 @@ interface Harness {
 function harness(policy: FlightOrderPolicy = POLICY): Harness {
   const orders: Order[] = [];
   const sender = new FlightOrderSender((o) => orders.push(o), policy);
-  const state: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false };
+  const state: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false, triggers: 0 };
   return {
     sender,
     orders,
@@ -280,6 +280,7 @@ describe("FlightOrderSender", () => {
       pitchStick: 0.45,
       boost: true,
       fire: false,
+      triggers: 0,
     });
   });
 });

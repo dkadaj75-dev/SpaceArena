@@ -152,21 +152,25 @@ describe("match-start countdown — order suspension", () => {
   it("applies a mashed module button once per press, not N times at GO", () => {
     const sim = newSim();
     const [id] = sim.world.shipIds();
-    const hardpointIndex = sim.world.modules.get(id!)!.modules[0]!.hardpointIndex;
+    // A SHIELD, swapped onto the second hardpoint: weapons stopped taking
+    // toggles on 2026-08-21, and the subject needs real deploy/retract times
+    // for a mashed button to leave it mid-transition at all.
+    const mod = sim.world.modules.get(id!)!.modules[1]!;
+    mod.moduleId = "module.shield-mk1";
+    mod.state = "retracted";
 
     // One toggle per countdown tick would, if orders merely QUEUED, all land on
     // the first live tick and cancel each other out.
     for (let i = 0; i < 10; i++) {
-      sim.applyOrder(id!, { kind: "moduleToggle", hardpointIndex });
+      sim.applyOrder(id!, { kind: "moduleToggle", hardpointIndex: mod.hardpointIndex });
       sim.tick(DT);
     }
-    const state = sim.world.modules.get(id!)!.modules[0]!.state;
     // 10 presses from `retracted`: deploying → retracting → deploying → … Timers
     // are frozen, so nothing completes; the point is that the count is 10, not
     // that it settles anywhere in particular.
-    expect(["deploying", "retracting"]).toContain(state);
+    expect(["deploying", "retracting"]).toContain(mod.state);
     // Frozen timers: the deploy never completed during the countdown.
-    expect(state).not.toBe("active");
+    expect(mod.state).not.toBe("active");
   });
 });
 

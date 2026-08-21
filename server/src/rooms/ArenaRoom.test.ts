@@ -172,12 +172,28 @@ describe("ArenaRoom", () => {
     // laser must never set it.
     expect(p1.modules[0]!.channeling).toBe(false);
 
-    // Module toggle → the missile rack leaves the active (2) state and retracts.
+    // A toggle addressed at a WEAPON is accepted at the trust boundary (it is a
+    // well-formed order for a hardpoint the ship really has) and then ignored by
+    // the sim: weapons have no toggle since 2026-08-21, so the rack stays
+    // active (2) rather than retracting.
     c1.send("order", { seq: 4, order: { kind: "moduleToggle", hardpointIndex: 1 } });
     const ack4 = await c1.waitForMessage("orderAck");
     expect(ack4).toMatchObject({ seq: 4, accepted: true });
     await advance(room, 2);
-    expect(p1.modules[1]!.state).not.toBe(2);
+    expect(p1.modules[1]!.state).toBe(2);
+
+    // A per-weapon trigger rides the flight order, and the server accepts it.
+    c1.send("order", {
+      seq: 5,
+      order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: false, triggers: 1 },
+    });
+    expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 5, accepted: true });
+    // …and a mask outside the 16-hardpoint ceiling is malformed, like any axis.
+    c1.send("order", {
+      seq: 6,
+      order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: false, triggers: 1e9 },
+    });
+    expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 6, accepted: false, reason: "malformed" });
 
     await c1.leave();
     await c2.leave();

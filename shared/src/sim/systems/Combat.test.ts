@@ -51,6 +51,7 @@ function duel(
     boost: false,
     fire: true,
     firePrev: false,
+    triggers: 0,
   });
   // Seed the sticky candidate directly: targeting is automatic (FLIGHT.md §2),
   // and TargetingSystem holds whoever is already set while it stays lockable.
@@ -158,6 +159,7 @@ describe("CombatSystem straight fire — no lock, non-homing weapons (2026-07-31
       boost: false,
       fire: true,
       firePrev: false,
+    triggers: 0,
     });
     rebuildSpatial(world);
 
@@ -181,7 +183,7 @@ describe("CombatSystem straight fire — no lock, non-homing weapons (2026-07-31
     const make = () => {
       const world = makeWorld(configs);
       const shooter = spawnShipFromConfig(world, configs, "ship.interceptor", ["module.kinetic-mk1", null, null, null], 0, { x: 0, z: 0 }, 0);
-      world.flightStates.set(shooter, { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false });
+      world.flightStates.set(shooter, { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false, triggers: 0 });
       const gun = world.modules.get(shooter)!.modules[0]!;
       gun.rounds = 1;
       return { world, shooter, gun };
@@ -336,6 +338,89 @@ describe("CombatSystem trigger discipline", () => {
   });
 });
 
+/**
+ * PER-WEAPON TRIGGERS (2026-08-21). The single FIRE button is gone: each weapon
+ * has its own HUD button, and its own bit in `FlightState.triggers`. The
+ * ship-wide `fire` flag survives for the PC space bar and for every bot, and the
+ * two are ORed — a pilot holding one gun's button and a bot holding "everything"
+ * are asking the same system for different amounts of the same thing.
+ */
+describe("CombatSystem — per-weapon triggers", () => {
+  /** Both stock weapons online, nothing held. */
+  function armedPair(): { world: World; shooter: number; target: number } {
+    const d = duel({ x: 20, z: 0 });
+    for (const m of d.world.modules.get(d.shooter)!.modules) {
+      const cfg = configs.get<ModuleConfig>("module", m.moduleId);
+      if (cfg?.fire) {
+        m.state = "active";
+        m.cycleTimer = 0;
+      }
+    }
+    const fs = d.world.flightStates.get(d.shooter)!;
+    fs.fire = false;
+    fs.triggers = 0;
+    return d;
+  }
+
+  const firedModules = (world: World): string[] =>
+    world.events.filter((e) => e.type === "projectileFired").map((e) => e.moduleId);
+
+  it("fires ONLY the weapon whose bit is held", () => {
+    const { world } = armedPair();
+    world.flightStates.get(world.shipIds()[0]!)!.triggers = 1 << LASER;
+    combatSystem(world, DT);
+    expect(firedModules(world)).toEqual(["module.laser-mk1"]);
+  });
+
+  it("fires the OTHER weapon on the other bit, and both when both are held", () => {
+    const a = armedPair();
+    a.world.flightStates.get(a.shooter)!.triggers = 1 << MISSILE;
+    combatSystem(a.world, DT);
+    expect(firedModules(a.world)).toEqual(["module.missile-mk1"]);
+
+    const b = armedPair();
+    b.world.flightStates.get(b.shooter)!.triggers = (1 << LASER) | (1 << MISSILE);
+    combatSystem(b.world, DT);
+    expect(firedModules(b.world).sort()).toEqual(["module.laser-mk1", "module.missile-mk1"]);
+  });
+
+  it("fires nothing at all with no bit held and no ship-wide trigger", () => {
+    const { world } = armedPair();
+    combatSystem(world, DT);
+    expect(firedModules(world)).toEqual([]);
+  });
+
+  it("keeps the ship-wide `fire` flag as 'everything', ORed with the mask", () => {
+    // The bots' and the space bar's path: one flag, whole broadside, no mask.
+    const { world, shooter } = armedPair();
+    world.flightStates.get(shooter)!.fire = true;
+    combatSystem(world, DT);
+    expect(firedModules(world).sort()).toEqual(["module.laser-mk1", "module.missile-mk1"]);
+  });
+
+  it("HOLDS: a held bit fires again the instant the cycle clears, and not before", () => {
+    // The whole promise of the new button — leave your finger on it and the rack
+    // answers the moment it is ready.
+    const { world, shooter } = armedPair();
+    const laser = world.modules.get(shooter)!.modules[LASER]!;
+    const cycle = configs.get<ModuleConfig>("module", laser.moduleId)!.fire!.cycleTime;
+    world.flightStates.get(shooter)!.triggers = 1 << LASER;
+
+    combatSystem(world, DT);
+    expect(firedModules(world)).toHaveLength(1);
+    expect(laser.cycleTimer).toBeCloseTo(cycle, 6);
+
+    // Mid-cycle: still held, still silent.
+    const ticks = Math.floor(cycle / DT) - 1;
+    for (let i = 0; i < ticks; i++) combatSystem(world, DT);
+    expect(firedModules(world)).toHaveLength(1);
+
+    // …and the moment it clears, without a second press.
+    for (let i = 0; i < 3; i++) combatSystem(world, DT);
+    expect(firedModules(world).length).toBeGreaterThan(1);
+  });
+});
+
 describe("CombatSystem — a dead target is not a target (review Finding 6)", () => {
   /**
    * CleanupSystem removes wrecks at the END of a tick, so between the shot that
@@ -368,6 +453,7 @@ describe("CombatSystem — a dead target is not a target (review Finding 6)", ()
         boost: false,
         fire: true,
         firePrev: false,
+    triggers: 0,
       });
     }
     rebuildSpatial(world);
@@ -600,6 +686,7 @@ describe("CombatSystem continuous channel", () => {
       boost: false,
       fire: true,
       firePrev: false,
+    triggers: 0,
     });
     world.targets.get(shooter)!.targetId = target;
     warmLock(world, shooter);

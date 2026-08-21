@@ -44,6 +44,12 @@ export class World {
    * standing level.
    */
   readonly flightFireLevels = new Map<EntityId, boolean>();
+  /**
+   * Last ORDERED per-weapon trigger mask, kept for the same reason
+   * {@link World.flightFireLevels} is: navigation ORs sub-tick taps into the
+   * live state, and this is the level to fall back to next tick.
+   */
+  readonly flightTriggerLevels = new Map<EntityId, number>();
   readonly shipCores = new Map<EntityId, ShipCore>();
   readonly modules = new Map<EntityId, ModulesComp>();
   readonly targets = new Map<EntityId, TargetRef>();
@@ -139,6 +145,7 @@ export class World {
     this.velocities.delete(id);
     this.flightStates.delete(id);
     this.flightFireLevels.delete(id);
+    this.flightTriggerLevels.delete(id);
     this.shipCores.delete(id);
     this.modules.delete(id);
     this.targets.delete(id);

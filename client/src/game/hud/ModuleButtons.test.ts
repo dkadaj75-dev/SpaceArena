@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { tuningSchema, type ConfigService, type EventBus, type ConfigEvents, type ModuleConfig, type Order, type Snapshot, type ThemeConfig } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { MODULE_FAMILY_COLOR_FALLBACKS, ModuleButtons, moduleHudName, resolveModuleFamilyColor } from "./ModuleButtons.js";
+import { resolveFlightHudLayout } from "./flightHudLayout.js";
 
 function fakeConfigs(): ConfigService {
   const tuning = tuningSchema.parse({
@@ -143,7 +144,7 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     expect(resolveModuleFamilyColor(undefined, "missile")).toBe(MODULE_FAMILY_COLOR_FALLBACKS.missile);
   });
 
-  it("wires each button's click to its true hardpointIndex, not its array position", () => {
+  it("wires each DEPLOYABLE button's click to its true hardpointIndex, not its array position", () => {
     const root = document.createElement("div");
     const orderSpy = vi.fn();
     const session = { order: orderSpy as (order: Order) => void } as unknown as GameSession;
@@ -163,7 +164,10 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     expect((rendered[0] as HTMLElement).style.getPropertyValue("--hud-module-family-color")).toBe(
       MODULE_FAMILY_COLOR_FALLBACKS.laser,
     );
+    // The caption is present but screen-reader only since 2026-08-21: the glyph
+    // is what the button shows.
     expect(rendered[0]!.querySelector(".label")!.textContent).toBe("Laser Mk1");
+    expect(rendered[0]!.querySelector(".label")!.classList).toContain("sr-only");
     expect(rendered[1]!.querySelector(".label")!.textContent).toBe("Deflector Sh");
 
     // Click the second rendered button (the shield, at array position 1) and
@@ -171,8 +175,11 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     (rendered[1] as HTMLDivElement).click();
     expect(orderSpy).toHaveBeenCalledWith({ kind: "moduleToggle", hardpointIndex: 2 });
 
+    // …while the WEAPON sends no toggle at all: its button is a trigger now, and
+    // a weapon that could be switched off would be one a mis-tap could silence.
+    orderSpy.mockClear();
     (rendered[0] as HTMLDivElement).click();
-    expect(orderSpy).toHaveBeenCalledWith({ kind: "moduleToggle", hardpointIndex: 0 });
+    expect(orderSpy).not.toHaveBeenCalled();
 
     buttons.dispose();
   });
@@ -325,6 +332,97 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     expect(none.classList).not.toContain("ring-energy");
     expect(none.querySelector<HTMLElement>(".ring")!.hidden).toBe(true);
     buttons.dispose();
+  });
+
+  /**
+   * WEAPON TRIGGERS (2026-08-21). The FIRE button is gone: a weapon's button is
+   * a momentary trigger whose held state rides the flight order as a bitmask,
+   * and a deployable's button keeps the toggle it always had.
+   */
+  describe("weapon triggers", () => {
+    function pointer(type: string, pointerId = 1): Event {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.assign(event, { pointerId, pointerType: "touch", button: 0 });
+      return event;
+    }
+
+    function railWith(states: Parameters<typeof snapshotWithModules>[0]) {
+      const root = document.createElement("div");
+      const buttons = new ModuleButtons(
+        root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1,
+      );
+      buttons.update(snapshotWithModules(states));
+      return { root, buttons };
+    }
+
+    it("sets the held weapon's BIT, and clears it on release", () => {
+      const { root, buttons } = railWith([
+        { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
+        { hardpointIndex: 3, moduleId: "module.missile-mk1", state: "active" },
+      ]);
+      const [laser, missile] = [...root.querySelectorAll<HTMLElement>(".hud-module-btn")];
+      expect(buttons.triggerMask()).toBe(0);
+
+      laser!.dispatchEvent(pointer("pointerdown"));
+      expect(buttons.triggerMask()).toBe(1 << 0);
+      expect(laser!.classList).toContain("firing");
+
+      // The mask is per HARDPOINT, not per render position: the missile sits at
+      // hardpoint 3 and must set bit 3.
+      missile!.dispatchEvent(pointer("pointerdown", 2));
+      expect(buttons.triggerMask()).toBe((1 << 0) | (1 << 3));
+
+      laser!.dispatchEvent(pointer("pointerup"));
+      expect(buttons.triggerMask()).toBe(1 << 3);
+      expect(laser!.classList).not.toContain("firing");
+      buttons.dispose();
+    });
+
+    it("releases a trigger held when the pointer comes up OUTSIDE the button", () => {
+      const { root, buttons } = railWith([
+        { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
+      ]);
+      root.querySelector<HTMLElement>(".hud-module-btn")!.dispatchEvent(pointer("pointerdown"));
+      expect(buttons.triggerMask()).toBe(1);
+      document.dispatchEvent(pointer("pointerup"));
+      expect(buttons.triggerMask()).toBe(0);
+      buttons.dispose();
+    });
+
+    it("drops every held trigger when the rail is disabled", () => {
+      const { root, buttons } = railWith([
+        { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
+      ]);
+      root.querySelector<HTMLElement>(".hud-module-btn")!.dispatchEvent(pointer("pointerdown"));
+      expect(buttons.anyTriggerHeld).toBe(true);
+      buttons.setEnabled(false);
+      expect(buttons.triggerMask()).toBe(0);
+      expect(buttons.anyTriggerHeld).toBe(false);
+      buttons.dispose();
+    });
+
+    it("gives the PRIMARY weapon the FIRE pedestal and leaves deployables on the arc", () => {
+      const { root, buttons } = railWith([
+        { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
+        { hardpointIndex: 1, moduleId: "module.shield-mk1", state: "retracted" },
+      ]);
+      // The pedestal only exists when the theme authors the FIRE-hugging action
+      // arc, which the shipped theme does.
+      buttons.applyFlightLayout(
+        resolveFlightHudLayout(
+          { hud: { flight: { actions: { arc: { radiusPx: 127, startDeg: -102, sweepDeg: -77, buttonDiameterPx: 48, captionGapPx: 5 } } } } } as never,
+          { width: 900, height: 420 },
+        ),
+      );
+      const [primary, shield] = [...root.querySelectorAll<HTMLElement>(".hud-module-btn")];
+      expect(primary!.classList).toContain("primary");
+      expect(primary!.classList).toContain("trigger");
+      expect(shield!.classList).not.toContain("primary");
+      expect(shield!.classList).not.toContain("trigger");
+      // The pedestal is the bigger target — that is the whole point of it.
+      expect(parseFloat(primary!.style.width)).toBeGreaterThan(parseFloat(shield!.style.width));
+      buttons.dispose();
+    });
   });
 
   it("clears the cooldown ring the moment the weapon is ready again", () => {

@@ -24,9 +24,21 @@ export type Order =
        */
       pitchStick?: number;
       boost: boolean;
-      /** True while the pilot holds the weapon trigger. */
+      /** True while a ship-wide "fire everything" trigger is held. */
       fire: boolean;
+      /**
+       * Per-weapon trigger bitmask over hardpoint index (2026-08-21). Bit `i`
+       * held ⇒ the weapon in hardpoint `i` is firing. OPTIONAL for the same
+       * reason `pitchStick` is: absent means "no per-weapon trigger held",
+       * which is what every pre-2026-08-21 sender and every bot means.
+       */
+      triggers?: number;
     }
+  /**
+   * Raise or lower a DEPLOYABLE module (shield, boost, utility). Weapons are
+   * not toggleable since 2026-08-21 — their button is a trigger now, not a
+   * switch — so a toggle addressed at a weapon hardpoint is ignored.
+   */
   | { kind: "moduleToggle"; hardpointIndex: number }
   /**
    * Blow the fitted countermeasure pod clear of the hull (owner 2026-07-31).

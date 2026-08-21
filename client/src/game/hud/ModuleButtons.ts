@@ -40,6 +40,12 @@ export function moduleHudName(cfg: Pick<ModuleConfig, "name" | "ui"> | undefined
 
 interface ButtonEntry {
   hardpointIndex: number;
+  /**
+   * True for a module whose button is a TRIGGER rather than a toggle
+   * (2026-08-21). Weapons: press fires, hold keeps firing as fast as the rack
+   * allows. Everything else keeps the switch it always had.
+   */
+  isWeapon: boolean;
   root: HTMLDivElement;
   ring: HTMLSpanElement;
   icon: HTMLSpanElement;
@@ -57,6 +63,7 @@ interface ButtonEntry {
   lastArmed: boolean;
   lastCounting: boolean;
   lastUnarmable: boolean;
+  lastUnpowered: boolean;
   /** Last replicated continuous-channel flag (see the class toggle in update()). */
   lastChanneling: boolean;
 }
@@ -87,6 +94,19 @@ export class ModuleButtons {
   private entries = new Map<number, ButtonEntry>();
   private builtForModuleCount = -1;
   private layout: HudLayout;
+  /**
+   * Hardpoint indices whose weapon button is currently held — pointer or
+   * keyboard. Read by {@link ModuleButtons.triggerMask}, which is what the
+   * flight order carries; this component never sends an order of its own for a
+   * weapon, because a held trigger must not cost one order per frame.
+   */
+  private readonly heldTriggers = new Set<number>();
+  /** Per-button release callbacks, so a rebuild or a disable can drop every held trigger. */
+  private releasers: Array<() => void> = [];
+  private disabled = false;
+  private readonly releaseAllTriggers = (): void => {
+    for (const release of this.releasers) release();
+  };
   private flightLayout: FlightHudLayout | null = null;
   private readonly unsubscribeTheme: () => void;
 
@@ -112,6 +132,40 @@ export class ModuleButtons {
             if (evt.type === "theme") this.applyFamilyColors();
           })
         : () => {};
+    // The backstop for a level-triggered control: a pointer released outside the
+    // button, a cancelled gesture or a lost window must never leave a weapon
+    // firing. Cheap, and the alternative is a gun that will not stop.
+    document.addEventListener("pointerup", this.releaseAllTriggers);
+    document.addEventListener("pointercancel", this.releaseAllTriggers);
+    window.addEventListener("blur", this.releaseAllTriggers);
+  }
+
+  /**
+   * Bitmask of the weapon hardpoints whose button is held, for the flight
+   * order's `triggers` field. Read every frame by {@link FlightControls}: the
+   * mask rides the order the HUD already sends, so holding a trigger costs no
+   * extra orders and cannot be rate-limited away.
+   */
+  triggerMask(): number {
+    let mask = 0;
+    for (const index of this.heldTriggers) mask |= 1 << index;
+    return mask;
+  }
+
+  /** True while any weapon trigger is held — the "am I shooting" question. */
+  get anyTriggerHeld(): boolean {
+    return this.heldTriggers.size > 0;
+  }
+
+  /**
+   * Gate every control (respawn hold, results screen). Disabling RELEASES held
+   * triggers rather than freezing them: a pilot who dies mid-burst must not
+   * respawn with a gun already firing.
+   */
+  setEnabled(enabled: boolean): void {
+    this.disabled = !enabled;
+    this.container.classList.toggle("disabled", !enabled);
+    if (!enabled) this.releaseAllTriggers();
   }
 
   /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
@@ -133,13 +187,18 @@ export class ModuleButtons {
   private position(): void {
     const buttons = [...this.entries.values()];
     const secondary = this.flightLayout
-      ? resolveFlightSecondaryControls(this.flightLayout, buttons.length)
+      ? resolveFlightSecondaryControls(this.flightLayout, buttons.length, {
+          // The rail is sorted weapon-first, so button 0 is the pilot's primary
+          // gun — and since 2026-08-21 it takes the FIRE button's footprint.
+          primaryOnFireSlot: buttons[0]?.isWeapon === true,
+        })
       : null;
     if (secondary?.usesActionArc) {
       for (let i = 0; i < buttons.length; i++) {
         const slot = secondary.modules[i];
         if (!slot) continue;
         const button = buttons[i]!.root;
+        button.classList.toggle("primary", i === 0 && buttons[i]!.isWeapon);
         button.style.left = `${anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx).dx - slot.radiusPx}px`;
         button.style.top = `${anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx).dy - slot.radiusPx}px`;
         button.style.width = `${slot.radiusPx * 2}px`;
@@ -257,6 +316,10 @@ export class ModuleButtons {
       // (laser/kinetic/beam) shoot down the nose without one and never grey out.
       const unarmable =
         m.state === "active" && entry.cfg?.fire?.projectile?.turnRate !== undefined && !ship.locked;
+      // A weapon the POWER RAIL could not seat at spawn. Weapons have no toggle
+      // since 2026-08-21, so this one is cold for the whole match — the button
+      // has to say so rather than sit there looking merely idle.
+      const unpowered = entry.isWeapon && m.state === "retracted";
 
       if (m.state !== entry.lastState) {
         if (entry.lastState) entry.root.classList.remove(`state-${entry.lastState}`);
@@ -299,6 +362,11 @@ export class ModuleButtons {
         entry.root.classList.toggle("unarmable", unarmable);
         entry.lastUnarmable = unarmable;
       }
+      if (unpowered !== entry.lastUnpowered) {
+        entry.root.classList.toggle("unpowered", unpowered);
+        entry.root.title = unpowered ? "No rail power for this weapon" : "";
+        entry.lastUnpowered = unpowered;
+      }
       // Continuous weapons get `channeling` instead of a countdown ring: the
       // ring encodes a cadence a channel does not have. Exposed unstyled — the
       // shipped theme currently renders it the same as any armed button.
@@ -310,6 +378,10 @@ export class ModuleButtons {
   }
 
   private rebuild(modules: readonly ModuleSnapshot[]): void {
+    // Old buttons are about to be discarded; drop anything they were holding, or
+    // a respawn with a different fitting could leave a phantom bit set.
+    this.releaseAllTriggers();
+    this.releasers = [];
     this.container.innerHTML = "";
     this.entries = new Map(
       [...modules]
@@ -353,8 +425,12 @@ export class ModuleButtons {
         // Real glyph, not the authored `[ICON: …]` placeholder text: the id is
         // resolved from ui.iconId → ui.icon's tag → family (see moduleIcons.ts).
         icon.innerHTML = moduleIconSvg(moduleIconId(cfg));
+        // The caption is SCREEN-READER ONLY since 2026-08-21. A thumb-sized
+        // button showing both a glyph and a truncated name showed neither well,
+        // and the glyph is the thing a pilot reads mid-turn. The text stays in
+        // the DOM (and in `aria-label`) so the control is still named.
         const label = document.createElement("span");
-        label.className = "label";
+        label.className = "label sr-only";
         label.textContent = moduleHudName(cfg, moduleId);
         const rounds = document.createElement("span");
         rounds.className = "rounds";
@@ -362,16 +438,46 @@ export class ModuleButtons {
         rounds.setAttribute("aria-label", "Rounds remaining");
 
         btn.append(ring, icon, rounds, label);
-        btn.addEventListener("click", () => {
-          this.session.order({ kind: "moduleToggle", hardpointIndex });
-          log.debug(`moduleToggle → hardpoint ${hardpointIndex} (${moduleId})`);
-        });
+
+        const isWeapon = cfg?.fire !== undefined;
+        if (isWeapon) {
+          // TRIGGER, not a toggle (2026-08-21). Press fires; hold keeps the bit
+          // set so the rack fires again the instant its cooldown clears. The bit
+          // rides the flight order the HUD already sends every frame, so holding
+          // costs nothing — see `triggerMask`.
+          btn.classList.add("trigger");
+          const press = (ev: PointerEvent): void => {
+            if (this.disabled) return;
+            this.heldTriggers.add(hardpointIndex);
+            btn.classList.add("firing");
+            // Capture is an optimisation; the document-level release listeners
+            // installed in the constructor are what guarantee a held trigger
+            // cannot stick down if the UA drops the capture.
+            try { btn.setPointerCapture?.(ev.pointerId); } catch { /* release fallback armed */ }
+            ev.preventDefault();
+          };
+          const release = (): void => {
+            if (!this.heldTriggers.delete(hardpointIndex)) return;
+            btn.classList.remove("firing");
+          };
+          btn.addEventListener("pointerdown", press);
+          btn.addEventListener("pointerup", release);
+          btn.addEventListener("pointercancel", release);
+          btn.addEventListener("lostpointercapture", release);
+          this.releasers.push(release);
+        } else {
+          btn.addEventListener("click", () => {
+            this.session.order({ kind: "moduleToggle", hardpointIndex });
+            log.debug(`moduleToggle → hardpoint ${hardpointIndex} (${moduleId})`);
+          });
+        }
 
         this.container.appendChild(btn);
         return [
           hardpointIndex,
           {
             hardpointIndex,
+            isWeapon: cfg?.fire !== undefined,
             root: btn,
             ring,
             icon,
@@ -388,6 +494,7 @@ export class ModuleButtons {
             lastArmed: false,
             lastCounting: false,
             lastUnarmable: false,
+            lastUnpowered: false,
             lastChanneling: false,
           } satisfies ButtonEntry,
         ] as const;
@@ -410,6 +517,9 @@ export class ModuleButtons {
 
   dispose(): void {
     this.unsubscribeTheme();
+    document.removeEventListener("pointerup", this.releaseAllTriggers);
+    document.removeEventListener("pointercancel", this.releaseAllTriggers);
+    window.removeEventListener("blur", this.releaseAllTriggers);
     this.container.remove();
   }
 }

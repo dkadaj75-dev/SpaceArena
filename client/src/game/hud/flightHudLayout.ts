@@ -484,17 +484,43 @@ function actionArcSlots(layout: FlightHudLayout, moduleCount: number): FlightAct
 export function resolveFlightSecondaryControls(
   layout: FlightHudLayout,
   moduleCount: number,
+  opts: { primaryOnFireSlot?: boolean } = {},
 ): FlightSecondaryControlsLayout {
-  const modules = actionArcSlots(layout, moduleCount);
+  // The FIRE pedestal is a module slot now (2026-08-21). The dedicated FIRE
+  // button is gone — the pilot's PRIMARY weapon sits on its footprint, which is
+  // the largest and best-placed target on the HUD and belongs to the control
+  // used most. Everything else shifts one place up the arc behind it.
+  const primary = opts.primaryOnFireSlot === true && moduleCount > 0;
+  const onArc = primary ? moduleCount - 1 : moduleCount;
+  const modules = actionArcSlots(layout, onArc);
   if (modules.length) {
+    const arcSlots = modules.slice(0, onArc);
     return {
-      modules: modules.slice(0, moduleCount),
-      boost: modules[moduleCount]!,
-      jettison: modules[moduleCount + 1]!,
+      modules: primary ? [fireSlot(layout), ...arcSlots] : arcSlots,
+      boost: modules[onArc]!,
+      jettison: modules[onArc + 1]!,
       usesActionArc: true,
     };
   }
   return { modules: [], boost: layout.boost, jettison: layout.jettison, usesActionArc: false };
+}
+
+/**
+ * The FIRE button's own footprint, expressed as an action slot so a module
+ * button can be dropped onto it with no bespoke positioning. Its caption offset
+ * is centred (0,0) like the close-rail slots: there is no room beside a pedestal
+ * this size for a label to sit outside the button.
+ */
+function fireSlot(layout: FlightHudLayout): FlightActionArcSlot {
+  return {
+    anchor: layout.fire.anchor,
+    radiusPx: layout.fire.radiusPx,
+    offsetXPx: layout.fire.offsetXPx,
+    offsetYPx: layout.fire.offsetYPx,
+    captionX: 0,
+    captionY: 0,
+    captionGapPx: layout.actionArc?.captionGapPx ?? 0,
+  };
 }
 
 /**

@@ -61,8 +61,8 @@ const ABSENT: BoostButtonState = {
  * like. That keeps the touch control and the keyboard shortcut honestly in sync
  * even when the sim shuts the module down on its own after energy depletion.
  *
- * Geometry comes entirely from `layout.boost`, derived from the FIRE control in
- * `flightHudLayout.ts`; nothing about its position lives in CSS. Every DOM write
+ * Geometry comes entirely from `layout.boost`, derived from the primary-weapon
+ * pedestal in `flightHudLayout.ts`; nothing about its position lives in CSS. Every DOM write
  * is guarded by a cached last-rendered value, because `update` runs each frame.
  */
 export class BoostButton {
@@ -149,8 +149,11 @@ export class BoostButton {
   }
 
   /** Reposition on the shared rail after the fitted module count is known. */
-  applyArcLayout(layout: FlightHudLayout, moduleCount: number): void {
-    const secondary = resolveFlightSecondaryControls(layout, moduleCount);
+  applyArcLayout(layout: FlightHudLayout, moduleCount: number, primaryOnFireSlot = false): void {
+    // `primaryOnFireSlot` has to be passed through: the pilot's first weapon
+    // took the FIRE pedestal (2026-08-21), so one fewer module sits on the arc
+    // and BOOST/JETTISON move one slot closer in with it.
+    const secondary = resolveFlightSecondaryControls(layout, moduleCount, { primaryOnFireSlot });
     const boost = secondary.boost;
     this.container.dataset["anchor"] = boost.anchor;
     const { dx, dy } = anchoredOffset(boost.anchor, boost.offsetXPx, boost.offsetYPx, boost.radiusPx);

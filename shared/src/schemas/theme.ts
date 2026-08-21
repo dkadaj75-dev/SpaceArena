@@ -295,27 +295,41 @@ export const throttleStripSchema = z.object({
 });
 export type ThrottleStripConfig = z.infer<typeof throttleStripSchema>;
 
-/** Momentary FIRE button (COMBAT-REWORK.md §8). */
+/**
+ * The PRIMARY WEAPON pedestal — the largest, best-placed action on the flight
+ * HUD (COMBAT-REWORK.md §8).
+ *
+ * It was a dedicated FIRE button until 2026-08-21. There is no FIRE button any
+ * more: every weapon is its own trigger on the module rail, and the pilot's
+ * first weapon inherits this block's footprint, colour and glow. The name and
+ * the CSS custom properties are unchanged so a theme that dressed FIRE still
+ * dresses the control that replaced it.
+ *
+ * `icon` and the four `ring*` fields belonged to the old button and are no
+ * longer read by anything — a weapon draws its own module glyph, and its ring is
+ * the cooldown arc every module button has. They stay accepted so an existing
+ * theme still loads; authoring them does nothing.
+ */
 export const fireButtonSchema = z.object({
   anchor: hudAnchor.optional(),
   radiusPx: z.number().positive().optional(),
   offsetXPx: z.number().nonnegative().optional(),
   offsetYPx: z.number().nonnegative().optional(),
-  /** Glyph drawn on the button. */
+  /** RETIRED 2026-08-21 (see above). Accepted, ignored. */
   icon: z.string().optional(),
-  /** Gap between the hex and its surrounding cycle/decorative ring. */
+  /** RETIRED 2026-08-21 (see above). Accepted, ignored. */
   ringGapPx: z.number().nonnegative().optional(),
-  /** Circular ring stroke width. */
+  /** RETIRED 2026-08-21 (see above). Accepted, ignored. */
   ringStrokePx: z.number().nonnegative().optional(),
-  /** Visible ring arc in degrees. */
+  /** RETIRED 2026-08-21 (see above). Accepted, ignored. */
   ringArcDeg: z.number().min(0).max(360).optional(),
-  /** Angular break between the subtle technical ring segments. */
+  /** RETIRED 2026-08-21 (see above). Accepted, ignored. */
   ringTickGapDeg: z.number().min(0).max(30).optional(),
   /** Bright rim/ring color. */
   color: z.string().optional(),
-  /** Dark-red plate opacity at rest. */
+  /** Plate opacity at rest. */
   fillOpacity: z.number().min(0).max(1).optional(),
-  /** Hex border width. */
+  /** Rim width. */
   borderPx: z.number().positive().optional(),
   /** Resting outer-glow radius. */
   glowPx: z.number().nonnegative().optional(),

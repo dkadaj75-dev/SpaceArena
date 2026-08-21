@@ -49,8 +49,9 @@ This amendment supersedes older HUD/minimap/asteroid-LOD descriptions below:
 - Hull and shield are subtle theme-driven arcs flanking the ship. Their legacy
   lower-left rows are disabled in the shipped theme; energy remains.
 - The projected lock-cone circle is optional and hidden in shipped content;
-  target brackets and lock progress still operate. FIRE's decorative circle is
-  disabled and the fitting-driven module arc is tighter around FIRE.
+  target brackets and lock progress still operate. The primary weapon's
+  decorative circle is disabled and the fitting-driven module arc is tighter
+  around the pedestal.
 - The throttle is raised and drawn at 60% opacity. The chase camera baseline is
   12 units, with a persisted Settings multiplier from 0.8 to 1.5 applied over
   the authored radius.
@@ -189,13 +190,29 @@ edge palm-rejection ignores them):
   `theme.hud.flight.joystick.enabled`; the shipped theme disables it.
 - **Throttle strip** (right edge, vertical): drag thumb 0% (bottom) → 100% (top);
   the thumb STAYS where released (held state). Shows % readout. Emits flight orders.
-- **Bottom-right action cluster**: FIRE, fitted module buttons, and dedicated
+- **Bottom-right action cluster**: every fitted module button plus the dedicated
   BOOST / JETTISON controls share the right-thumb cluster. Their corner-relative
   slots are authored in `theme.hud.flight.actions` (with portrait/landscape
-  overrides); BOOST toggles the fitted boost module and its replicated `active`
-  state drives `boost: true`. JETTISON appears only for a countermeasure pod
-  with a `jettison` block, emits `jettisonCountermeasure`, and draws its
-  replicated cooldown.
+  overrides).
+
+  **There is no FIRE button (2026-08-21.)** A WEAPON's button is a momentary
+  trigger: tap to fire, hold to keep firing as fast as its `fire.cycleTime`
+  allows. The pilot's first weapon sits on the old FIRE footprint —
+  `theme.hud.flight.fire` still supplies that slot's geometry and colour. Held
+  buttons ride the flight order as `triggers`, a bitmask over hardpoint index,
+  so holding costs no extra orders; the sim ORs it with the ship-wide `fire`
+  flag, which is what the space bar and every bot still use. Weapons are no
+  longer toggleable at all, and are never shed by the power rail (a shed gun
+  would have no control that could bring it back) — a deployable that the rail
+  cannot feed is refused instead.
+
+  Buttons show their module GLYPH, not its name; the caption survives as
+  screen-reader-only text. A weapon's ring is its cooldown.
+
+  BOOST toggles the fitted boost module and its replicated `active` state drives
+  `boost: true`. JETTISON appears only for a countermeasure pod with a
+  `jettison` block, emits `jettisonCountermeasure`, and draws its replicated
+  cooldown.
 - **Lock reticle**: fixed center-screen circle showing the lock zone (size derived
   from coneDeg + camera FOV, theme-styled); target bracket projected onto the
   locked/locking enemy (main.ts passes a `project(worldPos) → cssPx` callback into

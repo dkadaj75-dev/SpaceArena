@@ -74,8 +74,11 @@ export class JettisonButton {
   }
 
   /** Reposition on the shared rail after the fitted module count is known. */
-  applyArcLayout(layout: FlightHudLayout, moduleCount: number): void {
-    const secondary = resolveFlightSecondaryControls(layout, moduleCount);
+  applyArcLayout(layout: FlightHudLayout, moduleCount: number, primaryOnFireSlot = false): void {
+    // `primaryOnFireSlot` has to be passed through: the pilot's first weapon
+    // took the FIRE pedestal (2026-08-21), so one fewer module sits on the arc
+    // and BOOST/JETTISON move one slot closer in with it.
+    const secondary = resolveFlightSecondaryControls(layout, moduleCount, { primaryOnFireSlot });
     const action = secondary.jettison;
     this.container.dataset["anchor"] = action.anchor;
     const { dx, dy } = anchoredOffset(action.anchor, action.offsetXPx, action.offsetYPx, action.radiusPx);

@@ -539,7 +539,7 @@ export class ArenaSimulation {
       // would.
       let flight = this.world.flightStates.get(id);
       if (!flight) {
-        flight = { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false, firePrev: false };
+        flight = { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false, firePrev: false, triggers: 0 };
         this.world.flightStates.set(id, flight);
       }
       flight.turn = 0;
@@ -547,6 +547,7 @@ export class ArenaSimulation {
       flight.boost = false;
       flight.fire = false;
       flight.firePrev = false;
+      flight.triggers = 0;
       // Pinned while the hold has more than the run left on it. Clamped DOWN to
       // `run` rather than to 0 so the two clocks meet exactly, whatever `dt` is:
       // from here they drain together and reach zero on the same tick.

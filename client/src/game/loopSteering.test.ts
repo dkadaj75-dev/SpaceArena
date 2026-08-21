@@ -58,7 +58,7 @@ function runHeldDrag(drag: { dx: number; dy: number }, seconds: number) {
   for (let i = 0; i < seconds / DT; i++) {
     nowMs += DT * 1000;
     sender.update(
-      { throttle: 1, turn: axes.turn, pitchStick: axes.pitchStick, boost: false, fire: false },
+      { throttle: 1, turn: axes.turn, pitchStick: axes.pitchStick, boost: false, fire: false, triggers: 0 },
       nowMs,
     );
     held = { throttle: 1, turn: sender.lastSent.turn, pitchStick: sender.lastSent.pitchStick, boostMult: 1 };

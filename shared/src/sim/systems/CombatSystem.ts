@@ -51,10 +51,17 @@ export function combatSystem(world: World, dt: number): void {
       const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
       if (!cfg?.fire) continue;
 
+      // Is THIS weapon's trigger down? Two sources, ORed (2026-08-21): the
+      // ship-wide "fire everything" flag (the PC space bar, every bot) and this
+      // hardpoint's own bit in the per-weapon mask (a thumb on its HUD button).
+      // Neither has to know about the other, and a pilot using both gets what
+      // either alone would give them.
+      const triggered = fs !== undefined && (fs.fire || (fs.triggers & (1 << m.hardpointIndex)) !== 0);
+
       // Continuous weapons never touch the cycle timer, and must be visited even
       // while inactive so a retract stops the channel on the same tick.
       if (cfg.fire.mode === "continuous") {
-        channelStep(world, { id, m, cfg, ref, firing: fs?.fire === true, myTf, dt });
+        channelStep(world, { id, m, cfg, ref, firing: triggered, myTf, dt });
         continue;
       }
 
@@ -68,8 +75,9 @@ export function combatSystem(world: World, dt: number): void {
 
       // Discrete weapons are level-triggered. `semi` remains accepted in old
       // content for compatibility, but no longer turns a held trigger into a
-      // one-shot edge: a ready rack fires again as long as fire is still held.
-      const triggered = fs?.fire === true;
+      // one-shot edge: a ready rack fires again as long as its trigger is held,
+      // which is exactly the "leave your finger on it and it fires the moment
+      // the cooldown clears" behaviour the HUD's weapon buttons promise.
       if (!triggered) continue;
 
       // Lock gate (checked after the cycle timer: a weapon keeps counting down

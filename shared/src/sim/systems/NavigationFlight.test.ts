@@ -31,7 +31,7 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
     // ONE order, many ticks: level-triggered state is never auto-cleared.
     for (let i = 0; i < 60; i++) navigationSystem(world, DT);
 
-    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false, triggers: 0 });
     const tf = world.transforms.get(id)!;
     expect(tf.pos.x).toBeGreaterThan(10); // flew forward along heading 0 (+X)
     expect(tf.pos.z).toBeCloseTo(0, 6);
@@ -42,17 +42,17 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
     const id = spawnPilot(world);
     world.queueOrder(id, { kind: "flight", throttle: 7, turn: -9, pitchStick: 6, boost: true, fire: true });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: -1, pitchStick: 1, boost: true, fire: true, firePrev: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: -1, pitchStick: 1, boost: true, fire: true, firePrev: false, triggers: 0 });
 
     world.queueOrder(id, { kind: "flight", throttle: -3, turn: 4, pitchStick: -8, boost: false, fire: true });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 0, turn: 1, pitchStick: -1, boost: false, fire: true, firePrev: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0, turn: 1, pitchStick: -1, boost: false, fire: true, firePrev: false, triggers: 0 });
 
     // An order with no pitch axis at all (the pre-T2 wire shape) reads as a
     // centred stick, which for held pitch means "leave the nose alone".
     world.queueOrder(id, { kind: "flight", throttle: 0.5, turn: 0, boost: false, fire: true });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 0.5, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0.5, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false, triggers: 0 });
   });
 
   it("takes the last axes but ORs fire across every order drained in one tick", () => {
@@ -69,6 +69,7 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
       boost: true,
       fire: true,
       firePrev: false,
+    triggers: 0,
     });
 
     // The release becomes the standing level on the following tick.
@@ -89,7 +90,7 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
     navigationSystem(world, DT);
 
     // Malformed orders were dropped; the previous state keeps driving the ship.
-    expect(world.flightStates.get(id)).toEqual({ throttle: 0.5, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0.5, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false, triggers: 0 });
     const tf = world.transforms.get(id)!;
     expect(Number.isFinite(tf.pos.x) && Number.isFinite(tf.heading)).toBe(true);
   });
@@ -205,11 +206,11 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
 
     world.queueOrder(id, { kind: "flight", throttle: 1, turn: 0, boost: false, fire: true });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 1, turn: 0, pitchStick: 0, boost: false, fire: true, firePrev: false, triggers: 0 });
 
     world.queueOrder(id, { kind: "flight", throttle: 0.4, turn: -1, boost: true, fire: true });
     navigationSystem(world, DT);
-    expect(world.flightStates.get(id)).toEqual({ throttle: 0.4, turn: -1, pitchStick: 0, boost: true, fire: true, firePrev: false });
+    expect(world.flightStates.get(id)).toEqual({ throttle: 0.4, turn: -1, pitchStick: 0, boost: true, fire: true, firePrev: false, triggers: 0 });
   });
 
   it("coasts a ship that has never been given a flight order (drag, no drive)", () => {

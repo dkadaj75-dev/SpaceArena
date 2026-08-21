@@ -112,14 +112,15 @@ describe("modulesToShedFor", () => {
     expect(modulesToShedFor(configs, mods, gun, 100)).toEqual([]);
   });
 
-  it("sheds from the LAST slot backwards, and only as far as it must", () => {
+  it("NEVER sheds a weapon — the target is refused instead (2026-08-21)", () => {
     const { world, id } = spawn(INTERCEPTOR_FITTING);
     const mods = world.modules.get(id)!.modules;
     const gun = mods.find((m) => m.hardpointIndex === GUN)!;
     gun.state = "retracted";
-    // Rail wide enough for the gun plus nothing else: the missile must go.
-    const shed = modulesToShedFor(configs, mods, gun, draw("module.laser-mk1"))!;
-    expect(shed.map((m) => m.hardpointIndex)).toEqual([1]);
+    // Rail wide enough for the gun plus nothing else. Under the old rule the
+    // missile was shed to make room; a weapon has no toggle now, so a gun taken
+    // down could never come back and the rail refuses the raise instead.
+    expect(modulesToShedFor(configs, mods, gun, draw("module.laser-mk1"))).toBeNull();
   });
 
   it("refuses a module the hull could not feed even alone", () => {
@@ -155,38 +156,26 @@ describe("an over-subscribed fitting in flight", () => {
     );
   });
 
-  it("raising the heavy shield takes the gun down automatically", () => {
+  it("REFUSES the heavy shield rather than taking the gun down (2026-08-21)", () => {
     const { world, id } = spawn(INTERCEPTOR_FITTING_OVERSUBSCRIBED);
     expect(stateAt(world, id, GUN)).toBe("active");
 
     world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: SHIELD });
     tick(world, 30);
 
-    expect(stateAt(world, id, SHIELD)).toBe("active");
-    expect(stateAt(world, id, GUN)).toBe("retracted");
+    // The gun is a rail PERMANENT now: it has no toggle, so shedding it would
+    // silence it for the rest of the match. The decision the rail exists to
+    // force is still there — it just falls on the side that can act on it.
+    expect(stateAt(world, id, GUN)).toBe("active");
+    expect(stateAt(world, id, SHIELD)).toBe("retracted");
   });
 
-  it("emits the displacement so the HUD sees the gun go dark", () => {
+  it("emits nothing at all for the refused raise — a no-op is silent", () => {
     const { world, id } = spawn(INTERCEPTOR_FITTING_OVERSUBSCRIBED);
     world.drainEvents();
     world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: SHIELD });
     moduleSystem(world, DT);
-    const shed = world
-      .drainEvents()
-      .filter((e) => e.type === "moduleStateChanged" && e.hardpointIndex === GUN && e.to === "retracted");
-    expect(shed).toHaveLength(1);
-  });
-
-  it("and taking the gun back up drops the shield again — one at a time, both ways", () => {
-    const { world, id } = spawn(INTERCEPTOR_FITTING_OVERSUBSCRIBED);
-    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: SHIELD });
-    tick(world, 30);
-
-    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: GUN });
-    tick(world, 30);
-
-    expect(stateAt(world, id, GUN)).toBe("active");
-    expect(stateAt(world, id, SHIELD)).toBe("retracted");
+    expect(world.drainEvents().filter((e) => e.type === "moduleStateChanged")).toHaveLength(0);
   });
 
   it("the whole rail stays within capacity at every step", () => {

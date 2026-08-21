@@ -222,6 +222,17 @@ export const orderSchema = z.discriminatedUnion("kind", [
     pitchStick: z.number().min(-1).max(1).optional(),
     boost: z.boolean(),
     fire: z.boolean(),
+    /**
+     * Per-weapon trigger bitmask over hardpoint index (2026-08-21): bit `i` is
+     * held while the pilot's thumb is on the button for hardpoint `i`.
+     *
+     * Optional and bounded, exactly like `pitchStick`: absent means "none held"
+     * (what every older sender and every bot means), and `z.number().int()`
+     * already refuses NaN/±Infinity. The ceiling is 16 hardpoints, comfortably
+     * above the widest shipped hull, so a garbage value drops the order at the
+     * trust boundary rather than reaching the sim as a bit nothing occupies.
+     */
+    triggers: z.number().int().min(0).max(0xffff).optional(),
   }),
   z.object({ kind: z.literal("moduleToggle"), hardpointIndex: z.number().int().nonnegative() }),
   /**

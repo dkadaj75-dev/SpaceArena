@@ -135,7 +135,8 @@ describe("BoostButton", () => {
     const container = root.querySelector<HTMLElement>(".hud-boost")!;
     const button = root.querySelector<HTMLElement>(".hud-boost-btn")!;
 
-    // The authored slot keeps BOOST with FIRE and the other right-thumb actions.
+    // The authored slot keeps BOOST with the weapon triggers and the other
+    // right-thumb actions.
     expect(layout.fire.anchor).toBe("bottom-right");
     expect(container.dataset["anchor"]).toBe("bottom-right");
     expect(Number.parseFloat(button.style.width)).toBeCloseTo(layout.boost.radiusPx * 2, 6);

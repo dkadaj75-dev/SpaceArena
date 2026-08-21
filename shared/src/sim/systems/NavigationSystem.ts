@@ -56,10 +56,11 @@ function resolveBoostMult(world: World, id: EntityId): number {
  * (see {@link resolveBoostMult}).
  */
 export function navigationSystem(world: World, dt: number): void {
-  // Restore the last ordered trigger level before applying this tick's batch.
-  // A previous tick may have temporarily raised `fire` by ORing a sub-tick tap.
+  // Restore the last ordered trigger levels before applying this tick's batch.
+  // A previous tick may have temporarily raised them by ORing a sub-tick tap.
   for (const [entityId, flight] of world.flightStates) {
     flight.fire = world.flightFireLevels.get(entityId) ?? flight.fire;
+    flight.triggers = world.flightTriggerLevels.get(entityId) ?? flight.triggers;
   }
 
   // Flight orders are level-triggered: stored, then integrated until replaced.
@@ -67,6 +68,7 @@ export function navigationSystem(world: World, dt: number): void {
   // across this tick's batch so a press+release between sim ticks still presents
   // one firing tick to discrete weapons.
   const fireThisTick = new Map<EntityId, boolean>();
+  const triggersThisTick = new Map<EntityId, number>();
   for (const { entityId, order } of world.takeOrders("flight")) {
     if (!world.shipCores.has(entityId)) continue;
     // clamp() passes NaN through — a non-finite axis would poison heading/pos,
@@ -77,7 +79,13 @@ export function navigationSystem(world: World, dt: number): void {
     const pitchStick = order.pitchStick ?? 0;
     if (!Number.isFinite(pitchStick)) continue;
     const previous = world.flightStates.get(entityId);
+    // A non-finite or out-of-range mask is dropped to 0 rather than dropping the
+    // whole order: an axis poisons the integrator, a trigger bit only decides
+    // whether a gun fires this tick, and refusing to FLY on a malformed trigger
+    // would be the worse failure.
+    const triggers = Number.isInteger(order.triggers) ? Math.max(0, order.triggers!) : 0;
     world.flightFireLevels.set(entityId, order.fire);
+    world.flightTriggerLevels.set(entityId, triggers);
     world.flightStates.set(entityId, {
       throttle: clamp(order.throttle, 0, 1),
       turn: clamp(order.turn, -1, 1),
@@ -85,8 +93,10 @@ export function navigationSystem(world: World, dt: number): void {
       boost: order.boost,
       fire: (fireThisTick.get(entityId) ?? false) || order.fire,
       firePrev: previous?.firePrev ?? false,
+      triggers: (triggersThisTick.get(entityId) ?? 0) | triggers,
     });
     fireThisTick.set(entityId, (fireThisTick.get(entityId) ?? false) || order.fire);
+    triggersThisTick.set(entityId, (triggersThisTick.get(entityId) ?? 0) | triggers);
   }
 
   const drag = world.tuning.dragCoefficient ?? 0;

@@ -24,7 +24,10 @@ const SYNC_INTERVAL_MS = 200;
 const HIGHLIGHT_SELECTORS: Record<TutorialHighlight, readonly string[]> = {
   throttle: [".hud-throttle-track"],
   steer: [".hud-joystick-base"],
-  fire: [".hud-fire-btn"],
+  // The FIRE button is gone (2026-08-21). "fire" now names the pilot's PRIMARY
+  // weapon — the pedestal that inherited its footprint — falling back to any
+  // weapon trigger on a fitting whose rail has not been laid out yet.
+  fire: [".hud-module-btn.primary", ".hud-module-btn.trigger"],
   // The hexes themselves: `.hud-modules` is a zero-size anchor pivot.
   modules: [".hud-module-btn"],
   reticle: [".hud-reticle-zone", ".hud-reticle"],

@@ -60,10 +60,28 @@ export interface FlightState {
   pitchStick: number;
   /** Boost request; human pilots derive it from the fitted boost module's active state. */
   boost: boolean;
-  /** True while the pilot holds the weapon trigger. */
+  /**
+   * "Fire everything." True while a ship-wide trigger is held — the PC space
+   * bar and every bot, which have no per-weapon control and want the whole
+   * broadside. A human on the touch HUD leaves this false and uses
+   * {@link FlightState.triggers} instead.
+   */
   fire: boolean;
   /** Previous tick's trigger level, retained for wire/input compatibility. */
   firePrev: boolean;
+  /**
+   * PER-WEAPON triggers (2026-08-21), a bitmask over hardpoint index: bit `i`
+   * is set while the pilot holds the button for the weapon in hardpoint `i`.
+   *
+   * This is what replaced the single FIRE button. A weapon fires when its own
+   * bit is held OR when {@link FlightState.fire} is — the two are ORed rather
+   * than exclusive, so the keyboard's "everything" trigger and a thumb on one
+   * specific gun both work, and neither has to know about the other.
+   *
+   * Held state like every other axis: the client sets a bit on press and clears
+   * it on release, so a held button costs no extra orders.
+   */
+  triggers: number;
 }
 
 /** Resolved ship stats (ship class + upgrade tracks at level 0 for now). */

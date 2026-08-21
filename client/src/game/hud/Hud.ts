@@ -78,7 +78,7 @@ export interface HudOptions {
   offline?: boolean;
   /**
    * Flight controls (FLIGHT.md §4). Present ⇒ the HUD mounts the joystick,
-   * throttle lever, FIRE button and lock reticle and starts emitting `flight`
+   * throttle lever, weapon triggers and lock reticle and starts emitting `flight`
    * orders. Absent ⇒ no flight HUD at all, which is what tests and any non-match
    * mounting want — the 3D bindings (projection, camera geometry) are the only
    * thing the HUD cannot supply for itself.
@@ -192,6 +192,9 @@ export class Hud {
           options.flight,
           this.flightLayout,
           () => this.blockedPullFeedback.trigger(this.flightLayout.fire.blockedNotification),
+          // The weapon buttons live on the module rail (2026-08-21); flight
+          // reads their held mask each frame and puts it in the flight order.
+          () => this.moduleButtons.triggerMask(),
         )
       : null;
     this.applyTheme();
@@ -301,6 +304,12 @@ export class Hud {
     const presenting = this.presentation.state !== "playing";
     if (!presenting) this.flight?.update(cur, prev, alpha, dtMs, nowMs());
     this.vitalArcs.update(cur);
+    // The rail carries the weapon triggers now (2026-08-21), so it needs the same
+    // live-and-alive gate the flight controls apply to themselves — a pilot who
+    // dies mid-burst must not respawn with a bit still held down.
+    this.moduleButtons.setEnabled(
+      !presenting && cur.phase === "live" && cur.ships.some((s) => s.id === this.playerId),
+    );
     this.moduleButtons.update(cur);
     this.minimap.update(cur, dtMs);
     this.matchStatus.update(cur);

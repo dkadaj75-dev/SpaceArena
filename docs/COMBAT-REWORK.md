@@ -5,8 +5,14 @@
 > lock. Everything it says about **heat, cooling, lockouts and re-arm no longer
 > describes the game**: the heat system was deleted outright on 2026-08-20 and a
 > weapon is now limited by `fire.cycleTime` alone. The `heatsink` module family
-> is now `countermeasure` and does nothing but launch a decoy. See
-> `docs/CONTENT.md` for the current authoring contract.
+> is now `countermeasure` and does nothing but launch a decoy.
+>
+> The **FIRE button it specifies is also gone (2026-08-21)**. Every weapon is
+> its own momentary trigger on the module rail, weapons are no longer toggleable
+> at all, and the pilot's primary weapon sits on FIRE's old footprint. The
+> manual-trigger principle this document argued for is intact — only the control
+> that carries it changed. See `docs/FLIGHT.md` §4 and `docs/CONTENT.md` for the
+> current contracts.
 
 Design spec for replacing auto-fire-on-lock with a **pilot-pulled trigger**, and for
 making the lock itself land faster. Requested by the owner 2026-07-27. Extends
