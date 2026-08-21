@@ -760,19 +760,21 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   function isMenuVisible(): boolean {
     return lobby.visible;
   }
-  function setMenuDiorama(visible: boolean): void {
+  /** Stage or tear down the backdrop; returns the live diorama, or null when the pack authors none. */
+  function setMenuDiorama(visible: boolean): MenuDiorama | null {
     if (!visible) {
       menuDiorama?.dispose();
       menuDiorama = null;
-      return;
+      return null;
     }
     const authored = configService.get<ThemeConfig>("theme", "theme.default")?.menu?.scene;
-    if (!authored || (authored.kind ?? "none") === "none") return;
+    if (!authored || (authored.kind ?? "none") === "none") return null;
     if (!menuDiorama) menuDiorama = new MenuDiorama(scene, configService, preloadAssets, authored);
     const selection = loadHangarSelection();
     const shipId = selection.shipId ?? configService.getAll<ShipConfig>("ship")[0]?.id ?? null;
     menuDiorama.showHull(shipId, shipId ? ownership.selectedCosmetic(shipId) : null);
     menuDiorama.activate();
+    return menuDiorama;
   }
 
   const lobby = new Lobby(
@@ -1063,6 +1065,20 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   boot?.settle("interface", "ok", "theme · fonts · menu");
 
+  // Start the menu's 3D backdrop NOW, behind the boot screen (owner
+  // 2026-08-21). Building the diorama only KICKS its fetches — the Milky Way
+  // cubemap and the hull GLB are hundreds of KB each — so leaving it until the
+  // lobby is shown meant the boot screen faded onto a black scene and the menu
+  // arrived a beat later. The player is already waiting through the launch
+  // sequence; this spends that wait instead of adding a second one after it.
+  //
+  // It is built whichever screen ends up on top, because the auth gate is a
+  // full-viewport overlay: worst case the work is done and unseen, which is
+  // exactly what a preload is.
+  // Held rather than re-read: showing the lobby calls this again and gets the
+  // same instance back, so the handle stays the one to wait on.
+  const warmingDiorama = setMenuDiorama(true);
+
   // --- Auth join: everything above was built while the restore was in flight ---
   //
   // The three gates below are the only places the boot path reads the session
@@ -1137,15 +1153,23 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     music.setScreen("menu");
     authScreen.show();
   }
-  // Hold the boot screen a beat longer when it has bad news, so the player reads
-  // it once here before meeting the same message as a lobby badge.
-  boot?.subtitle(health.online ? "READY" : "READY — OFFLINE");
+  // Say what the last beat is spent on. Without this the subtitle reads READY
+  // while the screen visibly does not go away, which is worse than a slightly
+  // longer launch: the player is told it is done and then made to wait.
+  boot?.subtitle("STAGING");
 
-  // Both AWAITED, and in this order. The fullscreen offer was made over the
+  // All three AWAITED, and in this order. The fullscreen offer was made over the
   // publisher card at the top of the launch (see `fullscreenOffer`), so the
   // player has had the whole sequence to answer it; waiting on it here is what
   // stops the menu being revealed underneath a dialog they never dismissed.
+  // Then the backdrop, warmed since the interface stage: `ready()` returns as
+  // soon as its assets have settled AND one frame has been drawn with them, or
+  // after its own timeout — a slow CDN delays the menu, it never withholds it.
   await fullscreenOffer?.closed;
+  await warmingDiorama?.ready();
+  // Hold the boot screen a beat longer when it has bad news, so the player reads
+  // it once here before meeting the same message as a lobby badge.
+  boot?.subtitle(health.online ? "READY" : "READY — OFFLINE");
   await boot?.dismiss(health.online ? 0 : 1600);
 
   /** The Hangar's last-saved ship/fitting choice (ROADMAP §9 4.5), as additive NetGameSession join options. */

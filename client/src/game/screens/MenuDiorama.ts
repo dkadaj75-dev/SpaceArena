@@ -301,6 +301,13 @@ export class MenuDiorama {
   private elapsed = 0;
 
   private readonly paint: ShipPaintBank;
+  /**
+   * Every asset fetch this diorama has started and not yet settled — cubemap
+   * faces, ground/planet maps, the hull GLB. {@link ready} drains it, which is
+   * what lets the launch sequence hold the boot screen up until the menu behind
+   * it is actually drawn instead of fading into a black frame.
+   */
+  private readonly pending: Promise<unknown>[] = [];
   private hull: Mesh | null = null;
   private readonly shipHeight: number;
   /** Hull loads already kicked, so a re-show does not re-fetch the GLB. */
@@ -380,7 +387,9 @@ export class MenuDiorama {
       const files = ["_px", "_py", "_pz", "_nx", "_ny", "_nz"].map(
         (face) => `${contentUrl(cfg.sky!)}${face}${ext}`,
       );
-      const sky = new CubeTexture(contentUrl(cfg.sky), this.scene, null, false, files);
+      let skyLoaded: () => void = () => undefined;
+      this.track(new Promise<void>((resolve) => (skyLoaded = resolve)));
+      const sky = new CubeTexture(contentUrl(cfg.sky), this.scene, null, false, files, skyLoaded, skyLoaded);
       this.disposables.push(sky);
 
       const box = MeshBuilder.CreateBox("menuDiorama.sky", { size: 6000 }, this.scene);
@@ -538,10 +547,9 @@ export class MenuDiorama {
     const mat = new PBRMaterial("menuDiorama.regolithMat", this.scene);
     const tiling = ground.tiling ?? DEFAULT_TILING;
     const tile = (path: string): Texture => {
-      const tex = new Texture(contentUrl(path), this.scene);
+      const tex = this.trackedTexture(path);
       tex.uScale = tiling;
       tex.vScale = tiling;
-      this.disposables.push(tex);
       return tex;
     };
     mat.albedoTexture = tile(ground.albedo);
@@ -601,11 +609,7 @@ export class MenuDiorama {
         samplers: ["albedoMap", "cloudMap", "nightMap", "oceanMap"],
       },
     );
-    const map = (path: string): Texture => {
-      const tex = new Texture(contentUrl(path), this.scene);
-      this.disposables.push(tex);
-      return tex;
-    };
+    const map = (path: string): Texture => this.trackedTexture(path);
     mat.setTexture("albedoMap", map(earth.albedo));
     // Every sampler must be bound even when the pack ships no such map, or the
     // draw fails on some drivers rather than taking the `has*` branch.
@@ -648,7 +652,7 @@ export class MenuDiorama {
     places.forEach((place, index) => {
       const prop = this.configs.get<PropConfig>("prop", ids[index % ids.length]!);
       if (!prop?.render) return;
-      void this.assets.ensureModel(prop.render).then((master) => {
+      void this.track(this.assets.ensureModel(prop.render)).then((master) => {
         if (!master || this.root.isDisposed()) return;
         const rock = master.createInstance(`menuDiorama.rock.${index}`);
         rock.parent = this.root;
@@ -658,6 +662,61 @@ export class MenuDiorama {
         rock.scaling.setAll(place.s);
       });
     });
+  }
+
+  /** Register an in-flight load so {@link ready} waits for it. Never rejects. */
+  private track<T>(promise: Promise<T>): Promise<T> {
+    this.pending.push(promise.catch(() => undefined));
+    return promise;
+  }
+
+  /**
+   * A {@link Texture} whose load is tracked. Babylon starts the fetch in the
+   * constructor and reports it through callbacks, so the promise is just those
+   * callbacks in a shape `ready` can await.
+   */
+  private trackedTexture(path: string): Texture {
+    let settle: () => void = () => undefined;
+    this.track(new Promise<void>((resolve) => (settle = resolve)));
+    // Both arms resolve: a texture that 404s must not hold the boot screen up
+    // forever — the menu is better shown with one map missing than not at all.
+    const tex = new Texture(contentUrl(path), this.scene, undefined, undefined, undefined, settle, settle);
+    this.disposables.push(tex);
+    return tex;
+  }
+
+  /**
+   * Resolves once every asset staged so far has settled AND one frame has been
+   * drawn with them, or after `timeoutMs` — whichever comes first.
+   *
+   * The timeout is load-bearing, not defensive padding: a slow CDN or a missing
+   * file must delay the menu, never withhold it. Draining in a loop matters too,
+   * because finishing one load starts another (the hull GLB lands, which builds
+   * the painted master, which is what actually has to be on screen).
+   */
+  async ready(timeoutMs = 5000): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cutoff = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    });
+    const settled = (async () => {
+      while (this.pending.length > 0) {
+        await Promise.all(this.pending.splice(0));
+      }
+      // One drawn frame: the assets being in memory is not the same as the
+      // renderer having used them, and the pop this exists to prevent happens
+      // in exactly that gap.
+      if (!this.root.isDisposed()) {
+        await new Promise<void>((resolve) => {
+          this.scene.onAfterRenderObservable.addOnce(() => resolve());
+        });
+      }
+    })();
+    try {
+      await Promise.race([settled, cutoff]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   /**
@@ -676,9 +735,11 @@ export class MenuDiorama {
     const key = `${ship.id}:${ship.render.model ?? ""}`;
     if (ship.render.model && !this.kicked.has(key)) {
       this.kicked.add(key);
-      void this.assets.ensureModel(ship.render).then((master) => {
-        if (master && !this.root.isDisposed()) this.showHull(shipId, cosmeticId);
-      });
+      void this.track(
+        this.assets.ensureModel(ship.render).then((master) => {
+          if (master && !this.root.isDisposed()) this.showHull(shipId, cosmeticId);
+        }),
+      );
     }
 
     const base = this.assets.getShipMaster(ship.render);

@@ -32,10 +32,13 @@ const FADE_MS = 320;
 
 /**
  * How long the publisher card owns the screen. Loading runs behind it the whole
- * time — this beat costs the player nothing, it just spends a second of an
+ * time — this beat costs the player nothing, it just spends the opening of an
  * unavoidable wait on the logo instead of on a progress bar.
+ *
+ * 1000 → 1500 on 2026-08-21 at the owner's request: the card was gone before
+ * the fade-in had finished reading as one.
  */
-export const PUBLISHER_MS = 1000;
+export const PUBLISHER_MS = 1500;
 
 /**
  * The title screen's MINIMUM dwell. It stays at least this long so the wordmark
