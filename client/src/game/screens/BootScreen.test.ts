@@ -79,6 +79,36 @@ describe("launch sequence", () => {
     expect(root.querySelector('[data-boot-stage="server"]')?.getAttribute("data-state")).toBe("warn");
   });
 
+  it("comes back as a curtain after it has been dismissed, and cycles", async () => {
+    // What this guards: leaving a match re-uses the launch screen to cover the
+    // menu's rebuild, so `dismiss` removing the node must not be the end of it.
+    vi.useFakeTimers();
+    const root = mount();
+    const boot = BootScreen.attach()!;
+    void boot.dismiss();
+    await vi.advanceTimersByTimeAsync(PUBLISHER_MS + TITLE_MIN_MS + 1000);
+    expect(root.isConnected).toBe(false);
+
+    boot.cover();
+    expect(root.isConnected).toBe(true);
+    // Straight to the title: a return trip has no publisher card to play.
+    expect(root.dataset["phase"]).toBe("title");
+    expect(root.dataset["mode"]).toBe("curtain");
+    // No leftover fade-out, or the curtain would enter already transparent and
+    // show the very teardown it exists to hide.
+    expect(root.dataset["state"]).toBeUndefined();
+    expect(root.querySelector("[data-boot-sub]")?.textContent).toBe("LOADING");
+
+    void boot.dismiss();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(root.isConnected).toBe(false);
+    // ...and again, because a player can leave as many matches as they like.
+    boot.cover("RETURNING");
+    expect(root.isConnected).toBe(true);
+    expect(root.querySelector("[data-boot-sub]")?.textContent).toBe("RETURNING");
+    vi.useRealTimers();
+  });
+
   it("is a no-op with no markup, so a stripped embed does not have to null-check", () => {
     document.body.innerHTML = "";
     expect(BootScreen.attach()).toBeNull();

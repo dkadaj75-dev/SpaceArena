@@ -66,6 +66,12 @@ export class BootScreen {
    * even when the pack loads faster than the animation.
    */
   private readonly intro: Promise<void>;
+  /**
+   * Bumped by every {@link cover}. A dismiss in flight holds the value it
+   * started with, so a curtain raised again during its fade-out is not removed
+   * by the older dismiss's timer.
+   */
+  private generation = 0;
 
   private constructor(
     private readonly root: HTMLElement,
@@ -133,6 +139,35 @@ export class BootScreen {
     if (this.fill) this.fill.style.width = `${Math.round((this.settled / STAGE_IDS.length) * 100)}%`;
   }
 
+  /**
+   * Re-show the launch screen as a CURTAIN over a transition — leaving a match
+   * for the menu, where the 3D backdrop has to be rebuilt from nothing.
+   *
+   * Same nebula, same wordmark, same spinner as the launch: the player already
+   * knows that screen means "the game is getting ready", and covering the
+   * rebuild is what stops the menu clipping into view half-built. The stage
+   * list and the note hide themselves in this mode (`data-mode="curtain"` in
+   * index.html) — they report on a boot, and this is not one.
+   *
+   * The node is re-attached with no fade so the teardown behind it is never
+   * seen; {@link dismiss} still fades out and removes it, so the pair can cycle
+   * as often as the player leaves a match.
+   */
+  cover(subtitle = "LOADING"): void {
+    this.generation += 1;
+    // Deleted BEFORE the node re-enters the document: an element inserted at
+    // opacity 0 would fade IN over the very frames the curtain exists to hide.
+    delete this.root.dataset["state"];
+    this.root.dataset["mode"] = "curtain";
+    if (!this.root.isConnected) document.body.append(this.root);
+    this.phase("title");
+    this.subtitle(subtitle);
+    // The inline nebula loop stops when its canvas leaves the document (see
+    // index.html); re-attaching has to start it again or the curtain is black.
+    const sky = (window as unknown as { __saBootSky?: () => void }).__saBootSky;
+    sky?.();
+  }
+
   /** The line under the wordmark — the one-phrase status. */
   subtitle(text: string): void {
     if (this.subEl) this.subEl.textContent = text;
@@ -175,14 +210,21 @@ export class BootScreen {
    */
   async dismiss(holdMs = 0): Promise<void> {
     if (!this.root.isConnected) return;
+    const generation = this.generation;
+    // Every await below is a window in which the screen can be raised again as
+    // a curtain (leaving a match). This dismiss belongs to the screen it was
+    // called on; once a newer cover owns it, this one has nothing left to do.
+    const superseded = (): boolean => this.generation !== generation || !this.root.isConnected;
     // The launch sequence owns its own minimum runtime. A pack that loads in
     // 200 ms must not flash the publisher card and cut — the player would see
     // a stutter of black and never read either screen.
     await this.intro;
-    if (!this.root.isConnected) return;
+    if (superseded()) return;
     if (holdMs > 0) await delay(holdMs);
+    if (superseded()) return;
     this.root.dataset["state"] = "done";
     await delay(FADE_MS);
+    if (superseded()) return;
     this.root.remove();
   }
 

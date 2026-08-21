@@ -95,6 +95,13 @@
         opacity: 1;
         transition: opacity 320ms ease-out;
       }
+      /* Curtain mode: the launch screen re-shown to cover a transition back to
+         the menu (BootScreen.cover). Same nebula, same wordmark — none of the
+         launch-only furniture, which has nothing to report on a return trip. */
+      #sa-boot[data-mode="curtain"] .sa-boot-stages,
+      #sa-boot[data-mode="curtain"] .sa-boot-note {
+        display: none;
+      }
       /* BootScreen.dismiss() sets this, then removes the node after the fade. */
       #sa-boot[data-state="done"] {
         opacity: 0;
@@ -164,10 +171,12 @@
         flex-direction: column;
         align-items: center;
         gap: 14px;
-        /* The star owns the left of a wide frame; the wordmark takes the right
-           so the two are not stacked on top of each other. Portrait has no room
-           beside it, so the sun moves up (see the `sun` uniform) and this
-           centres. */
+        /* Centred in every aspect since 2026-08-21: the star is no longer
+           parked beside the wordmark but ON it — the shader tracks the first
+           glyph of the title (see `sunOnFirstLetter`) — so the old
+           star-left/wordmark-right split has nothing left to keep apart, and
+           holding the card off-centre would only drag the star out of frame
+           with it. */
         justify-self: center;
         opacity: 0;
         transform: translateY(6px);
@@ -177,12 +186,6 @@
       #sa-boot[data-phase="title"] .sa-boot-titlecard {
         opacity: 1;
         transform: none;
-      }
-      @media (min-aspect-ratio: 1 / 1) {
-        .sa-boot-titlecard {
-          justify-self: end;
-          margin-right: min(7vw, 110px);
-        }
       }
       .sa-boot-wordmark {
         margin: 0;
@@ -449,37 +452,111 @@
         var uRes = gl.getUniformLocation(prog, "res");
         var uSun = gl.getUniformLocation(prog, "sun");
 
+        // ---- where the star goes: dead centre of the wordmark's first "O" ----
+        //
+        // Measured from the live glyph rather than authored as a constant, so
+        // it stays centred through every viewport, the portrait/landscape
+        // layout switch, and the moment a webfont swaps in and reflows the
+        // wordmark. The shader draws in `q` space: x scaled by the aspect
+        // ratio, y UP, origin at the centre of the screen.
+        var wordmark = document.querySelector(".sa-boot-wordmark");
+        var probe2d = null;
+
+        function sunOnFirstLetter(w, h) {
+          if (!wordmark || !wordmark.firstChild) return null;
+          var range = document.createRange();
+          range.setStart(wordmark.firstChild, 0);
+          range.setEnd(wordmark.firstChild, 1);
+          var rect = range.getBoundingClientRect();
+          if (!rect.width || !rect.height) return null;
+          var cs = getComputedStyle(wordmark);
+          // letter-spacing pads the RIGHT of every glyph, so the ink of the
+          // first letter sits half a space left of its rect's centre.
+          var spacing = parseFloat(cs.letterSpacing) || 0;
+          var cx = rect.left + (rect.width - spacing) / 2;
+          // Vertically the rect is the LINE BOX, and a cap "O" is not centred
+          // in it. Font metrics place the baseline exactly, which puts the disc
+          // on the letter's ink instead of on its leading.
+          var cy = rect.top + rect.height / 2;
+          try {
+            probe2d = probe2d || document.createElement("canvas").getContext("2d");
+            if (probe2d) {
+              probe2d.font =
+                cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+              var m = probe2d.measureText((wordmark.textContent || "O").charAt(0));
+              if (m.fontBoundingBoxAscent !== undefined && m.actualBoundingBoxAscent !== undefined) {
+                var content = m.fontBoundingBoxAscent + m.fontBoundingBoxDescent;
+                var baseline = rect.top + (rect.height - content) / 2 + m.fontBoundingBoxAscent;
+                cy = baseline - (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+              }
+            }
+          } catch (err) {
+            // Metrics are an improvement, not a requirement: the line-box
+            // centre above is already within a few pixels.
+          }
+          var vw = canvas.clientWidth || w;
+          var vh = canvas.clientHeight || h;
+          if (!vw || !vh) return null;
+          return { x: ((cx / vw) * 2 - 1) * (w / h), y: 1 - (cy / vh) * 2 };
+        }
+
         // Half-resolution, capped: this runs while the engine is still booting
         // and must not compete with it for GPU time. The blur it costs is
         // invisible on a nebula.
+        var measureTick = 0;
         function resize() {
           var scale = Math.min(window.devicePixelRatio || 1, 1.5) * 0.5;
           var w = Math.max(1, Math.round(canvas.clientWidth * scale));
           var h = Math.max(1, Math.round(canvas.clientHeight * scale));
+          var sized = false;
           if (canvas.width !== w || canvas.height !== h) {
             canvas.width = w;
             canvas.height = h;
             gl.viewport(0, 0, w, h);
+            sized = true;
           }
           gl.uniform2f(uRes, w, h);
-          // The sun sits off to the upper left so the wordmark has clean frame
-          // to sit in — the layout in the design note. On a portrait screen
-          // there is no room beside it, so it moves up and centres instead.
-          var portrait = h > w;
-          gl.uniform2f(uSun, portrait ? -0.02 : -1.02, portrait ? 0.52 : 0.30);
+          // Re-measured on every resize and a few times a second otherwise:
+          // the wordmark moves when the font swaps in, when the phase changes
+          // and when the layout flips between portrait and landscape, and the
+          // star has to stay on its letter through all of it. The fallback is
+          // the pre-2026-08-21 fixed placement, used only when the wordmark
+          // cannot be measured at all.
+          if (sized || measureTick % 8 === 0) {
+            var s = sunOnFirstLetter(w, h);
+            if (!s) {
+              var portrait = h > w;
+              s = { x: portrait ? -0.02 : -1.02, y: portrait ? 0.52 : 0.30 };
+            }
+            gl.uniform2f(uSun, s.x, s.y);
+          }
+          measureTick++;
         }
 
         var start = performance.now();
+        var running = false;
         function frame(now) {
           // The launch screen removes itself when the menu is ready; that is
-          // this loop's stop condition, so it can never outlive the sequence.
-          if (!canvas.isConnected) return;
+          // this loop's stop condition, so it never burns a frame over a match.
+          if (!canvas.isConnected) {
+            running = false;
+            return;
+          }
           resize();
           gl.uniform1f(uT, (now - start) / 1000);
           gl.drawArrays(gl.TRIANGLES, 0, 3);
           requestAnimationFrame(frame);
         }
-        requestAnimationFrame(frame);
+        // Exported because the same screen is re-shown as a CURTAIN when the
+        // player leaves a match (BootScreen.cover): re-attaching the node has
+        // to restart the loop the disconnect above stopped. Idempotent.
+        function run() {
+          if (running) return;
+          running = true;
+          requestAnimationFrame(frame);
+        }
+        window.__saBootSky = run;
+        run();
       })();
     </script>
 
