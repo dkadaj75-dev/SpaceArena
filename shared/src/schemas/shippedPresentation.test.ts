@@ -175,9 +175,11 @@ describe("shipped theme - compact flight HUD", () => {
     expect(hud?.vitalArcs?.opacity).toBeGreaterThan(0.6);
     expect(hud?.vitalArcs?.opacity).toBeLessThan(0.9);
     // The ship-wide ENERGY panel died with the 2026-08-07 energy overhaul:
-    // energy is per-module now and rides the module buttons'
-    // own rings, so the shipped theme authors no `gauges` block at all.
-    expect(hud?.gauges).toBeUndefined();
+    // energy is per-module now and rides the module buttons' own rings, so the
+    // shipped theme authors no `gauges` block at all. Read off the RAW json:
+    // `gauges` is no longer in the schema, and the point of this assertion is
+    // that the content file never carried one to begin with.
+    expect((load("themes/default.json") as { hud?: Record<string, unknown> }).hud?.["gauges"]).toBeUndefined();
     expect(hud?.flight?.reticle?.showZone).toBe(false);
     // FIRE is the one intentionally prominent control: a complete but hairline
     // danger ring keeps the enlarged circular disc from reading as a plain dot.

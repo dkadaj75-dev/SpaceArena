@@ -378,8 +378,6 @@
     },
     "matchmaking": {
       "flavorRotationMs": 4000,
-      "foundBeatMs": 900,
-      "pollIntervalMs": 2000,
       "flavorLines": [
         "Looking for a worthy opponent...",
         "Scanning nearby sectors...",

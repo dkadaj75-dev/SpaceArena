@@ -87,10 +87,12 @@ describe("resolveHudLayout — portrait/landscape blocks", () => {
   });
 
   it("tolerates but ignores legacy lower-left gauge knobs", () => {
-    const layout = resolveHudLayout(theme({
-      gaugeWidthPx: 999,
-      gauges: { anchor: "top-right", offsetXPx: 99, offsetYPx: 88 },
-    }), PORTRAIT);
+    // `gaugeWidthPx` / `gauges` were dropped from themeSchema once it was clear
+    // nothing read them, so they are cast in here as the stray keys an
+    // un-migrated theme file would still carry. The layout must ignore them
+    // rather than trip over them.
+    const legacy = { gaugeWidthPx: 999, gauges: { anchor: "top-right", offsetXPx: 99, offsetYPx: 88 } };
+    const layout = resolveHudLayout(theme(legacy as Partial<ThemeConfig["hud"]>), PORTRAIT);
     expect("gauges" in layout).toBe(false);
     expect(Object.keys(hudCssVars(layout)).some((key) => key.includes("gauge"))).toBe(false);
   });

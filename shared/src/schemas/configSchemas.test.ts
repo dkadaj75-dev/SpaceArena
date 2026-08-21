@@ -1168,6 +1168,27 @@ describe("action / event / notification schemas", () => {
 });
 
 describe("theme schema — 5.7/5.8 blocks", () => {
+  /**
+   * `hud.gauges` / `hud.gaugeWidthPx` described the lower-left gauge panel that
+   * was retired when hull and shield moved to the centre vital arcs. Nothing
+   * read them, so they were dropped from the schema rather than left generating
+   * dead controls in the Theme editor. A theme file that still carries them
+   * must keep loading: zod strips unknown keys instead of rejecting, and this
+   * pins that so the removal can never turn into a parse failure on someone's
+   * un-migrated pack.
+   */
+  it("tolerates retired knobs an un-migrated theme still carries", () => {
+    expect(mutated("theme", (d) => (d["hud"] = { ...(d["hud"] as object), gaugeWidthPx: 999 }))).toBe(true);
+    expect(
+      mutated("theme", (d) => (d["hud"] = { ...(d["hud"] as object), gauges: { anchor: "top-right", showHull: true, segments: 8 } })),
+    ).toBe(true);
+    // …and they are stripped, not carried through into the parsed config.
+    const draft = clone(VALID.theme);
+    draft["hud"] = { scale: 1, gaugeWidthPx: 999 };
+    const parsed = CONFIG_SCHEMAS.theme.parse(draft) as { hud?: Record<string, unknown> };
+    expect("gaugeWidthPx" in (parsed.hud ?? {})).toBe(false);
+  });
+
   it("requires colors and rejects non-string color values", () => {
     expect(mutated("theme", (d) => delete d["colors"])).toBe(false);
     expect(mutated("theme", (d) => (d["colors"] = {}))).toBe(true);

@@ -142,25 +142,21 @@ export const relativeSteerSchema = z.object({
 });
 export type RelativeSteerConfig = z.infer<typeof relativeSteerSchema>;
 
-/** @deprecated Legacy lower-left gauges are accepted but ignored by the HUD. */
-export const gaugesSchema = z.object({
-  anchor: hudAnchor.optional(),
-  offsetXPx: z.number().nonnegative().optional(),
-  offsetYPx: z.number().nonnegative().optional(),
-  gapPx: z.number().nonnegative().optional(),
-  trackHeightPx: z.number().positive().optional(),
-  /** Keep the legacy lower-left hull row. Defaults true for older themes. */
-  showHull: z.boolean().optional(),
-  /** Keep the legacy lower-left shield row. Defaults true for older themes. */
-  showShield: z.boolean().optional(),
-  /**
-   * Number of segment cells a gauge bar is divided into (the holographic
-   * "cell bar" look). The fill is still continuous — the segments are a
-   * repeating gap overlay, so a value change never quantizes. 1 = a solid bar.
-   */
-  segments: z.number().int().positive().optional(),
-});
-export type GaugesConfig = z.infer<typeof gaugesSchema>;
+/*
+ * REMOVED: `hud.gauges` / `hud.gaugeWidthPx` (and the per-orientation copies).
+ * The lower-left gauge panel was retired when hull and shield moved to the
+ * centre vital arcs — see `Hud.ts` ("the retired lower-left gauges
+ * intentionally reserve no layout slot") and `hudLayout.resolveHudLayout`,
+ * which never read them again. They stayed in the schema marked @deprecated,
+ * which meant the Theme editor kept generating an accordion of anchor /
+ * offsets / track height / segment count controls that changed nothing at all
+ * — the worst kind of knob, because turning it looks like it should work.
+ *
+ * Dropping them from the schema does NOT break a theme that still carries
+ * them: zod objects strip unknown keys rather than rejecting, which
+ * `themeSchema tolerates retired knobs` pins. No shipped theme authored
+ * either field.
+ */
 
 /** Player-centred, ship-relative 3D sensor-disc presentation. */
 export const radarSchema = z.object({
@@ -521,10 +517,6 @@ export const hudOrientationSchema = z.object({
   minimapSizePx: z.number().positive().optional(),
   minimapAltitudeTickPx: z.number().nonnegative().optional(),
   radar: radarSchema.optional(),
-  /** @deprecated Accepted for old themes; ignored by the HUD. */
-  gaugeWidthPx: z.number().positive().optional(),
-  /** @deprecated Accepted for old themes; ignored by the HUD. */
-  gauges: gaugesSchema.optional(),
   vitalArcs: vitalArcsSchema.optional(),
   thumbZoneFraction: z.number().gt(0).max(1).optional(),
   moduleCluster: moduleClusterSchema.optional(),
@@ -962,9 +954,18 @@ export const menuSchema = z.object({
   matchmaking: z
     .object({
       flavorLines: z.array(z.string().min(1).max(120)).min(1).optional(),
+      /**
+       * How long one flavor line holds before the next takes over, in ms.
+       * Honoured by `LobbyWaitingOverlay`.
+       *
+       * REMOVED alongside it: `foundBeatMs` and `pollIntervalMs`. Both
+       * described a matchmaker this client does not have — the lobby is pushed
+       * by the server as a replicated `phase: "waiting"` snapshot, so there is
+       * nothing to poll, and the "match found" hold is already authored as
+       * `menu.matchLoadingMinVisibleMs`. Neither was ever read by anything;
+       * they only generated Theme-editor controls that did nothing.
+       */
       flavorRotationMs: z.number().int().positive().optional(),
-      foundBeatMs: z.number().int().nonnegative().optional(),
-      pollIntervalMs: z.number().int().positive().optional(),
     })
     .optional(),
   /** Minimum time the resolved arena card stays visible, even with cached assets. */
@@ -1052,10 +1053,6 @@ export const themeSchema = z.object({
       minimapAltitudeTickPx: z.number().nonnegative().optional(),
       /** Player-centred 3D sensor disc. Legacy minimap fields remain fallbacks. */
       radar: radarSchema.optional(),
-      /** @deprecated Accepted for old themes; ignored by the HUD. */
-      gaugeWidthPx: z.number().positive().optional(),
-      /** @deprecated Accepted for old themes; ignored by the HUD. */
-      gauges: gaugesSchema.optional(),
       /** Hull/shield arcs flanking the ship at the viewport centre. */
       vitalArcs: vitalArcsSchema.optional(),
       /** Chamfer / glow / panel-fill knobs shared by every HUD widget frame. */
