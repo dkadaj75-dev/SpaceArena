@@ -14,8 +14,7 @@
     "--hud-energy": "#3B82F6",
     "--hud-success": "#3B82F6",
     "--hud-hull": "#E6F0FF",
-    "--hud-shield": "#3B82F6",
-    "--hud-heat": "#EF4444"
+    "--hud-shield": "#3B82F6"
   },
   "fonts": {
     "body": "'Rajdhani', system-ui, sans-serif",
@@ -287,11 +286,6 @@
   },
   "haptics": {
     "enabled": true,
-    "overheatPattern": [
-      60,
-      50,
-      120
-    ],
     "killPattern": [
       25,
       40,
@@ -346,7 +340,6 @@
       "shieldAbsorb": "[SOUND: shield_hit]",
       "playerKill": "[SOUND: kill_confirm]",
       "playerDeath": "[SOUND: explosion_heavy]",
-      "overheat": "[SOUND: overheat_warning]",
       "boundaryWarning": "[SOUND: boundary_warn]",
       "lockAcquired": "[SOUND: lock_acquired]",
       "lockLost": "[SOUND: lock_lost]",
@@ -407,8 +400,8 @@
         "skyLight": 0.35,
         "skyDriftDegPerSec": 0.4,
         "star": {
-          "apparentSize": 0.68,
-          "azimuthDeg": -26,
+          "apparentSize": 1.36,
+          "azimuthDeg": -42,
           "elevationDeg": 7,
           "core": "#fff4d2",
           "shell": "#ff8a1e",
@@ -416,7 +409,7 @@
           "speed": 1.0
         },
         "sun": {
-          "azimuthDeg": -26,
+          "azimuthDeg": -42,
           "elevationDeg": 7,
           "intensity": 3.1
         }

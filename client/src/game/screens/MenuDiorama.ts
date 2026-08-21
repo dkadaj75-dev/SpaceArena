@@ -277,6 +277,13 @@ export interface MenuDioramaOptions {
   shipHeight?: number;
   /** Camera distance from the hull. */
   distance?: number;
+  /**
+   * How far below the hull the camera aims, in world units. The menu's buttons
+   * own the bottom two thirds of the screen, so the frame is deliberately
+   * dropped: aiming low pushes the hull into the clear upper tier instead of
+   * parking it behind the mode cards.
+   */
+  framingLift?: number;
 }
 
 export class MenuDiorama {
@@ -325,7 +332,10 @@ export class MenuDiorama {
       new Vector3(distance * 0.46, shipHeight + 1.5, -distance),
       scene,
     );
-    this.camera.setTarget(new Vector3(0, shipHeight + 0.55, 0));
+    // Aim below the hull, not at it — see `framingLift`. The hull therefore
+    // projects ABOVE the screen's centre line, which is the only part of the
+    // menu the UI does not cover.
+    this.camera.setTarget(new Vector3(0, shipHeight + 0.55 - (options.framingLift ?? 1.7), 0));
     this.camera.fov = 0.78;
     this.camera.minZ = 0.35;
     // Earth is parked 900 units out; a default far plane would clip it away.
