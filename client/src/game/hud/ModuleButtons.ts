@@ -212,6 +212,9 @@ export class ModuleButtons {
     for (let i = 0; i < buttons.length; i++) {
       const offset = offsets[i];
       if (!offset) continue;
+      // No arc, so no pedestal: a theme swapped from an arc layout to a cluster
+      // one must not leave a button dressed as one.
+      buttons[i]!.root.classList.remove("primary");
       buttons[i]!.root.style.left = `${offset.dx - r}px`;
       buttons[i]!.root.style.top = `${offset.dy - r}px`;
       buttons[i]!.root.style.removeProperty("width");
