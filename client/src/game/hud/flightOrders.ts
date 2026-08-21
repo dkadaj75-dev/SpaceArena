@@ -53,6 +53,17 @@ export function fireMinIntervalMs(policy: FlightOrderPolicy): number {
 export class FlightOrderSender {
   /** Last state actually sent — the baseline every epsilon is measured against. */
   private readonly sent: FlightInputState = { throttle: 0, turn: 0, pitchStick: 0, boost: false, fire: false, triggers: 0 };
+  /**
+   * Weapon bits that have gone DOWN since the last transmitted order.
+   *
+   * A tap is now the primary way to shoot (the FIRE button is gone, 2026-08-21),
+   * and a tap shorter than the send interval would otherwise vanish: the sender
+   * defers the press, the release arrives, and the order that finally goes out
+   * carries a mask of 0 — a shot the player made and the sim never saw. Holding
+   * the rising edge here until it has actually been transmitted closes that,
+   * whatever the frame rate or the debounce.
+   */
+  private pendingRise = 0;
   private lastSentMs = 0;
   /** False until the first order lands, which is never delayed. */
   private started = false;
@@ -85,6 +96,8 @@ export class FlightOrderSender {
    * `nowMs` must be a monotonic clock in milliseconds.
    */
   update(input: FlightInputState, nowMs: number): void {
+    this.pendingRise |= input.triggers & ~this.sent.triggers;
+    const triggers = input.triggers | this.pendingRise;
     const dThrottle = Math.abs(input.throttle - this.sent.throttle);
     const dTurn = Math.abs(input.turn - this.sent.turn);
     const dPitch = Math.abs(input.pitchStick - this.sent.pitchStick);
@@ -92,7 +105,7 @@ export class FlightOrderSender {
     // Any change to EITHER trigger source is a trigger edge: a per-weapon bit
     // going down has to reach the sim on the same short floor a FIRE press did,
     // or the first shot of a tap is lost.
-    const fireEdge = input.fire !== this.sent.fire || input.triggers !== this.sent.triggers;
+    const fireEdge = input.fire !== this.sent.fire || triggers !== this.sent.triggers;
     // "Differs at all" is the pending flag: `sent` IS the baseline, so nothing is
     // dropped by the floor below — an order suppressed this frame still differs
     // next frame and goes out then.
@@ -134,7 +147,8 @@ export class FlightOrderSender {
     this.sent.pitchStick = input.pitchStick;
     this.sent.boost = input.boost;
     this.sent.fire = input.fire;
-    this.sent.triggers = input.triggers;
+    this.sent.triggers = triggers;
+    this.pendingRise = 0;
     this.lastSentMs = nowMs;
     this.started = true;
     this.ordersSent += 1;
@@ -151,7 +165,7 @@ export class FlightOrderSender {
       pitchStick: input.pitchStick,
       boost: input.boost,
       fire: input.fire,
-      triggers: input.triggers,
+      triggers,
     });
   }
 }

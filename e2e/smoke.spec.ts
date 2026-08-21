@@ -449,13 +449,8 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
           });
         }
 
-        // Keep the guns up. A deploying module does not need a toggle, so only
-        // nudge the ones that are genuinely offline.
-        for (const mod of me.modules) {
-          if (mod.state !== "retracted") continue;
-          if (!/laser|kinetic|missile/.test(mod.moduleId)) continue;
-          session.order({ kind: "moduleToggle", hardpointIndex: mod.hardpointIndex });
-        }
+        // Guns need no nudging any more: weapons spawn online and have no toggle
+        // at all since 2026-08-21, so a `moduleToggle` aimed at one is ignored.
       };
 
       while (frames < maxFrames) {

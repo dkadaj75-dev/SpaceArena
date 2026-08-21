@@ -284,3 +284,61 @@ describe("FlightOrderSender", () => {
     });
   });
 });
+
+/**
+ * PER-WEAPON TRIGGERS (2026-08-21). The mask rides the flight order, so holding
+ * one costs no extra orders — and a tap must never be swallowed by the debounce.
+ */
+describe("FlightOrderSender — weapon triggers", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("carries the mask, and treats a change to it as a trigger edge", () => {
+    const h = harness();
+    h.feed({});
+    expect(h.orders).toHaveLength(1);
+    h.tick(fireMinIntervalMs(POLICY) + 1);
+    h.feed({ triggers: 0b101 });
+    expect(h.orders).toHaveLength(2);
+    expect(h.orders[1]).toMatchObject({ ...NEUTRAL, triggers: 0b101 });
+  });
+
+  it("NEVER swallows a tap shorter than the send interval", () => {
+    // The failure this exists to prevent: press and release inside one debounce
+    // window, the deferred order finally goes out carrying 0, and the shot the
+    // player made never reaches the sim.
+    const h = harness();
+    h.feed({});
+    h.tick(1);
+    h.feed({ triggers: 0b1 }); // suppressed by the floor
+    h.feed({ triggers: 0 }); // …and already released
+    expect(h.orders).toHaveLength(1);
+
+    h.tick(POLICY.minIntervalMs + 1);
+    h.feed({ triggers: 0 });
+    // The rising edge is held until it has actually been transmitted.
+    expect(h.orders).toHaveLength(2);
+    expect(h.orders[1]).toMatchObject({ triggers: 0b1 });
+
+    // …and the release follows on the next order, so the trigger does not stick.
+    h.tick(POLICY.minIntervalMs + 1);
+    h.feed({ triggers: 0 });
+    expect(h.orders).toHaveLength(3);
+    expect(h.orders[2]).toMatchObject({ triggers: 0 });
+  });
+
+  it("holding a trigger costs exactly one order", () => {
+    const h = harness();
+    h.feed({});
+    h.tick(fireMinIntervalMs(POLICY) + 1);
+    h.feed({ triggers: 0b1 });
+    expect(h.orders).toHaveLength(2);
+    // Sixty frames of an unchanged held trigger: nothing new to say until the
+    // heartbeat, which is what makes a held button free.
+    for (let i = 0; i < 60; i++) {
+      h.tick(1);
+      h.feed({ triggers: 0b1 });
+    }
+    expect(h.orders).toHaveLength(2);
+  });
+});
