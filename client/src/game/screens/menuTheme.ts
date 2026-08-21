@@ -32,6 +32,8 @@ export interface MenuTheme {
   panelGlow: number;
   /** `theme.menu.style.panelOpacity` — panel fill opacity over the nebula. */
   panelOpacity: number;
+  /** `theme.menu.style.clickFlashMs` — duration of a button's press flash. */
+  clickFlashMs: number;
   /** `theme.fonts.display` — the title wordmark face. */
   displayFont: string;
   /** `theme.fonts.body`. */
@@ -59,6 +61,7 @@ export const DEFAULT_MENU_THEME: MenuTheme = {
   panelChamferPx: 12,
   panelGlow: 0.5,
   panelOpacity: 0.72,
+  clickFlashMs: 220,
   displayFont: "'Orbitron', system-ui, sans-serif",
   bodyFont: "'Rajdhani', system-ui, sans-serif",
 };
@@ -105,6 +108,7 @@ export function menuThemeOf(theme: ThemeConfig | undefined): MenuTheme {
     panelChamferPx: num(style?.chamferPx, d.panelChamferPx, 0, 64),
     panelGlow: num(style?.glow, d.panelGlow, 0, 1),
     panelOpacity: num(style?.panelOpacity, d.panelOpacity, 0, 1),
+    clickFlashMs: num(style?.clickFlashMs, d.clickFlashMs, 0, 2000),
     displayFont: str(theme?.fonts?.display, d.displayFont),
     bodyFont: str(theme?.fonts?.body, d.bodyFont),
   };
@@ -131,6 +135,7 @@ export function menuCssVars(menu: MenuTheme): Record<string, string> {
     // Pre-formatted percentage: `color-mix()` wants a <percentage> and not every
     // engine accepts a calc() in that slot.
     "--sa-menu-panel-pct": `${Math.round(menu.panelOpacity * 1000) / 10}%`,
+    "--sa-menu-click-ms": `${menu.clickFlashMs}ms`,
     "--sa-menu-font-display": menu.displayFont,
     "--sa-menu-font-body": menu.bodyFont,
   };

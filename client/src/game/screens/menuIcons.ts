@@ -18,7 +18,8 @@ export type MenuIconKey =
   | "shop"
   | "tutorial"
   | "settings"
-  | "play";
+  | "play"
+  | "back";
 
 const S = `xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"`;
 
@@ -60,6 +61,7 @@ const ICONS: Record<MenuIconKey, string> = {
   tutorial: `<svg ${S}><path d="M3 18.5c5.4 0 6.6-13 10.4-13 2.6 0 3.4 3.4 1.6 5" /><circle cx="18.4" cy="7.4" r="2.4" /><path d="M3 21h18" opacity="0.45" /></svg>`,
   settings: `<svg ${S}><circle cx="12" cy="12" r="3.1" /><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.9 1.9M7.4 16.6l-1.9 1.9M18.5 18.5l-1.9-1.9M7.4 7.4 5.5 5.5" /></svg>`,
   play: `<svg ${S}><path d="M8 5.2 19 12 8 18.8z" /></svg>`,
+  back: `<svg ${S}><path d="M19 12H5.6" /><path d="m11 5.6-5.8 6.4 5.8 6.4" /></svg>`,
 };
 
 /**

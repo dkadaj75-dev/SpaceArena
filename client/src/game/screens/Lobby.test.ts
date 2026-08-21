@@ -163,6 +163,104 @@ describe("Lobby mode grid", () => {
   });
 });
 
+describe("Lobby mode drawer", () => {
+  function mount(onChoose = vi.fn()): Lobby {
+    return new Lobby(document.body, practiceConfigs(), auth(), new ServerHealthState(vi.fn()), {
+      onChoose,
+      onLogout: vi.fn(),
+      onAccountRequested: vi.fn(),
+      onHangarRequested: vi.fn(),
+      onShopRequested: vi.fn(),
+      onSettingsRequested: vi.fn(),
+    });
+  }
+  const categories = (): HTMLButtonElement[] => [
+    ...document.querySelectorAll<HTMLButtonElement>(".sa-menu-category"),
+  ];
+  const shown = (selector: string): boolean =>
+    document.querySelector<HTMLElement>(selector)?.hidden === false;
+
+  it("opens on one button per authored category, and no mode buttons", () => {
+    const lobby = mount();
+    expect(categories().map((b) => b.querySelector(".sa-menu-card-label")?.textContent)).toEqual([
+      "Deathmatch",
+      "Team Deathmatch",
+    ]);
+    // The modes exist — they are built once and hidden, so the online gate can
+    // still reach them — but no drawer is open.
+    expect(shown('.sa-menu-group[data-group="deathmatch"]')).toBe(false);
+    expect(lobby.openModeGroup).toBeNull();
+    lobby.hide();
+  });
+
+  it("swaps the whole root menu for that category's modes, and back again", () => {
+    const lobby = mount();
+    categories()[1]!.click();
+
+    expect(lobby.openModeGroup).toBe("Team Deathmatch");
+    expect(shown('.sa-menu-group[data-group="team deathmatch"]')).toBe(true);
+    // Everything the root offered is gone: categories AND destinations.
+    expect(shown(".sa-menu-play")).toBe(false);
+    expect(shown(".sa-menu-destinations")).toBe(false);
+    expect(shown('.sa-menu-group[data-group="deathmatch"]')).toBe(false);
+
+    document.querySelector<HTMLButtonElement>(".sa-menu-back")!.click();
+    expect(lobby.openModeGroup).toBeNull();
+    expect(shown(".sa-menu-play")).toBe(true);
+    expect(shown(".sa-menu-destinations")).toBe(true);
+    lobby.hide();
+  });
+
+  it("launches the mode inside the drawer, not the category button", () => {
+    const onChoose = vi.fn();
+    const lobby = mount(onChoose);
+    categories()[0]!.click();
+    expect(onChoose).not.toHaveBeenCalled();
+    document.querySelector<HTMLButtonElement>('[data-gamemode="gamemode.practice-bots-1v1"]')!.click();
+    expect(onChoose).toHaveBeenCalledWith({ kind: "online", gamemode: "gamemode.practice-bots-1v1" });
+    lobby.hide();
+  });
+
+  it("comes back to the ROOT menu, whatever was open when the player left", () => {
+    // Arriving from a match or the Hangar and finding a drawer still standing
+    // reads as the game having lost its place.
+    // `show()` re-probes the server, so this one needs a probe that answers.
+    const lobby = new Lobby(
+      document.body,
+      practiceConfigs(),
+      auth(),
+      new ServerHealthState(vi.fn().mockResolvedValue({ online: true, detail: "" })),
+      {
+        onChoose: vi.fn(),
+        onLogout: vi.fn(),
+        onAccountRequested: vi.fn(),
+        onHangarRequested: vi.fn(),
+        onShopRequested: vi.fn(),
+        onSettingsRequested: vi.fn(),
+      },
+    );
+    categories()[0]!.click();
+    expect(lobby.openModeGroup).toBe("Deathmatch");
+    lobby.hide();
+    lobby.show();
+    expect(lobby.openModeGroup).toBeNull();
+    expect(shown(".sa-menu-play")).toBe(true);
+    lobby.hide();
+  });
+
+  it("flashes a pressed button, so a tap that changes the screen still answers", () => {
+    const lobby = mount();
+    const category = categories()[0]!;
+    category.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(category.classList.contains("sa-pressed")).toBe(true);
+    // The class is what the animation hangs off; it clears when that ends, or
+    // the next press would find it already applied and never restart.
+    category.dispatchEvent(new Event("animationend", { bubbles: true }));
+    expect(category.classList.contains("sa-pressed")).toBe(false);
+    lobby.hide();
+  });
+});
+
 /** The practice modes plus the tutorial config the menu button is generated from. */
 function tutorialConfigs(): ConfigService {
   const base = practiceConfigs();

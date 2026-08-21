@@ -14,7 +14,7 @@ import {
   type ServerHealthState,
 } from "../../core/serverHealth.js";
 import { applyMenuTheme, createMenuBackdrop, injectScreenStyle } from "./screenStyle.js";
-import { iconElement } from "./menuIcons.js";
+import { GROUP_ICON, iconElement } from "./menuIcons.js";
 import { menuGroups } from "./menuModes.js";
 import type { MenuTheme } from "./menuTheme.js";
 
@@ -87,6 +87,14 @@ export class Lobby {
   private readonly offlineBadge: HTMLDivElement;
   private readonly offlineDetail: HTMLSpanElement;
   private healthRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  /** Root view: the category buttons. */
+  private readonly play: HTMLDivElement;
+  /** Root view: Hangar / Shop / Tutorial. */
+  private readonly destinations: HTMLDivElement;
+  /** One built-and-hidden panel of mode cards per authored group, by title. */
+  private readonly groupPanels = new Map<string, HTMLDivElement>();
+  /** Which group's modes are open, or null for the root menu. */
+  private openGroup: string | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -137,6 +145,8 @@ export class Lobby {
     this.sections = document.createElement("div");
     this.sections.className = "sa-menu-sections";
     this.root.append(this.sections);
+    this.play = document.createElement("div");
+    this.destinations = document.createElement("div");
     this.buildSections();
 
     this.status = document.createElement("div");
@@ -182,13 +192,34 @@ export class Lobby {
     // shared a row with the first group and sat on its heading.
     this.sections.append(this.offlineBadge);
 
-    const play = document.createElement("div");
-    play.className = "sa-menu-play";
+    // ROOT: one button per authored group, not one per mode. The groups still
+    // come from `gamemode.menu.group`, so a pack that adds a category gets a
+    // button with no code change — the same property the flat grid had.
+    this.play.className = "sa-menu-play";
+    this.sections.append(this.play);
+
+    const drawers = document.createElement("div");
+    drawers.className = "sa-menu-modes";
 
     for (const group of menuGroups(gamemodes)) {
+      const key = group.title.toLowerCase();
+      this.play.append(
+        this.destination(
+          group.title,
+          modeCountLabel(group.modes.length),
+          GROUP_ICON[key] ?? group.modes[0]?.icon,
+          () => this.openModes(group.title),
+          "sa-menu-category",
+        ),
+      );
+
+      // DRAWER: built now and hidden, never on demand — `setBusy` and the
+      // online gate walk one fixed list of buttons, and cards that only existed
+      // while their drawer was open would fall out of it.
       const box = document.createElement("div");
       box.className = "sa-menu-group";
-      box.dataset["group"] = group.title.toLowerCase();
+      box.dataset["group"] = key;
+      box.hidden = true;
 
       const heading = document.createElement("h2");
       heading.className = "sa-menu-group-title";
@@ -201,13 +232,17 @@ export class Lobby {
         cards.append(this.modeCard(mode.id, mode.label, mode.blurb, mode.icon, mode.teams));
       }
       box.append(cards);
-      play.append(box);
-    }
-    this.sections.append(play);
+      box.append(
+        this.destination("Back", "", "back", () => this.openModes(null), "sa-menu-back"),
+      );
 
-    const destinations = document.createElement("div");
-    destinations.className = "sa-menu-destinations";
-    destinations.append(
+      this.groupPanels.set(group.title, box);
+      drawers.append(box);
+    }
+    this.sections.append(drawers);
+
+    this.destinations.className = "sa-menu-destinations";
+    this.destinations.append(
       this.destination("Hangar", "Fit and paint your ship", "hangar", () => this.callbacks.onHangarRequested()),
       // Offline-capable like the Hangar: the ledger is local without an account,
       // so a pilot with no login can still buy (contract §3).
@@ -215,11 +250,33 @@ export class Lobby {
     );
     // The tutorial is a content config, so a pack without it has no button.
     if (this.hasTutorial()) {
-      destinations.append(
+      this.destinations.append(
         this.destination(TUTORIAL_LABEL, "Learn to fly", "tutorial", () => this.choose({ kind: "tutorial" })),
       );
     }
-    this.sections.append(destinations);
+    this.sections.append(this.destinations);
+    this.openModes(null);
+  }
+
+  /**
+   * Swap between the root menu and one group's modes. `null` is the root.
+   *
+   * Everything the root offers hides together — categories AND destinations —
+   * so the drawer is the only thing to answer. The header stays: the account
+   * chip and the settings gear are about the player, not about this screen.
+   */
+  private openModes(group: string | null): void {
+    this.openGroup = group !== null && this.groupPanels.has(group) ? group : null;
+    const atRoot = this.openGroup === null;
+    this.play.hidden = !atRoot;
+    this.destinations.hidden = !atRoot;
+    for (const [title, panel] of this.groupPanels) panel.hidden = title !== this.openGroup;
+    this.sections.dataset["view"] = atRoot ? "root" : "modes";
+  }
+
+  /** Which group's modes are open, or null at the root. Exposed for tests. */
+  get openModeGroup(): string | null {
+    return this.openGroup;
   }
 
   /** A match you can start: icon, the short label, and what it actually is. */
@@ -232,7 +289,7 @@ export class Lobby {
   ): HTMLButtonElement {
     const card = document.createElement("button");
     card.type = "button";
-    card.className = "sa-menu-card";
+    card.className = "sa-menu-btn sa-menu-card";
     card.dataset["gamemode"] = gamemode;
     card.append(iconElement(icon, teams));
 
@@ -249,17 +306,27 @@ export class Lobby {
       text.append(sub);
     }
     card.append(text);
-    card.addEventListener("click", () => this.choose({ kind: "online", gamemode }));
+    this.onPress(card, () => this.choose({ kind: "online", gamemode }));
     this.buttons.push({ el: card, online: true });
     return card;
   }
 
-  /** A place you go rather than a match you start — quieter, and wider. */
-  private destination(label: string, blurb: string, icon: string, onClick: () => void): HTMLButtonElement {
+  /**
+   * A button that is not a match: a place you go, a category to open, or the
+   * way back out of one. `extraClass` styles it as a category card or as the
+   * small Back chip without duplicating the markup three times.
+   */
+  private destination(
+    label: string,
+    blurb: string,
+    icon: string | undefined,
+    onClick: () => void,
+    extraClass = "",
+  ): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "sa-menu-destination";
-    button.dataset["lobbyAction"] = icon;
+    button.className = `sa-menu-btn ${extraClass || "sa-menu-destination"}`;
+    button.dataset["lobbyAction"] = label.toLowerCase();
     button.append(iconElement(icon));
 
     const text = document.createElement("span");
@@ -267,15 +334,47 @@ export class Lobby {
     const name = document.createElement("span");
     name.className = "sa-menu-card-label";
     name.textContent = label;
-    const sub = document.createElement("span");
-    sub.className = "sa-menu-card-blurb";
-    sub.textContent = blurb;
-    text.append(name, sub);
+    text.append(name);
+    // A blank blurb gets NO element: an empty line still reserves its leading,
+    // which is what made the Back chip as tall as a destination.
+    if (blurb) {
+      const sub = document.createElement("span");
+      sub.className = "sa-menu-card-blurb";
+      sub.textContent = blurb;
+      text.append(sub);
+    }
     button.append(text);
 
-    button.addEventListener("click", onClick);
+    this.onPress(button, onClick);
     this.buttons.push({ el: button, online: false });
     return button;
+  }
+
+  /**
+   * Wire a click AND the press flash that answers it.
+   *
+   * The flash is an animation restarted by hand rather than a `:active` rule,
+   * because the tap that opens a drawer hides the button it landed on — a
+   * `:active` style would be torn off before it painted. Started on
+   * `pointerdown` so a touch answers under the finger rather than after the
+   * tap resolves; a keyboard activation (`detail === 0`) has no pointer phase,
+   * so it flashes on the click itself.
+   */
+  private onPress(el: HTMLElement, onClick: () => void): void {
+    const flash = (): void => {
+      if ((el as HTMLButtonElement).disabled) return;
+      el.classList.remove("sa-pressed");
+      // Reading layout between the two is what restarts a running animation;
+      // without it a second tap inside the flash does nothing visible.
+      void el.offsetWidth;
+      el.classList.add("sa-pressed");
+    };
+    el.addEventListener("pointerdown", flash);
+    el.addEventListener("animationend", () => el.classList.remove("sa-pressed"));
+    el.addEventListener("click", (event) => {
+      if ((event as MouseEvent).detail === 0) flash();
+      onClick();
+    });
   }
 
   /** Whether this pack ships a tutorial for the button to launch. */
@@ -401,6 +500,10 @@ export class Lobby {
 
   show(): void {
     this.root.style.display = "flex";
+    // The main menu is always the ROOT menu. Arriving from a match, the Hangar
+    // or the Shop and finding the drawer you last opened still standing reads
+    // as the game having lost its place.
+    this.openModes(null);
     this.setBusy(false, "");
     void this.serverHealth.refresh();
     this.syncHealthRefreshTimer();
@@ -438,6 +541,11 @@ export class Lobby {
     if (this.healthRefreshTimer) clearInterval(this.healthRefreshTimer);
     this.healthRefreshTimer = null;
   }
+}
+
+/** "3 modes" under a category button — what the drawer holds, before opening it. */
+function modeCountLabel(count: number): string {
+  return count === 1 ? "1 mode" : `${count} modes`;
 }
 
 function span(className: string, text: string): HTMLSpanElement {

@@ -950,6 +950,12 @@ export const menuSchema = z.object({
       glow: z.number().min(0).max(1).optional(),
       /** Panel fill opacity 0..1 over the nebula backdrop. */
       panelOpacity: z.number().min(0).max(1).optional(),
+      /**
+       * How long a menu button's press flash lasts, in ms. The flash is the
+       * only feedback a touch player gets that a tap registered, so 0 (off) is
+       * a deliberate choice rather than a default worth having.
+       */
+      clickFlashMs: z.number().int().nonnegative().max(2000).optional(),
     })
     .optional(),
   /** Content-authored copy and timing for the matchmaking search screen. */
