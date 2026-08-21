@@ -232,7 +232,12 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // starts when the room stops waiting — here, when the server's backfill seats
   // the opposing bot — so the HUD is only expected after this screen goes away.
   const launch = page.locator(".sa-match-loading");
-  await expect(launch).toBeVisible();
+  // Attached, not visible: a local server can seat the bot and dismiss the
+  // card before this assert runs. The card survives hide() (display:none),
+  // showSearching ticks the count-up once synchronously, and both team
+  // columns are painted from the first frame — so the checks below hold
+  // whether or not the card was caught mid-flight.
+  await expect(launch).toBeAttached();
   await expect(launch.locator(".sa-match-loading-elapsed")).toHaveText(/^\d+:\d\d$/);
   await expect(launch.locator(".sa-match-loading-team")).toHaveCount(2);
   await expect(launch).toBeHidden({ timeout: 90_000 });
