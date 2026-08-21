@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { adaptiveRenderDelay, bracket, createSnapshotClock, decayCorrection, ExtrapolationBlender, hermitePosition, lerpHeading, MAX_EXTRAPOLATION_MS, VELOCITY_TANGENT_CHORD_LIMIT, RENDER_DELAY_CEIL_MS, stampSnapshot, timeBasedPull, WIDEN_MS_PER_SECOND, type TimedPos, type Vec3 } from "./interpolation.js";
-import { decodeCenti, decodeHeading, encodeCenti, encodeHeading } from "@space-arena/shared";
+import { adaptiveRenderDelay, angularVelocity, bracket, createSnapshotClock, decayCorrection, ExtrapolationBlender, frameDelta, hermiteFrame, hermitePosition, lerpHeading, MAX_ANGULAR_EXTRAPOLATION_RAD, MAX_EXTRAPOLATION_MS, VELOCITY_TANGENT_CHORD_LIMIT, RENDER_DELAY_CEIL_MS, rotateByVector, stampSnapshot, timeBasedPull, WIDEN_MS_PER_SECOND, type TimedFrame, type TimedPos, type Vec3 } from "./interpolation.js";
+import { decodeCenti, decodeHeading, encodeCenti, encodeHeading, facingVec, interpolateFrame, upFromAttitude, type FrameAttitude } from "@space-arena/shared";
 
 describe("net interpolation", () => {
   it("brackets snapshots and caps extrapolation to one interval", () => { const r = bracket([{ time: 0 }, { time: 50 }], 200)!; expect(r[2]).toBe(1); expect(bracket([{ time: 0 }, { time: 50 }], 25)![2]).toBe(.5); });
@@ -684,5 +684,242 @@ describe("stampSnapshot", () => {
     const broken = stampSnapshot(clock, Number.NaN, 500);
     expect(broken.reset).toBe(false);
     expect(broken.timeMs).toBe(500);
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Orientation: the same curve, applied to the rotation axis
+ * ------------------------------------------------------------------------- */
+
+/** A frame sample from an attitude, with the up axis the sim would give it. */
+const FR = (time: number, heading: number, pitch = 0): TimedFrame => ({
+  time,
+  heading,
+  pitch,
+  up: upFromAttitude(heading, pitch, { x: 0, y: 0, z: 0 }),
+});
+const blankFrame = (): FrameAttitude => ({ heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } });
+/** The nose direction a blended frame ended up pointing. */
+const noseOf = (f: FrameAttitude): Vec3 => facingVec(f.heading, f.pitch, { x: 0, y: 0, z: 0 });
+const angleBetween = (
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+): number => Math.acos(Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y + a.z * b.z)));
+
+describe("hermiteFrame", () => {
+  const curve = (prev: TimedFrame | null, from: TimedFrame, to: TimedFrame, next: TimedFrame | null, t: number): Vec3 =>
+    noseOf(hermiteFrame(prev, from, to, next, t, blankFrame()));
+  const nlerp = (from: TimedFrame, to: TimedFrame, t: number): Vec3 =>
+    noseOf(interpolateFrame(from.heading, from.pitch, from.up, to.heading, to.pitch, to.up, t, blankFrame()));
+
+  it("passes exactly through the bracketing samples", () => {
+    const [s0, s1, s2, s3] = [FR(0, 0.1, 0.05), FR(50, 0.4, 0.1), FR(100, 0.9, 0.2), FR(150, 1.7, 0.25)];
+    expect(angleBetween(curve(s0, s1, s2, s3, 0), nlerp(s1!, s1!, 0))).toBeLessThan(1e-9);
+    expect(angleBetween(curve(s0, s1, s2, s3, 1), nlerp(s2!, s2!, 0))).toBeLessThan(1e-9);
+  });
+
+  it("reproduces the old nlerp EXACTLY when no neighbour brackets the segment", () => {
+    // The buffer edge, and a ship that just spawned. Cubic Hermite with chord
+    // tangents IS lerp algebraically, so this change can only ever act where
+    // there is real neighbour information to act on.
+    const [from, to] = [FR(0, -0.3, 0.4), FR(50, 0.6, -0.2)];
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const c = hermiteFrame(null, from!, to!, null, t, blankFrame());
+      const n = interpolateFrame(from!.heading, from!.pitch, from!.up, to!.heading, to!.pitch, to!.up, t, blankFrame());
+      expect(c.heading).toBeCloseTo(n.heading, 12);
+      expect(c.pitch).toBeCloseTo(n.pitch, 12);
+      expect(c.up.x).toBeCloseTo(n.up.x, 12);
+      expect(c.up.y).toBeCloseTo(n.up.y, 12);
+      expect(c.up.z).toBeCloseTo(n.up.z, 12);
+    }
+  });
+
+  it("is C1 across a knot where the nlerp steps - the 15 Hz turn shudder", () => {
+    // An ACCELERATING yaw: the sampled turn rate differs from segment to
+    // segment, which is where a C0 orientation blend kicks. (A perfectly uniform
+    // turn is the one case nlerp already handles, by symmetry - the artefact
+    // lives in the stick input actually changing, which is all a dogfight is.)
+    const alpha = 7.5e-6; // rad per ms^2 = 7.5 rad/s^2 - a stick being fed in
+    const s = Array.from({ length: 5 }, (_, i) => FR(i * 50, 0.5 * alpha * (i * 50) * (i * 50)));
+    const knot = 100;
+    const eps = 0.05; // ms
+    // Angular velocity as the nose's own derivative vector: `acos` of a dot
+    // product loses every digit that matters at the angles a 0.05 ms step turns
+    // through, and the quantity under test IS that derivative.
+    const rateJump = (left: (tau: number) => Vec3, right: (tau: number) => Vec3): number => {
+      const l0 = left(knot - eps);
+      const l1 = left(knot);
+      const r0 = right(knot);
+      const r1 = right(knot + eps);
+      // Value continuity first: both segments must land on the sample itself.
+      expect(Math.hypot(l1.x - r0.x, l1.y - r0.y, l1.z - r0.z)).toBeLessThan(1e-12);
+      return Math.hypot(
+        (r1.x - r0.x) / eps - (l1.x - l0.x) / eps,
+        (r1.y - r0.y) / eps - (l1.y - l0.y) / eps,
+        (r1.z - r0.z) / eps - (l1.z - l0.z) / eps,
+      );
+    };
+    const hermiteJump = rateJump(
+      (tau) => curve(s[0]!, s[1]!, s[2]!, s[3]!, (tau - 50) / 50),
+      (tau) => curve(s[1]!, s[2]!, s[3]!, s[4]!, (tau - 100) / 50),
+    );
+    const nlerpJump = rateJump(
+      (tau) => nlerp(s[1]!, s[2]!, (tau - 50) / 50),
+      (tau) => nlerp(s[2]!, s[3]!, (tau - 100) / 50),
+    );
+    expect(nlerpJump).toBeGreaterThan(1e-5);
+    expect(hermiteJump).toBeLessThan(nlerpJump / 20);
+  });
+
+  it("degrades a REVERSED turn to the nlerp rather than swinging through an arc", () => {
+    // The hull bounced, or the pilot slammed the stick the other way: the
+    // neighbourhood reverses at this knot and smoothing through it would draw a
+    // rotation the ship never made.
+    const [s0, s1, s2, s3] = [FR(0, 0), FR(50, 0.4), FR(100, 0.8), FR(150, 0.2)];
+    for (const t of [0.25, 0.5, 0.75]) {
+      expect(angleBetween(curve(s0!, s1!, s2!, s3!, t), nlerp(s1!, s2!, t))).toBeLessThan(1e-12);
+    }
+  });
+});
+
+describe("frame rotation algebra", () => {
+  it("recovers the rotation between two frames, exactly for a single axis", () => {
+    const nose = { x: 1, y: 0, z: 0 };
+    const up = { x: 0, y: 1, z: 0 };
+    for (const r of [{ x: 0, y: 0.3, z: 0 }, { x: 0.2, y: 0, z: 0 }, { x: 0, y: 0, z: -0.45 }]) {
+      const bNose = rotateByVector(nose, r, { x: 0, y: 0, z: 0 });
+      const bUp = rotateByVector(up, r, { x: 0, y: 0, z: 0 });
+      const back = frameDelta(nose, up, bNose, bUp, { x: 0, y: 0, z: 0 });
+      expect(back.x).toBeCloseTo(r.x, 12);
+      expect(back.y).toBeCloseTo(r.y, 12);
+      expect(back.z).toBeCloseTo(r.z, 12);
+    }
+  });
+
+  it("answers zero for identical frames and never divides by a null rotation", () => {
+    const d = frameDelta({ x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 0 });
+    expect(Math.hypot(d.x, d.y, d.z)).toBe(0);
+    const v = rotateByVector({ x: 1, y: 2, z: 3 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+    expect(v).toEqual({ x: 1, y: 2, z: 3 });
+  });
+
+  it("measures a ship's turn rate from two samples", () => {
+    // A yaw of 0.1 rad across one 66.7 ms patch gap is 1.5 rad/s.
+    const w = angularVelocity(FR(0, 0), FR(0, 0.1), 1 / 15, { x: 0, y: 0, z: 0 })!;
+    expect(Math.hypot(w.x, w.y, w.z)).toBeCloseTo(0.1 * 15, 9);
+    // No separation in time is not a turn rate of infinity.
+    expect(angularVelocity(FR(0, 0), FR(0, 0.1), 0, { x: 0, y: 0, z: 0 })).toBeUndefined();
+  });
+});
+
+describe("ExtrapolationBlender orientation", () => {
+  const NOSE = { x: 1, y: 0, z: 0 };
+  const UP = { x: 0, y: 1, z: 0 };
+  const OMEGA = { x: 0, y: 1.5, z: 0 }; // rad/s - a hard but legal turn
+  const out = (): { nose: Vec3; up: Vec3 } => ({ nose: { x: 0, y: 0, z: 0 }, up: { x: 0, y: 0, z: 0 } });
+  const dt = 1 / 60;
+  const turned = (rad: number): Vec3 => rotateByVector(NOSE, { x: 0, y: rad, z: 0 }, { x: 0, y: 0, z: 0 });
+
+  it("is a pure pass-through while the buffer is healthy", () => {
+    const b = new ExtrapolationBlender();
+    const o = out();
+    b.resolveFrame(1, NOSE, UP, OMEGA, 0, dt, o);
+    expect(o.nose).toEqual(NOSE);
+    expect(o.up).toEqual(UP);
+    expect(b.frameResidualOf(1)).toBeUndefined();
+  });
+
+  it("keeps the nose TURNING through a starve instead of freezing it", () => {
+    // The gap this closes: position dead-reckons, so the hull kept flying with a
+    // frozen nose - which reads as a ship that stopped steering, and a pilot
+    // leads their shot on it.
+    const b = new ExtrapolationBlender();
+    const o = out();
+    b.resolveFrame(1, NOSE, UP, OMEGA, 100, dt, o);
+    expect(angleBetween(o.nose, NOSE)).toBeCloseTo(1.5 * 0.1, 9);
+    // With no turn rate to go on it freezes, exactly as it always did.
+    const frozen = out();
+    b.resolveFrame(2, NOSE, UP, undefined, 100, dt, frozen);
+    expect(frozen.nose).toEqual(NOSE);
+  });
+
+  it("truncates a nonsense turn rate instead of spinning the hull", () => {
+    // A respawn or a collision between the two bracketed samples reports tens of
+    // radians per second; extrapolating that through a starve is a spinning top.
+    const b = new ExtrapolationBlender();
+    const o = out();
+    b.resolveFrame(1, NOSE, UP, { x: 0, y: 40, z: 0 }, 100, dt, o);
+    expect(angleBetween(o.nose, NOSE)).toBeCloseTo(MAX_ANGULAR_EXTRAPOLATION_RAD, 9);
+  });
+
+  it("NEVER jumps the attitude when a fresh sample lands under an over-eager guess", () => {
+    const b = new ExtrapolationBlender();
+    const o = out();
+    let drawn: { x: number; y: number; z: number } = NOSE;
+    const step = (nose: { x: number; y: number; z: number }, lead: number): number => {
+      b.resolveFrame(1, nose, UP, OMEGA, lead, dt, o);
+      const moved = angleBetween(drawn, o.nose);
+      drawn = { x: o.nose.x, y: o.nose.y, z: o.nose.z };
+      return moved;
+    };
+    step(NOSE, 0);
+    for (const lead of [20, 50, 80, 100]) step(NOSE, lead);
+    // The patch lands and the server turned LESS than the guess assumed. A naive
+    // hand-back rotates the nose backward by the whole error in one frame.
+    const moved = step(turned(0.05), 0);
+    // One frame of the ship's own turn rate, and no more - never a step back.
+    expect(moved).toBeLessThan(OMEGA.y * dt * 1.5);
+  });
+
+  it("repays the attitude residual and lets go", () => {
+    const b = new ExtrapolationBlender();
+    const o = out();
+    b.resolveFrame(1, NOSE, UP, OMEGA, 100, dt, o);
+    const curve = turned(0.02);
+    b.resolveFrame(1, curve, UP, OMEGA, 0, dt, o);
+    const seeded = b.frameResidualOf(1)!;
+    let previous = Math.hypot(seeded.x, seeded.y, seeded.z);
+    expect(previous).toBeGreaterThan(0.05);
+    for (let i = 0; i < 600; i++) {
+      b.resolveFrame(1, curve, UP, OMEGA, 0, dt, o);
+      const r = b.frameResidualOf(1);
+      if (!r) break;
+      const now = Math.hypot(r.x, r.y, r.z);
+      expect(now).toBeLessThanOrEqual(previous + 1e-12); // monotone repayment
+      previous = now;
+    }
+    expect(b.frameResidualOf(1)).toBeUndefined();
+    // And once released the hull is drawn exactly on the curve again.
+    b.resolveFrame(1, curve, UP, OMEGA, 0, dt, o);
+    expect(angleBetween(o.nose, curve)).toBeLessThan(1e-9);
+  });
+
+  it("snaps rather than blending across a respawn-sized attitude change", () => {
+    const b = new ExtrapolationBlender();
+    const o = out();
+    b.resolveFrame(1, NOSE, UP, OMEGA, 100, dt, o);
+    // The ship reappears pointing the other way: sweeping the nose through that
+    // arc would draw a rotation it never flew.
+    const flipped = turned(2.5);
+    const flippedUp = rotateByVector(UP, { x: 0, y: 2.5, z: 0 }, { x: 0, y: 0, z: 0 });
+    b.resolveFrame(1, flipped, flippedUp, OMEGA, 0, dt, o);
+    expect(b.frameResidualOf(1)).toBeUndefined();
+    expect(o.nose).toEqual(flipped);
+  });
+
+  it("keeps ships independent and forgets the ones that leave", () => {
+    const b = new ExtrapolationBlender();
+    const o = out();
+    b.resolveFrame(1, NOSE, UP, OMEGA, 100, dt, o);
+    b.resolveFrame(2, NOSE, UP, OMEGA, 100, dt, o);
+    const curve = turned(0.02);
+    b.resolveFrame(1, curve, UP, OMEGA, 0, dt, o);
+    b.resolveFrame(2, curve, UP, OMEGA, 0, dt, o);
+    expect(b.frameResidualOf(1)).toBeDefined();
+    b.retain(new Set([2]));
+    expect(b.frameResidualOf(1)).toBeUndefined();
+    expect(b.frameResidualOf(2)).toBeDefined();
+    b.clear();
+    expect(b.frameResidualOf(2)).toBeUndefined();
   });
 });

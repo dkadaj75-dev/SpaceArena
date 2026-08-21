@@ -1,4 +1,12 @@
 /** Pure snapshot timing/correction helpers (kept socket-free for tests). */
+import {
+  facingVec,
+  interpolateFrame,
+  orthonormalizeUp,
+  spellAttitude,
+  type FrameAttitude,
+} from "@space-arena/shared";
+
 export function lerpHeading(a: number, b: number, t: number): number {
   let d = (b - a) % (Math.PI * 2);
   if (d > Math.PI) d -= Math.PI * 2;
@@ -279,6 +287,311 @@ export function hermitePosition(
   return out;
 }
 
+/* ------------------------------------------------------------------------- *
+ * Orientation: the same curve, applied to the rotation axis
+ * ------------------------------------------------------------------------- */
+
+/** One ORIENTATION sample on the snapshot timeline (`time` in ms). */
+export interface TimedFrame {
+  readonly time: number;
+  readonly heading: number;
+  readonly pitch: number;
+  readonly up: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/** Scratch nose/up vectors for {@link hermiteFrame} — the render loop is hot. */
+const fPrevNose = { x: 0, y: 0, z: 0 };
+const fFromNose = { x: 0, y: 0, z: 0 };
+const fToNose = { x: 0, y: 0, z: 0 };
+const fNextNose = { x: 0, y: 0, z: 0 };
+const fNose = { x: 0, y: 0, z: 0 };
+
+/**
+ * C1 ORIENTATION interpolation across a snapshot segment — {@link hermitePosition}'s
+ * argument, applied to the axis the hull rotates about.
+ *
+ * ## Why position alone was not enough
+ *
+ * Remote hull positions have ridden a C1 cubic since velocity replication
+ * landed, while their ORIENTATION stayed on `interpolateFrame` — an nlerp of the
+ * nose and up vectors, i.e. exactly the C0 blend the position path was moved off
+ * for being visibly steppy. The two are not equally forgiving, and the
+ * orientation half is arguably the worse offender in a fight:
+ *
+ *  - Position error at 15 Hz is a fraction of a hull length and reads as
+ *    softness. Angular-velocity error reads as the nose CHANGING RATE at every
+ *    knot — a 15 Hz rotational tick that the eye locks onto because the hull
+ *    silhouette is what a pilot tracks while aiming.
+ *  - It is worst in exactly the situation that matters. A ship flying straight
+ *    has no angular velocity to be discontinuous; a ship in a hard turn — the
+ *    only thing anyone is ever shooting at — changes its rotation axis at every
+ *    single sample, so every knot steps.
+ *
+ * The construction is the position curve's, on the nose and up vectors, and the
+ * reasoning transfers wholesale: both segments meeting at a knot evaluate the
+ * SAME finite-difference tangent there, so the interpolated ANGULAR velocity is
+ * continuous through it. The blended pair is then re-spelled through
+ * {@link spellAttitude} and re-orthonormalized, which is what keeps the result a
+ * legal frame — a Hermite of two orthonormal pairs is neither unit nor
+ * orthogonal in between, and the renormalization is what projects it back.
+ *
+ * ## Why finite differences and not the replicated velocity
+ *
+ * There is no replicated ANGULAR velocity and this deliberately does not add
+ * one. The wire already carries `up` (3 int16s) on top of heading and pitch, and
+ * a turn rate is recoverable from the samples the client already holds to within
+ * the accuracy this curve needs — where a LINEAR velocity was worth its three
+ * fields because the position curve's newest segment has no `next` neighbour at
+ * all and would otherwise degrade to a chord on the very segment being drawn.
+ * The orientation curve has the same hole, and it costs the newest segment a
+ * finite-difference tangent at one end — which is precisely what
+ * {@link hermitePosition} did before velocity replication, i.e. strictly better
+ * than the nlerp this replaces, at zero bandwidth.
+ *
+ * ## Guards
+ *
+ * Identical in spirit to the position curve, and for the same reasons:
+ *  - a tangent opposing the segment's own rotation (the hull reversed its turn
+ *    at this knot — a collision, a stick reversal) degrades the segment to the
+ *    plain nlerp `interpolateFrame` performs, rather than swinging the nose
+ *    through an arc it never flew;
+ *  - a tangent longer than {@link VELOCITY_TANGENT_CHORD_LIMIT}·chord is clamped,
+ *    which bounds the excursion at (4/27)·(|M1|+|M2|).
+ *
+ * That second bound is the Fritsch-Carlson limit rather than the flat 1x
+ * {@link hermitePosition} applies to ITS finite differences, and the difference
+ * is not a loosening for its own sake. A Catmull-Rom tangent cannot exceed the
+ * faster NEIGHBOURING chord, but it can easily exceed the segment's OWN — that
+ * is precisely what an accelerating turn is, and a stick being fed in produces
+ * one on every knot. Clamping at 1x there does not guard against anything; it
+ * silently discards the tangent on exactly the manoeuvres this curve exists to
+ * smooth, and measurably restores most of the nlerp's angular-velocity step.
+ * 3x is the largest tangent that still cannot make the interpolant reverse
+ * inside a monotone segment, it admits every turn a ship can fly, and it still
+ * catches the pathology the guard is for: a respawn in the neighbour sample
+ * reports a rotation many times the segment's own and is clamped just as hard.
+ *
+ * With NO neighbours on either side both tangents ARE the chord, and cubic
+ * Hermite with chord tangents is algebraically exact lerp — so a segment at the
+ * edge of the buffer, or a ship that just spawned, reproduces the old nlerp
+ * bit for bit. The change can only ever act where there is real neighbour
+ * information to act on.
+ */
+export function hermiteFrame(
+  prev: TimedFrame | null,
+  from: TimedFrame,
+  to: TimedFrame,
+  next: TimedFrame | null,
+  t: number,
+  out: FrameAttitude,
+): FrameAttitude {
+  const h = to.time - from.time;
+  const usePrev = prev !== null && from.time - prev.time > 0;
+  const useNext = next !== null && next.time - to.time > 0;
+  if (!(h > 0) || (!usePrev && !useNext)) {
+    // Nothing to curve through: this is exactly the old blend.
+    return interpolateFrame(from.heading, from.pitch, from.up, to.heading, to.pitch, to.up, t, out);
+  }
+  facingVec(from.heading, from.pitch, fFromNose);
+  facingVec(to.heading, to.pitch, fToNose);
+  if (usePrev) facingVec(prev!.heading, prev!.pitch, fPrevNose);
+  if (useNext) facingVec(next!.heading, next!.pitch, fNextNose);
+  const kPrev = usePrev ? h / (to.time - prev!.time) : 0;
+  const kNext = useNext ? h / (next!.time - from.time) : 0;
+
+  const nose = hermiteAxis(
+    fFromNose,
+    fToNose,
+    usePrev ? fPrevNose : null,
+    useNext ? fNextNose : null,
+    kPrev,
+    kNext,
+    t,
+    fNose,
+  );
+  const up = hermiteAxis(
+    from.up,
+    to.up,
+    usePrev ? prev!.up : null,
+    useNext ? next!.up : null,
+    kPrev,
+    kNext,
+    t,
+    out.up,
+  );
+  if (nose === null || up === null) {
+    return interpolateFrame(from.heading, from.pitch, from.up, to.heading, to.pitch, to.up, t, out);
+  }
+  spellAttitude(fNose.x, fNose.y, fNose.z, out.up, out);
+  orthonormalizeUp(out.heading, out.pitch, out.up);
+  return out;
+}
+
+/** A frame axis whose Hermite blend degenerated — caller falls back to nlerp. */
+const DEGENERATE_AXIS_SQ = 1e-12;
+
+/**
+ * One axis of {@link hermiteFrame}'s blend: cubic Hermite between `from` and
+ * `to` with Catmull-Rom tangents, or `null` when the guards say this segment
+ * must degrade to a plain lerp (see {@link hermiteFrame}).
+ */
+function hermiteAxis(
+  from: { readonly x: number; readonly y: number; readonly z: number },
+  to: { readonly x: number; readonly y: number; readonly z: number },
+  prev: { readonly x: number; readonly y: number; readonly z: number } | null,
+  next: { readonly x: number; readonly y: number; readonly z: number } | null,
+  kPrev: number,
+  kNext: number,
+  t: number,
+  out: Vec3,
+): Vec3 | null {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dz = to.z - from.z;
+  let m1x = dx, m1y = dy, m1z = dz;
+  let m2x = dx, m2y = dy, m2z = dz;
+  if (prev) {
+    m1x = (to.x - prev.x) * kPrev;
+    m1y = (to.y - prev.y) * kPrev;
+    m1z = (to.z - prev.z) * kPrev;
+  }
+  if (next) {
+    m2x = (next.x - from.x) * kNext;
+    m2y = (next.y - from.y) * kNext;
+    m2z = (next.z - from.z) * kNext;
+  }
+  if (m1x * dx + m1y * dy + m1z * dz < 0 || m2x * dx + m2y * dy + m2z * dz < 0) return null;
+  const cap = Math.sqrt(dx * dx + dy * dy + dz * dz) * VELOCITY_TANGENT_CHORD_LIMIT;
+  const l1 = Math.sqrt(m1x * m1x + m1y * m1y + m1z * m1z);
+  if (l1 > cap) {
+    const k = cap / l1;
+    m1x *= k;
+    m1y *= k;
+    m1z *= k;
+  }
+  const l2 = Math.sqrt(m2x * m2x + m2y * m2y + m2z * m2z);
+  if (l2 > cap) {
+    const k = cap / l2;
+    m2x *= k;
+    m2y *= k;
+    m2z *= k;
+  }
+  const s2 = t * t;
+  const s3 = s2 * t;
+  const h00 = 2 * s3 - 3 * s2 + 1;
+  const h10 = s3 - 2 * s2 + t;
+  const h01 = 3 * s2 - 2 * s3;
+  const h11 = s3 - s2;
+  out.x = h00 * from.x + h10 * m1x + h01 * to.x + h11 * m2x;
+  out.y = h00 * from.y + h10 * m1y + h01 * to.y + h11 * m2y;
+  out.z = h00 * from.z + h10 * m1z + h01 * to.z + h11 * m2z;
+  return out.x * out.x + out.y * out.y + out.z * out.z > DEGENERATE_AXIS_SQ ? out : null;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Small-rotation algebra for the orientation half of the extrapolation blender
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The ROTATION VECTOR (axis · angle, radians) carrying frame `(aNose, aUp)` onto
+ * `(bNose, bUp)`.
+ *
+ * Built from the three axis cross products rather than through a quaternion:
+ * `½·(n_a×n_b + u_a×u_b + w_a×w_b)` is the standard attitude-error vector, it
+ * needs no square roots per axis and no shortest-path sign fix (an axis pair is
+ * not a quaternion, so there is no double cover to disambiguate — the answer is
+ * the short arc by construction). Its magnitude is `sinθ` rather than `θ`, which
+ * this corrects with an `asin`, so a single-axis rotation comes back EXACT and
+ * the handback continuity below is exact with it. Angles past 90° are not
+ * representable this way and are reported saturated; every caller here snaps
+ * long before that (see {@link FRAME_RESIDUAL_SNAP_RAD}).
+ */
+export function frameDelta(
+  aNose: { readonly x: number; readonly y: number; readonly z: number },
+  aUp: { readonly x: number; readonly y: number; readonly z: number },
+  bNose: { readonly x: number; readonly y: number; readonly z: number },
+  bUp: { readonly x: number; readonly y: number; readonly z: number },
+  out: Vec3,
+): Vec3 {
+  const awx = aNose.y * aUp.z - aNose.z * aUp.y;
+  const awy = aNose.z * aUp.x - aNose.x * aUp.z;
+  const awz = aNose.x * aUp.y - aNose.y * aUp.x;
+  const bwx = bNose.y * bUp.z - bNose.z * bUp.y;
+  const bwy = bNose.z * bUp.x - bNose.x * bUp.z;
+  const bwz = bNose.x * bUp.y - bNose.y * bUp.x;
+  let x = 0.5 * (aNose.y * bNose.z - aNose.z * bNose.y + (aUp.y * bUp.z - aUp.z * bUp.y) + (awy * bwz - awz * bwy));
+  let y = 0.5 * (aNose.z * bNose.x - aNose.x * bNose.z + (aUp.z * bUp.x - aUp.x * bUp.z) + (awz * bwx - awx * bwz));
+  let z = 0.5 * (aNose.x * bNose.y - aNose.y * bNose.x + (aUp.x * bUp.y - aUp.y * bUp.x) + (awx * bwy - awy * bwx));
+  const sin = Math.sqrt(x * x + y * y + z * z);
+  if (sin > 1e-9) {
+    const k = Math.asin(Math.min(1, sin)) / sin;
+    x *= k;
+    y *= k;
+    z *= k;
+  }
+  out.x = x;
+  out.y = y;
+  out.z = z;
+  return out;
+}
+
+/** Scratch noses for {@link angularVelocity}. */
+const avFromNose = { x: 0, y: 0, z: 0 };
+const avToNose = { x: 0, y: 0, z: 0 };
+
+/**
+ * Angular velocity implied by two authoritative orientation samples, as a
+ * rotation vector in rad/SECOND — the rotational counterpart of
+ * `sampledVelocity`, and what {@link ExtrapolationBlender.resolveFrame}
+ * dead-reckons along when the buffer starves.
+ *
+ * `undefined` when the samples are not separated in time, which is the honest
+ * answer and the safe one: a zero divide here would spin a hull to NaN.
+ */
+export function angularVelocity(
+  from: { readonly heading: number; readonly pitch: number; readonly up: { readonly x: number; readonly y: number; readonly z: number } },
+  to: { readonly heading: number; readonly pitch: number; readonly up: { readonly x: number; readonly y: number; readonly z: number } },
+  dtSeconds: number,
+  out: Vec3,
+): Vec3 | undefined {
+  if (!(dtSeconds > 0)) return undefined;
+  facingVec(from.heading, from.pitch, avFromNose);
+  facingVec(to.heading, to.pitch, avToNose);
+  frameDelta(avFromNose, from.up, avToNose, to.up, out);
+  out.x /= dtSeconds;
+  out.y /= dtSeconds;
+  out.z /= dtSeconds;
+  return out;
+}
+
+/** Rotate `v` by the rotation vector `r` (axis · angle) — Rodrigues, in place. */
+export function rotateByVector(
+  v: { readonly x: number; readonly y: number; readonly z: number },
+  r: { readonly x: number; readonly y: number; readonly z: number },
+  out: Vec3,
+): Vec3 {
+  const angle = Math.sqrt(r.x * r.x + r.y * r.y + r.z * r.z);
+  if (!(angle > 1e-9)) {
+    out.x = v.x;
+    out.y = v.y;
+    out.z = v.z;
+    return out;
+  }
+  const kx = r.x / angle;
+  const ky = r.y / angle;
+  const kz = r.z / angle;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const cx = ky * v.z - kz * v.y;
+  const cy = kz * v.x - kx * v.z;
+  const cz = kx * v.y - ky * v.x;
+  const d = (kx * v.x + ky * v.y + kz * v.z) * (1 - cos);
+  out.x = v.x * cos + cx * sin + kx * d;
+  out.y = v.y * cos + cy * sin + ky * d;
+  out.z = v.z * cos + cz * sin + kz * d;
+  return out;
+}
+
 /**
  * How fast a post-extrapolation residual is repaid, per second, as an
  * exponential rate. At 8/s a 1-unit residual is under 5 cm after 375 ms — inside
@@ -298,6 +611,42 @@ const RESIDUAL_EPSILON = 0.001;
  * its `snapDistance`, and for the same reason.
  */
 const RESIDUAL_SNAP_DISTANCE = 12;
+
+/**
+ * Repayment rate for an ORIENTATION residual, per second.
+ *
+ * Faster than the positional 8/s because the quantity is bounded far tighter: a
+ * rotational guess is capped at {@link MAX_ANGULAR_EXTRAPOLATION_RAD}, so the
+ * residual it can leave behind is a fifth of a radian, and `|r|·rate` — the
+ * angular speed the repayment itself adds to the hull — peaks at ~2 rad/s. That
+ * is the ship's own turn rate: fast enough to clear inside ~300 ms, and still
+ * incapable of rotating the hull faster than a hull can physically rotate, which
+ * is the property that keeps a repayment from reading as a snap.
+ */
+const FRAME_RESIDUAL_DECAY_PER_SEC = 10;
+/** Residual angle (rad) below which the orientation is released onto the curve. */
+const FRAME_RESIDUAL_EPSILON = 1e-4;
+/**
+ * An orientation residual this large (~29°) is not a mispredicted 100 ms of
+ * turning — a bounded guess cannot produce one — it is a different attitude: a
+ * respawn, a collision that spun the hull, a decode gap. Blending across it
+ * would sweep the nose through an arc the ship never flew, so it is dropped and
+ * the hull appears pointing where the server says it points. Same judgement, and
+ * same reason, as {@link RESIDUAL_SNAP_DISTANCE}.
+ */
+const FRAME_RESIDUAL_SNAP_RAD = 0.5;
+/**
+ * Ceiling on a single frame's dead-reckoned ROTATION.
+ *
+ * The angular velocity is estimated from the bracketed sample pair, and unlike a
+ * replicated linear velocity that estimate can be nonsense: a respawn or a
+ * collision between those two samples reports a rotation of most of a turn
+ * across 67 ms, i.e. tens of radians per second. Extrapolating that for a
+ * starved 100 ms would spin the hull like a top. 0.2 rad is what a real ship
+ * covers in {@link MAX_EXTRAPOLATION_MS} at ~2 rad/s, so this admits every
+ * honest turn and truncates only the pathological ones.
+ */
+export const MAX_ANGULAR_EXTRAPOLATION_RAD = 0.2;
 
 /**
  * Bounded dead reckoning past the newest sample, and the seamless way back.
@@ -346,6 +695,11 @@ export class ExtrapolationBlender {
   /** Last position this blender DREW for an id — the anchor for re-entry. */
   private readonly drawn = new Map<number, Vec3>();
   private readonly dry = new Set<number>();
+  /** Outstanding orientation residual per id, as a rotation vector (rad). */
+  private readonly frameResiduals = new Map<number, Vec3>();
+  /** Last ORIENTATION drawn per id — the anchor for a rotational re-entry. */
+  private readonly drawnFrames = new Map<number, DrawnFrame>();
+  private readonly dryFrames = new Set<number>();
 
   /**
    * Resolve one ship's displayed position for this frame.
@@ -434,6 +788,107 @@ export class ExtrapolationBlender {
     return out;
   }
 
+  /**
+   * The ORIENTATION half of {@link resolve} — same contract, same guarantees,
+   * applied to the hull's rotation instead of its position.
+   *
+   * Without this a starved buffer produced a hull that KEPT FLYING (position
+   * dead-reckons) while its nose stood still, then snapped to a new attitude
+   * when the patch landed. That is a worse artefact than the freeze it was
+   * introduced to fix: a hull sliding sideways with a frozen nose does not read
+   * as "the network hiccuped", it reads as the ship having stopped steering, and
+   * a pilot leads their shot accordingly.
+   *
+   * The angular velocity is the caller's estimate from the bracketed sample
+   * pair (there is no replicated one — see {@link hermiteFrame}), which is why
+   * the guess is capped at {@link MAX_ANGULAR_EXTRAPOLATION_RAD} where the
+   * positional guess trusts its velocity for the full lead.
+   *
+   * @param id      entity id, the key for this ship's carried residual.
+   * @param nose    the interpolated nose direction (unit) for this frame.
+   * @param up      the interpolated up axis (unit, ⊥ nose) for this frame.
+   * @param omega   angular velocity as a rotation vector in rad/SECOND, if known.
+   * @param leadMs  `bracket`'s bounded overrun; 0 on a healthy frame.
+   * @param dtSeconds frame delta, for the residual decay.
+   * @param out     written in place (`out.nose`, `out.up`).
+   */
+  resolveFrame(
+    id: number,
+    nose: { readonly x: number; readonly y: number; readonly z: number },
+    up: { readonly x: number; readonly y: number; readonly z: number },
+    omega: { readonly x: number; readonly y: number; readonly z: number } | undefined,
+    leadMs: number,
+    dtSeconds: number,
+    out: { nose: Vec3; up: Vec3 },
+  ): void {
+    const extrapolating = leadMs > 0 && omega !== undefined;
+    let residual = this.frameResiduals.get(id);
+
+    if (extrapolating) {
+      // Residual and lead are SUMMED as rotation vectors rather than composed as
+      // rotations. They do not commute exactly, but both are bounded well under
+      // half a radian here, where the composition error is third order — far
+      // below the quantization the attitude already travels under.
+      clampRotation(omega.x * (leadMs / 1000), omega.y * (leadMs / 1000), omega.z * (leadMs / 1000), scratchRot);
+      scratchRot.x += residual?.x ?? 0;
+      scratchRot.y += residual?.y ?? 0;
+      scratchRot.z += residual?.z ?? 0;
+      rotateByVector(nose, scratchRot, out.nose);
+      rotateByVector(up, scratchRot, out.up);
+    } else if (this.dryFrames.has(id)) {
+      // First wet frame after a dry spell: re-anchor on the orientation DRAWN
+      // last frame, carried one frame further along the last known turn rate —
+      // continuity of angular velocity, not merely of attitude, for exactly the
+      // reason the positional handback carries `v·dt` (see {@link resolve}).
+      const last = this.drawnFrames.get(id);
+      residual = undefined;
+      if (last) {
+        if (omega) {
+          scratchRot.x = omega.x * dtSeconds;
+          scratchRot.y = omega.y * dtSeconds;
+          scratchRot.z = omega.z * dtSeconds;
+          rotateByVector(last.nose, scratchRot, scratchNose);
+          rotateByVector(last.up, scratchRot, scratchUp);
+        } else {
+          scratchNose.x = last.nose.x; scratchNose.y = last.nose.y; scratchNose.z = last.nose.z;
+          scratchUp.x = last.up.x; scratchUp.y = last.up.y; scratchUp.z = last.up.z;
+        }
+        frameDelta(nose, up, scratchNose, scratchUp, scratchRot);
+        if (Math.hypot(scratchRot.x, scratchRot.y, scratchRot.z) <= FRAME_RESIDUAL_SNAP_RAD) {
+          residual = { x: scratchRot.x, y: scratchRot.y, z: scratchRot.z };
+        }
+      }
+      if (residual) this.frameResiduals.set(id, residual);
+      else this.frameResiduals.delete(id);
+      applyFrameResidual(nose, up, residual, out);
+    } else {
+      if (residual) {
+        const k = Math.exp(-FRAME_RESIDUAL_DECAY_PER_SEC * Math.max(0, dtSeconds));
+        residual.x *= k;
+        residual.y *= k;
+        residual.z *= k;
+        if (Math.abs(residual.x) + Math.abs(residual.y) + Math.abs(residual.z) < FRAME_RESIDUAL_EPSILON) {
+          this.frameResiduals.delete(id);
+          residual = undefined;
+        }
+      }
+      applyFrameResidual(nose, up, residual, out);
+    }
+
+    if (extrapolating) this.dryFrames.add(id);
+    else this.dryFrames.delete(id);
+    const drawn = this.drawnFrames.get(id);
+    if (drawn) {
+      drawn.nose.x = out.nose.x; drawn.nose.y = out.nose.y; drawn.nose.z = out.nose.z;
+      drawn.up.x = out.up.x; drawn.up.y = out.up.y; drawn.up.z = out.up.z;
+    } else {
+      this.drawnFrames.set(id, {
+        nose: { x: out.nose.x, y: out.nose.y, z: out.nose.z },
+        up: { x: out.up.x, y: out.up.y, z: out.up.z },
+      });
+    }
+  }
+
   /** Forget every ship not in `ids` (left the match, died, was culled). */
   retain(ids: ReadonlySet<number>): void {
     for (const id of this.drawn.keys()) {
@@ -442,6 +897,12 @@ export class ExtrapolationBlender {
       this.residuals.delete(id);
       this.dry.delete(id);
     }
+    for (const id of this.drawnFrames.keys()) {
+      if (ids.has(id)) continue;
+      this.drawnFrames.delete(id);
+      this.frameResiduals.delete(id);
+      this.dryFrames.delete(id);
+    }
   }
 
   /** Drop everything — a reconnect, a rematch, a snapshot-clock reset. */
@@ -449,6 +910,9 @@ export class ExtrapolationBlender {
     this.residuals.clear();
     this.drawn.clear();
     this.dry.clear();
+    this.frameResiduals.clear();
+    this.drawnFrames.clear();
+    this.dryFrames.clear();
   }
 
   /** Test/telemetry probe: the residual this id is currently carrying. */
@@ -456,6 +920,48 @@ export class ExtrapolationBlender {
     const r = this.residuals.get(id);
     return r ? { x: r.x, y: r.y, z: r.z } : undefined;
   }
+
+  /** Test/telemetry probe: the ORIENTATION residual this id is carrying (rad). */
+  frameResidualOf(id: number): Vec3 | undefined {
+    const r = this.frameResiduals.get(id);
+    return r ? { x: r.x, y: r.y, z: r.z } : undefined;
+  }
+}
+
+/** Last orientation drawn for one id (see {@link ExtrapolationBlender.resolveFrame}). */
+interface DrawnFrame {
+  nose: Vec3;
+  up: Vec3;
+}
+
+const scratchRot: Vec3 = { x: 0, y: 0, z: 0 };
+const scratchNose: Vec3 = { x: 0, y: 0, z: 0 };
+const scratchUp: Vec3 = { x: 0, y: 0, z: 0 };
+
+/** `out = R(residual) · (nose, up)`, or a straight copy when there is none. */
+function applyFrameResidual(
+  nose: { readonly x: number; readonly y: number; readonly z: number },
+  up: { readonly x: number; readonly y: number; readonly z: number },
+  residual: Vec3 | undefined,
+  out: { nose: Vec3; up: Vec3 },
+): void {
+  if (residual) {
+    rotateByVector(nose, residual, out.nose);
+    rotateByVector(up, residual, out.up);
+    return;
+  }
+  out.nose.x = nose.x; out.nose.y = nose.y; out.nose.z = nose.z;
+  out.up.x = up.x; out.up.y = up.y; out.up.z = up.z;
+}
+
+/** Rotation vector, truncated to {@link MAX_ANGULAR_EXTRAPOLATION_RAD}. */
+function clampRotation(x: number, y: number, z: number, out: Vec3): Vec3 {
+  const angle = Math.sqrt(x * x + y * y + z * z);
+  const k = angle > MAX_ANGULAR_EXTRAPOLATION_RAD ? MAX_ANGULAR_EXTRAPOLATION_RAD / angle : 1;
+  out.x = x * k;
+  out.y = y * k;
+  out.z = z * k;
+  return out;
 }
 
 /**

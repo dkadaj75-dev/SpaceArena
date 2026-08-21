@@ -18,6 +18,7 @@ import {
   pitchTuningOf,
   resolveShipStats,
   resolveStaticStep,
+  spellAttitude,
   StaticWorld,
   MSG_ORDER,
   createLogger,
@@ -48,9 +49,11 @@ import { NetClient, type ArenaJoinOptions } from "./NetClient.js";
 import type { SeatReservation } from "colyseus.js";
 import {
   adaptiveRenderDelay,
+  angularVelocity,
   bracket,
   createSnapshotClock,
   ExtrapolationBlender,
+  hermiteFrame,
   hermitePosition,
   RENDER_DELAY_CEIL_MS,
   stampSnapshot,
@@ -956,15 +959,30 @@ export class NetGameSession extends GameSession {
   }
 
   /**
-   * Keep the local player's authoritative velocity up to date by differencing
-   * the two snapshots currently being interpolated between. Only a snap reads
+   * Keep the local player's authoritative velocity up to date. Only a snap reads
    * it, but it has to be measured continuously: at the moment of a snap the
    * interesting sample pair is already in the past.
+   *
+   * The REPLICATED velocity is preferred over differencing the bracketed pair,
+   * and the difference matters at exactly the moment this value is used. A
+   * difference is the segment's AVERAGE velocity, centred half a patch (33 ms)
+   * in the past and computed from two centi-quantized positions — and a snap
+   * fires precisely when the server did something abrupt (an asteroid impact
+   * that cancelled most of the ship's speed), where an average across the
+   * impact is a velocity the ship never had. Adopting it makes the ship sprint
+   * away from the corrected position and snap back, which is the oscillation
+   * {@link snapPrediction} exists to prevent. The newest sample's own velocity
+   * is the post-impact one.
+   *
+   * Differencing remains the fallback for a sample with no replicated velocity
+   * (a pre-velocity server, a hull decoded as an all-zero triple).
    */
   private trackServerVelocity(a: TimedSnapshot, z: TimedSnapshot): void {
     const from = a.snapshot.ships.find((s) => s.id === this.playerId);
     const to = z.snapshot.ships.find((s) => s.id === this.playerId);
-    const v = from && to ? sampledVelocity(from.pos, to.pos, (z.time - a.time) / 1000) : { x: 0, y: 0, z: 0 };
+    const v =
+      to?.velocity ??
+      (from && to ? sampledVelocity(from.pos, to.pos, (z.time - a.time) / 1000) : { x: 0, y: 0, z: 0 });
     this.serverVel.x = v.x;
     this.serverVel.y = v.y;
     this.serverVel.z = v.z;
@@ -1210,6 +1228,36 @@ export function boostMult(configs: ConfigService, fittedModuleIds: readonly stri
 const lerpFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 
 /**
+ * Scratch orientation samples handed to {@link hermiteFrame}, and the scratch
+ * the dead-reckoned frame comes back in.
+ *
+ * `interpolate` runs per ship per DRAWN frame, so none of this may allocate.
+ * `up` is aliased to the snapshot's own vector rather than copied — the curve
+ * only ever reads it.
+ */
+interface FrameSample {
+  time: number;
+  heading: number;
+  pitch: number;
+  up: { readonly x: number; readonly y: number; readonly z: number };
+}
+const framePrev: FrameSample = { time: 0, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
+const frameFrom: FrameSample = { time: 0, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
+const frameTo: FrameSample = { time: 0, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
+const frameNext: FrameSample = { time: 0, heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
+const frameOmega = { x: 0, y: 0, z: 0 };
+const frameNose = { x: 0, y: 0, z: 0 };
+const frameOut = { nose: { x: 0, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } };
+
+function fillFrame(dst: FrameSample, time: number, ship: ShipSnapshot): FrameSample {
+  dst.time = time;
+  dst.heading = ship.heading;
+  dst.pitch = ship.pitch;
+  dst.up = ship.up;
+  return dst;
+}
+
+/**
  * The dead-reckoning half of a rendered frame, threaded through {@link interpolate}.
  *
  * Optional because most callers (tests, the pacing suite) want the pure blend
@@ -1267,14 +1315,14 @@ export function interpolate(
   const ships = b.snapshot.ships.map((s) => {
     live?.add(s.id);
     const p = a.snapshot.ships.find((x) => x.id === s.id) ?? s;
-    // The ORIENTATION is interpolated as one frame (nose + up nlerp'd and
-    // re-orthonormalized), never as heading and pitch independently: near the
-    // poles the heading coordinate's scale is unbounded, so two adjacent
-    // samples can differ by a large heading for a tiny real rotation, and a
-    // coordinate lerp sweeps the hull through a rotation it never made.
-    interpolateFrame(p.heading, p.pitch, p.up, s.heading, s.pitch, s.up, t, lerpFrame);
     const pos = { x: 0, y: 0, z: 0 };
     if (s.id === localPlayerId) {
+      // The ORIENTATION is interpolated as one frame (nose + up nlerp'd and
+      // re-orthonormalized), never as heading and pitch independently: near the
+      // poles the heading coordinate's scale is unbounded, so two adjacent
+      // samples can differ by a large heading for a tiny real rotation, and a
+      // coordinate lerp sweeps the hull through a rotation it never made.
+      interpolateFrame(p.heading, p.pitch, p.up, s.heading, s.pitch, s.up, t, lerpFrame);
       pos.x = p.pos.x + (s.pos.x - p.pos.x) * t;
       pos.y = p.pos.y + (s.pos.y - p.pos.y) * t;
       pos.z = p.pos.z + (s.pos.z - p.pos.z) * t;
@@ -1294,11 +1342,46 @@ export function interpolate(
         t,
         pos,
       );
+      // The ORIENTATION rides the matching C1 curve through the same four
+      // samples — angular velocity continuous through every knot, where the
+      // nlerp above steps it. See `hermiteFrame`: with no flanking samples it
+      // reduces to that nlerp exactly, so the buffer edges are unchanged.
+      hermiteFrame(
+        pPrev ? fillFrame(framePrev, before!.time, pPrev) : null,
+        fillFrame(frameFrom, a.time, p),
+        fillFrame(frameTo, b.time, s),
+        pNext ? fillFrame(frameNext, after!.time, pNext) : null,
+        t,
+        lerpFrame,
+      );
       // Bounded dead reckoning on a starved buffer, and the residual it repays
       // afterwards. A no-op whenever the buffer is healthy — `leadMs` is 0 and
-      // no residual is outstanding — so the curve above is what gets drawn.
+      // no residual is outstanding — so the curves above are what get drawn.
+      // Position and orientation are carried TOGETHER: a hull that keeps flying
+      // with a frozen nose is a worse lie than one that stops altogether.
       if (extrapolate) {
         extrapolate.blender.resolve(s.id, pos, s.velocity, extrapolate.leadMs, extrapolate.dtSeconds, pos);
+        // Measured on EVERY frame, not only dry ones: the hand-back frame needs
+        // the last known turn rate to re-anchor on `drawn + ω·dt` rather than on
+        // `drawn`, and anchoring on `drawn` alone draws exactly zero rotation
+        // that frame — the freeze this removes, relocated to the recovery. Same
+        // reasoning, and the same one-frame stall, as the positional `v·dt`.
+        const omega = angularVelocity(p, s, (b.time - a.time) / 1000, frameOmega);
+        facingVec(lerpFrame.heading, lerpFrame.pitch, frameNose);
+        extrapolate.blender.resolveFrame(
+          s.id,
+          frameNose,
+          lerpFrame.up,
+          omega,
+          extrapolate.leadMs,
+          extrapolate.dtSeconds,
+          frameOut,
+        );
+        spellAttitude(frameOut.nose.x, frameOut.nose.y, frameOut.nose.z, frameOut.up, lerpFrame);
+        lerpFrame.up.x = frameOut.up.x;
+        lerpFrame.up.y = frameOut.up.y;
+        lerpFrame.up.z = frameOut.up.z;
+        orthonormalizeUp(lerpFrame.heading, lerpFrame.pitch, lerpFrame.up);
       }
     }
     return {

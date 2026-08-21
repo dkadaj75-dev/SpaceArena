@@ -581,3 +581,114 @@ describe("bounded dead reckoning through a starved buffer", () => {
     expect(maxLead).toBeLessThan(TRUE_SPEED * (MAX_EXTRAPOLATION_MS / 1000) * 1.5);
   });
 });
+
+/**
+ * **The nose has to survive a starve too (2026-08-21).**
+ *
+ * Bounded dead reckoning shipped for POSITION only, so a starved buffer drew a
+ * hull that kept flying with a frozen nose and then snapped to a new attitude
+ * when the patch landed. That is not a smaller version of the freeze it fixed —
+ * it is a different lie, and a worse one for the pilot shooting at it: a hull
+ * sliding with a fixed nose reads as a ship that stopped steering.
+ *
+ * Same harness as the position suite above, with the ship's attitude tracking
+ * its own turn, driving the REAL `bracket` + `interpolate` + blender.
+ */
+describe("bounded dead reckoning of the ATTITUDE through a starved buffer", () => {
+  /** Heading of a hull yawing with the circle it is flying. */
+  const trueHeading = (ms: number): number => (OMEGA * ms) / 1000;
+
+  function turningBuffer(durationMs: number): { time: number; snapshot: Snapshot }[] {
+    const out: { time: number; snapshot: Snapshot }[] = [];
+    for (let t = 0; t <= durationMs; t += PATCH_MS) {
+      const base = snapshotAt(t);
+      out.push({
+        time: t,
+        snapshot: {
+          ...base,
+          ships: base.ships.map((s) =>
+            s.id === REMOTE_ID
+              ? { ...s, heading: trueHeading(t), velocity: trueVel(t) }
+              : { ...s, velocity: { x: 0, y: 0, z: 0 } },
+          ),
+        },
+      });
+    }
+    return out;
+  }
+
+  /** Drawn heading per frame, unwrapped — the quantity that must keep advancing. */
+  function drawHeadings(starveMs: number): number[] {
+    const full = turningBuffer(4000);
+    const blender = new ExtrapolationBlender();
+    const out: number[] = [];
+    const STARVE_AT = 1500;
+    let lastNow = 1000;
+    let unwrapped = 0;
+    let previous: number | null = null;
+    for (let now = 1000; now <= 2600; now += FRAME_MS) {
+      const cutoff = now > STARVE_AT && now < STARVE_AT + starveMs ? STARVE_AT : now;
+      const buffer = full.filter((s) => s.time <= cutoff);
+      const b = bracket(buffer, now - RENDER_DELAY_MS);
+      if (!b) continue;
+      const [a, z, t, leadMs] = b;
+      const ia = buffer.indexOf(a);
+      const iz = buffer.indexOf(z);
+      const frame = interpolate(
+        a,
+        z,
+        t,
+        ia > 0 ? buffer[ia - 1]! : null,
+        iz >= 0 && iz + 1 < buffer.length ? buffer[iz + 1]! : null,
+        LOCAL_ID,
+        { blender, leadMs, dtSeconds: (now - lastNow) / 1000 },
+      );
+      lastNow = now;
+      const heading = frame.ships.find((s) => s.id === REMOTE_ID)!.heading;
+      if (previous !== null) {
+        let step = heading - previous;
+        if (step > Math.PI) step -= Math.PI * 2;
+        if (step < -Math.PI) step += Math.PI * 2;
+        unwrapped += step;
+      }
+      previous = heading;
+      out.push(unwrapped);
+    }
+    return out;
+  }
+
+  /** Frames that turned less than a third of the true rate — i.e. a frozen nose. */
+  function stalledNoseFrames(headings: number[]): number {
+    let stalled = 0;
+    for (let i = 1; i < headings.length; i++) {
+      if (Math.abs(headings[i]! - headings[i - 1]!) < OMEGA * (FRAME_MS / 1000) * 0.33) stalled++;
+    }
+    return stalled;
+  }
+
+  it("keeps the nose TURNING through a starve inside the extrapolation budget", () => {
+    // Includes the HAND-BACK frame, which is where a naive re-anchor draws zero
+    // rotation: see the `ω·dt` carry in `interpolate`.
+    expect(stalledNoseFrames(drawHeadings(150))).toBe(0);
+  });
+
+  it("degrades to a held attitude past the budget rather than spinning on", () => {
+    expect(stalledNoseFrames(drawHeadings(900))).toBeGreaterThan(0);
+  });
+
+  it("NEVER rotates the nose backward, including on the frame the patch lands", () => {
+    for (const starveMs of [80, 150, 200, 400, 900]) {
+      const h = drawHeadings(starveMs);
+      for (let i = 1; i < h.length; i++) {
+        expect(h[i]! - h[i - 1]!, `starve ${starveMs}ms, frame ${i}`).toBeGreaterThanOrEqual(-1e-9);
+      }
+    }
+  });
+
+  it("rejoins the true attitude once the buffer refills", () => {
+    const starved = drawHeadings(200);
+    const truth = drawHeadings(0);
+    const last = Math.min(starved.length, truth.length) - 1;
+    expect(Math.abs(starved[last]! - truth[last]!)).toBeLessThan(0.01);
+  });
+});
