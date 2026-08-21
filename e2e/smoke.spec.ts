@@ -280,6 +280,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
     ok: boolean;
     targetId: number;
     hull: number;
+    reason: string;
   } | null>(() => {
     const debug = (window as unknown as { __debug?: DebugApi }).__debug;
     if (!debug?.session) return null;
@@ -296,7 +297,11 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
       if (d <= -Math.PI) d += Math.PI * 2;
       return d;
     };
-    for (let frame = 0; frame < 240; frame++) {
+    // ~150 sim-seconds: the Brawler makes 16 m/s and the practice bot holds
+    // its own chase distance, so a stern chase from a 245 m spawn plus the
+    // 1.5 s lock dwell does not fit the old 40 sim-second budget.
+    let lastState = "never saw a frame";
+    for (let frame = 0; frame < 900; frame++) {
       const session = debug.session;
       if (!session) return null;
       const me = session.curSnapshot.ships.find((ship) => ship.id === session.playerId);
@@ -317,30 +322,37 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
         lastOrderAt = now;
         session.order({
           kind: "flight",
-          // Spawns sit farther apart than the hull's `sensors.lockRange`, and
-          // the bot no longer closes the gap on its own, so the pilot must:
-          // burn toward the target until inside comfortable lock distance.
-          throttle: distance > 60 ? 0.6 : 0,
+          // Spawns sit farther apart than the hull's `sensors.lockRange` and
+          // the bot keeps its own chase distance, so the pilot must burn flat
+          // out (boosting while far) to close inside lock range at all.
+          throttle: distance > 60 ? 1 : 0,
           turn: Math.max(-1, Math.min(1, angleTo(me.heading, bearing) * 2)),
-          boost: false,
+          boost: distance > 120,
           fire: false,
         });
       }
       debug.forceFrame(166);
       const currentMe = session.curSnapshot.ships.find((ship) => ship.id === session.playerId);
-      const currentTarget = session.curSnapshot.ships.find((ship) => ship.id === target.id);
-      if (
-        currentMe?.locked &&
-        currentMe.targetId === target.id &&
-        currentMe.modules.some((module) => module.state === "active") &&
-        currentTarget
-      ) {
-        return { ok: true, targetId: target.id, hull: currentTarget.hull };
+      // Accept whichever foe the sim locked: in a 2v2 the lock is free to land
+      // on the enemy that is not the one this pilot happens to be chasing.
+      const locked =
+        currentMe?.locked && currentMe.targetId !== null
+          ? session.curSnapshot.ships.find((ship) => ship.id === currentMe.targetId)
+          : undefined;
+      if (currentMe && locked && currentMe.modules.some((module) => module.state === "active")) {
+        return { ok: true, targetId: locked.id, hull: locked.hull, reason: "" };
       }
+      lastState =
+        `frame=${frame} dist=${distance.toFixed(0)} locked=${String(currentMe?.locked)} ` +
+        `targetId=${String(currentMe?.targetId)} ` +
+        `modules=${(currentMe?.modules ?? []).map((m) => m.state).join(",")}`;
     }
-    return null;
+    return { ok: false, targetId: -1, hull: 0, reason: lastState };
   });
-  expect(firingSolution?.ok, "failed to arm a weapon and acquire the practice bot").toBe(true);
+  expect(
+    firingSolution?.ok,
+    `failed to arm a weapon and acquire the practice bot: ${firingSolution?.reason ?? "no session"}`,
+  ).toBe(true);
 
   const canvas = page.locator("#renderCanvas");
   await canvas.dispatchEvent("pointerdown", {
