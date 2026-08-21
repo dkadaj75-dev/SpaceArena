@@ -3,7 +3,7 @@ import type { ConfigEvents, ConfigService, EventBus } from "@space-arena/shared"
 import type { GameSession } from "../GameSession.js";
 import { resolveFlightHudLayout } from "./flightHudLayout.js";
 import { Hud } from "./Hud.js";
-import { LockReticle } from "./LockReticle.js";
+import { LOCKED_TEXT, LOCKING_TEXT, LockReticle } from "./LockReticle.js";
 
 describe("LockReticle distance label", () => {
   it("renders no scene-sized ring when the HUD has no target", () => {
@@ -64,13 +64,20 @@ describe("LockReticle distance label", () => {
     );
     reticle.update(true, 400, 300, 0.5, false, 99.5);
     const label = root.querySelector<HTMLElement>(".hud-reticle-distance")!;
+    const status = root.querySelector<HTMLElement>(".hud-reticle-status")!;
     const bracket = root.querySelector(".hud-reticle-bracket")!;
     expect(label.textContent).toBe("100m");
+    // Status and range are ONE line beside the bracket (owner HUD pass): the
+    // separator is CSS content, so the two spans stay independently written.
+    expect(status.parentElement).toBe(label.parentElement);
+    expect(status.parentElement!.className).toBe("hud-reticle-readout");
+    expect(status.textContent).toBe(LOCKING_TEXT);
     expect(bracket.classList.contains("locked")).toBe(false);
 
     reticle.update(true, 400, 300, 1, true, 100.4, "Crimson Vector");
     expect(root.querySelector(".hud-reticle-distance")).toBe(label);
     expect(label.textContent).toBe("100m");
+    expect(status.textContent).toBe(LOCKED_TEXT);
     expect(bracket.classList.contains("locked")).toBe(true);
     expect(root.querySelector(".hud-reticle-target-name")?.textContent).toBe("CRIMSON VECTOR");
     reticle.update(true, 400, 300, 1, true, 100.4);

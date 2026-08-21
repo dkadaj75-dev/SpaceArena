@@ -2,9 +2,10 @@ import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, Mod
 import { createLogger, isInternalFamily } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
-import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
-import { anchoredOffset, resolveFlightSecondaryControls, type FlightHudLayout } from "./flightHudLayout.js";
+import { resolveHudLayout, type HudLayout } from "./hudLayout.js";
+import { anchoredOffset, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconId, moduleIconSvg } from "./moduleIcons.js";
+import { resolveSlotCluster, slotNumberLabel, type SlotSide } from "./slotCluster.js";
 import { DEFAULT_DESIGN_TOKENS } from "../themeTokens.js";
 
 const log = createLogger("HudModuleButtons");
@@ -38,6 +39,104 @@ export function moduleHudName(cfg: Pick<ModuleConfig, "name" | "ui"> | undefined
   return cfg?.ui.shortName ?? (cfg?.name ?? fallback).slice(0, 12);
 }
 
+/** Longest TYPE caption a slot button will print under its number. */
+const SLOT_TYPE_MAX_CHARS = 7;
+
+/**
+ * The short TYPE word printed under a slot's number — PULSE, RAIL, SHIELD.
+ *
+ * Deliberately NOT {@link moduleHudName}: that is the full fitted name ("Laser
+ * Mk1", "Deflector Sh"), which at slot-button size reads as a smear. What a
+ * pilot needs from the caption is the KIND of thing on this hardpoint, so this
+ * takes the first word of the authored short name and falls back to the family
+ * whenever that word is too long to print honestly — a truncated "DEFLECT" says
+ * less than "SHIELD" does.
+ */
+export function moduleSlotTypeLabel(
+  cfg: Pick<ModuleConfig, "name" | "family" | "ui"> | undefined,
+  fallback: string,
+): string {
+  const source = cfg?.ui?.shortName ?? cfg?.name ?? fallback;
+  const first = source.trim().split(/\s+/)[0] ?? "";
+  if (first !== "" && first.length <= SLOT_TYPE_MAX_CHARS) return first.toUpperCase();
+  const family = cfg?.family;
+  if (family) return family.toUpperCase().slice(0, SLOT_TYPE_MAX_CHARS);
+  return first.toUpperCase().slice(0, SLOT_TYPE_MAX_CHARS);
+}
+
+/**
+ * How many slots each side's cluster holds for a fitting, and where the two
+ * dedicated left-hand actions sit inside the utility cluster.
+ *
+ * Exported because THREE widgets have to agree on it without talking to each
+ * other: {@link ModuleButtons} builds the module buttons, while
+ * {@link import("./BoostButton.js").BoostButton} and
+ * {@link import("./JettisonButton.js").JettisonButton} are still their own
+ * components (each carries state the rail cannot derive — the flag-carrier boost
+ * block, the pod's own cooldown). They all resolve the same counts from the same
+ * snapshot, so the left cluster is one cluster even though three objects draw it.
+ */
+export interface HudSlotCounts {
+  /** Right cluster: every fitted weapon. */
+  weapons: number;
+  /** Left cluster: deployables that get their own module button. */
+  utilityModules: number;
+  /** BOOST's index inside the utility cluster, or null when none is fitted. */
+  boostSlot: number | null;
+  /** JETTISON's index inside the utility cluster, or null when nothing is jettisonable. */
+  jettisonSlot: number | null;
+  /** Total left-cluster slots — what the diameter ramp is fed. */
+  utilities: number;
+}
+
+/**
+ * Whether a fitted module deserves its own button in a cluster. Two exclusions,
+ * both unchanged from the radial-cluster era:
+ *
+ *  - Internals (engine, generator, transformer, countermeasure, sensors) are
+ *    always-on systems with nothing to toggle, so they are shown in the Hangar
+ *    and nowhere else. The one internal ACTION, launching a countermeasure pod,
+ *    is the JETTISON slot.
+ *  - `boost` has its own control, which can show what a generic button cannot:
+ *    that a flag carrier has no afterburner. It occupies a utility slot, but
+ *    {@link BoostButton} draws it.
+ */
+function isButtonableFamily(family: ModuleFamily | undefined): boolean {
+  if (family === undefined) return true;
+  return family !== "boost" && !isInternalFamily(family);
+}
+
+/** Resolve {@link HudSlotCounts} for one ship's fitting. Pure over the configs. */
+export function resolveHudSlotCounts(
+  configs: ConfigService,
+  modules: readonly ModuleSnapshot[],
+): HudSlotCounts {
+  let weapons = 0;
+  let utilityModules = 0;
+  let hasBoost = false;
+  let hasJettison = false;
+  for (const m of modules) {
+    const cfg = configs.get<ModuleConfig>("module", m.moduleId);
+    if (cfg?.family === "boost") hasBoost = true;
+    if (cfg?.jettison) hasJettison = true;
+    if (!isButtonableFamily(cfg?.family)) continue;
+    if (cfg?.fire !== undefined) weapons++;
+    else utilityModules++;
+  }
+  // Order inside the left cluster: deployables first, then BOOST, then JETTISON
+  // — the same running order the retired action arc used, so a pilot's muscle
+  // memory for "boost is after my kit" survives the move to the left thumb.
+  const boostSlot = hasBoost ? utilityModules : null;
+  const jettisonSlot = hasJettison ? utilityModules + (hasBoost ? 1 : 0) : null;
+  return {
+    weapons,
+    utilityModules,
+    boostSlot,
+    jettisonSlot,
+    utilities: utilityModules + (hasBoost ? 1 : 0) + (hasJettison ? 1 : 0),
+  };
+}
+
 interface ButtonEntry {
   hardpointIndex: number;
   /**
@@ -46,18 +145,28 @@ interface ButtonEntry {
    * allows. Everything else keeps the switch it always had.
    */
   isWeapon: boolean;
+  side: SlotSide;
+  /** Position inside its own cluster; the button prints `slotIndex + 1`. */
+  slotIndex: number;
   root: HTMLDivElement;
   ring: HTMLSpanElement;
   icon: HTMLSpanElement;
   label: HTMLSpanElement;
   rounds: HTMLSpanElement;
+  countdown: HTMLSpanElement;
   moduleId: string;
   cfg: ModuleConfig | undefined;
+  /** Authored clip size, or 0 for a weapon with no magazine at all. */
+  clipSize: number;
   // Last-rendered values so we only touch the DOM on change.
   lastState: ModuleState | null;
   lastRing: number;
   lastRingKind: "energy" | "reload" | "cooldown" | null;
   lastRounds: number;
+  lastAmmoText: string;
+  lastDry: boolean;
+  lastLowAmmo: boolean;
+  lastCountdownText: string;
   lastDanger: boolean;
   lastNoEnergy: boolean;
   lastArmed: boolean;
@@ -69,30 +178,50 @@ interface ButtonEntry {
 }
 
 /**
- * One chamfered hex button per fitted module, auto-generated from the player's
- * fitting (bottom-right radial cluster, §2.3). Tap toggles activate/deactivate
- * via `moduleToggle` orders; visuals reflect the module's runtime state each
- * frame but only write to the DOM when something actually changed.
+ * The two HARDPOINT SLOT CLUSTERS (owner HUD pass, 2026-08-21).
  *
- * The glyph is an inline SVG from {@link import("./moduleIcons.js")}, resolved
- * from the module's own config — buttons used to render `ui.icon` as literal
- * text, which put "[ICON: laser]" on screen in every live match.
+ * ## Before
+ *
+ * One radial rail in the bottom-right corner carried every fitted module,
+ * weapons and deployables interleaved by hardpoint order, with the pilot's first
+ * weapon inflated onto the retired FIRE button's pedestal and BOOST/JETTISON
+ * queued behind everything on the same arc. The rail grew, shrank and split as
+ * the fitting changed, so the HUD changed shape between hulls and no button had
+ * a fixed home.
+ *
+ * ## After
+ *
+ * Two clusters, one per thumb, both packed into their bottom corner:
+ *
+ *  - **right — every weapon hardpoint**, in hardpoint order;
+ *  - **left — every utilitarian skill**: deployables, then BOOST, then JETTISON.
+ *
+ * Inside a cluster every button is the SAME circle, sized by that side's mount
+ * count ({@link import("./slotCluster.js").slotSizePx}) and placed in staggered
+ * rows with slot 01 nearest the corner. Each button prints its slot number, its
+ * glyph and a short TYPE caption — the glyph is the thing a pilot reads mid-turn
+ * and the number is what a callout names.
+ *
+ * BOOST and JETTISON keep their own components (each carries state this rail
+ * cannot derive) but take their slot from the same
+ * {@link resolveHudSlotCounts} and wear the same `hud-slot-btn` skin, so the
+ * left cluster is visually one cluster.
  *
  * Keyed by `hardpointIndex` throughout, never array position: the snapshot's
  * `modules` array is sparse-safe (see `shared/src/sim/spawn.ts`) — a fitting
  * like `{0: laser, 2: shield}` replicates two entries whose own
  * `hardpointIndex` fields are 0 and 2, not array positions 0 and 1.
- *
- * Geometry (5.4) is 100 % theme-driven: the container is a zero-size pivot
- * pinned to the corner named by `theme.hud.moduleCluster.anchor` (inside the
- * safe-area inset) and each button is placed at an offset computed by
- * {@link clusterOffsets} — arc or wrap, portrait or landscape block, with the
- * one-thumb clamp applied. Nothing about the cluster is hardcoded in CSS.
  */
 export class ModuleButtons {
   private readonly container: HTMLDivElement;
+  /** Zero-size pivots, one pinned in each bottom corner. */
+  private readonly clusters: Readonly<Record<SlotSide, HTMLDivElement>>;
   private entries = new Map<number, ButtonEntry>();
+  /** Build order: the weapon cluster's slots, then the utility cluster's. */
+  private ordered: ButtonEntry[] = [];
   private builtForModuleCount = -1;
+  /** Left-cluster slots taken by BOOST/JETTISON, which this component does not draw. */
+  private utilityExtras = 0;
   private layout: HudLayout;
   /**
    * Held weapon triggers: hardpoint index → the POINTER holding it.
@@ -119,7 +248,6 @@ export class ModuleButtons {
   private readonly releaseAllTriggers = (): void => {
     for (const release of this.releasers) release(null);
   };
-  private flightLayout: FlightHudLayout | null = null;
   private readonly unsubscribeTheme: () => void;
 
   constructor(
@@ -131,6 +259,10 @@ export class ModuleButtons {
   ) {
     this.container = document.createElement("div");
     this.container.className = "hud-modules";
+    this.clusters = {
+      weapons: this.buildCluster("weapons"),
+      utilities: this.buildCluster("utilities"),
+    };
     root.appendChild(this.container);
     // Standalone default until the Hud pushes the resolved layout in.
     this.layout = resolveHudLayout(undefined, { width: 0, height: 0 });
@@ -150,6 +282,14 @@ export class ModuleButtons {
     document.addEventListener("pointerup", this.releasePointer);
     document.addEventListener("pointercancel", this.releasePointer);
     window.addEventListener("blur", this.releaseAllTriggers);
+  }
+
+  private buildCluster(side: SlotSide): HTMLDivElement {
+    const pivot = document.createElement("div");
+    pivot.className = "hud-slot-cluster";
+    pivot.dataset["side"] = side;
+    this.container.appendChild(pivot);
+    return pivot;
   }
 
   /**
@@ -180,94 +320,57 @@ export class ModuleButtons {
     if (!enabled) this.releaseAllTriggers();
   }
 
-  /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
+  /**
+   * Adopt a freshly resolved layout (theme hot-reload, rotation, resize). Only
+   * `scale` and `viewport` matter to the clusters: their geometry is a function
+   * of the mount count, not of an authored arc.
+   */
   applyLayout(layout: HudLayout): void {
     this.layout = layout;
-    this.container.dataset["anchor"] = layout.cluster.anchor;
-    this.container.dataset["layout"] = layout.cluster.layout;
-    this.position();
-  }
-
-  /** Adopt the shared FIRE-centred rail when the theme authors one. */
-  applyFlightLayout(layout: FlightHudLayout): void {
-    this.flightLayout = layout;
-    this.container.dataset["anchor"] = layout.actionArc ? layout.fire.anchor : this.layout.cluster.anchor;
-    this.position();
-  }
-
-  /** Writes each button's pivot-relative centre into its inline left/top. */
-  private position(): void {
-    const buttons = [...this.entries.values()];
-    const secondary = this.flightLayout
-      ? resolveFlightSecondaryControls(this.flightLayout, buttons.length, {
-          // The rail is sorted weapon-first, so button 0 is the pilot's primary
-          // gun — and since 2026-08-21 it takes the FIRE button's footprint.
-          primaryOnFireSlot: buttons[0]?.isWeapon === true,
-        })
-      : null;
-    if (secondary?.usesActionArc) {
-      for (let i = 0; i < buttons.length; i++) {
-        const slot = secondary.modules[i];
-        if (!slot) continue;
-        const button = buttons[i]!.root;
-        button.classList.toggle("primary", i === 0 && buttons[i]!.isWeapon);
-        button.style.left = `${anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx).dx - slot.radiusPx}px`;
-        button.style.top = `${anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx).dy - slot.radiusPx}px`;
-        button.style.width = `${slot.radiusPx * 2}px`;
-        button.style.height = `${slot.radiusPx * 2}px`;
-        this.positionCaption(button, slot.captionX, slot.captionY, slot.radiusPx, slot.captionGapPx);
-      }
-      return;
+    for (const side of ["weapons", "utilities"] as const) {
+      this.clusters[side].dataset["anchor"] = resolveSlotCluster(0, side).anchor;
     }
-    const offsets = clusterOffsets(buttons.length, this.layout);
-    const r = this.layout.cluster.buttonRadiusPx;
-    for (let i = 0; i < buttons.length; i++) {
-      const offset = offsets[i];
-      if (!offset) continue;
-      // No arc, so no pedestal: a theme swapped from an arc layout to a cluster
-      // one must not leave a button dressed as one.
-      buttons[i]!.root.classList.remove("primary");
-      buttons[i]!.root.style.left = `${offset.dx - r}px`;
-      buttons[i]!.root.style.top = `${offset.dy - r}px`;
-      buttons[i]!.root.style.removeProperty("width");
-      buttons[i]!.root.style.removeProperty("height");
-      this.resetCaption(buttons[i]!.root);
-    }
-  }
-
-  private positionCaption(button: HTMLDivElement, x: number, y: number, radius: number, gap: number): void {
-    const label = button.querySelector<HTMLElement>(".label");
-    if (!label) return;
-    label.style.left = `${50 + ((radius + gap) * x * 100) / (radius * 2)}%`;
-    label.style.top = `${50 + ((radius + gap) * y * 100) / (radius * 2)}%`;
-    label.style.transform = "translate(-50%, -50%)";
-  }
-
-  private resetCaption(button: HTMLDivElement): void {
-    const label = button.querySelector<HTMLElement>(".label");
-    if (!label) return;
-    label.style.removeProperty("left");
-    label.style.removeProperty("top");
-    label.style.removeProperty("transform");
+    this.position();
   }
 
   /**
-   * Whether a fitted module deserves a button in THIS cluster. Two exclusions:
-   *
-   *  - Internals (engine, generator, transformer, countermeasure, sensors —
-   *    2026-07-31) are always-on systems with nothing to toggle, so they are
-   *    shown in the Hangar and nowhere else. The one internal ACTION,
-   *    launching a countermeasure pod, has its own control.
-   *  - `boost` has its own control too: {@link import("./BoostButton.js").BoostButton},
-   *    in the flight HUD. As a generic hex it was one more anonymous glyph in
-   *    this arc, with no way to show that a flag carrier cannot boost — which is
-   *    exactly why a tester reported the boost system as absent from the UI. It
-   *    still toggles through the same `moduleToggle` order; only the button moved.
+   * Kept for the Hud's call order. The clusters are viewport-and-count driven,
+   * so the flight layout contributes nothing they do not already have — but a
+   * theme's `hud.scale` reaches them through {@link applyLayout}.
    */
-  private isButtonable(moduleId: string): boolean {
-    const family = this.configs.get<ModuleConfig>("module", moduleId)?.family;
-    if (family === undefined) return true;
-    return family !== "boost" && !isInternalFamily(family);
+  applyFlightLayout(_layout: FlightHudLayout): void {
+    this.position();
+  }
+
+  /** Writes each button's pivot-relative box into its inline left/top/size. */
+  private position(): void {
+    const opts = { viewport: this.layout.viewport, scale: this.layout.scale };
+    const weapons = resolveSlotCluster(
+      this.ordered.reduce((n, e) => (e.side === "weapons" ? n + 1 : n), 0),
+      "weapons",
+      opts,
+    );
+    const utilities = resolveSlotCluster(
+      this.ordered.reduce((n, e) => (e.side === "utilities" ? n + 1 : n), 0) + this.utilityExtras,
+      "utilities",
+      opts,
+    );
+    for (const entry of this.ordered) {
+      const cluster = entry.side === "weapons" ? weapons : utilities;
+      const slot = cluster.slots[entry.slotIndex];
+      if (!slot) continue;
+      const half = slot.sizePx / 2;
+      const { dx, dy } = anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, half);
+      const btn = entry.root;
+      btn.style.left = `${dx - half}px`;
+      btn.style.top = `${dy - half}px`;
+      btn.style.width = `${slot.sizePx}px`;
+      btn.style.height = `${slot.sizePx}px`;
+      // Every glyph, number and caption inside the circle is sized off this, so
+      // a 44 px slot is a smaller version of an 82 px one rather than the same
+      // typography crammed into a smaller ring.
+      btn.style.setProperty("--hud-slot-size", `${slot.sizePx}px`);
+    }
   }
 
   update(cur: Snapshot): void {
@@ -278,9 +381,10 @@ export class ModuleButtons {
     // Module count only changes on a fresh spawn (fitting is fixed for the
     // match), so this cheap length check is enough to detect a rebuild is
     // needed — the per-module work below stays keyed by hardpointIndex.
-    const buttonable = ship.modules.reduce((n, m) => (this.isButtonable(m.moduleId) ? n + 1 : n), 0);
-    if (buttonable !== this.builtForModuleCount) {
-      this.rebuild(ship.modules);
+    const counts = resolveHudSlotCounts(this.configs, ship.modules);
+    const buttonable = counts.weapons + counts.utilityModules;
+    if (buttonable !== this.builtForModuleCount || counts.utilities - counts.utilityModules !== this.utilityExtras) {
+      this.rebuild(ship.modules, counts);
     }
 
     for (const m of ship.modules) {
@@ -318,6 +422,14 @@ export class ModuleButtons {
         : ringKind === "energy"
           ? resourcePct(m.energy, m.energyCapacity)
           : 0;
+      // Seconds still to run on whichever countdown owns the ring. The mockup's
+      // "cooling" state is a pie plus a number, and the number is the half a
+      // pilot can act on: an arc says "not yet", a 2 says "in two".
+      const remainingSec = reloading
+        ? Math.max(0, entry.cfg!.fire!.clip!.reloadSec - m.stateTimer)
+        : ringKind === "cooldown"
+          ? Math.max(0, m.cycleTimer)
+          : 0;
       // The one red-ring case left: a tank nearly out. Heat used to own this.
       const danger = ringKind === "energy" && ringPct <= 15;
 
@@ -352,10 +464,31 @@ export class ModuleButtons {
         entry.root.classList.toggle("ring-cooldown", ringKind === "cooldown");
         entry.lastRingKind = ringKind;
       }
+      const countdownText = remainingSec > 0 ? formatRemainingSec(remainingSec) : "";
+      if (countdownText !== entry.lastCountdownText) {
+        entry.countdown.textContent = countdownText;
+        entry.countdown.hidden = countdownText === "";
+        entry.lastCountdownText = countdownText;
+      }
       const rounds = m.rounds ?? 0;
-      if (rounds !== entry.lastRounds) {
-        entry.rounds.textContent = String(rounds);
+      // AMMO (mockup's low-ammo / DRY states). Only a magazine-fed weapon has
+      // any of this: a laser has no rounds to be low on, so it gets no counter
+      // rather than an invented one.
+      const dry = entry.clipSize > 0 && rounds <= 0;
+      const lowAmmo = entry.clipSize > 0 && rounds > 0 && rounds <= lowAmmoThreshold(entry.clipSize);
+      const ammoText = entry.clipSize > 0 ? (dry ? "DRY" : String(rounds)) : "";
+      if (rounds !== entry.lastRounds || ammoText !== entry.lastAmmoText) {
+        entry.rounds.textContent = ammoText;
         entry.lastRounds = rounds;
+        entry.lastAmmoText = ammoText;
+      }
+      if (dry !== entry.lastDry) {
+        entry.root.classList.toggle("dry", dry);
+        entry.lastDry = dry;
+      }
+      if (lowAmmo !== entry.lastLowAmmo) {
+        entry.root.classList.toggle("low-ammo", lowAmmo);
+        entry.lastLowAmmo = lowAmmo;
       }
       if (danger !== entry.lastDanger) {
         entry.root.classList.toggle("ring-danger", danger);
@@ -392,17 +525,23 @@ export class ModuleButtons {
     }
   }
 
-  private rebuild(modules: readonly ModuleSnapshot[]): void {
+  private rebuild(modules: readonly ModuleSnapshot[], counts: HudSlotCounts): void {
     // Old buttons are about to be discarded; drop anything they were holding, or
     // a respawn with a different fitting could leave a phantom bit set.
     this.releaseAllTriggers();
     this.releasers = [];
-    this.container.innerHTML = "";
+    this.clusters.weapons.innerHTML = "";
+    this.clusters.utilities.innerHTML = "";
+    this.ordered = [];
+    this.utilityExtras = counts.utilities - counts.utilityModules;
+    const perSide: Record<SlotSide, number> = { weapons: 0, utilities: 0 };
+
     this.entries = new Map(
       [...modules]
-        .filter((m) => this.isButtonable(m.moduleId))
-        // The rail's stable thumb order is weapon first, then utility. Keep
-        // equal kinds in hardpoint order so a fitting never shuffles mid-match.
+        .filter((m) => isButtonableFamily(this.configs.get<ModuleConfig>("module", m.moduleId)?.family))
+        // Weapons first so the DOM order matches the way the clusters read
+        // (right cluster, then left); equal kinds stay in hardpoint order so a
+        // fitting never shuffles mid-match.
         .sort((a, b) => {
           const aWeapon = this.configs.get<ModuleConfig>("module", a.moduleId)?.fire ? 0 : 1;
           const bWeapon = this.configs.get<ModuleConfig>("module", b.moduleId)?.fire ? 0 : 1;
@@ -413,12 +552,17 @@ export class ModuleButtons {
         const moduleId = m.moduleId;
         const cfg = this.configs.get<ModuleConfig>("module", moduleId);
         if (!cfg) log.warn(`unknown module config ${moduleId}`);
+        const isWeapon = cfg?.fire !== undefined;
+        const side: SlotSide = isWeapon ? "weapons" : "utilities";
+        const slotIndex = perSide[side]++;
 
         const btn = document.createElement("div");
-        btn.className = "hud-module-btn hex-action";
+        btn.className = "hud-module-btn hud-slot-btn hex-action";
         btn.setAttribute(HUD_CONTROL_ATTR, "module");
         btn.setAttribute("role", "button");
-        btn.setAttribute("aria-label", cfg?.name ?? moduleId);
+        btn.dataset["side"] = side;
+        btn.dataset["slot"] = slotNumberLabel(slotIndex + 1);
+        btn.setAttribute("aria-label", `${slotNumberLabel(slotIndex + 1)} ${cfg?.name ?? moduleId}`);
         btn.style.setProperty("--ring", "0");
         if (cfg) {
           btn.classList.add(`family-${cfg.family}`);
@@ -435,26 +579,44 @@ export class ModuleButtons {
         ring.hidden = true;
         ring.setAttribute("aria-hidden", "true");
 
+        // The slot NUMBER, which is what a callout names ("dry on 02") and what
+        // the mockup leads with. Decorative for assistive tech: it is already in
+        // the button's own aria-label.
+        const number = document.createElement("span");
+        number.className = "slot-num";
+        number.textContent = slotNumberLabel(slotIndex + 1);
+        number.setAttribute("aria-hidden", "true");
+
         const icon = document.createElement("span");
         icon.className = "icon";
         // Real glyph, not the authored `[ICON: …]` placeholder text: the id is
         // resolved from ui.iconId → ui.icon's tag → family (see moduleIcons.ts).
         icon.innerHTML = moduleIconSvg(moduleIconId(cfg));
-        // The caption is SCREEN-READER ONLY since 2026-08-21. A thumb-sized
-        // button showing both a glyph and a truncated name showed neither well,
-        // and the glyph is the thing a pilot reads mid-turn. The text stays in
-        // the DOM (and in `aria-label`) so the control is still named.
+        // Short TYPE word under the number — PULSE, RAIL, SHIELD. The glyph
+        // carries the meaning; this disambiguates two of the same family.
+        const type = document.createElement("span");
+        type.className = "slot-type";
+        type.textContent = moduleSlotTypeLabel(cfg, moduleId);
+        type.setAttribute("aria-hidden", "true");
+        // The full fitted name stays SCREEN-READER ONLY (2026-08-21): a
+        // thumb-sized button showing a glyph and a truncated name showed
+        // neither well. The text stays in the DOM so the control is named.
         const label = document.createElement("span");
         label.className = "label sr-only";
         label.textContent = moduleHudName(cfg, moduleId);
+        const clipSize = cfg?.fire?.clip?.size ?? 0;
         const rounds = document.createElement("span");
         rounds.className = "rounds";
-        rounds.hidden = cfg?.fire?.clip === undefined;
+        rounds.hidden = clipSize === 0;
         rounds.setAttribute("aria-label", "Rounds remaining");
+        // Seconds left on whichever countdown the ring is drawing.
+        const countdown = document.createElement("span");
+        countdown.className = "cooldown-secs";
+        countdown.hidden = true;
+        countdown.setAttribute("aria-hidden", "true");
 
-        btn.append(ring, icon, rounds, label);
+        btn.append(ring, number, icon, type, rounds, countdown, label);
 
-        const isWeapon = cfg?.fire !== undefined;
         if (isWeapon) {
           // TRIGGER, not a toggle (2026-08-21). Press fires; hold keeps the bit
           // set so the rack fires again the instant its cooldown clears. The bit
@@ -490,37 +652,48 @@ export class ModuleButtons {
           this.releasers.push(release);
         } else {
           btn.addEventListener("click", () => {
+            // The same gate the weapon triggers honour. A utility button used to
+            // send its order regardless, so a dead pilot on the respawn hold
+            // could still toggle a shield on a ship that no longer existed.
+            if (this.disabled) return;
             this.session.order({ kind: "moduleToggle", hardpointIndex });
             log.debug(`moduleToggle → hardpoint ${hardpointIndex} (${moduleId})`);
           });
         }
 
-        this.container.appendChild(btn);
-        return [
+        this.clusters[side].appendChild(btn);
+        const entry: ButtonEntry = {
           hardpointIndex,
-          {
-            hardpointIndex,
-            isWeapon: cfg?.fire !== undefined,
-            root: btn,
-            ring,
-            icon,
-            label,
-            rounds,
-            moduleId,
-            cfg,
-            lastState: null,
-            lastRing: -1,
-            lastRingKind: null,
-            lastRounds: -1,
-            lastDanger: false,
-            lastNoEnergy: false,
-            lastArmed: false,
-            lastCounting: false,
-            lastUnarmable: false,
-            lastUnpowered: false,
-            lastChanneling: false,
-          } satisfies ButtonEntry,
-        ] as const;
+          isWeapon,
+          side,
+          slotIndex,
+          root: btn,
+          ring,
+          icon,
+          label,
+          rounds,
+          countdown,
+          moduleId,
+          cfg,
+          clipSize,
+          lastState: null,
+          lastRing: -1,
+          lastRingKind: null,
+          lastRounds: -1,
+          lastAmmoText: "",
+          lastDry: false,
+          lastLowAmmo: false,
+          lastCountdownText: "",
+          lastDanger: false,
+          lastNoEnergy: false,
+          lastArmed: false,
+          lastCounting: false,
+          lastUnarmable: false,
+          lastUnpowered: false,
+          lastChanneling: false,
+        };
+        this.ordered.push(entry);
+        return [hardpointIndex, entry] as const;
       }),
     );
     this.builtForModuleCount = this.entries.size;
@@ -545,6 +718,24 @@ export class ModuleButtons {
     window.removeEventListener("blur", this.releaseAllTriggers);
     this.container.remove();
   }
+}
+
+/**
+ * "Low" is a quarter of the magazine, floor 1 round: on a 24-round autocannon
+ * that is the last 6, and on a 4-round rack it is the last one. A fixed count
+ * would either scream on the cannon or never fire on the rack.
+ */
+export function lowAmmoThreshold(clipSize: number): number {
+  return Math.max(1, Math.ceil(clipSize * 0.25));
+}
+
+/**
+ * Seconds left, printed the way a pilot reads them: whole seconds while there is
+ * more than one, tenths in the last second, where the difference between "0.9"
+ * and "0.1" is the difference between waiting and pulling.
+ */
+export function formatRemainingSec(seconds: number): string {
+  return seconds >= 1 ? String(Math.ceil(seconds)) : seconds.toFixed(1);
 }
 
 function resourcePct(value: number, capacity: number): number {

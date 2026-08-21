@@ -1,6 +1,5 @@
 import {
   createLogger,
-  isInternalFamily,
   resolveShipStats,
   type ConfigService,
   type EntityId,
@@ -15,6 +14,7 @@ import type { GameSession } from "../GameSession.js";
 import { VirtualJoystick } from "./VirtualJoystick.js";
 import { ThrottleStrip } from "./ThrottleStrip.js";
 import { BoostButton, type BoostButtonState } from "./BoostButton.js";
+import { resolveHudSlotCounts } from "./ModuleButtons.js";
 import { JettisonButton, type JettisonButtonState } from "./JettisonButton.js";
 import { CanvasFireInput } from "./CanvasFireInput.js";
 import { LockReticle } from "./LockReticle.js";
@@ -126,7 +126,8 @@ export class FlightControls {
 
   private layout: FlightHudLayout;
   private enabled = true;
-  private actionArcModuleCount = -1;
+  /** Left-cluster slot count the BOOST/JETTISON placement was last resolved for. */
+  private utilitySlotCount = -1;
   /** Keys currently held, normalized by {@link flightKeyOf}. */
   private readonly heldKeys = new Set<string>();
   /**
@@ -240,7 +241,7 @@ export class FlightControls {
   /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
   applyLayout(layout: FlightHudLayout): void {
     this.layout = layout;
-    this.actionArcModuleCount = -1;
+    this.utilitySlotCount = -1;
     this.joystick.applyLayout(layout);
     this.relativeSteer.applyLayout(layout);
     this.throttleStrip.applyLayout(layout);
@@ -590,24 +591,22 @@ export class FlightControls {
     this.jettisonButton.update(NO_JETTISON_FITTED);
   }
 
-  /** The rail redistributes whenever this fixed fitting changes. */
+  /**
+   * BOOST and JETTISON take their slots in the LEFT (utility) cluster, behind
+   * the fitted deployables. The counts come from the same
+   * {@link resolveHudSlotCounts} the module rail uses, so all three components
+   * that draw the left thumb resolve one identical cluster from one snapshot.
+   */
   private refreshActionArc(ship: ShipSnapshot): void {
-    if (!this.layout.actionArc) return;
-    let moduleCount = 0;
-    let hasWeapon = false;
-    for (const module of ship.modules) {
-      const cfg = this.configs.get<ModuleConfig>("module", module.moduleId);
-      const family = cfg?.family;
-      if (family !== "boost" && !isInternalFamily(family ?? "utility")) moduleCount++;
-      if (cfg?.fire) hasWeapon = true;
+    const counts = resolveHudSlotCounts(this.configs, ship.modules);
+    if (counts.utilities === this.utilitySlotCount) return;
+    this.utilitySlotCount = counts.utilities;
+    if (counts.boostSlot !== null) {
+      this.boostButton.applySlotLayout(this.layout, counts.utilities, counts.boostSlot);
     }
-    if (moduleCount === this.actionArcModuleCount) return;
-    this.actionArcModuleCount = moduleCount;
-    // The rail sorts weapon-first, so a fitting with any weapon at all puts one
-    // on the FIRE pedestal and leaves one fewer slot for BOOST/JETTISON to sit
-    // behind — the two must be told, or they land one slot too far out.
-    this.boostButton.applyArcLayout(this.layout, moduleCount, hasWeapon);
-    this.jettisonButton.applyArcLayout(this.layout, moduleCount, hasWeapon);
+    if (counts.jettisonSlot !== null) {
+      this.jettisonButton.applySlotLayout(this.layout, counts.utilities, counts.jettisonSlot);
+    }
   }
 
   /** Whether any fitted weapon can fire without a lock (non-homing `fire`). */

@@ -127,8 +127,15 @@ through the Balance Workbench and the Tuning panel.
 | support | 1.6 | **1.0** | Keeps the class ordering intact, still slower than the interceptor. |
 | brawler | 2.2 | **1.4** | The outlier, and the ship that feels worst today: 2.2 s of holding an 80° cone is longer than most merges last. |
 
-- `coneDeg` stays as authored (60/70/80). The cone is the aiming skill; widening it
-  would make the lock easier rather than faster, which is not what was asked.
+- `coneDeg` **was** to stay as authored (60/70/80) on the reasoning that the cone is
+  the aiming skill and widening it makes the lock easier rather than faster.
+  **Overridden by the owner (2026-08-21):** every hull's cone is widened ×1.5 —
+  talon 60 → **90**, interceptor 60 → **90**, support 70 → **105**, brawler
+  80 → **120**. Holding a target inside the cone on a 3D chase camera proved to be
+  the wrong difficulty knob on touch, so the cone is now generous and the lock
+  *time* stays the skill. `content/ships/*.json`; the `sensors.coneDeg` module
+  passives (`sensors-snap` ×1.2, `sensors-precision` ×0.72) are multipliers and
+  keep their relative effect unchanged.
 - `tuning.lockDecayMult` 1.5 → **1.2**. With shorter warm-ups a lock is cheaper to
   re-earn, so a slightly softer break keeps a turning fight continuous instead of
   strobing. Content, `content/tuning/default.json`.

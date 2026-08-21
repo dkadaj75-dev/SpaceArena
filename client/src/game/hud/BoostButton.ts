@@ -1,10 +1,14 @@
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
-import { anchoredOffset, resolveFlightSecondaryControls, type FlightHudLayout } from "./flightHudLayout.js";
+import { anchoredOffset, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconSvg } from "./moduleIcons.js";
+import { resolveSlotCluster, slotNumberLabel } from "./slotCluster.js";
 
-/** Caption under the glyph. Fixed, not the module's `ui.shortName`: this control
+/** Accessible name. Fixed, not the module's `ui.shortName`: this control
  *  answers "where is my afterburner", so it says what it DOES, not what is fitted. */
 export const BOOST_LABEL = "BOOST";
+
+/** The TYPE word printed inside the slot circle, under its number. */
+export const BOOST_SLOT_TYPE = "BOOST";
 
 /** Tooltip / accessible reason shown while the sim would refuse the boost. */
 export const BOOST_BLOCKED_TITLE = "No boost while carrying the flag";
@@ -69,6 +73,7 @@ export class BoostButton {
   private readonly container: HTMLDivElement;
   private readonly button: HTMLDivElement;
   private readonly ring: HTMLSpanElement;
+  private readonly number: HTMLSpanElement;
 
   private state: BoostButtonState = ABSENT;
   // Last-rendered values, so a frame that changes nothing writes nothing.
@@ -114,7 +119,10 @@ export class BoostButton {
     this.container.hidden = true;
 
     this.button = document.createElement("div");
-    this.button.className = "hud-boost-btn hex-action";
+    // Wears the shared slot skin (`hud-module-btn hud-slot-btn`) so the left
+    // cluster reads as ONE cluster; `hud-boost-btn` carries only what is
+    // specific to the afterburner — its family tint and its surge animation.
+    this.button.className = "hud-boost-btn hud-module-btn hud-slot-btn hex-action";
     this.button.setAttribute(HUD_CONTROL_ATTR, "boost");
     this.button.setAttribute("role", "button");
     this.button.setAttribute("aria-label", BOOST_LABEL);
@@ -125,14 +133,23 @@ export class BoostButton {
     this.ring.hidden = true;
     this.ring.setAttribute("aria-hidden", "true");
 
+    this.number = document.createElement("span");
+    this.number.className = "slot-num";
+    this.number.setAttribute("aria-hidden", "true");
     const icon = document.createElement("span");
     icon.className = "icon";
     icon.innerHTML = moduleIconSvg("boost");
+    const type = document.createElement("span");
+    type.className = "slot-type";
+    type.textContent = BOOST_SLOT_TYPE;
+    type.setAttribute("aria-hidden", "true");
+    // The full caption stays in the DOM for assistive tech, exactly as the
+    // module slots keep theirs.
     const label = document.createElement("span");
-    label.className = "label";
+    label.className = "label sr-only";
     label.textContent = BOOST_LABEL;
 
-    this.button.append(this.ring, icon, label);
+    this.button.append(this.ring, this.number, icon, type, label);
     this.container.append(this.button);
     root.appendChild(this.container);
 
@@ -143,45 +160,38 @@ export class BoostButton {
     this.applyLayout(layout);
   }
 
-  /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
+  /**
+   * Adopt a freshly resolved layout (theme hot-reload, rotation, resize) before
+   * the fitting is known: a lone slot in the utility cluster, which is where it
+   * lands anyway on a hull carrying nothing else on the left thumb.
+   */
   applyLayout(layout: FlightHudLayout): void {
-    this.applyArcLayout(layout, 0);
+    this.applySlotLayout(layout, 1, 0);
   }
 
-  /** Reposition on the shared rail after the fitted module count is known. */
-  applyArcLayout(layout: FlightHudLayout, moduleCount: number, primaryOnFireSlot = false): void {
-    // `primaryOnFireSlot` has to be passed through: the pilot's first weapon
-    // took the FIRE pedestal (2026-08-21), so one fewer module sits on the arc
-    // and BOOST/JETTISON move one slot closer in with it.
-    const secondary = resolveFlightSecondaryControls(layout, moduleCount, { primaryOnFireSlot });
-    const boost = secondary.boost;
-    this.container.dataset["anchor"] = boost.anchor;
-    const { dx, dy } = anchoredOffset(boost.anchor, boost.offsetXPx, boost.offsetYPx, boost.radiusPx);
-    this.button.style.left = `${dx - boost.radiusPx}px`;
-    this.button.style.top = `${dy - boost.radiusPx}px`;
-    this.button.style.width = `${boost.radiusPx * 2}px`;
-    this.button.style.height = `${boost.radiusPx * 2}px`;
-    if (secondary.usesActionArc) {
-      this.positionCaption(
-        secondary.boost.captionX,
-        secondary.boost.captionY,
-        secondary.boost.radiusPx,
-        secondary.boost.captionGapPx,
-      );
-    }
-    else this.resetCaption();
-  }
-
-  private positionCaption(x: number, y: number, radius: number, gap: number): void {
-    const label = this.button.querySelector<HTMLElement>(".label")!;
-    label.style.left = `${50 + ((radius + gap) * x * 100) / (radius * 2)}%`;
-    label.style.top = `${50 + ((radius + gap) * y * 100) / (radius * 2)}%`;
-    label.style.transform = "translate(-50%, -50%)";
-  }
-
-  private resetCaption(): void {
-    const label = this.button.querySelector<HTMLElement>(".label")!;
-    label.style.removeProperty("left"); label.style.removeProperty("top"); label.style.removeProperty("transform");
+  /**
+   * Take slot `slotIndex` of a `utilityCount`-slot left cluster. The counts come
+   * from {@link import("./ModuleButtons.js").resolveHudSlotCounts}, which every
+   * widget on this cluster reads from the same snapshot — so the three
+   * components that draw the left thumb agree on one geometry without talking.
+   */
+  applySlotLayout(layout: FlightHudLayout, utilityCount: number, slotIndex: number): void {
+    const cluster = resolveSlotCluster(Math.max(1, utilityCount), "utilities", {
+      viewport: layout.viewport,
+      scale: layout.scale,
+    });
+    const slot = cluster.slots[Math.min(slotIndex, cluster.slots.length - 1)]!;
+    const half = slot.sizePx / 2;
+    this.container.dataset["anchor"] = slot.anchor;
+    this.button.dataset["side"] = "utilities";
+    this.button.dataset["slot"] = slotNumberLabel(slot.index + 1);
+    this.number.textContent = slotNumberLabel(slot.index + 1);
+    const { dx, dy } = anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, half);
+    this.button.style.left = `${dx - half}px`;
+    this.button.style.top = `${dy - half}px`;
+    this.button.style.width = `${slot.sizePx}px`;
+    this.button.style.height = `${slot.sizePx}px`;
+    this.button.style.setProperty("--hud-slot-size", `${slot.sizePx}px`);
   }
 
   /** One frame of replicated state. Cheap when nothing moved. */

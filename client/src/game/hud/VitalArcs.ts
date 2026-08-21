@@ -4,6 +4,8 @@ import type { HudLayout } from "./hudLayout.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 interface ArcParts {
+  /** Dark backing stroke drawn UNDER the track — see {@link VitalArcs.buildArc}. */
+  halo: SVGPathElement;
   track: SVGPathElement;
   fill: SVGPathElement;
   value: HTMLSpanElement;
@@ -36,13 +38,21 @@ export class VitalArcs {
   }
 
   private buildArc(kind: "hull" | "shield", labelText: string): ArcParts {
+    // A dark backing stroke, slightly wider than the arc and drawn beneath it
+    // (2026-08-21). The arcs sit over the arena, and over a lit nebula or a
+    // muzzle flash a thin translucent line simply vanished — the owner's report
+    // was that hull and shield were unreadable in a fight. The halo gives every
+    // arc its own ground without making the arc itself louder, which is why it
+    // is preferred here to cranking the stroke or the opacity.
+    const halo = document.createElementNS(SVG_NS, "path");
+    halo.classList.add("hud-vital-arc", "halo", kind);
     const track = document.createElementNS(SVG_NS, "path");
     track.classList.add("hud-vital-arc", "track", kind);
     const fill = document.createElementNS(SVG_NS, "path");
     fill.classList.add("hud-vital-arc", "fill", kind);
     fill.setAttribute("pathLength", "100");
     fill.style.strokeDasharray = "100 100";
-    this.svg.append(track, fill);
+    this.svg.append(halo, track, fill);
 
     const label = document.createElement("div");
     label.className = `hud-vital-label ${kind}`;
@@ -53,7 +63,7 @@ export class VitalArcs {
     label.append(name, value);
     this.container.appendChild(label);
 
-    return { track, fill, value, lastPct: -1 };
+    return { halo, track, fill, value, lastPct: -1 };
   }
 
   applyLayout(layout: HudLayout): void {
@@ -75,8 +85,10 @@ export class VitalArcs {
     const halfArc = arcs.arcDeg / 2;
     const left = arcPath(centre, centre, arcs.radiusPx, 180 - halfArc, 180 + halfArc, true);
     const right = arcPath(centre, centre, arcs.radiusPx, halfArc, -halfArc, false);
+    this.hull.halo.setAttribute("d", left);
     this.hull.track.setAttribute("d", left);
     this.hull.fill.setAttribute("d", left);
+    this.shield.halo.setAttribute("d", right);
     this.shield.track.setAttribute("d", right);
     this.shield.fill.setAttribute("d", right);
   }

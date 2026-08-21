@@ -18,6 +18,12 @@ import { formatHudDistance, roundedHudMeters } from "./SpeedReadout.js";
  * Purely presentational: it never decides what is locked. The sim owns that and
  * the snapshot reports it, so the HUD can never disagree with what will fire.
  */
+/** Status word while the sim is still warming the lock up. */
+export const LOCKING_TEXT = "LOCKING…";
+
+/** Status word once weapons are live on the candidate. */
+export const LOCKED_TEXT = "LOCKED";
+
 export class LockReticle {
   /** Display-only unit→metre factor (theme.hud.metersPerUnit). */
   private metersPerUnit = 1;
@@ -27,6 +33,8 @@ export class LockReticle {
   /** Lock-progress arc — its own node so the corner ticks can be a sibling. */
   private readonly ring: HTMLDivElement;
   private readonly distance: HTMLSpanElement;
+  /** "LOCKED" / "LOCKING…" — the first half of the one-line readout. */
+  private readonly status: HTMLSpanElement;
   private readonly targetName: HTMLSpanElement;
   private readonly blocked: HTMLDivElement;
   private blockedRemainingMs = 0;
@@ -47,36 +55,45 @@ export class LockReticle {
     this.container = document.createElement("div");
     this.container.className = "hud-reticle";
     const style = document.createElement("style");
+    // One READOUT beside the bracket rather than a distance below it and a name
+    // to the side (owner HUD pass, 2026-08-21). Two labels on two axes of the
+    // same little square made the pilot's eye hunt; the status and the range are
+    // one fact — "can I shoot this, and from how far" — so they are one line.
     style.textContent = `
-      .hud-reticle-distance {
+      .hud-reticle-readout {
         position: absolute;
-        left: 50%;
-        top: calc(100% + var(--hud-reticle-ring-stroke, 4px) + 6px);
-        transform: translateX(-50%);
-        color: var(--hud-primary, var(--sa-blue-500));
-        font-size: 0.625em;
-        font-weight: 600;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 0.08em;
-        line-height: 1;
+        left: calc(100% + var(--hud-reticle-target-name-offset, 12px));
+        top: 50%;
+        transform: translateY(-50%);
+        text-align: left;
+        line-height: 1.25;
         white-space: nowrap;
+        pointer-events: none;
+      }
+      .hud-reticle-status,
+      .hud-reticle-distance {
+        color: var(--hud-primary, var(--sa-blue-500));
+        font-size: var(--hud-reticle-target-name-size, 10px);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
         text-shadow: 0 0 calc(6px * var(--hud-glow)) var(--hud-bg, var(--sa-n-900));
       }
+      /* The separator lives in CSS so the two spans stay independently
+         addressable — the distance is rewritten every few frames, the status
+         only on a state change. */
+      .hud-reticle-distance::before { content: " · "; letter-spacing: 0; }
+      .hud-reticle-bracket.locked .hud-reticle-status,
       .hud-reticle-bracket.locked .hud-reticle-distance {
         color: var(--hud-danger, var(--sa-red-500));
       }
       .hud-reticle-target-name {
-        position: absolute;
         display: none;
-        left: calc(100% + var(--hud-reticle-target-name-offset, 12px));
-        top: 50%;
-        transform: translateY(-50%);
-        color: var(--hud-danger, var(--sa-red-500));
-        font-size: var(--hud-reticle-target-name-size, 10px);
+        color: color-mix(in srgb, var(--hud-danger, var(--sa-red-500)) 78%, var(--sa-white));
+        font-size: calc(var(--hud-reticle-target-name-size, 10px) * 0.86);
         font-weight: 600;
-        letter-spacing: 0.12em;
-        line-height: 1;
-        white-space: nowrap;
+        letter-spacing: 0.14em;
         text-transform: uppercase;
         text-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-bg, var(--sa-n-900));
       }
@@ -98,11 +115,17 @@ export class LockReticle {
     corners.className = "corners";
     this.ring = document.createElement("div");
     this.ring.className = "ring";
+    const readout = document.createElement("div");
+    readout.className = "hud-reticle-readout";
+    this.status = document.createElement("span");
+    this.status.className = "hud-reticle-status";
+    this.status.textContent = LOCKING_TEXT;
     this.distance = document.createElement("span");
     this.distance.className = "hud-reticle-distance";
     this.targetName = document.createElement("span");
     this.targetName.className = "hud-reticle-target-name";
-    this.bracket.append(corners, this.ring, this.distance, this.targetName);
+    readout.append(this.status, this.distance, this.targetName);
+    this.bracket.append(corners, this.ring, readout);
     this.blocked = document.createElement("div");
     this.blocked.className = "hud-reticle-blocked";
 
@@ -200,6 +223,7 @@ export class LockReticle {
     if (locked !== this.lastLocked) {
       this.lastLocked = locked;
       this.bracket.classList.toggle("locked", locked);
+      this.status.textContent = locked ? LOCKED_TEXT : LOCKING_TEXT;
     }
     const name = locked ? (targetName?.trim() || "UNKNOWN").toUpperCase() : "";
     if (name !== this.lastTargetName) {

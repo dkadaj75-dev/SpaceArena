@@ -234,36 +234,44 @@ const CSS = `
   opacity: 0.52;
 }
 
-/* --- Module radial cluster --- */
-/* Zero-size pivot pinned to the themed anchor corner; ModuleButtons places each
-   button at a pivot-relative offset computed in hudLayout.ts. */
+/* --- Hardpoint slot clusters (owner HUD pass, 2026-08-21) --- */
+/* Two clusters: weapons bottom-right, utilitarian skills bottom-left. The
+   container spans the viewport and is inert; each cluster is a zero-size pivot
+   pinned inside its corner's safe-area inset, and ModuleButtons writes every
+   button's pivot-relative box from slotCluster.ts. Nothing here is geometry. */
 .hud-modules {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.hud-slot-cluster {
   position: absolute;
   width: 0;
   height: 0;
 }
-.hud-modules[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
-.hud-modules[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
-.hud-modules[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
-.hud-modules[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
+.hud-slot-cluster[data-anchor="bottom-right"] { right: var(--hud-inset-right); bottom: var(--hud-inset-bottom); }
+.hud-slot-cluster[data-anchor="bottom-left"] { left: var(--hud-inset-left); bottom: var(--hud-inset-bottom); }
+.hud-slot-cluster[data-anchor="top-right"] { right: var(--hud-inset-right); top: var(--hud-inset-top); }
+.hud-slot-cluster[data-anchor="top-left"] { left: var(--hud-inset-left); top: var(--hud-inset-top); }
 .hud-module-btn {
   pointer-events: auto;
   position: absolute;
   touch-action: manipulation;
-  /* border-box so the rendered box is exactly 2 x the themed radius — the
-     layout math in hudLayout.ts (and the one-thumb clamp) assumes it. */
+  /* border-box so the rendered box is exactly the slot diameter the cluster
+     math computed — every inline width/height comes from slotCluster.ts. */
   box-sizing: border-box;
-  width: calc(var(--hud-module-btn-radius, 34px) * 2);
-  height: calc(var(--hud-module-btn-radius, 34px) * 2);
+  width: var(--hud-slot-size, 64px);
+  height: var(--hud-slot-size, 64px);
   background: transparent;
   border: 0;
   color: var(--hud-text, var(--sa-white));
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Unchanged from the pre-redesign button: the icon takes the room, but the
-     label still has to be readable at landscape scale (0.85 x 9px). */
-  font-size: 0.5625em;
+  /* One typographic scale for the whole slot: the number, the TYPE caption and
+     the ammo pill are all 'em' off this, so a 44 px slot is a smaller version of
+     an 82 px one rather than the same type crammed into a smaller ring. */
+  font-size: calc(var(--hud-slot-size, 64px) * 0.16);
   line-height: 1.2;
   cursor: pointer;
   user-select: none;
@@ -339,59 +347,120 @@ const CSS = `
   --hud-action-ring-stroke: 3px;
   background: conic-gradient(var(--sa-white) calc(var(--ring, 0) * 1%), transparent 0);
 }
-/* Dim the glyph while the countdown runs, so "not ready yet" reads from the
-   button as a whole and not only from the arc around its edge. */
-.hud-module-btn.ring-cooldown > .icon { opacity: 0.5; }
+/* COOLING (mockup state 3): a radial PIE sweeping the whole disc as well as the
+   annulus, so the fraction is readable from the corner of the eye at slot size —
+   a 3 px arc on a 44 px button is not. It layers onto the FILL PLATE rather than
+   onto the ring: the ring is masked to an annulus, and a mask applies to a
+   pseudo-element's children too, so a pie drawn inside it would be cut away. */
+.hud-module-btn.ring-cooldown::after,
+.hud-module-btn.ring-reload::after {
+  background:
+    conic-gradient(
+      color-mix(in srgb, var(--sa-white) 16%, transparent) calc(var(--ring, 0) * 1%),
+      transparent 0
+    ),
+    var(--hud-btn-fill);
+}
+/* Seconds remaining on whichever countdown owns the ring. */
+.hud-module-btn > .cooldown-secs {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--sa-white);
+  font: 800 1.5em/1 ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 calc(5px * var(--hud-glow)) var(--hud-bg, var(--sa-n-900));
+  pointer-events: none;
+}
+.hud-module-btn > .cooldown-secs[hidden] { display: none; }
+/* With a number in the middle the glyph would fight it; step it back further. */
+.hud-module-btn.ring-cooldown > .icon,
+.hud-module-btn.ring-reload > .icon { opacity: 0.22; }
 .hud-module-btn.ring-danger > .ring {
   opacity: 0.92;
   background: conic-gradient(var(--hud-danger, var(--sa-red-500)) calc(var(--ring, 0) * 1%), transparent 0);
 }
+/* Interior stack: SLOT NUMBER at the top, glyph through the middle, TYPE word
+   at the foot. The glyph is what a pilot reads mid-turn; the number is what a
+   callout names ("dry on 02") and what the mockup leads with. */
+.hud-module-btn > .slot-num {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 15%;
+  transform: translateX(-50%);
+  color: var(--sa-white);
+  font: 800 1.05em/1 ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  opacity: 0.9;
+  pointer-events: none;
+}
 .hud-module-btn > .icon {
   z-index: 2;
-  width: 55%;
-  max-width: 26px;
+  width: 40%;
+  max-width: 34px;
+  margin-top: 4%;
   color: var(--hud-text);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .hud-module-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
+.hud-module-btn > .slot-type {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  max-width: 84%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  color: color-mix(in srgb, var(--sa-white) 78%, transparent);
+  font: 700 0.72em/1 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+/* Ammo. Only a magazine-fed weapon has one, and it doubles as the DRY badge —
+   the same pill, so the eye finds the answer in the same place either way. */
 .hud-module-btn > .rounds {
   position: absolute;
   z-index: 3;
-  right: 17%;
-  bottom: 14%;
-  min-width: 1.35em;
-  padding: 0 0.15em;
+  right: -4%;
+  top: 6%;
+  min-width: 1.5em;
+  padding: 0 0.2em;
   border: 1px solid color-mix(in srgb, var(--hud-module-family-color) 72%, var(--sa-white));
-  background: color-mix(in srgb, var(--hud-bg) 88%, transparent);
+  background: color-mix(in srgb, var(--hud-bg) 92%, transparent);
   color: var(--sa-white);
-  font: 800 clamp(9px, 0.68em, 12px)/1.25 ui-monospace, monospace;
+  font: 800 0.82em/1.3 ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
   text-align: center;
 }
-.hud-module-btn > .label {
-  position: absolute;
-  z-index: 2;
-  top: calc(100% + var(--hud-module-label-gap, 4px));
-  left: 50%;
-  transform: translateX(-50%);
-  width: max-content;
-  max-width: var(--hud-module-label-max-width, 64px);
-  height: var(--hud-module-label-height, 11px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.hud-module-btn > .rounds[hidden] { display: none; }
+/* Getting low: the pill starts to speak up before it has to shout. */
+.hud-module-btn.low-ammo > .rounds {
+  border-color: var(--hud-warning, var(--sa-amber-500, #F59E0B));
+  color: var(--hud-warning, var(--sa-amber-500, #F59E0B));
+}
+/* DRY: out of rounds. Alert ring on the whole button, not just the pill —
+   a pilot pulling an empty trigger needs to know from the silhouette. */
+.hud-module-btn.dry {
+  --hud-btn-rim: var(--hud-danger, var(--sa-red-500));
+}
+.hud-module-btn.dry > .rounds {
+  border-color: var(--hud-danger, var(--sa-red-500));
+  background: color-mix(in srgb, var(--hud-danger, var(--sa-red-500)) 26%, var(--hud-bg));
   color: var(--sa-white);
-  font-size: 0.52em;
-  font-weight: 700;
-  opacity: 0.92;
-  box-sizing: border-box;
-  padding: 1px 4px;
-  background: color-mix(in srgb, var(--hud-bg) var(--hud-action-label-plate-pct, 76%), transparent);
-  border: 1px solid color-mix(in srgb, var(--hud-action-color) var(--hud-action-label-border-pct, 42%), transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hud-bg) 42%, transparent);
+  letter-spacing: 0.02em;
+}
+.hud-module-btn.dry::before {
+  filter: drop-shadow(0 0 calc(8px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
 }
 .hud-module-btn.state-retracted { filter: saturate(0.6) brightness(0.72); }
 .hud-module-btn.state-deploying { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 82%, transparent); }
@@ -639,19 +708,10 @@ const CSS = `
 .hud-module-btn.trigger.firing::before {
   filter: drop-shadow(0 0 var(--hud-fire-armed-glow, 18px) var(--hud-module-family-color));
 }
-/* The pedestal. Its size comes from the layout (inline width/height), so this is
-   only the weight the bigger target has to carry to read as the primary control. */
-.hud-module-btn.primary {
-  --hud-btn-rim: var(--hud-module-family-color);
-  --hud-btn-fill: color-mix(in srgb, var(--hud-module-family-color) var(--hud-fire-fill-pct, 30%), var(--hud-bg));
-}
-.hud-module-btn.primary::before {
-  filter: drop-shadow(0 0 var(--hud-fire-glow, 10px) var(--hud-module-family-color));
-}
-.hud-module-btn.primary > .icon .hud-icon-svg { width: 34px; height: auto; }
-/* Names are gone from the buttons (owner 2026-08-21): the glyph is what a pilot
-   reads mid-turn, and a truncated caption under it read as neither. The text
-   stays in the DOM for assistive tech. */
+/* Names are gone from the buttons (owner 2026-08-21): the glyph plus the short
+   TYPE word is what a pilot reads mid-turn, and the full fitted name under a
+   thumb-sized circle read as neither. The text stays in the DOM for assistive
+   tech, and the button's own aria-label leads with the slot number. */
 .hud-module-btn .label.sr-only {
   position: absolute;
   width: 1px;
@@ -664,91 +724,42 @@ const CSS = `
   border: 0;
 }
 /* A weapon the power rail could not seat. It has no toggle, so it stays cold for
-   the whole match — struck through, drained of colour, and inert. */
+   the whole match: this is the mockup's "unfitted" language — a DASHED rim, no
+   colour, number only, and inert to the touch. */
 .hud-module-btn.unpowered {
-  --hud-btn-rim: var(--hud-neutral, var(--sa-n-400));
+  --hud-btn-rim: transparent;
   filter: saturate(0) brightness(0.6);
-  opacity: 0.65;
+  opacity: 0.6;
   pointer-events: none;
 }
+.hud-module-btn.unpowered::before {
+  background: none;
+  border: 1.5px dashed var(--hud-neutral, var(--sa-n-400));
+  border-radius: 50%;
+  -webkit-mask: none;
+  mask: none;
+  filter: none;
+}
+/* Number only: the glyph, the caption and the ammo pill all describe a module
+   that is not going to do anything this match. */
+.hud-module-btn.unpowered > .icon,
+.hud-module-btn.unpowered > .slot-type,
+.hud-module-btn.unpowered > .rounds { display: none; }
+.hud-module-btn.unpowered > .slot-num { top: 50%; transform: translate(-50%, -50%); }
 
 /* Gated rail (dead pilot, results screen): every button reads as unavailable,
    and ModuleButtons.setEnabled has already released whatever was held. */
 .hud-modules.disabled { pointer-events: none; }
 .hud-modules.disabled .hud-module-btn { opacity: 0.58; filter: saturate(0.18) brightness(0.72); }
 
-/* BOOST: a compact circular module-language action: dark plate, thin family
-   rim, glyph, and a caption below the circle. */
+/* BOOST and JETTISON wear the SHARED slot skin (.hud-module-btn.hud-slot-btn)
+   and take their slots in the left cluster alongside the fitted deployables, so
+   the left thumb reads as one cluster rather than three visual dialects. What
+   remains here is only what is specific to each action: its family tint, its
+   surge animation, and the two "refused" states. */
 .hud-boost-btn {
-  pointer-events: auto;
-  position: absolute;
-  box-sizing: border-box;
-  touch-action: manipulation;
-  width: calc(var(--hud-boost-radius, 30px) * 2);
-  height: calc(var(--hud-boost-radius, 30px) * 2);
-  background: transparent;
-  border: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: filter 0.15s linear, opacity 0.15s linear;
-  --hud-btn-rim: color-mix(in srgb, var(--hud-boost-color, var(--sa-white)) 58%, transparent);
-  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 72%, transparent);
-  --hud-btn-fill: var(--hud-btn-plate);
-  --hud-action-color: var(--hud-boost-color);
+  --hud-module-family-color: var(--hud-boost-color, var(--sa-blue-500));
 }
-/* Same restrained circular rim/plate contract as the module buttons. */
-.hud-boost-btn::before,
-.hud-boost-btn::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-}
-.hud-boost-btn::before {
-  inset: 0;
-  background: repeating-conic-gradient(from -45deg, var(--hud-btn-rim) 0 calc(90deg - var(--hud-action-ring-tick-gap, 3deg)), transparent calc(90deg - var(--hud-action-ring-tick-gap, 3deg)) 90deg);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
-  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-boost-color, var(--sa-white)));
-}
-.hud-boost-btn::after {
-  inset: 1.5px;
-  background: var(--hud-btn-fill);
-  backdrop-filter: blur(var(--hud-blur));
-  -webkit-backdrop-filter: blur(var(--hud-blur));
-}
-.hud-boost-btn > * { position: relative; z-index: 1; }
-.hud-boost-btn > .icon {
-  width: 55%;
-  max-width: 26px;
-  color: var(--sa-white);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.hud-boost-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
-.hud-boost-btn > .label {
-  position: absolute;
-  top: calc(100% + var(--hud-module-label-gap, 4px));
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  color: var(--sa-white);
-  font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif);
-  letter-spacing: 0.06em;
-  opacity: 0.92;
-  box-sizing: border-box; padding: 1px 4px;
-  background: color-mix(in srgb, var(--hud-bg) var(--hud-action-label-plate-pct, 76%), transparent);
-  border: 1px solid color-mix(in srgb, var(--hud-action-color) var(--hud-action-label-border-pct, 42%), transparent);
-}
-.hud-boost-btn > .ring { position:absolute; inset:calc(var(--hud-rim) * 1.5); z-index:1; border-radius:50%; pointer-events:none; background:conic-gradient(var(--hud-primary, var(--sa-blue-500)) calc(var(--ring, 0) * 1%), transparent 0); opacity:0; -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); }
-.hud-boost-btn.ring-energy > .ring { opacity: 0.72; }
 /* ON. The module is asking for boost — whether the sim grants it this tick is
    the ship's business, and the speed readout already tells that story. */
 .hud-boost-btn.active {
@@ -763,7 +774,8 @@ const CSS = `
   filter: drop-shadow(0 0 calc(16px * var(--hud-glow)) var(--hud-boost-color, var(--sa-white)));
 }
 .hud-boost-btn.active > .icon { animation: hud-boost-surge 0.7s ease-in-out infinite; }
-.hud-boost-btn.pressed { transform: scale(0.96); filter: brightness(1.22); }
+.hud-boost-btn.pressed,
+.hud-jettison-btn.pressed { transform: scale(0.96); filter: brightness(1.22); }
 /* Refused by the RULES, not by the module: a flag carrier has no afterburner.
    Greyed and inert, never hidden — the flag is picked up mid-flight, and a
    control that disappears teaches the pilot nothing. */
@@ -780,42 +792,18 @@ const CSS = `
   50% { transform: translateX(7%); }
 }
 
-/* JETTISON uses the same compact circular language as BOOST, but is a one-shot
-   defensive action. Its conic sweep is the authoritative sink cooldown. */
+/* JETTISON: a one-shot defensive action whose conic sweep is the authoritative
+   sink cooldown, drawn with the same cooling language as a weapon's cycle. */
 .hud-jettison-btn {
-  pointer-events: auto;
-  position: absolute;
-  box-sizing: border-box;
-  touch-action: manipulation;
-  background: transparent;
-  border: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  --hud-btn-rim: color-mix(in srgb, var(--hud-jettison-color, var(--sa-blue-500)) 55%, transparent);
-  --hud-btn-plate: color-mix(in srgb, var(--hud-bg, var(--sa-n-900)) 72%, transparent);
-  --hud-action-color: var(--hud-jettison-color);
+  --hud-module-family-color: var(--hud-jettison-color, var(--sa-blue-500));
 }
-.hud-jettison-btn::before, .hud-jettison-btn::after, .hud-jettison-btn > .ring {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
+.hud-jettison-btn > .ring { opacity: 0.55; }
+.hud-jettison-btn.disabled {
+  cursor: default;
+  opacity: 0.58;
+  filter: saturate(0.25) brightness(0.72);
+  --hud-btn-rim: var(--hud-danger, var(--sa-red-500));
 }
-.hud-jettison-btn::before { inset: 0; background:repeating-conic-gradient(from -45deg,var(--hud-btn-rim) 0 calc(90deg - var(--hud-action-ring-tick-gap, 3deg)),transparent calc(90deg - var(--hud-action-ring-tick-gap, 3deg)) 90deg); -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-jettison-color, var(--sa-blue-500))); }
-.hud-jettison-btn::after { inset: 1.5px; background: var(--hud-btn-plate); backdrop-filter: blur(var(--hud-blur)); -webkit-backdrop-filter: blur(var(--hud-blur)); }
-.hud-jettison-btn > .ring { inset: 2px; background: conic-gradient(var(--hud-action-color) calc(var(--ring, 0) * 1%), transparent 0); opacity: 0.4; -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); mask:radial-gradient(farthest-side,transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)),#000 0); }
-.hud-jettison-btn > .icon, .hud-jettison-btn > .label { position: relative; z-index: 1; color: var(--hud-text); }
-.hud-jettison-btn > .icon { width: 55%; display: flex; }
-.hud-jettison-btn > .icon .hud-icon-svg { width: 100%; height: auto; display: block; }
-.hud-jettison-btn > .label { position: absolute; top: calc(100% + var(--hud-module-label-gap, 4px)); left: 50%; transform: translateX(-50%); white-space: nowrap; font: 700 0.52em/1 var(--hud-font-display, system-ui, sans-serif); letter-spacing: 0.06em; box-sizing:border-box; padding:1px 4px; background:color-mix(in srgb,var(--hud-bg) var(--hud-action-label-plate-pct,76%),transparent); border:1px solid color-mix(in srgb,var(--hud-action-color) var(--hud-action-label-border-pct,42%),transparent); }
-.hud-jettison-btn.pressed { transform:scale(0.96); filter: brightness(1.22); }
-.hud-jettison-btn.disabled { cursor: default; opacity: 0.58; filter: saturate(0.25) brightness(0.72); --hud-action-color: var(--hud-danger, var(--sa-red-500)); --hud-btn-rim: var(--hud-danger, var(--sa-red-500)); }
 .hud-jettison-btn.disabled::before { filter: none; }
 
 /* Hull and shield now flank the ship as restrained side arcs. */
@@ -841,6 +829,15 @@ const CSS = `
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
+/* Dark ground under each arc, wider than the arc itself, so a bright nebula or
+   a muzzle flash behind the ship cannot swallow the line. Non-scaling like the
+   arcs, and butt-capped so it never pokes past their rounded ends. */
+.hud-vital-arc.halo {
+  stroke: var(--hud-bg, var(--sa-n-900));
+  stroke-width: calc(var(--hud-vital-stroke, 6px) + 5px);
+  stroke-linecap: butt;
+  opacity: 0.5;
+}
 .hud-vital-arc.track {
   stroke: var(--hud-neutral, var(--sa-n-400));
   opacity: var(--hud-vital-track-opacity, 0.16);
@@ -849,11 +846,11 @@ const CSS = `
 .hud-vital-arc.track.shield { stroke: var(--hud-shield, var(--sa-blue-500)); }
 .hud-vital-arc.fill.hull {
   stroke: var(--hud-hull, var(--sa-white));
-  filter: drop-shadow(0 0 calc(4px * var(--hud-glow)) var(--hud-hull, var(--sa-white)));
+  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-hull, var(--sa-white)));
 }
 .hud-vital-arc.fill.shield {
   stroke: var(--hud-shield, var(--sa-blue-500));
-  filter: drop-shadow(0 0 calc(4px * var(--hud-glow)) var(--hud-shield, var(--sa-blue-500)));
+  filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-shield, var(--sa-blue-500)));
 }
 .hud-vital-arcs.hull-critical .hud-vital-arc.fill.hull {
   stroke: var(--hud-danger, var(--sa-red-500));
@@ -865,16 +862,21 @@ const CSS = `
   flex-direction: column;
   gap: 3px;
   transform: translateY(-50%);
-  color: var(--hud-neutral, var(--sa-n-400));
-  font: 500 0.5em/1 var(--hud-font-display, system-ui, sans-serif);
+  /* Same SIZE as before — the arcs must not start shouting over the fight.
+     What changed is contrast: the caption is no longer the dimmest grey on the
+     screen, and both lines carry a dark shadow so they hold up over the arena. */
+  color: color-mix(in srgb, var(--hud-neutral, var(--sa-n-400)) 55%, var(--sa-white));
+  font: 600 0.5em/1 var(--hud-font-display, system-ui, sans-serif);
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  text-shadow: 0 0 5px var(--hud-bg, var(--sa-n-900)), 0 1px 2px var(--hud-bg, var(--sa-n-900));
 }
 .hud-vital-label.hull { left: 7%; align-items: flex-start; }
 .hud-vital-label.shield { right: 7%; align-items: flex-end; }
 .hud-vital-label .value {
   color: var(--hud-text, var(--sa-white));
   font-size: 1.18em;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
 }
@@ -960,15 +962,17 @@ const CSS = `
 .hud-reticle-bracket .corners {
   position: absolute;
   inset: 0;
-  border: 1.5px solid var(--hud-primary, var(--sa-blue-500));
-  /* Keep only the corners: a cross-shaped hole erases the middle of each edge. */
+  border: 2px solid var(--hud-primary, var(--sa-blue-500));
+  /* Keep only the corners: a cross-shaped hole erases the middle of each edge.
+     The arms are SHORT (a quarter of each edge, was nearly a third) so the shape
+     reads as four square brackets rather than a box with gaps in it. */
   -webkit-mask:
-    linear-gradient(90deg, #000 0 30%, transparent 30% 70%, #000 70% 100%),
-    linear-gradient(180deg, #000 0 30%, transparent 30% 70%, #000 70% 100%);
+    linear-gradient(90deg, #000 0 26%, transparent 26% 74%, #000 74% 100%),
+    linear-gradient(180deg, #000 0 26%, transparent 26% 74%, #000 74% 100%);
   -webkit-mask-composite: source-in;
   mask:
-    linear-gradient(90deg, #000 0 30%, transparent 30% 70%, #000 70% 100%),
-    linear-gradient(180deg, #000 0 30%, transparent 30% 70%, #000 70% 100%);
+    linear-gradient(90deg, #000 0 26%, transparent 26% 74%, #000 74% 100%),
+    linear-gradient(180deg, #000 0 26%, transparent 26% 74%, #000 74% 100%);
   mask-composite: intersect;
   filter: drop-shadow(0 0 calc(6px * var(--hud-glow)) var(--hud-primary, var(--sa-blue-500)));
 }

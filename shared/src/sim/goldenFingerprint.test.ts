@@ -104,6 +104,16 @@ import { loadTestConfigs } from "./testutil.js";
  *    and which has no asteroid placements at all. That is the corroboration
  *    that this pass changed asteroid collision and left the static-prop path
  *    alone.
+ *  - 2026-08-21 (lock-cone widening): BOTH vectors re-recorded for the owner's
+ *    ×1.5 widening of every hull's `sensors.coneDeg` (talon/interceptor 60 → 90,
+ *    support 70 → 105, brawler 80 → 120 — see docs/COMBAT-REWORK.md). A wider
+ *    cone changes WHICH ships acquire a lock on which ticks, so homing weapons
+ *    become eligible earlier and more often; `structure` moves because the
+ *    event stream's shape genuinely changes, not because anything was
+ *    reordered. Scripted 303 → 311 events (more shots land inside the same 600
+ *    ticks); bot 300 → 259 (fights resolve faster, so fewer exchanges fit the
+ *    900-tick window). Both moves are the intended consequence of the content
+ *    edit and nothing else in the sim was touched in this pass.
  */
 
 const DT = 1 / 30;
@@ -318,9 +328,9 @@ describe("golden sim fingerprint", () => {
   it("pins the scripted asteroid-field vector", () => {
     const fp = scriptedVector(600);
     expect(fp).toEqual({
-      structure: "ac7c6826",
-      numeric: "d9f6ea95",
-      events: 303,
+      structure: "b6690ef0",
+      numeric: "e02a4ff7",
+      events: 311,
       ticks: 600,
     });
   });
@@ -361,9 +371,9 @@ describe("golden sim fingerprint", () => {
   it("pins the ten-bot lunar-rift vector", () => {
     const fp = botVector(900);
     expect(fp).toEqual({
-      structure: "b65a846c",
-      numeric: "61717f98",
-      events: 300,
+      structure: "f328f41b",
+      numeric: "799f7168",
+      events: 259,
       ticks: 900,
     });
   }, 120_000);

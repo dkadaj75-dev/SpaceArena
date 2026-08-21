@@ -71,11 +71,11 @@
     "vitalArcs": {
       "enabled": true,
       "radiusPx": 118,
-      "strokePx": 4,
+      "strokePx": 5,
       "arcDeg": 126,
       "offsetYPx": 8,
-      "opacity": 0.46,
-      "trackOpacity": 0.24
+      "opacity": 0.78,
+      "trackOpacity": 0.3
     },
     "style": {
       "chamferPx": 9,

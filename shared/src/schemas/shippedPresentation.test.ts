@@ -159,7 +159,13 @@ describe("shipped theme - compact flight HUD", () => {
     expect(hud?.radar?.rangeUnits).toBeGreaterThan(0);
     expect(hud?.radar?.elevationDeg).toBeGreaterThan(0);
     expect(hud?.vitalArcs?.enabled).toBe(true);
-    expect(hud?.vitalArcs?.opacity).toBeLessThan(0.75);
+    // Restrained, but READABLE. It was 0.46 until the owner reported hull and
+    // shield as unreadable mid-fight (2026-08-21); the arcs keep their
+    // semi-circle design and a dark backing halo does most of the work, with the
+    // authored opacity coming up to meet it. The ceiling stays because a fully
+    // opaque arc would compete with the arena rather than frame it.
+    expect(hud?.vitalArcs?.opacity).toBeGreaterThan(0.6);
+    expect(hud?.vitalArcs?.opacity).toBeLessThan(0.9);
     // The ship-wide ENERGY panel died with the 2026-08-07 energy overhaul:
     // energy is per-module now and rides the module buttons'
     // own rings, so the shipped theme authors no `gauges` block at all.

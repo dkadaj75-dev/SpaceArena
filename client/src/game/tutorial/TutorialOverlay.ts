@@ -27,7 +27,10 @@ const HIGHLIGHT_SELECTORS: Record<TutorialHighlight, readonly string[]> = {
   // The FIRE button is gone (2026-08-21). "fire" now names the pilot's PRIMARY
   // weapon — the pedestal that inherited its footprint — falling back to any
   // weapon trigger on a fitting whose rail has not been laid out yet.
-  fire: [".hud-module-btn.primary", ".hud-module-btn.trigger"],
+  // The weapon slots, right-hand cluster. The FIRE pedestal it used to prefer
+  // is gone (2026-08-21): every weapon is one uniform slot, so slot 01 — the
+  // first `.trigger` in the DOM — IS the primary gun.
+  fire: [".hud-module-btn.trigger"],
   // The hexes themselves: `.hud-modules` is a zero-size anchor pivot.
   modules: [".hud-module-btn"],
   reticle: [".hud-reticle-zone", ".hud-reticle"],

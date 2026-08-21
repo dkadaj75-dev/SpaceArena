@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { tuningSchema, type ConfigService, type EventBus, type ConfigEvents, type ModuleConfig, type Order, type Snapshot, type ThemeConfig } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
-import { MODULE_FAMILY_COLOR_FALLBACKS, ModuleButtons, moduleHudName, resolveModuleFamilyColor } from "./ModuleButtons.js";
+import {
+  MODULE_FAMILY_COLOR_FALLBACKS,
+  ModuleButtons,
+  formatRemainingSec,
+  lowAmmoThreshold,
+  moduleHudName,
+  moduleSlotTypeLabel,
+  resolveHudSlotCounts,
+  resolveModuleFamilyColor,
+} from "./ModuleButtons.js";
 import { resolveFlightHudLayout } from "./flightHudLayout.js";
 
 function fakeConfigs(): ConfigService {
@@ -302,7 +311,10 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     buttons.update(snapshotWithModules([
       { hardpointIndex: 0, moduleId: "module.kinetic-mk1", state: "reloading", rounds: 0, stateTimer: 1.3 },
     ]));
-    expect(button.querySelector<HTMLElement>(".rounds")!.textContent).toBe("0");
+    // An empty magazine says DRY, not "0": the mockup's out-of-ammo state, and
+    // a word a pilot can read from the corner of the eye where a zero cannot.
+    expect(button.querySelector<HTMLElement>(".rounds")!.textContent).toBe("DRY");
+    expect(button.classList).toContain("dry");
     expect(button.classList).toContain("state-reloading");
     expect(button.classList).toContain("ring-reload");
     expect(button.style.getPropertyValue("--ring")).toBe("50");
@@ -320,9 +332,12 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       { hardpointIndex: 2, moduleId: "module.missile-mk1", state: "active" },
     ]));
 
-    const counting = root.querySelector<HTMLElement>('[aria-label="Pulse Laser Mk I"]')!;
-    const energy = root.querySelector<HTMLElement>('[aria-label="Deflector Shield Mk I"]')!;
-    const none = root.querySelector<HTMLElement>('[aria-label="Seeker Missile Mk I"]')!;
+    // The accessible name leads with the slot number the button prints, and the
+    // numbering restarts per cluster: laser is weapon 01, missile weapon 02,
+    // and the shield is utility 01.
+    const counting = root.querySelector<HTMLElement>('[aria-label="01 Pulse Laser Mk I"]')!;
+    const energy = root.querySelector<HTMLElement>('[aria-label="01 Deflector Shield Mk I"]')!;
+    const none = root.querySelector<HTMLElement>('[aria-label="02 Seeker Missile Mk I"]')!;
     expect(counting.classList).toContain("ring-cooldown");
     expect(counting.style.getPropertyValue("--ring")).toBe("25");
     expect(energy.classList).toContain("ring-energy");
@@ -411,6 +426,26 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       buttons.dispose();
     });
 
+    it("refuses a utility TOGGLE while the rail is disabled, like the triggers", () => {
+      const root = document.createElement("div");
+      const orderSpy = vi.fn();
+      const buttons = new ModuleButtons(
+        root, fakeConfigs(), {} as EventBus<ConfigEvents>,
+        { order: orderSpy } as unknown as GameSession, 1,
+      );
+      buttons.update(snapshotWithModules([
+        { hardpointIndex: 0, moduleId: "module.shield-mk1", state: "retracted" },
+      ]));
+      const shield = root.querySelector<HTMLDivElement>(".hud-module-btn")!;
+      buttons.setEnabled(false);
+      shield.click();
+      expect(orderSpy).not.toHaveBeenCalled();
+      buttons.setEnabled(true);
+      shield.click();
+      expect(orderSpy).toHaveBeenCalledWith({ kind: "moduleToggle", hardpointIndex: 0 });
+      buttons.dispose();
+    });
+
     it("drops every held trigger when the rail is disabled", () => {
       const { root, buttons } = railWith([
         { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
@@ -423,27 +458,183 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       buttons.dispose();
     });
 
-    it("gives the PRIMARY weapon the FIRE pedestal and leaves deployables on the arc", () => {
+    /**
+     * The pedestal is GONE (owner HUD pass, 2026-08-21). A weapon is a weapon:
+     * every slot in a cluster is the same circle, and what separates the primary
+     * from the rest is that it is slot 01, nearest the thumb.
+     */
+    it("splits weapons right and utilities left, all one size, numbered per side", () => {
       const { root, buttons } = railWith([
         { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
         { hardpointIndex: 1, moduleId: "module.shield-mk1", state: "retracted" },
+        { hardpointIndex: 2, moduleId: "module.kinetic-mk1", state: "active", rounds: 24 },
       ]);
-      // The pedestal only exists when the theme authors the FIRE-hugging action
-      // arc, which the shipped theme does.
-      buttons.applyFlightLayout(
-        resolveFlightHudLayout(
-          { hud: { flight: { actions: { arc: { radiusPx: 127, startDeg: -102, sweepDeg: -77, buttonDiameterPx: 48, captionGapPx: 5 } } } } } as never,
-          { width: 900, height: 420 },
-        ),
-      );
-      const [primary, shield] = [...root.querySelectorAll<HTMLElement>(".hud-module-btn")];
-      expect(primary!.classList).toContain("primary");
-      expect(primary!.classList).toContain("trigger");
-      expect(shield!.classList).not.toContain("primary");
-      expect(shield!.classList).not.toContain("trigger");
-      // The pedestal is the bigger target — that is the whole point of it.
-      expect(parseFloat(primary!.style.width)).toBeGreaterThan(parseFloat(shield!.style.width));
+      buttons.applyFlightLayout(resolveFlightHudLayout(undefined, { width: 900, height: 420 }));
+
+      const weapons = [...root.querySelectorAll<HTMLElement>(
+        '.hud-slot-cluster[data-side="weapons"] .hud-module-btn',
+      )];
+      const utilities = [...root.querySelectorAll<HTMLElement>(
+        '.hud-slot-cluster[data-side="utilities"] .hud-module-btn',
+      )];
+      expect(weapons.map((b) => b.dataset["slot"])).toEqual(["01", "02"]);
+      expect(utilities.map((b) => b.dataset["slot"])).toEqual(["01"]);
+      expect(weapons.every((b) => b.classList.contains("trigger"))).toBe(true);
+      expect(utilities.every((b) => b.classList.contains("trigger"))).toBe(false);
+      // No pedestal: both weapons are the same target.
+      expect(weapons[0]!.style.width).toBe(weapons[1]!.style.width);
+      expect(root.querySelector(".hud-module-btn.primary")).toBeNull();
+      // The printed number, the glyph and the short TYPE word are all there.
+      expect(weapons[0]!.querySelector(".slot-num")!.textContent).toBe("01");
+      expect(weapons[0]!.querySelector(".icon svg")).not.toBeNull();
+      expect(weapons[0]!.querySelector(".slot-type")!.textContent).toBe("LASER");
+      expect(utilities[0]!.querySelector(".slot-type")!.textContent).toBe("SHIELD");
+      // The cluster anchors are what put each side under its own thumb.
+      expect(
+        root.querySelector<HTMLElement>('.hud-slot-cluster[data-side="weapons"]')!.dataset["anchor"],
+      ).toBe("bottom-right");
+      expect(
+        root.querySelector<HTMLElement>('.hud-slot-cluster[data-side="utilities"]')!.dataset["anchor"],
+      ).toBe("bottom-left");
       buttons.dispose();
+    });
+
+    it("shrinks the cluster as the side gets busier, never past the touch floor", () => {
+      const four = railWith([0, 1, 2, 3].map((i) => ({
+        hardpointIndex: i, moduleId: "module.laser-mk1", state: "active" as const,
+      })));
+      four.buttons.applyFlightLayout(resolveFlightHudLayout(undefined, { width: 900, height: 420 }));
+      const two = railWith([0, 1].map((i) => ({
+        hardpointIndex: i, moduleId: "module.laser-mk1", state: "active" as const,
+      })));
+      two.buttons.applyFlightLayout(resolveFlightHudLayout(undefined, { width: 900, height: 420 }));
+
+      const widthOf = (r: HTMLElement) =>
+        parseFloat(r.querySelector<HTMLElement>(".hud-module-btn")!.style.width);
+      expect(widthOf(two.root)).toBe(82);
+      expect(widthOf(four.root)).toBe(70);
+      expect(widthOf(four.root)).toBeGreaterThanOrEqual(44);
+      two.buttons.dispose();
+      four.buttons.dispose();
+    });
+  });
+
+  /**
+   * Mockup state 3, mapped onto the states the sim actually replicates. There is
+   * no LINK-group concept and no per-slot "unfitted" entry in a snapshot, so
+   * neither is invented here — `unpowered` is the real analogue of unfitted.
+   */
+  describe("per-slot states", () => {
+    function railWith(states: Parameters<typeof snapshotWithModules>[0]) {
+      const root = document.createElement("div");
+      const buttons = new ModuleButtons(
+        root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1,
+      );
+      buttons.update(snapshotWithModules(states));
+      return { root, buttons };
+    }
+
+    it("prints the seconds left beside the cooling pie, and clears them when ready", () => {
+      const root = document.createElement("div");
+      const buttons = new ModuleButtons(
+        root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1,
+      );
+      // The missile's authored cycle is 2.5 s.
+      buttons.update(snapshotWithModules([
+        { hardpointIndex: 0, moduleId: "module.missile-mk1", state: "active", cycleTimer: 1.8 },
+      ]));
+      const secs = root.querySelector<HTMLElement>(".cooldown-secs")!;
+      expect(secs.hidden).toBe(false);
+      expect(secs.textContent).toBe("2");
+
+      // Under a second the tenths matter: 0.9 and 0.1 are different decisions.
+      buttons.update(snapshotWithModules([
+        { hardpointIndex: 0, moduleId: "module.missile-mk1", state: "active", cycleTimer: 0.4 },
+      ]));
+      expect(secs.textContent).toBe("0.4");
+
+      buttons.update(snapshotWithModules([
+        { hardpointIndex: 0, moduleId: "module.missile-mk1", state: "active", cycleTimer: 0 },
+      ]));
+      expect(secs.hidden).toBe(true);
+      expect(secs.textContent).toBe("");
+      buttons.dispose();
+    });
+
+    it("warns on a low magazine and only on a magazine-fed weapon", () => {
+      // The autocannon's clip is 24, so "low" is the last 6.
+      const { root, buttons } = railWith([
+        { hardpointIndex: 0, moduleId: "module.kinetic-mk1", state: "active", rounds: 6 },
+        { hardpointIndex: 1, moduleId: "module.laser-mk1", state: "active" },
+      ]);
+      const [cannon, laser] = [...root.querySelectorAll<HTMLElement>(".hud-module-btn")];
+      expect(cannon!.classList).toContain("low-ammo");
+      expect(cannon!.classList).not.toContain("dry");
+      expect(cannon!.querySelector<HTMLElement>(".rounds")!.textContent).toBe("6");
+      // A laser has no rounds to be low on, so it gets no counter at all rather
+      // than an invented one.
+      expect(laser!.classList).not.toContain("low-ammo");
+      expect(laser!.querySelector<HTMLElement>(".rounds")!.hidden).toBe(true);
+      buttons.dispose();
+    });
+
+    it("reads a rail-starved weapon as the unfitted slot: dimmed and inert", () => {
+      const { root, buttons } = railWith([
+        { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "retracted" },
+      ]);
+      const button = root.querySelector<HTMLElement>(".hud-module-btn")!;
+      expect(button.classList).toContain("unpowered");
+      expect(button.title).toBe("No rail power for this weapon");
+      buttons.dispose();
+    });
+  });
+
+  describe("slot counts shared across the left cluster", () => {
+    it("puts BOOST then JETTISON behind the fitted deployables", () => {
+      const configs = fakeConfigs();
+      const counts = resolveHudSlotCounts(configs, [
+        { moduleId: "module.laser-mk1" },
+        { moduleId: "module.shield-mk1" },
+        { moduleId: "module.boost-mk1" },
+      ] as never);
+      expect(counts).toEqual({
+        weapons: 1,
+        utilityModules: 1,
+        boostSlot: 1,
+        jettisonSlot: null,
+        utilities: 2,
+      });
+    });
+
+    it("counts no left slot for a fitting with neither action", () => {
+      const counts = resolveHudSlotCounts(fakeConfigs(), [
+        { moduleId: "module.laser-mk1" },
+        { moduleId: "module.kinetic-mk1" },
+      ] as never);
+      expect(counts.weapons).toBe(2);
+      expect(counts.utilities).toBe(0);
+      expect(counts.boostSlot).toBeNull();
+    });
+  });
+
+  describe("slot captions and countdown formatting", () => {
+    it("names the KIND on the button, falling back to the family when a word is too long", () => {
+      expect(moduleSlotTypeLabel({ name: "Pulse Laser Mk I", family: "laser", ui: { icon: "L", label: "Laser", shortName: "Pulse Mk1" } }, "x")).toBe("PULSE");
+      // "Deflector" does not fit, and a clipped "DEFLECT" says less than the
+      // family word does.
+      expect(moduleSlotTypeLabel({ name: "Deflector Shield Mk I", family: "shield", ui: { icon: "S", label: "Shield" } }, "x")).toBe("SHIELD");
+    });
+
+    it("prints whole seconds above one and tenths below it", () => {
+      expect(formatRemainingSec(2.1)).toBe("3");
+      expect(formatRemainingSec(1)).toBe("1");
+      expect(formatRemainingSec(0.94)).toBe("0.9");
+    });
+
+    it("calls the last quarter of a magazine low, never fewer than one round", () => {
+      expect(lowAmmoThreshold(24)).toBe(6);
+      expect(lowAmmoThreshold(4)).toBe(1);
+      expect(lowAmmoThreshold(1)).toBe(1);
     });
   });
 

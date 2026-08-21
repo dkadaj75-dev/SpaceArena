@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
-import { BoostButton, BOOST_BLOCKED_TITLE, BOOST_LABEL, type BoostButtonState } from "./BoostButton.js";
-import { resolveFlightHudLayout } from "./flightHudLayout.js";
+import { BoostButton, BOOST_BLOCKED_TITLE, BOOST_LABEL, BOOST_SLOT_TYPE, type BoostButtonState } from "./BoostButton.js";
+import { anchoredOffset, resolveFlightHudLayout } from "./flightHudLayout.js";
+import { resolveSlotCluster } from "./slotCluster.js";
 
 function pointer(type: string, pointerId: number): Event {
   const event = new Event(type, { bubbles: true, cancelable: true });
@@ -129,24 +130,39 @@ describe("BoostButton", () => {
     boost.dispose();
   });
 
-  it("sizes and places itself entirely from the resolved boost layout", () => {
+  /**
+   * BOOST moved to the LEFT thumb with the rest of the utilitarian skills (owner
+   * HUD pass, 2026-08-21) and wears the shared slot skin, so it is now one
+   * circle of a cluster rather than a bespoke satellite of the FIRE pedestal.
+   */
+  it("takes its slot in the shared left cluster, sized like every other slot", () => {
     const { root, boost } = mount();
     const layout = resolveFlightHudLayout(undefined, PORTRAIT);
     const container = root.querySelector<HTMLElement>(".hud-boost")!;
     const button = root.querySelector<HTMLElement>(".hud-boost-btn")!;
 
-    // The authored slot keeps BOOST with the weapon triggers and the other
-    // right-thumb actions.
-    expect(layout.fire.anchor).toBe("bottom-right");
-    expect(container.dataset["anchor"]).toBe("bottom-right");
-    expect(Number.parseFloat(button.style.width)).toBeCloseTo(layout.boost.radiusPx * 2, 6);
-    expect(Number.parseFloat(button.style.height)).toBeCloseTo(layout.boost.radiusPx * 2, 6);
-    // Grows left/up from the bottom-right pivot.
-    expect(Number.parseFloat(button.style.left)).toBeCloseTo(-(layout.boost.offsetXPx + layout.boost.radiusPx * 2), 6);
-    expect(Number.parseFloat(button.style.top)).toBeCloseTo(
-      -(layout.boost.offsetYPx + layout.boost.radiusPx * 2),
-      6,
-    );
+    // Two utility slots: a deployable in 01, BOOST in 02.
+    boost.applySlotLayout(layout, 2, 1);
+    const cluster = resolveSlotCluster(2, "utilities", {
+      viewport: layout.viewport,
+      scale: layout.scale,
+    });
+    const slot = cluster.slots[1]!;
+    const expected = anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.sizePx / 2);
+
+    expect(container.dataset["anchor"]).toBe("bottom-left");
+    expect(button.dataset["slot"]).toBe("02");
+    expect(button.querySelector(".slot-num")!.textContent).toBe("02");
+    expect(button.querySelector(".slot-type")!.textContent).toBe(BOOST_SLOT_TYPE);
+    // Same skin as the module slots — that is what makes the left thumb read as
+    // one cluster and not three widgets that happen to be near each other.
+    expect(button.classList).toContain("hud-slot-btn");
+    expect(button.classList).toContain("hud-module-btn");
+    expect(Number.parseFloat(button.style.width)).toBeCloseTo(slot.sizePx, 6);
+    expect(Number.parseFloat(button.style.height)).toBeCloseTo(slot.sizePx, 6);
+    // Grows right/up from the bottom-LEFT pivot.
+    expect(Number.parseFloat(button.style.left)).toBeCloseTo(expected.dx - slot.sizePx / 2, 6);
+    expect(Number.parseFloat(button.style.top)).toBeCloseTo(expected.dy - slot.sizePx / 2, 6);
     boost.dispose();
   });
 });

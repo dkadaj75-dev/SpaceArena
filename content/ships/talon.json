@@ -32,7 +32,7 @@
     "sensors": {
       "lockRange": 195,
       "lockTimeSec": 0.7,
-      "coneDeg": 60
+      "coneDeg": 90
     }
   },
   "upgradeTracks": {

@@ -76,4 +76,37 @@ describe("centre vital arcs", () => {
 
     arcs.dispose();
   });
+
+  /**
+   * The arcs were unreadable in a live fight (owner, 2026-08-21). The fix keeps
+   * the semi-circle design and adds a dark backing stroke under each arc rather
+   * than making the arcs themselves louder — so this pins the halo's existence,
+   * its geometry (identical to the arc it backs) and its stacking order.
+   */
+  it("backs each arc with a dark halo on the same path, drawn underneath it", () => {
+    const root = document.createElement("div");
+    const layout = resolveHudLayout(
+      {
+        hud: {
+          gauges: { showHull: true, showShield: true },
+          vitalArcs: { enabled: true, radiusPx: 140, strokePx: 5, arcDeg: 120 },
+        },
+      } as never,
+      { width: 400, height: 800 },
+    );
+    const arcs = new VitalArcs(root, configs, 1);
+    arcs.applyLayout(layout);
+
+    for (const kind of ["hull", "shield"] as const) {
+      const halo = root.querySelector<SVGPathElement>(`.hud-vital-arc.halo.${kind}`)!;
+      const track = root.querySelector<SVGPathElement>(`.hud-vital-arc.track.${kind}`)!;
+      expect(halo).not.toBeNull();
+      expect(halo.getAttribute("d")).toBe(track.getAttribute("d"));
+      // Painted first, so the arc and its track sit on top of it.
+      expect(halo.compareDocumentPosition(track) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    // The halo carries no value — it must never be mistaken for a second gauge.
+    expect(root.querySelector(".hud-vital-arc.halo")!.getAttribute("pathLength")).toBeNull();
+    arcs.dispose();
+  });
 });
