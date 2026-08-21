@@ -470,9 +470,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         },
         onMenu: () => {
           log.info("match over — returning to lobby");
-          endMatch();
-          music.setScreen("menu");
-          lobby.show();
+          returnToLobby(endMatch);
         },
         onMvp: (entityId) => {
           // Keep the beauty shot in open space. Lunar terrain reaches several
@@ -724,12 +722,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         context === "match"
           ? () => {
               log.info("quit to main menu from settings");
-              // Walking out of the match walks out of the lesson: a director
-              // still waiting on a throttle nobody can push is a dead end.
-              tutorial?.skip();
-              endMatch();
-              music.setScreen("menu");
-              lobby.show();
+              returnToLobby(() => {
+                // Walking out of the match walks out of the lesson: a director
+                // still waiting on a throttle nobody can push is a dead end.
+                tutorial?.skip();
+                endMatch();
+              });
             }
           : undefined,
     });
@@ -775,6 +773,49 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     menuDiorama.showHull(shipId, shipId ? ownership.selectedCosmetic(shipId) : null);
     menuDiorama.activate();
     return menuDiorama;
+  }
+
+  /**
+   * How long the return curtain stays up at minimum. A cached backdrop is ready
+   * almost at once, and a curtain that appears for three frames reads as a
+   * glitch rather than as a transition.
+   */
+  const CURTAIN_MIN_MS = 500;
+
+  /**
+   * Land in the lobby with its backdrop already REAL (owner 2026-08-21).
+   *
+   * Leaving a match disposes the menu diorama, so showing the lobby
+   * immediately meant watching the Milky Way, the star and the hull pop in one
+   * by one over an empty scene. This runs the same sequence the launch does —
+   * cover, build, wait for `ready()`, uncover — using the launch screen itself
+   * as the cover, so the rebuild happens behind the screen the player already
+   * reads as "getting ready".
+   *
+   * `teardown` runs UNDER the curtain: ending the match is part of what must
+   * not be seen. Without the launch markup (the editor entry, unit tests) this
+   * degrades to exactly the old behaviour rather than hiding the menu behind a
+   * cover that does not exist.
+   */
+  function returnToLobby(teardown: () => void): void {
+    // Nothing to rebuild when the backdrop is still standing (the lobby was
+    // already the screen underneath), and a curtain over that is a beat of
+    // waiting bought for nothing.
+    const curtain = menuDiorama === null ? boot : null;
+    curtain?.cover();
+    const coveredAt = performance.now();
+    teardown();
+    music.setScreen("menu");
+    lobby.show();
+    if (!curtain) return;
+    void (async () => {
+      // The same wait the launch performs, and it is the whole point: `ready()`
+      // resolves once the backdrop's assets have settled AND a frame has been
+      // drawn with them — or on its own timeout, so a slow load delays the
+      // menu but can never withhold it.
+      await menuDiorama?.ready();
+      await curtain.dismiss(Math.max(0, CURTAIN_MIN_MS - (performance.now() - coveredAt)));
+    })();
   }
 
   const lobby = new Lobby(
@@ -900,11 +941,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           if (!runtime) void startTutorialMatch();
           break;
         case "lobby":
-          leaveTutorialMatch();
-          hangar.hide();
-          shop.hide();
-          music.setScreen("menu");
-          lobby.show();
+          returnToLobby(() => {
+            leaveTutorialMatch();
+            hangar.hide();
+            shop.hide();
+          });
           tutorial?.noteScreen("lobby");
           break;
         case "hangar":
@@ -945,11 +986,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         return;
       }
       // Skipped: put them back somewhere they can play from.
-      if (runtime) endMatch();
-      hangar.hide();
-      shop.hide();
-      music.setScreen("menu");
-      lobby.show();
+      returnToLobby(() => {
+        if (runtime) endMatch();
+        hangar.hide();
+        shop.hide();
+      });
     },
   };
 
