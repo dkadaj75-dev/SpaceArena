@@ -43,6 +43,7 @@ import {
 } from "./boundaryProximity.js";
 import { DustField, resolveDustParams } from "./dustField.js";
 import { AssetRegistry, type ModelMaster } from "./AssetRegistry.js";
+import { createStarBillboard } from "../game/starBillboard.js";
 
 const log = createLogger("SceneBuilder");
 
@@ -154,6 +155,8 @@ export class SceneBuilder {
   private glowRebuildTriedAt: string | null = null;
   private removeGlowResizeGuard: (() => void) | null = null;
   private skybox: Mesh | null = null;
+  /** Removes the authored star's per-frame animation hook; null when it has none. */
+  private starObserver: (() => void) | null = null;
   private unsubscribers: Array<() => void> = [];
   private generation = 0;
   private quality: SceneQuality;
@@ -264,6 +267,7 @@ export class SceneBuilder {
 
     this.buildLighting(arena, root);
     this.buildSkybox(arena, root, generation);
+    this.buildStar(arena, root);
     this.buildBounds(arena, root);
     void this.buildProps(arena, root, generation);
     this.buildPickPlane(arena, root);
@@ -413,6 +417,52 @@ export class SceneBuilder {
     dir.parent = root;
   }
 
+  /**
+   * The arena's near STAR (`arena.render.star`) — the main menu's sun, drawn as
+   * real geometry in the play space (owner request 2026-08-21, "Parker Point":
+   * a sky whose feature is the star rather than a gas giant).
+   *
+   * Parked just inside the starfield shell and OUTSIDE the arena bubble, so no
+   * ship can fly through it and the point-cloud stars still read as farther
+   * away. It rides the same `skyboxEnabled` quality gate as the panorama —
+   * a tier that has turned the sky off should not pay for a shader billboard.
+   */
+  private buildStar(arena: ArenaConfig, root: TransformNode): void {
+    const authored = arena.render?.star;
+    if (!authored || !this.quality.scene.skyboxEnabled) return;
+
+    // Between the bubble the player flies in and the point-cloud star shell
+    // (`Math.max(300, radius * 1.8)` below), so it occludes neither — and
+    // camera-pinned, so that distance is measured from the VIEWER and the sun
+    // neither swells nor slides as a ship crosses the arena.
+    const distance = Math.max(220, boundsRadiusOf(arena) * 1.35);
+    const { mesh, material } = createStarBillboard(this.scene, {
+      name: `arena.${arena.id}`,
+      parent: root,
+      distance,
+      infiniteDistance: true,
+      apparentSize: authored.apparentSize,
+      direction: new Vector3(authored.dir[0], authored.dir[1], authored.dir[2]),
+      core: colorFromHex(authored.core, Color3.FromHexString("#fff4d2")),
+      shell: colorFromHex(authored.shell, Color3.FromHexString("#ff8a1e")),
+      corona: colorFromHex(authored.corona, Color3.FromHexString("#ff9433")),
+    });
+    // A tone-mapped emissive body: the bloom layer would double-count it and
+    // wash the whole sky, exactly as it does for the panorama.
+    this.glowLayer?.addExcludedMesh(mesh);
+
+    const speed = authored.speed ?? 1;
+    let elapsed = 0;
+    const observer = this.scene.onBeforeRenderObservable.add(() => {
+      elapsed += (this.scene.getEngine().getDeltaTime() / 1000) * speed;
+      material.setFloat("time", elapsed);
+    });
+    // Torn down with the arena: `disposeSceneNodes` drops the mesh with the
+    // root, but an observer on the SCENE outlives it and would keep writing to
+    // a disposed material on every subsequent arena.
+    this.starObserver = () => this.scene.onBeforeRenderObservable.remove(observer);
+  }
+
   private buildSkybox(arena: ArenaConfig, root: TransformNode, generation: number): void {
     const authored = arena.render?.skybox;
     if (authored && this.quality.scene.skyboxEnabled) {
@@ -506,6 +556,9 @@ export class SceneBuilder {
       this.skybox = skybox;
       this.glowLayer?.addExcludedMesh(skybox);
     }
+
+    // NOTE: `buildStar` (the authored near star, if any) runs after this, so a
+    // drawn photosphere sits in front of the panorama it is painted against.
 
     // Cheap starfield: a few hundred points via PointsCloudSystem, density per
     // quality tier (the point count is baked into the mesh at build time).
@@ -1101,6 +1154,10 @@ export class SceneBuilder {
   private disposeSceneNodes(): void {
     this.skyboxMaterialReadyToFreeze = null;
     this.skybox = null;
+    // Before the root goes: the star's animation observer lives on the SCENE,
+    // so it would outlive its material and write to a disposed effect.
+    this.starObserver?.();
+    this.starObserver = null;
     if (this.root) {
       disposeRecursive(this.root);
       this.root = null;

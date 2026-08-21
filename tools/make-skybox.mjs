@@ -108,6 +108,39 @@ const PALETTES = {
     },
     sun: { dir: [-0.677, -0.208, -0.706], color: [244, 248, 255], discDeg: 0.68, glowDeg: 3.0, minimalGlow: true },
   },
+  // PARKER POINT (owner request 2026-08-21) — "the same as Ring Nebula, but
+  // instead of the gas giant we have the sun, obviously bigger".
+  //
+  // So this palette paints NEITHER a planet NOR a sun: the star is drawn in the
+  // scene instead, as real geometry (`arena.render.star` → `game/starBillboard`,
+  // the main menu's own body), which is what lets it be arbitrarily large,
+  // animated and lit without a 4k texture trying to hold a 100-deg disc.
+  // Everything here is therefore just the backdrop it hangs against.
+  //
+  // Brighter than ring-nebula on purpose (the same owner request asked both
+  // deathmatch skies to read lighter): more stars and a stronger galactic
+  // river, with the base sky left dark so it does not turn milky.
+  "parker-point": {
+    base: [7, 8, 17],
+    dustA: { col: [40, 28, 58], hot: [88, 58, 112], lo: 0.7, hi: 1.0 },
+    dustB: { col: [22, 35, 62], hot: [58, 84, 126], lo: 0.74, hi: 1.02 },
+    dustC: { col: [33, 24, 44], hot: [72, 52, 90], lo: 0.73, hi: 1.04 },
+    core: [230, 216, 255],
+    warp: 1.5,
+    // 1.0 -> 1.7: "more visible stars in general". The star term is a cubic
+    // falloff scaled by this, so it lifts the faint field far more than the
+    // few bright ones — which is what reads as a deeper sky rather than as a
+    // handful of blown-out dots.
+    starGain: 1.7,
+    // A different seed, or Parker Point is Ring Nebula's sky with the planet
+    // painted out and every dust lane in the same place.
+    seed: 41,
+    // Sky gain 0.9 -> 1.02 and nebula 0.24 -> 0.31: brighter, still short of
+    // the 1.25 that starts washing the black out from between the stars.
+    gain: 1.02, nebulaGain: 0.31,
+    bandN: [-0.42, 0.79, 0.45], bandWidth: 0.32, bandGain: 1.72,
+    bandCoreDir: [0.62, 0.48, -0.62],
+  },
   "lunar-crater": {
     base: [0, 0, 1], spaceBlack: true,
     dustA: { col: [20, 18, 16], hot: [34, 30, 25], lo: 0.98, hi: 1.1 },

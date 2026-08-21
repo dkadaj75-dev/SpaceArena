@@ -17,6 +17,7 @@ import {
   type EventBus,
   type ConfigEvents,
   type ArenaBounds,
+  type ShipConfig,
   type StaticWorld,
 } from "@space-arena/shared";
 import {
@@ -24,6 +25,7 @@ import {
   chaseOffsetForFrame,
   chaseSettingsOf,
   DEFAULT_CHASE_SETTINGS,
+  pursuitZoomOf,
   type ChaseSettings,
 } from "./chaseCamera.js";
 
@@ -127,6 +129,14 @@ export class TacticalCamera {
   private chase: ChaseSettings = DEFAULT_CHASE_SETTINGS;
   /** Player-local multiplier over the content-authored chase radius. */
   private chaseDistanceScale = 1;
+  /**
+   * Ship config whose `render.pursuitZoom` the rig is currently honouring, and
+   * the resolved multiplier. Kept as an ID rather than a value so a live F10
+   * edit to that hull can be picked up off `config:changed` — the same way this
+   * rig already hot-reloads `camera.default`.
+   */
+  private pursuitShipId: string | null = null;
+  private pursuitZoom = 1;
   /** True while the viewport is landscape — applies `chase.landscapeRadiusScale`. */
   private landscapeOrientation = false;
   /**
@@ -234,6 +244,10 @@ export class TacticalCamera {
         this.chase = chaseSettingsOf(fresh);
         this.applyLimits(fresh);
       }
+      // The F10 ship tool edits `render.pursuitZoom` through the same
+      // `configService.replace` path, so the followed hull's own framing
+      // updates without leaving the tool.
+      if (evt.type === "ship" && evt.id === this.pursuitShipId) this.refreshPursuitZoom();
     });
   }
 
@@ -269,6 +283,33 @@ export class TacticalCamera {
   }
 
   /**
+   * Name the hull the pursuit rig is following, so its authored
+   * `render.pursuitZoom` scales the follow distance — a 3.6-unit brawler and a
+   * 2-unit interceptor want different framing out of one `camera.chase.radius`.
+   * Passing null (menus, the hangar, a torn-down match) returns the rig to the
+   * pack's authored distance.
+   */
+  setPursuitShip(shipId: string | null): void {
+    if (this.pursuitShipId === shipId) return;
+    this.pursuitShipId = shipId;
+    this.refreshPursuitZoom();
+  }
+
+  /** Re-read the followed hull's zoom and re-pose if it actually moved. */
+  private refreshPursuitZoom(): void {
+    const ship = this.pursuitShipId
+      ? this.configService.get<ShipConfig>("ship", this.pursuitShipId)
+      : undefined;
+    const zoom = pursuitZoomOf(ship?.render);
+    if (zoom === this.pursuitZoom) return;
+    this.pursuitZoom = zoom;
+    // Same guard `applyLimits` uses: the editor/hangar orbits own the radius
+    // band while they are up, and leaving them re-runs applyLimits — which
+    // hands the chase clamps (and this zoom) back for a still-live match.
+    if (this.chaseMode && !this.editorMode && !this.hangarMode) this.applyChaseLimits();
+  }
+
+  /**
    * Viewport orientation, pushed by the render shell on resize/rotate. In
    * landscape the authored `chase.landscapeRadiusScale` scales the DEFAULT
    * chase distance (the shipped pack pulls it in to 70%); the player's local
@@ -293,7 +334,7 @@ export class TacticalCamera {
 
   private get effectiveChaseRadius(): number {
     const orientationScale = this.landscapeOrientation ? this.chase.landscapeRadiusScale : 1;
-    return this.chase.radius * orientationScale * this.chaseDistanceScale;
+    return this.chase.radius * orientationScale * this.chaseDistanceScale * this.pursuitZoom;
   }
 
   /** Config sensitivity × the player's local multiplier. */

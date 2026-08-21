@@ -5,7 +5,7 @@ import type { ShipConfig } from "../../schemas/ship.js";
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { hasLineOfSight } from "../los.js";
 import { spawnAsteroid, spawnProjectile, spawnShipFromConfig } from "../spawn.js";
-import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_SHIELD, ROCK_LARGE, ROCK_SMALL, loadTestConfigs, makeWorld, rebuildSpatial, rockScaleFor, warmLock } from "../testutil.js";
+import { INTERCEPTOR_FITTING, INTERCEPTOR_FITTING_SHIELD, ROCK_LARGE, ROCK_SMALL, clearCombatProfiles, loadTestConfigs, makeWorld, rebuildSpatial, rockScaleFor, warmLock } from "../testutil.js";
 import { damageTypeProfileOf } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 import { combatSystem, latchFireState } from "./CombatSystem.js";
@@ -21,6 +21,11 @@ const SHIELD = 1; // the light hull mounts a shield on hardpoint 1 (2026-07-31)
 let configs: ConfigService;
 beforeAll(async () => {
   configs = await loadTestConfigs();
+  // This suite asserts weapon MECHANISM against each module's authored numbers
+  // (cycle time, DPS). Hull role profiles scale exactly those, and they are a
+  // designer-tuned content field, so neutralise them here — balance lives in
+  // `balanceRegression.test.ts`, which deliberately keeps them.
+  clearCombatProfiles(configs);
 });
 
 /**

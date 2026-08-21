@@ -7,6 +7,7 @@ import type { Order } from "./orders.js";
 import { clamp } from "./math.js";
 import { deriveRng } from "./rng.js";
 import { matchCountdownSecOf } from "./tuningDefaults.js";
+import { reresolveShipsUsingConfig } from "./reresolveShip.js";
 import type { UpgradeLevels } from "./resolveStats.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
@@ -620,6 +621,24 @@ export class ArenaSimulation {
     const id = spawnShipFromConfig(this.world, this.configs, shipId, fitting, team, pos, heading, upgradeLevels, pitch);
     this.spawnRecords.set(id, { shipId, fitting, team, upgradeLevels, cosmeticId: this.paintFor(shipId, cosmeticId) });
     return id;
+  }
+
+  /**
+   * Adopt a hot-edited ship config on every LIVE hull flying it (F10 ship tool
+   * during an offline match). Without this a resolved {@link ShipCore} is
+   * frozen at spawn, so hull/engine/sensor and combat-role-profile edits only
+   * appeared after a respawn — see `reresolveShipCore` for what is carried
+   * across and why.
+   *
+   * Deliberately NOT called from the sim's own tick: this is a designer-tooling
+   * seam, driven by `config:changed` from whoever owns the ConfigService. An
+   * online room pins its own ConfigService instance (see `World.tuning`), so
+   * nothing reaches it here and server authority is untouched.
+   *
+   * Returns the number of hulls re-resolved.
+   */
+  refreshShipConfig(shipConfigId: string): number {
+    return reresolveShipsUsingConfig(this.world, this.configs, shipConfigId);
   }
 
   /**

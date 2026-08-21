@@ -2,6 +2,9 @@ import type { RockSpin } from "../collision/rockPose.js";
 import type { ResolvedRockMesh } from "../collision/rockCollider.js";
 import type { ResolvedRockShape, RockQuat } from "../collision/rockShape.js";
 import type { DamageType } from "../schemas/common.js";
+// Type-only, and therefore erased: `resolveStats` imports `ShipCore` back from
+// here, so a VALUE import would be a genuine cycle.
+import type { UpgradeLevels } from "./resolveStats.js";
 
 /** Entity handle. Plain integer allocated by the World. */
 export type EntityId = number;
@@ -117,6 +120,42 @@ export interface ShipCore {
    * authored.
    */
   efficiency: { energyDraw: number };
+  /**
+   * Resolved ROLE PROFILE (`core.combat`) — the hull's own combat multipliers,
+   * already defaulted and clamped by {@link import("./resolveStats.js").resolveShipStats}
+   * so no consumer has to think about an absent field:
+   *
+   *  - `damageOutput` scales damage this ship DEALS, per LEAF type, applied at
+   *    the top of the damage pipeline (`damage.ts`);
+   *  - `rateOfFire` divides the cycle time of a weapon of that authored
+   *    `fire.damageType`, or scales a channel's DPS (`CombatSystem`);
+   *  - `shieldEfficiency` scales every fitted shield's reserve — tank size at
+   *    spawn and refill rate in `EnergySystem`.
+   */
+  combat: {
+    damageOutput: { kinetic: number; energy: number };
+    rateOfFire: { kinetic: number; energy: number; hybrid: number };
+    shieldEfficiency: number;
+  };
+}
+
+/**
+ * The inputs a ship's {@link ShipCore} was resolved FROM, recorded at spawn.
+ *
+ * Kept because a resolved core is a one-way projection: given only the core you
+ * cannot re-run `resolveShipStats` when the ship's config changes under a live
+ * match (the F10 ship tool editing hull, engine or the combat role profile).
+ * With these three the re-resolve is exact — same config id, same fitting, same
+ * upgrade counts — so a hot edit lands on the ship the pilot is flying instead
+ * of waiting for a respawn. See `reresolveShipCore`.
+ */
+export interface ShipLoadout {
+  /** Ship CONFIG id (`ship.brawler`), not the entity id. */
+  shipId: string;
+  /** Positional fitting: array index is the hardpoint index (see spawn). */
+  fittingModuleIds: readonly (string | null)[];
+  /** The player's DB upgrade purchase counts; absent ⇒ base stats. */
+  upgradeLevels?: UpgradeLevels;
 }
 
 export type ModuleState =

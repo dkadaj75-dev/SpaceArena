@@ -116,6 +116,17 @@ export const emissiveGlow = z.object({
 });
 export type EmissiveGlow = z.infer<typeof emissiveGlow>;
 
+/**
+ * Legal band for {@link renderRecipe}'s `pursuitZoom`, shared by the schema, the
+ * F10 ship tool's slider and the chase rig itself so all three agree on what a
+ * designer is allowed to author. Kept here (not in the client rig) because the
+ * schema is the thing that has to reject an out-of-band file.
+ */
+export const PURSUIT_ZOOM_MIN = 0.25;
+export const PURSUIT_ZOOM_MAX = 3;
+/** Absent `pursuitZoom` ⇒ exactly the camera pack's authored chase distance. */
+export const DEFAULT_PURSUIT_ZOOM = 1;
+
 /** Procedural / glTF visual recipe reference plus optional palette. */
 export const renderRecipe = z.object({
   recipe: z.string(),
@@ -133,6 +144,15 @@ export const renderRecipe = z.object({
   lods: z.array(z.object({ model: z.string().min(1), distance: z.number().positive() })).optional(),
   /** Signal-driven emissive light on one of the model's material slots. */
   emissiveGlow: emissiveGlow.optional(),
+  /**
+   * SHIPS ONLY (other config types share this recipe and ignore it): per-hull
+   * multiplier on the in-match pursuit camera's follow distance, on top of
+   * `camera.chase.radius` and the player's own distance setting. 1 = the
+   * camera pack's authored distance, below pulls the rig in, above pushes it
+   * out. Absent means 1, so a hull that never authored one keeps exactly the
+   * framing it had before this field existed.
+   */
+  pursuitZoom: z.number().min(PURSUIT_ZOOM_MIN).max(PURSUIT_ZOOM_MAX).optional(),
 });
 export type RenderRecipe = z.infer<typeof renderRecipe>;
 
@@ -149,6 +169,69 @@ export const resists = z.object({
   energy: z.number().min(0).max(0.95),
 });
 export type Resists = z.infer<typeof resists>;
+
+/**
+ * Legal band for every hull COMBAT multiplier ({@link shipCombat}), shared by
+ * the schema, the F10 ship tool's sliders and the resolver that clamps the
+ * post-upgrade value. One band for all of them on purpose: they are the same
+ * kind of knob and a designer should not have to remember three ranges.
+ *
+ * 4× is where a "specialist" stops being a specialist and starts being a
+ * different game; 0.25× is where a hull has effectively given the role up.
+ */
+export const COMBAT_MULT_MIN = 0.25;
+export const COMBAT_MULT_MAX = 4;
+/** Absent multiplier ⇒ the hull as authored before these knobs existed. */
+export const DEFAULT_COMBAT_MULT = 1;
+
+const combatMultiplier = z.number().min(COMBAT_MULT_MIN).max(COMBAT_MULT_MAX);
+
+/**
+ * ROLE PROFILE — the hull-level combat multipliers that let two ships with the
+ * same modules fly as a kinetic brawler and an energy sniper (owner request
+ * 2026-08-21). The counterpart to `hull.resists`: resists say what a hull
+ * SURVIVES, this says what it DELIVERS.
+ *
+ * Every field is optional and every absent field is exactly 1, so a hull that
+ * authors none of this is bit-identical to the pre-feature sim. All of them
+ * feed the stat resolver as ordinary core stats, which means upgrade tracks and
+ * module passives can move them too (`combat.damageOutput.kinetic`, …).
+ */
+export const shipCombat = z.object({
+  /**
+   * Multiplier on damage this hull DEALS, per LEAF damage type. A `hybrid`
+   * weapon is not listed because it has no damage of its own: the pipeline
+   * splits it into its kinetic and energy shares and each share is scaled by
+   * the entry for its own leaf, so a kinetic-specialist hull gets its bonus on
+   * exactly the kinetic half of a missile.
+   */
+  damageOutput: z.object({
+    kinetic: combatMultiplier.optional(),
+    energy: combatMultiplier.optional(),
+  }).strict().optional(),
+  /**
+   * Multiplier on how FAST this hull's weapons cycle, keyed by the weapon's
+   * authored `fire.damageType` — so `hybrid` is the missile/dual-type bucket.
+   * Above 1 = faster: the weapon's `fire.cycleTime` is DIVIDED by it. A
+   * `continuous` channel has no shot cadence, so the same multiplier scales its
+   * damage-per-second instead — the equivalent of firing more often.
+   */
+  rateOfFire: z.object({
+    kinetic: combatMultiplier.optional(),
+    energy: combatMultiplier.optional(),
+    hybrid: combatMultiplier.optional(),
+  }).strict().optional(),
+  /**
+   * Multiplier on this hull's SHIELD RESERVE — every fitted shield module's own
+   * energy tank, both its capacity and the rate it refills at. That is the
+   * whole of a shield's staying power in this engine ("a shield holds exactly
+   * as long as its tank and comes back exactly as fast as its tank
+   * recharges"), and it is deliberately NOT the absorb ratio: the share a
+   * shield takes out of a hit belongs to the damage type, not to the hull.
+   */
+  shieldEfficiency: combatMultiplier.optional(),
+}).strict();
+export type ShipCombat = z.infer<typeof shipCombat>;
 
 /**
  * A single op-based stat effect used by the deterministic stat resolver

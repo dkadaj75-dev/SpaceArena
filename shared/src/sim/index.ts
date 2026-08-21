@@ -12,6 +12,7 @@ export * from "./spawn.js";
 export * from "./asteroidCollision.js";
 export * from "./asteroidSurface.js";
 export * from "./resolveStats.js";
+export * from "./reresolveShip.js";
 export * from "./powerRail.js";
 export * from "./signals.js";
 export * from "./damage.js";

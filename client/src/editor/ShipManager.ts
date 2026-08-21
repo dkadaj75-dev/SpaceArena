@@ -17,10 +17,16 @@ import {
   type Scene,
 } from "@babylonjs/core";
 import {
+  COMBAT_MULT_MAX,
+  COMBAT_MULT_MIN,
+  DEFAULT_COMBAT_MULT,
+  DEFAULT_PURSUIT_ZOOM,
   emittersOf,
   evalCurve,
   hardpointsOf,
   moduleFamily,
+  PURSUIT_ZOOM_MAX,
+  PURSUIT_ZOOM_MIN,
   shipSchema,
   signalId,
   SKIN_ELEMENT_LABEL,
@@ -30,6 +36,7 @@ import {
   type EmitterBinding,
   type ModuleConfig,
   type ModuleFamily,
+  type ShipCombat,
   type ShipConfig,
   type SignalId,
   type SkinElement,
@@ -221,6 +228,8 @@ export class ShipManager implements EditorPanel {
 
     this.element.append(this.modelSection(ship));
     this.element.append(this.emissiveSection(ship));
+    this.element.append(this.pursuitCameraSection(ship));
+    this.element.append(this.combatProfileSection(ship));
     this.element.append(this.skinLogicSection(ship));
     this.element.append(this.socketListSection(ship));
     this.element.append(this.selectedSocketSection(ship));
@@ -524,6 +533,168 @@ export class ShipManager implements EditorPanel {
       hint('The selected GLB material emits its own texture as light: 10% at signal 0, 100% at signal 1 (e.g. thrust via "throttle"). None = no emissive light.'),
     );
     return box;
+  }
+
+  /**
+   * Pursuit-camera zoom (render.pursuitZoom): how far back the in-match chase
+   * rig sits behind THIS hull, as a multiplier on the camera pack's authored
+   * `chase.radius`. One radius cannot frame a 3.6-unit brawler and a 2-unit
+   * interceptor alike, and this is the per-hull correction.
+   *
+   * Commits itself while dragging (like scale/yaw), without re-rendering the
+   * inspector — a rebuild mid-drag would take the slider out from under the
+   * pointer. `TacticalCamera` re-reads the value off the `config:changed` this
+   * emits, so a live match reframes as the slider moves.
+   */
+  private pursuitCameraSection(ship: ShipConfig): HTMLElement {
+    const box = section("Pursuit camera");
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = String(PURSUIT_ZOOM_MIN);
+    slider.max = String(PURSUIT_ZOOM_MAX);
+    slider.step = "0.05";
+    const zoomOf = (ship: ShipConfig): number => ship.render.pursuitZoom ?? DEFAULT_PURSUIT_ZOOM;
+    slider.value = String(zoomOf(ship));
+    const valSpan = text(`${slider.value}×`);
+
+    const commit = (): void => {
+      const current = this.ship();
+      if (!current) return;
+      const raw = Number(slider.value);
+      if (!Number.isFinite(raw)) return;
+      // Round before clamping: the slider's own steps are exact, but a value
+      // typed into the DOM by a test (or a future numeric twin) is not.
+      const zoom = Math.min(PURSUIT_ZOOM_MAX, Math.max(PURSUIT_ZOOM_MIN, Math.round(raw * 100) / 100));
+      valSpan.textContent = `${zoom}×`;
+      if (zoom === zoomOf(current)) return;
+      const render = { ...current.render };
+      // The default is written as ABSENT: "this hull wants the pack's distance"
+      // and "this hull never authored a zoom" are the same state, and only one
+      // of them belongs in the content file.
+      if (zoom === DEFAULT_PURSUIT_ZOOM) delete render.pursuitZoom;
+      else render.pursuitZoom = zoom;
+      this.replace({ ...current, render }, false);
+    };
+    slider.addEventListener("input", commit);
+
+    box.append(
+      field("zoom", row(slider, valSpan, button("Reset", () => {
+        slider.value = String(DEFAULT_PURSUIT_ZOOM);
+        commit();
+      }))),
+      hint(`Multiplies the chase camera's follow distance for this hull only (${PURSUIT_ZOOM_MIN}–${PURSUIT_ZOOM_MAX}×). 1× = the camera pack's authored distance; the player's own camera-distance setting still applies on top.`),
+    );
+    return box;
+  }
+
+  /**
+   * ROLE PROFILE (`core.combat`) — the hull-level combat multipliers that turn
+   * one chassis into a kinetic brawler, an energy sniper or a shield tank
+   * (owner request 2026-08-21). The counterpart to the resist matrix in "Core
+   * stats": resists say what the hull SURVIVES, these say what it DELIVERS.
+   *
+   * Every knob is 1 by default and a knob returned to 1 is DELETED from the
+   * file — an all-default block is written as absent, the same discipline the
+   * skin wiring and the pursuit zoom follow, so a hull that has no opinion
+   * carries no JSON.
+   *
+   * The sim resolves this profile at SPAWN (`resolveShipStats`), so an edit
+   * reaches the fitting/DPS previews and the balance workbench immediately over
+   * `config:changed`, and reaches a flying ship on its next spawn.
+   */
+  private combatProfileSection(ship: ShipConfig): HTMLElement {
+    const box = section("Combat role profile");
+    const combat = ship.core.combat;
+
+    const knob = (
+      label: string,
+      current: number | undefined,
+      apply: (next: ShipCombat, value: number | undefined) => void,
+    ): HTMLElement => {
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = String(COMBAT_MULT_MIN);
+      slider.max = String(COMBAT_MULT_MAX);
+      slider.step = "0.05";
+      slider.value = String(current ?? DEFAULT_COMBAT_MULT);
+      const valSpan = text(`${slider.value}×`);
+      const commit = (): void => {
+        const raw = Number(slider.value);
+        if (!Number.isFinite(raw)) return;
+        const value = Math.min(COMBAT_MULT_MAX, Math.max(COMBAT_MULT_MIN, Math.round(raw * 100) / 100));
+        valSpan.textContent = `${value}×`;
+        // A knob back at 1 is an ABSENT knob, not a stored 1.
+        this.setCombat((next) => apply(next, value === DEFAULT_COMBAT_MULT ? undefined : value));
+      };
+      slider.addEventListener("input", commit);
+      const reset = button("Reset", () => {
+        slider.value = String(DEFAULT_COMBAT_MULT);
+        commit();
+      });
+      const line = field(label, row(slider, valSpan, reset));
+      line.dataset["combatKnob"] = label;
+      return line;
+    };
+
+    box.append(
+      hint("Outgoing damage, per damage type this hull DEALS. A missile is scaled by both — half its warhead is kinetic and half energy."),
+      knob("damage · kinetic", combat?.damageOutput?.kinetic, (c, v) => {
+        c.damageOutput = { ...c.damageOutput, kinetic: v };
+      }),
+      knob("damage · energy", combat?.damageOutput?.energy, (c, v) => {
+        c.damageOutput = { ...c.damageOutput, energy: v };
+      }),
+      hint("Rate of fire, by the weapon's authored damage type. Above 1 = faster: the cycle time is divided by it. A continuous beam has no cadence, so the same number scales its damage per second instead."),
+      knob("fire rate · kinetic", combat?.rateOfFire?.kinetic, (c, v) => {
+        c.rateOfFire = { ...c.rateOfFire, kinetic: v };
+      }),
+      knob("fire rate · energy", combat?.rateOfFire?.energy, (c, v) => {
+        c.rateOfFire = { ...c.rateOfFire, energy: v };
+      }),
+      knob("fire rate · hybrid (missiles)", combat?.rateOfFire?.hybrid, (c, v) => {
+        c.rateOfFire = { ...c.rateOfFire, hybrid: v };
+      }),
+      hint("Shield efficiency scales every fitted shield's RESERVE — its tank size and the rate it refills — which is the whole of a shield's staying power. It does not change the share a shield takes out of a hit: that belongs to the damage type, not the hull."),
+      knob("shield efficiency", combat?.shieldEfficiency, (c, v) => {
+        c.shieldEfficiency = v;
+      }),
+      hint(`All knobs ${COMBAT_MULT_MIN}–${COMBAT_MULT_MAX}×, 1× = the hull as authored. Upgrade tracks and module passives can move them further (targets: core.combat.damageOutput.kinetic, core.combat.rateOfFire.hybrid, …), but the resolved value is held inside this same band.`),
+    );
+    return box;
+  }
+
+  /**
+   * Commit one role-profile edit, then PRUNE: a knob at its default, an empty
+   * sub-block and an all-default `combat` block are each written as absent, so
+   * nudging a slider back to 1 removes the field rather than pinning a 1 in the
+   * content file.
+   */
+  private setCombat(mutate: (draft: ShipCombat) => void): void {
+    const current = this.ship();
+    if (!current) return;
+    const draft: ShipCombat = {
+      damageOutput: current.core.combat?.damageOutput ? { ...current.core.combat.damageOutput } : undefined,
+      rateOfFire: current.core.combat?.rateOfFire ? { ...current.core.combat.rateOfFire } : undefined,
+      shieldEfficiency: current.core.combat?.shieldEfficiency,
+    };
+    mutate(draft);
+
+    const prune = <T extends object>(group: T | undefined): T | undefined => {
+      if (!group) return undefined;
+      const kept = Object.fromEntries(Object.entries(group).filter(([, v]) => v !== undefined));
+      return Object.keys(kept).length > 0 ? (kept as T) : undefined;
+    };
+    const combat: ShipCombat = {
+      damageOutput: prune(draft.damageOutput),
+      rateOfFire: prune(draft.rateOfFire),
+      shieldEfficiency: draft.shieldEfficiency,
+    };
+    const empty = combat.damageOutput === undefined
+      && combat.rateOfFire === undefined
+      && combat.shieldEfficiency === undefined;
+    const core = { ...current.core, combat: empty ? undefined : combat };
+    this.replace({ ...current, core }, false);
   }
 
   /** Socket list with add / per-row select + duplicate/delete. */

@@ -4,7 +4,7 @@ import { resolveRockMesh } from "../collision/rockCollider.js";
 import { resolveRockShape } from "../collision/rockShape.js";
 import type { DamageType } from "../schemas/common.js";
 import { hardpointsOf, isInternalFamily, type AsteroidConfig, type ModuleConfig, type ShipConfig } from "../schemas/index.js";
-import type { EntityId, ModuleRuntime } from "./components.js";
+import type { EntityId, ModuleRuntime, ShipCore } from "./components.js";
 import { resolveShipStats, type UpgradeLevels } from "./resolveStats.js";
 import { railAdmitted } from "./powerRail.js";
 import { advancePitch } from "./math.js";
@@ -14,6 +14,20 @@ import type { World } from "./World.js";
 
 /** Small radius given to travelling ordnance for hit sweeps. */
 const PROJECTILE_RADIUS = 0.4;
+
+/**
+ * A fitted module's absolute tank size on THIS hull: the authored capacity
+ * through the hull-wide store multiplier, and — for a shield only — the hull's
+ * `combat.shieldEfficiency` on top. A module with no energy block has no tank.
+ *
+ * Exported so the Hangar's stat panel can quote the same number the sim will
+ * spawn rather than re-deriving the multiplier chain and drifting from it.
+ */
+export function moduleTankCapacity(mod: ModuleConfig, core: ShipCore): number {
+  if (!mod.energy) return 0;
+  const shieldScale = mod.mitigation ? core.combat.shieldEfficiency : 1;
+  return mod.energy.capacity * core.energyStore.multiplier * shieldScale;
+}
 
 /**
  * Instantiate a ship from config with a resolved core and per-module runtimes.
@@ -72,6 +86,9 @@ export function spawnShipFromConfig(
   });
   world.velocities.set(id, { x: 0, y: 0, z: 0 });
   world.shipCores.set(id, resolveShipStats(ship, configs, { upgradeLevels, fittedModuleIds: fittingModuleIds }));
+  // Keep the resolver's INPUTS: a hot config edit (F10 ship tool) re-runs the
+  // exact same resolution on the live hull rather than waiting for a respawn.
+  world.shipLoadouts.set(id, { shipId, fittingModuleIds: [...fittingModuleIds], upgradeLevels });
   world.colliders.set(id, { radius: ship.collider.radius });
   world.teams.set(id, { team });
   world.targets.set(id, { targetId: null, lockProgress: 0, locked: false });
@@ -111,9 +128,12 @@ export function spawnShipFromConfig(
       stateTimer: 0,
       rounds: modCfg.fire?.clip?.size ?? 0,
       // Tanks spawn FULL: a pilot leaves the pad with a charged boost bottle and
-      // a charged shield, and pays for what they spend from there.
-      energy: modCfg.energy ? modCfg.energy.capacity * core.energyStore.multiplier : 0,
-      energyCapacity: modCfg.energy ? modCfg.energy.capacity * core.energyStore.multiplier : 0,
+      // a charged shield, and pays for what they spend from there. A SHIELD's
+      // tank additionally carries the hull's `combat.shieldEfficiency` — the
+      // reserve IS the shield, so scaling it is what makes a hull a shield tank
+      // (EnergySystem scales its refill by the same number).
+      energy: moduleTankCapacity(modCfg, core),
+      energyCapacity: moduleTankCapacity(modCfg, core),
       absorbs: modCfg.mitigation !== undefined,
       cycleTimer: 0,
       channeling: false,

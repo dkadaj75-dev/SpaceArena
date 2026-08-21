@@ -6,10 +6,12 @@ import "@fontsource/rajdhani/500.css";
 import "@fontsource/rajdhani/600.css";
 import { Engine, EngineFactory, Scene, Color4, Matrix, TransformNode, Vector3, Viewport } from "@babylonjs/core";
 import {
+  arenaChoicesOf,
   createLogger,
   ConfigService,
   GameLoop,
   EventBus,
+  pickArena,
   type ConfigEvents,
   type GamemodeConfig,
   type TutorialConfig,
@@ -341,11 +343,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   const tacticalCamera = new TacticalCamera(scene, canvas, configService, bus);
 
   /**
-   * Point the scene at the arena a starting match resolved. A no-op when the id
-   * is unchanged (the common case), so a rematch on the same arena never pays
-   * for a rebuild.
+   * Point the scene at the arena a starting match resolved, and STAGE it. The
+   * rebuild is a no-op when the id is unchanged (the common case), so a rematch
+   * on the same arena never pays for one — but the staging is not, because
+   * `endMatch` takes the arena back down on the way to the menu and a rematch
+   * has to put it back up.
    */
   function setArena(arenaId: string): void {
+    // Before the early-out below: a rematch on the SAME arena still needs its
+    // statics re-enabled after the last match's teardown hid them.
+    sceneBuilder.setVisible(true);
     if (arenaId === currentArenaId) return;
     currentArenaId = arenaId;
     stagedArenaId = arenaId;
@@ -525,6 +532,10 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     // so this hands the chase rig the exact static BVH and arena ceiling used by
     // flight collision without building a client-only copy.
     tacticalCamera.setStaticWorld(session.sim.world.staticWorld, session.sim.world.arena.bounds);
+    // The hull the rig is framing owns its own pursuit zoom (render.pursuitZoom).
+    // Set before chase mode so the very first pose is already at the ship's
+    // distance rather than snapping to it a frame later.
+    tacticalCamera.setPursuitShip(session.shipConfigIdFor(session.playerId) ?? null);
     tacticalCamera.setChaseMode(true);
 
     // Other ships' sounds fade with range, so the feedback layer needs a listener
@@ -619,6 +630,26 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   userSettings.onChange((values) => applyUserSettings(values));
 
   /**
+   * LIVE SHIP-STAT EDITS (F10 ship tool). A resolved `ShipCore` is a projection
+   * computed at spawn, so without this a hull/engine/sensor or combat-role
+   * edit sat invisible until the ship died — the designer saw "nothing
+   * happens". The sim already shares this ConfigService offline (see
+   * `World.tuning`), so re-resolving the live hulls is all that was missing.
+   *
+   * OFFLINE ONLY, and not a gap in the wiring: an online match is server
+   * authoritative and its room pins its own ConfigService, so the local mirror
+   * must keep showing what the server actually simulated. Re-resolving it here
+   * would desync the prediction against a server that never saw the edit.
+   */
+  bus.on("config:changed", ({ id, type }) => {
+    if (type !== "ship") return;
+    const session = runtime?.session;
+    if (!session || session instanceof NetGameSession) return;
+    const touched = session.sim.refreshShipConfig(id);
+    if (touched > 0) log.info(`re-resolved ${touched} live ship(s) for ${id}`);
+  });
+
+  /**
    * Freeze/unfreeze the fixed-timestep loop. Shared by the dev editor (which
    * additionally flips the camera into editor mode) and the in-match settings
    * screen (which does not — the tactical view stays exactly as the player left
@@ -678,8 +709,26 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
           tacticalCamera.setStaticWorld(null);
           tacticalCamera.setChaseMode(false);
           tacticalCamera.setHangarMode(false);
+          tacticalCamera.setPursuitShip(null);
         },
       },
+      // The ARENA is not part of the runtime — SceneBuilder owns it, and it
+      // stayed enabled for the whole menu (owner bug 2026-08-21: "when
+      // finishing a CTF game the main menu background is the CTF map, and the
+      // hangar menu is also the CTF map").
+      //
+      // It went unnoticed on the nebula arenas because everything they stage is
+      // SKY: an infinite-distance panorama the menu's own skybox draws over.
+      // The rift stages solid geometry — terrain chunks, boulders, both hangar
+      // bays — sitting around the origin, which is exactly where the menu parks
+      // its hull and the Hangar parks its bay, so there it is unmistakable.
+      //
+      // Hidden rather than disposed, deliberately: `setVisible` is this class's
+      // own "someone else is staging the scene" switch — it disables the whole
+      // root INCLUDING the light rig, plus the unparented dust field, and the
+      // editor stages over the arena the same way. Disposing instead would also
+      // throw away the rebuild that `setArena` exists to avoid on a rematch.
+      { label: "arena", run: () => sceneBuilder.setVisible(false) },
       { label: "profile", run: () => void authService.refreshProfile() },
     ]);
     if (updateGate.onSafeMoment()) location.reload();
@@ -1229,8 +1278,28 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     void serverHealth.refresh();
   }
 
+  /**
+   * The mode's PINNED arena. Used wherever the arena has to be agreed with
+   * something this process does not control — an online room (which resolves
+   * its own from the same field) and the tutorial (whose scripted steps assume
+   * one map).
+   */
   function gamemodeArena(gamemodeId: string): string | undefined {
     return configService.get<GamemodeConfig>("gamemode", gamemodeId)?.defaultArena;
+  }
+
+  /**
+   * MAP ROTATION for a match this client SIMULATES (owner request 2026-08-21):
+   * Deathmatch and Team Deathmatch roll between Ring Nebula and Parker Point.
+   *
+   * Only for the local-bots path. An online room cannot use this — the client
+   * fixes its arena before it connects and the id crosses no wire — so
+   * `startOnlineMatch` deliberately keeps calling {@link gamemodeArena}. See
+   * `arenaChoicesOf` in shared for the whole rule.
+   */
+  function rotatedArena(gamemodeId: string): string | undefined {
+    const choices = arenaChoicesOf(configService.get<GamemodeConfig>("gamemode", gamemodeId));
+    return pickArena(choices, Math.random());
   }
 
   /**
@@ -1357,7 +1426,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     lobby.hide();
     hangar.hide();
     music.setScreen("match");
-    const arenaId = gamemodeArena(choice.gamemode) ?? FALLBACK_ARENA_ID;
+    // This client owns the sim, so the mode's map rotation applies here.
+    const arenaId = rotatedArena(choice.gamemode) ?? FALLBACK_ARENA_ID;
     matchLoading.showSearching({
       teamSize: gamemodeTeamSize(choice.gamemode),
       title: configService.get<ArenaConfig>("arena", arenaId)?.name ?? arenaId,

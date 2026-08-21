@@ -1,4 +1,10 @@
-import type { CameraConfig } from "@space-arena/shared";
+import {
+  DEFAULT_PURSUIT_ZOOM,
+  PURSUIT_ZOOM_MAX,
+  PURSUIT_ZOOM_MIN,
+  type CameraConfig,
+  type RenderRecipe,
+} from "@space-arena/shared";
 
 /**
  * FLIGHT.md §3 — the chase rig as pure math, so the derivation below is
@@ -96,6 +102,20 @@ export function chaseSettingsOf(camera: CameraConfig | undefined): ChaseSettings
     pitchLag: c?.pitchLag ?? yawLag,
     fov: c?.fov ?? d.fov, // both null-by-default: absent everywhere ⇒ engine default
   };
+}
+
+/**
+ * A hull's authored pursuit zoom (`render.pursuitZoom`, F10 ship tool),
+ * defaulted and clamped into the legal band — the ONE reader of that field, so
+ * a value that somehow bypassed the schema (a hand-edited pack, an editor
+ * mid-edit) still cannot park the camera inside the hull or in the next
+ * postcode. An absent field resolves to 1, which multiplies out to exactly the
+ * distance the rig used before the field existed.
+ */
+export function pursuitZoomOf(render: RenderRecipe | undefined): number {
+  const zoom = render?.pursuitZoom;
+  if (zoom === undefined || !Number.isFinite(zoom)) return DEFAULT_PURSUIT_ZOOM;
+  return Math.min(PURSUIT_ZOOM_MAX, Math.max(PURSUIT_ZOOM_MIN, zoom));
 }
 
 /**

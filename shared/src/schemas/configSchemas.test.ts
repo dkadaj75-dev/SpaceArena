@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  COMBAT_MULT_MAX,
+  COMBAT_MULT_MIN,
   CONFIG_SCHEMAS,
   CONFIG_TYPES,
   collectReferences,
   collectRelationalErrors,
   manifestSchema,
+  PURSUIT_ZOOM_MAX,
+  PURSUIT_ZOOM_MIN,
   validateConfig,
   type AnyConfig,
   type ConfigType,
@@ -518,6 +522,36 @@ describe("ship schema", () => {
         d["render"] = { recipe: "procedural.arrowhead", modelScale: 0 };
       }),
     ).toBe(false);
+  });
+
+  it("takes a pursuit zoom inside the authorable band and rejects one outside it", () => {
+    const withZoom = (pursuitZoom: unknown) => (d: Record<string, unknown>) => {
+      d["render"] = { recipe: "procedural.arrowhead", model: "ships/LShip01.glb", modelScale: 1.2, pursuitZoom };
+    };
+    expect(mutated("ship", withZoom(PURSUIT_ZOOM_MIN))).toBe(true);
+    expect(mutated("ship", withZoom(PURSUIT_ZOOM_MAX))).toBe(true);
+    expect(mutated("ship", withZoom(PURSUIT_ZOOM_MIN - 0.01))).toBe(false);
+    expect(mutated("ship", withZoom(PURSUIT_ZOOM_MAX + 0.01))).toBe(false);
+  });
+
+  it("takes a partial combat role profile and holds every knob in the band", () => {
+    const withCombat = (combat: unknown) => (d: Record<string, unknown>) => {
+      (d["core"] as Record<string, unknown>)["combat"] = combat;
+    };
+    // Absent entirely, and every sub-block optional: a hull states only the
+    // knobs it has an opinion about.
+    expect(mutated("ship", withCombat(undefined))).toBe(true);
+    expect(mutated("ship", withCombat({}))).toBe(true);
+    expect(mutated("ship", withCombat({ damageOutput: { kinetic: 1.5 } }))).toBe(true);
+    expect(mutated("ship", withCombat({ rateOfFire: { hybrid: COMBAT_MULT_MAX }, shieldEfficiency: COMBAT_MULT_MIN }))).toBe(true);
+
+    expect(mutated("ship", withCombat({ damageOutput: { kinetic: COMBAT_MULT_MAX + 0.01 } }))).toBe(false);
+    expect(mutated("ship", withCombat({ rateOfFire: { energy: COMBAT_MULT_MIN - 0.01 } }))).toBe(false);
+    expect(mutated("ship", withCombat({ shieldEfficiency: 0 }))).toBe(false);
+    // Strict blocks: `hybrid` is a rate-of-fire bucket only — a composite type
+    // has no damage of its own, so an authored hybrid OUTPUT is a mistake.
+    expect(mutated("ship", withCombat({ damageOutput: { hybrid: 2 } }))).toBe(false);
+    expect(mutated("ship", withCombat({ shieldRegen: 2 }))).toBe(false);
   });
 
   it("rejects an emitter binding on an unknown signal or an empty curve", () => {

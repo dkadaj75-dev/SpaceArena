@@ -6,6 +6,10 @@
   "launch": "online",
   "teams": "5v5",
   "defaultArena": "arena.ring-nebula",
+  "arenaPool": [
+    "arena.ring-nebula",
+    "arena.parker-point"
+  ],
   "winCondition": {
     "type": "fragLimit",
     "count": 25

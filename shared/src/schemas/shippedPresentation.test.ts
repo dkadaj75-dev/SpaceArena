@@ -73,8 +73,16 @@ describe("shipped quality tiers — spawn markers and ambient dust", () => {
 describe("shipped arenas — the painted star is the key light", () => {
   // Trimmed to the two surviving arenas 2026-08-18; deep-field, lunar-crater,
   // broken-halo and twin-titans were deleted with the asteroid overhaul.
+  // Intensities raised 2026-08-21 on the two deathmatch skies (owner: "increase
+  // the in-game light"): ring-nebula's key went 1.0 -> 1.5. The DIRECTIONS are
+  // the invariant this suite exists for — light must arrive from where the star
+  // is drawn — and none of them moved.
   const EXPECTED = {
-    "ring-nebula.json": { dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1.0 },
+    "ring-nebula.json": { dir: [-0.677, -0.208, -0.706], color: "#dce4ff", intensity: 1.5 },
+    // Parker Point's star is DRAWN (`render.star`) rather than painted, so its
+    // sun block is the light that body casts; both must point the same way,
+    // which `gamemodeArena.test.ts` pins directly against the two fields.
+    "parker-point.json": { dir: [0.9118, 0.2419, -0.3319], color: "#ffd9a8", intensity: 1.9 },
     "lunar-rift.json": { dir: [-0.707, 0.5, -0.5], color: "#ffffff", intensity: 1.45 },
   } as const;
 

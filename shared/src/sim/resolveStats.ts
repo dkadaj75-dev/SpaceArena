@@ -1,4 +1,5 @@
 import type { ConfigService } from "../core/ConfigService.js";
+import { COMBAT_MULT_MAX, COMBAT_MULT_MIN, DEFAULT_COMBAT_MULT, type DamageType } from "../schemas/common.js";
 import type { ModuleConfig, ShipConfig, StatOp, UpgradeConfig } from "../schemas/index.js";
 import type { ShipCore } from "./components.js";
 
@@ -29,7 +30,26 @@ const STAT_PATHS = [
   "sensors.coneDeg",
   "power.capacity",
   "efficiency.energyDraw",
+  // Role profile (`core.combat`). Ordinary stat paths on purpose: an upgrade
+  // track or a utility module's passive can move them exactly like speed or
+  // hull, and a designer addresses them by the same dotted name.
+  "combat.damageOutput.kinetic",
+  "combat.damageOutput.energy",
+  "combat.rateOfFire.kinetic",
+  "combat.rateOfFire.energy",
+  "combat.rateOfFire.hybrid",
+  "combat.shieldEfficiency",
 ] as const;
+
+/**
+ * Stat paths held inside the combat band rather than merely floored at 0. The
+ * schema already bounds what an AUTHOR can write; this bounds what upgrades and
+ * passives can stack on top, so no combination of legal content produces a hull
+ * that deals 40× damage or one that can never hurt anything.
+ */
+const COMBAT_PATHS: ReadonlySet<string> = new Set(
+  STAT_PATHS.filter((p) => p.startsWith("combat.")),
+);
 
 /** Strip an optional leading `core.` so authors may write either form. */
 function normalizePath(target: string): string {
@@ -75,6 +95,13 @@ export function resolveShipStats(
     // but hand-built configs (editor previews, balance workbench) may omit it,
     // and "no transformer opinion" is exactly a multiplier of 1.
     "efficiency.energyDraw": c.efficiency?.energyDraw ?? 1,
+    // Role profile: absent block, and absent field within it, both mean 1.
+    "combat.damageOutput.kinetic": c.combat?.damageOutput?.kinetic ?? DEFAULT_COMBAT_MULT,
+    "combat.damageOutput.energy": c.combat?.damageOutput?.energy ?? DEFAULT_COMBAT_MULT,
+    "combat.rateOfFire.kinetic": c.combat?.rateOfFire?.kinetic ?? DEFAULT_COMBAT_MULT,
+    "combat.rateOfFire.energy": c.combat?.rateOfFire?.energy ?? DEFAULT_COMBAT_MULT,
+    "combat.rateOfFire.hybrid": c.combat?.rateOfFire?.hybrid ?? DEFAULT_COMBAT_MULT,
+    "combat.shieldEfficiency": c.combat?.shieldEfficiency ?? DEFAULT_COMBAT_MULT,
   };
 
   const adds: Record<string, number> = {};
@@ -120,10 +147,14 @@ export function resolveShipStats(
     }
   }
 
-  // 3. Apply add → mul → clamp (never below 0).
+  // 3. Apply add → mul → clamp (never below 0; combat paths to their band).
   const stats: Record<string, number> = {};
   for (const path of STAT_PATHS) {
     const v = (base[path]! + (adds[path] ?? 0)) * (muls[path] ?? 1);
+    if (COMBAT_PATHS.has(path)) {
+      stats[path] = Number.isFinite(v) ? Math.min(COMBAT_MULT_MAX, Math.max(COMBAT_MULT_MIN, v)) : DEFAULT_COMBAT_MULT;
+      continue;
+    }
     stats[path] = v < 0 ? 0 : v;
   }
 
@@ -150,5 +181,51 @@ export function resolveShipStats(
     efficiency: {
       energyDraw: stats["efficiency.energyDraw"]!,
     },
+    combat: {
+      damageOutput: {
+        kinetic: stats["combat.damageOutput.kinetic"]!,
+        energy: stats["combat.damageOutput.energy"]!,
+      },
+      rateOfFire: {
+        kinetic: stats["combat.rateOfFire.kinetic"]!,
+        energy: stats["combat.rateOfFire.energy"]!,
+        hybrid: stats["combat.rateOfFire.hybrid"]!,
+      },
+      shieldEfficiency: stats["combat.shieldEfficiency"]!,
+    },
   };
+}
+
+/**
+ * The hull's rate-of-fire multiplier for a weapon of `type` — keyed by the
+ * weapon's AUTHORED `fire.damageType`, so `hybrid` is the dual-type
+ * (missile/warhead) bucket the designer sees in the ship tool, not a resolved
+ * leaf. Above 1 means faster.
+ */
+export function rateOfFireFor(core: Pick<ShipCore, "combat">, type: DamageType): number {
+  const rof = core.combat.rateOfFire;
+  return type === "kinetic" ? rof.kinetic : type === "energy" ? rof.energy : rof.hybrid;
+}
+
+/**
+ * Seconds this hull actually waits between shots of a weapon authored with
+ * `cycleTime` seconds and `type` damage. Rate of fire DIVIDES the cycle: 2×
+ * fire rate is half the wait. The multiplier is band-clamped well away from 0
+ * by the resolver, so this cannot divide by zero.
+ *
+ * Ignored by `continuous` weapons, which have no shot cadence — see
+ * {@link channelDamageScale}.
+ */
+export function effectiveCycleTime(core: Pick<ShipCore, "combat">, cycleTime: number, type: DamageType): number {
+  return cycleTime / rateOfFireFor(core, type);
+}
+
+/**
+ * What a channel's authored DPS is multiplied by on this hull. A `continuous`
+ * weapon has no shots to speed up, so its rate-of-fire knob buys the only thing
+ * that "firing more often" would have bought: more damage per second. Same
+ * multiplier, same designer intent, no separate field.
+ */
+export function channelDamageScale(core: Pick<ShipCore, "combat">, type: DamageType): number {
+  return rateOfFireFor(core, type);
 }

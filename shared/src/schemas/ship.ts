@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
-import { collider, renderRecipe, resists } from "./common.js";
+import { collider, renderRecipe, resists, shipCombat } from "./common.js";
 import { shipSkinWiring } from "./skin.js";
 import {
   hardpointSocket,
@@ -16,6 +16,13 @@ const shipCore = z.object({
     base: z.number().positive(),
     resists,
   }),
+  /**
+   * ROLE PROFILE — what this hull DELIVERS, the counterpart to `hull.resists`.
+   * Outgoing damage per leaf type, rate of fire per weapon type, and shield
+   * reserve efficiency. Absent (and every absent field inside it) is 1, i.e.
+   * the hull exactly as it flew before the block existed.
+   */
+  combat: shipCombat.optional(),
   engine: z.object({
     nominalSpeed: z.number().positive(),
     accel: z.number().positive(),

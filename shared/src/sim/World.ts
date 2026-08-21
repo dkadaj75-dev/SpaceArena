@@ -10,6 +10,7 @@ import type {
   ModulesComp,
   Projectile,
   ShipCore,
+  ShipLoadout,
   TargetRef,
   Team,
   Transform3D,
@@ -51,6 +52,13 @@ export class World {
    */
   readonly flightTriggerLevels = new Map<EntityId, number>();
   readonly shipCores = new Map<EntityId, ShipCore>();
+  /**
+   * What each live ship's core was resolved FROM (config id, fitting, upgrade
+   * counts) — the inputs a hot config edit needs to re-resolve it in place
+   * without a respawn. Written by `spawnShipFromConfig`, read by
+   * `reresolveShipCore`.
+   */
+  readonly shipLoadouts = new Map<EntityId, ShipLoadout>();
   readonly modules = new Map<EntityId, ModulesComp>();
   readonly targets = new Map<EntityId, TargetRef>();
   readonly colliders = new Map<EntityId, ColliderComp>();
@@ -147,6 +155,7 @@ export class World {
     this.flightFireLevels.delete(id);
     this.flightTriggerLevels.delete(id);
     this.shipCores.delete(id);
+    this.shipLoadouts.delete(id);
     this.modules.delete(id);
     this.targets.delete(id);
     this.colliders.delete(id);

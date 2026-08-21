@@ -249,6 +249,53 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     builder.dispose();
   });
 
+  it("takes its LIGHTS down with it, so a hidden arena cannot light the menu", () => {
+    // Owner bug 2026-08-21: after a CTF match the main menu (and the Hangar)
+    // still showed the rift. `endMatch` now hides the arena, and hiding has to
+    // mean the whole rig — a still-lit key light would keep grading the menu's
+    // own diorama even with every arena mesh disabled.
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+    const hemi = scene.getLightByName("arenaHemiLight")!;
+    const dir = scene.getLightByName("arenaDirLight")!;
+    expect(hemi.isEnabled()).toBe(true);
+    expect(dir.isEnabled()).toBe(true);
+
+    builder.setVisible(false);
+    expect(hemi.isEnabled()).toBe(false);
+    expect(dir.isEnabled()).toBe(false);
+
+    builder.dispose();
+  });
+
+  it("comes back whole for the NEXT match, on the same arena or a different one", () => {
+    // The rematch path: `endMatch` hides, then `setArena` shows and (only if the
+    // id moved) rebuilds. Both orders have to land on a fully staged arena, or
+    // the second match of a session plays in the dark.
+    const builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+    builder.setVisible(false);
+
+    // (a) rematch on the SAME arena — no rebuild, just re-staged.
+    builder.setVisible(true);
+    expect(scene.getTransformNodeByName("arenaRoot")!.isEnabled()).toBe(true);
+    expect(scene.getLightByName("arenaDirLight")!.isEnabled()).toBe(true);
+    expect(builder.staticsFrozen).toBe(true);
+
+    // (b) next match on a DIFFERENT arena, staged before the rebuild exactly as
+    // `setArena` does it. The fresh root must inherit the shown state.
+    builder.setVisible(false);
+    builder.setVisible(true);
+    builder.buildArena("arena.test");
+    expect(scene.getTransformNodeByName("arenaRoot")!.isEnabled()).toBe(true);
+    expect(scene.getLightByName("arenaDirLight")!.isEnabled()).toBe(true);
+    expect(builder.staticsFrozen).toBe(true);
+    for (const mesh of freezableMeshes(scene)) expect(mesh.isWorldMatrixFrozen).toBe(true);
+
+    // No double-dispose breakage from the hide/show/rebuild cycle.
+    expect(() => builder.dispose()).not.toThrow();
+  });
+
   it("drops the glow layer entirely on a tier that disables it", () => {
     const builder = new SceneBuilder(scene, configs, bus, quality());
     builder.buildArena("arena.test");

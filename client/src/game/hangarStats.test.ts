@@ -36,6 +36,19 @@ beforeAll(async () => {
   configs = new ConfigService(fsLoader);
   const result = await configs.load("manifest.json");
   if (!result.ok) throw new Error("test content failed to load: " + JSON.stringify(result.errors));
+  // These cases assert that the panel ROLLS UP the fitted modules' authored
+  // numbers. A hull's `core.combat` role profile scales exactly those (outgoing
+  // damage, rate of fire, shield reserve) and is designer-tuned content the F10
+  // tool writes, so a tuning pass must not turn this suite red. Strip it in
+  // memory — `replace` never touches disk. (Mirrors `clearCombatProfiles` in
+  // shared/src/sim/testutil.ts, which this package cannot import.)
+  for (const ship of configs.getAll<ShipConfig>("ship")) {
+    if (!ship.core.combat) continue;
+    const core = { ...ship.core };
+    delete (core as Record<string, unknown>)["combat"];
+    const stripped = configs.replace({ ...ship, core });
+    if (!stripped.ok) throw new Error("strip combat: " + JSON.stringify(stripped.errors));
+  }
   interceptor = configs.get<ShipConfig>("ship", "ship.interceptor")!;
 });
 

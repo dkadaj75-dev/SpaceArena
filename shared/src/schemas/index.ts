@@ -33,6 +33,7 @@ export * from "./upgrade.js";
 export * from "./arena.js";
 export * from "./asteroid.js";
 export * from "./gamemode.js";
+export * from "./gamemodeArena.js";
 export * from "./camera.js";
 export * from "./tuning.js";
 export * from "./action.js";
@@ -262,6 +263,9 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
     }
     case "gamemode": {
       if (config.defaultArena) refs.push({ path: "defaultArena", id: config.defaultArena, expects: "arena" });
+      (config.arenaPool ?? []).forEach((arenaId, i) => {
+        refs.push({ path: `arenaPool[${i}]`, id: arenaId, expects: "arena" });
+      });
       if (config.bots) {
         refs.push({ path: "bots.defaultProfile", id: config.bots.defaultProfile, expects: "botprofile" });
         if (config.bots.defaultShip) refs.push({ path: "bots.defaultShip", id: config.bots.defaultShip, expects: "ship" });

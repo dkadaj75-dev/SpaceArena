@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ConfigService } from "../core/ConfigService.js";
-import type { ArenaConfig, AsteroidConfig, GamemodeConfig, TuningConfig } from "../schemas/index.js";
+import type { ArenaConfig, AsteroidConfig, GamemodeConfig, ShipConfig, TuningConfig } from "../schemas/index.js";
 import type { EntityId } from "./components.js";
 import { targetingSystem } from "./systems/TargetingSystem.js";
 import { World } from "./World.js";
@@ -239,3 +239,30 @@ export const INTERCEPTOR_FITTING_CHAFF = [
   "module.countermeasure-chaff",
   "module.sensors-basic",
 ];
+
+/**
+ * Strip every hull's `core.combat` role profile from a test registry, in memory.
+ *
+ * The profile (outgoing damage, rate of fire, shield efficiency) is
+ * DESIGNER-OWNED content the F10 ship tool writes, so the shipped hulls carry
+ * whatever the last tuning pass typed. A suite that asserts a MECHANISM —
+ * "a weapon charges its authored cycle time", "a channel deals exactly its
+ * authored DPS", "the stat panel rolls up the fitted tanks" — is not asserting
+ * today's balance, and must not turn red because a designer moved a slider.
+ * Call this in `beforeAll` and those suites read the module's authored numbers
+ * again.
+ *
+ * Balance suites (TTK bands, the golden fingerprint) deliberately do NOT call
+ * this: pinning the shipped pack is the whole of their job.
+ *
+ * `replace` is in-memory only — nothing here touches content on disk.
+ */
+export function clearCombatProfiles(configs: ConfigService): void {
+  for (const ship of configs.getAll<ShipConfig>("ship")) {
+    if (!ship.core.combat) continue;
+    const core = { ...ship.core };
+    delete (core as Record<string, unknown>)["combat"];
+    const result = configs.replace({ ...ship, core });
+    if (!result.ok) throw new Error(`clearCombatProfiles(${ship.id}): ${JSON.stringify(result.errors)}`);
+  }
+}

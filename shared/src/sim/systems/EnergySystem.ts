@@ -17,7 +17,8 @@ import type { World } from "../World.js";
  *     `mitigation.collapseCooldownSec` lockout on its own `cycleTimer`
  *     (ModuleSystem counts it down and refuses the toggle while it runs);
  *   - a module that did not work refills at
- *     `energy.rechargePerSec × recharge.multiplier × dt` up to its capacity.
+ *     `energy.rechargePerSec × recharge.multiplier × dt` up to its capacity,
+ *     with a SHIELD additionally scaled by the hull's `combat.shieldEfficiency`.
  *
  * The ship-wide recharge multiplier comes from the fitted generator; the
  * transformer's `efficiency.energyDraw` taxes draw per module. Nothing here
@@ -53,7 +54,15 @@ function stepEnergy(
   // hit this tick — holding it up is the work.
   const working = m.workedThisTick || (m.absorbs && m.state === "active");
   if (!working) {
-    m.energy = Math.min(m.energyCapacity, m.energy + cfg.energy.rechargePerSec * core.recharge.multiplier * dt);
+    // A SHIELD refills at the hull's `combat.shieldEfficiency` on top of the
+    // ship-wide recharge multiplier — the same number that sized its tank at
+    // spawn, so an efficiency of 2 means twice the reserve AND twice the rate
+    // it comes back at, which is the whole of "this hull is a shield tank".
+    const shieldScale = m.absorbs ? core.combat.shieldEfficiency : 1;
+    m.energy = Math.min(
+      m.energyCapacity,
+      m.energy + cfg.energy.rechargePerSec * core.recharge.multiplier * shieldScale * dt,
+    );
     return;
   }
 

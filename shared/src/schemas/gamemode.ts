@@ -142,6 +142,18 @@ export const gamemodeSchema = z.object({
   bots: gamemodeBots.optional(),
   /** Optional default arena id this mode is played on when the room gets none. */
   defaultArena: z.string().optional(),
+  /**
+   * MAP ROTATION (owner request 2026-08-21): arenas this mode may be played on,
+   * one picked at random per match. Deathmatch and Team Deathmatch rotate
+   * between `arena.ring-nebula` and `arena.parker-point`; CTF, pinned to the
+   * rift, simply authors none.
+   *
+   * `defaultArena` stays REQUIRED alongside it and stays the authority wherever
+   * the arena must be agreed without a channel to agree it over — see
+   * {@link import("./gamemodeArena.js").arenaChoicesOf}, which documents exactly
+   * which paths rotate and why the online room does not.
+   */
+  arenaPool: z.array(z.string().min(1)).min(1).optional(),
   winCondition,
   /** Capture-the-flag rules; omitted ⇒ no flags, no bases, no captures. */
   ctf: gamemodeCtf.optional(),

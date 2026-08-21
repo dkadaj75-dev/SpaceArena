@@ -1,8 +1,11 @@
 import {
   fittingPowerDraw,
+  moduleTankCapacity,
+  rateOfFireFor,
   resolveShipStats,
   type ConfigService,
   type ModuleConfig,
+  type ShipCore,
   type ShipConfig,
   type UpgradeLevels,
 } from "@space-arena/shared";
@@ -57,12 +60,33 @@ export interface ComputeStatPanelOptions {
   fittedModuleIds: readonly (string | null | undefined)[];
 }
 
-function sustainedShotsPerSec(mod: ModuleConfig): number {
+/**
+ * Shots per second including the clip reload, on THIS hull — the hull's
+ * `combat.rateOfFire` shortens the cycle between shots exactly as it does in
+ * the sim, while the authored `reloadSec` is untouched (rate of fire is a
+ * cadence knob, not a reload knob), so a clipped weapon gains less from it than
+ * an unclipped one. That asymmetry is real in the sim too.
+ */
+function sustainedShotsPerSec(mod: ModuleConfig, core: ShipCore): number {
   if (!mod.fire || mod.fire.mode === "continuous") return 0;
+  const cycle = mod.fire.cycleTime / rateOfFireFor(core, mod.fire.damageType);
   const clip = mod.fire.clip;
-  return clip
-    ? clip.size / ((clip.size - 1) * mod.fire.cycleTime + clip.reloadSec)
-    : 1 / mod.fire.cycleTime;
+  return clip ? clip.size / ((clip.size - 1) * cycle + clip.reloadSec) : 1 / cycle;
+}
+
+/**
+ * Damage per shot this hull deals with `mod`, after its outgoing role profile.
+ * A `hybrid` warhead is split the way the damage pipeline splits it — half its
+ * damage carries the kinetic multiplier, half the energy one (the shipped
+ * 50/50 mix) — so the previewed number matches what the sim will deal.
+ */
+function shotDamage(mod: ModuleConfig, core: ShipCore): number {
+  const fire = mod.fire;
+  if (!fire) return 0;
+  const out = core.combat.damageOutput;
+  if (fire.damageType === "kinetic") return fire.damage * out.kinetic;
+  if (fire.damageType === "energy") return fire.damage * out.energy;
+  return fire.damage * (out.kinetic + out.energy) / 2;
 }
 
 export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts: ComputeStatPanelOptions): HangarStatPanel {
@@ -82,11 +106,17 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     // Weapons come up online at spawn, so their rail draw is what the hull
     // carries before the pilot raises anything.
     if (mod.fire) powerDrawRetracted += mod.power?.draw ?? 0;
-    energyReserve += (mod.energy?.capacity ?? 0) * core.energyStore.multiplier;
+    energyReserve += moduleTankCapacity(mod, core);
     if (mod.fire) {
-      dps += mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage / mod.fire.cycleTime;
-      sustainedDps +=
-        mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage * sustainedShotsPerSec(mod);
+      // A channel's rate-of-fire knob buys DPS rather than cadence (see
+      // `channelDamageScale`), so both of its multipliers land on the same number.
+      const perShot = shotDamage(mod, core);
+      dps += mod.fire.mode === "continuous"
+        ? perShot * rateOfFireFor(core, mod.fire.damageType)
+        : perShot * (rateOfFireFor(core, mod.fire.damageType) / mod.fire.cycleTime);
+      sustainedDps += mod.fire.mode === "continuous"
+        ? perShot * rateOfFireFor(core, mod.fire.damageType)
+        : perShot * sustainedShotsPerSec(mod, core);
     }
   }
 

@@ -223,6 +223,43 @@ export const arenaRender = z.object({
       })
       .optional(),
   }),
+  /**
+   * A STAR hung in this arena's sky as real geometry — the same granulated,
+   * corona'd body the main menu flies its hull against
+   * (`theme.scene.starfield.star`), rendered by `game/starBillboard` from one
+   * shared shader (owner request 2026-08-21, "Parker Point").
+   *
+   * Distinct from `skybox.sun`, and the two are complementary: `skybox.sun`
+   * describes a star PAINTED INTO the panorama and promotes it to the key
+   * light, whereas this DRAWS one. An arena whose backdrop feature is a near
+   * star authors both — the billboard for the disc a pilot sees, the skybox
+   * sun block (pointed the same way) for the light it casts.
+   *
+   * Omitted ⇒ no drawn star, which is every arena that shipped before this.
+   */
+  star: z
+    .object({
+      /**
+       * Unit vector pointing FROM the arena TOWARD the star — the same
+       * convention (and usually the same numbers) as `skybox.sun.dir`.
+       */
+      dir: z.tuple([z.number(), z.number(), z.number()]),
+      /**
+       * Angular size, as the fraction of the billboard's parking distance that
+       * the DISC spans. It is an apparent size, so it is resolution- and
+       * distance-independent: 0.5 is a disc roughly 28° across.
+       */
+      apparentSize: z.number().positive().max(4),
+      /** Photosphere hot-cell colour. */
+      core: z.string().min(1),
+      /** Photosphere base/lane colour — the granulation reads as core vs shell. */
+      shell: z.string().min(1),
+      /** Corona and glare colour. */
+      corona: z.string().min(1),
+      /** Granulation/corona animation rate; 1 = the menu's. */
+      speed: z.number().nonnegative().optional(),
+    })
+    .optional(),
   boundaryShield: z.object({
     /**
      * Opacity reached at the boundary. The shell is always fully transparent
@@ -326,6 +363,15 @@ export const arenaSchema = z
         code: z.ZodIssueCode.custom,
         path: ["render", "skybox", "sun", "dir"],
         message: `sun direction must be a unit vector (length ${sunDirLength(sun.dir).toFixed(4)})`,
+      });
+    }
+
+    const star = arena.render?.star;
+    if (star && Math.abs(sunDirLength(star.dir) - 1) > SUN_DIR_UNIT_TOLERANCE) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["render", "star", "dir"],
+        message: `star direction must be a unit vector (length ${sunDirLength(star.dir).toFixed(4)})`,
       });
     }
 

@@ -12,6 +12,12 @@
         "energy": 0.2
       }
     },
+    "combat": {
+      "rateOfFire": {
+        "hybrid": 1.45
+      },
+      "shieldEfficiency": 1.45
+    },
     "engine": {
       "nominalSpeed": 22,
       "accel": 13,
@@ -377,10 +383,6 @@
     "model": "ships/human_medium_lod0.glb",
     "modelScale": 0.33,
     "modelRotationY": 0,
-    "emissiveGlow": {
-      "material": "ENGINE_GLOW",
-      "source": "throttle"
-    },
     "lods": [
       {
         "model": "ships/human_medium_lod1.glb",
@@ -390,7 +392,12 @@
         "model": "ships/human_medium_lod2.glb",
         "distance": 90
       }
-    ]
+    ],
+    "emissiveGlow": {
+      "material": "ENGINE_GLOW",
+      "source": "throttle"
+    },
+    "pursuitZoom": 1.15
   },
   "skin": {
     "body": [

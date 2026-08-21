@@ -1,8 +1,8 @@
 {
-  "id": "arena.ring-nebula",
+  "id": "arena.parker-point",
   "type": "arena",
   "version": 1,
-  "name": "The Ring",
+  "name": "Parker Point",
   "bounds": {
     "shape": "sphere",
     "radius": 126
@@ -594,24 +594,36 @@
     }
   ],
   "lighting": {
-    "ambientColor": "#243047",
+    "ambientColor": "#2b2a3a",
     "ambientIntensity": 0.62,
-    "directionalIntensity": 1.35
+    "directionalIntensity": 1.45
   },
   "render": {
     "skybox": {
-      "texture": "skyboxes/ring-nebula.webp",
-      "intensity": 1.12,
-      "tint": "#e4e7ff",
+      "texture": "skyboxes/parker-point.webp",
+      "intensity": 1.15,
+      "tint": "#fff0e2",
       "sun": {
         "dir": [
-          -0.677,
-          -0.208,
-          -0.706
+          0.9118,
+          0.2419,
+          -0.3319
         ],
-        "color": "#dce4ff",
-        "intensity": 1.5
+        "color": "#ffd9a8",
+        "intensity": 1.9
       }
+    },
+    "star": {
+      "dir": [
+        0.9118,
+        0.2419,
+        -0.3319
+      ],
+      "apparentSize": 2.66,
+      "core": "#fff4d2",
+      "shell": "#ff8a1e",
+      "corona": "#ff9433",
+      "speed": 1
     },
     "boundaryShield": {
       "baseOpacity": 1,

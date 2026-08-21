@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { upFromAttitude, wrapAngle, type CameraConfig } from "@space-arena/shared";
+import {
+  PURSUIT_ZOOM_MAX,
+  PURSUIT_ZOOM_MIN,
+  upFromAttitude,
+  wrapAngle,
+  type CameraConfig,
+} from "@space-arena/shared";
 import {
   angleDeltaTo,
   approachDirection,
@@ -9,6 +15,7 @@ import {
   chaseOffsetForFrame,
   chaseSettingsOf,
   DEFAULT_CHASE_SETTINGS,
+  pursuitZoomOf,
   TURN_SIGN_FOR_SCREEN_RIGHT,
 } from "./chaseCamera.js";
 import { turnFromStick } from "./hud/flightInput.js";
@@ -343,6 +350,20 @@ describe("chaseSettingsOf", () => {
     expect(chaseSettingsOf(decoupled).pitchLag).toBe(0.05);
   });
 
+});
+
+describe("pursuitZoomOf", () => {
+  it("leaves a hull that authors no zoom on exactly the pack's distance", () => {
+    expect(pursuitZoomOf(undefined)).toBe(1);
+    expect(pursuitZoomOf({ recipe: "procedural.brawler" })).toBe(1);
+  });
+
+  it("clamps anything outside the authorable band, NaN included", () => {
+    expect(pursuitZoomOf({ recipe: "r", pursuitZoom: 1.4 })).toBe(1.4);
+    expect(pursuitZoomOf({ recipe: "r", pursuitZoom: 99 })).toBe(PURSUIT_ZOOM_MAX);
+    expect(pursuitZoomOf({ recipe: "r", pursuitZoom: 0 })).toBe(PURSUIT_ZOOM_MIN);
+    expect(pursuitZoomOf({ recipe: "r", pursuitZoom: Number.NaN })).toBe(1);
+  });
 });
 
 describe("approachDirection — the frame smoother", () => {

@@ -96,6 +96,10 @@ export function applyDamageToShip(
   if (world.launchProtected.has(targetId)) return;
 
   const scaled = baseAmount * world.tuning.globalDamageMult;
+  // 1c. the ATTACKER's role profile. Applied per leaf share (below) rather than
+  // to the whole hit, which is what lets a kinetic specialist boost exactly the
+  // kinetic half of a missile — and it lands at the TOP of the pipeline, like
+  // the global knob, so shield absorb and hull damage keep their ratio.
   // Banked either way: a composite hit has to re-join its shares before it can
   // emit, and the tally the beams pass in is that same accumulator.
   const sink: DamageTally = tally ?? { hull: 0, absorbed: new Map(), avoided: new Map() };
@@ -104,7 +108,8 @@ export function applyDamageToShip(
     // A share that already killed the target ends the hit: the rest of the
     // warhead has nothing left to hit.
     if (core.hull <= 0) break;
-    applyTypedShare(world, targetId, core, scaled * part.share, part.type, part.profile, sink);
+    const share = scaled * part.share * outgoingDamageMult(world, sourceId, part.type);
+    applyTypedShare(world, targetId, core, share, part.type, part.profile, sink);
   }
 
   if (!tally) {
@@ -136,6 +141,25 @@ export function applyDamageToShip(
       pos: pos ? { x: pos.x, y: pos.y, z: pos.z } : undefined,
     });
   }
+}
+
+/**
+ * The ATTACKING hull's `core.combat.damageOutput` entry for one LEAF damage
+ * type — the outgoing half of the role profile (owner request 2026-08-21).
+ *
+ * Everything that is not a ship with a resolved core multiplies by 1: a hazard,
+ * a decoy, or a projectile whose owner died mid-flight has no role profile, and
+ * neither does the `hybrid` fallback share a pack produces by deleting
+ * `tuning.damageTypes.hybrid.mix` — there is no authorable "hybrid output"
+ * knob, because a composite type has no damage of its own to scale.
+ */
+function outgoingDamageMult(world: World, sourceId: EntityId | null, leaf: DamageType): number {
+  if (sourceId === null) return 1;
+  const out = world.shipCores.get(sourceId)?.combat.damageOutput;
+  if (!out) return 1;
+  if (leaf === "kinetic") return out.kinetic;
+  if (leaf === "energy") return out.energy;
+  return 1;
 }
 
 /**
@@ -222,7 +246,15 @@ export function applyDamageToAsteroid(
 ): void {
   const ast = world.asteroids.get(asteroidId);
   if (!ast || !ast.destructible || ast.state === "destroyed") return;
-  const dmg = baseAmount * world.tuning.globalDamageMult;
+  // A rock has no shields and no resist column, so there is nothing to split it
+  // into — but the attacker's role profile still has to count, and for a
+  // composite type that means the share-weighted average of its leaves. A pure
+  // kinetic hit reduces to exactly `damageOutput.kinetic`.
+  let outMult = 0;
+  for (const part of damageComponentsOf(world.tuning, type)) {
+    outMult += part.share * outgoingDamageMult(world, sourceId, part.type);
+  }
+  const dmg = baseAmount * world.tuning.globalDamageMult * (outMult > 0 ? outMult : 1);
   ast.hp -= dmg;
   world.emit({ type: "damage", targetId: asteroidId, sourceId, amount: dmg, damageType: type, isAsteroid: true });
   if (ast.hp <= 0) {

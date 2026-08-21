@@ -3,6 +3,7 @@ import type { EntityId, ModuleRuntime, TargetRef, Transform3D } from "../compone
 import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { headingOf, len3, pitchOf, segmentIntersectsSphere, sphereEntryAlong } from "../math.js";
 import { hasLineOfSightBetween } from "../los.js";
+import { channelDamageScale, effectiveCycleTime } from "../resolveStats.js";
 import { spawnProjectile } from "../spawn.js";
 import type { World } from "../World.js";
 import { transition } from "./ModuleSystem.js";
@@ -46,10 +47,14 @@ export function combatSystem(world: World, dt: number): void {
     const fs = world.flightStates.get(id);
     const myTeam = world.teams.get(id)!.team;
     const myTf = world.transforms.get(id)!;
+    // The firing hull's resolved role profile: `rateOfFire` shortens the cycle
+    // below, `damageOutput` is applied inside the damage pipeline itself.
+    const myCore = world.shipCores.get(id)!;
 
     for (const m of mods.modules) {
       const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
       if (!cfg?.fire) continue;
+      const cycle = effectiveCycleTime(myCore, cfg.fire.cycleTime, cfg.fire.damageType);
 
       // Is THIS weapon's trigger down? Two sources, ORed (2026-08-21): the
       // ship-wide "fire everything" flag (the PC space bar, every bot) and this
@@ -91,7 +96,7 @@ export function combatSystem(world: World, dt: number): void {
         // No lock: fire straight along the nose. Nothing else gates a shot —
         // a weapon costs no energy since the 2026-08-07 overhaul, and a shot
         // into empty space still spends its cycle.
-        m.cycleTimer = cfg.fire.cycleTime;
+        m.cycleTimer = cycle;
         m.workedThisTick = true;
         spendRound(world, id, m, cfg);
 
@@ -149,7 +154,7 @@ export function combatSystem(world: World, dt: number): void {
       if (cfg.fire.requiresLineOfSight && !hasLineOfSightBetween(world, id, targetId)) continue;
 
       // Fire.
-      m.cycleTimer = cfg.fire.cycleTime;
+      m.cycleTimer = cycle;
       m.workedThisTick = true;
       spendRound(world, id, m, cfg);
       const heading = headingOf(dx, dz);
@@ -349,8 +354,10 @@ function channelStep(world: World, ctx: ChannelCtx): void {
   const channel = m.channel;
 
   // `fire.damage` is DPS for continuous modules (see moduleSchema), so the tick
-  // size cancels out: any tick rate deals the same damage per wall second.
-  const amount = fire.damage * dt;
+  // size cancels out: any tick rate deals the same damage per wall second. The
+  // hull's rate-of-fire knob buys DPS here rather than a shorter cycle — a
+  // channel has no shots to speed up (see `channelDamageScale`).
+  const amount = fire.damage * dt * channelDamageScale(world.shipCores.get(id)!, fire.damageType);
   const tgtCore = world.shipCores.get(targetId)!;
   if (tgtCore.hull <= amount * world.tuning.globalDamageMult) {
     // This tick can kill (mitigation only ever reduces). Flush what is banked

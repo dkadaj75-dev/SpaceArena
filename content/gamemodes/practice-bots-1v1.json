@@ -7,6 +7,10 @@
   "hidden": true,
   "teams": "1v1",
   "defaultArena": "arena.ring-nebula",
+  "arenaPool": [
+    "arena.ring-nebula",
+    "arena.parker-point"
+  ],
   "winCondition": {
     "type": "fragLimit",
     "count": 10

@@ -395,7 +395,7 @@
       "accent": "#ffb257"
     },
     "model": "ships/human_heavy_lod0.glb",
-    "modelScale": 0.154,
+    "modelScale": 4.6,
     "modelRotationY": 0,
     "lods": [
       {
@@ -406,20 +406,22 @@
         "model": "ships/human_heavy_lod2.glb",
         "distance": 90
       }
-    ]
+    ],
+    "emissiveGlow": {
+      "material": "SS_Nozzles",
+      "source": "throttle"
+    },
+    "pursuitZoom": 0.65
   },
   "skin": {
     "body": [
-      "HULL_PRIMARY"
+      "SS_Body"
     ],
     "canopy": [
-      "CANOPY_GLASS"
+      "SS_Canopy"
     ],
     "wings": [
-      "PANEL_SECONDARY"
-    ],
-    "emissive": [
-      "EMISSIVE_BLUE"
+      "SS_Wings"
     ],
     "propulsion": [
       "eng-l",

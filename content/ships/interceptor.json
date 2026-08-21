@@ -12,13 +12,21 @@
         "energy": 0
       }
     },
+    "combat": {
+      "damageOutput": {
+        "kinetic": 0.75,
+        "energy": 0.8
+      },
+      "rateOfFire": {
+        "kinetic": 2.45,
+        "energy": 2.4,
+        "hybrid": 0.45
+      }
+    },
     "engine": {
       "nominalSpeed": 27,
       "accel": 18,
       "turnRate": 3
-    },
-    "power": {
-      "capacity": 10
     },
     "recharge": {
       "multiplier": 1
@@ -26,13 +34,16 @@
     "energyStore": {
       "multiplier": 1
     },
+    "power": {
+      "capacity": 10
+    },
+    "efficiency": {
+      "energyDraw": 1
+    },
     "sensors": {
       "lockRange": 195,
       "lockTimeSec": 0.7,
       "coneDeg": 90
-    },
-    "efficiency": {
-      "energyDraw": 1
     }
   },
   "upgradeTracks": {
@@ -43,7 +54,6 @@
   "sockets": [
     {
       "id": "hp-nose",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           0,
@@ -51,6 +61,7 @@
           1.6316
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "laser",
         "kinetic"
@@ -58,7 +69,6 @@
     },
     {
       "id": "hp-wing-l",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           -1,
@@ -66,6 +76,7 @@
           -0.9474
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "missile",
         "kinetic",
@@ -74,7 +85,6 @@
     },
     {
       "id": "in-engine",
-      "kind": "internal",
       "transform": {
         "pos": [
           0,
@@ -82,13 +92,13 @@
           -1.85
         ]
       },
+      "kind": "internal",
       "accepts": [
         "engine"
       ]
     },
     {
       "id": "in-generator",
-      "kind": "internal",
       "transform": {
         "pos": [
           0,
@@ -96,13 +106,13 @@
           0.2105
         ]
       },
+      "kind": "internal",
       "accepts": [
         "generator"
       ]
     },
     {
       "id": "in-transformer",
-      "kind": "internal",
       "transform": {
         "pos": [
           0.35,
@@ -110,13 +120,13 @@
           -0.4
         ]
       },
+      "kind": "internal",
       "accepts": [
         "transformer"
       ]
     },
     {
       "id": "in-countermeasure",
-      "kind": "internal",
       "transform": {
         "pos": [
           -0.35,
@@ -124,13 +134,13 @@
           -0.4
         ]
       },
+      "kind": "internal",
       "accepts": [
         "countermeasure"
       ]
     },
     {
       "id": "in-sensors",
-      "kind": "internal",
       "transform": {
         "pos": [
           0,
@@ -138,13 +148,13 @@
           0.95
         ]
       },
+      "kind": "internal",
       "accepts": [
         "sensors"
       ]
     },
     {
       "id": "hp-wing-r",
-      "kind": "hardpoint",
       "transform": {
         "pos": [
           1,
@@ -152,6 +162,7 @@
           -0.9474
         ]
       },
+      "kind": "hardpoint",
       "accepts": [
         "utility"
       ]
@@ -358,7 +369,8 @@
         "model": "ships/human_light_lod3.glb",
         "distance": 180
       }
-    ]
+    ],
+    "pursuitZoom": 0.9
   },
   "skin": {
     "body": [

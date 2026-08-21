@@ -1,7 +1,6 @@
 import {
   Color3,
   Color4,
-  Constants,
   DirectionalLight,
   Effect,
   HemisphericLight,
@@ -24,6 +23,7 @@ import {
 import type { ConfigService, PropConfig, ShipConfig, ThemeConfig } from "@space-arena/shared";
 import type { AssetRegistry } from "../../core/AssetRegistry.js";
 import { ShipPaintBank } from "../shipPaint.js";
+import { createStarBillboard, registerStarShaders, starDirection } from "../starBillboard.js";
 
 /**
  * The main menu's backdrop: the player's main hull parked on lunar regolith,
@@ -141,122 +141,14 @@ void main() {
 }
 `;
 
-/**
- * The star, on a billboard.
- *
- * Same construction as the title screen's — a granulated photosphere with limb
- * darkening, a chromosphere rim, and a corona of filaments — with two changes
- * that only matter in 3D: it writes ALPHA so the galaxy shows through its
- * corona rather than being punched out by a black quad, and its geometry is a
- * camera-facing plane, so the shader works in the quad's own UVs instead of in
- * screen space.
- *
- * The corona is sampled along a unit DIRECTION vector rather than an angle,
- * because atan() has a branch cut at ±pi and sampling noise across it draws a
- * seam straight through the corona.
- */
-const STAR_VERTEX = `
-precision highp float;
-attribute vec3 position;
-attribute vec2 uv;
-uniform mat4 worldViewProjection;
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  gl_Position = worldViewProjection * vec4(position, 1.0);
-}
-`;
-
-const STAR_FRAGMENT = `
-precision highp float;
-varying vec2 vUv;
-uniform float time;
-uniform vec3 coreColor;
-uniform vec3 shellColor;
-uniform vec3 coronaColor;
-
-float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p){
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
-             mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
-}
-float fbm(vec2 p){
-  float a = 0.5, s = 0.0;
-  for (int i = 0; i < 6; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; }
-  return s;
-}
-
-void main() {
-  // The quad spans the disc AND its corona, so the disc itself is a fraction
-  // of it — see STAR_DISC_FRACTION, which must match this number.
-  vec2 d = (vUv - 0.5) * 2.0;
-  float dist = max(length(d), 1e-4);
-  float r = dist / 0.34;
-  vec2 nd = d / dist;
-  float cr = max(r - 1.0, 0.0);
-
-  vec3 col = vec3(0.0);
-  float alpha = 0.0;
-
-  float core = smoothstep(1.06, 0.92, r);
-  if (core > 0.0) {
-    vec2 sp = d * 9.0;
-    vec2 w = vec2(fbm(sp + time * 0.05), fbm(sp + vec2(3.1, 1.7) - time * 0.04));
-    float g = fbm(sp * 2.1 + w * 2.6 + vec2(0.0, time * 0.07));
-    float limb = pow(max(1.0 - r * r, 0.0), 0.36);
-    // Three stops, and the DEEPEST one has to be genuinely dark: the granulation
-    // is only visible as the contrast between the cool lanes and the hot cells.
-    // Deriving it as a fraction of the shell colour washed it out to a flat disc.
-    vec3 deep = shellColor * vec3(0.62, 0.28, 0.10);
-    vec3 surf = mix(deep, shellColor, smoothstep(0.28, 0.60, g));
-    surf = mix(surf, coreColor, smoothstep(0.56, 0.88, g) * limb);
-    col += surf * (0.26 + limb * 1.95) * core;
-    alpha = max(alpha, core);
-  }
-
-  // NO explicit chromosphere ring. A gaussian centred on the limb is a circle
-  // by construction, and against this disc it reads as a drawn outline rather
-  // than as a glowing edge — the corona and the glare below already carry the
-  // limb, because both are brightest exactly where the disc ends.
-
-  // Corona filaments, streaming outward and churning.
-  float fil = fbm(nd * 7.0 + vec2(cr * 1.3 - time * 0.15, time * 0.05));
-  fil = pow(max(fil - 0.33, 0.0) * 1.9, 1.5);
-  float coronaFall = exp(-cr * 1.7);
-  col += coronaColor * fil * coronaFall * 2.2;
-  alpha = max(alpha, fil * coronaFall);
-
-  // Glare: two smooth exponentials. Mixing an inverse-square halo with an
-  // exponential corona falloff puts a dark ring at their crossover.
-  float glare = exp(-cr * 1.15) * 0.42 + exp(-cr * 0.30) * 0.055;
-  col += coronaColor * glare;
-  alpha = max(alpha, glare * 1.6);
-
-  if (alpha <= 0.002) discard;
-  // Tone-map before output. Without it everything above 1.0 clips to flat
-  // yellow-white and the granulation, the limb and the colour all disappear —
-  // which is exactly what a raw additive star looks like.
-  col = col / (1.0 + col * 0.58);
-  gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
-}
-`;
-
-/**
- * The disc's share of the billboard's width, matching `0.34` in the shader
- * above. The quad has to be this much larger than the star so the corona and
- * the glare have somewhere to go.
- */
-const STAR_DISC_FRACTION = 0.34;
-
 let shadersRegistered = false;
 function registerShaders(): void {
   if (shadersRegistered) return;
   Effect.ShadersStore["menuEarthVertexShader"] = EARTH_VERTEX;
   Effect.ShadersStore["menuEarthFragmentShader"] = EARTH_FRAGMENT;
-  Effect.ShadersStore["menuStarVertexShader"] = STAR_VERTEX;
-  Effect.ShadersStore["menuStarFragmentShader"] = STAR_FRAGMENT;
+  // The star's shaders live in `game/starBillboard` — the arena sky hangs the
+  // same body, so there is exactly one copy of them (owner 2026-08-21).
+  registerStarShaders();
   shadersRegistered = true;
 }
 
@@ -449,53 +341,22 @@ export class MenuDiorama {
     const star = cfg.star;
     if (!star) return;
 
-    // Far enough that nothing can intersect it, sized to subtend the authored
-    // apparent diameter. The quad is bigger than the disc by the shader's own
-    // corona allowance, or the glare would be clipped at the quad's edge.
-    const distance = 1500;
-    const discSpan = distance * (star.apparentSize ?? 0.68);
-    const quadSpan = discSpan / (STAR_DISC_FRACTION * 2);
+    // One body, two homes: the arena sky hangs this same star
+    // (`arena.render.star`), so its construction lives in `game/starBillboard`.
+    const { material } = createStarBillboard(this.scene, {
+      name: "menuDiorama",
+      parent: this.root,
+      // Far enough that nothing in the diorama can intersect it.
+      distance: 1500,
+      apparentSize: star.apparentSize ?? 0.68,
+      direction: starDirection(star.azimuthDeg ?? -26, star.elevationDeg ?? 7),
+      core: colorOf(star.core, "#fff4d2"),
+      shell: colorOf(star.shell, "#ff8a1e"),
+      corona: colorOf(star.corona, "#ff9433"),
+    });
 
-    const plane = MeshBuilder.CreatePlane("menuDiorama.star", { size: quadSpan }, this.scene);
-    plane.parent = this.root;
-    plane.isPickable = false;
-    plane.applyFog = false;
-    plane.position = direction(star.azimuthDeg ?? -26, star.elevationDeg ?? 7).scale(distance);
-    // Billboarded so the disc stays circular whatever the camera does.
-    plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    plane.renderingGroupId = 0;
-
-    const mat = new ShaderMaterial(
-      "menuDiorama.starMat",
-      this.scene,
-      { vertex: "menuStar", fragment: "menuStar" },
-      {
-        attributes: ["position", "uv"],
-        uniforms: ["worldViewProjection", "time", "coreColor", "shellColor", "coronaColor"],
-        needAlphaBlending: true,
-      },
-    );
-    mat.setColor3("coreColor", colorOf(star.core, "#fff4d2"));
-    mat.setColor3("shellColor", colorOf(star.shell, "#ff8a1e"));
-    mat.setColor3("coronaColor", colorOf(star.corona, "#ff9433"));
-    mat.backFaceCulling = false;
-    // Depth-write off: it is a transparent billboard, and writing depth would
-    // punch its own corona out of anything drawn after it.
-    mat.disableDepthWrite = true;
-    // PREMULTIPLIED, not additive (owner 2026-08-21: "we should not see the
-    // skybox behind the sun itself").
-    //
-    //   result = src + dst * (1 - srcAlpha)
-    //
-    // The photosphere writes alpha 1, so it REPLACES the galaxy — a star is an
-    // opaque body, and seeing stars through it read as a decal. The corona and
-    // the glare write alpha near 0 with real colour, so they still ADD over the
-    // galaxy exactly as before. One blend mode, both behaviours, one draw.
-    mat.alphaMode = Constants.ALPHA_PREMULTIPLIED;
-    plane.material = mat;
-
-    this.starMaterial = mat;
-    this.disposables.push(mat);
+    this.starMaterial = material;
+    this.disposables.push(material);
   }
 
   private buildEarthrise(): void {
