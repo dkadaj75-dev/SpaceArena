@@ -399,8 +399,9 @@
         "skyExtension": ".webp",
         "skyLight": 0.35,
         "skyDriftDegPerSec": 0.4,
+        "reflectionDriftDegPerSec": 1.5,
         "star": {
-          "apparentSize": 1.9,
+          "apparentSize": 2.66,
           "azimuthDeg": -42,
           "elevationDeg": 7,
           "core": "#fff4d2",
@@ -411,13 +412,15 @@
         "sun": {
           "azimuthDeg": 196,
           "elevationDeg": 22,
-          "intensity": 3.6
+          "intensity": 3.6,
+          "sweepDeg": 14,
+          "sweepPeriodSec": 12
         },
         "ship": {
           "shiftRight": 3.1,
           "lift": 0.35,
           "yawDeg": 214,
-          "pitchDeg": -6,
+          "pitchDeg": 8,
           "rollDeg": -9
         }
       },
