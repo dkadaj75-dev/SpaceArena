@@ -103,7 +103,10 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(lobby.getByText("Upgrade account", { exact: true })).toBeVisible();
 
   // --------------------------------------------------------------- 2. hangar
-  await lobby.getByRole("button", { name: "Hangar", exact: true }).click();
+  // By the stable data hook, not by accessible name: the destination button's
+  // name is the label PLUS its blurb, uppercased by CSS ("HANGAR Fit and paint
+  // your ship"), so a role/name locator would drift with the copy.
+  await lobby.locator('.sa-menu-destination[data-lobby-action="hangar"]').click();
 
   const hangar = page.locator(".hangar-panel");
   await expect(hangar).toBeVisible();
@@ -219,7 +222,9 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(lobby).toBeVisible();
 
   // ------------------------------------------------- 5. start a practice match
-  await lobby.getByRole("button", { name: "2v2 Team Deathmatch", exact: true }).click();
+  // Same story as the Hangar button: the card's accessible name folds in the
+  // blurb, so target the mode by its data hook.
+  await lobby.locator('.sa-menu-card[data-gamemode="gamemode.practice-bots"]').click();
   await expect(lobby).toBeHidden();
 
   // Launching leads with the player search (2026-08-14): a count-UP clock and
@@ -301,12 +306,16 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
         : undefined;
       if (!me || !target) return null;
       const bearing = Math.atan2(target.pos.z - me.pos.z, target.pos.x - me.pos.x);
+      const distance = Math.hypot(target.pos.x - me.pos.x, target.pos.z - me.pos.z);
       const now = Date.now();
       if (now - lastOrderAt >= ORDER_MIN_INTERVAL_MS) {
         lastOrderAt = now;
         session.order({
           kind: "flight",
-          throttle: 0,
+          // Spawns sit farther apart than the hull's `sensors.lockRange`, and
+          // the bot no longer closes the gap on its own, so the pilot must:
+          // burn toward the target until inside comfortable lock distance.
+          throttle: distance > 60 ? 0.6 : 0,
           turn: Math.max(-1, Math.min(1, angleTo(me.heading, bearing) * 2)),
           boost: false,
           fire: false,

@@ -729,6 +729,7 @@ export class MenuDiorama {
    * the painted master, which is what actually has to be on screen).
    */
   async ready(timeoutMs = 5000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const cutoff = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);
@@ -748,11 +749,18 @@ export class MenuDiorama {
       // fade would land on a scene that had never been drawn at all.
       await this.scene.whenReadyAsync().catch(() => undefined);
       for (let i = 0; i < 3 && !this.root.isDisposed(); i++) {
+        // `scene.render()` is synchronous, so the cutoff's timer cannot fire
+        // mid-draw: on a GPU that compiles shaders on first use, three
+        // back-to-back renders could hold the boot screen well past the
+        // timeout. Check the deadline before each draw and yield after it so
+        // the timeout keeps its promise.
+        if (Date.now() >= deadline) break;
         try {
           this.scene.render();
         } catch {
           break; // a scene that cannot draw must not hold the menu hostage
         }
+        await new Promise<void>((resolve) => setTimeout(resolve));
       }
     })();
     try {
