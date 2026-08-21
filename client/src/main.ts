@@ -1085,25 +1085,6 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   );
   authScreen.hide();
 
-  let designToolsEntry: HTMLButtonElement | null = null;
-  function installDesignToolsEntry(): void {
-    const state = authService.getState();
-    if (state.status !== "authed" || designToolsEntry) return;
-    // The profile role gates the ATTEMPT only: the shell's actual writes go
-    // through the dev middleware (`/__editor/*`), which simply isn't there
-    // outside a dev serve — the server stays authoritative on every call.
-    if (state.profile.role !== "admin") return;
-    designToolsEntry = document.createElement("button"); designToolsEntry.type = "button";
-    designToolsEntry.className = "sa-design-tools-entry"; designToolsEntry.textContent = "DESIGN TOOLS";
-    Object.assign(designToolsEntry.style, { position: "fixed", right: "max(16px, env(safe-area-inset-right))", bottom: "max(16px, env(safe-area-inset-bottom))", zIndex: "35", minHeight: "44px", padding: "0 18px", color: "#dceaf7", background: "#0d1524", border: "1px solid #57d8ff", font: "600 13px Orbitron, sans-serif", letterSpacing: ".1em" });
-    designToolsEntry.setAttribute("aria-label", "Open the Constellation designer shell");
-    designToolsEntry.addEventListener("click", () => void openDesigner()); document.body.append(designToolsEntry);
-  }
-  // Eager, then self-healing: this call is a no-op while the restore above is
-  // still in flight, and the subscription re-runs it the moment a session lands.
-  installDesignToolsEntry();
-  authService.onChange(() => installDesignToolsEntry());
-
   boot?.settle("interface", "ok", "theme · fonts · menu");
 
   // Start the menu's 3D backdrop NOW, behind the boot screen (owner
@@ -1126,8 +1107,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // SYNCHRONOUSLY, and each would silently take the anonymous branch if it ran
   // first — so this is where the wait has to land, and it has to land before
   // them. (Everything constructed above only holds the service and re-reads it
-  // through `onChange`: the design-tools entry, the ownership ledger and the
-  // Hangar all repaint themselves when the session arrives.)
+  // through `onChange`: the ownership ledger and the Hangar repaint
+  // themselves when the session arrives.)
   await authRestored;
 
   // A dev-admin session STORED while the page was on localhost must not survive
