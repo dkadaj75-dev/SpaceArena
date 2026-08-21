@@ -222,8 +222,10 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(lobby).toBeVisible();
 
   // ------------------------------------------------- 5. start a practice match
-  // Same story as the Hangar button: the card's accessible name folds in the
-  // blurb, so target the mode by its data hook.
+  // The menu opens on CATEGORIES since 2026-08-21: a mode lives one tap deeper,
+  // inside its group's drawer. Both are found by data hook rather than by
+  // accessible name, which folds in each button's blurb.
+  await lobby.locator('.sa-menu-category[data-lobby-action="team deathmatch"]').click();
   await lobby.locator('.sa-menu-card[data-gamemode="gamemode.practice-bots"]').click();
   await expect(lobby).toBeHidden();
 

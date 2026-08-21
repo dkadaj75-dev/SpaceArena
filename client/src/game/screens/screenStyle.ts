@@ -218,14 +218,12 @@ const CSS = `
  * nodes (which cannot receive position/z-index).
  */
 .sa-screen-btn,
-.sa-menu-card,
-.sa-menu-destination,
+.sa-menu-btn,
 .sa-settings-group {
   isolation: isolate;
 }
 .sa-screen-btn::before,
-.sa-menu-card::before,
-.sa-menu-destination::before,
+.sa-menu-btn::before,
 .sa-settings-group::before {
   z-index: -1;
 }
@@ -506,9 +504,11 @@ const CSS = `
 }
 .sa-menu-cards { display: flex; flex-wrap: wrap; gap: 9px; }
 
-/* --- A match you can start --- */
-.sa-menu-card,
-.sa-menu-destination {
+/* --- Menu buttons ---
+   .sa-menu-btn is the shared plate; the kind class says what it DOES:
+   .sa-menu-card starts a match, .sa-menu-category opens that kind's drawer,
+   .sa-menu-destination goes somewhere, .sa-menu-back comes out. */
+.sa-menu-btn {
   position: relative;
   display: flex;
   align-items: center;
@@ -524,9 +524,8 @@ const CSS = `
   transition: transform 140ms ease-out, background 140ms ease-out;
   touch-action: manipulation;
 }
-.sa-menu-card { min-width: 152px; }
-.sa-menu-card::before,
-.sa-menu-destination::before {
+.sa-menu-card, .sa-menu-category { min-width: 152px; }
+.sa-menu-btn::before {
   content: "";
   position: absolute;
   inset: var(--sa-rim);
@@ -536,30 +535,22 @@ const CSS = `
   -webkit-backdrop-filter: blur(7px);
   transition: background 140ms ease-out;
 }
-.sa-menu-card:hover:not(:disabled),
-.sa-menu-card:focus-visible,
-.sa-menu-destination:hover:not(:disabled),
-.sa-menu-destination:focus-visible {
+.sa-menu-btn:hover:not(:disabled),
+.sa-menu-btn:focus-visible {
   background: var(--sa-menu-primary, var(--sa-blue-500));
   transform: translateY(-2px);
 }
-.sa-menu-card:hover:not(:disabled)::before,
-.sa-menu-card:focus-visible::before,
-.sa-menu-destination:hover:not(:disabled)::before,
-.sa-menu-destination:focus-visible::before {
+.sa-menu-btn:hover:not(:disabled)::before,
+.sa-menu-btn:focus-visible::before {
   background: color-mix(in srgb, var(--sa-menu-primary, var(--sa-blue-500)) 24%, rgba(6, 11, 18, .92));
 }
-.sa-menu-card:active:not(:disabled),
-.sa-menu-destination:active:not(:disabled) { transform: translateY(0); }
-.sa-menu-card:disabled,
-.sa-menu-destination:disabled { opacity: .45; cursor: default; }
+.sa-menu-btn:active:not(:disabled) { transform: translateY(0); }
+.sa-menu-btn:disabled { opacity: .45; cursor: default; }
 
 .sa-menu-icon { display: flex; flex: 0 0 auto; color: var(--sa-menu-primary, var(--sa-blue-400)); }
 .sa-menu-icon svg { width: 26px; height: 26px; display: block; }
-.sa-menu-card:hover:not(:disabled) .sa-menu-icon,
-.sa-menu-card:focus-visible .sa-menu-icon,
-.sa-menu-destination:hover:not(:disabled) .sa-menu-icon,
-.sa-menu-destination:focus-visible .sa-menu-icon { color: var(--sa-white); }
+.sa-menu-btn:hover:not(:disabled) .sa-menu-icon,
+.sa-menu-btn:focus-visible .sa-menu-icon { color: var(--sa-white); }
 
 .sa-menu-card-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .sa-menu-card-label {
@@ -575,10 +566,39 @@ const CSS = `
   color: var(--sa-menu-muted, var(--sa-n-400));
   line-height: 1.3;
 }
-.sa-menu-card:hover:not(:disabled) .sa-menu-card-blurb,
-.sa-menu-card:focus-visible .sa-menu-card-blurb,
-.sa-menu-destination:hover:not(:disabled) .sa-menu-card-blurb,
-.sa-menu-destination:focus-visible .sa-menu-card-blurb { color: rgba(255, 255, 255, .82); }
+.sa-menu-btn:hover:not(:disabled) .sa-menu-card-blurb,
+.sa-menu-btn:focus-visible .sa-menu-card-blurb { color: rgba(255, 255, 255, .82); }
+
+/* --- Places you go: wider, quieter, and visibly not a match --- */
+.sa-menu-destinations {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  max-width: 1080px;
+  margin-top: 4px;
+}
+.sa-menu-destinations[hidden] { display: none; }
+.sa-menu-destination { min-width: 186px; }
+.sa-menu-destination .sa-menu-icon { color: var(--sa-menu-accent, var(--sa-n-300)); }
+
+/* --- Mode drawer: one group's matches, opened from a category button ---
+   Every group's panel is BUILT ONCE and hidden, not created on entry: the
+   online/busy gating walks a fixed list of buttons, and a panel that only
+   exists while it is open would drop out of that list. */
+.sa-menu-modes { display: contents; }
+.sa-menu-play[hidden] { display: none; }
+.sa-menu-group[hidden] { display: none; }
+.sa-menu-back {
+  align-self: flex-start;
+  margin-top: 2px;
+  min-height: 34px;
+  padding: 6px 14px 6px 10px;
+  gap: 7px;
+}
+.sa-menu-back .sa-menu-icon svg { width: 17px; height: 17px; }
+.sa-menu-back .sa-menu-card-label { font-size: 11.5px; letter-spacing: .18em; }
 
 /* --- Places you go: wider, quieter, and visibly not a match --- */
 .sa-menu-destinations {
@@ -593,9 +613,49 @@ const CSS = `
 .sa-menu-destination { min-width: 186px; }
 .sa-menu-destination .sa-menu-icon { color: var(--sa-menu-accent, var(--sa-n-300)); }
 
+/* --- Press flash: the only "I heard you" a touch player gets ---
+   Driven by an ANIMATION rather than :active, because the tap that opens a
+   drawer also swaps the button out from under the finger — :active would be
+   torn off mid-press and never paint. The rim and the fill flash together so
+   the cue survives whatever the button sits on: the rim carries it on the
+   nebula, the fill carries it against the diorama. */
+/* The peak is HELD for the first third: an ease-out from full brightness is
+   most of the way back to normal within two frames, which is exactly the
+   window a player's eye is still moving. */
+@keyframes sa-menu-press-rim {
+  0%, 32% { background: var(--sa-menu-accent, var(--sa-white)); }
+  100% { background: var(--sa-rim-color); }
+}
+@keyframes sa-menu-press-fill {
+  0%, 32% { background: color-mix(in srgb, var(--sa-menu-accent, var(--sa-white)) 78%, transparent); }
+  100% { background: var(--sa-panel-fill); }
+}
+@keyframes sa-menu-press-push {
+  0%, 32% { transform: scale(.955); }
+  100% { transform: none; }
+}
+.sa-menu-btn.sa-pressed,
+.sa-screen-chip.sa-pressed,
+.sa-screen-icon-btn.sa-pressed,
+.sa-screen-link.sa-pressed {
+  animation:
+    sa-menu-press-rim var(--sa-menu-click-ms, 220ms) ease-out,
+    sa-menu-press-push var(--sa-menu-click-ms, 220ms) ease-out;
+}
+.sa-menu-btn.sa-pressed::before {
+  animation: sa-menu-press-fill var(--sa-menu-click-ms, 220ms) ease-out;
+}
+/* A link has no rim to flash: give it the accent outright. */
+.sa-screen-link.sa-pressed { animation-name: sa-menu-press-push; color: var(--sa-menu-accent, var(--sa-white)); }
+
 @media (prefers-reduced-motion: reduce) {
-  .sa-menu-card, .sa-menu-destination { transition: background 140ms ease-out; }
-  .sa-menu-card:hover:not(:disabled), .sa-menu-destination:hover:not(:disabled) { transform: none; }
+  .sa-menu-btn { transition: background 140ms ease-out; }
+  .sa-menu-btn:hover:not(:disabled) { transform: none; }
+  /* The flash stays — it is feedback, not decoration — but stops moving. */
+  .sa-menu-btn.sa-pressed,
+  .sa-screen-chip.sa-pressed,
+  .sa-screen-icon-btn.sa-pressed,
+  .sa-screen-link.sa-pressed { animation-name: sa-menu-press-rim; }
 }
 
 @media (max-width: 720px) {

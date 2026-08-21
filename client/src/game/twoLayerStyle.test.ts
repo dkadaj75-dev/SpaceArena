@@ -20,8 +20,9 @@ describe("two-layer chamfer stacking", () => {
 
     for (const host of [
       ".sa-screen-btn",
-      ".sa-menu-card",
-      ".sa-menu-destination",
+      // Every menu button — mode card, category, destination, Back — wears
+      // `.sa-menu-btn`; the kind class only says what the button does.
+      ".sa-menu-btn",
       ".sa-settings-group",
     ]) {
       const escaped = host.replace(".", "\\.");
