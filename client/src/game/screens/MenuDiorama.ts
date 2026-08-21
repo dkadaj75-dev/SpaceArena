@@ -304,6 +304,8 @@ export class MenuDiorama {
   private earth: Mesh | null = null;
   private starMaterial: ShaderMaterial | null = null;
   private skybox: Mesh | null = null;
+  private skyTexture: CubeTexture | null = null;
+  private keyLight: DirectionalLight | null = null;
   private beforeRender: Observer<Scene> | null = null;
   private elapsed = 0;
 
@@ -394,7 +396,9 @@ export class MenuDiorama {
    * galaxy out — still says "that is the light source", which is what makes the
    * cheat invisible and standard practice for a hero shot.
    */
-  private get sunConfig(): { azimuthDeg?: number; elevationDeg?: number; intensity?: number } | undefined {
+  private get sunConfig():
+    | { azimuthDeg?: number; elevationDeg?: number; intensity?: number; sweepDeg?: number; sweepPeriodSec?: number }
+    | undefined {
     return this.starfield?.sun ?? this.earthrise?.sun;
   }
 
@@ -439,6 +443,7 @@ export class MenuDiorama {
       // The galaxy IS the fill light. Replaces the procedural cube built above.
       this.scene.environmentTexture = sky;
       this.scene.environmentIntensity = cfg.skyLight ?? 0.35;
+      this.skyTexture = sky;
     }
 
     const star = cfg.star;
@@ -509,6 +514,7 @@ export class MenuDiorama {
     key.diffuse = new Color3(1, 0.98, 0.94);
     key.specular = new Color3(1, 1, 1);
     key.parent = this.root;
+    this.keyLight = key;
     this.disposables.push(key);
 
     // Earthshine: the only fill on the Moon, and it is blue.
@@ -729,6 +735,7 @@ export class MenuDiorama {
    * the painted master, which is what actually has to be on screen).
    */
   async ready(timeoutMs = 5000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const cutoff = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);
@@ -748,11 +755,18 @@ export class MenuDiorama {
       // fade would land on a scene that had never been drawn at all.
       await this.scene.whenReadyAsync().catch(() => undefined);
       for (let i = 0; i < 3 && !this.root.isDisposed(); i++) {
+        // `scene.render()` is synchronous, so the cutoff's timer cannot fire
+        // mid-draw: on a GPU that compiles shaders on first use, three
+        // back-to-back renders could hold the boot screen well past the
+        // timeout. Check the deadline before each draw and yield after it so
+        // the timeout keeps its promise.
+        if (Date.now() >= deadline) break;
         try {
           this.scene.render();
         } catch {
           break; // a scene that cannot draw must not hold the menu hostage
         }
+        await new Promise<void>((resolve) => setTimeout(resolve));
       }
     })();
     try {
@@ -818,6 +832,24 @@ export class MenuDiorama {
     const sky = this.starfield;
     if (this.skybox && sky?.skyDriftDegPerSec) {
       this.skybox.rotation.y = (this.elapsed * sky.skyDriftDegPerSec * Math.PI) / 180;
+    }
+    // The environment cube feeds the hull's PBR reflections, and it does not
+    // inherit the skybox mesh's rotation — without this the metal reads as a
+    // still photograph however much the galaxy drifts behind it.
+    const reflectionDrift = sky?.reflectionDriftDegPerSec ?? sky?.skyDriftDegPerSec;
+    if (this.skyTexture && reflectionDrift) {
+      this.skyTexture.rotationY = (this.elapsed * reflectionDrift * Math.PI) / 180;
+    }
+    // The key light sways a few degrees around its authored bearing, so the
+    // specular sheen crawls across the hull while the drawn star stays put.
+    // Elevation moves on a slower cosine so the highlight traces an arc, not
+    // a metronome line.
+    const keySun = this.sunConfig;
+    if (this.keyLight && keySun?.sweepDeg) {
+      const phase = (this.elapsed * Math.PI * 2) / (keySun.sweepPeriodSec ?? 12);
+      const az = (keySun.azimuthDeg ?? 62) + keySun.sweepDeg * Math.sin(phase);
+      const el = (keySun.elevationDeg ?? 14) + keySun.sweepDeg * 0.4 * Math.cos(phase * 0.5);
+      this.keyLight.direction = direction(az, el).negate();
     }
     if (this.starMaterial) {
       this.starMaterial.setFloat("time", this.elapsed * (sky?.star?.speed ?? 1));

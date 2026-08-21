@@ -750,6 +750,14 @@ const dioramaSun = z.object({
   azimuthDeg: z.number().optional(),
   elevationDeg: z.number().optional(),
   intensity: z.number().nonnegative().optional(),
+  /**
+   * Degrees of slow azimuth sway around `azimuthDeg`. The specular sheen
+   * crawls across the hull while the drawn star never moves — a few degrees
+   * is a living highlight, tens of degrees is a searchlight. 0/omitted = off.
+   */
+  sweepDeg: z.number().nonnegative().max(45).optional(),
+  /** Seconds for one full sway cycle. */
+  sweepPeriodSec: z.number().positive().optional(),
 });
 
 export const menuSchema = z.object({
@@ -865,6 +873,12 @@ export const menuSchema = z.object({
           skyLight: z.number().min(0).max(1).optional(),
           /** Degrees per second the sky rotates. Slow — this is drift, not spin. */
           skyDriftDegPerSec: z.number().optional(),
+          /**
+           * Degrees per second the ENVIRONMENT reflections drift across the
+           * hull. Defaults to skyDriftDegPerSec; author it faster to make the
+           * metal feel alive without visibly speeding up the galaxy behind it.
+           */
+          reflectionDriftDegPerSec: z.number().optional(),
           /**
            * Where the pilot's hull sits in frame, and how it is turned.
            *

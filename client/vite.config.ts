@@ -367,8 +367,12 @@ export default defineConfig(({ command }) => ({
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // Nothing under these prefixes is a navigation: /api and the Colyseus
         // matchmaking POST must always hit the network, and /content is handled
-        // by the network-first rule below.
-        navigateFallbackDenylist: [/^\/api\//, /^\/content\//, /^\/health/, /^\/monitor/, /^\/matchmake/],
+        // by the network-first rule below. Anchored to siteBase(), not "/":
+        // under a GitHub Pages subpath these live at /<repo>/api etc., so a
+        // root-anchored regex would never match there.
+        navigateFallbackDenylist: ["api/", "content/", "health", "monitor", "matchmake"].map(
+          (prefix) => new RegExp(`^${siteBase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${prefix}`),
+        ),
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         runtimeCaching: [

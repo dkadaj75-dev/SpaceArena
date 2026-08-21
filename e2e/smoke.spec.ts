@@ -103,7 +103,10 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(lobby.getByText("Upgrade account", { exact: true })).toBeVisible();
 
   // --------------------------------------------------------------- 2. hangar
-  await lobby.getByRole("button", { name: "Hangar", exact: true }).click();
+  // By the stable data hook, not by accessible name: the destination button's
+  // name is the label PLUS its blurb, uppercased by CSS ("HANGAR Fit and paint
+  // your ship"), so a role/name locator would drift with the copy.
+  await lobby.locator('.sa-menu-destination[data-lobby-action="hangar"]').click();
 
   const hangar = page.locator(".hangar-panel");
   await expect(hangar).toBeVisible();
@@ -219,7 +222,9 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(lobby).toBeVisible();
 
   // ------------------------------------------------- 5. start a practice match
-  await lobby.getByRole("button", { name: "2v2 Team Deathmatch", exact: true }).click();
+  // Same story as the Hangar button: the card's accessible name folds in the
+  // blurb, so target the mode by its data hook.
+  await lobby.locator('.sa-menu-card[data-gamemode="gamemode.practice-bots"]').click();
   await expect(lobby).toBeHidden();
 
   // Launching leads with the player search (2026-08-14): a count-UP clock and
@@ -227,7 +232,12 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   // starts when the room stops waiting — here, when the server's backfill seats
   // the opposing bot — so the HUD is only expected after this screen goes away.
   const launch = page.locator(".sa-match-loading");
-  await expect(launch).toBeVisible();
+  // Attached, not visible: a local server can seat the bot and dismiss the
+  // card before this assert runs. The card survives hide() (display:none),
+  // showSearching ticks the count-up once synchronously, and both team
+  // columns are painted from the first frame — so the checks below hold
+  // whether or not the card was caught mid-flight.
+  await expect(launch).toBeAttached();
   await expect(launch.locator(".sa-match-loading-elapsed")).toHaveText(/^\d+:\d\d$/);
   await expect(launch.locator(".sa-match-loading-team")).toHaveCount(2);
   await expect(launch).toBeHidden({ timeout: 90_000 });
@@ -270,6 +280,7 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
     ok: boolean;
     targetId: number;
     hull: number;
+    reason: string;
   } | null>(() => {
     const debug = (window as unknown as { __debug?: DebugApi }).__debug;
     if (!debug?.session) return null;
@@ -286,7 +297,11 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
       if (d <= -Math.PI) d += Math.PI * 2;
       return d;
     };
-    for (let frame = 0; frame < 240; frame++) {
+    // ~150 sim-seconds: the Brawler makes 16 m/s and the practice bot holds
+    // its own chase distance, so a stern chase from a 245 m spawn plus the
+    // 1.5 s lock dwell does not fit the old 40 sim-second budget.
+    let lastState = "never saw a frame";
+    for (let frame = 0; frame < 900; frame++) {
       const session = debug.session;
       if (!session) return null;
       const me = session.curSnapshot.ships.find((ship) => ship.id === session.playerId);
@@ -301,32 +316,43 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
         : undefined;
       if (!me || !target) return null;
       const bearing = Math.atan2(target.pos.z - me.pos.z, target.pos.x - me.pos.x);
+      const distance = Math.hypot(target.pos.x - me.pos.x, target.pos.z - me.pos.z);
       const now = Date.now();
       if (now - lastOrderAt >= ORDER_MIN_INTERVAL_MS) {
         lastOrderAt = now;
         session.order({
           kind: "flight",
-          throttle: 0,
+          // Spawns sit farther apart than the hull's `sensors.lockRange` and
+          // the bot keeps its own chase distance, so the pilot must burn flat
+          // out (boosting while far) to close inside lock range at all.
+          throttle: distance > 60 ? 1 : 0,
           turn: Math.max(-1, Math.min(1, angleTo(me.heading, bearing) * 2)),
-          boost: false,
+          boost: distance > 120,
           fire: false,
         });
       }
       debug.forceFrame(166);
       const currentMe = session.curSnapshot.ships.find((ship) => ship.id === session.playerId);
-      const currentTarget = session.curSnapshot.ships.find((ship) => ship.id === target.id);
-      if (
-        currentMe?.locked &&
-        currentMe.targetId === target.id &&
-        currentMe.modules.some((module) => module.state === "active") &&
-        currentTarget
-      ) {
-        return { ok: true, targetId: target.id, hull: currentTarget.hull };
+      // Accept whichever foe the sim locked: in a 2v2 the lock is free to land
+      // on the enemy that is not the one this pilot happens to be chasing.
+      const locked =
+        currentMe?.locked && currentMe.targetId !== null
+          ? session.curSnapshot.ships.find((ship) => ship.id === currentMe.targetId)
+          : undefined;
+      if (currentMe && locked && currentMe.modules.some((module) => module.state === "active")) {
+        return { ok: true, targetId: locked.id, hull: locked.hull, reason: "" };
       }
+      lastState =
+        `frame=${frame} dist=${distance.toFixed(0)} locked=${String(currentMe?.locked)} ` +
+        `targetId=${String(currentMe?.targetId)} ` +
+        `modules=${(currentMe?.modules ?? []).map((m) => m.state).join(",")}`;
     }
-    return null;
+    return { ok: false, targetId: -1, hull: 0, reason: lastState };
   });
-  expect(firingSolution?.ok, "failed to arm a weapon and acquire the practice bot").toBe(true);
+  expect(
+    firingSolution?.ok,
+    `failed to arm a weapon and acquire the practice bot: ${firingSolution?.reason ?? "no session"}`,
+  ).toBe(true);
 
   const canvas = page.locator("#renderCanvas");
   await canvas.dispatchEvent("pointerdown", {
