@@ -766,8 +766,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       menuDiorama = null;
       return;
     }
-    const authored = configService.get<ThemeConfig>("theme", "theme.default")?.menu?.diorama;
-    if (!authored?.enabled) return;
+    const authored = configService.get<ThemeConfig>("theme", "theme.default")?.menu?.scene;
+    if (!authored || (authored.kind ?? "none") === "none") return;
     if (!menuDiorama) menuDiorama = new MenuDiorama(scene, configService, preloadAssets, authored);
     const selection = loadHangarSelection();
     const shipId = selection.shipId ?? configService.getAll<ShipConfig>("ship")[0]?.id ?? null;

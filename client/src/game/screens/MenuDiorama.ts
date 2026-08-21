@@ -1,14 +1,17 @@
 import {
   Color3,
   Color4,
+  Constants,
   DirectionalLight,
   Effect,
   HemisphericLight,
   Mesh,
   MeshBuilder,
   PBRMaterial,
+  CubeTexture,
   RawCubeTexture,
   ShaderMaterial,
+  StandardMaterial,
   TargetCamera,
   Texture,
   TransformNode,
@@ -40,7 +43,9 @@ function contentUrl(path: string): string {
   return `${import.meta.env.BASE_URL}content/${path}`;
 }
 
-type Diorama = NonNullable<NonNullable<ThemeConfig["menu"]>["diorama"]>;
+type MenuScene = NonNullable<NonNullable<ThemeConfig["menu"]>["scene"]>;
+type Earthrise = NonNullable<MenuScene["earthrise"]>;
+type Starfield = NonNullable<MenuScene["starfield"]>;
 
 const DEFAULT_RADIUS = 320;
 const DEFAULT_TILING = 42;
@@ -136,12 +141,128 @@ void main() {
 }
 `;
 
+/**
+ * The star, on a billboard.
+ *
+ * Same construction as the title screen's — a granulated photosphere with limb
+ * darkening, a chromosphere rim, and a corona of filaments — with two changes
+ * that only matter in 3D: it writes ALPHA so the galaxy shows through its
+ * corona rather than being punched out by a black quad, and its geometry is a
+ * camera-facing plane, so the shader works in the quad's own UVs instead of in
+ * screen space.
+ *
+ * The corona is sampled along a unit DIRECTION vector rather than an angle,
+ * because atan() has a branch cut at ±pi and sampling noise across it draws a
+ * seam straight through the corona.
+ */
+const STAR_VERTEX = `
+precision highp float;
+attribute vec3 position;
+attribute vec2 uv;
+uniform mat4 worldViewProjection;
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = worldViewProjection * vec4(position, 1.0);
+}
+`;
+
+const STAR_FRAGMENT = `
+precision highp float;
+varying vec2 vUv;
+uniform float time;
+uniform vec3 coreColor;
+uniform vec3 shellColor;
+uniform vec3 coronaColor;
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
+             mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
+}
+float fbm(vec2 p){
+  float a = 0.5, s = 0.0;
+  for (int i = 0; i < 6; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; }
+  return s;
+}
+
+void main() {
+  // The quad spans the disc AND its corona, so the disc itself is a fraction
+  // of it — see STAR_DISC_FRACTION, which must match this number.
+  vec2 d = (vUv - 0.5) * 2.0;
+  float dist = max(length(d), 1e-4);
+  float r = dist / 0.34;
+  vec2 nd = d / dist;
+  float cr = max(r - 1.0, 0.0);
+
+  vec3 col = vec3(0.0);
+  float alpha = 0.0;
+
+  float core = smoothstep(1.06, 0.92, r);
+  if (core > 0.0) {
+    vec2 sp = d * 9.0;
+    vec2 w = vec2(fbm(sp + time * 0.05), fbm(sp + vec2(3.1, 1.7) - time * 0.04));
+    float g = fbm(sp * 2.1 + w * 2.6 + vec2(0.0, time * 0.07));
+    float limb = pow(max(1.0 - r * r, 0.0), 0.36);
+    // Three stops, and the DEEPEST one has to be genuinely dark: the granulation
+    // is only visible as the contrast between the cool lanes and the hot cells.
+    // Deriving it as a fraction of the shell colour washed it out to a flat disc.
+    vec3 deep = shellColor * vec3(0.62, 0.28, 0.10);
+    vec3 surf = mix(deep, shellColor, smoothstep(0.28, 0.60, g));
+    surf = mix(surf, coreColor, smoothstep(0.56, 0.88, g) * limb);
+    col += surf * (0.26 + limb * 1.95) * core;
+    alpha = max(alpha, core);
+  }
+
+  // NO explicit chromosphere ring. A gaussian centred on the limb is a circle
+  // by construction, and against this disc it reads as a drawn outline rather
+  // than as a glowing edge — the corona and the glare below already carry the
+  // limb, because both are brightest exactly where the disc ends.
+
+  // Corona filaments, streaming outward and churning.
+  float fil = fbm(nd * 7.0 + vec2(cr * 1.3 - time * 0.15, time * 0.05));
+  fil = pow(max(fil - 0.33, 0.0) * 1.9, 1.5);
+  float coronaFall = exp(-cr * 1.7);
+  col += coronaColor * fil * coronaFall * 2.2;
+  alpha = max(alpha, fil * coronaFall);
+
+  // Glare: two smooth exponentials. Mixing an inverse-square halo with an
+  // exponential corona falloff puts a dark ring at their crossover.
+  float glare = exp(-cr * 1.15) * 0.42 + exp(-cr * 0.30) * 0.055;
+  col += coronaColor * glare;
+  alpha = max(alpha, glare * 1.6);
+
+  if (alpha <= 0.002) discard;
+  // Tone-map before output. Without it everything above 1.0 clips to flat
+  // yellow-white and the granulation, the limb and the colour all disappear —
+  // which is exactly what a raw additive star looks like.
+  col = col / (1.0 + col * 0.58);
+  gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
+}
+`;
+
+/**
+ * The disc's share of the billboard's width, matching `0.34` in the shader
+ * above. The quad has to be this much larger than the star so the corona and
+ * the glare have somewhere to go.
+ */
+const STAR_DISC_FRACTION = 0.34;
+
 let shadersRegistered = false;
 function registerShaders(): void {
   if (shadersRegistered) return;
   Effect.ShadersStore["menuEarthVertexShader"] = EARTH_VERTEX;
   Effect.ShadersStore["menuEarthFragmentShader"] = EARTH_FRAGMENT;
+  Effect.ShadersStore["menuStarVertexShader"] = STAR_VERTEX;
+  Effect.ShadersStore["menuStarFragmentShader"] = STAR_FRAGMENT;
   shadersRegistered = true;
+}
+
+/** An authored `#rrggbb`, or the fallback when the theme leaves it out. */
+function colorOf(hex: string | undefined, fallback: string): Color3 {
+  return Color3.FromHexString(hex && /^#[0-9a-f]{6}$/i.test(hex) ? hex : fallback);
 }
 
 /** Azimuth/elevation in degrees → a unit direction in Babylon's Y-up world. */
@@ -167,6 +288,8 @@ export class MenuDiorama {
   private readonly previousClear: Color4;
   private earthMaterial: ShaderMaterial | null = null;
   private earth: Mesh | null = null;
+  private starMaterial: ShaderMaterial | null = null;
+  private skybox: Mesh | null = null;
   private beforeRender: Observer<Scene> | null = null;
   private elapsed = 0;
 
@@ -180,7 +303,7 @@ export class MenuDiorama {
     private readonly scene: Scene,
     private readonly configs: ConfigService,
     private readonly assets: AssetRegistry,
-    private readonly config: Diorama,
+    private readonly config: MenuScene,
     options: MenuDioramaOptions = {},
   ) {
     registerShaders();
@@ -210,16 +333,121 @@ export class MenuDiorama {
     this.camera.parent = this.root;
 
     this.buildLights();
-    this.buildStars();
-    this.buildGround();
-    this.buildEarth();
-    this.buildRocks();
+    this.buildEnvironment();
+    if (config.kind === "starfield") this.buildStarfield();
+    else this.buildEarthrise();
 
     this.beforeRender = scene.onBeforeRenderObservable.add(() => this.tick());
   }
 
+  /** The scene the theme selected, or `null` when it names none. */
+  private get earthrise(): Earthrise | null {
+    return this.config.kind === "earthrise" ? (this.config.earthrise ?? null) : null;
+  }
+  private get starfield(): Starfield | null {
+    return this.config.kind === "starfield" ? (this.config.starfield ?? null) : null;
+  }
+
+  /** Whichever scene is live supplies the key light. */
+  private get sunConfig(): { azimuthDeg?: number; elevationDeg?: number; intensity?: number } | undefined {
+    return this.starfield?.sun ?? this.earthrise?.sun;
+  }
+
+  /**
+   * The hull adrift against a live star, with the galaxy behind it.
+   *
+   * The sky is a real cubemap and doubles as the scene's environment texture,
+   * so the galaxy is what the hull's metal reflects — the same photons lighting
+   * the shot are the ones in the background, which is most of why it sits in
+   * the scene rather than on top of it.
+   */
+  private buildStarfield(): void {
+    const cfg = this.starfield;
+    if (!cfg) return;
+
+    if (cfg.sky) {
+      const ext = cfg.skyExtension ?? ".webp";
+      const files = ["_px", "_py", "_pz", "_nx", "_ny", "_nz"].map(
+        (face) => `${contentUrl(cfg.sky!)}${face}${ext}`,
+      );
+      const sky = new CubeTexture(contentUrl(cfg.sky), this.scene, null, false, files);
+      this.disposables.push(sky);
+
+      const box = MeshBuilder.CreateBox("menuDiorama.sky", { size: 6000 }, this.scene);
+      box.parent = this.root;
+      box.isPickable = false;
+      box.infiniteDistance = true;
+      const mat = new StandardMaterial("menuDiorama.skyMat", this.scene);
+      mat.backFaceCulling = false;
+      mat.disableLighting = true;
+      mat.reflectionTexture = sky;
+      mat.reflectionTexture.coordinatesMode = Texture.SKYBOX_MODE;
+      mat.diffuseColor = new Color3(0, 0, 0);
+      mat.specularColor = new Color3(0, 0, 0);
+      box.material = mat;
+      box.renderingGroupId = 0;
+      this.skybox = box;
+      this.disposables.push(mat);
+
+      // The galaxy IS the fill light. Replaces the procedural cube built above.
+      this.scene.environmentTexture = sky;
+      this.scene.environmentIntensity = cfg.skyLight ?? 0.35;
+    }
+
+    const star = cfg.star;
+    if (!star) return;
+
+    // Far enough that nothing can intersect it, sized to subtend the authored
+    // apparent diameter. The quad is bigger than the disc by the shader's own
+    // corona allowance, or the glare would be clipped at the quad's edge.
+    const distance = 1500;
+    const discSpan = distance * (star.apparentSize ?? 0.68);
+    const quadSpan = discSpan / (STAR_DISC_FRACTION * 2);
+
+    const plane = MeshBuilder.CreatePlane("menuDiorama.star", { size: quadSpan }, this.scene);
+    plane.parent = this.root;
+    plane.isPickable = false;
+    plane.applyFog = false;
+    plane.position = direction(star.azimuthDeg ?? -26, star.elevationDeg ?? 7).scale(distance);
+    // Billboarded so the disc stays circular whatever the camera does.
+    plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    plane.renderingGroupId = 0;
+
+    const mat = new ShaderMaterial(
+      "menuDiorama.starMat",
+      this.scene,
+      { vertex: "menuStar", fragment: "menuStar" },
+      {
+        attributes: ["position", "uv"],
+        uniforms: ["worldViewProjection", "time", "coreColor", "shellColor", "coronaColor"],
+        needAlphaBlending: true,
+      },
+    );
+    mat.setColor3("coreColor", colorOf(star.core, "#fff4d2"));
+    mat.setColor3("shellColor", colorOf(star.shell, "#ff8a1e"));
+    mat.setColor3("coronaColor", colorOf(star.corona, "#ff9433"));
+    mat.backFaceCulling = false;
+    // Depth-write off: it is a transparent billboard, and writing depth would
+    // punch its own corona out of anything drawn after it.
+    mat.disableDepthWrite = true;
+    // ADDITIVE. A star emits; its corona and glare should brighten the galaxy
+    // behind them rather than replace it, and alpha blending over a starfield
+    // dims the very stars the glow is supposed to be washing out.
+    mat.alphaMode = Constants.ALPHA_ADD;
+    plane.material = mat;
+
+    this.starMaterial = mat;
+    this.disposables.push(mat);
+  }
+
+  private buildEarthrise(): void {
+    this.buildGround();
+    this.buildEarth();
+    this.buildRocks();
+  }
+
   private buildLights(): void {
-    const sun = this.config.sun;
+    const sun = this.sunConfig;
     const dir = direction(sun?.azimuthDeg ?? 62, sun?.elevationDeg ?? 14).negate();
     const key = new DirectionalLight("menuDiorama.sun", dir, this.scene);
     key.intensity = sun?.intensity ?? 3.4;
@@ -240,7 +468,7 @@ export class MenuDiorama {
   }
 
   /** A dim IBL so the hull's metallic surfaces are not black — same trick HangarBay uses. */
-  private buildStars(): void {
+  private buildEnvironment(): void {
     this.previousEnvironment = this.scene.environmentTexture;
     const size = 8;
     const faces: Uint8Array[] = [];
@@ -267,7 +495,7 @@ export class MenuDiorama {
    * pack's moon PBR set at a high tiling.
    */
   private buildGround(): void {
-    const ground = this.config.ground;
+    const ground = this.earthrise?.ground;
     if (!ground) return;
     const radius = ground.radius ?? DEFAULT_RADIUS;
     const relief = ground.relief ?? 1.6;
@@ -321,7 +549,7 @@ export class MenuDiorama {
 
   /** Earth on the horizon, drawn by the shader above. */
   private buildEarth(): void {
-    const earth = this.config.earth;
+    const earth = this.earthrise?.earth;
     if (!earth) return;
 
     // Placed far away and sized to subtend the authored apparent diameter, so
@@ -394,7 +622,7 @@ export class MenuDiorama {
    * reads as a rendering bug rather than as variety.
    */
   private buildRocks(): void {
-    const ids = this.config.rocks ?? [];
+    const ids = this.earthrise?.rocks ?? [];
     if (ids.length === 0) return;
     // A cleared ring around the pad, then rocks out to the middle distance.
     const places = [
@@ -460,12 +688,19 @@ export class MenuDiorama {
   private tick(): void {
     const dt = this.scene.getEngine().getDeltaTime() / 1000;
     this.elapsed += dt;
-    const earth = this.config.earth;
+    const earth = this.earthrise?.earth;
     if (this.earth && earth) {
       this.earth.rotation.y = (this.elapsed * (earth.spinDegPerSec ?? 0.35) * Math.PI) / 180;
     }
+    const sky = this.starfield;
+    if (this.skybox && sky?.skyDriftDegPerSec) {
+      this.skybox.rotation.y = (this.elapsed * sky.skyDriftDegPerSec * Math.PI) / 180;
+    }
+    if (this.starMaterial) {
+      this.starMaterial.setFloat("time", this.elapsed * (sky?.star?.speed ?? 1));
+    }
     if (this.earthMaterial) {
-      const sun = this.config.sun;
+      const sun = this.sunConfig;
       this.earthMaterial.setVector3("sunDir", direction(sun?.azimuthDeg ?? 62, sun?.elevationDeg ?? 14));
       this.earthMaterial.setVector3("cameraPos", this.scene.activeCamera?.position ?? Vector3.Zero());
       // Clouds drift a little faster than the surface turns — the difference is

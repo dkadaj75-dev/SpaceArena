@@ -733,6 +733,13 @@ export type JuiceConfig = z.infer<typeof juiceSchema>;
  * Everything is optional — omitting the whole block keeps the built-in
  * dark/cyan defaults, which is exactly what every pre-5.8 content pack does.
  */
+/** Key light for a menu scene: where the star is, and how hard it burns. */
+const dioramaSun = z.object({
+  azimuthDeg: z.number().optional(),
+  elevationDeg: z.number().optional(),
+  intensity: z.number().nonnegative().optional(),
+});
+
 export const menuSchema = z.object({
   /** Screen palette. Hex colors get a swatch picker in the Theme editor. */
   colors: z
@@ -773,64 +780,99 @@ export const menuSchema = z.object({
     })
     .optional(),
   /**
-   * The main menu's 3D backdrop: the player's main hull parked on lunar
-   * regolith, with Earth rising behind it.
+   * The main menu's 3D scene. `kind` picks which one is staged; the others
+   * stay authored right here, one word away from coming back — swapping the
+   * menu's look must never mean deleting the look it had.
    *
-   * Every asset path lives here rather than in the renderer so the content pack
-   * owns its own art — the reachability sweep in `tools/validate-content.ts`
-   * resolves these the same way it resolves `render.model`, and a pack that
-   * omits the block simply keeps the CSS backdrop.
+   * Every asset path lives in content rather than in the renderer, so the Theme
+   * tool can move a scene without a rebuild and the reachability sweep in
+   * `tools/validate-content.ts` can see the art.
    */
-  diorama: z
+  scene: z
     .object({
-      /** False (or an absent block) keeps the flat CSS nebula backdrop. */
-      enabled: z.boolean().optional(),
-      /** The regolith plain the hull is parked on. */
-      ground: z
+      /** Which scene to stage. `none` keeps the flat CSS backdrop above. */
+      kind: z.enum(["earthrise", "starfield", "none"]).optional(),
+
+      /** The pilot's hull, parked on lunar regolith, with Earth over the horizon. */
+      earthrise: z
         .object({
-          albedo: z.string().min(1),
-          normal: z.string().min(1).optional(),
-          /** Ambient-occlusion map, if the set ships one. */
-          ao: z.string().min(1).optional(),
-          /** UV repeats across the plain. Regolith needs a lot of them. */
-          tiling: z.number().positive().optional(),
-          /** World radius of the plain. Big enough that its edge is off-camera. */
-          radius: z.number().positive().optional(),
-          /** Height of the gentle undulation displaced into it, in world units. */
-          relief: z.number().nonnegative().optional(),
+          ground: z
+            .object({
+              albedo: z.string().min(1),
+              normal: z.string().min(1).optional(),
+              /** Ambient-occlusion map, if the set ships one. */
+              ao: z.string().min(1).optional(),
+              /** UV repeats across the plain. Regolith needs a lot of them. */
+              tiling: z.number().positive().optional(),
+              /** World radius of the plain. Big enough that its edge is off-camera. */
+              radius: z.number().positive().optional(),
+              /** Height of the gentle undulation displaced into it, in world units. */
+              relief: z.number().nonnegative().optional(),
+            })
+            .optional(),
+          /** Prop ids scattered across the plain (boulders). Absent = a bare plain. */
+          rocks: z.array(configId).optional(),
+          /** Earth on the horizon. Equirectangular maps, content-relative. */
+          earth: z
+            .object({
+              albedo: z.string().min(1),
+              /** Grayscale cloud COVERAGE, read as opacity — see the texture credits. */
+              clouds: z.string().min(1).optional(),
+              /** City lights, shown only on the night side. */
+              night: z.string().min(1).optional(),
+              normal: z.string().min(1).optional(),
+              /** Land/water mask; water gets the specular glint. */
+              ocean: z.string().min(1).optional(),
+              /** Apparent diameter on screen, as a fraction of viewport height. */
+              apparentSize: z.number().positive().max(2).optional(),
+              /** Degrees left(-)/right(+) of the camera's forward. */
+              azimuthDeg: z.number().optional(),
+              /** Degrees above the horizon. Small values are the "rise". */
+              elevationDeg: z.number().optional(),
+              /** Axial tilt, degrees. */
+              tiltDeg: z.number().optional(),
+              /** Rotation rate, degrees per second. Slow to notice, not to watch. */
+              spinDegPerSec: z.number().optional(),
+            })
+            .optional(),
+          sun: dioramaSun.optional(),
         })
         .optional(),
-      /** Prop ids scattered across the plain (boulders). Absent = a bare plain. */
-      rocks: z.array(configId).optional(),
-      /** Earth on the horizon. Equirectangular maps, content-relative. */
-      earth: z
+
+      /** The hull adrift against a live star, with the galaxy behind it. */
+      starfield: z
         .object({
-          albedo: z.string().min(1),
-          /** Grayscale cloud COVERAGE, read as opacity — see the texture credits. */
-          clouds: z.string().min(1).optional(),
-          /** City lights, shown only on the night side. */
-          night: z.string().min(1).optional(),
-          normal: z.string().min(1).optional(),
-          /** Land/water mask; water gets the specular glint. */
-          ocean: z.string().min(1).optional(),
-          /** Apparent diameter on screen, as a fraction of viewport height. */
-          apparentSize: z.number().positive().max(2).optional(),
-          /** Degrees left(-)/right(+) of the camera's forward. */
-          azimuthDeg: z.number().optional(),
-          /** Degrees above the horizon. Small values are the "rise". */
-          elevationDeg: z.number().optional(),
-          /** Axial tilt, degrees. */
-          tiltDeg: z.number().optional(),
-          /** Rotation rate, degrees per second. Slow enough to notice, not to watch. */
-          spinDegPerSec: z.number().optional(),
-        })
-        .optional(),
-      /** Sun direction, in degrees. Drives the hull's key light and Earth's terminator. */
-      sun: z
-        .object({
-          azimuthDeg: z.number().optional(),
-          elevationDeg: z.number().optional(),
-          intensity: z.number().nonnegative().optional(),
+          /**
+           * Cubemap prefix, content-relative and WITHOUT the face suffix:
+           * `textures/sky/milkyway` loads `milkyway_px.webp` … `_nz.webp`.
+           */
+          sky: z.string().min(1).optional(),
+          /** File extension of the cubemap faces. */
+          skyExtension: z.string().min(1).optional(),
+          /** How much the galaxy is allowed to light the hull, 0..1. */
+          skyLight: z.number().min(0).max(1).optional(),
+          /** Degrees per second the sky rotates. Slow — this is drift, not spin. */
+          skyDriftDegPerSec: z.number().optional(),
+          /** The star itself, drawn by the same animated shader as the title screen. */
+          star: z
+            .object({
+              /** Apparent diameter on screen, as a fraction of viewport height. */
+              apparentSize: z.number().positive().max(3).optional(),
+              /** Degrees left(-)/right(+) of the camera's forward. */
+              azimuthDeg: z.number().optional(),
+              /** Degrees above(+)/below(-) the camera's forward. */
+              elevationDeg: z.number().optional(),
+              /** Photosphere colour at its hottest. */
+              core: z.string().optional(),
+              /** Photosphere colour in its cooler granulation lanes. */
+              shell: z.string().optional(),
+              /** Corona and glare colour. */
+              corona: z.string().optional(),
+              /** Churn rate of the granulation and the corona. 1 = as authored. */
+              speed: z.number().nonnegative().max(8).optional(),
+            })
+            .optional(),
+          sun: dioramaSun.optional(),
         })
         .optional(),
     })

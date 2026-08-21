@@ -10,7 +10,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { CONFIG_TYPES, ConfigService, rockTextureSet, type AnyConfig, type ConfigError } from "@space-arena/shared";
+import { CONFIG_TYPES, ConfigService, rockTextureSet, type AnyConfig, type ConfigError, type ThemeConfig } from "@space-arena/shared";
 
 const CONTENT_DIR = fileURLToPath(new URL("../content/", import.meta.url));
 const MANIFEST = "manifest.json";
@@ -198,6 +198,27 @@ function collectModelTextureRefs(value: unknown, out: Set<string>): void {
  * `shared/src/schemas/asteroid.ts`'s `rockTextureSet` enum rather than
  * hardcoded, so a new set added there is picked up here without a second edit.
  */
+/**
+ * Cubemap faces reached through a PREFIX rather than a path.
+ *
+ * `theme.menu.scene.starfield.sky` carries `textures/sky/milkyway` — the six
+ * real files append `_px` … `_nz` and the authored extension, so no config ever
+ * spells one out and nothing else would mark them reachable. Same shape of
+ * problem as the rock-texture convention below, and the same fix.
+ */
+const CUBE_FACES = ["_px", "_nx", "_py", "_ny", "_pz", "_nz"] as const;
+
+function cubemapConventionRefs(service: ConfigService): string[] {
+  const refs: string[] = [];
+  for (const theme of service.getAll<ThemeConfig>("theme")) {
+    const sky = theme.menu?.scene?.starfield;
+    if (!sky?.sky) continue;
+    const ext = sky.skyExtension ?? ".webp";
+    for (const face of CUBE_FACES) refs.push(`${sky.sky}${face}${ext}`);
+  }
+  return refs;
+}
+
 function rockTextureConventionRefs(): string[] {
   const refs: string[] = [];
   for (const set of rockTextureSet.options) {
@@ -244,7 +265,7 @@ interface SweepResult {
 async function sweepContentPack(service: ConfigService): Promise<SweepResult> {
   // 1. Roots: every model/texture string any loaded config carries, plus the
   // rock-texture naming convention (which no config spells out literally).
-  const roots = new Set<string>(rockTextureConventionRefs());
+  const roots = new Set<string>([...rockTextureConventionRefs(), ...cubemapConventionRefs(service)]);
   for (const type of CONFIG_TYPES) {
     for (const config of service.getAll<AnyConfig>(type)) collectModelTextureRefs(config, roots);
   }

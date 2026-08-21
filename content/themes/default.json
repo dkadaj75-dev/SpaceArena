@@ -399,37 +399,59 @@
       ],
       "matchLoadingMinVisibleMs": 1500
     },
-    "diorama": {
-      "enabled": true,
-      "ground": {
-        "albedo": "props/textures/game/moon_dusted_01_diff_1k.jpg",
-        "normal": "props/textures/game/moon_dusted_01_nor_1k.jpg",
-        "ao": "props/textures/game/moon_dusted_01_ao_1k.jpg",
-        "tiling": 42,
-        "radius": 320,
-        "relief": 1.6
+    "scene": {
+      "kind": "starfield",
+      "starfield": {
+        "sky": "textures/sky/milkyway",
+        "skyExtension": ".webp",
+        "skyLight": 0.35,
+        "skyDriftDegPerSec": 0.4,
+        "star": {
+          "apparentSize": 0.68,
+          "azimuthDeg": -26,
+          "elevationDeg": 7,
+          "core": "#fff4d2",
+          "shell": "#ff8a1e",
+          "corona": "#ff9433",
+          "speed": 1.0
+        },
+        "sun": {
+          "azimuthDeg": -26,
+          "elevationDeg": 7,
+          "intensity": 3.1
+        }
       },
-      "rocks": [
-        "prop.lunar-rift-boulder-a",
-        "prop.lunar-rift-boulder-b",
-        "prop.lunar-rift-boulder-c"
-      ],
-      "earth": {
-        "albedo": "textures/planets/earth-albedo.webp",
-        "clouds": "textures/planets/earth-clouds.webp",
-        "night": "textures/planets/earth-night.webp",
-        "normal": "textures/planets/earth-normal.webp",
-        "ocean": "textures/planets/earth-ocean.webp",
-        "apparentSize": 0.62,
-        "azimuthDeg": -21,
-        "elevationDeg": 9,
-        "tiltDeg": 23.4,
-        "spinDegPerSec": 0.35
-      },
-      "sun": {
-        "azimuthDeg": 62,
-        "elevationDeg": 14,
-        "intensity": 3.4
+      "earthrise": {
+        "ground": {
+          "albedo": "props/textures/game/moon_dusted_01_diff_1k.jpg",
+          "normal": "props/textures/game/moon_dusted_01_nor_1k.jpg",
+          "ao": "props/textures/game/moon_dusted_01_ao_1k.jpg",
+          "tiling": 42,
+          "radius": 320,
+          "relief": 1.6
+        },
+        "rocks": [
+          "prop.lunar-rift-boulder-a",
+          "prop.lunar-rift-boulder-b",
+          "prop.lunar-rift-boulder-c"
+        ],
+        "earth": {
+          "albedo": "textures/planets/earth-albedo.webp",
+          "clouds": "textures/planets/earth-clouds.webp",
+          "night": "textures/planets/earth-night.webp",
+          "normal": "textures/planets/earth-normal.webp",
+          "ocean": "textures/planets/earth-ocean.webp",
+          "apparentSize": 0.62,
+          "azimuthDeg": -21,
+          "elevationDeg": 9,
+          "tiltDeg": 23.4,
+          "spinDegPerSec": 0.35
+        },
+        "sun": {
+          "azimuthDeg": 62,
+          "elevationDeg": 14,
+          "intensity": 3.4
+        }
       }
     }
   },

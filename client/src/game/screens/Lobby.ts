@@ -101,10 +101,10 @@ export class Lobby {
     this.root = document.createElement("div");
     this.root.className = "lobby-overlay game-screen sa-screen sa-menu";
     this.root.style.zIndex = "20";
-    // The CSS nebula is the FALLBACK backdrop. When the pack authors a 3D
-    // diorama the scene renders behind this overlay instead, so the flat
-    // backdrop would simply hide it.
-    if (!this.configs.get<ThemeConfig>("theme", THEME_ID)?.menu?.diorama?.enabled) {
+    // The CSS nebula is the FALLBACK backdrop. When the pack stages a 3D scene
+    // it renders behind this overlay instead, so the flat backdrop would simply
+    // hide it.
+    if ((this.configs.get<ThemeConfig>("theme", THEME_ID)?.menu?.scene?.kind ?? "none") === "none") {
       this.root.append(createMenuBackdrop());
     } else {
       this.root.dataset["diorama"] = "on";
