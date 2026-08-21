@@ -939,6 +939,43 @@
   flex: 1 1 80px;
 }
 
+/*
+ * Fixed-arity tuples (`render.star.dir`, `skybox.sun.dir`). The slots sit on
+ * one line so a direction vector reads as ONE value the way it does in the
+ * JSON, rather than as three unrelated rows. Each slot keeps its axis caption
+ * ABOVE its box: at 40% (the normal field-label width) three captions would
+ * leave no room for the numbers on a phone.
+ */
+.sa-editor .ed-tuple-row {
+  flex-wrap: wrap;
+}
+
+.sa-editor .ed-tuple-row > .ed-tuple-slot {
+  flex: 1 1 64px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.sa-editor .ed-tuple-row > .ed-tuple-slot > span:first-child {
+  flex: 0 0 auto;
+  max-width: none;
+  text-align: center;
+}
+
+/* A slot's own box must fill the slot; the shared `.ed-num` 84px would clip. */
+.sa-editor .ed-tuple-row > .ed-tuple-slot > input,
+.sa-editor .ed-tuple-row > .ed-tuple-slot > select,
+.sa-editor .ed-tuple-row > .ed-tuple-slot > .ed-control-row {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  text-align: initial;
+}
+
 .sa-editor .editor-field-error {
   flex: 1 0 100%;
   min-height: 0;

@@ -375,3 +375,102 @@ describe("SchemaFormGen folded accordions", () => {
     expect(list.querySelector("summary")!.textContent).toBe("List of tags (3)");
   });
 });
+
+/**
+ * `z.tuple([...])` reaches the generator as `prefixItems` with NO `items`,
+ * which the array path could not read — a sun/star direction used to render as
+ * an add/removable list of untyped text boxes, so it could not be authored at
+ * all (see `SchemaFormGen.tupleField`).
+ */
+describe("SchemaFormGen tuple fields", () => {
+  const vectorSchema = z.object({
+    id: z.string(),
+    dir: z.tuple([z.number(), z.number(), z.number()]),
+    link: z.tuple([z.string(), z.string()]),
+    star: z.object({ dir: z.tuple([z.number(), z.number(), z.number()]) }).optional(),
+  });
+  type VectorConfig = z.infer<typeof vectorSchema>;
+  const vectorValue: VectorConfig = { id: "x.1", dir: [0, 0.5, -1], link: ["a", "b"] };
+
+  function vectorForm(): SchemaFormGen<VectorConfig> {
+    return new SchemaFormGen({ schema: vectorSchema, value: vectorValue, configService: fakeConfigService() });
+  }
+
+  it("renders one typed slot per tuple position, with no add/remove control", () => {
+    const form = vectorForm();
+
+    const x = form.element.querySelector<HTMLInputElement>('[name="dir.0"]')!;
+    const y = form.element.querySelector<HTMLInputElement>('[name="dir.1"]')!;
+    const z3 = form.element.querySelector<HTMLInputElement>('[name="dir.2"]')!;
+    // Number boxes, not the text boxes the old array fallback produced.
+    expect([x.type, y.type, z3.type]).toEqual(["number", "number", "number"]);
+    expect([x.value, y.value, z3.value]).toEqual(["0", "0.5", "-1"]);
+    // Arity is part of the type: no "New dir" and no per-slot "Remove".
+    const buttons = Array.from(form.element.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).not.toContain("New dir");
+    expect(buttons).not.toContain("Remove");
+    // Inline, not buried in an accordion — aiming a star should not cost a click.
+    expect(x.closest("details")).toBeNull();
+  });
+
+  it("labels a numeric vector's slots by axis and a non-numeric tuple's by position", () => {
+    const form = vectorForm();
+    const caption = (name: string): string | null | undefined =>
+      form.element.querySelector(`[name="${name}"]`)?.closest(".ed-tuple-slot")?.querySelector("span")?.textContent;
+
+    expect([caption("dir.0"), caption("dir.1"), caption("dir.2")]).toEqual(["x", "y", "z"]);
+    expect([caption("link.0"), caption("link.1")]).toEqual(["1", "2"]);
+  });
+
+  it("commits a slot edit as a number, keeping the other slots intact", () => {
+    const form = vectorForm();
+    const y = form.element.querySelector<HTMLInputElement>('[name="dir.1"]')!;
+    y.value = "0.75";
+    y.dispatchEvent(new Event("change"));
+
+    expect(form.getValue().dir).toEqual([0, 0.75, -1]);
+  });
+
+  it("seeds a tuple at full arity when an optional block is switched on", () => {
+    const form = vectorForm();
+    const presence = form.element.querySelector<HTMLInputElement>('input[data-presence-for="star"]')!;
+    presence.checked = true;
+    presence.dispatchEvent(new Event("change"));
+
+    // `[]` (the old array default) would leave the block permanently invalid:
+    // tuples have no add control to fill the missing slots with.
+    expect(form.getValue().star?.dir).toEqual([0, 0, 0]);
+  });
+});
+
+describe("SchemaFormGen unit hints", () => {
+  const unitSchema = z.object({
+    id: z.string(),
+    durationMs: z.number(),
+    sizePx: z.number(),
+    elevationDeg: z.number(),
+    minDegPerSec: z.number(),
+    rangeUnits: z.number(),
+    intensity: z.number(),
+  });
+  type UnitConfig = z.infer<typeof unitSchema>;
+
+  it("appends the unit the key's suffix encodes, and nothing when there is none", () => {
+    const form = new SchemaFormGen<UnitConfig>({
+      schema: unitSchema,
+      value: { id: "x.1", durationMs: 1, sizePx: 1, elevationDeg: 1, minDegPerSec: 1, rangeUnits: 1, intensity: 1 },
+      configService: fakeConfigService(),
+    });
+    const caption = (name: string): string | null | undefined =>
+      form.element.querySelector(`[name="${name}"]`)?.closest(".editor-field")?.querySelector("span")?.textContent;
+
+    expect(caption("durationMs")).toBe("durationMs (ms)");
+    expect(caption("sizePx")).toBe("sizePx (px)");
+    expect(caption("elevationDeg")).toBe("elevationDeg (deg)");
+    // Compound suffix wins over the simple one it ends with.
+    expect(caption("minDegPerSec")).toBe("minDegPerSec (deg/s)");
+    expect(caption("rangeUnits")).toBe("rangeUnits (world units)");
+    // The key stays greppable against the JSON it writes; unitless keys are untouched.
+    expect(caption("intensity")).toBe("intensity");
+  });
+});

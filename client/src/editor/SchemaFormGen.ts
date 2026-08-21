@@ -53,6 +53,12 @@ export type JsonSchema = {
   properties?: Record<string, JsonSchema>;
   required?: string[];
   items?: JsonSchema;
+  /**
+   * Zod emits this (and NO `items`) for `z.tuple([...])`. A tuple's arity is
+   * part of its type, so it is a different control from an array — see
+   * {@link SchemaFormGen.tupleField}.
+   */
+  prefixItems?: JsonSchema[];
   enum?: unknown[];
   const?: unknown;
   minimum?: number;
@@ -174,6 +180,11 @@ export class SchemaFormGen<T> {
       }
       return box;
     }
+    // A tuple must be tested BEFORE the array branch: it also reports
+    // `type: "array"`, but it carries `prefixItems` instead of `items`.
+    if (schema.type === "array" && schema.prefixItems) {
+      return this.tupleField(schema.prefixItems, Array.isArray(value) ? value : [], path, label);
+    }
     if (schema.type === "array") return this.arrayField(schema, Array.isArray(value) ? value : [], path, label);
     return this.scalarField(schema, value, path, label);
   }
@@ -265,8 +276,53 @@ export class SchemaFormGen<T> {
     return wrap;
   }
 
+  /**
+   * A FIXED-ARITY tuple (`z.tuple([...])`): `render.star.dir`,
+   * `render.skybox.sun.dir`, a nav graph's `[from, to]` link.
+   *
+   * These reach us as `prefixItems` with no `items`, which the array path could
+   * not read — it fell through to `this.field({}, …)` per row, so a sun/star
+   * DIRECTION rendered as an add/removable list of untyped TEXT boxes. Typing
+   * `0.5` there committed the string "0.5", the tuple's number check rejected
+   * it, and the field was therefore un-authorable in the Map editor despite
+   * being on screen. Worse, Add/Remove could change the arity, which no tuple
+   * accepts at any value.
+   *
+   * So: the slots are drawn inline, side by side, each with its own typed
+   * control from the same {@link field} recursion (numbers get number boxes,
+   * hex strings get swatches). No add/remove, and no accordion — three numbers
+   * do not deserve a fold, and burying a sun direction one click deeper is the
+   * opposite of what a designer aiming a star needs.
+   */
+  private tupleField(prefixItems: JsonSchema[], values: unknown[], path: string[], label: string): HTMLElement {
+    // A <div>, not the usual <label> from wrap(): each slot below is itself a
+    // <label> around its own input, and nested labels retarget the outer click.
+    const wrap = document.createElement("div");
+    wrap.className = "editor-field ed-tuple";
+    const title = document.createElement("span");
+    title.textContent = label;
+    wrap.append(title);
+
+    const row = document.createElement("div");
+    row.className = "ed-control-row ed-tuple-row";
+    prefixItems.forEach((item, index) => {
+      const slot = this.field(item, values[index], [...path, String(index)], tupleSlotLabel(this.resolve(item), index, prefixItems.length));
+      slot.classList.add("ed-tuple-slot");
+      row.append(slot);
+    });
+    wrap.append(row);
+
+    // Tuple-level issues (arena's "must be a unit vector" refinement reports at
+    // the tuple path, not at a slot) need somewhere to land.
+    const error = document.createElement("small");
+    error.className = "editor-field-error";
+    error.dataset.errorFor = path.join(".");
+    wrap.append(error);
+    return wrap;
+  }
+
   private scalarField(schema: JsonSchema, value: unknown, path: string[], label: string): HTMLElement {
-    const wrap = this.wrap(label);
+    const wrap = this.wrap(unitLabel(label));
     const name = path.join(".");
     const referenceTypes = referenceTypesFor(this.configType(), path, this.options.references);
     let input: HTMLInputElement | HTMLSelectElement;
@@ -482,6 +538,46 @@ function discriminatorOf(branches: JsonSchema[]): string | null {
   return null;
 }
 
+/** Slot names for a vector tuple, longest axis set the shipped schemas use. */
+const TUPLE_AXES = ["x", "y", "z", "w"];
+
+/**
+ * What to call one slot of a tuple. Every NUMERIC short tuple in the shipped
+ * schemas is a spatial vector (`sun.dir`, `star.dir`), and "x / y / z" is what
+ * an author reads off a panorama — "1 / 2 / 3" would make them count. Anything
+ * else (a nav link's `[from, to]` pair of ids) keeps a 1-based position, which
+ * is the only honest name for a slot with no axis.
+ */
+function tupleSlotLabel(item: JsonSchema, index: number, arity: number): string {
+  const numeric = item.type === "number" || item.type === "integer";
+  return numeric && arity <= TUPLE_AXES.length ? TUPLE_AXES[index]! : String(index + 1);
+}
+
+/**
+ * Units a designer would otherwise have to guess. The schemas already encode
+ * the unit in the key's SUFFIX (`durationMs`, `sizePx`, `elevationDeg`), but
+ * the generated form printed the bare key — so "2000" on screen could equally
+ * be two seconds or two thousand of something, and the only way to find out was
+ * to read the schema source. The raw key stays in the label so a field on
+ * screen is still greppable against the JSON it writes.
+ *
+ * Order matters: the compound suffixes must be tested before the simple ones
+ * they end with, or `minDegPerSec` would be labelled seconds.
+ */
+const UNIT_SUFFIXES: readonly (readonly [RegExp, string])[] = [
+  [/DegPerSec$/, "deg/s"],
+  [/PerSec$/, "per second"],
+  [/Ms$/, "ms"],
+  [/Sec$/, "s"],
+  [/Px$/, "px"],
+  [/Deg$/, "deg"],
+  [/Units$/, "world units"],
+];
+export function unitLabel(label: string): string {
+  const match = UNIT_SUFFIXES.find(([pattern]) => pattern.test(label));
+  return match ? `${label} (${match[1]})` : label;
+}
+
 /**
  * Bounds worth drawing a slider for. `z.number().int()` reports JS's max safe
  * integer as its maximum, which would make a 0..9e15 track — those stay a plain
@@ -523,7 +619,10 @@ export function defaultFor(raw: JsonSchema, defs?: Record<string, JsonSchema>): 
       .filter(([key]) => !required || required.includes(key))
       .map(([key, child]) => [key, defaultFor(child, defs)]));
   }
-  if (schema.type === "array") return [];
+  // A tuple's arity is part of its type: seeding `[]` (what every array used to
+  // get) makes a freshly-enabled `render.star` invalid on the very first render
+  // with no way to add the missing slots, since tuples have no add control.
+  if (schema.type === "array") return schema.prefixItems ? schema.prefixItems.map((item) => defaultFor(item, defs)) : [];
   if (schema.type === "boolean") return false;
   if (schema.type === "number" || schema.type === "integer") {
     // `exclusiveMinimum` (z.number().positive()) must not seed an invalid 0.

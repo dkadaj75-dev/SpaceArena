@@ -136,3 +136,64 @@ describe("MapEditor placement session", () => {
     expect(configs.get<ArenaConfig>("arena", arena.id)!.asteroidPlacements[0]!.position.x).toBe(6);
   });
 });
+
+/**
+ * The DRAWN star (`arena.render.star`, SceneBuilder.buildStar) is authored
+ * through the same generated arena form as the rest of the map. Regression
+ * cover for the reason it was unreachable: its `dir` is a `z.tuple`, which the
+ * generator rendered as untyped text rows until `tupleField` existed.
+ */
+describe("MapEditor arena render.star coverage", () => {
+  let engine: NullEngine; let scene: Scene; let configs: ConfigService; let editor: MapEditor;
+  let rebuildArena: ReturnType<typeof vi.fn>;
+  const starArena = {
+    ...arena,
+    id: "arena.star-test",
+    render: { ...arena.render, star: { dir: [0, 0, 1] as [number, number, number], apparentSize: 0.5, core: "#fff4d2", shell: "#ff8a1e", corona: "#ff9433", speed: 1 } },
+  } satisfies ArenaConfig;
+
+  beforeEach(() => {
+    engine = new NullEngine(); scene = new Scene(engine); configs = new ConfigService(() => Promise.resolve(null), new EventBus<ConfigEvents>());
+    rebuildArena = vi.fn();
+    for (const config of [notification, asteroid, prop, terrainProp, starArena]) expect(configs.replace(config).ok).toBe(true);
+    editor = new MapEditor({ scene, configService: configs, bus: new EventBus(), pauseSim() {}, resumeSim() {}, rebuildArena, setGameVisible() {}, setArenaVisible() {}, setSpawnMarkersForced() {}, setPropPickingForced() {}, suspendCameraGestures() {}, launchPlaytest: vi.fn() }, vi.fn());
+  });
+  afterEach(() => { editor.dispose(); scene.dispose(); engine.dispose(); document.body.replaceChildren(); });
+
+  it("surfaces every drawn-star knob, with the direction as three number boxes", () => {
+    const field = (name: string): HTMLInputElement | null => editor.element.querySelector<HTMLInputElement>(`[name="render.star.${name}"]`);
+
+    for (const slot of ["dir.0", "dir.1", "dir.2"]) {
+      expect(field(slot)?.type).toBe("number");
+    }
+    expect(field("apparentSize")?.type).toBe("number");
+    // Hex colours come out as swatch + hex box, so the swatch carries the name.
+    for (const colour of ["core", "shell", "corona"]) expect(field(colour)?.type).toBe("color");
+    expect(field("speed")?.type).toBe("number");
+  });
+
+  it("live-rebuilds the arena when a star knob is committed", () => {
+    rebuildArena.mockClear();
+    const size = editor.element.querySelector<HTMLInputElement>('[name="render.star.apparentSize"]')!;
+    size.value = "0.9";
+    size.dispatchEvent(new Event("change"));
+
+    expect(configs.get<ArenaConfig>("arena", starArena.id)!.render!.star!.apparentSize).toBe(0.9);
+    // SceneBuilder only redraws the billboard on a rebuild, so a knob that does
+    // not trigger one would look inert to the designer turning it.
+    expect(rebuildArena).toHaveBeenCalledWith(starArena.id);
+  });
+
+  it("keeps the unit-vector refinement reachable: an off-unit direction reports on the tuple", () => {
+    const report = vi.fn();
+    const problems: string[] = [];
+    report.mockImplementation((m: string | null) => { if (m) problems.push(m); });
+    const solo = new MapEditor({ scene, configService: configs, bus: new EventBus(), pauseSim() {}, resumeSim() {}, rebuildArena() {}, setGameVisible() {}, setArenaVisible() {}, setSpawnMarkersForced() {}, setPropPickingForced() {}, suspendCameraGestures() {}, launchPlaytest: vi.fn() }, report);
+    const z = solo.element.querySelector<HTMLInputElement>('[name="render.star.dir.2"]')!;
+    z.value = "4";
+    z.dispatchEvent(new Event("change"));
+
+    expect(problems.join(" ")).toContain("unit vector");
+    solo.dispose();
+  });
+});
