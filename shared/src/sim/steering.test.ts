@@ -239,7 +239,7 @@ describe("flightStep ⇄ NavigationSystem parity (FLIGHT.md §1, BUBBLE.md §A)"
     // drive (slot 2, the engine bay) rather than a boost hardpoint.
     const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING_BOOST, 0, { x: 0, z: 0 }, 0);
     const boost = world.modules.get(id)!.modules[2]!;
-    boost.state = "active"; // always-on drive with full energy + no heat
+    boost.state = "active"; // always-on drive with a full energy bottle
     const boostMult = configs.get<ModuleConfig>("module", "module.engine-sport")!.boost!.speedMult;
 
     const tf = world.transforms.get(id)!;

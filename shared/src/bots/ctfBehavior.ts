@@ -60,7 +60,7 @@ const objective: BotBehavior = {
       arriveRadius: job.arriveRadius,
       aimPriority: job.aimPriority,
       // A carrier CANNOT boost (the sim refuses it), so asking would only burn
-      // energy and heat for nothing. Everyone else may run.
+      // energy for nothing. Everyone else may run.
       boost: !job.carrying && numParam(params, "boostChance", 0.5) > ctx.rng(),
       engaged: job.engaged ?? false,
     } satisfies BotPlan;

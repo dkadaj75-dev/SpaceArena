@@ -4,7 +4,6 @@ import { applyDamageToAsteroid, applyDamageToShip } from "../damage.js";
 import { headingOf, len3, pitchOf, segmentIntersectsSphere, sphereEntryAlong } from "../math.js";
 import { hasLineOfSightBetween } from "../los.js";
 import { spawnProjectile } from "../spawn.js";
-import { heatSystemEnabled } from "../tuningDefaults.js";
 import type { World } from "../World.js";
 import { transition } from "./ModuleSystem.js";
 
@@ -23,7 +22,7 @@ export const CHANNEL_EVENT_INTERVAL_SEC = 0.25;
  * cycle while the trigger is held.
  * WITH a lock (FLIGHT.md §2) shots are aimed at the locked target: range, LoS
  * (if required) and the cycle gate all apply, exactly as before. Weapons cost NO
- * energy since the 2026-08-07 overhaul: heat alone limits them.
+ * energy: a weapon's cycle time is the only thing that limits it.
  * WITHOUT a lock, non-homing weapons fire STRAIGHT along the ship's nose
  * (owner request 2026-07-31): beams raycast out to `fire.range` and damage the
  * first enemy ship or asteroid on the line, kinetics launch a dumb projectile
@@ -37,15 +36,12 @@ export const CHANNEL_EVENT_INTERVAL_SEC = 0.25;
  *
  * `fire.mode: "continuous"` weapons take a separate path ({@link channelStep}):
  * no cycle timer, no shots, no per-tick events — while the trigger is held and
- * the same gates pass they apply `fire.damage * dt` every tick and are marked
- * worked-this-tick every tick, so the `heat.perSecondActive` per-second cost
- * model charges them naturally.
+ * the same gates pass they apply `fire.damage * dt` every tick.
  */
 export function combatSystem(world: World, dt: number): void {
   for (const id of world.shipIds()) {
     const mods = world.modules.get(id);
     if (!mods) continue;
-    const core = world.shipCores.get(id)!;
     const ref = world.targets.get(id);
     const fs = world.flightStates.get(id);
     const myTeam = world.teams.get(id)!.team;
@@ -56,7 +52,7 @@ export function combatSystem(world: World, dt: number): void {
       if (!cfg?.fire) continue;
 
       // Continuous weapons never touch the cycle timer, and must be visited even
-      // while inactive so a retract/overheat stops the channel on the same tick.
+      // while inactive so a retract stops the channel on the same tick.
       if (cfg.fire.mode === "continuous") {
         channelStep(world, { id, m, cfg, ref, firing: fs?.fire === true, myTf, dt });
         continue;
@@ -76,7 +72,7 @@ export function combatSystem(world: World, dt: number): void {
       const triggered = fs?.fire === true;
       if (!triggered) continue;
 
-      // Lock gate (checked after the cycle timer: a weapon keeps cooling down
+      // Lock gate (checked after the cycle timer: a weapon keeps counting down
       // whether or not the pilot is holding a lock). Homing weapons hard-require
       // it; the rest fall through to the straight-fire path below.
       const targetId = lockedLiveTarget(world, ref);
@@ -86,13 +82,9 @@ export function combatSystem(world: World, dt: number): void {
       if (targetId === null) {
         // No lock: fire straight along the nose. Nothing else gates a shot —
         // a weapon costs no energy since the 2026-08-07 overhaul, and a shot
-        // into empty space still spends its cycle and its heat (that trade is
-        // exactly what makes heat management a decision).
+        // into empty space still spends its cycle.
         m.cycleTimer = cfg.fire.cycleTime;
         m.workedThisTick = true;
-        if (heatSystemEnabled(world.tuning)) {
-          m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
-        }
         spendRound(world, id, m, cfg);
 
         if (cfg.fire.projectile === null) {
@@ -151,9 +143,6 @@ export function combatSystem(world: World, dt: number): void {
       // Fire.
       m.cycleTimer = cfg.fire.cycleTime;
       m.workedThisTick = true;
-      if (heatSystemEnabled(world.tuning)) {
-        m.heat += (cfg.heat?.perShot ?? 0) * core.efficiency.heatGen;
-      }
       spendRound(world, id, m, cfg);
       const heading = headingOf(dx, dz);
       // Ordnance leaves along the 3D bearing, so a shot at a climbing enemy
@@ -332,9 +321,6 @@ function channelStep(world: World, ctx: ChannelCtx): void {
   }
 
   m.channeling = true;
-  // Charged like any other working module: EnergySystem bills
-  // `heat.perSecondActive * dt` this tick. `heat.perShot` is a per-SHOT field
-  // and deliberately does not apply — a channel has no shots.
   m.workedThisTick = true;
 
   // A rising edge announces itself once, so the existing beam fire event (and

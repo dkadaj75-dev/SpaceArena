@@ -121,8 +121,6 @@ export function applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
       ms.state = encodeModuleState(m.state);
       ms.stateTimer = m.stateTimer;
       ms.rounds = m.rounds ?? 0;
-      ms.heat = m.heat;
-      ms.heatCapacity = m.heatCapacity;
       ms.energy = m.energy;
       ms.energyCapacity = m.energyCapacity;
       ms.cycleTimer = m.cycleTimer;
@@ -137,8 +135,6 @@ export function applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
     if (target.state !== code) target.state = code;
     if (target.stateTimer !== m.stateTimer) target.stateTimer = m.stateTimer;
     if (target.rounds !== (m.rounds ?? 0)) target.rounds = m.rounds ?? 0;
-    if (target.heat !== m.heat) target.heat = m.heat;
-    if (target.heatCapacity !== m.heatCapacity) target.heatCapacity = m.heatCapacity;
     if (target.energy !== m.energy) target.energy = m.energy;
     if (target.energyCapacity !== m.energyCapacity) target.energyCapacity = m.energyCapacity;
     if (target.cycleTimer !== m.cycleTimer) target.cycleTimer = m.cycleTimer;

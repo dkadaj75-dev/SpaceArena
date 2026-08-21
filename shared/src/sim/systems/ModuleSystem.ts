@@ -5,18 +5,14 @@ import type { World } from "../World.js";
 
 /**
  * ModuleSystem (1.3 ⭐) — the generic §2.3 state machine, run BEFORE combat so
- * deploy/retract/overheat-cooldown transitions settle before weapons resolve.
+ * deploy/retract transitions settle before weapons resolve.
  *
  *   retracted ─(toggle)→ deploying(deployTime) → active
  *        ▲                                          │
  *        └─ retracting(retractTime) ←─(toggle)──────┘
- *   any active/deploying ─(heat ≥ its own capacity)→ overheated
- *        overheated ─(heat ≤ capacity × rearmBelow)→ retracted (weapons: → active)
  *
- * The whole heat/energy half — generation, cooling, the overheat trip AND the
- * re-arm, tank drain and refill — lives in EnergySystem (after combat), because
- * all of it depends on the worked-this-tick flags. Since the 2026-08-07 overhaul
- * a heat lockout is not timed at all, so nothing about it is counted down here.
+ * The energy half — tank drain and refill — lives in EnergySystem (after
+ * combat), because it depends on the worked-this-tick flags.
  *
  * The one timer this system does own is the SHIELD COLLAPSE cooldown: a shield
  * whose reserve empties (to fire or to upkeep) is flamed out by EnergySystem,
@@ -28,7 +24,7 @@ export function moduleSystem(world: World, dt: number): void {
   // Shield collapse cooldowns tick down FIRST, so a toggle arriving on the tick
   // one expires is honoured rather than held for another frame. Shields carry no
   // `fire` block, so their `cycleTimer` is free for this exactly as the
-  // heatsink's is free for the jettison cooldown (JettisonSystem).
+  // countermeasure pod's is free for the jettison cooldown (JettisonSystem).
   for (const id of world.shipIds()) {
     const mods = world.modules.get(id);
     if (!mods) continue;
@@ -83,8 +79,8 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
   switch (m.state) {
     case "retracted": {
       // A flamed-out tank must charge past its own `rearmAbove` before the
-      // module can be raised again (heat/energy overhaul 2026-08-07) — the
-      // energy twin of the overheat re-arm, and what stops an empty boost
+      // module can be raised again (energy overhaul 2026-08-07) — what stops
+      // an empty boost
       // bottle from stuttering one tick of thrust per three of trickle-charge.
       if (!tankReady(m, cfg)) return;
       if (!collapseReady(m, cfg)) return;
@@ -119,7 +115,6 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
       transition(world, entityId, m, cfg.activation.deployTime <= 0 ? "active" : "deploying", cfg.onActivate);
       break;
     }
-    case "overheated":
     case "reloading":
       break; // forced offline; ignore toggles
   }
@@ -152,9 +147,9 @@ export function collapseReady(m: ModuleRuntime, cfg: ModuleConfig | undefined): 
 
 /**
  * Whether `m` can come up on what is left of the rail, displacing nothing.
- * Exported for the overheat RE-ARM in EnergySystem: a locked-out module holds no
- * rail current, so the pilot may have spent it meanwhile, and the automatic
- * return must never displace that deliberate choice.
+ * Exported for the automatic RE-ARM in EnergySystem: a module that was forced
+ * offline holds no rail current, so the pilot may have spent it meanwhile, and
+ * the automatic return must never displace that deliberate choice.
  */
 export function railFits(world: World, entityId: number, m: ModuleRuntime, siblings: readonly ModuleRuntime[]): boolean {
   const capacity = world.shipCores.get(entityId)?.power.capacity ?? 0;

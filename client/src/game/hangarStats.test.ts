@@ -43,12 +43,11 @@ describe("computeStatPanel (Hangar stat panel)", () => {
   it("resolves base stats with an empty fit (no tanks, no dps)", () => {
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: [] });
     expect(panel.hullMax).toBe(120);
-    // Nothing fitted ⇒ nothing to store, nothing to cool, nothing to shoot.
+    // Nothing fitted ⇒ nothing to store, nothing to shoot.
     expect(panel.energyReserve).toBe(0);
-    expect(panel.coolingMult).toBe(1);
     expect(panel.rechargeMult).toBe(1);
-    expect(panel.burnSec).toBe(Infinity);
     expect(panel.dps).toBe(0);
+    expect(panel.sustainedDps).toBe(0);
   });
 
   it("rolls the per-module stores up across the default fitting", () => {
@@ -56,21 +55,16 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     const laser = configs.get<ModuleConfig>("module", "module.laser-mk1")!;
     const missile = configs.get<ModuleConfig>("module", "module.missile-mk1")!;
     // The light hull's stock fit: laser + missile on its two hardpoints, plus
-    // the five stock internals. No fitted module carries an energy tank, and
-    // the free radiator sets the hull's cooling multiplier.
+    // the five stock internals. No fitted module carries an energy tank.
     expect(panel.energyReserve).toBe(0);
-    expect(panel.coolingMult).toBeCloseTo(1.6, 6);
     expect(panel.dps).toBeCloseTo(
       laser.fire!.damage / laser.fire!.cycleTime + missile.fire!.damage / missile.fire!.cycleTime,
       6,
     );
-    // Sustained DPS is the same figure across a whole heat cycle, so it is
-    // strictly smaller for any weapon that can cook itself.
-    expect(panel.sustainedDps).toBeGreaterThan(0);
-    expect(panel.sustainedDps).toBeLessThan(panel.dps);
-    // …and both racks come back inside a few seconds.
-    expect(panel.burnSec).toBeGreaterThan(2);
-    expect(panel.recoverSec).toBeCloseTo(laser.heat!.capacity / (laser.heat!.coolingPerSec * 1.6), 6);
+    // Neither stock weapon carries a clip, and since heat was deleted
+    // (2026-08-20) a clipless weapon's held trigger delivers its nominal rate
+    // forever — so the two figures are the same number.
+    expect(panel.sustainedDps).toBeCloseTo(panel.dps, 6);
   });
 
   it("accounts for kinetic reload downtime while retaining burst DPS", () => {
@@ -90,7 +84,7 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     const shield = configs.get<ModuleConfig>("module", "module.shield-mk1")!;
     const panel = computeStatPanel(interceptor, configs, { fittedModuleIds: heavy });
     expect(panel.energyReserve).toBeCloseTo(shield.energy!.capacity * heavy.length, 6);
-    expect(panel.burnSec).toBe(Infinity); // shields carry no heat at all
+    expect(panel.dps).toBe(0); // a shield does not shoot
   });
 
   it("reflects fitted module passives (a battery deepens every module tank)", () => {
@@ -104,7 +98,7 @@ describe("computeStatPanel (Hangar stat panel)", () => {
   it("applies upgrade levels through the same resolveShipStats pipeline", () => {
     const upgraded = computeStatPanel(interceptor, configs, {
       fittedModuleIds: [],
-      upgradeLevels: { hull: 5, engine: 0, energy: 0, heat: 0 },
+      upgradeLevels: { hull: 5, engine: 0, energy: 0 },
     });
     expect(upgraded.hullMax).toBe(210); // 120 + upgrade.hull-std levels[4] add 90
   });

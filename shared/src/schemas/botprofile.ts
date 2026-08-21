@@ -69,8 +69,6 @@ export const botprofileSchema = z.object({
     .optional(),
   behaviors: z.record(z.string(), behavior),
   moduleDiscipline: z.object({
-    heatShutdownAt: z.number().min(0).max(1),
-    reactivateBelow: z.number().min(0).max(1),
     energyReserve: z.number().min(0).max(1),
     shieldOnlyWhenEngaged: z.boolean(),
   }),
@@ -78,10 +76,6 @@ export const botprofileSchema = z.object({
     .object({
       /** Armed-weapon range multiplier. Absent => 1. */
       engageRangeMult: z.number().nonnegative().optional(),
-      /** Maximum armed-module heat fraction. Absent => 1. */
-      heatHeadroom: z.number().min(0).max(1).optional(),
-      /** Once heat pauses the trigger, fraction at which it may re-arm. Absent => heatHeadroom. */
-      rearmHeatBelow: z.number().min(0).max(1).optional(),
       /** Capacitor floor required to fire. Absent => 0. */
       minEnergyFraction: z.number().min(0).max(1).optional(),
       /** Trigger-on duration. Absent => continuous fire. */

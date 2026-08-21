@@ -63,7 +63,7 @@ const FITTING = [
   "module.engine-civ",
   "module.generator-compact",
   "module.transformer-stock",
-  "module.heatsink-ablative",
+  "module.countermeasure-chaff",
   "module.sensors-basic",
 ];
 
@@ -236,7 +236,6 @@ describe("replication round trip", () => {
     // for modules that absorb, so `absorbs` is what makes it non-zero.)
     const runtime = room.sim.world.modules.get(a)!.modules;
     runtime.forEach((m, i) => {
-      m.heat = 3 + i;
       m.energy = 11 + i;
       m.stateTimer = 0.25 + i * 0.1;
       m.cycleTimer = 0.5 + i * 0.1;
@@ -260,8 +259,6 @@ describe("replication round trip", () => {
       expect(mod.moduleId).toBe(m.moduleId);
       expect(mod.state).toBe(m.state);
       expect(mod.rounds).toBe(m.rounds ?? 0);
-      expect(mod.heat).toBeCloseTo(m.heat, 3);
-      expect(mod.heatCapacity).toBeCloseTo(m.heatCapacity, 3);
       expect(mod.energy).toBeCloseTo(m.energy, 3);
       expect(mod.energyCapacity).toBeCloseTo(m.energyCapacity, 3);
       expect(mod.stateTimer).toBeCloseTo(m.stateTimer, 3);
@@ -296,7 +293,7 @@ describe("replication round trip", () => {
 
     // A real decoy from the real system: the sink is fitted, so the order that
     // the HUD's jettison button sends produces one.
-    room.sim.applyOrder(a, { kind: "jettisonHeatsink" });
+    room.sim.applyOrder(a, { kind: "jettisonCountermeasure" });
     // Put the same ship on the ENEMY flag so it takes it — that exercises
     // `state`, `carrierEntityId` and a non-home position in one move.
     const enemyFlagId = room.sim.world.flagIds().find((id) => room.sim.world.flags.get(id)!.team === 1)!;

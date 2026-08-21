@@ -76,15 +76,11 @@
     }
   },
   "moduleDiscipline": {
-    "heatShutdownAt": 0.98,
-    "reactivateBelow": 0.85,
     "energyReserve": 0.05,
     "shieldOnlyWhenEngaged": false
   },
   "fireDiscipline": {
     "engageRangeMult": 0.95,
-    "heatHeadroom": 0.98,
-    "rearmHeatBelow": 0.45,
     "minEnergyFraction": 0.05
   }
 }

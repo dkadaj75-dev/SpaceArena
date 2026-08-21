@@ -22,7 +22,7 @@
       "module.beamlaser-mk1",
       "module.engine-civ",
       "module.generator-compact",
-      "module.heatsink-basic",
+      "module.countermeasure-flare",
       "module.kinetic-mk1",
       "module.laser-mk1",
       "module.missile-mk1",
@@ -38,7 +38,6 @@
       "module.engine-sport",
       "module.generator-compact-mk2",
       "module.generator-heavy",
-      "module.heatsink-mk2",
       "module.kinetic-mk2",
       "module.laser-mk2",
       "module.sensors-longrange",
@@ -46,13 +45,12 @@
       "module.sensors-snap",
       "module.shield-skirmish",
       "module.transformer-mk2",
-      "module.utility-capacitor-battery",
-      "module.utility-heat-sink"
+      "module.utility-capacitor-battery"
     ],
     "3": [
       "module.beamlaser-mk2",
       "module.generator-dynamo",
-      "module.heatsink-ablative",
+      "module.countermeasure-chaff",
       "module.missile-mk2",
       "module.shield-mk2",
       "module.transformer-cryo",
@@ -63,7 +61,6 @@
       "module.engine-mk3",
       "module.generator-heavy-mk2",
       "module.generator-siege",
-      "module.heatsink-mk3",
       "module.kinetic-longbarrel",
       "module.kinetic-mk3",
       "module.laser-burst",
@@ -72,13 +69,12 @@
       "module.sensors-precision",
       "module.transformer-mk3",
       "module.utility-capacitor-battery-mk2",
-      "module.utility-flux-capacitor",
-      "module.utility-heat-sink-mk2"
+      "module.utility-flux-capacitor"
     ],
     "5": [
       "module.beamlaser-mk3",
       "module.engine-racing",
-      "module.heatsink-cryo",
+      "module.countermeasure-spoofer",
       "module.missile-heavy",
       "module.missile-mk3",
       "module.shield-mk3",

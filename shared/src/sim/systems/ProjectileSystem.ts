@@ -30,7 +30,7 @@ export function projectileSystem(world: World, dt: number): void {
       continue;
     }
 
-    // Mid-flight lure (owner 2026-07-31): an enemy heatsink dropped after this
+    // Mid-flight lure (owner 2026-07-31): an enemy countermeasure dropped after this
     // missile launched steals the seeker head. Checked every tick and BEFORE
     // homing, so a sink jettisoned with ordnance already inbound pulls it off
     // the hull — which is the whole point of carrying one.

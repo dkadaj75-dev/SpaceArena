@@ -47,7 +47,7 @@ This amendment supersedes older HUD/minimap/asteroid-LOD descriptions below:
   ship-relative up, using raw heading/pitch so loops and inverted flight remain
   continuous. Legacy minimap theme fields are accepted as fallbacks.
 - Hull and shield are subtle theme-driven arcs flanking the ship. Their legacy
-  lower-left rows are disabled in the shipped theme; energy and heat remain.
+  lower-left rows are disabled in the shipped theme; energy remains.
 - The projected lock-cone circle is optional and hidden in shipped content;
   target brackets and lock progress still operate. FIRE's decorative circle is
   disabled and the fitting-driven module arc is tighter around FIRE.
@@ -98,7 +98,7 @@ New order (shared/src/sim/orders.ts):
     the same sense as a positive `angleDelta`; client maps stick-right to
     whichever sign reads as screen-right under the chase cam).
   - `desiredSpeed = throttle * engine.nominalSpeed * boostMult` — boost resolves
-    exactly like today's MoveOrder.boost path (active boost module + energy/heat
+    exactly like today's MoveOrder.boost path (active boost module + energy
     headroom, `workedThisTick = true`).
   - Approach `desiredSpeed` with `engine.accel * dt`, velocity always heading-aligned,
     integrate position. Same math style as seekStep — no arrival concepts.
@@ -193,8 +193,9 @@ edge palm-rejection ignores them):
   BOOST / JETTISON controls share the right-thumb cluster. Their corner-relative
   slots are authored in `theme.hud.flight.actions` (with portrait/landscape
   overrides); BOOST toggles the fitted boost module and its replicated `active`
-  state drives `boost: true`. JETTISON appears only for a heatsink with a
-  `jettison` block, emits `jettisonHeatsink`, and draws its replicated cooldown.
+  state drives `boost: true`. JETTISON appears only for a countermeasure pod
+  with a `jettison` block, emits `jettisonCountermeasure`, and draws its
+  replicated cooldown.
 - **Lock reticle**: fixed center-screen circle showing the lock zone (size derived
   from coneDeg + camera FOV, theme-styled); target bracket projected onto the
   locked/locking enemy (main.ts passes a `project(worldPos) → cssPx` callback into
@@ -278,7 +279,7 @@ still announces its candidate). `signals.ts`: the displacement fallback under
 `boostActive` deliberately KEEP the displacement basis: they describe actual
 motion, `ShipSnapshot` carries no velocity, and deriving them from `throttle`
 would lie mid accel-ramp, after a collision, or when a boost request was denied
-for want of energy/heat.
+for want of energy.
 
 **Schemas / content** — `tuning`: `arrivalRadius`, `avoidLookahead`, `avoidWeight`,
 `orderMarkerDashLength`, `doubleTapWindowMs`, `tapSlopPx`, `edgeRejectMarginPx`

@@ -167,7 +167,7 @@ interface AsteroidView {
   dyingMs: number;
 }
 
-/** A jettisoned heatsink: deliberately not pickable or target-bracketable. */
+/** A jettisoned countermeasure pod: deliberately not pickable or target-bracketable. */
 interface DecoyView {
   root: TransformNode;
   canister: Mesh;
@@ -301,7 +301,7 @@ export class ViewManager {
 
   private readonly ships = new Map<EntityId, ShipView>();
   private readonly asteroids = new Map<EntityId, AsteroidView>();
-  /** Visible hot heatsinks. The sim already replicates their full lifetime. */
+  /** Visible burning countermeasure pods. The sim already replicates their full lifetime. */
   private readonly decoys = new Map<EntityId, DecoyView>();
   /**
    * Capture-the-flag flags, their wakes and their base beacons — a self-
@@ -1015,7 +1015,7 @@ export class ViewManager {
   }
 
   /**
-   * Render every replicated heatsink for exactly its authoritative lifetime.
+   * Render every replicated countermeasure pod for exactly its authoritative lifetime.
    * Its orange emissive materials are intentionally included by SceneBuilder's
    * arena GlowLayer, giving the canister a cheap hot-air halo without a second
    * particle system. It has no metadata and is not pickable, so HUD reticles
@@ -1046,11 +1046,11 @@ export class ViewManager {
       view.root.rotation.set(Math.sin(tumble * 0.7) * 0.3, tumble, Math.cos(tumble) * 0.22);
       // The thermal bloom breathes while the authoritative burn-out fade keeps
       // it from popping away on the final snapshot.
-      const heat = 0.82 + 0.18 * Math.sin(tumble * 3.1);
+      const burn = 0.82 + 0.18 * Math.sin(tumble * 3.1);
       view.canisterMaterial.alpha = 0.35 + life * 0.6;
-      view.canisterMaterial.emissiveColor.set(1, 0.18 + heat * 0.25, 0.015);
+      view.canisterMaterial.emissiveColor.set(1, 0.18 + burn * 0.25, 0.015);
       view.collarMaterial.alpha = 0.25 + life * 0.7;
-      view.collarMaterial.emissiveColor.set(1, 0.5 + heat * 0.3, 0.08);
+      view.collarMaterial.emissiveColor.set(1, 0.5 + burn * 0.3, 0.08);
     }
   }
 

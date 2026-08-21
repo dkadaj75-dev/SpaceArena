@@ -9,9 +9,6 @@ function panel(over: Partial<HangarStatPanel> = {}): HangarStatPanel {
     nominalSpeed: 20,
     energyReserve: 120,
     rechargeMult: 1.25,
-    coolingMult: 1.6,
-    burnSec: 5,
-    recoverSec: 2.5,
     dps: 20,
     sustainedDps: 14,
     ehpApprox: 110,
@@ -32,7 +29,7 @@ function gauge(model: ReturnType<typeof buildOverlayModel>, key: HangarGaugeKey)
 describe("hangar stage overlay gauges", () => {
   it("shows every headline characteristic, power first", () => {
     const model = buildOverlayModel(panel(), null);
-    expect(model.gauges.map((g) => g.key)).toEqual(["power", "hull", "speed", "tanks", "thermal", "dps"]);
+    expect(model.gauges.map((g) => g.key)).toEqual(["power", "hull", "speed", "tanks", "sustained", "dps"]);
     expect(model.previewing).toBe(false);
   });
 
@@ -142,12 +139,13 @@ describe("hangar stage overlay gauges", () => {
     expect(model.projectedPowerOverBy).toBe(0);
   });
 
-  it("warns on a fit whose tanks refill slowly or whose racks lock out fast", () => {
-    const model = buildOverlayModel(panel({ rechargeMult: 0.9, burnSec: 2.2, recoverSec: 3 }), null);
+  it("warns on a fit whose tanks refill slowly, and reports the reload tax beside DPS", () => {
+    const model = buildOverlayModel(panel({ rechargeMult: 0.9 }), null);
     expect(gauge(model, "tanks").warn).toBe(true);
     expect(gauge(model, "tanks").valueText).toBe("120 · ×0.90");
-    expect(gauge(model, "thermal").warn).toBe(true);
-    expect(gauge(model, "thermal").valueText).toBe("2.2s · 3.0s cool");
+    // Sustained sits below nominal by exactly the magazine downtime.
+    expect(gauge(model, "sustained").valueText).toBe("14.0");
+    expect(gauge(model, "dps").valueText).toBe("20.0");
   });
 
   it("treats float noise as no change at all", () => {

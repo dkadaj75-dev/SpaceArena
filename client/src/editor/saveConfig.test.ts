@@ -10,9 +10,9 @@ describe("contentPathFor", () => {
   it("maps a config type to its content subfolder and strips the id's type prefix", () => {
     expect(contentPathFor({ id: "arena.ring-nebula", type: "arena" })).toBe("arenas/ring-nebula.json");
     expect(contentPathFor({ id: "tuning.default", type: "tuning" })).toBe("tuning/default.json");
-    expect(contentPathFor({ id: "action.notify-overheat", type: "action" })).toBe("actions/notify-overheat.json");
-    expect(contentPathFor({ id: "notification.overheat-warning", type: "notification" })).toBe(
-      "notifications/overheat-warning.json",
+    expect(contentPathFor({ id: "action.notify-boundary", type: "action" })).toBe("actions/notify-boundary.json");
+    expect(contentPathFor({ id: "notification.boundary-warning", type: "notification" })).toBe(
+      "notifications/boundary-warning.json",
     );
     expect(contentPathFor({ id: "asteroid.rock-a", type: "asteroid" })).toBe("asteroids/rock-a.json");
     expect(contentPathFor({ id: "camera.default", type: "camera" })).toBe("camera/default.json");

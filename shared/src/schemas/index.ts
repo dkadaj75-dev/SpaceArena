@@ -212,7 +212,6 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
       refs.push({ path: "upgradeTracks.hull", id: t.hull, expects: "upgrade" });
       refs.push({ path: "upgradeTracks.engine", id: t.engine, expects: "upgrade" });
       refs.push({ path: "upgradeTracks.energy", id: t.energy, expects: "upgrade" });
-      refs.push({ path: "upgradeTracks.heat", id: t.heat, expects: "upgrade" });
       config.defaultFitting.forEach((id, i) =>
         refs.push({ path: `defaultFitting[${i}]`, id, expects: "module" }),
       );
@@ -223,7 +222,7 @@ export function collectReferences(config: AnyConfig): ConfigRef[] {
       break;
     }
     case "module": {
-      for (const hook of ["onFire", "onOverheat", "onActivate", "onDeactivate"] as const) {
+      for (const hook of ["onFire", "onActivate", "onDeactivate"] as const) {
         (config[hook] ?? []).forEach((id, i) =>
           refs.push({ path: `${hook}[${i}]`, id, expects: "action" }),
         );

@@ -20,13 +20,7 @@
     "power": {
       "capacity": 10
     },
-    "cooling": {
-      "multiplier": 1
-    },
     "recharge": {
-      "multiplier": 1
-    },
-    "heatStore": {
       "multiplier": 1
     },
     "energyStore": {
@@ -38,15 +32,13 @@
       "coneDeg": 60
     },
     "efficiency": {
-      "energyDraw": 1,
-      "heatGen": 1
+      "energyDraw": 1
     }
   },
   "upgradeTracks": {
     "hull": "upgrade.hull-std",
     "engine": "upgrade.engine-std",
-    "energy": "upgrade.energy-std",
-    "heat": "upgrade.heat-std"
+    "energy": "upgrade.energy-std"
   },
   "sockets": [
     {
@@ -123,7 +115,7 @@
       ]
     },
     {
-      "id": "in-heatsink",
+      "id": "in-countermeasure",
       "kind": "internal",
       "transform": {
         "pos": [
@@ -133,7 +125,7 @@
         ]
       },
       "accepts": [
-        "heatsink"
+        "countermeasure"
       ]
     },
     {
@@ -341,7 +333,7 @@
     "module.engine-civ",
     "module.generator-compact",
     "module.transformer-stock",
-    "module.heatsink-basic",
+    "module.countermeasure-flare",
     "module.sensors-basic"
   ],
   "render": {

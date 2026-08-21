@@ -81,7 +81,7 @@ export function targetingSystem(world: World, dt: number): void {
 
     // Half-cone in radians: coneDeg is the FULL width, so deg/2 → rad is /360*PI.
     const halfCone = (core.sensors.coneDeg * Math.PI) / 360;
-    // A jettisoned enemy heatsink OVERRIDES everything, including a lock the
+    // A jettisoned enemy countermeasure OVERRIDES everything, including a lock the
     // ship already holds (owner 2026-07-31): the sink is the brightest thing in
     // the sky, so it pulls the seeker off whatever it was tracking. That
     // override is the whole point — a lure that only worked on ships not yet

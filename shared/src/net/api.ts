@@ -77,7 +77,7 @@ export type UpdateFittingBody = z.infer<typeof updateFittingBodySchema>;
 // Ships / upgrades / modules
 // ---------------------------------------------------------------------------
 
-export const upgradeTrack = z.enum(["hull", "engine", "energy", "heat"]);
+export const upgradeTrack = z.enum(["hull", "engine", "energy"]);
 export type UpgradeTrackName = z.infer<typeof upgradeTrack>;
 
 export const upgradeBodySchema = z.object({

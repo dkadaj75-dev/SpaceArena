@@ -480,7 +480,6 @@ describe("sensors come from the resolver", () => {
       family: "sensors",
       level: 1,
       activation: { deployTime: 0, retractTime: 0 },
-      heat: { capacity: 1, coolingPerSec: 1, perSecondActive: 0 },
       passives: [{ target: "sensors.lockRange", op: "add", value: 20 }],
       ui: { icon: "s", label: "Long Range Sensors" },
       price: 0,

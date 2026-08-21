@@ -35,7 +35,7 @@ interface BotAudit {
   commandFire: boolean;
   shots: number;
   rackTicks: number;
-  rackLockoutTicks: number;
+  rackCooldownTicks: number;
   distance: number;
   zeroThrottleTicks: number;
   floorTicks: number;
@@ -275,7 +275,7 @@ function freshAudit(id: EntityId, team: number, profile: string, ship: string, f
   return {
     id, team, profile, ship, fitting, liveTicks: 0, engagedTicks: 0, fireTicks: 0,
     commandThrottle: 0, commandBoost: false, commandFire: false, shots: 0,
-    rackTicks: 0, rackLockoutTicks: 0, distance: 0, zeroThrottleTicks: 0,
+    rackTicks: 0, rackCooldownTicks: 0, distance: 0, zeroThrottleTicks: 0,
     floorTicks: 0, floorAvoidTicks: 0, surfaceTicks: 0, missileTicks: 0, carrierBoostTicks: 0,
     damageDealt: 0, damageTaken: 0, objectiveHitEvents: 0, objectiveHitShieldDown: 0,
     shieldWantedTicks: 0, shieldEmptyWantedTicks: 0,
@@ -322,7 +322,9 @@ function sampleBot(audit: BotAudit, self: ShipSnapshot, snapshot: Snapshot, driv
     if (!config) continue;
     if (config.fire) {
       audit.rackTicks++;
-      if (module.state === "overheated") audit.rackLockoutTicks++;
+      // Heat deleted 2026-08-20: what a rack now spends waiting is its own
+      // cycle time, so THAT is the downtime metric.
+      if (module.cycleTimer > 0) audit.rackCooldownTicks++;
     }
     const fraction = module.energyCapacity > 0 ? module.energy / module.energyCapacity : 1;
     if (config.family === "shield" && decision?.engaged) {
@@ -427,7 +429,7 @@ function printMatch(match: MatchAudit): void {
       attempts: stat.flagsTaken, recoveries: stat.flagsReturned, kills: stat.kills, deaths: stat.deaths,
       assists: stat.assists, dealt: bot.damageDealt.toFixed(0), taken: bot.damageTaken.toFixed(0),
       firePct: pct(bot.fireTicks, bot.engagedTicks), shotsMin: rate(bot.shots, match.elapsed),
-      lockoutPct: pct(bot.rackLockoutTicks, bot.rackTicks), floorPct: pct(bot.floorTicks, bot.liveTicks), avoidPct: pct(bot.floorAvoidTicks, bot.liveTicks),
+      cooldownPct: pct(bot.rackCooldownTicks, bot.rackTicks), floorPct: pct(bot.floorTicks, bot.liveTicks), avoidPct: pct(bot.floorAvoidTicks, bot.liveTicks),
       surfacePct: pct(bot.surfaceTicks, bot.liveTicks), missilePct: pct(bot.missileTicks, bot.liveTicks),
       zeroPct: pct(bot.zeroThrottleTicks, bot.liveTicks), energyStarvePct: pct(bot.shieldEmptyWantedTicks + bot.boostEmptyWantedTicks, bot.shieldWantedTicks + bot.boostWantedTicks),
     };
@@ -496,7 +498,7 @@ function printIssues(matches: MatchAudit[]): void {
   const ctf = matches.filter((match) => match.label === "ctf");
   const carrierBoost = sum(bots, (bot) => bot.carrierBoostTicks);
   const stuck = bots.filter((bot) => bot.worstStuck);
-  const lockout = ratio(sum(bots, (bot) => bot.rackLockoutTicks), sum(bots, (bot) => bot.rackTicks));
+  const lockout = ratio(sum(bots, (bot) => bot.rackCooldownTicks), sum(bots, (bot) => bot.rackTicks));
   const fire = ratio(sum(bots, (bot) => bot.fireTicks), sum(bots, (bot) => bot.engagedTicks));
   const starvation = ratio(sum(bots, (bot) => bot.shieldEmptyWantedTicks + bot.boostEmptyWantedTicks), sum(bots, (bot) => bot.shieldWantedTicks + bot.boostWantedTicks));
   const objectiveShieldDown = ratio(sum(bots, (bot) => bot.objectiveHitShieldDown), sum(bots, (bot) => bot.objectiveHitEvents));

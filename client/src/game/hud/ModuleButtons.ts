@@ -1,5 +1,5 @@
-import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleFamily, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState, ThemeConfig, TuningConfig } from "@space-arena/shared";
-import { createLogger, heatSystemEnabled, isInternalFamily } from "@space-arena/shared";
+import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleFamily, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState, ThemeConfig } from "@space-arena/shared";
+import { createLogger, isInternalFamily } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { clusterOffsets, resolveHudLayout, type HudLayout } from "./hudLayout.js";
@@ -22,7 +22,7 @@ export const MODULE_FAMILY_COLOR_FALLBACKS: Readonly<Record<ModuleFamily, string
   engine: DEFAULT_DESIGN_TOKENS.blue500,
   generator: DEFAULT_DESIGN_TOKENS.blue500,
   transformer: DEFAULT_DESIGN_TOKENS.white,
-  heatsink: DEFAULT_DESIGN_TOKENS.blue500,
+  countermeasure: DEFAULT_DESIGN_TOKENS.blue500,
   sensors: DEFAULT_DESIGN_TOKENS.white,
 };
 
@@ -50,12 +50,12 @@ interface ButtonEntry {
   // Last-rendered values so we only touch the DOM on change.
   lastState: ModuleState | null;
   lastRing: number;
-  lastRingKind: "heat" | "energy" | "reload" | "cooldown" | null;
+  lastRingKind: "energy" | "reload" | "cooldown" | null;
   lastRounds: number;
   lastDanger: boolean;
   lastNoEnergy: boolean;
   lastArmed: boolean;
-  lastCooling: boolean;
+  lastCounting: boolean;
   lastUnarmable: boolean;
   /** Last replicated continuous-channel flag (see the class toggle in update()). */
   lastChanneling: boolean;
@@ -180,10 +180,10 @@ export class ModuleButtons {
   /**
    * Whether a fitted module deserves a button in THIS cluster. Two exclusions:
    *
-   *  - Internals (engine, generator, transformer, heatsink, sensors —
+   *  - Internals (engine, generator, transformer, countermeasure, sensors —
    *    2026-07-31) are always-on systems with nothing to toggle, so they are
    *    shown in the Hangar and nowhere else. The one internal ACTION,
-   *    jettisoning a heatsink, has its own control.
+   *    launching a countermeasure pod, has its own control.
    *  - `boost` has its own control too: {@link import("./BoostButton.js").BoostButton},
    *    in the flight HUD. As a generic hex it was one more anonymous glyph in
    *    this arc, with no way to show that a flag carrier cannot boost — which is
@@ -209,7 +209,6 @@ export class ModuleButtons {
       this.rebuild(ship.modules);
     }
 
-    const heatEnabled = heatSystemEnabled(this.configs.getAll<TuningConfig>("tuning")[0]);
     for (const m of ship.modules) {
       const entry = this.entries.get(m.hardpointIndex);
       if (!entry) continue;
@@ -220,39 +219,40 @@ export class ModuleButtons {
       // the tank refilling tells the pilot nothing about the only thing keeping
       // the bubble down, and the button would otherwise look ready and do nothing.
       const collapsed = entry.cfg?.mitigation !== undefined && m.cycleTimer > 0;
+      // A weapon between shots. With heat deleted (2026-08-20) the cycle timer
+      // is a weapon's ONLY limiter, so its ring is the whole of what the pilot
+      // has to read — it outranks the energy ring on the rare weapon with a tank.
+      const onCycle = entry.cfg?.fire !== undefined && m.cycleTimer > 0;
+      // Seconds the current countdown started from, so the sweep is a true
+      // fraction rather than a bar that jumps when the module changes job.
+      const cooldownTotal = collapsed
+        ? entry.cfg!.mitigation!.collapseCooldownSec
+        : (entry.cfg?.fire?.cycleTime ?? 0);
       const ringKind = reloading
         ? "reload"
-        : collapsed
+        : collapsed || onCycle
         ? "cooldown"
-        : heatEnabled && entry.cfg?.fire && m.heatCapacity > 0
-        ? "heat"
         : m.energyCapacity > 0
           ? "energy"
           : null;
       const ringPct = ringKind === "reload"
         ? resourcePct(entry.cfg!.fire!.clip!.reloadSec - m.stateTimer, entry.cfg!.fire!.clip!.reloadSec)
         : ringKind === "cooldown"
-        // Fills as the lockout burns off, matching the reload sweep beside it:
+        // Fills as the countdown burns off, matching the reload sweep beside it:
         // on this rail a filling arc always means "ready when full".
-        ? resourcePct(
-            entry.cfg!.mitigation!.collapseCooldownSec - m.cycleTimer,
-            entry.cfg!.mitigation!.collapseCooldownSec,
-          )
-        : ringKind === "heat"
-        ? m.state === "overheated"
-          ? 100
-          : resourcePct(m.heat, m.heatCapacity)
+        ? resourcePct(cooldownTotal - m.cycleTimer, cooldownTotal)
         : ringKind === "energy"
           ? resourcePct(m.energy, m.energyCapacity)
           : 0;
-      const danger = ringKind === "heat" && (m.state === "overheated" || ringPct > 80);
+      // The one red-ring case left: a tank nearly out. Heat used to own this.
+      const danger = ringKind === "energy" && ringPct <= 15;
 
       const noEnergy = ringKind === "energy" && m.energy <= 0;
       const armed = m.state === "active" && entry.cfg?.fire !== undefined;
-      // `cooling` is the rail's generic "this module is counting down" state. It
+      // `counting` is the rail's generic "this module is counting down" state. It
       // covers a weapon between shots and, since the collapse rule, a shield
       // locked out after its bubble went down.
-      const cooling = (m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0) || collapsed;
+      const counting = (m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0) || collapsed;
       // Only homing weapons still hard-require a lock; straight-fire weapons
       // (laser/kinetic/beam) shoot down the nose without one and never grey out.
       const unarmable =
@@ -269,7 +269,6 @@ export class ModuleButtons {
       }
       if (ringKind !== entry.lastRingKind) {
         entry.ring.hidden = ringKind === null;
-        entry.root.classList.toggle("ring-heat", ringKind === "heat");
         entry.root.classList.toggle("ring-energy", ringKind === "energy");
         entry.root.classList.toggle("ring-reload", ringKind === "reload");
         entry.root.classList.toggle("ring-cooldown", ringKind === "cooldown");
@@ -292,15 +291,15 @@ export class ModuleButtons {
         entry.root.classList.toggle("armed", armed);
         entry.lastArmed = armed;
       }
-      if (cooling !== entry.lastCooling) {
-        entry.root.classList.toggle("cooling", cooling);
-        entry.lastCooling = cooling;
+      if (counting !== entry.lastCounting) {
+        entry.root.classList.toggle("on-cooldown", counting);
+        entry.lastCounting = counting;
       }
       if (unarmable !== entry.lastUnarmable) {
         entry.root.classList.toggle("unarmable", unarmable);
         entry.lastUnarmable = unarmable;
       }
-      // Continuous weapons get `channeling` instead of a `cooling` ring: the
+      // Continuous weapons get `channeling` instead of a countdown ring: the
       // ring encodes a cadence a channel does not have. Exposed unstyled — the
       // shipped theme currently renders it the same as any armed button.
       if (m.channeling !== entry.lastChanneling) {
@@ -387,7 +386,7 @@ export class ModuleButtons {
             lastDanger: false,
             lastNoEnergy: false,
             lastArmed: false,
-            lastCooling: false,
+            lastCounting: false,
             lastUnarmable: false,
             lastChanneling: false,
           } satisfies ButtonEntry,

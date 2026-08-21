@@ -21,11 +21,9 @@ const DT = 1 / 30;
 const SECONDS = 60;
 
 let configs: ConfigService;
-let heatConfigs: ConfigService;
 
 beforeAll(async () => {
   configs = await loadTestConfigs();
-  heatConfigs = await loadTestConfigs({ heatSystem: true });
 });
 
 interface RunResult {
@@ -43,13 +41,6 @@ interface RunResult {
   minVerticalGap: number;
   /** Every module state a bot ship was ever seen in. */
   seenStates: Set<string>;
-  /**
-   * Hottest any single bot rack ever got, as a fraction of its OWN capacity.
-   * The continuous measure behind `seenStates.has("overheated")`: a lockout is
-   * this reaching 1, and it keeps the heat assertion meaningful in matches that
-   * stress a rack hard without quite tripping it.
-   */
-  peakModuleHeat: number;
   /** Highest normalized lock progress any bot reached (FLIGHT.md §2). */
   peakLockProgress: number;
   /** Sim seconds at which a bot first completed a lock (Infinity if never). */
@@ -132,7 +123,6 @@ function runMatch(
 
   const events: SimEvent[] = [];
   const seenStates = new Set<string>();
-  let peakModuleHeat = 0;
   const orderKinds: Record<string, number> = {};
   let orders = 0;
   let nowMs = 0;
@@ -160,7 +150,6 @@ function runMatch(
       if (!drivers.has(s.id)) continue;
       for (const m of s.modules) {
         seenStates.add(m.state);
-        if (m.heatCapacity > 0) peakModuleHeat = Math.max(peakModuleHeat, m.heat / m.heatCapacity);
       }
       peakLockProgress = Math.max(peakLockProgress, s.lockProgress);
       peakPitch = Math.max(peakPitch, Math.abs(s.pitch));
@@ -220,7 +209,6 @@ function runMatch(
     end,
     botIds,
     seenStates,
-    peakModuleHeat,
     peakLockProgress,
     firstLockAt,
     firstWeaponHitAt,
@@ -270,8 +258,8 @@ describe("bots in a live ArenaSimulation", () => {
     const fired = result.events.filter((e) => e.type === "projectileFired");
     // Owner heat x10 deliberately puts more time into rack cooldowns.
     expect(fired.length).toBeGreaterThan(3);
-    // Current finite cooling must still produce an exchange, not one opening
-    // shot followed by a match-long heat hold. Thirty seconds => ×2 for /min.
+    // The bots must still produce an exchange, not one opening shot followed
+    // by a match-long hold. Thirty seconds => ×2 for /min.
     for (const id of result.botIds) {
       const perMinute = fired.filter((event) => event.ownerId === id).length * (60 / result.duration);
       // Half-damage fights (owner 2026-08-05) run longer past the hot merge, so
@@ -308,7 +296,7 @@ describe("bots in a live ArenaSimulation", () => {
     // comparison no longer measures intent. Guns must still do real work and
     // scenery cost must stay bounded.
     expect(result.weaponDamage).toBeGreaterThan(40);
-    // Doubled rack heat stretches the deep-field exchange and exposes both
+    // The deep-field exchange runs long and exposes both
     // hulls to more merge contact. Keep a firm cap above the deterministic
     // 112.267 result; the lock and gun-damage checks still require a firefight.
     expect(result.impactDamage).toBeLessThan(120);
@@ -407,7 +395,7 @@ describe("bots in a live ArenaSimulation", () => {
     // alignment. It must still land a meaningful fraction of its shots.
     expect(tuned.fraction, evidence).toBeGreaterThan(0.05);
     expect(tuned.fraction, evidence).toBeLessThan(0.5);
-    // Doubled rack heat puts the profiles into different sparse firing phases
+    // The profiles fall into different sparse firing phases
     // against this oscillating target. Their tiny-sample fractions are no
     // longer monotonic, so the tuned accuracy band above carries the intent.
   });
@@ -463,35 +451,13 @@ describe("bots in a live ArenaSimulation", () => {
     expect(JSON.stringify(other.events)).not.toBe(JSON.stringify(a.events));
   });
 
-  it("keeps weapon heat meaningful at x10 without stalling bot combat", () => {
-    // RE-RECORDED 2026-08-18 (autocannon ×0.8 / laser ×1.3). This used to assert
-    // `seenStates.has("overheated")` — that a bot duel cooks a rack outright.
-    // It no longer does, at ANY seed: a scan of seeds 1-24 for this matchup
-    // produces zero lockouts after the laser buff, where seeds 7 and 11 produced
-    // them before. The mechanism is not subtle — `fire.damage` is the only thing
-    // that moved, bot fire discipline never reads it, and heat per shot is
-    // untouched — so what changed is the FIGHT: a 30% stronger laser puts both
-    // cautious bots under their `retreat` hull trigger sooner, and two bots at
-    // distance never sustain fire long enough to fill a rack.
-    //
-    // Note the assertion was already seed-fragile BEFORE this pass (seed 3 saw
-    // no lockout either, and no `aggressive` matchup ever did), so re-seeding
-    // would only have hidden that. Pinning the CONTINUOUS measure instead is
-    // what this test was really trying to say all along: heat must still be a
-    // live pressure on a bot rack, and the bot must still fight through it.
-    //
-    // Rack lockout → cool-down → re-arm itself remains covered deterministically
-    // by the synthetic HOT_LASER bench in `sim/balanceRegression.test.ts`, which
-    // does not depend on two bots choosing to hold an engagement.
-    const result = runMatch(["bot.cautious", "bot.cautious"], 11, undefined, { configService: heatConfigs });
+  it("keeps bot racks firing without stalling bot combat", () => {
+    // RE-RECORDED 2026-08-20 (heat deleted). This used to assert that a bot duel
+    // put real thermal pressure on a rack; a weapon is now limited only by its
+    // own cycle time, so what survives is the half that was always the point —
+    // the bots keep their racks up and keep landing damage.
+    const result = runMatch(["bot.cautious", "bot.cautious"], 11);
     expect(result.seenStates.has("active")).toBe(true);
-    // Heat is genuinely engaged, not decorative: the hottest rack reached 0.568
-    // of its own capacity in this match. The floor is set below that with room
-    // for drift, but far above zero — if a balance change ever stops bot racks
-    // heating at all, this fails instead of passing quietly.
-    expect(result.peakModuleHeat).toBeGreaterThan(0.4);
-    // …and the rack never actually locked, which is the fact recorded above.
-    expect(result.seenStates.has("overheated")).toBe(false);
     // The bot fought rather than stalling: damage landed, and kept landing.
     expect(result.weaponDamage).toBeGreaterThan(40);
   });

@@ -1,0 +1,27 @@
+{
+  "id": "module.countermeasure-chaff",
+  "type": "module",
+  "version": 1,
+  "family": "countermeasure",
+  "level": 2,
+  "name": "Chaff Pod",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "jettison": {
+    "cooldownSec": 25,
+    "decoyLifetimeSec": 8,
+    "decoyRadius": 1.4
+  },
+  "onActivate": [
+    "action.play-sound-boost-up"
+  ],
+  "ui": {
+    "icon": "[ICON: countermeasure]",
+    "shortName": "Chaff",
+    "label": "Countermeasure"
+  },
+  "price": 1500,
+  "requiresLevel": 3
+}

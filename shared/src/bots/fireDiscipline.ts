@@ -13,18 +13,12 @@ export type FireDecisionReason =
   | "no-lock"
   | "no-armed-weapons"
   | "out-of-range"
-  | "heat-headroom"
   | "energy-floor"
   | "burst-pause";
 
 export interface FireDecision {
   fire: boolean;
   reason: FireDecisionReason;
-}
-
-/** Driver-owned hysteresis latch; mutable only by decideFire and reset on respawn. */
-export interface FireDisciplineState {
-  heatHeld: boolean;
 }
 
 /**
@@ -36,7 +30,6 @@ export function decideFire(
   configs: ConfigService,
   fireDiscipline: FireDiscipline,
   engaged: boolean,
-  state?: FireDisciplineState,
 ): FireDecision {
   if (!engaged) return { fire: false, reason: "not-engaged" };
   if (!ctx.self.locked) return { fire: false, reason: "no-lock" };
@@ -53,34 +46,10 @@ export function decideFire(
   const rangeMult = fireDiscipline.engageRangeMult ?? 1;
   if (ctx.distance > shortestRange * rangeMult) return { fire: false, reason: "out-of-range" };
 
-  const heatHeadroom = fireDiscipline.heatHeadroom ?? 1;
-  // Each rack against its OWN capacity (heat/energy overhaul 2026-08-07). The
-  // resolved capacity rides on the snapshot, so the hull's `heatStore` multiplier
-  // is already baked in and a bot on a deep-magazine hull correctly holds its
-  // trigger longer for the same authored knob.
-  const heatFractions = armed.map(({ runtime }) =>
-    runtime.heatCapacity > 0 ? runtime.heat / runtime.heatCapacity : 0,
-  );
-  // One shared trigger drives every rack. A hot missile rack must not silence a
-  // cool laser (the combat system already skips locked-out racks), so pause only
-  // when every currently armed weapon has exhausted its headroom.
-  if (state?.heatHeld) {
-    const rearm = fireDiscipline.rearmHeatBelow ?? heatHeadroom;
-    if (heatFractions.some((fraction) => fraction <= rearm)) state.heatHeld = false;
-  }
-  if (!state?.heatHeld && heatFractions.every((fraction) => fraction >= heatHeadroom)) {
-    if (state) state.heatHeld = true;
-  }
-  if (state?.heatHeld ?? heatFractions.every((fraction) => fraction >= heatHeadroom)) {
-    return { fire: false, reason: "heat-headroom" };
-  }
-
   // The energy floor is asked of the ARMED WEAPONS' own tanks, not of the ship
-  // (heat/energy overhaul 2026-08-07 — there is no ship capacitor). Shipped
-  // weapons carry no tank at all, so this reads as "fully fed" and the trigger
-  // is decided on heat alone: a low shield reserve must never silence guns that
-  // cost nothing to fire. The knob stays bound for any weapon that DOES author
-  // one.
+  // — there is no ship capacitor. Shipped weapons carry no tank at all, so this
+  // reads as "fully fed": a low shield reserve must never silence guns that cost
+  // nothing to fire. The knob stays bound for any weapon that DOES author one.
   const weaponCharge = armed.reduce(
     (lowest, { runtime }) =>
       runtime.energyCapacity > 0 ? Math.min(lowest, runtime.energy / runtime.energyCapacity) : lowest,

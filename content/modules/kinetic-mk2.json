@@ -12,12 +12,6 @@
   "power": {
     "draw": 3.5
   },
-  "heat": {
-    "capacity": 100,
-    "coolingPerSec": 27.5,
-    "rearmBelow": 0.25,
-    "perShot": 44.4
-  },
   "fire": {
     "mode": "held",
     "range": 85,
@@ -25,7 +19,10 @@
     "damage": 10.1,
     "damageType": "kinetic",
     "requiresLineOfSight": true,
-    "clip": { "size": 32, "reloadSec": 2.2 },
+    "clip": {
+      "size": 32,
+      "reloadSec": 2.2
+    },
     "projectile": {
       "speed": 70,
       "lifetime": 1.5
@@ -33,10 +30,6 @@
   },
   "onFire": [
     "action.play-sound-kinetic"
-  ],
-  "onOverheat": [
-    "action.notify-overheat",
-    "action.play-sound-overheat"
   ],
   "ui": {
     "icon": "[ICON: kinetic]",

@@ -55,7 +55,7 @@ describe("power rail draw (owner 2026-07-31)", () => {
       "module.engine-civ",
       "module.generator-compact",
       "module.transformer-stock",
-      "module.heatsink-basic",
+      "module.countermeasure-flare",
       "module.sensors-basic",
     ]) {
       expect(draw(id), id).toBe(0);

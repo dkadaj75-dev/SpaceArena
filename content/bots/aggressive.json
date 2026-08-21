@@ -5,7 +5,10 @@
   "name": "Aggressive",
   "decisionIntervalMs": 250,
   "orderJitterMs": 60,
-  "preferredRange": [30, 60],
+  "preferredRange": [
+    30,
+    60
+  ],
   "carrierPriority": 10,
   "fittingArchetype": "aggressive",
   "fittingPowerSpread": 0.3,
@@ -88,15 +91,11 @@
     }
   },
   "moduleDiscipline": {
-    "heatShutdownAt": 0.85,
-    "reactivateBelow": 0.5,
     "energyReserve": 0.15,
     "shieldOnlyWhenEngaged": true
   },
   "fireDiscipline": {
     "engageRangeMult": 1.1,
-    "heatHeadroom": 0.9,
-    "rearmHeatBelow": 0.4,
     "minEnergyFraction": 0.08,
     "burstSec": 0.8,
     "pauseSec": 0.2

@@ -18,7 +18,7 @@ function cfg(family: ModuleConfig["family"], icon: string, iconId?: string): Ico
 describe("iconIdFromRef", () => {
   it("unwraps the authored placeholder form, the same way [SOUND: …] is unwrapped", () => {
     expect(iconIdFromRef("[ICON: laser]")).toBe("laser");
-    expect(iconIdFromRef("[icon:heat-sink]")).toBe("heat-sink");
+    expect(iconIdFromRef("[icon:countermeasure]")).toBe("countermeasure");
     expect(iconIdFromRef("  [ICON:  shield  ]  ")).toBe("shield");
   });
 
@@ -46,7 +46,7 @@ describe("moduleIconId", () => {
     // The two utility modules share a family and are told apart ONLY by their
     // authored icon tag — which is why step 2 exists at all.
     expect(moduleIconId(cfg("utility", "[ICON: capacitor]"))).toBe("capacitor");
-    expect(moduleIconId(cfg("utility", "[ICON: heat-sink]"))).toBe("heat-sink");
+    expect(moduleIconId(cfg("utility", "[ICON: countermeasure]"))).toBe("countermeasure");
   });
 
   it("prefers an explicit ui.iconId over the family and the authored tag", () => {

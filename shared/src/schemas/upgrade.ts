@@ -14,7 +14,7 @@ const upgradeLevel = z.object({
 export const upgradeSchema = z.object({
   ...baseShape("upgrade"),
   /** Which core track this upgrade line governs. */
-  track: z.enum(["hull", "engine", "energy", "heat"]),
+  track: z.enum(["hull", "engine", "energy"]),
   levels: z.array(upgradeLevel).min(1),
 });
 

@@ -169,12 +169,6 @@ export const SOUND_SYNTHS: Record<string, SynthFn> = {
   /** Afterburner cut. */
   boost_disengage: (t) =>
     noise(t, { duration: 0.25, peak: 0.12, filter: { type: "lowpass", from: 1800, to: 260 } }),
-  /** Overheat force-shutdown: two-tone alarm. */
-  overheat_warning: (t) =>
-    longest(
-      tone(t, { type: "square", from: 880, to: 880, duration: 0.12, peak: 0.16 }),
-      tone(t, { type: "square", from: 620, to: 620, duration: 0.16, peak: 0.16, delay: 0.15 }),
-    ),
   /** Arena boundary contact. */
   boundary_warn: (t) =>
     longest(

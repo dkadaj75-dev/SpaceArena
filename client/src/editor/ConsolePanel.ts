@@ -14,7 +14,7 @@ const HELP = [
   "  help                     this text",
   "",
   `Types: ${CONFIG_TYPE_NAMES.join(", ")}`,
-  "Paths are dotted, e.g. `core.cooling.multiplier` or `hardpoints.0.name`.",
+  "Paths are dotted, e.g. `core.recharge.multiplier` or `hardpoints.0.name`.",
   "History: Up / Down arrows.",
 ].join("\n");
 

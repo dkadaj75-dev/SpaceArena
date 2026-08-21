@@ -28,17 +28,6 @@ export interface ModuleSnapshot {
   state: ModuleState;
   /** Dynamic rounds remaining; 0 for weapons without a clip. */
   rounds?: number;
-  /**
-   * This module's OWN heat (heat/energy overhaul 2026-08-07). The HUD's heat
-   * ring is `heat / heatCapacity`; there is no ship heat pool to fall back on.
-   */
-  heat: number;
-  /**
-   * Resolved capacity of this module's heat store, already multiplied by the
-   * hull. **0 means the module has no heat ring at all** — that is the signal a
-   * renderer reads, not a special-case list of families.
-   */
-  heatCapacity: number;
   /** This module's OWN energy charge (boost tank, shield reserve, …). */
   energy: number;
   /**
@@ -159,7 +148,7 @@ export interface AsteroidSnapshot {
 }
 
 /**
- * A drifting jettisoned heatsink (owner 2026-07-31). Replicated so remote
+ * A drifting jettisoned countermeasure pod. Replicated so remote
  * clients can render the lure and see why their missiles turned.
  */
 export interface DecoySnapshot {
@@ -339,10 +328,10 @@ export interface Snapshot {
  *
  * System run order while live (documented, order matters):
  *   1. NavigationSystem  — apply move/flight orders, steer/avoid, boost
- *   2. ModuleSystem      — toggle orders + deploy/retract/overheat-cooldown timers
+ *   2. ModuleSystem      — toggle orders + deploy/retract timers
  *   3. TargetingSystem   — resolve TargetRef + advance/drain the sensor lock
  *   4. CombatSystem      — auto-fire beams/kinetics/missiles (lock+range+LoS)
- *   5. EnergySystem      — per-module tanks (drain/refill) and racks (heat/cool/lockout)
+ *   5. EnergySystem      — per-module tanks (drain/refill, flameout)
  *   6. ProjectileSystem  — move/home/expire/hit
  *   7. CollisionSystem   — ship-asteroid, ship-ship, boundary
  *   8. CleanupSystem     — remove destroyed ships
@@ -842,7 +831,7 @@ export class ArenaSimulation {
     this.tickLaunchSequences(dt);
     navigationSystem(w, dt);
     moduleSystem(w, dt);
-    // Before targeting: a heatsink jettisoned this tick must already be luring
+    // Before targeting: a countermeasure jettisoned this tick must already be luring
     // this tick, and its decoy must exist before missiles pick a seeker head.
     jettisonSystem(w, dt);
     targetingSystem(w, dt);
@@ -983,7 +972,7 @@ export class ArenaSimulation {
       if (ev.type === "entityDestroyed" && !ev.isAsteroid) {
         this.destroyedShips += 1;
         // The killer's team scores. Environment and self deaths (boundary,
-        // asteroid impact, overheat — `killerId: null`) and team-kills instead
+        // asteroid impact, boundary — `killerId: null`) and team-kills instead
         // credit the team OPPOSING the victim, so every ship death moves the
         // scoreboard (owner report 2026-07-31: a boundary death "did not
         // count"). Only decidable when the victim faces exactly one other team.
@@ -1143,8 +1132,6 @@ export class ArenaSimulation {
           hardpointIndex: m.hardpointIndex,
           state: m.state,
           rounds: m.rounds,
-          heat: m.heat,
-          heatCapacity: m.heatCapacity,
           energy: m.energy,
           energyCapacity: m.energyCapacity,
           stateTimer: m.stateTimer,

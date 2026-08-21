@@ -23,14 +23,12 @@ export const REFERENCE_PATHS: Partial<Record<ConfigType, Record<string, ConfigTy
     "upgradeTracks.hull": "upgrade",
     "upgradeTracks.engine": "upgrade",
     "upgradeTracks.energy": "upgrade",
-    "upgradeTracks.heat": "upgrade",
     // An empty entry is an intentionally empty slot, so "— none —" is valid here.
     "defaultFitting.*": "module",
     "sockets.*.effect": "effect",
   },
   module: {
     "onFire.*": "action",
-    "onOverheat.*": "action",
     "onActivate.*": "action",
     "onDeactivate.*": "action",
   },

@@ -60,8 +60,6 @@ export const WIRE_FIELDS = {
     "state",
     "stateTimer",
     "rounds",
-    "heat",
-    "heatCapacity",
     "energy",
     "energyCapacity",
     "cycleTimer",

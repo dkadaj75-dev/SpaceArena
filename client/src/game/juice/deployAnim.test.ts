@@ -13,10 +13,6 @@ describe("deployProgress", () => {
     expect(deployProgress("active", 0, DEPLOY, RETRACT)).toBe(1);
   });
 
-  it("keeps an overheated module extended (mounted, just offline)", () => {
-    expect(deployProgress("overheated", 3, DEPLOY, RETRACT)).toBe(1);
-  });
-
   it("runs 0 → 1 across a deploy as stateTimer counts down", () => {
     expect(deployProgress("deploying", DEPLOY, DEPLOY, RETRACT)).toBe(0);
     expect(deployProgress("deploying", DEPLOY / 2, DEPLOY, RETRACT)).toBeCloseTo(0.5);

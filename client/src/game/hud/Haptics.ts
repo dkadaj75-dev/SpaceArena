@@ -3,7 +3,6 @@ import type { ConfigService, EntityId, SimEvent, ThemeConfig } from "@space-aren
 /** The theme's `haptics` block, already defaulted. */
 export interface HapticsSettings {
   enabled: boolean;
-  overheatPattern: number[];
   killPattern: number[];
   /** Sensors completing a lock (FLIGHT.md §4) — the "weapons live" tick. */
   lockPattern: number[];
@@ -17,7 +16,6 @@ export function hapticsSettingsOf(theme: ThemeConfig | undefined): HapticsSettin
   const h = theme?.haptics;
   return {
     enabled: h?.enabled ?? false,
-    overheatPattern: h?.overheatPattern ?? [],
     killPattern: h?.killPattern ?? [],
     lockPattern: h?.lockPattern ?? [],
     fireBlockedPattern: h?.fireBlockedPattern ?? [],
@@ -28,8 +26,7 @@ export function hapticsSettingsOf(theme: ThemeConfig | undefined): HapticsSettin
  * The vibration pattern one sim event should produce for `playerId`, or null.
  * Pure — the whole event→pattern policy is testable without a navigator.
  *
- * Three cues (ROADMAP 5.4 + FLIGHT.md §4):
- *  - the player's OWN module force-shutting on overheat (`overheated`)
+ * Two cues (ROADMAP 5.4 + FLIGHT.md §4):
  *  - the player scoring a kill on an enemy SHIP (`entityDestroyed`)
  *  - the player's OWN sensors completing a lock (`lockAcquired`) — the instant
  *    weapons come live, which is the one flight-model state change a player
@@ -44,9 +41,6 @@ export function hapticPatternFor(
   settings: HapticsSettings,
 ): number[] | null {
   if (!settings.enabled) return null;
-  if (event.type === "overheated" && event.entityId === playerId) {
-    return settings.overheatPattern.length > 0 ? settings.overheatPattern : null;
-  }
   if (event.type === "lockAcquired" && event.entityId === playerId) {
     return settings.lockPattern.length > 0 ? settings.lockPattern : null;
   }
@@ -76,7 +70,7 @@ export function defaultVibrate(): ((pattern: number[]) => void) | null {
 }
 
 /**
- * Haptic feedback for overheat shutdowns and kills (ROADMAP 5.4). Patterns and
+ * Haptic feedback for kills and completed locks (ROADMAP 5.4). Patterns and
  * the master on/off switch come from `theme.json` (`haptics` block) and are
  * re-read on hot-reload, so the Theme editor tunes the feel live.
  */

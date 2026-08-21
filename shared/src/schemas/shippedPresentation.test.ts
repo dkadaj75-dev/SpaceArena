@@ -160,8 +160,8 @@ describe("shipped theme - compact flight HUD", () => {
     expect(hud?.radar?.elevationDeg).toBeGreaterThan(0);
     expect(hud?.vitalArcs?.enabled).toBe(true);
     expect(hud?.vitalArcs?.opacity).toBeLessThan(0.75);
-    // The ship-wide ENERGY/HEAT panel died with the 2026-08-07 heat/energy
-    // overhaul: heat and energy are per-module now and ride the module buttons'
+    // The ship-wide ENERGY panel died with the 2026-08-07 energy overhaul:
+    // energy is per-module now and rides the module buttons'
     // own rings, so the shipped theme authors no `gauges` block at all.
     expect(hud?.gauges).toBeUndefined();
     expect(hud?.flight?.reticle?.showZone).toBe(false);

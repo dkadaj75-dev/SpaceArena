@@ -34,7 +34,7 @@ function wireState(): Record<string, unknown> {
         locked: false, targetId: -1,
         modules: [{
           moduleId: "module.laser-mk1", hardpointIndex: 0, state: 2, stateTimer: 0, rounds: 0,
-          heat: 0, heatCapacity: 4, energy: 0, energyCapacity: 0, cycleTimer: 0,
+          energy: 0, energyCapacity: 0, cycleTimer: 0,
           channeling: false, shieldPool: 0,
         }],
       },
@@ -74,11 +74,11 @@ describe("client wire field-name check", () => {
     delete state["countdownRemaining"];
     const player = (state["players"] as Record<string, Record<string, unknown>>)["abc"]!;
     const mod = (player["modules"] as Record<string, unknown>[])[0]!;
-    mod["heatMax"] = mod["heatCapacity"];
-    delete mod["heatCapacity"];
+    mod["energyMax"] = mod["energyCapacity"];
+    delete mod["energyCapacity"];
     expect(checkWireState(state)).toEqual([
       "ArenaState: missing [countdownRemaining], unexpected [countdownSec]",
-      "ModuleState: missing [heatCapacity], unexpected [heatMax]",
+      "ModuleState: missing [energyCapacity], unexpected [energyMax]",
     ]);
   });
 

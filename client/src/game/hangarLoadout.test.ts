@@ -62,7 +62,7 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
         "module.engine-sport",
         "module.generator-heavy",
         "module.transformer-cryo",
-        "module.heatsink-ablative",
+        "module.countermeasure-chaff",
         "module.sensors-longrange",
       ],
     });
@@ -78,7 +78,7 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
       "4:module.engine-sport",
       "5:module.generator-heavy",
       "6:module.transformer-cryo",
-      "7:module.heatsink-ablative",
+      "7:module.countermeasure-chaff",
       "8:module.sensors-longrange",
     ]);
   });
@@ -100,7 +100,7 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
         "module.laser-mk1", // engine bay refuses a weapon
         "module.generator-compact",
         "module.transformer-stock",
-        "module.heatsink-basic",
+        "module.countermeasure-flare",
         "module.sensors-basic",
       ],
     });
@@ -110,7 +110,7 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
       null,
       "module.generator-compact",
       "module.transformer-stock",
-      "module.heatsink-basic",
+      "module.countermeasure-flare",
       "module.sensors-basic",
       null,
     ]);

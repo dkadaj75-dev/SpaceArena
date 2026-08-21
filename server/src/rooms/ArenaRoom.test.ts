@@ -41,15 +41,6 @@ setGlobalLogLevel("error");
 let colyseus: ColyseusTestServer;
 let configs: ConfigService;
 
-function setTestHeatSystem(enabled: boolean): void {
-  const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
-  const replaced = configs.replace({
-    ...tuning,
-    featureFlags: { ...tuning.featureFlags, heatSystem: enabled },
-  });
-  if (!replaced.ok) throw new Error("failed to set test heat system");
-}
-
 /** Advance the server room's fixed sim by `n` ticks (real-time, ~33ms each). */
 async function advance(room: { waitForNextSimulationTick(): Promise<void> }, n: number): Promise<void> {
   for (let i = 0; i < n; i++) await room.waitForNextSimulationTick();
@@ -92,7 +83,6 @@ afterAll(async () => {
 
 afterEach(async () => {
   await colyseus.cleanup();
-  setTestHeatSystem(false);
 });
 
 describe("ArenaRoom", () => {
@@ -141,9 +131,6 @@ describe("ArenaRoom", () => {
   });
 
   it("flies ships, acks valid orders, rejects invalid ones, and reflects module toggles", async () => {
-    // This scenario verifies per-module heat replication, so opt its content
-    // fixture into the otherwise disabled runtime heat system.
-    setTestHeatSystem(true);
     const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
     const c1 = await colyseus.connectTo(room, { shipId: "ship.interceptor" });
     const c2 = await colyseus.connectTo(room);
@@ -174,12 +161,11 @@ describe("ArenaRoom", () => {
     const ack3 = await c1.waitForMessage("orderAck");
     expect(ack3).toMatchObject({ accepted: false, reason: "malformed" });
 
-    // Heat/energy overhaul (2026-08-07): a mk1 rack burns for ~5 s before it
-    // locks out, so twenty ticks in it is still ONLINE (2) and merely warm —
-    // and the per-module heat/capacity pair the HUD rings read is replicated.
+    // A weapon is limited by its own cycle time and nothing else (heat deleted
+    // 2026-08-20), so twenty ticks in it is still ONLINE (2) — and the cycle
+    // timer the HUD's cooldown ring reads is replicated.
     expect(p1.modules[0]!.state).toBe(2);
-    expect(p1.modules[0]!.heatCapacity).toBeGreaterThan(0);
-    expect(p1.modules[0]!.heat).toBeGreaterThan(0);
+    expect(p1.modules[0]!.cycleTimer).toBeGreaterThan(0);
     expect(p1.modules[0]!.energyCapacity).toBe(0); // a weapon costs no energy
     expect(p1.modules[2]!.state).toBe(2); // engine bay
     // The continuous-channel flag rides the same per-module state; a `held`
@@ -197,8 +183,8 @@ describe("ArenaRoom", () => {
     await c2.leave();
   });
 
-  it("accepts a wire jettisonHeatsink order and replicates the dropped decoy", async () => {
-    // Regression: the sim has handled `jettisonHeatsink` since 2026-07-31, and
+  it("accepts a wire jettisonCountermeasure order and replicates the dropped decoy", async () => {
+    // Regression: the sim has handled `jettisonCountermeasure` since 2026-07-31, and
     // `validateOrder` accepts it — but the wire `orderSchema` listed only
     // flight/moduleToggle, so the HUD's JETTISON button worked offline and was
     // acked "malformed" online. This drives the full online path: client wire
@@ -208,22 +194,10 @@ describe("ArenaRoom", () => {
     await advance(room, 1);
     expect(room.state.matchPhase).toBe("live");
 
-    // The stock interceptor fits `module.heatsink-basic`, a passive radiator
-    // with no `jettison` block, so the order would be spent doing nothing. Swap
-    // the fitted sink for the ablative one on the live sim so the drop has a
-    // sink that CAN leave the hull.
-    const serverRoom = colyseus.getRoomById(room.roomId) as unknown as {
-      sim: { world: { modules: Map<number, { modules: Array<{ moduleId: string }> }> } };
-    };
-    const p1 = room.state.players.get(c1.sessionId)!;
-    const sink = serverRoom.sim.world.modules
-      .get(p1.entityId)!
-      .modules.find((m) => m.moduleId === "module.heatsink-basic")!;
-    expect(sink).toBeDefined();
-    sink.moduleId = "module.heatsink-ablative";
-
+    // The stock interceptor fits `module.countermeasure-flare`, which authors a
+    // `jettison` block, so the drop lands on the shipped fitting as-is.
     expect(room.state.decoys.size).toBe(0);
-    c1.send("order", { seq: 1, order: { kind: "jettisonHeatsink" } });
+    c1.send("order", { seq: 1, order: { kind: "jettisonCountermeasure" } });
     // The accepted ack is the regression assertion: before the schema carried
     // this kind, the very same send came back `{ accepted: false, "malformed" }`.
     expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
@@ -1321,21 +1295,18 @@ describe("ArenaRoom", () => {
     await human.leave();
   });
 
-  it("replicates a jettisoned heatsink decoy to the client's decoder", async () => {
+  it("replicates a jettisoned countermeasure decoy to the client's decoder", async () => {
     const { room, human, internal } = await bootCtfRoom();
     expect(decodeDecoys(room.state.decoys)).toEqual([]);
 
-    // The stock fitting carries the non-jettisonable sink, so swap in the
-    // ablative one on the live module runtime — the JettisonSystem resolves the
-    // config by module id, and this suite is testing replication, not fittings.
     const player = room.state.players.get(human.sessionId)!;
-    const sink = internal.sim.world.modules.get(player.entityId)!.modules.find((m) =>
-      m.moduleId.startsWith("module.heatsink"),
+    const pod = internal.sim.world.modules.get(player.entityId)!.modules.find((m) =>
+      m.moduleId.startsWith("module.countermeasure"),
     )!;
-    sink.moduleId = "module.heatsink-ablative";
-    sink.cycleTimer = 0;
+    expect(pod, "the stock fitting must carry a launchable pod").toBeDefined();
+    pod.cycleTimer = 0;
     const shipPos = { ...internal.sim.world.transforms.get(player.entityId)!.pos };
-    internal.sim.applyOrder(player.entityId, { kind: "jettisonHeatsink" });
+    internal.sim.applyOrder(player.entityId, { kind: "jettisonCountermeasure" });
     await advance(room, 1);
 
     expect(room.state.decoys.size).toBe(1);
@@ -1488,11 +1459,12 @@ describe("ArenaRoom", () => {
     const ps = room.state.players.get(c.sessionId)!;
     expect(ps.hullMax).toBeCloseTo(210, 3);
     expect(ps.hull).toBeCloseTo(210, 3); // spawns at full resolved hull
-    // Heat and energy are PER MODULE since 2026-08-07: the replicated maxima a
-    // client needs are the module stores, not a ship-wide pair.
+    // Energy is PER MODULE since 2026-08-07: the replicated maxima a client
+    // needs are the module stores, not a ship-wide pair. A weapon carries no
+    // tank at all, so its pair is the honest zero.
     const laser = ps.modules[0]!;
-    expect(laser.heatCapacity).toBeCloseTo(100, 3);
-    expect(laser.heat).toBe(0);
+    expect(laser.energyCapacity).toBe(0);
+    expect(laser.energy).toBe(0);
 
     await c.leave();
   });

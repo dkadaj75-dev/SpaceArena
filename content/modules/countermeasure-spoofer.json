@@ -1,36 +1,26 @@
 {
-  "id": "module.heatsink-cryo",
+  "id": "module.countermeasure-spoofer",
   "type": "module",
   "version": 1,
-  "family": "heatsink",
+  "family": "countermeasure",
   "level": 3,
-  "name": "Cryo Sink",
+  "name": "Spoofer Pod",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
-  },
-  "cooling": {
-    "multiplier": 2.1
   },
   "jettison": {
     "cooldownSec": 18,
     "decoyLifetimeSec": 12,
     "decoyRadius": 1.8
   },
-  "passives": [
-    {
-      "target": "heatStore.multiplier",
-      "op": "mul",
-      "value": 1.25
-    }
-  ],
   "onActivate": [
     "action.play-sound-boost-up"
   ],
   "ui": {
-    "icon": "[ICON: heatsink]",
-    "shortName": "Cryo Sink",
-    "label": "Heatsink"
+    "icon": "[ICON: countermeasure]",
+    "shortName": "Spoofer",
+    "label": "Countermeasure"
   },
   "price": 2600,
   "requiresLevel": 5

@@ -1,0 +1,27 @@
+{
+  "id": "module.countermeasure-flare",
+  "type": "module",
+  "version": 1,
+  "family": "countermeasure",
+  "level": 1,
+  "name": "Flare Pod",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "ui": {
+    "icon": "[ICON: countermeasure]",
+    "shortName": "Flares",
+    "label": "Countermeasure"
+  },
+  "price": 0,
+  "requiresLevel": 1,
+  "jettison": {
+    "cooldownSec": 30,
+    "decoyLifetimeSec": 6,
+    "decoyRadius": 1.2
+  },
+  "onActivate": [
+    "action.play-sound-boost-up"
+  ]
+}

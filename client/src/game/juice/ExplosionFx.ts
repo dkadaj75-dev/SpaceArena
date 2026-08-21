@@ -253,7 +253,7 @@ export class ExplosionFx {
     fire.reset();
     fire.color1 = color4(effect.base.color1, new Color4(1, 0.9, 0.55, 1));
     fire.color2 = color4(effect.base.color2, new Color4(1, 0.18, 0.04, 1));
-    // Ash-grey transparent tail makes the fire read as cooling gas, while the
+    // Ash-grey transparent tail makes the fire read as spent gas, while the
     // initial additive core gets the scene GlowLayer's short spike for free.
     fire.colorDead = new Color4(0.22, 0.22, 0.22, 0);
     fire.minLifeTime = effect.base.lifeMin;

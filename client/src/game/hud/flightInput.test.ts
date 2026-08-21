@@ -197,17 +197,15 @@ describe("Shift boost-module lookup", () => {
     hardpointIndex,
     moduleId,
     state: "retracted",
-    heatCapacity: 0,
     energy: 0,
     energyCapacity: 0,
     stateTimer: 0,
-    heat: 0,
     cycleTimer: 0,
     channeling: false,
     shieldPool: 0,
   });
   const configs = {
-    get: (_type: string, id: string) => id.startsWith("module.boost") ? { boost: { speedMult: 1.8, heatPerSec: 5 } } : {},
+    get: (_type: string, id: string) => id.startsWith("module.boost") ? { boost: { speedMult: 1.8 } } : {},
   } as unknown as ConfigService;
 
   it("selects the first fitted boost module and has no target when none is fitted", () => {

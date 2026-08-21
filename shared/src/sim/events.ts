@@ -5,7 +5,7 @@ import type { ModuleState } from "./components.js";
 /**
  * Sim-produced events drained by the caller each tick. The sim never knows about
  * rendering/audio; it only announces what happened by id so a render/HUD layer
- * (or the netcode) can react. Action-id hooks (`onFire`, `onOverheat`, ...) are
+ * (or the netcode) can react. Action-id hooks (`onFire`, `onActivate`, ...) are
  * surfaced here as `actions` arrays — interpretation lives outside the sim.
  */
 export type SimEvent =
@@ -24,13 +24,12 @@ export type SimEvent =
       to: ModuleState;
       actions?: string[];
     }
-  | { type: "overheated"; entityId: EntityId; hardpointIndex: number; moduleId: string; actions?: string[] }
   /**
-   * A ship blew its heatsink clear (owner 2026-07-31): authored heat was purged and
+   * A ship blew its countermeasure pod clear (owner 2026-07-31): the decoy is live and
    * `decoyId` is drifting behind it as a lure. Renderers flash the dump, HUDs
    * start the cooldown readout.
    */
-  | { type: "heatsinkJettisoned"; entityId: EntityId; decoyId: EntityId; moduleId: string; actions?: string[] }
+  | { type: "countermeasureJettisoned"; entityId: EntityId; decoyId: EntityId; moduleId: string; actions?: string[] }
   | {
       type: "projectileFired";
       ownerId: EntityId;

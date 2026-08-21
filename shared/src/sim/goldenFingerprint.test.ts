@@ -196,7 +196,7 @@ function numericOf(snap: Snapshot, events: readonly SimEvent[]): string {
         `${num(s.up.x)},${num(s.up.y)},${num(s.up.z)},${num(s.hull)},${num(s.throttle)},${num(s.lockProgress)}`,
     );
     for (const m of s.modules) {
-      parts.push(`  m${m.hardpointIndex}=${num(m.heat)},${num(m.energy)},${num(m.stateTimer)},${num(m.cycleTimer)},${num(m.shieldPool)}`);
+      parts.push(`  m${m.hardpointIndex}=${num(m.energy)},${num(m.stateTimer)},${num(m.cycleTimer)},${num(m.shieldPool)}`);
     }
   }
   for (const p of snap.projectiles) parts.push(`p${p.id}=${num(p.pos.x)},${num(p.pos.y)},${num(p.pos.z)}`);
@@ -311,11 +311,15 @@ function botVector(ticks: number): Fingerprint {
 }
 
 describe("golden sim fingerprint", () => {
+  // 2026-08-20: re-recorded for the heat deletion. Both digests move for two
+  // reasons that cannot be separated — the per-module `heat` field left the
+  // fingerprint's numeric line, and weapons no longer lock themselves out, so
+  // the same script now fires more shots over the same 600 ticks.
   it("pins the scripted asteroid-field vector", () => {
     const fp = scriptedVector(600);
     expect(fp).toEqual({
-      structure: "e27f84b6",
-      numeric: "e0a6b73d",
+      structure: "ac7c6826",
+      numeric: "d9f6ea95",
       events: 303,
       ticks: 600,
     });
@@ -350,11 +354,15 @@ describe("golden sim fingerprint", () => {
   // faster and is flying under bot control ~1.5 s earlier, so the teams close
   // sooner and 167 → 300 events fit the same 900-tick window. Both digests move,
   // as they must: this changes when and how fast every hull moves.
+  //
+  // 2026-08-20: re-recorded for the heat deletion — see the note on the
+  // scripted vector above. The event count is unchanged at 300; only the
+  // digests move.
   it("pins the ten-bot lunar-rift vector", () => {
     const fp = botVector(900);
     expect(fp).toEqual({
-      structure: "a437bc83",
-      numeric: "144b3acc",
+      structure: "b65a846c",
+      numeric: "61717f98",
       events: 300,
       ticks: 900,
     });

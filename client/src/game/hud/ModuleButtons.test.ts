@@ -3,14 +3,13 @@ import { tuningSchema, type ConfigService, type EventBus, type ConfigEvents, typ
 import type { GameSession } from "../GameSession.js";
 import { MODULE_FAMILY_COLOR_FALLBACKS, ModuleButtons, moduleHudName, resolveModuleFamilyColor } from "./ModuleButtons.js";
 
-function fakeConfigs(heatSystem = true): ConfigService {
+function fakeConfigs(): ConfigService {
   const tuning = tuningSchema.parse({
     id: "tuning.test",
     type: "tuning",
     version: 1,
     targetingPolicy: "nearest",
     globalDamageMult: 1,
-    featureFlags: { heatSystem },
   });
   const modules: Record<string, Partial<ModuleConfig>> = {
     "module.laser-mk1": {
@@ -18,7 +17,6 @@ function fakeConfigs(heatSystem = true): ConfigService {
       family: "laser",
       ui: { icon: "L", label: "Laser", shortName: "Laser Mk1" },
       activation: { deployTime: 1, retractTime: 1 },
-      heat: { capacity: 55, coolingPerSec: 8, perSecondActive: 0, perShot: 6, rearmBelow: 0.25 },
       fire: {
         mode: "held",
         range: 38,
@@ -43,7 +41,6 @@ function fakeConfigs(heatSystem = true): ConfigService {
       family: "missile",
       ui: { icon: "M", label: "Missile", shortName: "Missile Mk1" },
       activation: { deployTime: 1, retractTime: 1 },
-      heat: { capacity: 100, coolingPerSec: 25, perSecondActive: 0, perShot: 58, rearmBelow: 0.25 },
       fire: {
         mode: "semi",
         range: 55,
@@ -59,7 +56,6 @@ function fakeConfigs(heatSystem = true): ConfigService {
       family: "kinetic",
       ui: { icon: "K", label: "Autocannon", shortName: "Cannon Mk1" },
       activation: { deployTime: 0.4, retractTime: 0.3 },
-      heat: { capacity: 100, coolingPerSec: 25, perSecondActive: 0, perShot: 20, rearmBelow: 0.25 },
       fire: {
         mode: "held", range: 75, cycleTime: 0.3, damage: 5.9, damageType: "kinetic",
         projectile: { speed: 60, lifetime: 1.5 }, requiresLineOfSight: true,
@@ -77,10 +73,8 @@ function snapshotWithModules(
   modules: {
     hardpointIndex: number;
     moduleId: string;
-    state: "retracted" | "active" | "overheated" | "reloading";
+    state: "retracted" | "active" | "reloading";
     stateTimer?: number;
-    heat?: number;
-    heatCapacity?: number;
     energy?: number;
     energyCapacity?: number;
     cycleTimer?: number;
@@ -114,8 +108,6 @@ function snapshotWithModules(
           ...m,
           stateTimer: m.stateTimer ?? 0,
           rounds: m.rounds ?? 0,
-          heat: m.heat ?? 0,
-          heatCapacity: m.heatCapacity ?? 0,
           energy: m.energy ?? 0,
           energyCapacity: m.energyCapacity ?? 0,
           cycleTimer: m.cycleTimer ?? 0,
@@ -245,7 +237,7 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     buttons.dispose();
   });
 
-  it("reflects armed/cooling/no-energy/unarmable weapon states without applying them to shields", () => {
+  it("reflects armed/counting-down/no-energy/unarmable weapon states without applying them to shields", () => {
     const root = document.createElement("div");
     const buttons = new ModuleButtons(
       root,
@@ -258,7 +250,7 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     buttons.update(
       snapshotWithModules(
         [
-          { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", cycleTimer: 0.4, heat: 20, heatCapacity: 50 },
+          { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", cycleTimer: 0.4 },
           { hardpointIndex: 1, moduleId: "module.missile-mk1", state: "active" },
           { hardpointIndex: 2, moduleId: "module.shield-mk1", state: "active" },
         ],
@@ -267,14 +259,16 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     );
     const [laser, missile, shield] = [...root.querySelectorAll<HTMLElement>(".hud-module-btn")];
     expect(laser!.classList).toContain("armed");
-    expect(laser!.classList).toContain("cooling");
+    expect(laser!.classList).toContain("on-cooldown");
     // Straight-fire weapons (2026-07-31) shoot without a lock — never greyed.
     expect(laser!.classList).not.toContain("unarmable");
-    expect(laser!.style.getPropertyValue("--ring")).toBe("40");
+    // The cooldown ring FILLS as the cycle burns off: 0.4 s left of a 1 s
+    // cycle is 60% of the way back to ready.
+    expect(laser!.style.getPropertyValue("--ring")).toBe("60");
     // Homing missiles still hard-require the lock, so THEY grey out.
     expect(missile!.classList).toContain("unarmable");
     expect(shield!.classList).not.toContain("armed");
-    expect(shield!.classList).not.toContain("cooling");
+    expect(shield!.classList).not.toContain("on-cooldown");
     expect(shield!.classList).not.toContain("unarmable");
 
     buttons.update(
@@ -285,7 +279,7 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     );
     const retracted = root.querySelector(".hud-module-btn")!;
     expect(retracted.classList).toContain("no-energy");
-    expect(retracted.classList).not.toContain("cooling");
+    expect(retracted.classList).not.toContain("on-cooldown");
     expect(retracted.classList).not.toContain("unarmable");
     buttons.dispose();
   });
@@ -308,56 +302,46 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     buttons.dispose();
   });
 
-  it("renders heat and energy rings from replicated module-local capacities", () => {
+  it("renders a weapon COOLDOWN ring and an energy ring from replicated module state", () => {
     const root = document.createElement("div");
     const buttons = new ModuleButtons(root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1);
+    // The laser's authored cycleTime is 1 s, so 0.75 s left reads as a quarter
+    // of the way back to ready — the ring FILLS as the countdown burns off.
     buttons.update(snapshotWithModules([
-      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", heat: 25, heatCapacity: 100 },
+      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", cycleTimer: 0.75 },
       { hardpointIndex: 1, moduleId: "module.shield-mk1", state: "active", energy: 30, energyCapacity: 60 },
-      { hardpointIndex: 2, moduleId: "module.missile-mk1", state: "active", heat: 12, heatCapacity: 0 },
+      { hardpointIndex: 2, moduleId: "module.missile-mk1", state: "active" },
     ]));
 
-    const heat = root.querySelector<HTMLElement>('[aria-label="Pulse Laser Mk I"]')!;
+    const counting = root.querySelector<HTMLElement>('[aria-label="Pulse Laser Mk I"]')!;
     const energy = root.querySelector<HTMLElement>('[aria-label="Deflector Shield Mk I"]')!;
     const none = root.querySelector<HTMLElement>('[aria-label="Seeker Missile Mk I"]')!;
-    expect(heat!.classList).toContain("ring-heat");
-    expect(heat!.style.getPropertyValue("--ring")).toBe("25");
-    expect(energy!.classList).toContain("ring-energy");
-    expect(energy!.style.getPropertyValue("--ring")).toBe("50");
-    expect(none!.classList).not.toContain("ring-heat");
-    expect(none!.classList).not.toContain("ring-energy");
-    expect(none!.querySelector<HTMLElement>(".ring")!.hidden).toBe(true);
+    expect(counting.classList).toContain("ring-cooldown");
+    expect(counting.style.getPropertyValue("--ring")).toBe("25");
+    expect(energy.classList).toContain("ring-energy");
+    expect(energy.style.getPropertyValue("--ring")).toBe("50");
+    // A ready weapon with no tank has no ring at all.
+    expect(none.classList).not.toContain("ring-cooldown");
+    expect(none.classList).not.toContain("ring-energy");
+    expect(none.querySelector<HTMLElement>(".ring")!.hidden).toBe(true);
     buttons.dispose();
   });
 
-  it("hides weapon heat rings when featureFlags.heatSystem is off", () => {
-    const root = document.createElement("div");
-    const buttons = new ModuleButtons(root, fakeConfigs(false), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1);
-    buttons.update(snapshotWithModules([
-      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", heat: 25, heatCapacity: 100 },
-    ]));
-    const button = root.querySelector<HTMLElement>(".hud-module-btn")!;
-    expect(button.classList).not.toContain("ring-heat");
-    expect(button.querySelector<HTMLElement>(".ring")!.hidden).toBe(true);
-    buttons.dispose();
-  });
-
-  it("shifts heat to danger above 80% and forces a full ring on lockout", () => {
+  it("clears the cooldown ring the moment the weapon is ready again", () => {
     const root = document.createElement("div");
     const buttons = new ModuleButtons(root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1);
     buttons.update(snapshotWithModules([
-      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", heat: 81, heatCapacity: 100 },
+      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", cycleTimer: 0.5 },
     ]));
     const button = root.querySelector<HTMLElement>(".hud-module-btn")!;
-    expect(button.classList).toContain("ring-danger");
-    expect(button.style.getPropertyValue("--ring")).toBe("81");
+    expect(button.classList).toContain("ring-cooldown");
+    expect(button.style.getPropertyValue("--ring")).toBe("50");
 
     buttons.update(snapshotWithModules([
-      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "overheated", heat: 72, heatCapacity: 100 },
+      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active", cycleTimer: 0 },
     ]));
-    expect(button.classList).toContain("state-overheated");
-    expect(button.classList).toContain("ring-danger");
-    expect(button.style.getPropertyValue("--ring")).toBe("100");
+    expect(button.classList).not.toContain("ring-cooldown");
+    expect(button.querySelector<HTMLElement>(".ring")!.hidden).toBe(true);
     buttons.dispose();
   });
 });

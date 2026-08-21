@@ -38,7 +38,6 @@ export interface ShipUpgradeRow {
   hull_lvl: number;
   engine_lvl: number;
   energy_lvl: number;
-  heat_lvl: number;
 }
 
 export interface OwnedModuleRow {
@@ -118,7 +117,6 @@ const TRACK_COLUMN: Record<UpgradeTrackName, keyof ShipUpgradeRow> = {
   hull: "hull_lvl",
   engine: "engine_lvl",
   energy: "energy_lvl",
-  heat: "heat_lvl",
 };
 
 // ---------------------------------------------------------------------------

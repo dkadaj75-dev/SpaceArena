@@ -51,7 +51,7 @@ export const hudModulesSchema = z.object({
       engine: z.string().optional(),
       generator: z.string().optional(),
       transformer: z.string().optional(),
-      heatsink: z.string().optional(),
+      countermeasure: z.string().optional(),
       sensors: z.string().optional(),
     })
     .optional(),
@@ -543,8 +543,6 @@ export const audioCuesSchema = z.object({
   playerKill: soundRef.optional(),
   /** The local player's ship being destroyed. */
   playerDeath: soundRef.optional(),
-  /** One of the local player's modules force-shutting on overheat. */
-  overheat: soundRef.optional(),
   /** The local player's ship touching the arena boundary. */
   boundaryWarning: soundRef.optional(),
   /** The local player's sensors completing a lock (FLIGHT.md §2/§4). */
@@ -1038,15 +1036,13 @@ export const themeSchema = z.object({
     .object({
       /** Master switch — false silences every cue regardless of pattern. */
       enabled: z.boolean().optional(),
-      /** Played when one of the player's own modules force-shuts on overheat. */
-      overheatPattern: z.array(z.number().int().nonnegative()).optional(),
       /** Played when the player destroys an enemy ship. */
       killPattern: z.array(z.number().int().nonnegative()).optional(),
       /**
        * Played the instant the player's sensors complete a lock (FLIGHT.md §4).
        * The lock flip is the moment weapons come live, so it gets its own cue —
        * a short double tick reads as "you may fire" without competing with the
-       * heavier overheat/kill buzzes.
+       * heavier kill buzzes.
        */
       lockPattern: z.array(z.number().int().nonnegative()).optional(),
       /** Played when FIRE is pulled without a completed target lock. */

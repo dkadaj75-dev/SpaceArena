@@ -436,10 +436,10 @@ export class ArenaRoom extends Room<ArenaState> {
    * (base stats). Counts feed the shared stat resolver at spawn.
    */
   private loadUpgradeLevels(userId: string | null, shipId: string): UpgradeLevels {
-    if (!userId) return { hull: 0, engine: 0, energy: 0, heat: 0 };
+    if (!userId) return { hull: 0, engine: 0, energy: 0 };
     const row = shipUpgradesRepo.get(userId, shipId);
-    if (!row) return { hull: 0, engine: 0, energy: 0, heat: 0 };
-    return { hull: row.hull_lvl, engine: row.engine_lvl, energy: row.energy_lvl, heat: row.heat_lvl };
+    if (!row) return { hull: 0, engine: 0, energy: 0 };
+    return { hull: row.hull_lvl, engine: row.engine_lvl, energy: row.energy_lvl };
   }
 
   private resolveDisplayName(userId: string | null, options: JoinOptions): string {
@@ -732,9 +732,9 @@ export class ArenaRoom extends Room<ArenaState> {
         }
         return null;
       }
-      case "jettisonHeatsink":
+      case "jettisonCountermeasure":
         // Takes no arguments, so there is nothing to malform. Whether the fitted
-        // sink CAN be jettisoned (and is off cooldown) is a sim rule, not a
+        // pod CAN be jettisoned (and is off cooldown) is a sim rule, not a
         // validation one — an ineligible order is simply spent doing nothing.
         return null;
     }

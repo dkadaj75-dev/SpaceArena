@@ -32,7 +32,7 @@ describe("floored-arena bot avoidance", () => {
       orderJitterMs: 0,
       preferredRange: [10, 20],
       behaviors: { dive: { baseWeight: 1 } },
-      moduleDiscipline: { heatShutdownAt: 0.9, reactivateBelow: 0.5, energyReserve: 0, shieldOnlyWhenEngaged: false },
+      moduleDiscipline: { energyReserve: 0, shieldOnlyWhenEngaged: false },
     });
     const driver = new BotDriver({
       entityId: id,
@@ -143,7 +143,7 @@ describe("floored-arena bot avoidance", () => {
         orderJitterMs: 0,
         preferredRange: [10, 20],
         behaviors: { idle: { baseWeight: 1 } },
-        moduleDiscipline: { heatShutdownAt: 0.9, reactivateBelow: 0.5, energyReserve: 0, shieldOnlyWhenEngaged: false },
+        moduleDiscipline: { energyReserve: 0, shieldOnlyWhenEngaged: false },
       });
       const driver = new BotDriver({
         entityId: id,

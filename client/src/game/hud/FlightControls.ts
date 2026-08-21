@@ -215,7 +215,7 @@ export class FlightControls {
     this.boostButton = new BoostButton(this.container, layout, (hardpointIndex) =>
       this.toggleBoost(hardpointIndex),
     );
-    this.jettisonButton = new JettisonButton(this.container, layout, () => this.jettisonHeatsink());
+    this.jettisonButton = new JettisonButton(this.container, layout, () => this.jettisonCountermeasure());
     this.canvasFire = new CanvasFireInput(binding.inputSurface);
     this.reticle = new LockReticle(this.container, layout);
     this.enemyArrows = new EnemyArrows(this.container, layout);
@@ -530,7 +530,7 @@ export class FlightControls {
 
   /**
    * Human boost intent is the boost module's replicated toggle state. This is
-   * deliberately separate from the sim's energy/heat eligibility check: an
+   * deliberately separate from the sim's energy eligibility check: an
    * active module keeps requesting boost, and the sim continues to decide
    * whether that request can work on each tick.
    */
@@ -562,8 +562,8 @@ export class FlightControls {
   }
 
   /** The wire order is shared by offline GameSession and NetGameSession. */
-  private jettisonHeatsink(): void {
-    this.session.order({ kind: "jettisonHeatsink" });
+  private jettisonCountermeasure(): void {
+    this.session.order({ kind: "jettisonCountermeasure" });
   }
 
   private refreshJettisonState(ship: ShipSnapshot): void {

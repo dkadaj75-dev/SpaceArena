@@ -96,22 +96,20 @@ export function spawnShipFromConfig(
       throw new Error(`module ${moduleId} (family '${modCfg.family}') not accepted by hardpoint ${hardpointIndex} of ${shipId} (accepts ${hp.accepts.join(", ")})`);
     }
     // Per-module stores are resolved ONCE, here, against the hull that carries
-    // them (heat/energy overhaul 2026-08-07): the runtime then owns absolute
+    // them (energy overhaul 2026-08-07): the runtime then owns absolute
     // numbers, so every consumer — sim, snapshot, HUD ring — reads
-    // `heat / heatCapacity` without re-deriving a multiplier chain per tick.
+    // `energy / energyCapacity` without re-deriving a multiplier chain per tick.
     const core = world.shipCores.get(id)!;
     modules.push({
       moduleId,
       hardpointIndex,
       // Weapons come up ONLINE at spawn and respawn alike — their limiter is
-      // heat, not the deploy toggle. Internals are normally always on by
-      // nature, except a boost-capable engine: boost is a deliberate,
+      // their cycle time, not the deploy toggle. Internals are normally always
+      // on by nature, except a boost-capable engine: boost is a deliberate,
       // energy-priced activation and starts DISABLED on every fresh hull.
       state: modCfg.fire || (isInternalFamily(modCfg.family) && !modCfg.boost) ? "active" : "retracted",
       stateTimer: 0,
       rounds: modCfg.fire?.clip?.size ?? 0,
-      heat: 0,
-      heatCapacity: modCfg.heat ? modCfg.heat.capacity * core.heatStore.multiplier : 0,
       // Tanks spawn FULL: a pilot leaves the pad with a charged boost bottle and
       // a charged shield, and pays for what they spend from there.
       energy: modCfg.energy ? modCfg.energy.capacity * core.energyStore.multiplier : 0,

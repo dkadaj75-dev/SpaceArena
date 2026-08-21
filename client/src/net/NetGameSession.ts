@@ -1080,7 +1080,7 @@ export class NetGameSession extends GameSession {
     const levels = this.upgradeLevels;
     let key = cfg.id;
     for (const m of player.modules) key += `|${m.moduleId}`;
-    if (levels) key += `|${levels.hull},${levels.engine},${levels.energy},${levels.heat}`;
+    if (levels) key += `|${levels.hull},${levels.engine},${levels.energy}`;
     if (key !== this.statsKey || !this.statsEngine) {
       const fittedModuleIds = player.modules.map((m) => m.moduleId);
       const core = resolveShipStats(cfg, this.netConfigs, { fittedModuleIds, upgradeLevels: levels });
@@ -1099,9 +1099,9 @@ export class NetGameSession extends GameSession {
 
   /**
    * Boost multiplier for the predictor. The sim only grants boost while the
-   * module is `active` WITH energy and heat headroom (`resolveBoostMult`), so
+   * module is `active` WITH energy headroom (`resolveBoostMult`), so
    * gate on the replicated module state too — an unspent boost request would
-   * otherwise predict a speed the server never gives. Energy/heat headroom is
+   * otherwise predict a speed the server never gives. Energy headroom is
    * left to the correction blend: it is a per-tick server-side condition, and
    * predicting it wrong costs a fraction of a tick, not a persistent offset.
    */

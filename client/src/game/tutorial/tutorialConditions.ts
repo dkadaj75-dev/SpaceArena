@@ -19,10 +19,6 @@ export interface StepSignals {
   turned: number;
   /** Shots the player's weapons have got off. */
   shots: number;
-  /** Highest weapon-heat fraction seen on any of the player's racks. */
-  peakHeat: number;
-  /** Weapon-heat fraction on the rack that peaked, right now. */
-  heat: number;
   /** Module families the player has brought UP. */
   toggled: ReadonlySet<ModuleFamily>;
   /** The sim reported a completed lock for the player. */
@@ -58,8 +54,6 @@ export function emptySignals(): MutableStepSignals {
     throttle: 0,
     turned: 0,
     shots: 0,
-    peakHeat: 0,
-    heat: 0,
     toggled: new Set(),
     locked: false,
     killed: new Set(),
@@ -86,10 +80,6 @@ export function conditionMet(condition: TutorialCondition, s: StepSignals): bool
       return s.turned >= condition.radians;
     case "fired":
       return s.shots >= condition.shots;
-    // Both halves, in order: the rack has to have been hot AND have come back
-    // down. Testing only the second half would pass on a weapon never fired.
-    case "heat-above-then-cooled":
-      return s.peakHeat >= condition.peak && s.heat <= condition.cooled;
     case "module-toggled":
       return condition.family === undefined ? s.toggled.size > 0 : s.toggled.has(condition.family);
     case "lock-acquired":

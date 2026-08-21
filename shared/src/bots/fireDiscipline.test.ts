@@ -23,15 +23,13 @@ function profile(): BotprofileConfig {
     preferredRange: [20, 35],
     behaviors: { engage: { baseWeight: 1 } },
     moduleDiscipline: {
-      heatShutdownAt: 0.85,
-      reactivateBelow: 0.5,
       energyReserve: 0.15,
       shieldOnlyWhenEngaged: true,
     },
   });
 }
 
-function ship(id: number, team: number, x: number, locked: boolean, heat = 0): ShipSnapshot {
+function ship(id: number, team: number, x: number, locked: boolean): ShipSnapshot {
   return {
     id,
     team,
@@ -50,8 +48,6 @@ function ship(id: number, team: number, x: number, locked: boolean, heat = 0): S
         moduleId: "module.laser-mk1",
         hardpointIndex: 0,
         state: "active",
-        heat,
-        heatCapacity: 100,
         energy: 0,
         energyCapacity: 0,
       stateTimer: 0,
@@ -64,8 +60,8 @@ function ship(id: number, team: number, x: number, locked: boolean, heat = 0): S
   };
 }
 
-function context(locked: boolean, heat = 0) {
-  const self = ship(1, 0, 0, locked, heat);
+function context(locked: boolean) {
+  const self = ship(1, 0, 0, locked);
   const enemy = ship(2, 1, 20, false);
   const snapshot: Snapshot = {
     tick: 30,
@@ -96,7 +92,6 @@ function context(locked: boolean, heat = 0) {
 describe("fireDiscipline", () => {
   const discipline = {
     engageRangeMult: 1,
-    heatHeadroom: 0.8,
     minEnergyFraction: 0.2,
   };
 
@@ -112,25 +107,6 @@ describe("fireDiscipline", () => {
       fire: true,
       reason: "fire",
     });
-  });
-
-  it("stops at the configured armed-module heat headroom", () => {
-    // The bench snapshot gives every rack a capacity of 100 (see `ship`), which
-    // is what a per-module heat fraction is measured against now.
-    const capacity = 100;
-    expect(decideFire(context(true, capacity * 0.8), configs, discipline, true)).toEqual({
-      fire: false,
-      reason: "heat-headroom",
-    });
-  });
-
-  it("holds through cooling and re-arms at the configured hysteresis floor", () => {
-    const capacity = 100;
-    const state = { heatHeld: false };
-    const hysteretic = { ...discipline, rearmHeatBelow: 0.4 };
-    expect(decideFire(context(true, capacity * 0.81), configs, hysteretic, true, state).fire).toBe(false);
-    expect(decideFire(context(true, capacity * 0.6), configs, hysteretic, true, state).fire).toBe(false);
-    expect(decideFire(context(true, capacity * 0.4), configs, hysteretic, true, state).fire).toBe(true);
   });
 
   it("holds fire outside the authored armed-weapon envelope", () => {
@@ -159,7 +135,7 @@ describe("fireDiscipline", () => {
       },
     };
     expect(decideFire(drained, configs, discipline, true)).toEqual({ fire: false, reason: "energy-floor" });
-    // …while the shipped, tank-less weapons keep firing on heat alone.
+    // …while the shipped, tank-less weapons keep firing on their cycle alone.
     expect(decideFire({ ...ctx, energyFraction: 0.1 }, configs, discipline, true)).toEqual({
       fire: true,
       reason: "fire",

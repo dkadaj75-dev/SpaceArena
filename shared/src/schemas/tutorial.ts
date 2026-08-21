@@ -69,16 +69,6 @@ export const tutorialCondition = z.discriminatedUnion("kind", [
   /** The player's weapons fired at least `shots` times. */
   z.object({ kind: z.literal("fired"), shots: z.number().int().positive() }),
   /**
-   * The lesson of the heat ring, in one condition: fill a weapon's rack past
-   * `peak`, then let it fall back under `cooled`. Both as 0..1 fractions of the
-   * module's own resolved heat capacity.
-   */
-  z.object({
-    kind: z.literal("heat-above-then-cooled"),
-    peak: z.number().min(0).max(1),
-    cooled: z.number().min(0).max(1),
-  }),
-  /**
    * The player brought a module up. `family` narrows it to one kind of module
    * (the shield, for the energy lesson); omitted ⇒ any module at all.
    */
@@ -156,7 +146,7 @@ export const tutorialSchema = z.object({
   arena: configId.optional(),
   /**
    * What the player flies for the lesson — authored, NOT the hangar loadout.
-   * The flow teaches a specific heat ring and a specific energy ring, so it has
+   * The flow teaches a specific energy ring, so it has
    * to know a weapon and a shield are actually fitted.
    */
   pilot: z.object({

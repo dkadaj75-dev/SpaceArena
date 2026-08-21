@@ -15,7 +15,7 @@
       "module.engine-civ",
       "module.generator-compact",
       "module.transformer-stock",
-      "module.heatsink-basic",
+      "module.countermeasure-flare",
       "module.sensors-basic",
       null
     ]
@@ -43,10 +43,10 @@
       "id": "guns",
       "stage": "flight",
       "title": "GUNS",
-      "text": "Hold FIRE. Watch the ring around the trigger: that is HEAT. Fill it and the rack cuts out until it cools.",
-      "hint": "Hold FIRE (or SPACE) until the ring is nearly full, then let it breathe.",
+      "text": "Tap a WEAPON to fire it. The ring around the button is its cooldown — hold the button down and the rack fires again the instant that ring clears.",
+      "hint": "Tap the weapon button (or SPACE), then hold it and watch the ring cycle.",
       "highlight": "fire",
-      "condition": { "kind": "heat-above-then-cooled", "peak": 0.8, "cooled": 0.35 }
+      "condition": { "kind": "fired", "shots": 6 }
     },
     {
       "id": "shields",
@@ -77,7 +77,7 @@
       "id": "kill-dummy",
       "stage": "flight",
       "title": "WEAPONS FREE",
-      "text": "It is a hulk, not a friend. Take it apart — and mind the heat while you do it.",
+      "text": "It is a hulk, not a friend. Take it apart — and mind your cooldowns while you do it.",
       "condition": { "kind": "kill", "target": "dummy" },
       "holdMs": 900
     },
@@ -97,7 +97,7 @@
           "module.engine-civ",
           "module.generator-compact",
           "module.transformer-stock",
-          "module.heatsink-basic",
+          "module.countermeasure-flare",
           "module.sensors-basic"
         ],
         "aheadDistance": 62,
@@ -128,7 +128,7 @@
       "stage": "hangar",
       "title": "FITTING",
       "text": "Every socket is a decision. Pick a slot and put something in it — buy it if you have to. The first one is on us.",
-      "hint": "Tap a slot, then EQUIP. Watch the power and heat bars move.",
+      "hint": "Tap a slot, then EQUIP. Watch the power bar move.",
       "highlight": "hangar-slots",
       "condition": { "kind": "loadout-changed" },
       "holdMs": 700

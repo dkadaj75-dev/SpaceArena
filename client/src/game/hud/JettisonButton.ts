@@ -5,7 +5,7 @@ import { moduleIconSvg } from "./moduleIcons.js";
 export const JETTISON_LABEL = "JETTISON";
 
 export interface JettisonButtonState {
-  /** A fitted heatsink has authored a jettison block. */
+  /** A fitted countermeasure pod has authored a jettison block. */
   fitted: boolean;
   /** Seconds before the sim will accept another jettison. */
   cooldownSec: number;
@@ -15,14 +15,14 @@ export interface JettisonButtonState {
 
 const ABSENT: JettisonButtonState = { fitted: false, cooldownSec: 0, cooldownTotalSec: 0 };
 
-/** Dedicated action for a jettisonable fitted heatsink. */
+/** Dedicated action for a jettisonable fitted countermeasure pod. */
 export class JettisonButton {
   private readonly container: HTMLDivElement;
   private readonly button: HTMLDivElement;
   private readonly ring: HTMLSpanElement;
   private state = ABSENT;
   private lastFitted: boolean | null = null;
-  private lastCooling: boolean | null = null;
+  private lastCooldown: boolean | null = null;
   private lastRing = -1;
   private pointerId: number | null = null;
 
@@ -55,7 +55,7 @@ export class JettisonButton {
     this.ring.setAttribute("aria-hidden", "true");
     const icon = document.createElement("span");
     icon.className = "icon";
-    icon.innerHTML = moduleIconSvg("heat-sink");
+    icon.innerHTML = moduleIconSvg("countermeasure");
     const label = document.createElement("span");
     label.className = "label";
     label.textContent = JETTISON_LABEL;
@@ -113,14 +113,14 @@ export class JettisonButton {
       this.lastFitted = state.fitted;
     }
     if (!state.fitted) return;
-    const cooling = state.cooldownSec > 0;
-    if (cooling !== this.lastCooling) {
-      this.button.classList.toggle("disabled", cooling);
-      if (cooling) this.button.setAttribute("aria-disabled", "true");
+    const onCooldown = state.cooldownSec > 0;
+    if (onCooldown !== this.lastCooldown) {
+      this.button.classList.toggle("disabled", onCooldown);
+      if (onCooldown) this.button.setAttribute("aria-disabled", "true");
       else this.button.removeAttribute("aria-disabled");
-      this.lastCooling = cooling;
+      this.lastCooldown = onCooldown;
     }
-    const ring = cooling && state.cooldownTotalSec > 0 ? Math.round((100 * state.cooldownSec) / state.cooldownTotalSec) : 0;
+    const ring = onCooldown && state.cooldownTotalSec > 0 ? Math.round((100 * state.cooldownSec) / state.cooldownTotalSec) : 0;
     if (ring !== this.lastRing) {
       this.button.style.setProperty("--ring", String(Math.max(0, Math.min(100, ring))));
       this.lastRing = ring;

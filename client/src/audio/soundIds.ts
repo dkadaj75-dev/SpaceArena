@@ -84,9 +84,8 @@ export function soundSourceEntity(event: SimEvent): EntityId | null {
   switch (event.type) {
     case "projectileFired":
       return event.ownerId;
-    case "overheated":
     case "moduleStateChanged":
-    case "heatsinkJettisoned":
+    case "countermeasureJettisoned":
       return event.entityId;
     default:
       return null;
@@ -94,7 +93,7 @@ export function soundSourceEntity(event: SimEvent): EntityId | null {
 }
 
 /** The module hook whose action ids an event carries (or would carry). */
-export type ModuleHook = "onFire" | "onOverheat" | "onActivate" | "onDeactivate";
+export type ModuleHook = "onFire" | "onActivate" | "onDeactivate";
 
 /**
  * Which module action hook a sim event corresponds to, or null when the event
@@ -105,8 +104,6 @@ export function moduleHookFor(event: SimEvent): ModuleHook | null {
   switch (event.type) {
     case "projectileFired":
       return "onFire";
-    case "overheated":
-      return "onOverheat";
     case "moduleStateChanged":
       return event.to === "deploying" || event.to === "active" ? "onActivate" : "onDeactivate";
     default:
@@ -161,7 +158,6 @@ export interface AudioCueMap {
   shieldAbsorb: string | null;
   playerKill: string | null;
   playerDeath: string | null;
-  overheat: string | null;
   boundaryWarning: string | null;
   /** Sensors completing a lock on the local player's candidate (FLIGHT.md §2/§4). */
   lockAcquired: string | null;
@@ -223,7 +219,6 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
     shieldAbsorb: null,
     playerKill: null,
     playerDeath: null,
-    overheat: null,
     boundaryWarning: null,
     lockAcquired: null,
     lockLost: null,
@@ -272,7 +267,6 @@ export function audioSettingsOf(theme: ThemeConfig | undefined): AudioSettings {
       shieldAbsorb: resolveSoundId(cues?.shieldAbsorb),
       playerKill: resolveSoundId(cues?.playerKill),
       playerDeath: resolveSoundId(cues?.playerDeath),
-      overheat: resolveSoundId(cues?.overheat),
       boundaryWarning: resolveSoundId(cues?.boundaryWarning),
       lockAcquired: resolveSoundId(cues?.lockAcquired),
       lockLost: resolveSoundId(cues?.lockLost),
@@ -301,8 +295,6 @@ export function cueSoundFor(event: SimEvent, playerId: EntityId, cues: AudioCueM
       if (event.entityId === playerId) return cues.playerDeath;
       return event.killerId === playerId ? cues.playerKill : null;
     }
-    case "overheated":
-      return event.entityId === playerId ? cues.overheat : null;
     case "boundaryHit":
       return event.entityId === playerId && event.rule !== "bounce" ? cues.boundaryWarning : null;
     // Lock flips (FLIGHT.md §4). Both directions get a cue: unlike the haptic,

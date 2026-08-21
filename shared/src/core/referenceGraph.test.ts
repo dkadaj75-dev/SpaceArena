@@ -33,7 +33,6 @@ const moduleOf = (id: string, family: string, hooks: Record<string, string[]> = 
   family,
   level: 1,
   activation: { deployTime: 0, retractTime: 0 },
-  heat: { capacity: 1, coolingPerSec: 1, perSecondActive: 0 },
   ui: { icon: "i", label: "l" },
   price: 0,
   requiresLevel: 1,
@@ -52,7 +51,6 @@ function pack(): Record<string, Record<string, unknown>> {
         "u-hull.json",
         "u-engine.json",
         "u-energy.json",
-        "u-heat.json",
         "m-laser.json",
         "m-shield.json",
         "ship.json",
@@ -87,10 +85,8 @@ function pack(): Record<string, Record<string, unknown>> {
     "u-hull.json": upgradeOf("upgrade.hull", "hull"),
     "u-engine.json": upgradeOf("upgrade.engine", "engine"),
     "u-energy.json": upgradeOf("upgrade.energy", "energy"),
-    "u-heat.json": upgradeOf("upgrade.heat", "heat"),
     "m-laser.json": moduleOf("module.laserx", "laser", {
       onFire: ["action.sound"],
-      onOverheat: ["action.notify"],
     }),
     "m-shield.json": moduleOf("module.shieldx", "shield", {
       onActivate: ["action.sound"],
@@ -110,7 +106,6 @@ function pack(): Record<string, Record<string, unknown>> {
         hull: "upgrade.hull",
         engine: "upgrade.engine",
         energy: "upgrade.energy",
-        heat: "upgrade.heat",
       },
       sockets: [
         { id: "hp0", kind: "hardpoint", transform: { pos: [0, 0, 1] }, accepts: ["laser"] },
@@ -148,18 +143,18 @@ function pack(): Record<string, Record<string, unknown>> {
           redColor: "#ff405c",
           hexDensity: 24,
           hexLineWidth: 0.012,
-          warningNotification: "notification.overheat",
+          warningNotification: "notification.boundary",
         },
       },
     },
     "notification.json": {
-      id: "notification.overheat",
+      id: "notification.boundary",
       type: "notification",
       version: 1,
-      text: "Overheating",
+      text: "Turn back",
       style: "warning",
       durationMs: 2000,
-      triggerEvent: "event.overheat",
+      triggerEvent: "event.boundary",
     },
     "action-sound.json": { id: "action.sound", type: "action", version: 1, kind: "play_sound", params: { sound: "beep" } },
     "action-notify.json": {
@@ -167,9 +162,9 @@ function pack(): Record<string, Record<string, unknown>> {
       type: "action",
       version: 1,
       kind: "show_notification",
-      params: { notification: "notification.overheat" },
+      params: { notification: "notification.boundary" },
     },
-    "event.json": { id: "event.overheat", type: "event", version: 1, trigger: "on_overheat", actions: ["action.notify", "action.sound"] },
+    "event.json": { id: "event.boundary", type: "event", version: 1, trigger: "on_shield_down", actions: ["action.notify", "action.sound"] },
     "bot.json": {
       id: "bot.ref",
       type: "botprofile",
@@ -178,7 +173,7 @@ function pack(): Record<string, Record<string, unknown>> {
       orderJitterMs: 0,
       preferredRange: [10, 20],
       behaviors: { engage: { baseWeight: 1 } },
-      moduleDiscipline: { heatShutdownAt: 0.8, reactivateBelow: 0.4, energyReserve: 0.1, shieldOnlyWhenEngaged: false },
+      moduleDiscipline: { energyReserve: 0.1, shieldOnlyWhenEngaged: false },
     },
     "gamemode.json": {
       id: "gamemode.ref",
@@ -234,7 +229,7 @@ describe("reference resolution — the reference-clean baseline", () => {
     const result = await svc.load("manifest.json");
     expect(result.errors).toEqual([]);
     expect(result.ok).toBe(true);
-    expect(result.counts).toMatchObject({ ship: 1, module: 2, upgrade: 4, arena: 1, gamemode: 1 });
+    expect(result.counts).toMatchObject({ ship: 1, module: 2, upgrade: 3, arena: 1, gamemode: 1 });
   });
 });
 
@@ -261,7 +256,6 @@ describe("reference resolution — ship edges", () => {
 describe("reference resolution — module action hooks", () => {
   it.each([
     ["onFire", "m-laser.json"],
-    ["onOverheat", "m-laser.json"],
     ["onActivate", "m-shield.json"],
     ["onDeactivate", "m-shield.json"],
   ])("flags a dangling %s hook", async (hook, file) => {
@@ -438,8 +432,8 @@ describe("reference resolution — wrong-type references are load errors", () =>
   });
 
   it("flags an event action pointing at a notification", async () => {
-    await expectTypeMismatch("actions[0]", "notification.overheat", "notification", "action", (f) => {
-      f["event.json"]!["actions"] = ["notification.overheat"];
+    await expectTypeMismatch("actions[0]", "notification.boundary", "notification", "action", (f) => {
+      f["event.json"]!["actions"] = ["notification.boundary"];
     });
   });
 
@@ -450,11 +444,11 @@ describe("reference resolution — wrong-type references are load errors", () =>
     const before = svc.get("module", "module.laserx");
     const res = svc.replace({
       ...(pack()["m-laser.json"] as Record<string, unknown>),
-      onFire: ["notification.overheat"],
+      onFire: ["notification.boundary"],
     });
     expect(res.ok).toBe(false);
     expect(res.errors[0]?.path).toBe("onFire[0]");
-    expect(res.errors[0]?.message).toContain('"notification.overheat" is a notification config, expected action');
+    expect(res.errors[0]?.message).toContain('"notification.boundary" is a notification config, expected action');
     expect(svc.get("module", "module.laserx")).toBe(before);
   });
 });

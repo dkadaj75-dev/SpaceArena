@@ -19,7 +19,7 @@ import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
  * schema 3.x's legacy decorators require).
  */
 
-/** Per-fitted-module remote-visible state (drives deploy/shield/overheat visuals). */
+/** Per-fitted-module remote-visible state (drives deploy/shield/cooldown visuals). */
 export class ModuleState extends Schema {
   /** Fitted module config id (so the client can resolve the module without the fitting). */
   @type("string") moduleId = "";
@@ -27,17 +27,10 @@ export class ModuleState extends Schema {
   @type("uint8") hardpointIndex = 0;
   /** §2.3 state machine code (see shared `MODULE_STATE_CODE`). */
   @type("uint8") state = 0;
-  /** Remaining seconds in a timed state (deploying/retracting/overheated). */
+  /** Remaining seconds in a timed state (deploying/retracting). */
   @type("float32") stateTimer = 0;
   /** Dynamic rounds remaining (0 for modules without an authored clip). */
   @type("uint8") rounds = 0;
-  /**
-   * This module's OWN heat and its resolved capacity (heat/energy overhaul
-   * 2026-08-07). The button's heat ring is `heat / heatCapacity`; a capacity of
-   * 0 means the module has no heat ring at all.
-   */
-  @type("float32") heat = 0;
-  @type("float32") heatCapacity = 0;
   /**
    * This module's OWN energy tank and its resolved capacity (boost bottle,
    * shield reserve, active utility). The button's energy ring is
@@ -144,9 +137,9 @@ export class PlayerState extends Schema {
   /** Resolved max hull (ship class + upgrades + module passives) — for HUD bars. */
   @type("float32") hullMax = 0;
   /**
-   * Sum of active shield-module reserves — the hull's shield arc. Ship-wide
-   * energy and heat fields are GONE with the 2026-08-07 overhaul: both live per
-   * module, on {@link ModuleState}, because that is where the pilot spends them.
+   * Sum of active shield-module reserves — the hull's shield arc. The ship-wide
+   * energy field is GONE with the 2026-08-07 overhaul: energy lives per module,
+   * on {@link ModuleState}, because that is where the pilot spends it.
    */
   @type("float32") shieldPool = 0;
   /**
@@ -203,7 +196,7 @@ export class AsteroidState extends Schema {
   @type("boolean") destroyed = false;
 }
 
-/** A jettisoned heatsink lure; keyed by its stable sim entity id. */
+/** A jettisoned countermeasure lure; keyed by its stable sim entity id. */
 export class DecoyState extends Schema {
   @type("number") entityId = 0;
   @type("uint8") team = 0;
@@ -264,7 +257,7 @@ export class ArenaState extends Schema {
   @type({ map: ProjectileState }) projectiles = new MapSchema<ProjectileState>();
   /** Keyed by arena-config placement index (string). */
   @type({ map: AsteroidState }) asteroids = new MapSchema<AsteroidState>();
-  /** Jettisoned heatsinks, keyed by sim entity id. */
+  /** Jettisoned countermeasure pods, keyed by sim entity id. */
   @type({ map: DecoyState }) decoys = new MapSchema<DecoyState>();
   /** CTF flags, keyed by stable sim entity id. */
   @type({ map: FlagState }) flags = new MapSchema<FlagState>();

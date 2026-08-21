@@ -7,9 +7,9 @@ import type { ModuleConfig, StatOp } from "@space-arena/shared";
  * decision lives here, tested.
  *
  * What matters differs by family, which is the point:
- *  - a weapon is judged on damage per second, heat per shot and power draw;
+ *  - a weapon is judged on damage per second, its cycle time and power draw;
  *  - a shield on what it stops and what it costs to hold up;
- *  - an engine/generator/transformer/heatsink/sensor on the stat it moves.
+ *  - an engine/generator/transformer/countermeasure/sensor on the stat it moves.
  */
 export interface ModuleStat {
   label: string;
@@ -24,25 +24,6 @@ export function moduleDps(cfg: ModuleConfig): number {
   // damage over its cycle.
   if (fire.mode === "continuous") return fire.damage;
   return fire.cycleTime > 0 ? fire.damage / fire.cycleTime : 0;
-}
-
-/** Heat per second of sustained use — the number that decides if a rack cooks. */
-export function moduleHeatPerSec(cfg: ModuleConfig): number {
-  if (!cfg.heat) return 0;
-  const cadence =
-    cfg.fire && cfg.fire.mode !== "continuous" && cfg.fire.cycleTime > 0 ? cfg.heat.perShot / cfg.fire.cycleTime : 0;
-  return cfg.heat.perSecondActive + cadence;
-}
-
-/**
- * Seconds of held trigger this rack survives from cold, on a hull with no
- * cooling opinion. Infinity when its own cooling out-paces its generation.
- */
-export function moduleBurnSec(cfg: ModuleConfig): number {
-  if (!cfg.heat) return Infinity;
-  const net = moduleHeatPerSec(cfg) - cfg.heat.coolingPerSec;
-  if (net <= 0) return Infinity;
-  return Math.max(0, cfg.heat.capacity - cfg.heat.perShot) / net;
 }
 
 const num = (v: number, digits = 0): string => v.toFixed(digits).replace(/\.0+$/, "");
@@ -60,13 +41,10 @@ const STAT_LABELS: Record<string, string> = {
   "engine.turnRate": "Turn",
   "energyStore.multiplier": "Tanks",
   "recharge.multiplier": "Recharge",
-  "heatStore.multiplier": "Racks",
-  "cooling.multiplier": "Cooling",
   "sensors.lockRange": "Range",
   "sensors.lockTimeSec": "Lock time",
   "sensors.coneDeg": "Cone",
   "efficiency.energyDraw": "Draw",
-  "efficiency.heatGen": "Heat",
   "power.capacity": "Power",
 };
 
@@ -89,6 +67,12 @@ export function moduleStats(cfg: ModuleConfig): ModuleStat[] {
   if (cfg.fire) {
     stats.push({ label: "DPS", value: num(moduleDps(cfg), 1) });
     stats.push({ label: "Range", value: num(cfg.fire.range) });
+    // Cycle time is a weapon's ONLY limiter since the heat system was deleted
+    // (2026-08-20), so it is now a headline number rather than a footnote. A
+    // channelled beam has no cadence to report — it simply runs.
+    if (cfg.fire.mode !== "continuous") {
+      stats.push({ label: "Cycle", value: `${num(cfg.fire.cycleTime, 2)}s` });
+    }
   }
   if (cfg.mitigation) {
     stats.push({ label: "Absorb", value: `${Math.round(cfg.mitigation.damageReduction * 100)}%` });
@@ -113,16 +97,7 @@ export function moduleStats(cfg: ModuleConfig): ModuleStat[] {
     }
   }
 
-  if (cfg.cooling) stats.push({ label: "Cooling", value: pct(cfg.cooling.multiplier) });
   if (cfg.recharge) stats.push({ label: "Recharge", value: pct(cfg.recharge.multiplier) });
-
-  if (cfg.heat) {
-    const burn = moduleBurnSec(cfg);
-    if (Number.isFinite(burn)) stats.push({ label: "Burn", value: `${num(burn, 1)}s` });
-    if (cfg.heat.coolingPerSec > 0) {
-      stats.push({ label: "Cool", value: `${num(cfg.heat.capacity / cfg.heat.coolingPerSec, 1)}s` });
-    }
-  }
 
   stats.push(...passiveStats(cfg.passives));
   return stats;

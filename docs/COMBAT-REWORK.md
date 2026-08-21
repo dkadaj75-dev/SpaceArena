@@ -1,5 +1,13 @@
 # Combat Rework — manual trigger, armed modules, faster lock
 
+> **HISTORICAL (2026-08-20).** This is the design spec as written on
+> 2026-07-27, kept for the reasoning behind the manual trigger and the faster
+> lock. Everything it says about **heat, cooling, lockouts and re-arm no longer
+> describes the game**: the heat system was deleted outright on 2026-08-20 and a
+> weapon is now limited by `fire.cycleTime` alone. The `heatsink` module family
+> is now `countermeasure` and does nothing but launch a decoy. See
+> `docs/CONTENT.md` for the current authoring contract.
+
 Design spec for replacing auto-fire-on-lock with a **pilot-pulled trigger**, and for
 making the lock itself land faster. Requested by the owner 2026-07-27. Extends
 docs/FLIGHT.md and docs/BUBBLE.md — every invariant in both still stands, above all
@@ -449,7 +457,7 @@ and utility-sink passive modifiers provide the quality ladder.
 Overheat lockout timers retain their existing state-transition rules. Heat now
 continues draining during lockout and is not reset when the timer expires.
 
-The sole instant heat-removal path is a successful `jettisonHeatsink` order.
+The sole instant heat-removal path is a successful `jettisonCountermeasure` order.
 Jettisonable sinks author `jettison.purgeAmount`; that bounded budget is removed
 proportionally from hot racks (never below zero), then the existing decoy is
 spawned and overheated racks receive the existing emergency re-arm behavior.

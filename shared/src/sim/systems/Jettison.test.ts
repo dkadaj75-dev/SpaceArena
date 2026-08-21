@@ -4,7 +4,7 @@ import type { ModuleConfig } from "../../schemas/module.js";
 import { spawnProjectile, spawnShipFromConfig } from "../spawn.js";
 import {
   INTERCEPTOR_FITTING,
-  INTERCEPTOR_FITTING_ABLATIVE,
+  INTERCEPTOR_FITTING_CHAFF,
   INTERCEPTOR_SLOTS,
   loadTestConfigs,
   makeWorld,
@@ -19,7 +19,7 @@ const DT = 1 / 30;
 
 let configs: ConfigService;
 beforeAll(async () => {
-  configs = await loadTestConfigs({ heatSystem: true });
+  configs = await loadTestConfigs();
 });
 
 function ship(world: World, fitting: readonly string[], team = 0, pos = { x: 0, z: 0 }, heading = 0): number {
@@ -27,57 +27,36 @@ function ship(world: World, fitting: readonly string[], team = 0, pos = { x: 0, 
 }
 
 const jettisonCfg = (): NonNullable<ModuleConfig["jettison"]> =>
-  configs.get<ModuleConfig>("module", "module.heatsink-ablative")!.jettison!;
+  configs.get<ModuleConfig>("module", "module.countermeasure-chaff")!.jettison!;
 
-describe("heatsink jettison (owner 2026-07-31)", () => {
-  it("purges EVERY rack to zero and leaves a decoy behind", () => {
+describe("countermeasure jettison (owner 2026-07-31)", () => {
+  it("leaves a decoy behind and reports it", () => {
     const world = makeWorld(configs);
-    const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
-    const mods = world.modules.get(id)!.modules;
-    for (const m of mods) m.heat = 40;
+    const id = ship(world, INTERCEPTOR_FITTING_CHAFF);
 
-    world.queueOrder(id, { kind: "jettisonHeatsink" });
+    world.queueOrder(id, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
 
-    // The one instant clear in the game (heat/energy overhaul 2026-08-07): the
-    // sink carrying the heat has left the hull, so every rack reads zero.
-    for (const m of mods) expect(m.heat).toBe(0);
     expect(world.decoyIds()).toHaveLength(1);
     const decoy = world.decoys.get(world.decoyIds()[0]!)!;
     expect(decoy.team).toBe(0);
     expect(decoy.lifetime).toBe(jettisonCfg().decoyLifetimeSec);
-    expect(world.events.some((e) => e.type === "heatsinkJettisoned")).toBe(true);
+    expect(world.events.some((e) => e.type === "countermeasureJettisoned")).toBe(true);
   });
 
-  it("rescues an OVERHEATED weapon: it comes straight back online", () => {
+  it("drops nothing without an order", () => {
     const world = makeWorld(configs);
-    const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
-    const laser = world.modules.get(id)!.modules[INTERCEPTOR_SLOTS.laser]!;
-    laser.state = "overheated";
-    laser.heat = 60;
-
-    world.queueOrder(id, { kind: "jettisonHeatsink" });
+    ship(world, INTERCEPTOR_FITTING_CHAFF);
     jettisonSystem(world, DT);
-
-    expect(laser.state).toBe("active");
-    expect(laser.heat).toBe(0); // the purge is total
+    expect(world.decoyIds()).toHaveLength(0);
   });
 
-  it("does not purge heat without a successful jettison order", () => {
+  it("drops the pod WHERE THE SHIP IS, at rest — a lure that flew along would shadow the hull", () => {
     const world = makeWorld(configs);
-    const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
-    const laser = world.modules.get(id)!.modules[INTERCEPTOR_SLOTS.laser]!;
-    laser.heat = 60;
-    jettisonSystem(world, DT);
-    expect(laser.heat).toBe(60);
-  });
-
-  it("drops the sink WHERE THE SHIP IS, at rest — a lure that flew along would shadow the hull", () => {
-    const world = makeWorld(configs);
-    const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE, 0, { x: 12, z: -4 });
+    const id = ship(world, INTERCEPTOR_FITTING_CHAFF, 0, { x: 12, z: -4 });
     world.velocities.set(id, { x: 30, y: 0, z: 0 });
 
-    world.queueOrder(id, { kind: "jettisonHeatsink" });
+    world.queueOrder(id, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
 
     const decoyId = world.decoyIds()[0]!;
@@ -90,37 +69,40 @@ describe("heatsink jettison (owner 2026-07-31)", () => {
 
   it("respects the cooldown, then allows a second drop once it expires", () => {
     const world = makeWorld(configs);
-    const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
+    const id = ship(world, INTERCEPTOR_FITTING_CHAFF);
     const cooldown = jettisonCfg().cooldownSec;
 
-    world.queueOrder(id, { kind: "jettisonHeatsink" });
+    world.queueOrder(id, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     expect(world.decoyIds()).toHaveLength(1);
 
     // Immediately again: refused.
-    world.queueOrder(id, { kind: "jettisonHeatsink" });
+    world.queueOrder(id, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     expect(world.decoyIds()).toHaveLength(1);
 
     // Run the cooldown out (the first decoy burns away in the meantime).
     for (let i = 0; i < Math.ceil(cooldown / DT) + 2; i++) jettisonSystem(world, DT);
-    world.queueOrder(id, { kind: "jettisonHeatsink" });
+    world.queueOrder(id, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     expect(world.decoyIds()).toHaveLength(1); // the new one
   });
 
-  it("a sink with no jettison block cannot be dropped at all", () => {
+  it("a hull carrying no jettisonable pod drops nothing at all", () => {
     const world = makeWorld(configs);
-    const id = ship(world, INTERCEPTOR_FITTING); // stock passive radiator
-    world.queueOrder(id, { kind: "jettisonHeatsink" });
+    // Same fitting with the countermeasure bay left EMPTY: every shipped pod
+    // authors a jettison block, so an absent pod is the only way to have none.
+    const bare = INTERCEPTOR_FITTING.map((id, i) => (i === INTERCEPTOR_SLOTS.countermeasure ? null : id));
+    const id = spawnShipFromConfig(world, configs, "ship.interceptor", bare, 0, { x: 0, z: 0 }, 0);
+    world.queueOrder(id, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     expect(world.decoyIds()).toHaveLength(0);
   });
 
   it("burns out after its authored lifetime", () => {
     const world = makeWorld(configs);
-    const id = ship(world, INTERCEPTOR_FITTING_ABLATIVE);
-    world.queueOrder(id, { kind: "jettisonHeatsink" });
+    const id = ship(world, INTERCEPTOR_FITTING_CHAFF);
+    world.queueOrder(id, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     expect(world.decoyIds()).toHaveLength(1);
 
@@ -134,13 +116,13 @@ describe("a jettisoned sink is a LURE", () => {
     const world = makeWorld(configs);
     // Hunter at the origin facing +x; prey dead ahead.
     const hunter = ship(world, INTERCEPTOR_FITTING, 1, { x: 0, z: 0 }, 0);
-    const prey = ship(world, INTERCEPTOR_FITTING_ABLATIVE, 0, { x: 30, z: 0 }, Math.PI);
+    const prey = ship(world, INTERCEPTOR_FITTING_CHAFF, 0, { x: 30, z: 0 }, Math.PI);
     rebuildSpatial(world);
 
     targetingSystem(world, DT);
     expect(world.targets.get(hunter)!.targetId).toBe(prey);
 
-    world.queueOrder(prey, { kind: "jettisonHeatsink" });
+    world.queueOrder(prey, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     rebuildSpatial(world);
     targetingSystem(world, DT);
@@ -152,11 +134,11 @@ describe("a jettisoned sink is a LURE", () => {
   it("never distracts the team that dropped it", () => {
     const world = makeWorld(configs);
     const ally = ship(world, INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
-    const dropper = ship(world, INTERCEPTOR_FITTING_ABLATIVE, 0, { x: 20, z: 0 }, Math.PI);
+    const dropper = ship(world, INTERCEPTOR_FITTING_CHAFF, 0, { x: 20, z: 0 }, Math.PI);
     const foe = ship(world, INTERCEPTOR_FITTING, 1, { x: 40, z: 0 }, Math.PI);
     rebuildSpatial(world);
 
-    world.queueOrder(dropper, { kind: "jettisonHeatsink" });
+    world.queueOrder(dropper, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     rebuildSpatial(world);
     targetingSystem(world, DT);
@@ -165,12 +147,12 @@ describe("a jettisoned sink is a LURE", () => {
     expect(world.targets.get(ally)!.targetId).toBe(foe);
   });
 
-  it("never lets a friendly sensor retain its own team's heatsink as a lock", () => {
+  it("never lets a friendly sensor retain its own team's decoy as a lock", () => {
     const world = makeWorld(configs);
     const ally = ship(world, INTERCEPTOR_FITTING, 0, { x: 0, z: 0 }, 0);
-    const dropper = ship(world, INTERCEPTOR_FITTING_ABLATIVE, 0, { x: 20, z: 0 }, Math.PI);
+    const dropper = ship(world, INTERCEPTOR_FITTING_CHAFF, 0, { x: 20, z: 0 }, Math.PI);
     rebuildSpatial(world);
-    world.queueOrder(dropper, { kind: "jettisonHeatsink" });
+    world.queueOrder(dropper, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     const decoyId = world.decoyIds()[0]!;
     // Guard the sticky-target path too: no friendly lock may keep the lure.
@@ -186,9 +168,9 @@ describe("a jettisoned sink is a LURE", () => {
   it("drops the lock again the moment the sink burns out", () => {
     const world = makeWorld(configs);
     const hunter = ship(world, INTERCEPTOR_FITTING, 1, { x: 0, z: 0 }, 0);
-    const prey = ship(world, INTERCEPTOR_FITTING_ABLATIVE, 0, { x: 30, z: 0 }, Math.PI);
+    const prey = ship(world, INTERCEPTOR_FITTING_CHAFF, 0, { x: 30, z: 0 }, Math.PI);
     rebuildSpatial(world);
-    world.queueOrder(prey, { kind: "jettisonHeatsink" });
+    world.queueOrder(prey, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     rebuildSpatial(world);
     targetingSystem(world, DT);
@@ -203,7 +185,7 @@ describe("a jettisoned sink is a LURE", () => {
 
   it("STEALS A MISSILE MID-FLIGHT — the reason to carry one", () => {
     const world = makeWorld(configs);
-    const prey = ship(world, INTERCEPTOR_FITTING_ABLATIVE, 0, { x: 60, z: 0 }, Math.PI);
+    const prey = ship(world, INTERCEPTOR_FITTING_CHAFF, 0, { x: 60, z: 0 }, Math.PI);
     // A missile already streaking toward the prey when the sink goes out.
     const missile = spawnProjectile(world, {
       kind: "missile",
@@ -220,7 +202,7 @@ describe("a jettisoned sink is a LURE", () => {
     });
     rebuildSpatial(world);
 
-    world.queueOrder(prey, { kind: "jettisonHeatsink" });
+    world.queueOrder(prey, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     // Put the sink between the missile and its target — closer than the prey.
     const decoyId = world.decoyIds()[0]!;
@@ -234,7 +216,7 @@ describe("a jettisoned sink is a LURE", () => {
 
   it("leaves a missile alone when the only sink belongs to the shooter's own team", () => {
     const world = makeWorld(configs);
-    const prey = ship(world, INTERCEPTOR_FITTING_ABLATIVE, 1, { x: 60, z: 0 }, Math.PI);
+    const prey = ship(world, INTERCEPTOR_FITTING_CHAFF, 1, { x: 60, z: 0 }, Math.PI);
     const missile = spawnProjectile(world, {
       kind: "missile",
       damage: 20,
@@ -250,7 +232,7 @@ describe("a jettisoned sink is a LURE", () => {
     });
     rebuildSpatial(world);
 
-    world.queueOrder(prey, { kind: "jettisonHeatsink" });
+    world.queueOrder(prey, { kind: "jettisonCountermeasure" });
     jettisonSystem(world, DT);
     world.transforms.get(world.decoyIds()[0]!)!.pos.x = 20;
     rebuildSpatial(world);

@@ -423,7 +423,7 @@ describe("interpolating the entity kinds that used to step at the patch rate", (
   it("does not clone remote ships' modules on every drawn frame", () => {
     // The local ship's modules ARE cloned: `applyPendingToggles` writes the
     // optimistic deploy state onto them, and must not reach into the buffer.
-    const mod = { hardpointIndex: 0, moduleId: "m", state: "retracted" as const, rounds: 0, heat: 0, heatCapacity: 1, energy: 0, energyCapacity: 1, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 };
+    const mod = { hardpointIndex: 0, moduleId: "m", state: "retracted" as const, rounds: 0, energy: 0, energyCapacity: 1, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 };
     const base = snapshotAt(0);
     const armed: Snapshot = {
       ...base,

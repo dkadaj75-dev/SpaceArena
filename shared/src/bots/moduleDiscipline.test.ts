@@ -9,7 +9,7 @@ import { INTERCEPTOR_FITTING_SHIELD as INTERCEPTOR_FITTING, loadTestConfigs } fr
 
 /**
  * Slots the discipline may actually touch: non-weapon support hardpoints. The internal bay
- * (slots 2..6 — engine, generator, transformer, heatsink, sensors) is the ship
+ * (slots 2..6 — engine, generator, transformer, countermeasure, sensors) is the ship
  * itself and is deliberately never cycled (2026-07-31).
  */
 const TOGGLEABLE_SLOTS = 1;
@@ -23,8 +23,6 @@ beforeAll(async () => {
 });
 
 const discipline = {
-  heatShutdownAt: 0.85,
-  reactivateBelow: 0.5,
   energyReserve: 0.15,
   shieldOnlyWhenEngaged: true,
 };
@@ -45,14 +43,12 @@ function profile(): BotprofileConfig {
 /** Build a ship snapshot from the real interceptor fitting. */
 function shipWith(
   states: ModuleState[],
-  opts: { moduleHeat?: number[]; shipHeat?: number; energy?: number; moduleEnergy?: number[] } = {},
+  opts: { energy?: number; moduleEnergy?: number[] } = {},
 ): ShipSnapshot {
   const modules: ModuleSnapshot[] = INTERCEPTOR_FITTING.map((moduleId, i) => ({
     moduleId,
     hardpointIndex: i,
     state: states[i] ?? "retracted",
-    heat: opts.moduleHeat?.[i] ?? 0,
-    heatCapacity: 100,
     energy: (opts.moduleEnergy?.[i] ?? opts.energy ?? 100) * 0.01 * 100,
     energyCapacity: 100,
     stateTimer: 0,
@@ -105,15 +101,6 @@ function contextFor(self: ShipSnapshot) {
   });
 }
 
-/**
- * Heat capacity of the rack at a hardpoint index of the test fitting. Every
- * module in {@link shipWith} is given the same round capacity, so a discipline
- * fraction reads directly off it.
- */
-function threshold(_index: number): number {
-  return 100;
-}
-
 function shieldIndex(): number {
   return INTERCEPTOR_FITTING.findIndex(
     (id) => configs.get<ModuleConfig>("module", id)!.family === "shield",
@@ -128,41 +115,15 @@ describe("moduleDiscipline", () => {
     expect(decisions.every((d) => d.activate)).toBe(true);
   });
 
-  it("leaves weapon cooling to fire discipline and cycles hot support modules", () => {
+  it("never touches a weapon rack — fire discipline owns the trigger, not the deploy toggle", () => {
+    // Since heat was deleted (2026-08-20) nothing in this planner has an opinion
+    // about a weapon at all: a rack is limited by its own cycle time, and
+    // retracting it would only add deploy downtime for nothing.
     const laser = 0;
-    const support = shieldIndex();
-    const heats = [threshold(laser) * 0.9, threshold(support) * 0.9, 0, 0];
-    const hot = shipWith(["active", "active", "active", "active"], { moduleHeat: heats });
-    const shutdown = planModuleOrders(contextFor(hot), configs, discipline, true);
-    expect(shutdown.decisions.some((decision) => decision.hardpointIndex === laser)).toBe(false);
-    expect(shutdown.decisions).toContainEqual(
-      expect.objectContaining({ hardpointIndex: support, activate: false, reason: "heat-shutdown" }),
-    );
-    // Other modules stay up.
-    expect(shutdown.orders.length).toBe(1);
-
-    // Still hot after retracting (0.6 > reactivateBelow 0.5) ⇒ no reactivation.
-    const warm = shipWith(["active", "retracted", "active", "active"], {
-      moduleHeat: [0, threshold(support) * 0.6, 0, 0],
-    });
-    expect(planModuleOrders(contextFor(warm), configs, discipline, true).orders).toEqual([]);
-
-    // Cooled below the threshold ⇒ redeploy.
-    const cool = shipWith(["active", "retracted", "active", "active"], {
-      moduleHeat: [0, threshold(support) * 0.2, 0, 0],
-    });
-    expect(planModuleOrders(contextFor(cool), configs, discipline, true).decisions).toContainEqual(
-      expect.objectContaining({ hardpointIndex: support, activate: true }),
-    );
-  });
-
-  it("treats the ship's HOTTEST RACK as a shutdown trigger too", () => {
-    // There is no ship heat pool since 2026-08-07 — `ctx.heatFraction` is the
-    // hottest module — so a cooking weapon still pulls the support modules down.
-    const self = shipWith(["active", "active", "active", "active"], { moduleHeat: [90, 0, 0, 0] });
-    const { decisions } = planModuleOrders(contextFor(self), configs, discipline, true);
-    expect(decisions.length).toBe(TOGGLEABLE_SLOTS);
-    expect(decisions.every((d) => !d.activate && d.reason === "heat-shutdown")).toBe(true);
+    const up = shipWith(["active", "active", "active", "active"]);
+    const plan = planModuleOrders(contextFor(up), configs, discipline, true);
+    expect(plan.decisions.some((decision) => decision.hardpointIndex === laser)).toBe(false);
+    expect(plan.orders).toEqual([]);
   });
 
   it("respects energyReserve: nothing is activated below the reserve fraction", () => {
@@ -214,8 +175,8 @@ describe("moduleDiscipline", () => {
     expect(keep.orders).toEqual([]);
   });
 
-  it("never toggles modules mid-transition or force-overheated", () => {
-    const self = shipWith(["deploying", "retracting", "overheated", "overheated"]);
+  it("never toggles modules mid-transition or reloading", () => {
+    const self = shipWith(["deploying", "retracting", "reloading", "reloading"]);
     expect(planModuleOrders(contextFor(self), configs, discipline, true).orders).toEqual([]);
   });
 });

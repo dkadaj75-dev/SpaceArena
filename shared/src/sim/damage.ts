@@ -175,7 +175,7 @@ function applyTypedShare(
       // lists: half a missile is energy to a shield, and the shield knows what
       // energy is even though it has never heard of `hybrid`.
       if (mit.coversFamilies && !mit.coversFamilies.includes(type)) continue;
-      // The shield's RESERVE is its own energy tank (heat/energy overhaul
+      // The shield's RESERVE is its own energy tank (energy overhaul
       // 2026-08-07): a point soaked is a point of charge spent, so a shield
       // holds exactly as long as its tank and returns as fast as it refills.
       const available = m.energyCapacity > 0 ? m.energy : Infinity;

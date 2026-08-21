@@ -29,7 +29,7 @@ interface RunMetrics {
   distancePer10Sec: number[];
   nearZeroFraction: number[];
   shotsPerMinute: number[];
-  rackLockoutFraction: number[];
+  rackCooldownFraction: number[];
   carrierRuns: Array<{
     carrierId: EntityId;
     team: number;
@@ -103,7 +103,7 @@ console.log(JSON.stringify({
     distancePer10Sec: { mean: mean(all("distancePer10Sec")), p10: quantile(all("distancePer10Sec"), 0.1) },
     nearZeroFraction: mean(all("nearZeroFraction")),
     shotsPerBotMinute: { mean: mean(all("shotsPerMinute")), p10: quantile(all("shotsPerMinute"), 0.1) },
-    rackLockoutFraction: mean(all("rackLockoutFraction")),
+    rackCooldownFraction: mean(all("rackCooldownFraction")),
     carrierTimeToHomeSec: { mean: mean(completed.map((r) => r.durationSec)), count: completed.length },
     stuckWindows: results.reduce((n, r) => n + r.stuckWindows, 0),
     captures: results.reduce((n, r) => n + r.captures, 0),
@@ -141,7 +141,7 @@ function run(seed: number): RunMetrics {
   const nearZero = new Map(ids.map((id) => [id, 0]));
   const liveTicks = new Map(ids.map((id) => [id, 0]));
   const shots = new Map(ids.map((id) => [id, 0]));
-  const lockoutTicks = new Map(ids.map((id) => [id, 0]));
+  const cooldownTicks = new Map(ids.map((id) => [id, 0]));
   const rackTicks = new Map(ids.map((id) => [id, 0]));
   const previous = new Map<EntityId, { x: number; y: number; z: number }>();
   const stuck = new Map<EntityId, { start: { x: number; y: number; z: number }; ticks: number; reported: boolean }>();
@@ -214,7 +214,8 @@ function run(seed: number): RunMetrics {
         const config = configs.get<ModuleConfig>("module", module.moduleId);
         if (!config?.fire) continue;
         rackTicks.set(self.id, rackTicks.get(self.id)! + 1);
-        if (module.state === "overheated") lockoutTicks.set(self.id, lockoutTicks.get(self.id)! + 1);
+        // Heat deleted 2026-08-20: a rack's only downtime is its own cycle time.
+        if (module.cycleTimer > 0) cooldownTicks.set(self.id, cooldownTicks.get(self.id)! + 1);
       }
     }
     if ((tick + 1) % (10 / DT) === 0) {
@@ -374,7 +375,7 @@ function run(seed: number): RunMetrics {
     seed, durationSec: elapsed, distancePer10Sec,
     nearZeroFraction: ids.map((id) => nearZero.get(id)! / Math.max(1, liveTicks.get(id)!)),
     shotsPerMinute: ids.map((id) => shots.get(id)! / Math.max(elapsed / 60, 1e-9)),
-    rackLockoutFraction: ids.map((id) => lockoutTicks.get(id)! / Math.max(1, rackTicks.get(id)!)),
+    rackCooldownFraction: ids.map((id) => cooldownTicks.get(id)! / Math.max(1, rackTicks.get(id)!)),
     carrierRuns, stuckWindows, captures, outOfBoundsDeaths,
     objectiveIntentFraction: ids.map((id) => objectiveTicks.get(id)! / Math.max(1, liveTicks.get(id)!)),
     pickupsByTeam, returnsByTeam,

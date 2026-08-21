@@ -64,22 +64,14 @@ describe("signal registry", () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...signalId.options].sort());
   });
 
-  it("hullFraction / heatFraction are exact ratios, clamped 0..1", () => {
+  it("hullFraction is an exact ratio, clamped 0..1", () => {
     expect(evalSignal("hullFraction", ship({ hull: 40, hullMax: 80 }))).toBeCloseTo(0.5, 6);
-    // heatFraction is the HOTTEST rack now — there is no ship pool to read.
-    const hot = ship({
-      modules: [
-        { moduleId: "a", hardpointIndex: 0, state: "active", heat: 30, heatCapacity: 60, energy: 0, energyCapacity: 0, stateTimer: 0, rounds: 0, cycleTimer: 0, channeling: false, shieldPool: 0 },
-        { moduleId: "b", hardpointIndex: 1, state: "active", heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, rounds: 0, cycleTimer: 0, channeling: false, shieldPool: 0 },
-      ],
-    });
-    expect(evalSignal("heatFraction", hot)).toBeCloseTo(0.5, 6);
     expect(evalSignal("hullFraction", ship({ hull: 999, hullMax: 100 }))).toBe(1);
   });
 
   it("shieldActive reflects a DEPLOYED module with an absorb reservoir", () => {
     const withShield = ship({
-      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, rounds: 0, cycleTimer: 0, channeling: false, shieldPool: 5 }],
+      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", energy: 0, energyCapacity: 0, stateTimer: 0, rounds: 0, cycleTimer: 0, channeling: false, shieldPool: 5 }],
     });
     expect(evalSignal("shieldActive", withShield)).toBe(1);
     expect(evalSignal("shieldActive", ship())).toBe(0);
@@ -93,7 +85,7 @@ describe("signal registry", () => {
    * around every ship that merely had a shield equipped.
    */
   it("stays down for a shield that is fitted and charged but never switched on", () => {
-    const module = { moduleId: "m", hardpointIndex: 0, heat: 0, heatCapacity: 100, energy: 20, energyCapacity: 20, stateTimer: 0, rounds: 0, cycleTimer: 0, channeling: false, shieldPool: 20 } as const;
+    const module = { moduleId: "m", hardpointIndex: 0, energy: 20, energyCapacity: 20, stateTimer: 0, rounds: 0, cycleTimer: 0, channeling: false, shieldPool: 20 } as const;
     expect(evalSignal("shieldActive", ship({ modules: [{ ...module, state: "retracted" }] }))).toBe(0);
     expect(evalSignal("shieldActive", ship({ modules: [{ ...module, state: "deploying" }] }))).toBe(0);
     expect(evalSignal("shieldActive", ship({ modules: [{ ...module, state: "retracting" }] }))).toBe(0);
@@ -102,7 +94,7 @@ describe("signal registry", () => {
 
   it("firing reflects an active module mid weapon cycle", () => {
     const firing = ship({
-      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, rounds: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 }],
+      modules: [{ moduleId: "m", hardpointIndex: 0, state: "active", energy: 0, energyCapacity: 0, stateTimer: 0, rounds: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 }],
     });
     expect(evalSignal("firing", firing)).toBe(1);
   });

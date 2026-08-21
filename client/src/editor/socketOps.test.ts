@@ -36,14 +36,12 @@ function makeShip(): ShipConfig {
       hull: { base: 100, resists: { kinetic: 0.1, energy: 0.0 } },
       engine: { nominalSpeed: 30, accel: 20, turnRate: 3 },
       power: { capacity: 15 },
-      efficiency: { energyDraw: 1, heatGen: 1 },
-      cooling: { multiplier: 1 },
+      efficiency: { energyDraw: 1 },
       recharge: { multiplier: 1 },
-      heatStore: { multiplier: 1 },
       energyStore: { multiplier: 1 },
       sensors: { lockRange: 60, lockTimeSec: 1.5, coneDeg: 70 },
     },
-    upgradeTracks: { hull: "upgrade.hull-std", engine: "upgrade.engine-std", energy: "upgrade.energy-std", heat: "upgrade.heat-std" },
+    upgradeTracks: { hull: "upgrade.hull-std", engine: "upgrade.engine-std", energy: "upgrade.energy-std" },
     sockets: [
       { id: "hp-a", kind: "hardpoint", transform: { pos: [0, 0, 1] }, accepts: ["laser", "kinetic"] },
       { id: "hp-b", kind: "hardpoint", transform: { pos: [1, 0, 0] }, accepts: ["missile"] },
@@ -124,7 +122,7 @@ describe("socketOps", () => {
 
   it("binding add/remove/patch stay schema-valid", () => {
     const ship = makeShip();
-    const added = addBinding(ship, 2, "heatFraction", "emitRate");
+    const added = addBinding(ship, 2, "speedFraction", "emitRate");
     expect(valid(added)).toBe(true);
     const emitter = added.sockets[2]!;
     if (emitter.kind === "emitter") expect(emitter.bindings).toHaveLength(2);

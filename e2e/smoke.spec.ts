@@ -441,17 +441,16 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
             // Close to the standoff band, then cut the engine and shoot from there.
             throttle: nearestDist > standoff ? 0.6 : 0,
             boost: false,
-            // Trigger discipline: at the x10 weapon-heat scale a held trigger
-            // lives in lockout. Fire only while a weapon rack is genuinely
-            // active so bursts land and the match can actually end.
+            // Fire only while a weapon rack is genuinely active, so bursts
+            // land and the match can actually end.
             fire: me.modules.some(
               (m) => m.state === "active" && /laser|kinetic|missile|beam/.test(m.moduleId),
             ),
           });
         }
 
-        // Keep the guns up. Overheated/deploying modules ignore or don't need a
-        // toggle, so only nudge the ones that are genuinely offline.
+        // Keep the guns up. A deploying module does not need a toggle, so only
+        // nudge the ones that are genuinely offline.
         for (const mod of me.modules) {
           if (mod.state !== "retracted") continue;
           if (!/laser|kinetic|missile/.test(mod.moduleId)) continue;

@@ -17,11 +17,6 @@
       "target": "energyStore.multiplier",
       "op": "mul",
       "value": 0.85
-    },
-    {
-      "target": "cooling.multiplier",
-      "op": "mul",
-      "value": 0.9
     }
   ],
   "ui": {

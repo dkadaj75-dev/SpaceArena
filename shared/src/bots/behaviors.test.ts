@@ -51,8 +51,6 @@ const PROFILE: BotprofileConfig = botprofileSchema.parse({
   preferredRange: [20, 40],
   behaviors: {},
   moduleDiscipline: {
-    heatShutdownAt: 0.85,
-    reactivateBelow: 0.5,
     energyReserve: 0.15,
     shieldOnlyWhenEngaged: true,
   },

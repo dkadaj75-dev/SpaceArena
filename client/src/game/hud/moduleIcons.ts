@@ -13,7 +13,7 @@ import type { ModuleConfig } from "@space-arena/shared";
  * Resolution is data-driven and never invents a glyph (see {@link moduleIconId}):
  *
  *   1. `ui.iconId` — an explicit designer override.
- *   2. the tag inside `ui.icon` — `[ICON: heat-sink]` → `heat-sink`, the same
+ *   2. the tag inside `ui.icon` — `[ICON: countermeasure]` → `countermeasure`, the same
  *      unwrapping `client/src/audio/soundIds.ts` does for `[SOUND: …]`. This is
  *      what makes the *shipped* content resolve with no re-authoring, and it is
  *      the only key that distinguishes the two `utility`-family modules.
@@ -30,7 +30,7 @@ export const FALLBACK_ICON_ID = "module";
 /**
  * Inner markup for each icon, on a 24x24 grid. Stroke-only and unfilled by
  * design: the CSS sets `stroke: currentColor`, so one glyph serves the
- * retracted/active/overheated tints without a second asset.
+ * retracted/active/on-cooldown tints without a second asset.
  */
 const ICON_PATHS: Readonly<Record<string, string>> = {
   /** Pulse laser / beam emitter: muzzle block firing right, with energy ticks. */
@@ -53,7 +53,7 @@ const ICON_PATHS: Readonly<Record<string, string>> = {
     '<path d="M8.3 9.5 6.1 6.4"/>' +
     '<path d="M8.3 14.5 6.1 17.6"/>' +
     '<path d="M19.6 12h1.9"/>',
-  /** Deflector shield: heater outline with a deflection arc across it. */
+  /** Deflector shield: shield outline with a deflection arc across it. */
   shield:
     '<path d="M12 2.9 20 5.6v6.3c0 4.3-3.4 7.1-8 8.8-4.6-1.7-8-4.5-8-8.8V5.6z"/>' +
     '<path d="M6.6 10.4q5.4-2.6 10.8 0"/>',
@@ -67,16 +67,13 @@ const ICON_PATHS: Readonly<Record<string, string>> = {
     '<path d="M2.6 7.4h13.6v9.2H2.6z"/>' +
     '<path d="M18.6 10.2v3.6"/>' +
     '<path d="M10.8 8.9 7.6 12.4h2.6L9.2 15.9l3.4-3.9H10z"/>',
-  /** Heat sink: finned plate venting three heat curls. */
-  "heat-sink":
-    '<path d="M3.2 15.6h17.6"/>' +
-    '<path d="M6.4 15.6v-4.1"/>' +
-    '<path d="M10.1 15.6v-4.1"/>' +
-    '<path d="M13.9 15.6v-4.1"/>' +
-    '<path d="M17.6 15.6v-4.1"/>' +
-    '<path d="M7.6 8.6q1.5-1.4 0-2.8"/>' +
-    '<path d="M12 8.6q1.5-1.4 0-2.8"/>' +
-    '<path d="M16.4 8.6q1.5-1.4 0-2.8"/>',
+  /** Countermeasure pod: a canister throwing three burning trails clear. */
+  countermeasure:
+    '<path d="M4.4 19.6a2.4 2.4 0 1 0 3.4-3.4 2.4 2.4 0 0 0-3.4 3.4z"/>' +
+    '<path d="M9.4 15.2 15.4 9.2"/>' +
+    '<path d="M15.4 12.4V9.2h-3.2"/>' +
+    '<path d="M10.8 18 18.6 15.6"/>' +
+    '<path d="M8.2 13.4 10.6 5.6"/>',
   /** Generic hardpoint: the fallback, and the glyph for an unclassed utility. */
   [FALLBACK_ICON_ID]:
     '<path d="M12 2.8 19.6 7.4v9.2L12 21.2 4.4 16.6V7.4z"/>' +
@@ -90,6 +87,7 @@ const FAMILY_ICONS: Readonly<Record<string, string>> = {
   missile: "missile",
   shield: "shield",
   boost: "boost",
+  countermeasure: "countermeasure",
   utility: FALLBACK_ICON_ID,
 };
 
@@ -102,7 +100,10 @@ const ICON_ALIASES: Readonly<Record<string, string>> = {
   afterburner: "boost",
   thruster: "boost",
   battery: "capacitor",
-  radiator: "heat-sink",
+  flare: "countermeasure",
+  flares: "countermeasure",
+  chaff: "countermeasure",
+  decoy: "countermeasure",
 };
 
 const PLACEHOLDER = /^\s*\[\s*icon\s*:\s*(.+?)\s*\]\s*$/i;

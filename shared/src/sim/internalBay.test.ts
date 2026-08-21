@@ -43,7 +43,7 @@ describe("hull slot layout (owner 2026-07-31)", () => {
         "engine",
         "generator",
         "transformer",
-        "heatsink",
+        "countermeasure",
         "sensors",
       ]);
       // Both kinds share ONE index space, and the default fitting covers it.
@@ -62,7 +62,7 @@ describe("hull slot layout (owner 2026-07-31)", () => {
         expect(socket.accepts.every((f) => ["laser", "kinetic", "missile", "shield", "utility"].includes(f))).toBe(true);
       }
       for (const socket of internalsOf(ship)) {
-        expect(socket.accepts.every((f) => ["engine", "generator", "transformer", "heatsink", "sensors"].includes(f))).toBe(true);
+        expect(socket.accepts.every((f) => ["engine", "generator", "transformer", "countermeasure", "sensors"].includes(f))).toBe(true);
       }
     }
   });
@@ -100,28 +100,30 @@ describe("internals shape the hull", () => {
     expect(siege.engine.nominalSpeed).toBeLessThan(heavy.engine.nominalSpeed);
   });
 
-  it("TRANSFORMER: trades energy efficiency against heat, in both directions", () => {
+  it("TRANSFORMER: trades rail capacity against how thirstily every module runs", () => {
     const stock = base();
-    expect(stock.efficiency).toEqual({ energyDraw: 1, heatGen: 1 });
+    expect(stock.efficiency).toEqual({ energyDraw: 1 });
 
     const efficient = withInternal("module.transformer-efficient");
     expect(efficient.efficiency.energyDraw).toBeLessThan(1); // cheaper to run…
-    expect(efficient.efficiency.heatGen).toBeGreaterThan(1); // …and hotter
+    expect(efficient.power.capacity).toBeGreaterThan(stock.power.capacity);
 
     const cryo = withInternal("module.transformer-cryo");
-    expect(cryo.efficiency.heatGen).toBeLessThan(1); // cooler…
-    expect(cryo.efficiency.energyDraw).toBeGreaterThan(1); // …and thirstier
+    expect(cryo.efficiency.energyDraw).toBeGreaterThan(1); // …the cryo is thirstier
   });
 
-  it("HEATSINK: better sinks cool every rack faster, and only the good ones can be jettisoned", () => {
-    const stock = base();
-    const cryo = withInternal("module.heatsink-cryo");
-    expect(cryo.cooling.multiplier).toBeGreaterThan(stock.cooling.multiplier);
-    expect(cryo.heatStore.multiplier).toBeGreaterThan(stock.heatStore.multiplier);
+  it("COUNTERMEASURE: every pod in the bay can be launched, and the ladder buys lure time", () => {
+    // The family's whole job since heat was deleted (2026-08-20): a jettisonable
+    // decoy. A pod that could not be launched would do nothing at all.
+    const flare = configs.get<ModuleConfig>("module", "module.countermeasure-flare")!.jettison!;
+    const chaff = configs.get<ModuleConfig>("module", "module.countermeasure-chaff")!.jettison!;
+    const spoofer = configs.get<ModuleConfig>("module", "module.countermeasure-spoofer")!.jettison!;
 
-    expect(configs.get<ModuleConfig>("module", "module.heatsink-basic")!.jettison).toBeUndefined();
-    expect(configs.get<ModuleConfig>("module", "module.heatsink-ablative")!.jettison).toBeDefined();
-    expect(configs.get<ModuleConfig>("module", "module.heatsink-cryo")!.jettison).toBeDefined();
+    expect(chaff.decoyLifetimeSec).toBeGreaterThan(flare.decoyLifetimeSec);
+    expect(spoofer.decoyLifetimeSec).toBeGreaterThan(chaff.decoyLifetimeSec);
+    // …and the better pods come back sooner, too.
+    expect(chaff.cooldownSec).toBeLessThan(flare.cooldownSec);
+    expect(spoofer.cooldownSec).toBeLessThan(chaff.cooldownSec);
   });
 
   it("SENSORS: long-range reaches further but locks slower; snap-lock is the reverse", () => {

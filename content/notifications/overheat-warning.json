@@ -1,9 +1,0 @@
-{
-  "id": "notification.overheat-warning",
-  "type": "notification",
-  "version": 1,
-  "name": "Overheat Warning",
-  "text": "WEAPON OVERHEATED",
-  "style": "warning",
-  "durationMs": 2500
-}

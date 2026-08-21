@@ -61,7 +61,7 @@ const SHIPS: ShipConfig[] = [
   ], [null, null]),
 ];
 
-const UPGRADES: UpgradeConfig[] = (["hull", "engine", "energy", "heat"] as const).map((track) => ({
+const UPGRADES: UpgradeConfig[] = (["hull", "engine", "energy"] as const).map((track) => ({
   id: `upgrade.${track}`,
   type: "upgrade",
   version: 1,
@@ -492,14 +492,12 @@ function ship(
       hull: { base: 120, resists: { kinetic: 0.1, energy: 0.1 } },
       engine: { nominalSpeed: 27, accel: 18, turnRate: 3 },
       power: { capacity: 12 },
-      efficiency: { energyDraw: 1, heatGen: 1 },
-      cooling: { multiplier: 1 },
+      efficiency: { energyDraw: 1 },
       recharge: { multiplier: 1 },
-      heatStore: { multiplier: 1 },
       energyStore: { multiplier: 1 },
       sensors: { lockRange: 100, lockTimeSec: 1, coneDeg: 30 },
     },
-    upgradeTracks: { hull: "upgrade.hull", engine: "upgrade.engine", energy: "upgrade.energy", heat: "upgrade.heat" },
+    upgradeTracks: { hull: "upgrade.hull", engine: "upgrade.engine", energy: "upgrade.energy" },
     sockets,
     defaultFitting,
     render: { recipe: "procedural.arrowhead" },
@@ -519,7 +517,6 @@ function weapon(id: string, name: string, family: string, level: number, price: 
     requiresLevel: 1,
     activation: { deployTime: 0, retractTime: 0 },
     power: { draw },
-    heat: { capacity: 10, coolingPerSec: 2, perSecondActive: 0, perShot: 1, rearmBelow: 0.25 },
     fire: { mode: "held", range: 80, cycleTime: 1, damage: 5, damageType: "energy" },
     ui: { icon: family, label: name },
   } as unknown as ModuleConfig;

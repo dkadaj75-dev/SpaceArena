@@ -12,7 +12,7 @@ import {
 } from "./ArenaState.js";
 
 describe("ArenaState online objectives", () => {
-  it("stores flags, heatsink decoys, and capture scores as schema entities", () => {
+  it("stores flags, countermeasure decoys, and capture scores as schema entities", () => {
     const state = new ArenaState();
     const decoy = new DecoyState();
     decoy.entityId = 9;

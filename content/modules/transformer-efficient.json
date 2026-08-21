@@ -19,11 +19,6 @@
       "target": "efficiency.energyDraw",
       "op": "mul",
       "value": 0.78
-    },
-    {
-      "target": "efficiency.heatGen",
-      "op": "mul",
-      "value": 1.25
     }
   ],
   "ui": {

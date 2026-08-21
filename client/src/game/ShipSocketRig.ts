@@ -304,7 +304,7 @@ export class ShipSocketRig {
    * `stateTimer`: the turret rises out of the hull along its socket's local +Y,
    * scales up with a back-ease overshoot and unwinds a settle-spin — the visible
    * cost of the §2.3 deploy/retract tradeoff. Fully mounted (progress 1) while
-   * `active`/`overheated` (still there, just can't fire), gone while `retracted`.
+   * `active` (mounted, whether or not it is between shots), gone while `retracted`.
    *
    * Cheap — runs every render frame, but only touches Babylon transforms when
    * the sweep position actually changed. All shaping comes from the theme's

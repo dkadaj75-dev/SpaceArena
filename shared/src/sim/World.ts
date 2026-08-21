@@ -51,7 +51,7 @@ export class World {
   readonly teams = new Map<EntityId, Team>();
   readonly asteroids = new Map<EntityId, AsteroidTag>();
   readonly projectiles = new Map<EntityId, Projectile>();
-  /** Jettisoned heatsinks acting as lures (owner 2026-07-31). */
+  /** Jettisoned countermeasure pods acting as lures. */
   readonly decoys = new Map<EntityId, Decoy>();
   /** Capture-the-flag flags, one per team (owner 2026-07-31). */
   readonly flags = new Map<EntityId, Flag>();

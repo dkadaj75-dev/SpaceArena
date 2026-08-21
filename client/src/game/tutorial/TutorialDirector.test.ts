@@ -307,22 +307,6 @@ describe("TutorialDirector — signals off the world", () => {
     expect(rec.outcomes).toEqual(["completed"]);
   });
 
-  it("tracks the hottest rack filling and then cooling", () => {
-    const { director, rec } = driver({ kind: "heat-above-then-cooled", peak: 0.8, cooled: 0.35 });
-    const rack = (heat: number): ShipSnapshot =>
-      ship({ modules: [{ moduleId: "module.laser-mk1", hardpointIndex: 0, heat, heatCapacity: 100 }] as ShipSnapshot["modules"] });
-    let previous = snapshot([rack(0)]);
-    for (const heat of [40, 90]) {
-      const next = snapshot([rack(heat)]);
-      director.update(16, next, previous);
-      previous = next;
-    }
-    expect(rec.outcomes).toEqual([]);
-    const cooled = snapshot([rack(20)]);
-    director.update(16, cooled, previous);
-    expect(rec.outcomes).toEqual(["completed"]);
-  });
-
   it("ticks with NO snapshots at all — the menu lessons have no sim to read", () => {
     const rec = recorder();
     const director = new TutorialDirector(

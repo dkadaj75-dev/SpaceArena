@@ -26,7 +26,7 @@ async function fsLoader(relPath: string): Promise<unknown> {
  * (`countdown.test.ts`), which passes the shipped value explicitly.
  */
 export async function loadTestConfigs(
-  opts: { matchCountdownSec?: number; heatSystem?: boolean } = {},
+  opts: { matchCountdownSec?: number } = {},
 ): Promise<ConfigService> {
   const configs = new ConfigService(fsLoader);
   const result = await configs.load("manifest.json");
@@ -34,19 +34,7 @@ export async function loadTestConfigs(
     throw new Error("test content failed to load: " + JSON.stringify(result.errors));
   }
   setTestCountdown(configs, opts.matchCountdownSec ?? 0);
-  if (opts.heatSystem !== undefined) setTestHeatSystem(configs, opts.heatSystem);
   return configs;
-}
-
-/** Explicitly opt a test fixture into/out of the runtime weapon-heat system. */
-export function setTestHeatSystem(configs: ConfigService, enabled: boolean): void {
-  const tuning = configs.getAll<TuningConfig>("tuning")[0];
-  if (!tuning) throw new Error("no tuning config loaded");
-  const result = configs.replace({
-    ...tuning,
-    featureFlags: { ...tuning.featureFlags, heatSystem: enabled },
-  });
-  if (!result.ok) throw new Error("failed to set test heat system: " + JSON.stringify(result.errors));
 }
 
 /**
@@ -170,7 +158,7 @@ export function pinLock(world: World, entityId: EntityId): void {
 
 /**
  * The light hull's slots in order (owner 2026-07-31): two hardpoints, then the
- * five-bay internal block (engine, generator, transformer, heatsink, sensors).
+ * five-bay internal block (engine, generator, transformer, countermeasure, sensors).
  * Mirrors `ship.interceptor`'s `defaultFitting` — tests that want a weapon on a
  * specific index address 0 (laser) and 1 (missile); anything ≥ 2 is an internal.
  */
@@ -180,7 +168,7 @@ export const INTERCEPTOR_FITTING = [
   "module.engine-civ",
   "module.generator-compact",
   "module.transformer-stock",
-  "module.heatsink-basic",
+  "module.countermeasure-flare",
   "module.sensors-basic",
 ];
 
@@ -191,7 +179,7 @@ export const INTERCEPTOR_SLOTS = {
   engine: 2,
   generator: 3,
   transformer: 4,
-  heatsink: 5,
+  countermeasure: 5,
   sensors: 6,
 } as const;
 
@@ -206,7 +194,7 @@ export const INTERCEPTOR_FITTING_SHIELD = [
   "module.engine-civ",
   "module.generator-compact",
   "module.transformer-stock",
-  "module.heatsink-basic",
+  "module.countermeasure-flare",
   "module.sensors-basic",
 ];
 
@@ -221,7 +209,7 @@ export const INTERCEPTOR_FITTING_BOOST = [
   "module.engine-sport",
   "module.generator-compact",
   "module.transformer-stock",
-  "module.heatsink-basic",
+  "module.countermeasure-flare",
   "module.sensors-basic",
 ];
 
@@ -237,17 +225,17 @@ export const INTERCEPTOR_FITTING_OVERSUBSCRIBED = [
   "module.engine-civ",
   "module.generator-compact",
   "module.transformer-stock",
-  "module.heatsink-basic",
+  "module.countermeasure-flare",
   "module.sensors-basic",
 ];
 
-/** As {@link INTERCEPTOR_FITTING}, but carrying the jettisonable ablative sink. */
-export const INTERCEPTOR_FITTING_ABLATIVE = [
+/** As {@link INTERCEPTOR_FITTING}, but carrying the longer-lived chaff pod. */
+export const INTERCEPTOR_FITTING_CHAFF = [
   "module.laser-mk1",
   "module.missile-mk1",
   "module.engine-civ",
   "module.generator-compact",
   "module.transformer-stock",
-  "module.heatsink-ablative",
+  "module.countermeasure-chaff",
   "module.sensors-basic",
 ];

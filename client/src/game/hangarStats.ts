@@ -10,12 +10,11 @@ import {
 /**
  * Hangar live stat panel (ROADMAP §9 4.5). Wraps the 4.1 `resolveShipStats`
  * resolver with the fit-level projections the Hangar UI needs that the
- * resolver itself doesn't compute: idle energy budget, sustained-fire heat
- * trend, rough DPS/EHP. All "sustained"/"worst case" figures assume every
- * fitted module is simultaneously deployed and firing — a deliberately
- * pessimistic preview, not a sim replay. Since the 2026-08-07 heat/energy
- * overhaul every number here is a per-MODULE store rolled up over the fit:
- * there is no ship capacitor and no ship heat pool to report.
+ * resolver itself doesn't compute: idle energy budget, rough DPS/EHP. All
+ * "sustained"/"worst case" figures assume every fitted module is simultaneously
+ * deployed and firing — a deliberately pessimistic preview, not a sim replay.
+ * Since the 2026-08-07 energy overhaul every number here is a per-MODULE store
+ * rolled up over the fit: there is no ship capacitor.
  */
 export interface HangarStatPanel {
   hullMax: number;
@@ -24,15 +23,13 @@ export interface HangarStatPanel {
   energyReserve: number;
   /** Resolved hull-wide recharge multiplier — how fast those tanks refill. */
   rechargeMult: number;
-  /** Resolved hull-wide cooling multiplier — how fast every rack sheds heat. */
-  coolingMult: number;
-  /** Shortest held-trigger burn of any fitted weapon, in seconds (Infinity = heat-stable). */
-  burnSec: number;
-  /** Longest full cold-down of any fitted rack, in seconds. */
-  recoverSec: number;
   /** Rough damage/sec across every fitted weapon module (fire block present), ignoring range/LoS/target availability. */
   dps: number;
-  /** Same, but multiplied by each rack's duty cycle — what a held trigger really delivers. */
+  /**
+   * Same, but paying each weapon's clip reload — what a held trigger really
+   * delivers. Equal to {@link dps} for a weapon with no authored clip, since
+   * cycle time is a weapon's only limiter (heat deleted 2026-08-20).
+   */
   sustainedDps: number;
   /** hullMax stretched by the ship's average kinetic/energy resist — a rough "effective HP", not sim-accurate. */
   ehpApprox: number;
@@ -77,8 +74,6 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
   let energyReserve = 0;
   let dps = 0;
   let sustainedDps = 0;
-  let burnSec = Infinity;
-  let recoverSec = 0;
   let powerDrawRetracted = 0;
   for (const moduleId of opts.fittedModuleIds) {
     if (!moduleId) continue;
@@ -88,21 +83,11 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     // carries before the pilot raises anything.
     if (mod.fire) powerDrawRetracted += mod.power?.draw ?? 0;
     energyReserve += (mod.energy?.capacity ?? 0) * core.energyStore.multiplier;
-    if (mod.heat) {
-      const capacity = mod.heat.capacity * core.heatStore.multiplier;
-      const cooling = mod.heat.coolingPerSec * core.cooling.multiplier;
-      const perShot = mod.fire && mod.fire.mode !== "continuous" ? mod.heat.perShot * sustainedShotsPerSec(mod) : 0;
-      const gen = (mod.heat.perSecondActive + perShot) * core.efficiency.heatGen;
-      if (cooling > 0) recoverSec = Math.max(recoverSec, capacity / cooling);
-      if (gen > cooling) {
-        burnSec = Math.min(burnSec, Math.max(0, capacity - mod.heat.perShot * core.efficiency.heatGen) / (gen - cooling));
-      }
-      if (mod.fire) {
-        const nominal = mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage * sustainedShotsPerSec(mod);
-        sustainedDps += gen > cooling ? nominal * (cooling / gen) : nominal;
-      }
+    if (mod.fire) {
+      dps += mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage / mod.fire.cycleTime;
+      sustainedDps +=
+        mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage * sustainedShotsPerSec(mod);
     }
-    if (mod.fire) dps += mod.fire.mode === "continuous" ? mod.fire.damage : mod.fire.damage / mod.fire.cycleTime;
   }
 
   const powerDrawTotal = fittingPowerDraw(configs, opts.fittedModuleIds);
@@ -115,9 +100,6 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     nominalSpeed: core.engine.nominalSpeed,
     energyReserve,
     rechargeMult: core.recharge.multiplier,
-    coolingMult: core.cooling.multiplier,
-    burnSec,
-    recoverSec,
     dps,
     sustainedDps,
     ehpApprox,

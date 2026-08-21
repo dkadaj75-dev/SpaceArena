@@ -324,7 +324,6 @@ const CSS = `
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-action-ring-stroke, 1.5px)), #000 0);
 }
-.hud-module-btn.ring-heat > .ring { opacity: 0.72; }
 .hud-module-btn.ring-energy > .ring {
   opacity: 0.72;
   background: conic-gradient(var(--hud-primary, var(--sa-blue-500)) calc(var(--ring, 0) * 1%), transparent 0);
@@ -333,13 +332,19 @@ const CSS = `
   opacity: 0.9;
   background: conic-gradient(var(--sa-white) calc(var(--ring, 0) * 1%), transparent 0);
 }
-/* Shield collapse lockout. The reload sweep's shape (a filling arc that means
-   "ready when full") in the muted tone, because unlike a reload this is not the
-   module working — it is the module unavailable. */
+/* Weapon cycle time and shield collapse lockout — the two countdowns. The
+   reload sweep's shape (a filling arc that means "ready when full"), drawn
+   bright and thick because since heat was deleted (2026-08-20) a weapon's
+   cooldown is the ONLY thing gating it, so it has to be readable at a glance
+   mid-dogfight rather than a muted hint that the module is unavailable. */
 .hud-module-btn.ring-cooldown > .ring {
-  opacity: 0.85;
-  background: conic-gradient(var(--hud-muted, var(--sa-n-400)) calc(var(--ring, 0) * 1%), transparent 0);
+  opacity: 1;
+  --hud-action-ring-stroke: 3px;
+  background: conic-gradient(var(--sa-white) calc(var(--ring, 0) * 1%), transparent 0);
 }
+/* Dim the glyph while the countdown runs, so "not ready yet" reads from the
+   button as a whole and not only from the arc around its edge. */
+.hud-module-btn.ring-cooldown > .icon { opacity: 0.5; }
 .hud-module-btn.ring-danger > .ring {
   opacity: 0.92;
   background: conic-gradient(var(--hud-danger, var(--sa-red-500)) calc(var(--ring, 0) * 1%), transparent 0);
@@ -409,12 +414,6 @@ const CSS = `
   filter: drop-shadow(0 0 calc(9px * var(--hud-glow)) var(--hud-module-family-color));
 }
 .hud-module-btn.state-retracting { --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 45%, transparent); }
-.hud-module-btn.state-overheated {
-  --hud-btn-rim: var(--hud-danger, var(--sa-red-500));
-  --hud-action-color: var(--hud-danger, var(--sa-red-500));
-}
-.hud-module-btn.state-overheated > .icon { color: var(--hud-danger, var(--sa-red-500)); }
-.hud-module-btn.state-overheated::before { animation: hud-overheat-flash 0.6s ease-in-out infinite; }
 .hud-module-btn.state-reloading {
   --hud-btn-rim: color-mix(in srgb, var(--hud-module-family-color) 48%, var(--sa-white));
   filter: saturate(0.55) brightness(0.72);
@@ -433,10 +432,6 @@ const CSS = `
   filter: saturate(0.62) brightness(0.76);
 }
 .hud-module-btn.unarmable > .icon { color: var(--sa-white); opacity: 0.86; }
-@keyframes hud-overheat-flash {
-  0%, 100% { filter: drop-shadow(0 0 calc(5px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500))); }
-  50% { filter: drop-shadow(0 0 calc(18px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500))); }
-}
 @keyframes hud-reload-pulse { 50% { opacity: 0.42; } }
 
 /* --- Flight controls (FLIGHT.md §4) ---
@@ -1810,12 +1805,11 @@ const CSS = `
 }
 
 /* Reduced motion: the looping pulses are decoration on top of information that
-   is already carried by COLOUR (overheat red, lock red, critical red), so they
+   is already carried by COLOUR (lock red, critical red), so they
    can stop without taking a combat cue away. The one-shot feedback animations
    (hit marker, damage vignette, toast slide, results banner) stay: they ARE the
    information — a hit marker that never appears is a hit the player never saw. */
 @media (prefers-reduced-motion: reduce) {
-  .hud-module-btn.state-overheated::before,
   .hud-boost-btn.active > .icon,
   .hud-reticle-bracket.locked .ring {
     animation: none;
@@ -1827,9 +1821,6 @@ const CSS = `
     animation: none;
     opacity: 1;
     transform: none;
-  }
-  .hud-module-btn.state-overheated::before {
-    filter: drop-shadow(0 0 calc(12px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
   }
 }
 `;

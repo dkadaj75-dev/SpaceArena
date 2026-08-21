@@ -33,7 +33,7 @@ export const moduleFamily = z.enum([
   "engine",
   "generator",
   "transformer",
-  "heatsink",
+  "countermeasure",
   "sensors",
 ]);
 export type ModuleFamily = z.infer<typeof moduleFamily>;
@@ -48,14 +48,14 @@ export type ModuleFamily = z.infer<typeof moduleFamily>;
  *  - `generator`   — how fast every module tank refills, at the cost of top speed: a
  *                    bigger plant is heavier and steals thrust
  *  - `transformer` — how efficiently power is delivered: scales BOTH energy
- *                    draw and heat generation across the whole ship
- *  - `heatsink`    — dissipation and heat capacity; the good ones can be
+ *                    draw across the whole ship
+ *  - `countermeasure` — decoy pods; the fitted one can be
  *                    JETTISONED as a decoy (see `moduleSchema.jettison`)
  *  - `sensors`     — lock range, lock time and cone width
  *
  * Exported as a runtime set so UI and validation share one source of truth.
  */
-export const INTERNAL_FAMILIES = ["engine", "generator", "transformer", "heatsink", "sensors"] as const;
+export const INTERNAL_FAMILIES = ["engine", "generator", "transformer", "countermeasure", "sensors"] as const;
 export type InternalFamily = (typeof INTERNAL_FAMILIES)[number];
 
 /** Whether a family belongs in the internal bay rather than on a hardpoint. */
@@ -97,7 +97,6 @@ export const signalId = z.enum([
   "boostActive",
   "hullFraction",
   "shieldActive",
-  "heatFraction",
   "firing",
   "speedFraction",
 ]);

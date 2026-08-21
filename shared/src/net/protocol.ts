@@ -11,21 +11,20 @@ import type { MatchStatDelta, MatchStatLine } from "../sim/MatchStats.js";
  * intentionally NOT schema-synced (beams/kinetics are one-shot events, orders are
  * request/ack). Keep this file the single source of truth for both sides.
  *
- * ## Per-module heat/energy and clips (protocol 6, 2026-08-14)
+ * ## Per-module energy and clips (protocol 6, 2026-08-14)
  *
- * Heat and energy are replicated PER MODULE, never per ship. Every module entry
+ * Energy is replicated PER MODULE, never per ship. Every module entry
  * — schema-synced as `ModuleState`, and identical in the offline
  * `ModuleSnapshot` the same client code consumes — carries exactly four store
  * fields:
  *
- *   `heat` / `heatCapacity`     — the weapon rack's own heat and its resolved cap
  *   `energy` / `energyCapacity` — the module's own tank and its resolved cap
  *
- * Capacities are resolved SERVER-SIDE against the hull (its `heatStore` /
+ * Capacities are resolved SERVER-SIDE against the hull (its
  * `energyStore` multipliers) and replicated rather than recomputed from config,
  * for the same reason `hullMax` is. **A capacity of 0 means the module has no
  * store of that kind**, which is the entire signal a renderer needs to decide
- * whether to draw a ring. There are no ship-wide heat or energy fields: the pool
+ * whether to draw a ring. There is no ship-wide energy field: the pool
  * and the capacitor were deleted, not deprecated (docs/COMBAT-REWORK.md,
  * 2026-08-07 amendment).
  *
@@ -40,7 +39,8 @@ export const MODULE_STATE_CODE: Record<ModuleState, number> = {
   deploying: 1,
   active: 2,
   retracting: 3,
-  overheated: 4,
+  // 4 is retired (was `overheated`). The codes are a WIRE format, so the gap
+  // stays rather than renumbering `reloading` and desyncing every older client.
   reloading: 5,
 };
 
@@ -50,7 +50,9 @@ export const MODULE_STATE_BY_CODE: readonly ModuleState[] = [
   "deploying",
   "active",
   "retracting",
-  "overheated",
+  // Index 4 is the retired `overheated` code; a peer that still sends it is
+  // read as `retracted`, which is what a forced-offline rack looked like.
+  "retracted",
   "reloading",
 ];
 
@@ -223,8 +225,8 @@ export const orderSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("moduleToggle"), hardpointIndex: z.number().int().nonnegative() }),
   /**
-   * Blow the fitted heatsink clear of the hull. No payload: a hull has exactly
-   * one heatsink bay, so the sim finds it. Whether the fitted sink CAN be
+   * Blow the fitted countermeasure pod clear of the hull. No payload: a hull
+   * has exactly one countermeasure bay, so the sim finds it. Whether the pod CAN be
    * jettisoned (and is off cooldown) is a sim rule, not a wire one — an
    * ineligible order parses fine and is simply spent doing nothing
    * (JettisonSystem), mirroring `ArenaRoom.validateOrder`.
@@ -233,7 +235,7 @@ export const orderSchema = z.discriminatedUnion("kind", [
    * the sim, the server's own `validateOrder` and the HUD's JETTISON button all
    * spoke it — so the button worked offline and was acked `malformed` online.
    */
-  z.object({ kind: z.literal("jettisonHeatsink") }),
+  z.object({ kind: z.literal("jettisonCountermeasure") }),
 ]);
 
 /** Zod schema for the full client order envelope. */

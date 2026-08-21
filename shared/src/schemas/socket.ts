@@ -62,7 +62,7 @@ export type HardpointSocket = z.infer<typeof hardpointSocket>;
 
 /**
  * Internal socket — the ship's systems bay (owner 2026-07-31): engine,
- * generator, transformer, heatsink, sensors. Structurally identical to a
+ * generator, transformer, countermeasure, sensors. Structurally identical to a
  * hardpoint (a named attachment point with an `accepts` list) and it shares the
  * SAME fitted-slot index space, so a fitting is still one positional array and
  * the sim/netcode/HUD keep addressing modules by a single index (see
@@ -70,7 +70,7 @@ export type HardpointSocket = z.infer<typeof hardpointSocket>;
  *
  * What differs is meaning, and the UI reads `kind` for it: an internal is
  * always on and never toggled, so it gets no module button — it shapes the
- * hull's resolved stats instead (`passives`), and only a heatsink's `jettison`
+ * hull's resolved stats instead (`passives`), and only a countermeasure's `jettison`
  * is an action the pilot can take.
  */
 export const internalSocket = z.object({
@@ -85,7 +85,7 @@ export type FittableSocket = HardpointSocket | InternalSocket;
 
 /**
  * Emitter socket — binds a particle effect (`fx.*`) to runtime signals through
- * per-binding response curves. Pure data: engine trails, damage smoke, overheat
+ * per-binding response curves. Pure data: engine trails, damage smoke, vent
  * venting are all just emitter sockets with different effects + bindings.
  */
 export const emitterSocket = z.object({

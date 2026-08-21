@@ -687,7 +687,6 @@ describe("Scripted 60s engagement (regression anchor)", () => {
       sim.getEvents();
       if (sim.world.shipCores.has(shooter)) {
         for (const m of sim.world.modules.get(shooter)!.modules) {
-          expect(m.heat).toBeGreaterThanOrEqual(0);
           expect(m.energy).toBeGreaterThanOrEqual(0);
           expect(m.energy).toBeLessThanOrEqual(m.energyCapacity + 1e-9);
         }
@@ -759,7 +758,7 @@ describe("Respawn, team scoreboard and the hard time cap (owner 2026-07-31)", ()
     ]);
   });
 
-  it("an environment death (boundary/rock/overheat — killerId null) credits the OPPOSING team", () => {
+  it("an environment death (boundary/rock — killerId null) credits the OPPOSING team", () => {
     const { sim, player } = duelSim();
     // The player cooks itself / hits the rim: no killer entity on the event.
     applyDamageToShip(sim.world, player, null, 100000, "kinetic");

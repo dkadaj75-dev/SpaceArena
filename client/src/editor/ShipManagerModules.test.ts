@@ -31,7 +31,6 @@ describe("ShipManager fitted-module toggle", () => {
       family: "laser",
       level: 1,
       activation: { deployTime: 0, retractTime: 0 },
-      heat: { capacity: 1, coolingPerSec: 1, perSecondActive: 0, perShot: 6, rearmBelow: 0.25 },
       ui: { icon: "laser", label: "Laser" },
       price: 0,
       requiresLevel: 1,

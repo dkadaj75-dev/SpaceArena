@@ -24,11 +24,7 @@ export function deployProgress(
   retractTime: number,
 ): number {
   switch (state) {
-    // Overheated modules are force-shut but still physically mounted, so they
-    // stay extended alongside active ones: the silhouette reads "gun present,
-    // gun not firing".
     case "active":
-    case "overheated":
       return 1;
     case "deploying":
       // stateTimer counts DOWN from deployTime, so remaining/total inverts to progress.

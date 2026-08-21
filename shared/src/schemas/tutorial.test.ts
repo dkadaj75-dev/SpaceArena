@@ -35,10 +35,6 @@ function minimal(): Record<string, unknown> {
   };
 }
 
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
 describe("tutorial schema", () => {
   it("accepts a minimal tutorial through the type registry", () => {
     const result = validateConfig(minimal());
@@ -160,7 +156,7 @@ describe("shipped tutorial — flight school", () => {
     const families = tutorial.pilot.fitting
       .filter((id): id is string => Boolean(id))
       .map((id) => moduleSchema.parse(load(`modules/${id.slice("module.".length)}.json`)).family);
-    // The heat lesson needs a weapon with a rack, the energy lesson a shield.
+    // The gunnery lesson needs a weapon, the energy lesson a shield.
     expect(families).toContain("laser");
     expect(families).toContain("shield");
   });
@@ -169,8 +165,8 @@ describe("shipped tutorial — flight school", () => {
     const kinds = tutorial.steps.map((s) => s.condition.kind);
     expect(kinds.indexOf("throttle-above")).toBe(0);
     expect(kinds.indexOf("heading-changed")).toBeGreaterThan(kinds.indexOf("throttle-above"));
-    expect(kinds.indexOf("heat-above-then-cooled")).toBeGreaterThan(kinds.indexOf("heading-changed"));
-    expect(kinds.indexOf("module-toggled")).toBeGreaterThan(kinds.indexOf("heat-above-then-cooled"));
+    expect(kinds.indexOf("fired")).toBeGreaterThan(kinds.indexOf("heading-changed"));
+    expect(kinds.indexOf("module-toggled")).toBeGreaterThan(kinds.indexOf("fired"));
     expect(kinds.indexOf("lock-acquired")).toBeGreaterThan(kinds.indexOf("module-toggled"));
   });
 

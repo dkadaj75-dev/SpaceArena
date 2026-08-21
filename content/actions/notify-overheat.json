@@ -1,8 +1,0 @@
-{
-  "id": "action.notify-overheat",
-  "type": "action",
-  "version": 1,
-  "name": "Notify Overheat",
-  "kind": "show_notification",
-  "params": { "notification": "notification.overheat-warning" }
-}

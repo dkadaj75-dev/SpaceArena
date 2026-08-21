@@ -12,10 +12,9 @@ export interface UpgradeLevels {
   hull: number;
   engine: number;
   energy: number;
-  heat: number;
 }
 
-const ZERO_LEVELS: UpgradeLevels = { hull: 0, engine: 0, energy: 0, heat: 0 };
+const ZERO_LEVELS: UpgradeLevels = { hull: 0, engine: 0, energy: 0 };
 
 /** Canonical stat paths (no `core.` prefix). Order fixed for determinism. */
 const STAT_PATHS = [
@@ -23,16 +22,13 @@ const STAT_PATHS = [
   "engine.nominalSpeed",
   "engine.accel",
   "engine.turnRate",
-  "cooling.multiplier",
   "recharge.multiplier",
-  "heatStore.multiplier",
   "energyStore.multiplier",
   "sensors.lockRange",
   "sensors.lockTimeSec",
   "sensors.coneDeg",
   "power.capacity",
   "efficiency.energyDraw",
-  "efficiency.heatGen",
 ] as const;
 
 /** Strip an optional leading `core.` so authors may write either form. */
@@ -66,12 +62,10 @@ export function resolveShipStats(
     "engine.nominalSpeed": c.engine.nominalSpeed,
     "engine.accel": c.engine.accel,
     "engine.turnRate": c.engine.turnRate,
-    // Hull-wide heat/energy levers (overhaul 2026-08-07). Defaulted rather than
-    // required for the same reason `efficiency` is: hand-built cores (editor
-    // previews, benches) may omit them, and "no opinion" is a multiplier of 1.
-    "cooling.multiplier": c.cooling?.multiplier ?? 1,
+    // Hull-wide energy levers. Defaulted rather than required for the same
+    // reason `efficiency` is: hand-built cores (editor previews, benches) may
+    // omit them, and "no opinion" is a multiplier of 1.
     "recharge.multiplier": c.recharge?.multiplier ?? 1,
-    "heatStore.multiplier": c.heatStore?.multiplier ?? 1,
     "energyStore.multiplier": c.energyStore?.multiplier ?? 1,
     "sensors.lockRange": c.sensors.lockRange,
     "sensors.lockTimeSec": c.sensors.lockTimeSec,
@@ -81,7 +75,6 @@ export function resolveShipStats(
     // but hand-built configs (editor previews, balance workbench) may omit it,
     // and "no transformer opinion" is exactly a multiplier of 1.
     "efficiency.energyDraw": c.efficiency?.energyDraw ?? 1,
-    "efficiency.heatGen": c.efficiency?.heatGen ?? 1,
   };
 
   const adds: Record<string, number> = {};
@@ -100,7 +93,6 @@ export function resolveShipStats(
     ["hull", config.upgradeTracks.hull],
     ["engine", config.upgradeTracks.engine],
     ["energy", config.upgradeTracks.energy],
-    ["heat", config.upgradeTracks.heat],
   ];
   for (const [track, upgradeId] of tracks) {
     const count = upgradeLevels[track];
@@ -113,13 +105,12 @@ export function resolveShipStats(
     for (const [k, v] of Object.entries(level.mul ?? {})) mulOp(k, v);
   }
 
-  // 2. Module passives (utility modules) plus the two dedicated ship-wide blocks
-  //    a heatsink and a generator author directly. Iterate in fitted order for
-  //    determinism; both blocks are multiplicative, so two sinks stack.
+  // 2. Module passives (utility modules) plus the ship-wide block a generator
+  //    authors directly. Iterate in fitted order for determinism; the block is
+  //    multiplicative, so two generators stack.
   for (const moduleId of opts.fittedModuleIds ?? []) {
     if (!moduleId) continue;
     const mod = configs.get<ModuleConfig>("module", moduleId);
-    if (mod?.cooling) mulOp("cooling.multiplier", mod.cooling.multiplier);
     if (mod?.recharge) mulOp("recharge.multiplier", mod.recharge.multiplier);
     const passives: StatOp[] | undefined = mod?.passives;
     if (!passives) continue;
@@ -148,9 +139,7 @@ export function resolveShipStats(
       accel: stats["engine.accel"]!,
       turnRate: stats["engine.turnRate"]!,
     },
-    cooling: { multiplier: stats["cooling.multiplier"]! },
     recharge: { multiplier: stats["recharge.multiplier"]! },
-    heatStore: { multiplier: stats["heatStore.multiplier"]! },
     energyStore: { multiplier: stats["energyStore.multiplier"]! },
     sensors: {
       lockRange: stats["sensors.lockRange"]!,
@@ -160,7 +149,6 @@ export function resolveShipStats(
     power: { capacity: stats["power.capacity"]! },
     efficiency: {
       energyDraw: stats["efficiency.energyDraw"]!,
-      heatGen: stats["efficiency.heatGen"]!,
     },
   };
 }

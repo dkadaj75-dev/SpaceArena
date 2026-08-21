@@ -18,7 +18,6 @@ const TRACK_TO_ROW: Record<UpgradeTrackName, keyof ShipUpgradeRow> = {
   hull: "hull_lvl",
   engine: "engine_lvl",
   energy: "energy_lvl",
-  heat: "heat_lvl",
 };
 
 /** Current level of a track for a user+ship (0 if never upgraded). */
@@ -49,7 +48,6 @@ export function createShipsRouter(): Router {
           hull: trackLevel(req.userId!, ship.id, "hull"),
           engine: trackLevel(req.userId!, ship.id, "engine"),
           energy: trackLevel(req.userId!, ship.id, "energy"),
-          heat: trackLevel(req.userId!, ship.id, "heat"),
         },
       }));
       res.json({ ships });

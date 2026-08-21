@@ -9,9 +9,20 @@
   "matchCountdownSec": 3,
   "globalDamageMult": 1.0,
   "damageTypes": {
-    "energy": { "shieldAbsorb": 0.8, "hullMult": 0.5 },
-    "kinetic": { "shieldAbsorb": 0.2, "hullMult": 1.0 },
-    "hybrid": { "mix": { "kinetic": 0.5, "energy": 0.5 } }
+    "energy": {
+      "shieldAbsorb": 0.8,
+      "hullMult": 0.5
+    },
+    "kinetic": {
+      "shieldAbsorb": 0.2,
+      "hullMult": 1.0
+    },
+    "hybrid": {
+      "mix": {
+        "kinetic": 0.5,
+        "energy": 0.5
+      }
+    }
   },
   "dragCoefficient": 0.02,
   "spatialCellSize": 16,
@@ -24,7 +35,6 @@
   "netRenderDelayMaxMs": 350,
   "netCorrectionRate": 12,
   "featureFlags": {
-    "showDebugOverlay": false,
-    "heatSystem": false
+    "showDebugOverlay": false
   }
 }

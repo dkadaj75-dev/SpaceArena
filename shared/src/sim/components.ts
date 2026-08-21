@@ -76,15 +76,11 @@ export interface ShipCore {
   resists: { kinetic: number; energy: number };
   engine: { nominalSpeed: number; accel: number; turnRate: number };
   /**
-   * Resolved hull-wide COOLING multiplier (heat/energy overhaul 2026-08-07) —
-   * hull base × every fitted heatsink's `cooling.multiplier` × passives. Applied
-   * to every module's own `heat.coolingPerSec`. There is no ship heat pool.
+   * Resolved hull-wide RECHARGE multiplier — hull base × every fitted
+   * generator's `recharge.multiplier` × passives. Applied to every module's own
+   * `energy.rechargePerSec`.
    */
-  cooling: { multiplier: number };
-  /** Resolved hull-wide RECHARGE multiplier, applied to every module tank's refill. */
   recharge: { multiplier: number };
-  /** Resolved multiplier on every module's authored `heat.capacity`. */
-  heatStore: { multiplier: number };
   /** Resolved multiplier on every module's authored `energy.capacity`. */
   energyStore: { multiplier: number };
   /** Resolved sensor suite driving the lock cone (FLIGHT.md §2). `coneDeg` is the FULL width. */
@@ -99,10 +95,10 @@ export interface ShipCore {
   power: { capacity: number };
   /**
    * Ship-wide efficiency, the fitted TRANSFORMER's contribution (2026-07-31):
-   * every module's energy draw is multiplied by `energyDraw` and its heat
-   * generation by `heatGen`. 1 = the hull as authored.
+   * every module's energy draw is multiplied by `energyDraw`. 1 = the hull as
+   * authored.
    */
-  efficiency: { energyDraw: number; heatGen: number };
+  efficiency: { energyDraw: number };
 }
 
 export type ModuleState =
@@ -110,7 +106,6 @@ export type ModuleState =
   | "deploying"
   | "active"
   | "retracting"
-  | "overheated"
   | "reloading";
 
 /**
@@ -139,21 +134,11 @@ export interface ModuleRuntime {
   hardpointIndex: number;
   state: ModuleState;
   /**
-   * Remaining seconds in a timed state (deploying/retracting). An `overheated`
-   * lockout is NOT timed — it ends when the rack's own heat falls back under
-   * `heat.capacity × heat.rearmBelow` — so this is 0 throughout one.
+   * Remaining seconds in a timed state (deploying/retracting).
    */
   stateTimer: number;
   /** Rounds left in an authored clip; 0 for modules without a clip. */
   rounds: number;
-  /** This module's own heat, 0..{@link ModuleRuntime.heatCapacity}. */
-  heat: number;
-  /**
-   * Resolved capacity of this module's heat store (authored `heat.capacity` ×
-   * the hull's `heatStore.multiplier`), or 0 for a module that never heats.
-   * Resolved once at spawn: the HUD's heat ring is `heat / heatCapacity`.
-   */
-  heatCapacity: number;
   /** This module's own energy charge, 0..{@link ModuleRuntime.energyCapacity}. */
   energy: number;
   /**
@@ -271,7 +256,7 @@ export interface AsteroidTag {
 }
 
 /**
- * A jettisoned heatsink drifting in space (owner 2026-07-31). It is not a ship
+ * A jettisoned countermeasure pod drifting in space (owner 2026-07-31). It is not a ship
  * and cannot be shot down — it is a LURE: for `lifetime` seconds it is the
  * hottest thing around, so enemy auto-lock prefers it over a hull and homing
  * missiles already in flight re-seek it. `team` is the team that dropped it, so

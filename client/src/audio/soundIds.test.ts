@@ -71,7 +71,6 @@ describe("soundRequestFromAction", () => {
 describe("moduleHookFor", () => {
   it("maps module-driven events to their action hook", () => {
     expect(moduleHookFor({ type: "projectileFired", ownerId: 1, moduleId: "m", kind: "beam", targetId: null })).toBe("onFire");
-    expect(moduleHookFor({ type: "overheated", entityId: 1, hardpointIndex: 0, moduleId: "m" })).toBe("onOverheat");
     expect(
       moduleHookFor({ type: "moduleStateChanged", entityId: 1, hardpointIndex: 0, moduleId: "m", from: "retracted", to: "deploying" }),
     ).toBe("onActivate");
@@ -89,7 +88,7 @@ describe("actionIdsForEvent", () => {
   const laser = {
     id: "module.laser-mk1",
     onFire: ["action.play-sound-laser"],
-    onOverheat: ["action.notify-overheat", "action.play-sound-overheat"],
+    
   } as unknown as ModuleConfig;
   const lookup = (id: string): ModuleConfig | undefined => (id === "module.laser-mk1" ? laser : undefined);
 
@@ -117,7 +116,7 @@ describe("actionIdsForEvent", () => {
   });
 
   it("is empty for unknown modules and non-module events", () => {
-    const unknownModule: SimEvent = { type: "overheated", entityId: PLAYER, hardpointIndex: 0, moduleId: "module.nope" };
+    const unknownModule: SimEvent = { type: "projectileFired", ownerId: PLAYER, moduleId: "module.nope", kind: "beam", targetId: null };
     expect(actionIdsForEvent(unknownModule, lookup)).toEqual([]);
     const damage: SimEvent = { type: "damage", targetId: PLAYER, sourceId: ENEMY, amount: 5, damageType: "energy", isAsteroid: false };
     expect(actionIdsForEvent(damage, lookup)).toEqual([]);
@@ -149,7 +148,6 @@ describe("soundSourceEntity", () => {
     expect(
       soundSourceEntity({ type: "projectileFired", ownerId: ENEMY, moduleId: "m", kind: "beam", targetId: PLAYER }),
     ).toBe(ENEMY);
-    expect(soundSourceEntity({ type: "overheated", entityId: ENEMY, hardpointIndex: 0, moduleId: "m" })).toBe(ENEMY);
     expect(
       soundSourceEntity({
         type: "moduleStateChanged",
@@ -191,7 +189,6 @@ describe("audioSettingsOf", () => {
     const settings = audioSettingsOf(theme);
     expect(settings.cues.playerDamaged).toBe("hit_thud");
     expect(settings.cues.playerKill).toBe("kill_confirm");
-    expect(settings.cues.overheat).toBeNull();
     expect(settings.maxVoices).toBe(4);
     expect(settings.retriggerGapMs).toBe(10);
   });
@@ -220,7 +217,6 @@ describe("cueSoundFor", () => {
     shieldAbsorb: "shield_hit",
     playerKill: "kill_confirm",
     playerDeath: "explosion_heavy",
-    overheat: "overheat_warning",
     boundaryWarning: "boundary_warn",
     lockAcquired: "lock_acquired",
     lockLost: "lock_lost",
@@ -233,7 +229,6 @@ describe("cueSoundFor", () => {
     expect(cueSoundFor({ type: "damage", targetId: PLAYER, sourceId: ENEMY, amount: 4, damageType: "energy", isAsteroid: false }, PLAYER, cues)).toBe("hit_thud");
     expect(cueSoundFor({ type: "damage", targetId: ENEMY, sourceId: PLAYER, amount: 4, damageType: "energy", isAsteroid: false }, PLAYER, cues)).toBeNull();
     expect(cueSoundFor({ type: "shieldAbsorb", targetId: PLAYER, sourceId: ENEMY, hardpointIndex: 0, amount: 3, hullAvoided: 1.5, damageType: "energy" }, PLAYER, cues)).toBe("shield_hit");
-    expect(cueSoundFor({ type: "overheated", entityId: ENEMY, hardpointIndex: 0, moduleId: "m" }, PLAYER, cues)).toBeNull();
   });
 
   it("separates a kill from the player's own death", () => {

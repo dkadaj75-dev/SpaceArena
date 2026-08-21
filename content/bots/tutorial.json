@@ -49,15 +49,11 @@
     }
   },
   "moduleDiscipline": {
-    "heatShutdownAt": 0.6,
-    "reactivateBelow": 0.2,
     "energyReserve": 0.4,
     "shieldOnlyWhenEngaged": true
   },
   "fireDiscipline": {
     "engageRangeMult": 0.55,
-    "heatHeadroom": 0.5,
-    "rearmHeatBelow": 0.15,
     "minEnergyFraction": 0.3,
     "burstSec": 0.6,
     "pauseSec": 2.4

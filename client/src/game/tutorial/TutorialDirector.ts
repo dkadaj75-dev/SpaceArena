@@ -155,11 +155,6 @@ export class TutorialDirector {
       this.signals.turned +=
         Math.abs(angleDelta(before.heading, ship.heading)) + Math.abs(ship.pitch - before.pitch);
     }
-    // The heat lesson watches the HOTTEST rack: which weapon it is does not
-    // matter, only that a ring filled and then came back down.
-    const heat = hottestRack(ship);
-    this.signals.heat = heat;
-    this.signals.peakHeat = Math.max(this.signals.peakHeat, heat);
   }
 
   /** Sim events drained this frame (same array the HUD consumes). */
@@ -317,17 +312,6 @@ export class TutorialDirector {
     this.session = null;
     this.host.present(null);
   }
-}
-
-/** Hottest weapon rack on a ship as a 0..1 fraction; 0 when it carries none. */
-function hottestRack(ship: ShipSnapshot): number {
-  let worst = 0;
-  for (const m of ship.modules) {
-    if (m.heatCapacity <= 0) continue;
-    const fraction = m.heat / m.heatCapacity;
-    if (fraction > worst) worst = fraction;
-  }
-  return worst;
 }
 
 function findShip(snapshot: Snapshot, id: EntityId): ShipSnapshot | undefined {

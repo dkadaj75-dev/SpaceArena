@@ -22,27 +22,16 @@ const shipCore = z.object({
     turnRate: z.number().positive(),
   }),
   /**
-   * Hull-wide COOLING multiplier (heat/energy overhaul 2026-08-07). There is no
-   * ship heat pool any more — each module owns its own heat — so what a hull
-   * contributes is how fast every rack bolted to it sheds that heat. Fitted
-   * heatsinks multiply on top of this (`cooling.multiplier`), and the shipped
-   * weapon numbers are balanced against hull 1.0 × the free radiator.
-   */
-  cooling: z.object({ multiplier: z.number().positive().default(1) }).default({ multiplier: 1 }),
-  /**
    * Hull-wide energy RECHARGE multiplier: how fast every module tank on this
    * hull (boost, shields, active utilities) refills while it rests. Fitted
    * generators multiply on top of this.
    */
   recharge: z.object({ multiplier: z.number().positive().default(1) }).default({ multiplier: 1 }),
   /**
-   * Hull-wide STORE multipliers: how big the racks and tanks a hull carries are,
-   * relative to the module's authored capacity. These change the RHYTHM (longer
-   * bursts, longer refills) without touching the duty cycle, which is set by the
-   * generation/cooling ratio — so a hull may be given deeper magazines without
-   * silently rebalancing its damage output.
+   * Hull-wide STORE multiplier: how big the tanks a hull carries are, relative
+   * to the module's authored capacity. This changes the RHYTHM (longer bursts,
+   * longer refills) without touching the duty cycle.
    */
-  heatStore: z.object({ multiplier: z.number().positive().default(1) }).default({ multiplier: 1 }),
   energyStore: z.object({ multiplier: z.number().positive().default(1) }).default({ multiplier: 1 }),
   /**
    * POWER RAIL capacity (owner 2026-07-31) — the second energy axis, and the
@@ -62,21 +51,16 @@ const shipCore = z.object({
     .default({ capacity: 0 }),
   /**
    * Ship-wide efficiency multipliers (owner 2026-07-31), the TRANSFORMER's
-   * lever: `energyDraw` scales every module's own energy draw and `heatGen`
-   * scales every module's own heat generation — the per-module trade the
-   * heat/energy overhaul kept. Both default to 1 (the hull as authored) and are
-   * moved by the fitted transformer's passives, so a good one makes the whole
-   * loadout cheaper to run while a cheap one taxes it.
+   * lever: `energyDraw` scales every module's own energy draw. It defaults to 1
+   * (the hull as authored) and is moved by the fitted transformer's passives, so
+   * a good one makes the whole loadout cheaper to run while a cheap one taxes it.
    */
   efficiency: z
-    .object({
-      energyDraw: z.number().nonnegative().default(1),
-      heatGen: z.number().nonnegative().default(1),
-    })
-    .default({ energyDraw: 1, heatGen: 1 }),
+    .object({ energyDraw: z.number().nonnegative().default(1) })
+    .default({ energyDraw: 1 }),
   /**
    * Sensor suite (FLIGHT.md §2). Drives the heading-relative lock cone every
-   * weapon fires through, so it is a per-ship stat like engine or heat — and it
+   * weapon fires through, so it is a per-ship stat like engine or hull — and it
    * goes through the resolver, which is what lets modules/upgrades move it.
    * Keep `lockRange` at or above the longest weapon range the hull can fit, or
    * range (not lock) becomes the binding constraint on reach.
@@ -108,7 +92,6 @@ export const shipSchema = z
       hull: z.string(),
       engine: z.string(),
       energy: z.string(),
-      heat: z.string(),
     }),
     /**
      * Socket graph (replaces the old flat `hardpoints[]`). Hardpoint sockets are

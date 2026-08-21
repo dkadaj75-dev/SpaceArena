@@ -27,7 +27,7 @@ import "./ctfBehavior.js";
 import { steerForPoint, throttleForPointArrival } from "./flight.js";
 import { allocateTeamRoles, type BotRole } from "./roleAllocator.js";
 import { RecoveryController } from "./recovery.js";
-import { decideFire, type FireDecisionReason, type FireDisciplineState } from "./fireDiscipline.js";
+import { decideFire, type FireDecisionReason } from "./fireDiscipline.js";
 import { planModuleOrders, type ModuleDecision } from "./moduleDiscipline.js";
 import type { StaticWorld } from "../collision/staticWorld.js";
 import type { NavRoute } from "./navRoute.js";
@@ -204,7 +204,7 @@ const calibrationNextNose = { x: 0, y: 0, z: 0 };
  * `moduleToggle`; those are the only two that exist). It consumes a read-only
  * {@link Snapshot} plus its
  * `botprofile` config and returns orders; it never touches sim internals, so
- * every rule (lock gate, range, LoS, energy, heat, order validation) applies to
+ * every rule (lock gate, range, LoS, energy, order validation) applies to
  * bots by construction. There is no bot aimbot and no sim-side privilege.
  *
  * Utility decision-making: each behaviour key present in the profile is scored
@@ -271,7 +271,6 @@ export class BotDriver {
   /** Seeded combat-aim bias, held across decisions so misses look human, not noisy. */
   private marksmanship = { yaw: 0, pitch: 0, velocitySec: 0, untilMs: 0 };
   private targetMotion: { id: EntityId; pos: Required<Vec3>; atMs: number } | null = null;
-  private fireState: FireDisciplineState = { heatHeld: false };
   private carrierProgress: { homeDistance: number; progressedAtMs: number; commitUntilMs: number; standoff: boolean } | null = null;
   /**
    * `snapshot.tick` of the last update that SAW this driver's ship, or -1
@@ -375,7 +374,6 @@ export class BotDriver {
     this.lastElapsed = 0;
     this.marksmanship = { yaw: 0, pitch: 0, velocitySec: 0, untilMs: 0 };
     this.targetMotion = null;
-    this.fireState = { heatHeld: false };
     this.carrierProgress = null;
     this.lastSeenTick = -1;
     this.recovery.reset();
@@ -701,7 +699,7 @@ export class BotDriver {
     );
     this.lastEngaged = triggerEngaged;
     this.lastTargetId = targetId;
-    const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, triggerEngaged, this.fireState);
+    const fireDecision = decideFire(ctx, this.configs, profile.fireDiscipline, triggerEngaged);
 
     // --- flight order: aim point -> both sticks, then overlays, then epsilon gate ---
     const plannedAim = bestPlan?.aim ?? null;
@@ -769,7 +767,7 @@ export class BotDriver {
     // A flag carrier CANNOT boost — the sim refuses it outright. `objective`
     // already declines to ask while it is the winning behaviour, but a carrier
     // whose utility swings to engage/kite/retreat used to ask anyway, and the
-    // request costs a module-toggle order (plus its heat and energy) every
+    // request costs a module-toggle order (plus its energy) every
     // decision for a burner the sim will never light. The rule belongs to the
     // ship's state, not to one behaviour, so it is enforced where the command
     // is assembled.
@@ -816,7 +814,7 @@ export class BotDriver {
       if (!cmd.boost || m.state !== "retracted") continue;
       const cfg = this.configs.get<ModuleConfig>("module", m.moduleId);
       if (!cfg?.boost) continue;
-      // Read the BOTTLE before pulling the handle (heat/energy overhaul
+      // Read the BOTTLE before pulling the handle (energy overhaul
       // 2026-08-07): the sim refuses to raise an energy module below its own
       // `rearmAbove`, so arming a flamed-out afterburner would be a toggle order
       // spent every decision tick for nothing — against the bot's rate budget.

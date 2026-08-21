@@ -16,7 +16,7 @@ import type { HangarStatPanel } from "./hangarStats.js";
  * improvement) is testable without a DOM or an engine.
  */
 
-export type HangarGaugeKey = "power" | "hull" | "speed" | "tanks" | "thermal" | "dps";
+export type HangarGaugeKey = "power" | "hull" | "speed" | "tanks" | "sustained" | "dps";
 
 /** Which way a change moves for the PILOT, not for the number. */
 export type HangarGaugeTrend = "none" | "better" | "worse";
@@ -85,7 +85,7 @@ export const HANGAR_GAUGE_REFERENCE: Record<Exclude<HangarGaugeKey, "power">, nu
   hull: 250,
   speed: 40,
   tanks: 250,
-  thermal: 12,
+  sustained: 40,
   dps: 40,
 };
 
@@ -96,7 +96,7 @@ interface GaugeSpec {
   key: HangarGaugeKey;
   label: string;
   decimals: number;
-  /** True when a bigger number is better for the pilot (power/heat-load are not). */
+  /** True when a bigger number is better for the pilot (rail draw is not). */
   higherIsBetter: boolean;
   value: (p: HangarStatPanel) => number;
   reference: (p: HangarStatPanel) => number;
@@ -152,17 +152,18 @@ const SPECS: readonly GaugeSpec[] = [
     warn: (p) => p.rechargeMult < 1,
   },
   {
-    // Thermals read as TIME, which is what the pilot feels: how many seconds of
-    // held trigger the fit gets, and how long the racks take to come back.
-    key: "thermal",
-    label: "Burn",
+    // What a held trigger actually delivers once clip reloads are paid. Sits
+    // beside nominal DPS on purpose: the gap between the two IS the reload
+    // tax, and a fit whose two bars differ sharply is one that spends real
+    // seconds not shooting.
+    key: "sustained",
+    label: "Sustained",
     decimals: 1,
     higherIsBetter: true,
-    value: (p) => (Number.isFinite(p.burnSec) ? p.burnSec : HANGAR_GAUGE_REFERENCE.thermal),
-    reference: () => HANGAR_GAUGE_REFERENCE.thermal,
-    valueText: (p) =>
-      `${Number.isFinite(p.burnSec) ? round(p.burnSec, 1) : "∞"}s · ${round(p.recoverSec, 1)}s cool`,
-    warn: (p) => p.burnSec < 3,
+    value: (p) => p.sustainedDps,
+    reference: () => HANGAR_GAUGE_REFERENCE.sustained,
+    valueText: (p) => round(p.sustainedDps, 1),
+    warn: () => false,
   },
   {
     key: "dps",

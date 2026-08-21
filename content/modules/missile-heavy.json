@@ -12,12 +12,6 @@
   "power": {
     "draw": 5
   },
-  "heat": {
-    "capacity": 160,
-    "coolingPerSec": 25.0,
-    "rearmBelow": 0.25,
-    "perShot": 107.3
-  },
   "fire": {
     "mode": "semi",
     "range": 175,
@@ -33,10 +27,6 @@
   },
   "onFire": [
     "action.play-sound-missile"
-  ],
-  "onOverheat": [
-    "action.notify-overheat",
-    "action.play-sound-overheat"
   ],
   "ui": {
     "icon": "[ICON: missile]",

@@ -189,7 +189,7 @@ export class BoostButton {
       this.container.hidden = !fitted;
       this.lastFitted = fitted;
       // Losing the fitting also drops the SKIN. A hidden control that keeps its
-      // last classes comes back overheated (or lit) on the next spawn, which is
+      // last classes comes back lit on the next spawn, which is
       // how a HUD ends up lying about a module the player has just refitted.
       if (!fitted) this.resetSkin();
     }

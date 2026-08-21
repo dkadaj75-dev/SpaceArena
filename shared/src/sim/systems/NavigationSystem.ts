@@ -11,7 +11,7 @@ import type { World } from "../World.js";
 
 /**
  * Boost speed multiplier for one ship this tick: 1 unless a fitted boost module
- * is `active` with charge left in ITS OWN TANK (heat/energy overhaul
+ * is `active` with charge left in ITS OWN TANK (energy overhaul
  * 2026-08-07 — there is no ship capacitor to check), in which case its
  * `boost.speedMult` applies and the module is flagged worked-this-tick so
  * EnergySystem drains `energy.drawPerSec` from that tank.

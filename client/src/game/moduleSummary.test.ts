@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ConfigService, type ModuleConfig } from "@space-arena/shared";
-import { moduleDps, moduleHeatPerSec, moduleStats, moduleSummaryLine } from "./moduleSummary.js";
+import { moduleDps, moduleStats, moduleSummaryLine } from "./moduleSummary.js";
 
 /** Same content loader as `hangarStats.test.ts` — see the note there. */
 function findContentDir(start: string): string {
@@ -47,35 +47,18 @@ describe("moduleDps", () => {
   });
 });
 
-describe("moduleHeatPerSec", () => {
-  it("folds a weapon's per-shot heat into its cadence", () => {
-    const laser = mod("module.laser-mk1");
-    const expected = laser.heat!.perSecondActive + laser.heat!.perShot / laser.fire!.cycleTime;
-    expect(moduleHeatPerSec(laser)).toBeCloseTo(expected, 9);
-    // A weapon firing flat out is hotter than its idle-active rate alone.
-    expect(moduleHeatPerSec(laser)).toBeGreaterThan(laser.heat!.perSecondActive);
-  });
-
-  it("is 0 for a module with no heat store at all", () => {
-    // Boost is priced in ENERGY since 2026-08-07 — a boosting engine authors no
-    // heat block, and neither do shields, generators or sensors.
-    expect(moduleHeatPerSec(mod("module.engine-sport"))).toBe(0);
-    expect(moduleHeatPerSec(mod("module.shield-mk1"))).toBe(0);
-  });
-});
-
 describe("moduleStats — the numbers each family is judged on", () => {
-  it("shows a weapon's dps, range, power and its thermal rhythm", () => {
-    expect(labels("module.laser-mk1")).toEqual(["DPS", "Range", "Power", "Burn", "Cool"]);
+  it("shows a weapon's dps, range, cycle time and power", () => {
+    expect(labels("module.laser-mk1")).toEqual(["DPS", "Range", "Cycle", "Power"]);
     // 7.2 → 14.5 on 2026-08-14 (`fire.damage` × 2 across the catalogue), then
     // 14.5 → 29 on 2026-08-16 (the owner's blanket laser × 2), then 29 → 37.6 on
     // 2026-08-18 (laser × 1.3): the chip quotes 18.82 per shot every 0.5 s.
     // Purely derived — `moduleStats` reads the authored damage and cycleTime, so
     // this literal tracks content and pins nothing of its own.
     expect(valueOf("module.laser-mk1", "DPS")).toBe("37.6");
-    // "Power" is the flat rail current the module holds while online; "Burn" and
-    // "Cool" are the seconds a pilot actually feels (2026-08-07). A weapon has
-    // no energy chip at all — it costs none.
+    // "Power" is the flat rail current the module holds while online; "Cycle"
+    // is the weapon's ONLY limiter since heat was deleted (2026-08-20). A weapon
+    // has no energy chip at all — it costs none.
     expect(valueOf("module.laser-mk1", "Power")).toBe("2.5");
     expect(labels("module.laser-mk1")).not.toContain("Tank");
   });
@@ -106,15 +89,14 @@ describe("moduleStats — the numbers each family is judged on", () => {
 
   it("shows a transformer's two-sided trade", () => {
     expect(valueOf("module.transformer-efficient", "Draw")).toBe("−22%");
-    expect(valueOf("module.transformer-efficient", "Heat")).toBe("+25%");
-    expect(valueOf("module.transformer-cryo", "Heat")).toBe("−30%");
+    expect(valueOf("module.transformer-efficient", "Power")).toBe("+10");
     expect(valueOf("module.transformer-cryo", "Draw")).toBe("+20%");
+    expect(valueOf("module.transformer-cryo", "Power")).toBe("+6");
   });
 
-  it("advertises a heatsink's jettison cooldown, and says nothing about it when there is none", () => {
-    expect(valueOf("module.heatsink-ablative", "Jettison")).toBe("25s");
-    expect(labels("module.heatsink-basic")).not.toContain("Jettison");
-    expect(valueOf("module.heatsink-cryo", "Cooling")).toBe("+110%");
+  it("advertises a countermeasure pod's jettison cooldown", () => {
+    expect(valueOf("module.countermeasure-chaff", "Jettison")).toBe("25s");
+    expect(valueOf("module.countermeasure-flare", "Jettison")).toBe("30s");
   });
 
   it("shows sensor reach and lock time", () => {
@@ -131,14 +113,13 @@ describe("moduleStats — the numbers each family is judged on", () => {
 });
 
 describe("moduleSummaryLine", () => {
-  // The chip line quotes the module's OWN numbers, with no hull multiplier and
-  // no heatsink: 2.2 s of burn and 4 s to cool bare. On the free kit (radiator
-  // ×1.6) the same rack burns ~5 s and cools in 2.5 s — see the feel bench.
+  // The chip line quotes the module's OWN numbers, with no hull multiplier
+  // applied.
   it("joins the chips into one readable line", () => {
     expect(moduleSummaryLine(mod("module.laser-mk1"))).toBe(
-      // DPS tracks the authored laser damage (× 1.3 on 2026-08-18); Burn/Cool
-      // are unchanged because that pass moved no heat number.
-      "DPS 37.6 · Range 95 · Power 2.5 · Burn 2.2s · Cool 4s",
+      // DPS tracks the authored laser damage (× 1.3 on 2026-08-18); Cycle
+      // replaced the old Burn/Cool pair when heat was deleted (2026-08-20).
+      "DPS 37.6 · Range 95 · Cycle 0.50s · Power 2.5",
     );
   });
 

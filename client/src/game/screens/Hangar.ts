@@ -92,8 +92,8 @@ const LS_UPGRADES = "hangar.upgrades";
 const LS_MODULES = "hangar.moduleIds";
 const THEME_ID = "theme.default";
 const STAGE_POS = new Vector3(0, 5, 300); // far from the arena (radius 90) — nothing else renders out here
-const UPGRADE_TRACKS: readonly UpgradeTrackName[] = ["hull", "engine", "energy", "heat"];
-const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine: "Engine", energy: "Capacitor", heat: "Heat Sink" };
+const UPGRADE_TRACKS: readonly UpgradeTrackName[] = ["hull", "engine", "energy"];
+const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine: "Engine", energy: "Capacitor" };
 
 /**
  * Which outfitting bay the panel is showing (owner 2026-07-31).
@@ -157,7 +157,7 @@ function loadCachedModules(shipId: string | null): (string | null)[] | null {
   }
 }
 
-const ZERO_LEVELS: UpgradeLevels = { hull: 0, engine: 0, energy: 0, heat: 0 };
+const ZERO_LEVELS: UpgradeLevels = { hull: 0, engine: 0, energy: 0 };
 
 /**
  * The cached upgrade levels, but only if they were stored for `shipId` — levels
@@ -173,7 +173,7 @@ function loadCachedUpgrades(shipId: string | null): UpgradeLevels | null {
     if (parsed.shipId !== shipId || !parsed.levels) return null;
     const levels = parsed.levels;
     const track = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0);
-    return { hull: track(levels.hull), engine: track(levels.engine), energy: track(levels.energy), heat: track(levels.heat) };
+    return { hull: track(levels.hull), engine: track(levels.engine), energy: track(levels.energy) };
   } catch {
     // Corrupt/hand-edited storage is not worth a crash on the way into a match.
     return null;
@@ -781,7 +781,7 @@ export class Hangar {
     );
     this.idleModules = this.slots
       .filter((s): s is HangarSlot & { moduleId: string } => s.moduleId !== null)
-      .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", heat: 0, heatCapacity: 0, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
+      .map((s) => ({ moduleId: s.moduleId, hardpointIndex: s.hardpointIndex, state: "active", energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: false, shieldPool: 0 }) satisfies ModuleSnapshot);
   }
 
   /**
@@ -1514,7 +1514,7 @@ export class Hangar {
         content.append(this.buildModulePicker(ship, this.pickerHardpoint, credits, level));
       }
       // The upgrade tracks ARE the hull's internal systems — hull plating,
-      // engine, capacitor, heat sink — so they moved into the internals bay
+      // engine, capacitor, countermeasure — so they moved into the internals bay
       // with the SHIP page (owner 2026-08-08) rather than being dropped.
       if (this.category === "internals") content.append(this.buildUpgrades(ship, storeLocked, credits));
     }
@@ -1670,12 +1670,11 @@ export class Hangar {
     wrap.append(statRow("Hull", panel.hullMax.toFixed(0)));
     wrap.append(statRow("Speed", panel.nominalSpeed.toFixed(1)));
     wrap.append(statRow("Tanks", `${panel.energyReserve.toFixed(0)} (×${panel.rechargeMult.toFixed(2)} refill)`));
-    wrap.append(statRow("Burn", `${Number.isFinite(panel.burnSec) ? panel.burnSec.toFixed(1) : "∞"}s (${panel.recoverSec.toFixed(1)}s cool)`));
     wrap.append(statRow("DPS (est.)", panel.dps.toFixed(1)));
+    wrap.append(statRow("Sustained (est.)", panel.sustainedDps.toFixed(1)));
     wrap.append(statRow("EHP (est.)", panel.ehpApprox.toFixed(0)));
     wrap.append(statRow("Power rail", `${panel.powerDrawTotal.toFixed(0)} / ${panel.powerCapacity.toFixed(0)}`));
     wrap.append(this.buildPowerWarn(panel));
-    wrap.append(this.buildHeatWarn(panel));
     return wrap;
   }
 
@@ -1712,22 +1711,6 @@ export class Hangar {
     fill.style.width = `${Math.min(100, (Math.min(draw, regen) / denom) * 100)}%`;
     track.append(fill);
     row.append(track);
-    return row;
-  }
-
-  private buildHeatWarn(panel: HangarStatPanel): HTMLDivElement {
-    const row = el("div", "hangar-bar-row");
-    // Thermals read as seconds now (2026-08-07): how long the trigger holds
-    // before the first rack locks, and how long it is gone for.
-    const warn = panel.burnSec < 3;
-    const burn = Number.isFinite(panel.burnSec) ? `${panel.burnSec.toFixed(1)}s` : "unlimited";
-    row.append(
-      el(
-        "span",
-        "hangar-bar-label" + (warn ? " warn-text" : ""),
-        `Held trigger: ${burn} before lockout, ${panel.recoverSec.toFixed(1)}s to cool${warn ? " (locks fast)" : ""}`,
-      ),
-    );
     return row;
   }
 

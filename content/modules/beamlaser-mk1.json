@@ -12,12 +12,6 @@
   "power": {
     "draw": 3
   },
-  "heat": {
-    "capacity": 100,
-    "coolingPerSec": 25.0,
-    "rearmBelow": 0.25,
-    "perSecondActive": 60.0
-  },
   "fire": {
     "mode": "continuous",
     "range": 85,
@@ -29,10 +23,6 @@
   },
   "onFire": [
     "action.play-sound-laser"
-  ],
-  "onOverheat": [
-    "action.notify-overheat",
-    "action.play-sound-overheat"
   ],
   "ui": {
     "icon": "[ICON: laser]",

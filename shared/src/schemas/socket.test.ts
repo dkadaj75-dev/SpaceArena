@@ -13,7 +13,7 @@ const baseShip = {
     engine: { nominalSpeed: 34, accel: 22, turnRate: 3 },
     sensors: { lockRange: 60, lockTimeSec: 1.5, coneDeg: 70 },
   },
-  upgradeTracks: { hull: "upgrade.hull-std", engine: "upgrade.engine-std", energy: "upgrade.energy-std", heat: "upgrade.heat-std" },
+  upgradeTracks: { hull: "upgrade.hull-std", engine: "upgrade.engine-std", energy: "upgrade.energy-std" },
   defaultFitting: [],
   render: { recipe: "procedural.arrowhead" },
   collider: { shape: "circle" as const, radius: 1.4 },

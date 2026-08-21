@@ -117,7 +117,6 @@ const COMPOSED_AT_RUNTIME: ReadonlyMap<string, string> = new Map([
   ["state-deploying", "game/hud/ModuleButtons.ts (ModuleState)"],
   ["state-active", "game/hud/ModuleButtons.ts (ModuleState)"],
   ["state-retracting", "game/hud/ModuleButtons.ts (ModuleState)"],
-  ["state-overheated", "game/hud/ModuleButtons.ts (ModuleState)"],
   ["state-reloading", "game/hud/ModuleButtons.ts (ModuleState)"],
 ]);
 

@@ -56,8 +56,8 @@ describe("online room phase", () => {
 describe("decodeModules (Finding 2 + 5)", () => {
   it("preserves true hardpointIndex for a sparse fitting instead of reindexing by array position", () => {
     const raw = [
-      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 12, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.1, shieldPool: 0 },
-      { hardpointIndex: 2, moduleId: "module.shield-mk1", state: 2, heat: 3, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 8 },
+      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.1, shieldPool: 0 },
+      { hardpointIndex: 2, moduleId: "module.shield-mk1", state: 2, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 8 },
     ];
     const modules = decodeModules(raw);
     expect(modules).toHaveLength(2);
@@ -67,7 +67,7 @@ describe("decodeModules (Finding 2 + 5)", () => {
   });
 
   it("reads moduleId verbatim off the wire, never from a ship config's defaultFitting", () => {
-    const raw = [{ hardpointIndex: 3, moduleId: "module.boost-mk2", state: 0, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 3, moduleId: "module.boost-mk2", state: 0, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
     const modules = decodeModules(raw);
     // The old buggy path would have produced whatever id sat at array index 0
     // in some ship's defaultFitting — assert the actual replicated id instead.
@@ -75,18 +75,18 @@ describe("decodeModules (Finding 2 + 5)", () => {
   });
 
   it("wires replicated cycleTimer and shieldPool through per-module (Finding 5 — firing/shieldActive signals)", () => {
-    const raw = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.35, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.35, shieldPool: 0 }];
     const modules = decodeModules(raw);
     expect(modules[0]!.cycleTimer).toBe(0.35);
   });
 
   it("decodes the module state code (2 = active) via decodeModuleState", () => {
-    const raw = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
     expect(decodeModules(raw)[0]!.state).toBe("active");
   });
 
   it("wires rounds remaining and the reloading state through the snapshot", () => {
-    const raw = [{ hardpointIndex: 0, moduleId: "module.kinetic-mk1", state: 5, rounds: 7, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 1.2, cycleTimer: 0, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 0, moduleId: "module.kinetic-mk1", state: 5, rounds: 7, energy: 0, energyCapacity: 0, stateTimer: 1.2, cycleTimer: 0, shieldPool: 0 }];
     expect(decodeModules(raw)[0]).toMatchObject({ state: "reloading", rounds: 7, stateTimer: 1.2 });
   });
 
@@ -95,8 +95,8 @@ describe("decodeModules (Finding 2 + 5)", () => {
     // remote client has nothing to draw a channelled beam from, since a channel
     // emits one fire event at its start and none per tick afterwards.
     const raw = [
-      { hardpointIndex: 0, moduleId: "module.beamlaser-mk1", state: 2, heat: 4, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: true, shieldPool: 0 },
-      { hardpointIndex: 1, moduleId: "module.laser-mk1", state: 2, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 },
+      { hardpointIndex: 0, moduleId: "module.beamlaser-mk1", state: 2, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, channeling: true, shieldPool: 0 },
+      { hardpointIndex: 1, moduleId: "module.laser-mk1", state: 2, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0.2, channeling: false, shieldPool: 0 },
     ];
     const modules = decodeModules(raw);
     expect(modules[0]!.channeling).toBe(true);
@@ -104,17 +104,17 @@ describe("decodeModules (Finding 2 + 5)", () => {
   });
 
   it("defaults a missing channeling flag to false without dropping the module", () => {
-    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
     expect(decodeModules(raw)[0]!.channeling).toBe(false);
   });
 
   it("defaults a missing shieldPool to 0 without dropping the module", () => {
-    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0 }];
+    const raw = [{ hardpointIndex: 1, moduleId: "module.kinetic-mk1", state: 0, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0 }];
     expect(decodeModules(raw)[0]!.shieldPool).toBe(0);
   });
 
   it("accepts a Colyseus-style ArraySchema (a values()-bearing collection), not just a plain array", () => {
-    const backing = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, heat: 0, heatCapacity: 100, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
+    const backing = [{ hardpointIndex: 0, moduleId: "module.laser-mk1", state: 2, energy: 0, energyCapacity: 0, stateTimer: 0, cycleTimer: 0, shieldPool: 0 }];
     const arraySchemaLike = { values: () => backing.values() };
     expect(decodeModules(arraySchemaLike)).toHaveLength(1);
     expect(decodeModules(arraySchemaLike)[0]!.hardpointIndex).toBe(0);
@@ -413,7 +413,7 @@ function driftOverRun(
 
 describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
   it("tracks an un-upgraded ship with effectively zero drift", () => {
-    const { drift, hits } = driftOverRun({ hull: 0, engine: 0, energy: 0, heat: 0 }, "resolved");
+    const { drift, hits } = driftOverRun({ hull: 0, engine: 0, energy: 0 }, "resolved");
     expect(hits).toBe(0); // nothing but flight happened, so the gap is pure prediction error
     expect(drift).toBeLessThan(1e-9);
   });
@@ -422,7 +422,7 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
     // The reason prediction must resolve stats rather than read `cfg.core.engine`:
     // under continuous flight a stat error is applied every tick and compounds,
     // instead of being a transient the correction blend can absorb.
-    const levels: UpgradeLevels = { hull: 0, engine: 5, energy: 0, heat: 0 };
+    const levels: UpgradeLevels = { hull: 0, engine: 5, energy: 0 };
     const resolved = driftOverRun(levels, "resolved");
     expect(resolved.hits).toBe(0);
     expect(resolved.drift).toBeLessThan(1e-9);
@@ -436,7 +436,7 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
   it("holds a level-triggered input across the whole run without re-sending it", () => {
     // One order, 45 ticks: the predictor keeps integrating the held state exactly
     // as the sim's stored FlightState does (that is what makes it a mirror).
-    const { drift, hits } = driftOverRun({ hull: 0, engine: 2, energy: 0, heat: 0 }, "resolved", {
+    const { drift, hits } = driftOverRun({ hull: 0, engine: 2, energy: 0 }, "resolved", {
       throttle: 0.6,
       turn: -0.1,
       boost: false,
@@ -454,7 +454,7 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
     // prediction error, not a collision course. BUBBLE.md §E's authored
     // corridor leaves room through the volumetric placement field.
     const { drift, hits, climb, pitch, pitchDrift } = driftOverRun(
-      { hull: 0, engine: 0, energy: 0, heat: 0 },
+      { hull: 0, engine: 0, energy: 0 },
       "resolved",
       { throttle: 1, turn: 0.15, pitchStick: 0.6, boost: false },
     );
@@ -471,7 +471,7 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
     // full-frame body coupling bends a pitched turn differently (flight-frame
     // handoff) and the old corridor now clips a ring-nebula rock. The run's
     // point is prediction error, so it is placed where nothing else happens.
-    const { drift, hits, climb, pitch } = driftOverRun({ hull: 0, engine: 3, energy: 0, heat: 0 }, "resolved", {
+    const { drift, hits, climb, pitch } = driftOverRun({ hull: 0, engine: 3, energy: 0 }, "resolved", {
       throttle: 0.8,
       turn: -0.1,
       pitchStick: -0.5,
@@ -490,7 +490,7 @@ describe("flight prediction vs the server sim (FLIGHT.md §5)", () => {
     // ±π one tick late would put the two ships on opposite sides of a loop.
     const tuning = configs.getAll<TuningConfig>("tuning")[0]!;
     expect(pitchTuningOf(tuning).maxPitchRad).toBeNull();
-    const { drift, hits, pitch, pitchDrift } = driftOverRun({ hull: 0, engine: 0, energy: 0, heat: 0 }, "resolved", {
+    const { drift, hits, pitch, pitchDrift } = driftOverRun({ hull: 0, engine: 0, energy: 0 }, "resolved", {
       throttle: 1,
       turn: 0,
       pitchStick: 1,

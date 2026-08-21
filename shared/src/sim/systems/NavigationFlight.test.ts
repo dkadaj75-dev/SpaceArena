@@ -176,7 +176,7 @@ describe("NavigationSystem — flight orders (FLIGHT.md §1)", () => {
 
     // Empty tank: no speed bonus and no charge this tick. Boost is priced in
     // ENERGY since 2026-08-07, so an empty bottle is what silences it — the
-    // module carries no heat at all.
+    // module carries no tank at all.
     boost.energy = 0;
     boost.workedThisTick = false;
     navigationSystem(world, DT);

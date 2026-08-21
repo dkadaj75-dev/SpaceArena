@@ -17,14 +17,8 @@
       "accel": 7,
       "turnRate": 1
     },
-    "cooling": {
-      "multiplier": 0.95
-    },
     "recharge": {
       "multiplier": 0.95
-    },
-    "heatStore": {
-      "multiplier": 1.25
     },
     "energyStore": {
       "multiplier": 1.1
@@ -33,8 +27,7 @@
       "capacity": 14
     },
     "efficiency": {
-      "energyDraw": 1,
-      "heatGen": 1
+      "energyDraw": 1
     },
     "sensors": {
       "lockRange": 125,
@@ -45,8 +38,7 @@
   "upgradeTracks": {
     "hull": "upgrade.hull-std",
     "engine": "upgrade.engine-std",
-    "energy": "upgrade.energy-std",
-    "heat": "upgrade.heat-std"
+    "energy": "upgrade.energy-std"
   },
   "sockets": [
     {
@@ -151,7 +143,7 @@
       ]
     },
     {
-      "id": "in-heatsink",
+      "id": "in-countermeasure",
       "transform": {
         "pos": [
           -0.7,
@@ -161,7 +153,7 @@
       },
       "kind": "internal",
       "accepts": [
-        "heatsink"
+        "countermeasure"
       ]
     },
     {
@@ -190,7 +182,7 @@
       "kind": "internal",
       "accepts": [
         "generator",
-        "heatsink"
+        "countermeasure"
       ]
     },
     {
@@ -342,38 +334,6 @@
       ]
     },
     {
-      "id": "vent-core",
-      "transform": {
-        "pos": [
-          0,
-          0.5,
-          -0.3
-        ]
-      },
-      "kind": "emitter",
-      "effect": "fx.overheat-vent",
-      "bindings": [
-        {
-          "source": "heatFraction",
-          "param": "emitRate",
-          "curve": [
-            [
-              0,
-              0
-            ],
-            [
-              0.8,
-              0
-            ],
-            [
-              1,
-              70
-            ]
-          ]
-        }
-      ]
-    },
-    {
       "id": "boost-plume",
       "transform": {
         "pos": [
@@ -424,7 +384,7 @@
     "module.engine-civ",
     "module.generator-compact",
     "module.transformer-stock",
-    "module.heatsink-basic",
+    "module.countermeasure-flare",
     "module.sensors-basic",
     "module.generator-compact"
   ],

@@ -56,7 +56,6 @@ const ship = {
     hull: "upgrade.hull-std",
     engine: "upgrade.engine-std",
     energy: "upgrade.energy-std",
-    heat: "upgrade.heat-std",
   },
   sockets: [
     { id: "hp-nose", kind: "hardpoint", transform: { pos: [0, 0, 1.8] }, accepts: ["laser", "kinetic"] },
@@ -82,7 +81,6 @@ const module_ = {
   level: 1,
   name: "Fixture Laser",
   activation: { deployTime: 1.5, retractTime: 1 },
-  heat: { capacity: 55, coolingPerSec: 8, perShot: 6 },
   fire: {
     mode: "held",
     range: 38,
@@ -217,7 +215,7 @@ const event = {
   id: "event.fixture",
   type: "event",
   version: 1,
-  trigger: "on_overheat",
+  trigger: "on_shield_down",
   actions: ["action.fixture-sound"],
 };
 
@@ -225,7 +223,7 @@ const notification = {
   id: "notification.fixture",
   type: "notification",
   version: 1,
-  text: "Overheating!",
+  text: "Shield down!",
   style: "warning",
   durationMs: 2500,
 };
@@ -254,8 +252,6 @@ const botprofile = {
   preferredRange: [18, 32],
   behaviors: { engage: { baseWeight: 1, doubleTapBoostChance: 0.3 } },
   moduleDiscipline: {
-    heatShutdownAt: 0.8,
-    reactivateBelow: 0.4,
     energyReserve: 0.15,
     shieldOnlyWhenEngaged: true,
   },
@@ -445,14 +441,8 @@ describe("ship schema", () => {
         core["engine"]!["nominalSpeed"] = -1;
       }),
     ).toBe(false);
-    // Hull-wide heat/energy levers are MULTIPLIERS since 2026-08-07: zero would
-    // mean "this hull never cools", which is not a legal hull.
-    expect(
-      mutated("ship", (d) => {
-        const core = d["core"] as Record<string, Record<string, number>>;
-        core["cooling"] = { multiplier: 0 };
-      }),
-    ).toBe(false);
+    // Hull-wide energy levers are MULTIPLIERS since 2026-08-07: zero would mean
+    // "this hull never refills a tank", which is not a legal hull.
     expect(
       mutated("ship", (d) => {
         const core = d["core"] as Record<string, Record<string, number>>;
@@ -487,8 +477,8 @@ describe("ship schema", () => {
     expect(mutated("ship", setResist(-0.01))).toBe(false);
   });
 
-  it("requires all four upgrade tracks", () => {
-    for (const track of ["hull", "engine", "energy", "heat"]) {
+  it("requires all three upgrade tracks", () => {
+    for (const track of ["hull", "engine", "energy"]) {
       expect(mutated("ship", (d) => delete (d["upgradeTracks"] as Record<string, unknown>)[track])).toBe(false);
     }
   });
@@ -530,14 +520,10 @@ describe("module schema", () => {
     expect(mutated("module", (d) => (d["level"] = 1.5))).toBe(false);
   });
 
-  it("rejects negative activation and a non-positive heat capacity", () => {
+  it("rejects negative activation, and refuses to price a weapon in energy", () => {
     expect(mutated("module", (d) => ((d["activation"] as Record<string, number>)["deployTime"] = -0.1))).toBe(false);
-    expect(mutated("module", (d) => ((d["heat"] as Record<string, number>)["capacity"] = 0))).toBe(false);
-    expect(mutated("module", (d) => ((d["heat"] as Record<string, number>)["coolingPerSec"] = -1))).toBe(false);
-    // A weapon must be priced in heat, and a shot may never lock its own rack.
-    expect(mutated("module", (d) => delete d["heat"])).toBe(false);
-    expect(mutated("module", (d) => ((d["heat"] as Record<string, number>)["perShot"] = 55))).toBe(false);
-    // …and it may never be priced in energy at all.
+    // A weapon is limited by `fire.cycleTime` and by nothing else (heat deleted
+    // 2026-08-20), so an energy block on one is an authoring mistake.
     expect(
       mutated("module", (d) => (d["energy"] = { capacity: 10, rechargePerSec: 1, drawPerSec: 1 })),
     ).toBe(false);
@@ -591,7 +577,6 @@ describe("module schema", () => {
     expect(mutated("module", (d) => {
       (d["fire"] as Record<string, unknown>)["mode"] = "continuous";
       (d["fire"] as Record<string, unknown>)["clip"] = { size: 30, reloadSec: 2 };
-      d["heat"] = { capacity: 55, coolingPerSec: 8, perSecondActive: 20 };
     })).toBe(false);
   });
 
@@ -599,16 +584,8 @@ describe("module schema", () => {
     const patchFire = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
       d["fire"] = { ...(d["fire"] as Record<string, unknown>), ...patch };
     };
-    // The fixture is `projectile: null`, so `continuous` is legal — once it is
-    // priced per SECOND rather than per shot (a channel has no shots).
-    const asChannel = (d: Record<string, unknown>) => {
-      d["fire"] = { ...(d["fire"] as Record<string, unknown>), mode: "continuous" };
-      d["heat"] = { capacity: 55, coolingPerSec: 8, perSecondActive: 20 };
-    };
-    expect(mutated("module", asChannel)).toBe(true);
-    // Charging a channel per shot is the authoring mistake the schema exists to
-    // refuse — that field is what the pre-overhaul catalogue got wrong.
-    expect(mutated("module", patchFire({ mode: "continuous" }))).toBe(false);
+    // The fixture is `projectile: null`, so `continuous` is legal.
+    expect(mutated("module", patchFire({ mode: "continuous" }))).toBe(true);
     // A channel has no discrete shot to launch ordnance with — refined away.
     expect(
       mutated("module", patchFire({ mode: "continuous", projectile: { speed: 40, lifetime: 4 } })),
@@ -633,7 +610,6 @@ describe("module schema", () => {
     // A shield's reserve IS an energy tank, so mitigation requires one.
     const withShield = (mitigation: unknown) => (d: Record<string, unknown>) => {
       delete d["fire"];
-      delete d["heat"];
       d["energy"] = { capacity: 40, rechargePerSec: 4, drawPerSec: 4 };
       d["mitigation"] = mitigation;
     };
@@ -664,7 +640,6 @@ describe("module schema", () => {
     // family has to move with it.
     const withBoost = (boost: unknown) => (d: Record<string, unknown>) => {
       delete d["fire"];
-      delete d["heat"];
       d["family"] = "engine";
       d["activation"] = { deployTime: 0, retractTime: 0 };
       d["energy"] = { capacity: 60, rechargePerSec: 8, drawPerSec: 20 };
@@ -679,8 +654,8 @@ describe("module schema", () => {
   it("validates passive stat ops (utility modules)", () => {
     const withPassives = (passives: unknown) => (d: Record<string, unknown>) => (d["passives"] = passives);
     expect(mutated("module", withPassives([{ target: "energyStore.multiplier", op: "mul", value: 1.3 }]))).toBe(true);
-    expect(mutated("module", withPassives([{ target: "core.cooling.multiplier", op: "mul", value: 1.1 }]))).toBe(true);
-    expect(mutated("module", withPassives([{ target: "cooling.multiplier", op: "sub", value: 1 }]))).toBe(false);
+    expect(mutated("module", withPassives([{ target: "core.recharge.multiplier", op: "mul", value: 1.1 }]))).toBe(true);
+    expect(mutated("module", withPassives([{ target: "recharge.multiplier", op: "sub", value: 1 }]))).toBe(false);
     expect(mutated("module", withPassives([{ target: "", op: "add", value: 1 }]))).toBe(false);
     expect(mutated("module", withPassives([]))).toBe(true);
   });
@@ -1159,7 +1134,6 @@ describe("theme schema — 5.7/5.8 blocks", () => {
         shieldAbsorb: "[SOUND: shield_absorb]",
         playerKill: "kill",
         playerDeath: "death",
-        overheat: "overheat",
         boundaryWarning: "boundary",
         fireBlocked: "fire-blocked",
       },
@@ -1278,28 +1252,25 @@ describe("botprofile schema", () => {
     const setDiscipline = (patch: Record<string, unknown>) => (d: Record<string, unknown>) => {
       d["moduleDiscipline"] = { ...(d["moduleDiscipline"] as Record<string, unknown>), ...patch };
     };
-    expect(mutated("botprofile", setDiscipline({ heatShutdownAt: 1 }))).toBe(true);
-    expect(mutated("botprofile", setDiscipline({ heatShutdownAt: 1.01 }))).toBe(false);
-    expect(mutated("botprofile", setDiscipline({ reactivateBelow: -0.01 }))).toBe(false);
+    expect(mutated("botprofile", setDiscipline({ energyReserve: -0.01 }))).toBe(false);
     expect(mutated("botprofile", setDiscipline({ energyReserve: 2 }))).toBe(false);
     expect(mutated("botprofile", setDiscipline({ shieldOnlyWhenEngaged: "yes" }))).toBe(false);
     expect(mutated("botprofile", (d) => delete d["moduleDiscipline"])).toBe(false);
   });
 
-  it("accepts an optional fireDiscipline with five optional knobs", () => {
+  it("accepts an optional fireDiscipline with four optional knobs", () => {
     expect(mutated("botprofile", (d) => (d["fireDiscipline"] = {}))).toBe(true);
     expect(
       mutated("botprofile", (d) => {
         d["fireDiscipline"] = {
           engageRangeMult: 1.1,
-          heatHeadroom: 0.8,
           minEnergyFraction: 0.2,
           burstSec: 1,
           pauseSec: 0.5,
         };
       }),
     ).toBe(true);
-    expect(mutated("botprofile", (d) => (d["fireDiscipline"] = { heatHeadroom: 1.01 }))).toBe(false);
+    expect(mutated("botprofile", (d) => (d["fireDiscipline"] = { minEnergyFraction: 1.01 }))).toBe(false);
     expect(mutated("botprofile", (d) => (d["fireDiscipline"] = { burstSec: -1 }))).toBe(false);
     expect(mutated("botprofile", (d) => delete d["fireDiscipline"])).toBe(true);
   });
@@ -1424,7 +1395,6 @@ describe("collectReferences", () => {
       "upgradeTracks.hull": "upgrade.hull-std",
       "upgradeTracks.engine": "upgrade.engine-std",
       "upgradeTracks.energy": "upgrade.energy-std",
-      "upgradeTracks.heat": "upgrade.heat-std",
       "defaultFitting[0]": "module.fixture-laser",
       "defaultFitting[1]": "module.fixture-shield",
       "sockets[2].effect": "fx.engine-trail",
@@ -1435,14 +1405,11 @@ describe("collectReferences", () => {
     const withHooks = clone(module_);
     Object.assign(withHooks, {
       onFire: ["action.a"],
-      onOverheat: ["action.b", "action.c"],
       onActivate: ["action.d"],
       onDeactivate: ["action.e"],
     });
     expect(refsOf("module", withHooks)).toEqual({
       "onFire[0]": "action.a",
-      "onOverheat[0]": "action.b",
-      "onOverheat[1]": "action.c",
       "onActivate[0]": "action.d",
       "onDeactivate[0]": "action.e",
     });

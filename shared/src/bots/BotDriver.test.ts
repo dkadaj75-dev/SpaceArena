@@ -76,8 +76,6 @@ function profile(over: Record<string, unknown>): BotprofileConfig {
     preferredRange: [20, 35],
     behaviors: { engage: { baseWeight: 1 } },
     moduleDiscipline: {
-      heatShutdownAt: 0.85,
-      reactivateBelow: 0.5,
       energyReserve: 0.15,
       shieldOnlyWhenEngaged: true,
     },
@@ -393,7 +391,7 @@ describe("BotDriver flight orders", () => {
   it("never asks a carrier for boost, whichever behaviour is flying it", () => {
     // The sim refuses boost to a flag carrier outright, so the request is pure
     // waste — and it is not free: the driver arms the burner through the normal
-    // module-toggle pipeline, spending an order plus its heat and energy every
+    // module-toggle pipeline, spending an order plus its energy every
     // decision for an engine that will never light. `objective` already declines
     // while it is winning, but a carrier whose utility swings to combat used to
     // ask anyway (the audit counted 48 such ticks once the fleet started
@@ -781,7 +779,6 @@ describe("BotDriver flight orders", () => {
       orderJitterMs: 0,
       fireDiscipline: {
         engageRangeMult: 1,
-        heatHeadroom: 1,
         minEnergyFraction: 0,
         burstSec: 0.1,
         pauseSec: 0.1,
@@ -796,8 +793,6 @@ describe("BotDriver flight orders", () => {
         moduleId: "module.laser-mk1",
         hardpointIndex: 0,
         state: "active",
-        heat: 0,
-        heatCapacity: 100,
         energy: 0,
         energyCapacity: 0,
         stateTimer: 0,
@@ -840,8 +835,6 @@ describe("BotDriver flight orders", () => {
       moduleId: "module.shield-mk1",
       hardpointIndex: 0,
       state: "retracted" as const,
-      heat: 0,
-      heatCapacity: 100,
       energy: 100,
       energyCapacity: 100,
       stateTimer: 0,

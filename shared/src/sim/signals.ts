@@ -10,7 +10,7 @@ export type { SignalId };
  * Signal registry (4.6 ⭐). Each entry computes one runtime scalar as a **pure
  * function of a ship snapshot** (and optionally the previous snapshot, for
  * motion). Emitter sockets read these through per-binding response curves to
- * drive particle params — engine trails, damage smoke, overheat venting are all
+ * drive particle params — engine trails and damage smoke are both
  * pure data on top of this table.
  *
  * The same functions run on the client renderer today and are available to any
@@ -27,7 +27,7 @@ export type { SignalId };
  * command, and nothing in `ShipSnapshot` carries velocity — only position and
  * the commanded throttle travel over the wire. Deriving them from `throttle`
  * would make them lie during the accel ramp, while a rammed ship was bleeding
- * speed, or while boost was requested but denied for want of energy/heat. The
+ * speed, or while boost was requested but denied for want of energy. The
  * displacement basis keeps them dependency-free (no core-stat lookup); the
  * editor's signal simulator can override the normalization later.
  */
@@ -76,19 +76,6 @@ export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
   hullFraction: (s) => (s.hullMax > 0 ? clamp01(s.hull / s.hullMax) : 0),
   /** 1 while a DEPLOYED shield module has an absorb reservoir, else 0. */
   shieldActive: (s) => (shieldShellUp(s) ? 1 : 0),
-  /**
-   * How hot the ship's HOTTEST rack is, 0..1 (heat/energy overhaul 2026-08-07).
-   * There is no ship heat pool to read any more, and the hottest module is the
-   * one an emitter should glow for — a single cooking gun is the visual event,
-   * not an average that a cold second rack would hide.
-   */
-  heatFraction: (s) => {
-    let hottest = 0;
-    for (const m of s.modules) {
-      if (m.heatCapacity > 0) hottest = Math.max(hottest, m.heat / m.heatCapacity);
-    }
-    return clamp01(hottest);
-  },
   /**
    * 1 while any active module is mid weapon cycle (a proxy for firing) OR is
    * channelling a continuous beam — which never uses a cycle timer and would

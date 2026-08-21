@@ -14,7 +14,7 @@ interface FitRow {
 /**
  * Balance workbench (4.6b) — closed-form comparison of every ship's default fit
  * plus a custom fit, a TTK matrix, and a 60 s sustained-combat simulator that
- * plots energy + heat over time. All values recompute on `config:changed` for
+ * plots module energy over time. All values recompute on `config:changed` for
  * hot balance iteration. Arithmetic over configs only (see balanceMath docs).
  */
 export class BalanceWorkbench implements EditorPanel {
@@ -86,11 +86,8 @@ export class BalanceWorkbench implements EditorPanel {
       ["Speed", (m) => fmt(m.speed)],
       ["Tanks", (m) => fmt(m.energyReserve)],
       ["Recharge x", (m) => fmt(m.rechargeMult)],
-      ["Cooling x", (m) => fmt(m.coolingMult)],
       ["Burst DPS", (m) => fmt(m.burstDps)],
       ["Sustained DPS", (m) => fmt(m.sustainedDps)],
-      ["TTOverheat", (m) => fmtTime(m.timeToOverheat)],
-      ["Recover", (m) => fmtTime(m.recoverSec)],
       ["Shield", (m) => fmt(m.shieldPool)],
     ];
     const table = document.createElement("table");
@@ -176,11 +173,15 @@ export class BalanceWorkbench implements EditorPanel {
     canvas.height = 140;
     canvas.className = "ed-chart";
     box.append(canvas);
-    // Both series are already 0..1 fractions of each module's OWN store, which
-    // is the only way to draw one line for a fit whose racks have different caps.
-    this.plot(canvas, result.samples.map((s) => s.energy), 1, "#57d8ff", result.samples.map((s) => s.heat), 1, "#ff9a3c");
+    // The tank series is already a 0..1 fraction of each module's OWN store,
+    // which is the only way to draw one line for a fit whose tanks differ in
+    // size. The second series counts modules actually running, scaled to its
+    // own peak so a fit with one tanked module still fills the chart.
+    const working = result.samples.map((s) => s.activeCount);
+    const peak = Math.max(1, ...working);
+    this.plot(canvas, result.samples.map((s) => s.energy), 1, "#57d8ff", working, peak, "#ff9a3c");
 
-    const legend = textEl("p", `emptiest tank (cyan) · hottest rack (orange) · uptime ${fmt(result.uptime * 100)}% · ${result.lockouts} lockout(s)`);
+    const legend = textEl("p", `emptiest tank (cyan) · modules working (orange, peak ${peak}) · uptime ${fmt(result.uptime * 100)}% · ${result.flameouts} flameout(s)`);
     legend.className = "ed-legend";
     box.append(legend);
     return box;

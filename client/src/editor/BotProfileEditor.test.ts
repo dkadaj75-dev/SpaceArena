@@ -27,7 +27,7 @@ function profile(over: Partial<BotprofileConfig> = {}): BotprofileConfig {
       engage: { baseWeight: 1, boostChance: 0.4, targetPreference: "nearest" },
       kite: { baseWeight: 0.5 },
     },
-    moduleDiscipline: { heatShutdownAt: 0.85, reactivateBelow: 0.5, energyReserve: 0.15, shieldOnlyWhenEngaged: true },
+    moduleDiscipline: { energyReserve: 0.15, shieldOnlyWhenEngaged: true },
     ...over,
   } as BotprofileConfig;
 }

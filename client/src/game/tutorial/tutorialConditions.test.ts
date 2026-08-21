@@ -37,15 +37,6 @@ describe("tutorial step conditions", () => {
     expect(conditionMet(c, signals({ shots: 3 }))).toBe(true);
   });
 
-  it("heat-above-then-cooled needs BOTH halves, in order", () => {
-    const c: TutorialCondition = { kind: "heat-above-then-cooled", peak: 0.8, cooled: 0.35 };
-    // Never fired: cold, but never hot.
-    expect(conditionMet(c, signals({ peakHeat: 0, heat: 0 }))).toBe(false);
-    // Hot right now — the lesson is the cooldown, so this is not done yet.
-    expect(conditionMet(c, signals({ peakHeat: 0.9, heat: 0.9 }))).toBe(false);
-    expect(conditionMet(c, signals({ peakHeat: 0.9, heat: 0.3 }))).toBe(true);
-  });
-
   it("module-toggled matches a named family, or any module when unnamed", () => {
     const shield: TutorialCondition = { kind: "module-toggled", family: "shield" };
     expect(conditionMet(shield, signals({ toggled: new Set(["laser"]) }))).toBe(false);
@@ -108,7 +99,6 @@ describe("tutorial step conditions", () => {
       { kind: "throttle-above", value: 0.01 },
       { kind: "heading-changed", radians: 0.01 },
       { kind: "fired", shots: 1 },
-      { kind: "heat-above-then-cooled", peak: 0.1, cooled: 1 },
       { kind: "module-toggled" },
       { kind: "lock-acquired" },
       { kind: "kill", target: "any" },

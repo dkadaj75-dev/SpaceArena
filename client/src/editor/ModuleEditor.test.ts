@@ -16,13 +16,6 @@ function moduleConfig(over: Partial<ModuleConfig> = {}): ModuleConfig {
     family: "laser",
     level: 1,
     activation: { deployTime: 1.5, retractTime: 1 },
-    heat: {
-      capacity: 100,
-      coolingPerSec: 25,
-      perSecondActive: 0,
-      perShot: 30,
-      rearmBelow: 0.25,
-    },
     fire: {
       mode: "held",
       range: 38,
@@ -86,14 +79,12 @@ describe("ModuleEditor", () => {
       "laser", "kinetic", "missile", "shield", "boost", "utility",
       // The internal bay's families (2026-07-31) — the form is generated from
       // the schema, so they appear here the moment the enum grows.
-      "engine", "generator", "transformer", "heatsink", "sensors",
+      "engine", "generator", "transformer", "countermeasure", "sensors",
     ]);
     expect(panel.element.querySelector('[name="fire.mode"]')).not.toBeNull();
-    // The per-module heat store (2026-08-07) is what a weapon is authored in.
-    expect(panel.element.querySelector('[name="heat.capacity"]')).not.toBeNull();
-    expect(panel.element.querySelector('[name="heat.coolingPerSec"]')).not.toBeNull();
-    expect(panel.element.querySelector('[name="heat.perShot"]')).not.toBeNull();
-    expect(panel.element.querySelector('[name="heat.rearmBelow"]')).not.toBeNull();
+    // Cycle time is what a weapon is authored in (heat deleted 2026-08-20).
+    expect(panel.element.querySelector('[name="fire.cycleTime"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="fire.damage"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.icon"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.iconId"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.shortName"]')).not.toBeNull();

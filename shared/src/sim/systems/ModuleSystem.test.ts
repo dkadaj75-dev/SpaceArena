@@ -12,7 +12,7 @@ const LASER = 0;
 
 let configs: ConfigService;
 beforeAll(async () => {
-  configs = await loadTestConfigs({ heatSystem: true });
+  configs = await loadTestConfigs();
 });
 
 function shipWorld(): { world: World; id: number } {
@@ -70,7 +70,7 @@ describe("ModuleSystem state machine", () => {
       world,
       configs,
       "ship.interceptor",
-      ["module.laser-mk1", "module.missile-mk1", "module.engine-sport", "module.generator-compact", "module.transformer-stock", "module.heatsink-basic", "module.sensors-basic"],
+      ["module.laser-mk1", "module.missile-mk1", "module.engine-sport", "module.generator-compact", "module.transformer-stock", "module.countermeasure-flare", "module.sensors-basic"],
       0,
       { x: 0, z: 0 },
       0,
@@ -113,57 +113,28 @@ describe("ModuleSystem state machine", () => {
     expect(evt).toBeTruthy();
   });
 
-  it("re-arms a WEAPON straight to active once its own heat falls under rearmBelow", () => {
+  it("leaves a WEAPON online forever — a cycle timer never takes the rack down", () => {
     const { world, id } = shipWorld();
     const laser = world.modules.get(id)!.modules[LASER]!;
     expect(laser.state).toBe("active");
 
-    laser.heat = laser.heatCapacity * 1.2;
-    energySystem(world, DT);
-    expect(laser.state).toBe("overheated");
-
-    // Lockout is not a timer: it ends when cooling brings the rack under
-    // `rearmBelow` (laser-mk1: 100 x 0.25 at 40/s ⇒ under 2.5 s).
+    // Heat was the only thing that could ever force a weapon offline
+    // (deleted 2026-08-20). A rack mid-cycle is still `active`: the cooldown
+    // gates the SHOT, never the module's state.
+    laser.cycleTimer = configs.get<ModuleConfig>("module", laser.moduleId)!.fire!.cycleTime;
     for (let i = 0; i < 90; i++) {
       for (const m of world.modules.get(id)!.modules) m.workedThisTick = false;
       moduleSystem(world, DT);
       energySystem(world, DT);
     }
     expect(laser.state).toBe("active");
-    const rearm = configs.get<ModuleConfig>("module", laser.moduleId)!.heat!.rearmBelow;
-    expect(laser.heat).toBeLessThanOrEqual(laser.heatCapacity * rearm);
-  });
-
-  it("routes a weapon's 100% lockout through the authored warning notification", () => {
-    const { world, id } = shipWorld();
-    const laser = world.modules.get(id)!.modules[LASER]!;
-    laser.heat = laser.heatCapacity * 1.2;
-
-    energySystem(world, DT);
-    expect(world.events).toContainEqual(
-      expect.objectContaining({
-        type: "overheated",
-        entityId: id,
-        moduleId: laser.moduleId,
-        actions: expect.arrayContaining(["action.notify-overheat"]),
-      }),
-    );
-  });
-
-  it("ignores toggles while overheated", () => {
-    const { world, id } = shipWorld();
-    const mod = world.modules.get(id)!.modules[LASER]!;
-    mod.state = "overheated";
-    world.queueOrder(id, { kind: "moduleToggle", hardpointIndex: LASER });
-    moduleSystem(world, DT);
-    expect(mod.state).toBe("overheated");
   });
 });
 
 /**
  * ROADMAP §11 6.1 — the transitions the happy-path cycle above does not reach:
  * mid-transition reversals, zero-duration activation, forced (brown-out /
- * overheat) exits, the shield reservoir, and the no-op guards.
+ * brown-out) exits, the shield reservoir, and the no-op guards.
  */
 describe("ModuleSystem state machine — reversals, forced exits and guards", () => {
   // Slot layout since 2026-07-31: 0 laser, 1 missile, then the internal bay.
@@ -323,7 +294,7 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
 
   it("never leaves a module in a state outside the declared enum across a scripted toggle storm", () => {
     const { world, id } = shipWorld();
-    const legal = new Set(["retracted", "deploying", "active", "retracting", "overheated", "reloading"]);
+    const legal = new Set(["retracted", "deploying", "active", "retracting", "reloading"]);
     // Deterministic pseudo-random toggle schedule (no Math.random in sim tests).
     let seed = 1337;
     const nextInt = (n: number): number => {
@@ -338,84 +309,10 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
       energySystem(world, DT);
       for (const m of mods) {
         expect(legal.has(m.state)).toBe(true);
-        expect(m.heat).toBeGreaterThanOrEqual(0);
         expect(m.energy).toBeGreaterThanOrEqual(0);
         expect(m.energy).toBeLessThanOrEqual(m.energyCapacity + 1e-9);
       }
     }
-  });
-});
-
-describe("ModuleSystem overheat exit (hysteresis, not a timer)", () => {
-  let ops: ConfigService;
-  const HOT_MODULE = "module.test-hotlaser";
-
-  beforeAll(async () => {
-    // Private ConfigService: a fixture that out-paces its own cooling by a wide
-    // margin, so the trip/lockout/re-arm cycle is reached in a handful of ticks.
-    ops = await loadTestConfigs({ heatSystem: true });
-    const res = ops.replace({
-      id: HOT_MODULE,
-      type: "module",
-      version: 1,
-      family: "laser",
-      level: 1,
-      name: "Test Hot Laser",
-      activation: { deployTime: 0, retractTime: 0 },
-      heat: { capacity: 10, coolingPerSec: 5, perSecondActive: 60, rearmBelow: 0.4 },
-      fire: {
-        mode: "continuous",
-        range: 40,
-        cycleTime: 0.1,
-        damage: 1,
-        damageType: "energy",
-        requiresLineOfSight: false,
-        projectile: null,
-      },
-      ui: { icon: "i", label: "Hot Laser" },
-      price: 0,
-      requiresLevel: 1,
-    });
-    if (!res.ok) throw new Error(`fixture module rejected: ${JSON.stringify(res.errors)}`);
-  });
-
-  it("locks out at capacity, stays locked while hot, and re-arms under rearmBelow", () => {
-    const world = makeWorld(ops);
-    const id = spawnShipFromConfig(world, ops, "ship.interceptor", [HOT_MODULE], 0, { x: 0, z: 0 }, 0);
-    const core = world.shipCores.get(id)!;
-    const mod = world.modules.get(id)!.modules[0]!;
-    const startHull = core.hull;
-    const cooling = 5 * core.cooling.multiplier;
-
-    mod.state = "active";
-    mod.heat = mod.heatCapacity;
-    mod.workedThisTick = true;
-    energySystem(world, DT);
-    expect(mod.state).toBe("overheated");
-    // The lockout carries no timer at all — that is the whole mechanic.
-    expect(mod.stateTimer).toBe(0);
-
-    // Half way down to the re-arm line it is still offline.
-    const toRearm = (mod.heat - mod.heatCapacity * 0.4) / cooling;
-    for (let i = 0; i < Math.floor(toRearm / DT / 2); i++) {
-      mod.workedThisTick = false;
-      moduleSystem(world, DT);
-      energySystem(world, DT);
-    }
-    expect(mod.state).toBe("overheated");
-
-    // …and comes back the moment it crosses it, still carrying real heat.
-    for (let i = 0; i < Math.ceil(toRearm / DT) + 2; i++) {
-      mod.workedThisTick = false;
-      moduleSystem(world, DT);
-      energySystem(world, DT);
-    }
-    expect(mod.state).toBe("active");
-    expect(mod.heat).toBeGreaterThan(0);
-    expect(mod.heat).toBeLessThanOrEqual(mod.heatCapacity * 0.4 + 1e-9);
-
-    // And the hull never paid for any of it (no overheat self-damage exists).
-    expect(core.hull).toBe(startHull);
   });
 });
 

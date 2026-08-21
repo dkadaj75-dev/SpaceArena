@@ -42,13 +42,6 @@ export interface BotContext {
   readonly hasLoS: boolean;
   readonly hullFraction: number;
   /**
-   * How hot the bot's HOTTEST rack is, 0..1 of that module's own capacity
-   * (heat/energy overhaul 2026-08-07 — there is no ship pool to read). The
-   * hottest rack is the one that decides whether the trigger is about to lock,
-   * which is exactly what `moduleDiscipline.heatShutdownAt` is asking about.
-   */
-  readonly heatFraction: number;
-  /**
    * The EMPTIEST module tank, 0..1 of its own capacity (boost bottle, shield
    * reserve, active utility); 1 when the bot carries no energy-bearing module at
    * all. `energyReserve` / `minEnergyFraction` compare against this, so a
@@ -228,12 +221,9 @@ export function buildBotContext(input: BuildContextInput): BotContext {
 
   const shieldDown = !self.modules.some((m) => m.state === "active" && m.shieldPool > 0);
 
-  // Per-module stores (heat/energy overhaul 2026-08-07): the hottest rack and
-  // the emptiest tank, both read straight off the same snapshot the HUD rings do.
-  let hottest = 0;
+  // The emptiest tank, read straight off the same snapshot the HUD rings do.
   let emptiest = 1;
   for (const m of self.modules) {
-    if (m.heatCapacity > 0) hottest = Math.max(hottest, m.heat / m.heatCapacity);
     if (m.energyCapacity > 0) emptiest = Math.min(emptiest, m.energy / m.energyCapacity);
   }
 
@@ -247,7 +237,6 @@ export function buildBotContext(input: BuildContextInput): BotContext {
     distance,
     hasLoS,
     hullFraction: self.hullMax > 0 ? self.hull / self.hullMax : 0,
-    heatFraction: hottest,
     energyFraction: emptiest,
     shieldDown,
     preferredMin,

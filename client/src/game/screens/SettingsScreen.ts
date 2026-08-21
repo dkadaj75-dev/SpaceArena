@@ -317,7 +317,7 @@ export class SettingsScreen {
   private feedbackGroup(): HTMLElement {
     const group = settingsGroup("Feedback");
     const themeEnabled = this.host.configs.get<ThemeConfig>("theme", THEME_ID)?.haptics?.enabled ?? false;
-    const toggle = toggleButton("Vibration (overheat / kill)", (next) => this.host.settings.set({ haptics: next }));
+    const toggle = toggleButton("Vibration (kill / lock)", (next) => this.host.settings.set({ haptics: next }));
     toggle.el.dataset["setting"] = "haptics";
     toggle.el.disabled = !themeEnabled;
     this.refreshers.push((values) => toggle.set(themeEnabled && values.haptics));

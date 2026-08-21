@@ -48,7 +48,7 @@ describe("themeSchema additions stay backwards compatible", () => {
         moduleCluster: { anchor: "bottom-left", layout: "arc", arcRadiusPx: 120, arcStartDeg: 0, arcSweepDeg: 90 },
         landscape: { scale: 0.85, moduleCluster: { arcRadiusPx: 90 } },
       },
-      haptics: { enabled: true, overheatPattern: [60, 50, 120], killPattern: [25] },
+      haptics: { enabled: true, killPattern: [25] },
     };
     expect(themeSchema.safeParse(modern).success).toBe(true);
   });
@@ -56,7 +56,7 @@ describe("themeSchema additions stay backwards compatible", () => {
   it("rejects an out-of-range thumb zone or a negative vibrate step", () => {
     const bad = { id: "theme.bad", type: "theme", version: 1, colors: {}, hud: { thumbZoneFraction: 1.5 } };
     expect(themeSchema.safeParse(bad).success).toBe(false);
-    const badHaptics = { id: "theme.bad2", type: "theme", version: 1, colors: {}, haptics: { overheatPattern: [-1] } };
+    const badHaptics = { id: "theme.bad2", type: "theme", version: 1, colors: {}, haptics: { killPattern: [-1] } };
     expect(themeSchema.safeParse(badHaptics).success).toBe(false);
   });
 });

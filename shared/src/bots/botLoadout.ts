@@ -4,8 +4,6 @@ import { hardpointsOf, type ModuleConfig, type ShipConfig } from "../schemas/ind
 import { resolveShipStats } from "../sim/resolveStats.js";
 
 const MAX_ATTEMPTS = 2_000;
-/** Shortest held-trigger burn a rolled bot fitting may have (seconds). */
-const MIN_BURN_SEC = 2;
 
 function pick<T>(rng: () => number, list: readonly T[]): T | undefined {
   if (list.length === 0) return undefined;
@@ -32,42 +30,25 @@ export function pickBotShip(configs: ConfigService, rng: () => number, fallback:
 function flavorWeight(profile: BotprofileConfig | undefined, mod: ModuleConfig): number {
   const flavor = profile?.fittingArchetype ?? "balanced";
   const weapon = mod.fire !== undefined;
-  const tank = mod.mitigation !== undefined || mod.family === "heatsink" || mod.family === "generator";
+  const tank = mod.mitigation !== undefined || mod.family === "countermeasure" || mod.family === "generator";
   if (flavor === "aggressive") return weapon ? 4 : tank ? 0.75 : 1.5;
   if (flavor === "cautious") return tank ? 4 : weapon ? 1.2 : 2;
   return weapon || tank ? 2 : 1.5;
 }
 
 /**
- * Conservative combat viability under the per-module heat/energy model
- * (2026-08-07): the rail must be able to online at least one weapon, and every
- * fitted weapon must be able to hold its trigger for a useful stretch —
- * `capacity × (1 - rearmBelow) / (generation - cooling)` seconds — before it
- * locks itself out. A fit may still need discipline in a long brawl; it may not
- * cook itself instantly, and it can no longer hurt its own hull at all.
+ * Conservative combat viability: the power rail must be able to bring at least
+ * one weapon online. Weapons have no other resource cost — their cycle time is
+ * the only limiter — so there is nothing else a fit can get wrong here.
  */
 export function isBotFittingViable(configs: ConfigService, ship: ShipConfig, fitting: readonly (string | null)[]): boolean {
   const modules = fitting.flatMap((id) => id ? [configs.get<ModuleConfig>("module", id)] : []).filter((m): m is ModuleConfig => !!m);
   const weapons = modules.filter((m) => m.fire);
   if (weapons.length === 0) return false;
   const core = resolveShipStats(ship, configs, { fittedModuleIds: fitting });
-  const canOnlineWeapon = weapons.some((m) => (m.power?.draw ?? 0) <= core.power.capacity);
-  if (!canOnlineWeapon) return false;
-  return weapons.every((m) => burnSeconds(m, core.cooling.multiplier, core.efficiency.heatGen, core.heatStore.multiplier) >= MIN_BURN_SEC);
+  return weapons.some((m) => (m.power?.draw ?? 0) <= core.power.capacity);
 }
 
-/** Seconds of held trigger a weapon gets from cold before it locks out. */
-function burnSeconds(mod: ModuleConfig, coolingMult: number, heatGenMult: number, storeMult: number): number {
-  const heat = mod.heat;
-  if (!heat) return Infinity;
-  const perSec =
-    (mod.fire?.mode === "continuous"
-      ? heat.perSecondActive
-      : heat.perSecondActive + heat.perShot / Math.max(1e-6, mod.fire?.cycleTime ?? Infinity)) * heatGenMult;
-  const net = perSec - heat.coolingPerSec * coolingMult;
-  if (net <= 0) return Infinity;
-  return (heat.capacity * storeMult) / net;
-}
 
 /** Comparable catalogue-independent fitting quality used for player-relative rolls. */
 export function fittingPowerScore(configs: ConfigService, fitting: readonly (string | null)[]): number {

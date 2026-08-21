@@ -136,7 +136,7 @@ function approachHomeFlagFromAbove(seed: number) {
   const enemy = sim.snapshot().flags.find((flag) => flag.team === 1)!;
   const fitting = [
     "module.kinetic-mk1", "module.shield-mk1", "module.engine-mk2", "module.generator-dynamo",
-    "module.transformer-mk3", "module.heatsink-mk3", "module.sensors-snap", "module.utility-flux-capacitor-mk2",
+    "module.transformer-mk3", "module.countermeasure-spoofer", "module.sensors-snap", "module.utility-flux-capacitor-mk2",
   ];
   const vertical = 15;
   const initialDistance = 30;

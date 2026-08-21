@@ -1,25 +1,14 @@
 import type { ModuleConfig } from "../../schemas/index.js";
 import type { EntityId, ModuleRuntime, ShipCore } from "../components.js";
-import { railFits, transition } from "./ModuleSystem.js";
-import { heatSystemEnabled } from "../tuningDefaults.js";
+import { transition } from "./ModuleSystem.js";
 import type { World } from "../World.js";
 
 /**
- * EnergySystem (heat/energy overhaul, 2026-08-07) — the per-module heat and
- * energy stores, run AFTER combat/nav so the worked-this-tick flags are set.
+ * EnergySystem — the per-module energy stores, run AFTER combat/nav so the
+ * worked-this-tick flags are set.
  *
- * There is no ship heat pool and no shared capacitor any more. Every module owns
- * what it spends:
- *
- * **HEAT** (weapons, and anything else authoring a `heat` block)
- *   - a working module adds `heat.perSecondActive × efficiency.heatGen × dt`
- *     (discrete shots already added `heat.perShot` in CombatSystem);
- *   - EVERY module with heat sheds `heat.coolingPerSec × cooling.multiplier × dt`,
- *     lockout included — cooling during the lockout is what ends it;
- *   - heat reaching `heatCapacity` forces the module `overheated`;
- *   - the lockout clears the moment heat falls back below
- *     `heatCapacity × heat.rearmBelow`. No timer, no self-damage, no hull burn:
- *     the punishment for cooking a rack is the seconds you do not have it.
+ * There is no shared capacitor: every module owns what it spends. Weapons own
+ * nothing at all — a weapon's only limiter is its own cycle time.
  *
  * **ENERGY** (boost tanks, shield reserves, active utilities)
  *   - a module that WORKED drains `energy.drawPerSec × efficiency.energyDraw × dt`
@@ -30,9 +19,9 @@ import type { World } from "../World.js";
  *   - a module that did not work refills at
  *     `energy.rechargePerSec × recharge.multiplier × dt` up to its capacity.
  *
- * The two ship-wide multipliers come from the fitted heatsink and generator; the
- * transformer's `efficiency` pair still taxes generation and draw per module.
- * Nothing here damages a hull — a loadout can no longer kill its own pilot.
+ * The ship-wide recharge multiplier comes from the fitted generator; the
+ * transformer's `efficiency.energyDraw` taxes draw per module. Nothing here
+ * damages a hull — a loadout cannot kill its own pilot.
  */
 export function energySystem(world: World, dt: number): void {
   for (const id of world.shipIds()) {
@@ -43,8 +32,7 @@ export function energySystem(world: World, dt: number): void {
     for (const m of mods.modules) {
       const cfg = world.configs.get<ModuleConfig>("module", m.moduleId);
       if (!cfg) continue;
-      stepEnergy(world, id, core, m, cfg, dt);
-      stepHeat(world, id, core, m, cfg, mods.modules, dt);
+      stepEnergy(world, id, core, m, cfg, mods.modules, dt);
     }
   }
 }
@@ -56,6 +44,7 @@ function stepEnergy(
   core: ShipCore,
   m: ModuleRuntime,
   cfg: ModuleConfig,
+  siblings: readonly ModuleRuntime[],
   dt: number,
 ): void {
   if (m.energyCapacity <= 0 || !cfg.energy) return;
@@ -76,7 +65,7 @@ function stepEnergy(
   // refills from there like any resting module and the pilot brings it back.
   m.energy = 0;
   m.workedThisTick = false;
-  if (m.state !== "retracted" && m.state !== "overheated") {
+  if (m.state !== "retracted") {
     // A SHIELD flaming out is a COLLAPSE, and a collapse costs the authored
     // lockout before the bubble can be raised again. This is the single point
     // both collapse causes pass through — fire that drained the reserve
@@ -86,60 +75,5 @@ function stepEnergy(
     // shield shed by the power rail, still comes straight back.
     if (cfg.mitigation) m.cycleTimer = cfg.mitigation.collapseCooldownSec;
     transition(world, id, m, "retracted", cfg.onDeactivate);
-  }
-}
-
-/** One module's heat store: generate, cool, then trip or re-arm. */
-function stepHeat(
-  world: World,
-  id: EntityId,
-  core: ShipCore,
-  m: ModuleRuntime,
-  cfg: ModuleConfig,
-  siblings: readonly ModuleRuntime[],
-  dt: number,
-): void {
-  // The feature stays fully authored and replicated while switched off, but it
-  // has no gameplay effects: no generation, cooling, trip, or re-arm.
-  if (!heatSystemEnabled(world.tuning)) return;
-  if (m.heatCapacity <= 0 || !cfg.heat) return;
-
-  if (m.workedThisTick) {
-    m.heat += cfg.heat.perSecondActive * core.efficiency.heatGen * dt;
-  }
-  // Cooling never stops — a locked-out rack is cooling, which is the only thing
-  // that will ever bring it back.
-  m.heat = Math.max(0, m.heat - cfg.heat.coolingPerSec * core.cooling.multiplier * dt);
-
-  if (m.state === "overheated") {
-    if (m.heat <= m.heatCapacity * cfg.heat.rearmBelow) {
-      m.stateTimer = 0;
-      // Weapons come straight back ONLINE (they are always-on: spawn.ts); a
-      // support module returns retracted for the pilot to raise deliberately.
-      // The rail still has the last word — see railFits.
-      const online = cfg.fire !== undefined && railFits(world, id, m, siblings);
-      if (online && cfg.fire?.clip && m.rounds <= 0) {
-        m.stateTimer = cfg.fire.clip.reloadSec;
-        transition(world, id, m, "reloading");
-      } else {
-        transition(world, id, m, online ? "active" : "retracted", online ? cfg.onActivate : undefined);
-      }
-    }
-    return;
-  }
-  if (m.state === "retracted") return;
-
-  if (m.heat >= m.heatCapacity) {
-    m.heat = m.heatCapacity;
-    m.stateTimer = 0;
-    m.channeling = false;
-    transition(world, id, m, "overheated");
-    world.emit({
-      type: "overheated",
-      entityId: id,
-      hardpointIndex: m.hardpointIndex,
-      moduleId: m.moduleId,
-      actions: cfg.onOverheat,
-    });
   }
 }

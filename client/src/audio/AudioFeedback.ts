@@ -44,7 +44,7 @@ export interface AudioFeedbackOptions {
  * sound ids out. It holds no sound knowledge of its own.
  *
  * Two data paths, in this order:
- *  1. **Module action hooks** — `module.onFire/onOverheat/onActivate/onDeactivate`
+ *  1. **Module action hooks** — `module.onFire/onActivate/onDeactivate`
  *     name `action` configs; every `kind: "play_sound"` action contributes its
  *     `params.sound` id and `params.volume`. Works offline (the sim stamps the
  *     action ids onto the event) and online (re-derived from `moduleId`).

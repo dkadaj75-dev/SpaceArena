@@ -981,8 +981,8 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   /**
    * The tutorial's own offline match. Deliberately NOT `startMatch`: it flies an
-   * authored loadout rather than the Hangar's (the lessons name a specific heat
-   * ring and a specific energy ring), and its gamemode carries no rewards, no
+   * authored loadout rather than the Hangar's (the lessons name a specific
+   * cooldown ring and a specific energy ring), and its gamemode carries no rewards, no
    * clock and no roster — every ship in it is spawned by a step.
    */
   async function startTutorialMatch(): Promise<void> {

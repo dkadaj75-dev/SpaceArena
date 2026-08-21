@@ -29,11 +29,12 @@ export type Order =
     }
   | { kind: "moduleToggle"; hardpointIndex: number }
   /**
-   * Blow the fitted heatsink clear of the hull (owner 2026-07-31). Takes no
-   * arguments: a hull has exactly one heatsink bay, so the sim finds it. A no-op
+   * Blow the fitted countermeasure pod clear of the hull (owner 2026-07-31).
+   * Takes no arguments: a hull has exactly one countermeasure bay, so the sim
+   * finds it. A no-op
    * when the fitted sink cannot be jettisoned or is still on cooldown.
    */
-  | { kind: "jettisonHeatsink" };
+  | { kind: "jettisonCountermeasure" };
 
 export interface QueuedOrder {
   entityId: EntityId;

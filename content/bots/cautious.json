@@ -5,7 +5,10 @@
   "name": "Cautious",
   "decisionIntervalMs": 300,
   "orderJitterMs": 60,
-  "preferredRange": [38, 66],
+  "preferredRange": [
+    38,
+    66
+  ],
   "carrierPriority": 10,
   "fittingArchetype": "cautious",
   "fittingPowerSpread": 0.2,
@@ -91,15 +94,11 @@
     }
   },
   "moduleDiscipline": {
-    "heatShutdownAt": 0.7,
-    "reactivateBelow": 0.35,
     "energyReserve": 0.3,
     "shieldOnlyWhenEngaged": true
   },
   "fireDiscipline": {
     "engageRangeMult": 0.95,
-    "heatHeadroom": 0.9,
-    "rearmHeatBelow": 0.35,
     "minEnergyFraction": 0.35
   }
 }
