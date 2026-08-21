@@ -28,8 +28,8 @@
     "minDamageScale": 0.35
   },
   "chase": {
-    "radius": 12,
-    "height": 1.4,
+    "radius": 6,
+    "height": 0.7,
     "beta": 1.34,
     "yawLag": 0.12,
     "pitchLag": 0.1,

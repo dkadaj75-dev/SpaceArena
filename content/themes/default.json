@@ -400,7 +400,7 @@
         "skyLight": 0.35,
         "skyDriftDegPerSec": 0.4,
         "star": {
-          "apparentSize": 1.36,
+          "apparentSize": 1.9,
           "azimuthDeg": -42,
           "elevationDeg": 7,
           "core": "#fff4d2",
@@ -409,9 +409,16 @@
           "speed": 1.0
         },
         "sun": {
-          "azimuthDeg": -42,
-          "elevationDeg": 7,
-          "intensity": 3.1
+          "azimuthDeg": 196,
+          "elevationDeg": 22,
+          "intensity": 3.6
+        },
+        "ship": {
+          "shiftRight": 3.1,
+          "lift": 0.35,
+          "yawDeg": 214,
+          "pitchDeg": -6,
+          "rollDeg": -9
         }
       },
       "earthrise": {

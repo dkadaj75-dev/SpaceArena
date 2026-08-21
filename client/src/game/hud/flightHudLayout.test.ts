@@ -445,6 +445,41 @@ describe("shipped FIRE-centred control rail", () => {
     { width: 390, height: 740 },
     { width: 820, height: 1180 },
     { width: 1280, height: 800 },
+  ])("puts every action on ONE ring for every shipped fitting at $width x $height", (viewport) => {
+    // The owner's report (2026-08-21): buttons sat at different distances from
+    // the thumb depending on the fitting, because the rail split onto a second
+    // ring the moment the authored radius was full. It now GROWS instead. Every
+    // shipped hull asks for at most 3 arc modules (the heavy: 3 weapons + a
+    // shield, one weapon on the pedestal) plus BOOST and JETTISON — 5 slots.
+    const flight = resolveFlightHudLayout(shipped, viewport);
+    for (let arcModules = 0; arcModules <= 3; arcModules++) {
+      const { modules, boost, jettison } = resolveFlightSecondaryControls(flight, arcModules + 1, {
+        primaryOnFireSlot: true,
+      });
+      // The pedestal is its own footprint by design; the ARC is what must be uniform.
+      const onArc = [...modules.slice(1), boost, jettison];
+      const centre = anchoredOffset(
+        flight.fire.anchor,
+        flight.fire.offsetXPx,
+        flight.fire.offsetYPx,
+        flight.fire.radiusPx,
+      );
+      const radii = onArc.map((slot) => {
+        const at = anchoredOffset(slot.anchor, slot.offsetXPx, slot.offsetYPx, slot.radiusPx);
+        return Math.hypot(at.dx - centre.dx, at.dy - centre.dy);
+      });
+      for (const r of radii) {
+        expect(r, `arcModules=${arcModules}: every action shares one ring radius`).toBeCloseTo(radii[0]!, 6);
+      }
+      // …and they are all the same SIZE, too.
+      for (const slot of onArc) expect(slot.radiusPx).toBeCloseTo(onArc[0]!.radiusPx, 6);
+    }
+  });
+
+  it.each([
+    { width: 390, height: 740 },
+    { width: 820, height: 1180 },
+    { width: 1280, height: 800 },
   ])("keeps every fitted rail arrangement clear at $width x $height", (viewport) => {
     for (const moduleCount of [2, 4, 6]) {
       const { controls, captions, obstacles, centres, inset } = boxes(viewport, moduleCount);

@@ -290,6 +290,13 @@ export class MenuDiorama {
   readonly root: TransformNode;
   private readonly disposables: { dispose(): void }[] = [];
   private readonly camera: TargetCamera;
+  /**
+   * The camera's own right/up axes, computed once from the pose below.
+   * `theme.menu.scene.starfield.ship` places the hull in THIS basis, so an
+   * authored "push it right" means right on screen rather than along world +X.
+   */
+  private readonly camRight = new Vector3(1, 0, 0);
+  private readonly camUp = new Vector3(0, 1, 0);
   private readonly previousCamera: TargetCamera | null;
   private previousEnvironment: BaseTexture | null = null;
   private readonly previousClear: Color4;
@@ -343,6 +350,16 @@ export class MenuDiorama {
     // projects ABOVE the screen's centre line, which is the only part of the
     // menu the UI does not cover.
     this.camera.setTarget(new Vector3(0, shipHeight + 0.55 - (options.framingLift ?? 1.7), 0));
+    // Screen basis for hull placement. Left-handed: right = up x forward.
+    const forward = this.camera
+      .getTarget()
+      .subtract(this.camera.position)
+      .normalize();
+    Vector3.CrossToRef(Vector3.Up(), forward, this.camRight);
+    this.camRight.normalize();
+    Vector3.CrossToRef(forward, this.camRight, this.camUp);
+    this.camUp.normalize();
+
     this.camera.fov = 0.78;
     this.camera.minZ = 0.35;
     // Earth is parked 900 units out; a default far plane would clip it away.
@@ -365,7 +382,18 @@ export class MenuDiorama {
     return this.config.kind === "starfield" ? (this.config.starfield ?? null) : null;
   }
 
-  /** Whichever scene is live supplies the key light. */
+  /**
+   * Whichever scene is live supplies the KEY LIGHT — which is deliberately a
+   * separate authored direction from the visible star (`starfield.star`).
+   *
+   * A sun drawn in front of the camera backlights everything: the hull becomes a
+   * silhouette and none of the metal catches anything (owner, 2026-08-21: "I
+   * want to see the nice sunlight reflections on it"). The shipped starfield
+   * therefore cheats the key round to the camera's side while the star stays
+   * where it is drawn. Every other cue — colour, glare, the corona washing the
+   * galaxy out — still says "that is the light source", which is what makes the
+   * cheat invisible and standard practice for a hero shot.
+   */
   private get sunConfig(): { azimuthDeg?: number; elevationDeg?: number; intensity?: number } | undefined {
     return this.starfield?.sun ?? this.earthrise?.sun;
   }
@@ -449,10 +477,16 @@ export class MenuDiorama {
     // Depth-write off: it is a transparent billboard, and writing depth would
     // punch its own corona out of anything drawn after it.
     mat.disableDepthWrite = true;
-    // ADDITIVE. A star emits; its corona and glare should brighten the galaxy
-    // behind them rather than replace it, and alpha blending over a starfield
-    // dims the very stars the glow is supposed to be washing out.
-    mat.alphaMode = Constants.ALPHA_ADD;
+    // PREMULTIPLIED, not additive (owner 2026-08-21: "we should not see the
+    // skybox behind the sun itself").
+    //
+    //   result = src + dst * (1 - srcAlpha)
+    //
+    // The photosphere writes alpha 1, so it REPLACES the galaxy — a star is an
+    // opaque body, and seeing stars through it read as a decal. The corona and
+    // the glare write alpha near 0 with real colour, so they still ADD over the
+    // galaxy exactly as before. One blend mode, both behaviours, one draw.
+    mat.alphaMode = Constants.ALPHA_PREMULTIPLIED;
     plane.material = mat;
 
     this.starMaterial = mat;
@@ -703,13 +737,22 @@ export class MenuDiorama {
       while (this.pending.length > 0) {
         await Promise.all(this.pending.splice(0));
       }
-      // One drawn frame: the assets being in memory is not the same as the
-      // renderer having used them, and the pop this exists to prevent happens
-      // in exactly that gap.
-      if (!this.root.isDisposed()) {
-        await new Promise<void>((resolve) => {
-          this.scene.onAfterRenderObservable.addOnce(() => resolve());
-        });
+      if (this.root.isDisposed()) return;
+      // Assets being in MEMORY is not the same as the renderer having used
+      // them: textures upload and shaders compile on first draw, and that is
+      // the second of black this exists to prevent.
+      //
+      // We render here, by hand, rather than waiting on an observable —
+      // `engine.runRenderLoop` does not start until AFTER the boot screen comes
+      // down (main.ts), so waiting for a frame would simply time out and the
+      // fade would land on a scene that had never been drawn at all.
+      await this.scene.whenReadyAsync().catch(() => undefined);
+      for (let i = 0; i < 3 && !this.root.isDisposed(); i++) {
+        try {
+          this.scene.render();
+        } catch {
+          break; // a scene that cannot draw must not hold the menu hostage
+        }
       }
     })();
     try {
@@ -749,10 +792,19 @@ export class MenuDiorama {
     mesh.setParent(this.root);
     mesh.setEnabled(true);
     mesh.isPickable = false;
+    // Authored placement, in the camera's own basis (see `camRight`/`camUp`).
+    const place = this.starfield?.ship;
     mesh.position.set(0, this.shipHeight, 0);
+    mesh.position.addInPlace(this.camRight.scale(place?.shiftRight ?? 0));
+    mesh.position.addInPlace(this.camUp.scale(place?.lift ?? 0));
     // Three-quarter view: the nose away from the camera and canted, so the
     // silhouette reads as a ship rather than as a dart pointed at the viewer.
-    mesh.rotation.set(0, Math.PI * 0.82, 0);
+    const rad = (deg: number): number => (deg * Math.PI) / 180;
+    mesh.rotation.set(
+      rad(place?.pitchDeg ?? 0),
+      place?.yawDeg === undefined ? Math.PI * 0.82 : rad(place.yawDeg),
+      rad(place?.rollDeg ?? 0),
+    );
     this.hull = mesh;
   }
 

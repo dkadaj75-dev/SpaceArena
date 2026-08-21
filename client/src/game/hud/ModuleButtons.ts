@@ -95,17 +95,29 @@ export class ModuleButtons {
   private builtForModuleCount = -1;
   private layout: HudLayout;
   /**
-   * Hardpoint indices whose weapon button is currently held — pointer or
-   * keyboard. Read by {@link ModuleButtons.triggerMask}, which is what the
-   * flight order carries; this component never sends an order of its own for a
-   * weapon, because a held trigger must not cost one order per frame.
+   * Held weapon triggers: hardpoint index → the POINTER holding it.
+   *
+   * Keyed by pointer, not merely flagged, because the document-level backstop
+   * below sees every pointer on the screen. A pilot steers with one thumb and
+   * fires with the other, so a release that did not check WHICH pointer came up
+   * dropped the trigger every time the steering finger lifted — which is most
+   * of a dogfight (fixed 2026-08-21).
+   *
+   * Read by {@link ModuleButtons.triggerMask}, which is what the flight order
+   * carries; this component never sends an order of its own for a weapon,
+   * because a held trigger must not cost one order per frame.
    */
-  private readonly heldTriggers = new Set<number>();
-  /** Per-button release callbacks, so a rebuild or a disable can drop every held trigger. */
-  private releasers: Array<() => void> = [];
+  private readonly heldTriggers = new Map<number, number>();
+  /** Per-button release callbacks, keyed by pointer id; `null` releases any pointer. */
+  private releasers: Array<(pointerId: number | null) => void> = [];
   private disabled = false;
+  /** Backstop for a pointer released outside its button: only THAT pointer's trigger. */
+  private readonly releasePointer = (ev: PointerEvent): void => {
+    for (const release of this.releasers) release(ev.pointerId);
+  };
+  /** Blur, disable, rebuild: nothing is holding anything any more. */
   private readonly releaseAllTriggers = (): void => {
-    for (const release of this.releasers) release();
+    for (const release of this.releasers) release(null);
   };
   private flightLayout: FlightHudLayout | null = null;
   private readonly unsubscribeTheme: () => void;
@@ -135,8 +147,8 @@ export class ModuleButtons {
     // The backstop for a level-triggered control: a pointer released outside the
     // button, a cancelled gesture or a lost window must never leave a weapon
     // firing. Cheap, and the alternative is a gun that will not stop.
-    document.addEventListener("pointerup", this.releaseAllTriggers);
-    document.addEventListener("pointercancel", this.releaseAllTriggers);
+    document.addEventListener("pointerup", this.releasePointer);
+    document.addEventListener("pointercancel", this.releasePointer);
     window.addEventListener("blur", this.releaseAllTriggers);
   }
 
@@ -148,7 +160,7 @@ export class ModuleButtons {
    */
   triggerMask(): number {
     let mask = 0;
-    for (const index of this.heldTriggers) mask |= 1 << index;
+    for (const index of this.heldTriggers.keys()) mask |= 1 << index;
     return mask;
   }
 
@@ -451,7 +463,7 @@ export class ModuleButtons {
           btn.classList.add("trigger");
           const press = (ev: PointerEvent): void => {
             if (this.disabled) return;
-            this.heldTriggers.add(hardpointIndex);
+            this.heldTriggers.set(hardpointIndex, ev.pointerId);
             btn.classList.add("firing");
             // Capture is an optimisation; the document-level release listeners
             // installed in the constructor are what guarantee a held trigger
@@ -459,14 +471,22 @@ export class ModuleButtons {
             try { btn.setPointerCapture?.(ev.pointerId); } catch { /* release fallback armed */ }
             ev.preventDefault();
           };
-          const release = (): void => {
-            if (!this.heldTriggers.delete(hardpointIndex)) return;
+          /**
+           * `pointerId === null` means "release regardless" (blur, disable,
+           * rebuild). Anything else releases ONLY the pointer that is holding
+           * this button — the other thumb steering the ship must not silence it.
+           */
+          const release = (pointerId: number | null): void => {
+            const held = this.heldTriggers.get(hardpointIndex);
+            if (held === undefined) return;
+            if (pointerId !== null && pointerId !== held) return;
+            this.heldTriggers.delete(hardpointIndex);
             btn.classList.remove("firing");
           };
           btn.addEventListener("pointerdown", press);
-          btn.addEventListener("pointerup", release);
-          btn.addEventListener("pointercancel", release);
-          btn.addEventListener("lostpointercapture", release);
+          btn.addEventListener("pointerup", (ev) => release(ev.pointerId));
+          btn.addEventListener("pointercancel", (ev) => release(ev.pointerId));
+          btn.addEventListener("lostpointercapture", (ev) => release(ev.pointerId));
           this.releasers.push(release);
         } else {
           btn.addEventListener("click", () => {
@@ -520,8 +540,8 @@ export class ModuleButtons {
 
   dispose(): void {
     this.unsubscribeTheme();
-    document.removeEventListener("pointerup", this.releaseAllTriggers);
-    document.removeEventListener("pointercancel", this.releaseAllTriggers);
+    document.removeEventListener("pointerup", this.releasePointer);
+    document.removeEventListener("pointercancel", this.releasePointer);
     window.removeEventListener("blur", this.releaseAllTriggers);
     this.container.remove();
   }

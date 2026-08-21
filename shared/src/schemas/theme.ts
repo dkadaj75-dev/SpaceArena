@@ -865,6 +865,27 @@ export const menuSchema = z.object({
           skyLight: z.number().min(0).max(1).optional(),
           /** Degrees per second the sky rotates. Slow — this is drift, not spin. */
           skyDriftDegPerSec: z.number().optional(),
+          /**
+           * Where the pilot's hull sits in frame, and how it is turned.
+           *
+           * Expressed in the CAMERA's own basis, not in world axes: the diorama
+           * camera is placed by the same code that reads this, so "push it
+           * right" has to mean right ON SCREEN whatever the camera's yaw is.
+           */
+          ship: z
+            .object({
+              /** World units along the camera's right axis. Positive moves the hull right on screen. */
+              shiftRight: z.number().optional(),
+              /** World units along the camera's up axis. Positive lifts it. */
+              lift: z.number().optional(),
+              /** Hull yaw in degrees. Picks which face of the ship the camera gets. */
+              yawDeg: z.number().optional(),
+              /** Hull pitch in degrees; a little nose-up reads as flight, not parking. */
+              pitchDeg: z.number().optional(),
+              /** Hull roll in degrees, banking the silhouette. */
+              rollDeg: z.number().optional(),
+            })
+            .optional(),
           /** The star itself, drawn by the same animated shader as the title screen. */
           star: z
             .object({

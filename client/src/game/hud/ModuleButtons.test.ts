@@ -378,13 +378,35 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       buttons.dispose();
     });
 
-    it("releases a trigger held when the pointer comes up OUTSIDE the button", () => {
+    it("releases a trigger held when ITS pointer comes up OUTSIDE the button", () => {
       const { root, buttons } = railWith([
         { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
       ]);
-      root.querySelector<HTMLElement>(".hud-module-btn")!.dispatchEvent(pointer("pointerdown"));
+      root.querySelector<HTMLElement>(".hud-module-btn")!.dispatchEvent(pointer("pointerdown", 4));
       expect(buttons.triggerMask()).toBe(1);
-      document.dispatchEvent(pointer("pointerup"));
+      document.dispatchEvent(pointer("pointerup", 4));
+      expect(buttons.triggerMask()).toBe(0);
+      buttons.dispose();
+    });
+
+    it("KEEPS firing when a DIFFERENT pointer is released — the steering thumb", () => {
+      // The bug this pins (2026-08-21): a pilot fires with one thumb and steers
+      // with the other, and the document-level backstop used to drop every held
+      // trigger on any pointerup at all. In a dogfight the steering thumb lifts
+      // constantly, so the gun would not hold down for more than an instant.
+      const { root, buttons } = railWith([
+        { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
+      ]);
+      root.querySelector<HTMLElement>(".hud-module-btn")!.dispatchEvent(pointer("pointerdown", 7));
+      expect(buttons.triggerMask()).toBe(1);
+
+      // The other thumb comes off the stick, anywhere on the page.
+      document.dispatchEvent(pointer("pointerup", 8));
+      document.dispatchEvent(pointer("pointercancel", 9));
+      expect(buttons.triggerMask()).toBe(1);
+
+      // …and the trigger's own pointer still releases it.
+      document.dispatchEvent(pointer("pointerup", 7));
       expect(buttons.triggerMask()).toBe(0);
       buttons.dispose();
     });

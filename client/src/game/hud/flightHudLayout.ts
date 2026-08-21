@@ -103,11 +103,28 @@ export interface FlightActionArcLayout {
   sweepDeg: number;
   buttonDiameterPx: number;
   captionGapPx: number;
-  /** A second, outward concentric rail receives only primary-ring overflow. */
+  /**
+   * Most buttons ONE ring can seat, after growing it as far as
+   * {@link MAX_RING_GROWTH} allows.
+   *
+   * The rail used to spill onto a second, wider ring as soon as the AUTHORED
+   * radius was full, which put one button at a visibly different distance from
+   * the thumb than the rest and made the HUD change shape with the fitting
+   * (owner, 2026-08-21). The ring now GROWS first and only splits past this
+   * count — which every shipped hull is comfortably inside, so in practice the
+   * second ring never appears. It survives for a fitting one ring genuinely
+   * cannot hold on a phone without running off the screen.
+   */
+  singleRingCapacity: number;
+  /**
+   * Slots the ring holds at its AUTHORED radius. Only used once
+   * {@link singleRingCapacity} is exceeded: past that the ring cannot be the
+   * whole answer, so it stops growing and the original two-ring geometry —
+   * which is known to fit every viewport — takes over unchanged.
+   */
+  slotsAtAuthoredRadius: number;
+  /** The second, outward ring — the fallback past {@link singleRingCapacity}. */
   overflowRadiusPx: number;
-  /** Slots the close FIRE-hugging rail can hold at the authored chord pitch. */
-  primarySlotCapacity: number;
-  /** Overflow follows the same FIRE-side end and authored sweep as the primary rail. */
   overflowStartDeg: number;
   overflowSweepDeg: number;
 }
@@ -393,30 +410,104 @@ function actionArcLayoutFrom(
     sweepDeg,
     buttonDiameterPx,
     captionGapPx: (action.captionGapPx ?? 4) * scale,
-    // Overflow moves OUT from the close thumb ring by one button diameter plus
-    // 18px of radial breathing room (more than the required 8px edge gap), so
-    // same-angle rail starts and their captions remain visually distinct.
-    overflowRadiusPx: radiusPx + buttonDiameterPx + 18.2 * scale,
-    // Capacity comes from the same circular 8px chord calculation as the
-    // first-slot pitch. The outer rail is intentionally not used for a sparse
-    // fitting: the primary ring is the thumb cluster around FIRE.
-    primarySlotCapacity: Math.max(
+    // How many buttons fit on ONE ring grown to its limit, at the same 8px-gap
+    // chord pitch the slots use. On the shipped arc this is 5 — one more than
+    // the widest shipped hull asks for.
+    singleRingCapacity: Math.max(
       1,
       Math.floor(
-        Math.abs(sweepDeg) /
-          ((2 * Math.asin(Math.min(1, (buttonDiameterPx + 8.1) / (2 * radiusPx))) * 180) / Math.PI),
+        Math.abs(sweepDeg) / chordPitchDeg(buttonDiameterPx, radiusPx * MAX_RING_GROWTH),
       ) + 1,
     ),
+    slotsAtAuthoredRadius: Math.max(
+      1,
+      Math.floor(Math.abs(sweepDeg) / chordPitchDeg(buttonDiameterPx, radiusPx)) + 1,
+    ),
+    // Overflow moves OUT from the AUTHORED ring by one button diameter plus
+    // 18px of radial breathing room (more than the required 8px edge gap), so
+    // the two rings' same-angle starts stay visually distinct.
+    overflowRadiusPx: radiusPx + buttonDiameterPx + 18.2 * scale,
     overflowStartDeg: startDeg,
-    // Keep the outer phone rail above the lower-left energy panel. The close
-    // rail retains the full authored sweep; four overflow slots still fit at
-    // the chord pitch inside this shorter span.
+    // Keep the outer phone rail above the lower-left panels. The inner ring
+    // retains the full authored sweep.
     overflowSweepDeg:
       viewport.width < 600 && viewport.height >= viewport.width
         ? Math.sign(sweepDeg || 1) * Math.min(Math.abs(sweepDeg), 50)
         : sweepDeg,
   };
 }
+
+/**
+ * Smallest angular step that keeps two buttons of `diameterPx` from touching on
+ * a ring of `radiusPx`, with 8px of clearance. Pure trigonometry: the chord
+ * between two points `pitch` apart on the ring must span the button plus the gap.
+ */
+function chordPitchDeg(diameterPx: number, radiusPx: number): number {
+  if (radiusPx <= 0) return 180;
+  return (2 * Math.asin(Math.min(1, (diameterPx + 8.1) / (2 * radiusPx))) * 180) / Math.PI;
+}
+
+/**
+ * The radius the single action ring needs to seat `count` buttons inside the
+ * authored sweep without them touching.
+ *
+ * The authored radius when it already fits (every sparse fitting), and otherwise
+ * the radius at which the chord pitch shrinks to the available step. Growing one
+ * ring rather than starting a second is the whole point: every action stays the
+ * same distance from the thumb whatever the hull carries.
+ *
+ * Capped at {@link MAX_RING_GROWTH} of the authored radius so an absurd fitting
+ * pushes the ring off the thumb's reach rather than off the screen; past the cap
+ * the sweep simply extends beyond its authored span.
+ */
+function ringRadiusFor(arc: FlightActionArcLayout, count: number): number {
+  if (count <= 1) return arc.radiusPx;
+  const perGapDeg = Math.abs(arc.sweepDeg) / (count - 1);
+  if (chordPitchDeg(arc.buttonDiameterPx, arc.radiusPx) <= perGapDeg) return arc.radiusPx;
+  const sin = Math.sin((perGapDeg * Math.PI) / 360);
+  const needed = sin > 0 ? (arc.buttonDiameterPx + 8.1) / (2 * sin) : arc.radiusPx * MAX_RING_GROWTH;
+  return Math.min(Math.max(arc.radiusPx, needed), arc.radiusPx * MAX_RING_GROWTH);
+}
+
+/** Ring index and geometry for one slot, honouring the single-ring preference. */
+function railFor(arc: FlightActionArcLayout, total: number, index: number): {
+  startDeg: number;
+  sweepDeg: number;
+  radiusPx: number;
+  countOnRail: number;
+  indexOnRail: number;
+  isOverflow: boolean;
+} {
+  // Growing the ring is worth doing only when it AVOIDS the split. Once a
+  // second ring is unavoidable the promise is already broken, so the layout
+  // reverts to the original two-ring geometry, which is known to fit every
+  // viewport at every count.
+  const splits = total > arc.singleRingCapacity;
+  const onRing = splits ? Math.min(total, arc.slotsAtAuthoredRadius) : total;
+  const isOverflow = index >= onRing;
+  return isOverflow
+    ? {
+        startDeg: arc.overflowStartDeg,
+        sweepDeg: arc.overflowSweepDeg,
+        radiusPx: arc.overflowRadiusPx,
+        countOnRail: total - onRing,
+        indexOnRail: index - onRing,
+        isOverflow,
+      }
+    : {
+        startDeg: arc.startDeg,
+        sweepDeg: arc.sweepDeg,
+        // Grown to seat everything, so they share one radius — unless we are
+        // already splitting, in which case the authored radius stands.
+        radiusPx: splits ? arc.radiusPx : ringRadiusFor(arc, total),
+        countOnRail: onRing,
+        indexOnRail: index,
+        isOverflow,
+      };
+}
+
+/** Ceiling on how far {@link ringRadiusFor} may push the ring out. */
+const MAX_RING_GROWTH = 1.45;
 
 /**
  * The only positioning rule for the shipped bottom-right flight controls.
@@ -431,34 +522,28 @@ function actionArcSlots(layout: FlightHudLayout, moduleCount: number): FlightAct
   const fire = layout.fire;
   const fireCentre = anchoredOffset(fire.anchor, fire.offsetXPx, fire.offsetYPx, fire.radiusPx);
   const radiusPx = arc.buttonDiameterPx / 2;
-  // Fill the close, FIRE-hugging rail before using the outer overflow ring.
-  // Order remains modules, BOOST, then JETTISON.
-  const primaryCount = Math.min(total, arc.primarySlotCapacity);
-  const overflowCount = total - primaryCount;
+  // ONE ring wherever one can hold the fitting (2026-08-21): it GROWS to seat
+  // every action at the same distance from the thumb, and only splits when a
+  // single ring could not fit on the screen at all — see `singleRingCapacity`.
   const slots: FlightActionArcSlot[] = [];
   for (let index = 0; index < total; index++) {
-    const isOverflow = index >= primaryCount;
-    const countOnRail = isOverflow ? overflowCount : primaryCount;
-    const indexOnRail = isOverflow ? index - primaryCount : index;
-    const railStartDeg = isOverflow ? arc.overflowStartDeg : arc.startDeg;
-    const railSweepDeg = isOverflow ? arc.overflowSweepDeg : arc.sweepDeg;
-    const railRadiusPx = isOverflow ? arc.overflowRadiusPx : arc.radiusPx;
-    const preferredPitchDeg =
-      (2 * Math.asin(Math.min(1, (arc.buttonDiameterPx + 8.1) / (2 * railRadiusPx))) * 180) /
-      Math.PI;
-    const signedPitchDeg = Math.sign(railSweepDeg || 1) * preferredPitchDeg;
-    // Start at the FIRE-side end. Sparse fittings use the preferred pitch;
-    // only a full rail consumes its authored span. This is intentionally not
-    // centred: the first actions remain in immediate thumb reach of FIRE.
-    const deg = railStartDeg +
-      (countOnRail <= 1
+    const rail = railFor(arc, total, index);
+    const preferredPitchDeg = chordPitchDeg(arc.buttonDiameterPx, rail.radiusPx);
+    const signedPitchDeg = Math.sign(rail.sweepDeg || 1) * preferredPitchDeg;
+    // Start at the pedestal end. A sparse fitting uses the chord pitch and
+    // consumes only part of the authored span; this is deliberately not
+    // centred, so the first actions stay in immediate reach of the pedestal.
+    const deg = rail.startDeg +
+      (rail.countOnRail <= 1
         ? 0
-        : Math.min(Math.abs(railSweepDeg) / (countOnRail - 1), preferredPitchDeg) * Math.sign(signedPitchDeg) * indexOnRail);
+        : Math.min(Math.abs(rail.sweepDeg) / (rail.countOnRail - 1), preferredPitchDeg) *
+          Math.sign(signedPitchDeg) *
+          rail.indexOnRail);
     const radians = (deg * Math.PI) / 180;
     const radialX = Math.cos(radians);
     const radialY = Math.sin(radians);
-    const centreX = fireCentre.dx + railRadiusPx * radialX;
-    const centreY = fireCentre.dy + railRadiusPx * radialY;
+    const centreX = fireCentre.dx + rail.radiusPx * radialX;
+    const centreY = fireCentre.dy + rail.radiusPx * radialY;
     // Convert an exact pivot-relative centre back to the existing anchored
     // offset representation, so no widget needs bespoke corner math.
     const signs = anchorSigns(fire.anchor);
@@ -467,10 +552,9 @@ function actionArcSlots(layout: FlightHudLayout, moduleCount: number): FlightAct
       radiusPx,
       offsetXPx: signs.x < 0 ? -centreX - radiusPx : centreX - radiusPx,
       offsetYPx: signs.y < 0 ? -centreY - radiusPx : centreY - radiusPx,
-      // Close-ring labels remain on their own compact button: there is no
-      // unused radial space between FIRE and the same-angle overflow slot.
-      captionX: isOverflow ? radialX : 0,
-      captionY: isOverflow ? radialY : 0,
+      // Only the outer ring has unused radial space for a caption to sit in.
+      captionX: rail.isOverflow ? radialX : 0,
+      captionY: rail.isOverflow ? radialY : 0,
       captionGapPx: arc.captionGapPx,
     });
   }
