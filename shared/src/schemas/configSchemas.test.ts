@@ -483,6 +483,24 @@ describe("ship schema", () => {
     }
   });
 
+  it("refuses a hull with more fittable sockets than the trigger mask can address", () => {
+    // 16 bits on the wire, so slot 16 has no bit to fire it with. A hull that
+    // built and flew with an untriggerable gun is exactly the failure this
+    // stops, and it has to stop it at load.
+    const socket = (i: number) => ({
+      id: `hp-${i}`,
+      kind: "hardpoint",
+      transform: { pos: [0, 0, i] },
+      accepts: ["laser"],
+    });
+    const withSockets = (n: number) => (d: Record<string, unknown>) => {
+      d["sockets"] = Array.from({ length: n }, (_, i) => socket(i));
+      d["defaultFitting"] = [];
+    };
+    expect(mutated("ship", withSockets(16))).toBe(true);
+    expect(mutated("ship", withSockets(17))).toBe(false);
+  });
+
   it("requires at least one socket and rejects zero-radius colliders", () => {
     expect(mutated("ship", (d) => (d["sockets"] = []))).toBe(false);
     expect(mutated("ship", (d) => ((d["collider"] as Record<string, number>)["radius"] = 0))).toBe(false);

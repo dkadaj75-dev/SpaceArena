@@ -75,6 +75,17 @@ const shipCore = z.object({
   }),
 });
 
+/**
+ * Hard ceiling on a hull's fittable sockets (hardpoints + internals share one
+ * index space — see {@link hardpointsOf}).
+ *
+ * Set by the netcode, not by taste: the flight order's `triggers` field is a
+ * 16-bit mask over that index, so slot 16 has no bit to be fired with. It is
+ * also comfortably above every shipped hull (the widest has 9) and above what a
+ * thumb could reach on a phone.
+ */
+export const MAX_FITTABLE_SOCKETS = 16;
+
 export const shipSchema = z
   .object({
     ...baseShape("ship"),
@@ -132,9 +143,22 @@ export const shipSchema = z
     if (!ship.sockets.some((s) => s.kind === "hardpoint")) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "ship must have at least one hardpoint socket", path: ["sockets"] });
     }
+    // The per-weapon trigger mask on the wire is 16 bits (2026-08-21), so a slot
+    // past index 15 could never be fired from the HUD. Failing at content load
+    // is the whole point: the alternative is a hull that builds, flies, and has
+    // a gun nothing can pull the trigger on.
+    const fittable = ship.sockets.filter((s) => s.kind === "hardpoint" || s.kind === "internal").length;
+    if (fittable > MAX_FITTABLE_SOCKETS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `ship has ${fittable} fittable sockets; the wire's weapon-trigger mask addresses at most ${MAX_FITTABLE_SOCKETS}`,
+        path: ["sockets"],
+      });
+    }
   });
 
 export type ShipConfig = z.infer<typeof shipSchema>;
+
 
 /** A hull's price in credits; an unauthored `price` is free, not "unknown". */
 export function shipPrice(ship: Pick<ShipConfig, "price">): number {
