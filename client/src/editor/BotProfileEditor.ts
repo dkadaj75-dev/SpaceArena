@@ -91,6 +91,13 @@ export class BotProfileEditor implements EditorPanel {
   readonly element = document.createElement("div");
   private selectedId: string | null = null;
   private form: SchemaFormGen<BotprofileConfig> | null = null;
+  /**
+   * Accordion opens inside the bespoke `behaviors` renderer, keyed by
+   * "behaviors" for the outer list and by behaviour name for each section.
+   * SchemaFormGen rebuilds its field tree on every commit, so a section would
+   * otherwise shut itself the moment a designer nudged one weight slider.
+   */
+  private readonly folds = new Map<string, boolean>();
 
   constructor(
     private readonly host: EditorHost,
@@ -143,7 +150,7 @@ export class BotProfileEditor implements EditorPanel {
       value: selected,
       configService: this.host.configService,
       onProblem: (p) => this.report(p ? `${selected.id} ${p.path}: ${p.message}` : null),
-      fields: { behaviors: (ctx) => behaviorsField(ctx) },
+      fields: { behaviors: (ctx) => behaviorsField(ctx, this.folds) },
     });
     this.element.append(this.form.element);
   }
@@ -196,21 +203,29 @@ export class BotProfileEditor implements EditorPanel {
   }
 }
 
-/** Bespoke renderer for the `behaviors` record (see class doc). */
-function behaviorsField(ctx: FieldRenderContext): HTMLElement {
+/**
+ * Bespoke renderer for the `behaviors` record (see class doc).
+ *
+ * FOLDED on first render, like every generated group. A shipped profile
+ * declares half a dozen behaviours and each one expands into its own stack of
+ * tunables, so opening them all buried the profile's own fields under a screen
+ * of sliders. `folds` carries the designer's own opens across the rebuild.
+ */
+function behaviorsField(ctx: FieldRenderContext, folds: Map<string, boolean>): HTMLElement {
   const record = (ctx.value ?? {}) as BehaviorRecord;
   const commit = (next: BehaviorRecord): void => ctx.change(ctx.path, next);
 
   const box = document.createElement("details");
   box.className = "ed-group ed-record";
-  box.open = true;
+  box.open = folds.get("behaviors") ?? false;
+  box.addEventListener("toggle", () => folds.set("behaviors", box.open));
   const summary = document.createElement("summary");
   summary.className = "ed-group-title";
   summary.textContent = `behaviors (${Object.keys(record).length})`;
   box.append(summary);
 
   for (const key of Object.keys(record)) {
-    box.append(behaviorSection(key, record[key]!, record, commit));
+    box.append(behaviorSection(key, record[key]!, record, commit, folds));
   }
 
   const addable = addableBehaviorKeys(record);
@@ -234,10 +249,13 @@ function behaviorSection(
   params: Params,
   record: BehaviorRecord,
   commit: (next: BehaviorRecord) => void,
+  folds: Map<string, boolean>,
 ): HTMLElement {
   const section = document.createElement("details");
   section.className = "ed-group ed-behavior";
-  section.open = true;
+  // The summary carries the weight, so a folded row still says what it does.
+  section.open = folds.get(key) ?? false;
+  section.addEventListener("toggle", () => folds.set(key, section.open));
   section.dataset.behavior = key;
   const summary = document.createElement("summary");
   summary.className = "ed-group-title";

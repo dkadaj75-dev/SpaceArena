@@ -188,4 +188,30 @@ describe("SkinEditor panel", () => {
     expect(panel.element.querySelector(".ed-warn")?.textContent).toContain("wires no skin elements");
     panel.dispose();
   });
+
+  it("opens every element section folded, and keeps an opened one open across a commit", () => {
+    const paints = [skin()];
+    const { host: editorHost } = host(paints);
+    const panel = new SkinEditor(editorHost, vi.fn());
+
+    const sections = [...panel.element.querySelectorAll<HTMLDetailsElement>("details[data-section]")];
+    // Five elements' worth of texture/colour/pattern/surface controls opened at
+    // once is more than fits on the phone this editor has to work on.
+    expect(sections.map((s) => s.open)).toEqual([false, false, false, false, false]);
+
+    const body = panel.element.querySelector<HTMLDetailsElement>('details[data-section="body"]')!;
+    body.open = true;
+    body.dispatchEvent(new Event("toggle"));
+
+    const color = panel.element.querySelector<HTMLInputElement>('[data-section="body"] input[type="color"]')!;
+    color.value = "#445566";
+    color.dispatchEvent(new Event("change"));
+
+    // renderUi() rebuilds the panel, so without the fold memory the section the
+    // designer was painting in would shut itself on the first colour they set.
+    expect(panel.element.querySelector<HTMLDetailsElement>('details[data-section="body"]')!.open).toBe(true);
+    expect(panel.element.querySelector<HTMLDetailsElement>('details[data-section="wings"]')!.open).toBe(false);
+
+    panel.dispose();
+  });
 });

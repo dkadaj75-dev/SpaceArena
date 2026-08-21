@@ -139,6 +139,8 @@ export class SkinEditor implements EditorPanel {
   private shipId: string;
   private cosmeticId: string;
   private readonly hullLoadKicked = new Set<string>();
+  /** Accordion opens by element slug — see {@link SkinEditor.section}. */
+  private readonly folds = new Map<string, boolean>();
 
   constructor(private readonly host: EditorHost, private readonly report: (message: string | null) => void) {
     this.scene = host.scene;
@@ -223,12 +225,32 @@ export class SkinEditor implements EditorPanel {
   }
 
   /**
+   * One element's collapsible section, FOLDED on first render. A hull with five
+   * wired elements opened five stacks of texture/colour/pattern/surface
+   * controls at once, which is more than fits on the phone this editor has to
+   * work on. {@link folds} survives renderUi()'s rebuild so a section the
+   * designer opened does not shut itself on the next colour tweak.
+   */
+  private section(title: string, slug: string): HTMLElement {
+    const box = document.createElement("details");
+    box.open = this.folds.get(slug) ?? false;
+    box.addEventListener("toggle", () => this.folds.set(slug, box.open));
+    // Stable hook for tests and the screenshot rig: the headings are prose and
+    // will be reworded, the slug is what code is allowed to reach for.
+    box.dataset["section"] = slug;
+    const summary = document.createElement("summary");
+    summary.textContent = title;
+    box.append(summary);
+    return box;
+  }
+
+  /**
    * One surface element: what it covers on this hull, then texture, colour,
    * pattern and surface. Every control is "off" by default, and off means the
    * model keeps what the artist gave it.
    */
   private surfaceSection(cosmetic: CosmeticConfig, element: SurfaceElement, info: ElementRow): HTMLElement {
-    const box = section(info.label, element);
+    const box = this.section(info.label, element);
     const style = cosmetic.elements?.[element] ?? {};
     const patch = (next: Partial<SkinElementStyle>, rerender = false): void => {
       this.replace(withElementStyle(cosmetic, element, next));
@@ -317,7 +339,7 @@ export class SkinEditor implements EditorPanel {
 
   /** Propulsion swaps the whole particle system on the hull's wired emitters. */
   private propulsionSection(cosmetic: CosmeticConfig, info: ElementRow): HTMLElement {
-    const box = section(info.label, "propulsion");
+    const box = this.section(info.label, "propulsion");
     box.append(this.wiringLine(info, "emitter socket"));
 
     const select = document.createElement("select");
@@ -518,17 +540,6 @@ function row(...children: Node[]): HTMLDivElement {
   return div;
 }
 
-function section(title: string, slug: string): HTMLElement {
-  const box = document.createElement("details");
-  box.open = true;
-  // Stable hook for tests and the screenshot rig: the headings are prose and
-  // will be reworded, the slug is what code is allowed to reach for.
-  box.dataset["section"] = slug;
-  const summary = document.createElement("summary");
-  summary.textContent = title;
-  box.append(summary);
-  return box;
-}
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);

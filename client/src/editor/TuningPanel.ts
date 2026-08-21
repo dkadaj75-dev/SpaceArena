@@ -4,10 +4,19 @@ import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
 import { applicationNotice } from "./applicationScope.js";
 
-/** Node label used for substring filtering: a field's own text, or null for plain containers. */
+/**
+ * Node label used for substring filtering: a field's own text, or null for
+ * plain containers.
+ *
+ * Read from `firstElementChild` rather than a `:scope >` selector. Both shapes
+ * put their caption FIRST — the field's title span, the group's summary — so
+ * this is the same answer without depending on a selector happy-dom does not
+ * resolve, which left the filter matching nothing at all under test.
+ */
 function nodeLabel(el: HTMLElement): string | null {
-  if (el.classList.contains("editor-field")) return el.querySelector(":scope > span")?.textContent ?? "";
-  if (el.tagName === "DETAILS") return el.querySelector(":scope > summary")?.textContent ?? "";
+  const first = el.firstElementChild;
+  if (el.classList.contains("editor-field")) return first?.tagName === "SPAN" ? first.textContent ?? "" : "";
+  if (el.tagName === "DETAILS") return first?.tagName === "SUMMARY" ? first.textContent ?? "" : "";
   return null;
 }
 
@@ -39,7 +48,17 @@ class ConfigSection<T extends TuningConfig | CameraConfig> {
     type: "tuning" | "camera",
   ) {
     this.element = document.createElement("details");
-    this.element.open = true;
+    // Folded on first render, like every other accordion in the tool set: a
+    // pack's tuning config alone is ~60 fields, and stacking every tuning and
+    // camera config open meant the panel opened halfway down a scroll of
+    // numbers. The filter below is the way in — see setFilter().
+    this.element.open = false;
+    // Only a toggle made with NO filter active is the designer's own choice;
+    // the ones setFilter() performs are the search reopening its hits, and
+    // recording those would make a stray search stick permanently.
+    this.element.addEventListener("toggle", () => {
+      if (this.query === "") this.manualOpen = this.element.open;
+    });
     const summary = document.createElement("summary");
     summary.textContent = label;
     const save = document.createElement("button");
@@ -58,6 +77,8 @@ class ConfigSection<T extends TuningConfig | CameraConfig> {
     this.report = report;
   }
 
+  /** The designer's own open/shut, restored whenever the filter is cleared. */
+  private manualOpen = false;
   private readonly observer: MutationObserver;
   private readonly report: (message: string | null) => void;
   getValue: () => T;
@@ -69,7 +90,13 @@ class ConfigSection<T extends TuningConfig | CameraConfig> {
 
   setFilter(query: string): void {
     this.query = query.toLowerCase();
-    filterTree(this.form, this.query);
+    const matched = filterTree(this.form, this.query);
+    // Typing in the filter IS an explicit request to see what matches, so a
+    // hit opens its section — searching a wall of shut accordions and being
+    // shown nothing would make the filter useless. Clearing the query folds
+    // them back rather than leaving every section the search happened to touch
+    // hanging open.
+    this.element.open = this.query === "" ? this.manualOpen : matched;
   }
 
   refresh(): void {

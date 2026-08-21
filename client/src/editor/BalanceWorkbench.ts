@@ -23,6 +23,8 @@ export class BalanceWorkbench implements EditorPanel {
   private customShipId: string;
   private readonly customModules: (string | null)[] = [];
   private selectedFitKey = "";
+  /** Whether the Custom fit accordion is open — see {@link customFitEditor}. */
+  private customFitOpen = false;
 
   constructor(private readonly host: EditorHost, private readonly _report: (message: string | null) => void) {
     void this._report;
@@ -119,7 +121,12 @@ export class BalanceWorkbench implements EditorPanel {
 
   private customFitEditor(): HTMLElement {
     const box = document.createElement("details");
-    box.open = true;
+    // Folded: the workbench is read first (the tables above are the answer) and
+    // authored second, so the fit builder should not push the comparison it
+    // exists to feed off the screen. {@link customFitOpen} survives the panel
+    // rebuild each fit change causes.
+    box.open = this.customFitOpen;
+    box.addEventListener("toggle", () => { this.customFitOpen = box.open; });
     const summary = document.createElement("summary");
     summary.textContent = "Custom fit";
     box.append(summary);

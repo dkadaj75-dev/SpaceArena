@@ -56,3 +56,22 @@ describe("QualityEditor", () => {
     );
   });
 });
+
+describe("QualityEditor accordions", () => {
+  it("opens every tier folded", () => {
+    const configs = [tier("low"), tier("med"), tier("high"), tier("ultra")];
+    const configService = {
+      getAll: vi.fn((type: string) => (type === "quality" ? configs : [])),
+      replace: vi.fn(() => ({ ok: true as const, errors: [] })),
+    } as unknown as ConfigService;
+    const panel = new QualityEditor({ configService } as unknown as EditorHost, vi.fn());
+
+    const sections = [...panel.element.children].filter((el): el is HTMLDetailsElement => el instanceof HTMLDetailsElement);
+    expect(sections).toHaveLength(4);
+    // Four tiers' worth of scene/effect/texture forms opened at once is a wall,
+    // not a panel: nothing may open itself before the designer picks a tier.
+    expect(sections.map((s) => s.open)).toEqual([false, false, false, false]);
+    // Folded still says which tier is which.
+    expect(sections[0]!.querySelector("summary")!.textContent).toContain("low");
+  });
+});

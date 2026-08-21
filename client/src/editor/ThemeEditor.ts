@@ -47,6 +47,12 @@ export class ThemeEditor implements EditorPanel {
   readonly element = document.createElement("div");
   private selectedId: string | null = null;
   private form: SchemaFormGen<ThemeConfig> | null = null;
+  /**
+   * Whether the `colors` accordion is open. SchemaFormGen rebuilds its whole
+   * field tree on every successful commit, so without this the list would slam
+   * shut the instant a designer changed one swatch.
+   */
+  private colorsOpen = false;
 
   constructor(
     private readonly host: EditorHost,
@@ -100,7 +106,7 @@ export class ThemeEditor implements EditorPanel {
       value: selected,
       configService: this.host.configService,
       onProblem: (p) => this.report(p ? `${selected.id} ${p.path}: ${p.message}` : null),
-      fields: { colors: (ctx) => colorsField(ctx) },
+      fields: { colors: (ctx) => colorsField(ctx, this.colorsOpen, (open) => { this.colorsOpen = open; }) },
     });
     this.element.append(this.form.element);
   }
@@ -133,14 +139,22 @@ export class ThemeEditor implements EditorPanel {
   }
 }
 
-/** Bespoke renderer for the `colors` record (see class doc). */
-function colorsField(ctx: FieldRenderContext): HTMLElement {
+/**
+ * Bespoke renderer for the `colors` record (see class doc).
+ *
+ * FOLDED on first render like every generated group: a shipped theme carries
+ * dozens of custom properties, and opening the lot pushed the rest of the theme
+ * (HUD scale, module cluster, haptics) off the bottom of the panel. `open`
+ * carries the designer's own toggle back across the rebuild each commit causes.
+ */
+function colorsField(ctx: FieldRenderContext, open: boolean, onToggle: (open: boolean) => void): HTMLElement {
   const record = (ctx.value ?? {}) as ColorRecord;
   const commit = (next: ColorRecord): void => ctx.change(ctx.path, next);
 
   const box = document.createElement("details");
   box.className = "ed-group ed-record";
-  box.open = true;
+  box.open = open;
+  box.addEventListener("toggle", () => onToggle(box.open));
   const summary = document.createElement("summary");
   summary.className = "ed-group-title";
   summary.textContent = `colors (${Object.keys(record).length})`;

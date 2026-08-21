@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { themeSchema, type ConfigService, type ThemeConfig } from "@space-arena/shared";
-import { normalizeColorKey, nextThemeId, removeColor, setColor } from "./ThemeEditor.js";
+import { normalizeColorKey, nextThemeId, removeColor, setColor, ThemeEditor } from "./ThemeEditor.js";
+import type { EditorHost } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 
 describe("ThemeEditor helpers", () => {
@@ -91,5 +92,47 @@ describe("Theme editor generated combat fields", () => {
     expect(form.element.querySelector('[name="hud.flight.fire.anchor"]')).not.toBeNull();
     expect(form.element.querySelector('[name="hud.flight.fire.radiusPx"]')).not.toBeNull();
     expect(form.element.querySelector('[name="audio.cues.fireBlocked"]')).not.toBeNull();
+  });
+});
+
+describe("ThemeEditor colors accordion", () => {
+  function themeHost(themes: ThemeConfig[]): EditorHost {
+    const configService = {
+      getAll: vi.fn((type: string) => (type === "theme" ? themes : [])),
+      replace: vi.fn((config: ThemeConfig) => {
+        const index = themes.findIndex((t) => t.id === config.id);
+        if (index >= 0) themes[index] = config;
+        return { ok: true as const, errors: [] };
+      }),
+    } as unknown as ConfigService;
+    return { configService } as unknown as EditorHost;
+  }
+
+  const theme = (): ThemeConfig =>
+    themeSchema.parse({
+      id: "theme.default",
+      type: "theme",
+      version: 1,
+      colors: { "--hud-primary": "#57d8ff", "--hud-warn": "#ffaa33" },
+    });
+
+  it("opens folded, and stays open across the rebuild a swatch edit causes", () => {
+    const panel = new ThemeEditor(themeHost([theme()]), vi.fn());
+
+    const box = panel.element.querySelector<HTMLDetailsElement>("details.ed-record")!;
+    // A shipped theme carries dozens of custom properties; opening the lot
+    // pushed the rest of the theme off the bottom of the panel.
+    expect(box.open).toBe(false);
+    // Folded still says how many there are.
+    expect(box.querySelector("summary")!.textContent).toBe("colors (2)");
+
+    box.open = true;
+    box.dispatchEvent(new Event("toggle"));
+    const hex = panel.element.querySelector<HTMLInputElement>('[name="colors.--hud-primary"]')!;
+    hex.value = "#112233";
+    hex.dispatchEvent(new Event("change"));
+
+    expect(panel.element.querySelector<HTMLDetailsElement>("details.ed-record")!.open).toBe(true);
+    panel.dispose();
   });
 });

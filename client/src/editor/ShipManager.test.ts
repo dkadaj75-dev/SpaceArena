@@ -1,6 +1,8 @@
-import { Observable, type GizmoManager } from "@babylonjs/core";
+import { NullEngine, Observable, Scene, type GizmoManager } from "@babylonjs/core";
 import { describe, expect, it, vi } from "vitest";
-import { bindGizmoSocketCommit, roundMarkerValue } from "./ShipManager.js";
+import type { ConfigService, ModuleConfig, ShipConfig } from "@space-arena/shared";
+import type { EditorHost } from "./EditorShell.js";
+import { bindGizmoSocketCommit, roundMarkerValue, ShipManager } from "./ShipManager.js";
 
 /** Minimal stand-in for the three gizmos a GizmoManager exposes. */
 function fakeGizmo(): { onDragEndObservable: Observable<unknown> } {
@@ -53,5 +55,79 @@ describe("socket marker serialization", () => {
     expect(roundMarkerValue(-0.4000000059604645)).toBe(-0.4);
     expect(roundMarkerValue(0.8294861316680908)).toBe(0.8295);
     expect(roundMarkerValue(-1.3632718324661255)).toBe(-1.3633);
+  });
+});
+
+describe("ShipManager accordions", () => {
+  const module = {
+    id: "module.laser", type: "module", version: 1, name: "Laser", family: "laser", level: 1,
+    activation: { deployTime: 0, retractTime: 0 }, ui: { icon: "laser", label: "Laser" }, price: 0, requiresLevel: 1,
+  } satisfies ModuleConfig;
+  /** Shaped like a shipped hull (content/ships/*.json), trimmed to one socket. */
+  const ship = {
+    id: "ship.test", type: "ship", version: 1, name: "Test", class: "heavy",
+    core: {
+      hull: { base: 195, resists: { kinetic: 0.25, energy: 0.15 } },
+      engine: { nominalSpeed: 16, accel: 7, turnRate: 1 },
+      recharge: { multiplier: 1 }, energyStore: { multiplier: 1 },
+      power: { capacity: 14 }, efficiency: { energyDraw: 1 },
+      sensors: { lockRange: 125, lockTimeSec: 1.5, coneDeg: 120 },
+    },
+    upgradeTracks: { hull: "upgrade.hull-std", engine: "upgrade.engine-std", energy: "upgrade.energy-std" },
+    defaultFitting: ["module.laser"],
+    render: { recipe: "procedural.brawler", palette: { primary: "#b8542f", accent: "#ffb257" } },
+    collider: { shape: "circle", radius: 2.1 },
+    sockets: [{ id: "s0", kind: "hardpoint", transform: { pos: [0, 0, 1] }, accepts: ["laser"] }],
+  } as unknown as ShipConfig;
+
+  function panel(): { manager: ShipManager; scene: Scene; engine: NullEngine } {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const configService = {
+      get: (type: string, id: string) => (type === "ship" && id === ship.id ? ship : type === "module" && id === module.id ? module : undefined),
+      getAll: (type: string) => (type === "ship" ? [ship] : type === "module" ? [module] : []),
+      replace: vi.fn(() => ({ ok: true as const, errors: [] })),
+    } as unknown as ConfigService;
+    const host = {
+      scene, configService, bus: { on: () => () => {} },
+      suspendCameraGestures() {}, setArenaVisible() {}, setPropPickingForced() {}, setSpawnMarkersForced() {},
+      setGameVisible() {}, pauseSim() {}, resumeSim() {}, rebuildArena() {},
+    } as unknown as EditorHost;
+    return { manager: new ShipManager(host, vi.fn()), scene, engine };
+  }
+
+  it("opens every one of its eleven sections folded", () => {
+    const { manager, scene, engine } = panel();
+
+    const sections = [...manager.element.querySelectorAll<HTMLDetailsElement>("details")];
+    expect(sections.length).toBeGreaterThan(5);
+    // Model, emissive, camera, combat, skins, sockets, fitting, core stats…
+    // opening them all made every ship a wall with the edit buried mid-scroll.
+    expect(sections.filter((s) => s.open)).toEqual([]);
+    // Folded, the summary is the only thing naming the section — it must exist.
+    expect(sections.every((s) => (s.querySelector("summary")?.textContent ?? "").length > 0)).toBe(true);
+
+    manager.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("keeps a section the designer opened open across renderUi's rebuild", () => {
+    const { manager, scene, engine } = panel();
+    const titleOf = (d: HTMLDetailsElement): string => d.querySelector("summary")?.textContent ?? "";
+    const sockets = [...manager.element.querySelectorAll<HTMLDetailsElement>("details")].find((d) => titleOf(d) === "Sockets")!;
+
+    sockets.open = true;
+    sockets.dispatchEvent(new Event("toggle"));
+    // Selecting a socket rebuilds the whole panel.
+    (manager as unknown as { select(index: number): void }).select(0);
+
+    const rebuilt = [...manager.element.querySelectorAll<HTMLDetailsElement>("details")].find((d) => titleOf(d) === "Sockets")!;
+    expect(rebuilt).not.toBe(sockets);
+    expect(rebuilt.open).toBe(true);
+
+    manager.dispose();
+    scene.dispose();
+    engine.dispose();
   });
 });

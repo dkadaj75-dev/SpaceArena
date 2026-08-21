@@ -116,6 +116,13 @@ export class ShipManager implements EditorPanel {
   private selectedSocketBox: HTMLElement | null = null;
   /** Persistent, dismissable warnings (reorder DB-fitting remaps) — survive replace() success. */
   private readonly sticky = new StickyWarnings();
+  /**
+   * Remembered accordion opens, keyed by section title. renderUi() rebuilds
+   * this whole panel on every commit, so without the memory a section would
+   * slam shut under the cursor on each edit — and the panel opens folded, so
+   * that shut state would be the one it snapped back to.
+   */
+  private readonly folds = new Map<string, boolean>();
   /** Ship ids whose GLB hull load has been kicked — one background load per ship, no retry loop on failure. */
   private readonly hullLoadKicked = new Set<string>();
   /** A candidate ship replace() rejected for fitting incompatibility, awaiting a one-click fix. */
@@ -187,6 +194,23 @@ export class ShipManager implements EditorPanel {
   }
 
   // ---------------------------------------------------------------- UI ----
+
+  /**
+   * One collapsible section, FOLDED on first render. This panel stacks eleven
+   * of them (model, emissive, camera, combat, skins, sockets, fitting, core
+   * stats…); opening them all made every ship a wall of controls with the one
+   * being edited buried somewhere in the middle. {@link folds} keeps whatever
+   * the designer opened alive across renderUi()'s full rebuild.
+   */
+  private section(title: string): HTMLElement {
+    const box = document.createElement("details");
+    box.open = this.folds.get(title) ?? false;
+    box.addEventListener("toggle", () => this.folds.set(title, box.open));
+    const summary = document.createElement("summary");
+    summary.textContent = title;
+    box.append(summary);
+    return box;
+  }
 
   private renderUi(): void {
     this.element.replaceChildren();
@@ -301,7 +325,7 @@ export class ShipManager implements EditorPanel {
    * Empty path reverts to the procedural recipe.
    */
   private modelSection(ship: ShipConfig): HTMLElement {
-    const box = section("Ship model (GLB)");
+    const box = this.section("Ship model (GLB)");
 
     const pathInput = document.createElement("input");
     pathInput.type = "text";
@@ -411,7 +435,7 @@ export class ShipManager implements EditorPanel {
    * dropped.
    */
   private skinLogicSection(ship: ShipConfig): HTMLElement {
-    const box = section("Skins logic");
+    const box = this.section("Skins logic");
     const materials = this.assets.materialSlotNames(ship.render);
     const sockets = emittersOf(ship).map((socket) => socket.id);
 
@@ -484,7 +508,7 @@ export class ShipManager implements EditorPanel {
    * re-wires the already-loaded master so the preview updates immediately.
    */
   private emissiveSection(ship: ShipConfig): HTMLElement {
-    const box = section("Emissive light");
+    const box = this.section("Emissive light");
 
     const materialSelect = document.createElement("select");
     const signalSelect = document.createElement("select");
@@ -547,7 +571,7 @@ export class ShipManager implements EditorPanel {
    * emits, so a live match reframes as the slider moves.
    */
   private pursuitCameraSection(ship: ShipConfig): HTMLElement {
-    const box = section("Pursuit camera");
+    const box = this.section("Pursuit camera");
 
     const slider = document.createElement("input");
     slider.type = "range";
@@ -604,7 +628,7 @@ export class ShipManager implements EditorPanel {
    * `config:changed`, and reaches a flying ship on its next spawn.
    */
   private combatProfileSection(ship: ShipConfig): HTMLElement {
-    const box = section("Combat role profile");
+    const box = this.section("Combat role profile");
     const combat = ship.core.combat;
 
     const knob = (
@@ -699,7 +723,7 @@ export class ShipManager implements EditorPanel {
 
   /** Socket list with add / per-row select + duplicate/delete. */
   private socketListSection(ship: ShipConfig): HTMLElement {
-    const box = section("Sockets");
+    const box = this.section("Sockets");
     const effects = this.host.configService.getAll<EffectConfig>("effect");
     const addHp = button("+ Hardpoint", () => this.replace(addSocket(ship, "hardpoint")));
     const addEmit = button("+ Emitter", () => {
@@ -730,7 +754,7 @@ export class ShipManager implements EditorPanel {
 
   /** Editor for the currently selected socket. */
   private selectedSocketSection(ship: ShipConfig): HTMLElement {
-    const box = section("Selected socket");
+    const box = this.section("Selected socket");
     this.selectedSocketBox = box;
     if (this.selectedIndex === null || !ship.sockets[this.selectedIndex]) {
       box.append(text("Click a marker in the 3D view (or a socket above) to select."));
@@ -890,7 +914,7 @@ export class ShipManager implements EditorPanel {
 
     const params = effect?.params ?? [];
     // bindings editor
-    const list = section("bindings");
+    const list = this.section("Bindings");
     socket.bindings.forEach((binding, bIndex) => {
       const brow = document.createElement("div");
       brow.className = "ed-row ed-subrow";
@@ -941,7 +965,7 @@ export class ShipManager implements EditorPanel {
 
   /** Default-fitting editor: one module dropdown per hardpoint, filtered by `accepts`. */
   private defaultFittingSection(ship: ShipConfig): HTMLElement {
-    const box = section("Default fitting");
+    const box = this.section("Default fitting");
     box.append(warn("One module per hardpoint (filtered by accepts). '(none)' is honoured only for trailing hardpoints; a gap before a filled slot is filled with the first accepted module."));
     const hardpoints = hardpointsOf(ship);
     const modules = this.host.configService.getAll<ModuleConfig>("module");
@@ -981,7 +1005,7 @@ export class ShipManager implements EditorPanel {
 
   /** Signal simulator: 0..1 slider per signal + a simulate toggle driving editor-owned particles. */
   private signalSimulatorSection(ship: ShipConfig): HTMLElement {
-    const box = section("Signal simulator");
+    const box = this.section("Signal simulator");
     const toggle = document.createElement("input");
     toggle.type = "checkbox";
     toggle.checked = this.simOn;
@@ -1011,7 +1035,7 @@ export class ShipManager implements EditorPanel {
 
   /** Core-stats form via SchemaFormGen over the full ship (sockets + fitting hidden — edited above). */
   private coreStatsSection(ship: ShipConfig): HTMLElement {
-    const box = section("Core stats & metadata");
+    const box = this.section("Core stats & metadata");
     const form = new SchemaFormGen({
       schema: shipSchema,
       value: ship,
@@ -1430,14 +1454,6 @@ function field(label: string, control: Node): HTMLElement {
   span.textContent = label;
   wrap.append(span, control);
   return wrap;
-}
-function section(title: string): HTMLElement {
-  const box = document.createElement("details");
-  box.open = true;
-  const summary = document.createElement("summary");
-  summary.textContent = title;
-  box.append(summary);
-  return box;
 }
 function dot(kind: SocketKind | string): string {
   return kind === "hardpoint" ? "◆" : kind === "emitter" ? "✦" : "◇";

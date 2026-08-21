@@ -152,3 +152,67 @@ describe("BotProfileEditor panel", () => {
     expect(clone.behaviors as BehaviorRecord).toEqual(profiles[0]!.behaviors);
   });
 });
+
+describe("BotProfileEditor accordions and vector fields", () => {
+  it("opens the behaviours list and every behaviour folded", () => {
+    const { host } = fakeHost([profile()]);
+    const panel = new BotProfileEditor(host, vi.fn());
+
+    const list = panel.element.querySelector<HTMLDetailsElement>("details.ed-record")!;
+    expect(list.open).toBe(false);
+    // Folded still names the behaviours it holds.
+    expect(list.querySelector("summary")!.textContent).toBe("behaviors (2)");
+
+    const sections = [...panel.element.querySelectorAll<HTMLDetailsElement>("details.ed-behavior")];
+    expect(sections).toHaveLength(2);
+    expect(sections.map((s) => s.open)).toEqual([false, false]);
+    // …and each summary carries its weight, so a shut row still says what it does.
+    expect(sections[0]!.querySelector("summary")!.textContent).toContain("weight");
+
+    panel.dispose();
+  });
+
+  it("keeps a behaviour the designer opened open across the rebuild a commit causes", () => {
+    const { host } = fakeHost([profile()]);
+    const panel = new BotProfileEditor(host, vi.fn());
+
+    const engage = panel.element.querySelector<HTMLDetailsElement>('details[data-behavior="engage"]')!;
+    engage.open = true;
+    engage.dispatchEvent(new Event("toggle"));
+
+    const weight = panel.element.querySelector<HTMLInputElement>('input[name="behaviors.engage.baseWeight"]')!;
+    weight.value = "2";
+    weight.dispatchEvent(new Event("change"));
+
+    const rebuilt = panel.element.querySelector<HTMLDetailsElement>('details[data-behavior="engage"]')!;
+    expect(rebuilt).not.toBe(engage);
+    expect(rebuilt.open).toBe(true);
+    // The one it did not touch stays shut.
+    expect(panel.element.querySelector<HTMLDetailsElement>('details[data-behavior="kite"]')!.open).toBe(false);
+
+    panel.dispose();
+  });
+
+  /**
+   * `preferredRange` is a `z.tuple` the bot sim reads directly
+   * (`bots/context.ts`, `BotDriver.missileScanRadius`). Before SchemaFormGen
+   * grew tuple support it rendered as untyped text rows, so the engagement
+   * envelope of every bot was un-authorable.
+   */
+  it("edits preferredRange as two number boxes the sim can read back", () => {
+    const profiles = [profile()];
+    const { host, replace } = fakeHost(profiles);
+    const panel = new BotProfileEditor(host, vi.fn());
+
+    const min = panel.element.querySelector<HTMLInputElement>('[name="preferredRange.0"]')!;
+    const max = panel.element.querySelector<HTMLInputElement>('[name="preferredRange.1"]')!;
+    expect([min.type, max.type]).toEqual(["number", "number"]);
+    expect([min.value, max.value]).toEqual(["20", "35"]);
+
+    max.value = "50";
+    max.dispatchEvent(new Event("change"));
+    expect(replace).toHaveBeenCalledWith(expect.objectContaining({ preferredRange: [20, 50] }));
+
+    panel.dispose();
+  });
+});

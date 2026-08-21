@@ -45,7 +45,11 @@ export class QualityEditor implements EditorPanel {
       this.forms.push(form);
 
       const section = document.createElement("details");
-      section.open = true;
+      // Folded: a pack ships one config per tier, and every tier opened at once
+      // made this panel four full scene/effect/texture forms deep before the
+      // designer had picked which tier they came to change. The <details> is
+      // built once and never replaced, so it remembers its own open state.
+      section.open = false;
       const summary = document.createElement("summary");
       summary.textContent = `${config.name ?? config.id} (${config.tier})`;
       const save = document.createElement("button");
