@@ -647,6 +647,99 @@ describe("SceneBuilder sun key light", () => {
   });
 });
 
+/**
+ * The sky is BACKGROUND. The panorama and the drawn star hold a FIXED offset
+ * from the viewer, so neither parallaxes nor changes apparent size wherever in
+ * the bubble a ship flies.
+ *
+ * Babylon's own `mesh.infiniteDistance` cannot deliver that here: it only
+ * translates UNPARENTED nodes, and every sky node hangs off `arenaRoot` so a
+ * rebuild disposes it with the arena. Left to the flag alone the star sat at a
+ * fixed WORLD point — on Parker Point (bubble radius 126, star parked at 220)
+ * that swelled the disc past 2x on the approach, which is the bug this covers.
+ */
+describe("SceneBuilder camera-pinned sky", () => {
+  const STAR = {
+    dir: [1, 0, 0],
+    apparentSize: 2.66,
+    core: "#fff4d2",
+    shell: "#ff8a1e",
+    corona: "#ff9433",
+    speed: 1,
+  } as const;
+  const STAR_ARENA = {
+    ...ARENA,
+    render: { ...ARENA.render, star: STAR },
+  } satisfies Record<string, unknown>;
+
+  let engine: NullEngine;
+  let scene: Scene;
+  let camera: FreeCamera;
+  let configs: ConfigService;
+  let bus: EventBus<ConfigEvents>;
+  let builder: SceneBuilder;
+
+  beforeEach(() => {
+    engine = new NullEngine();
+    scene = new Scene(engine);
+    camera = new FreeCamera("camera", Vector3.Zero(), scene);
+    scene.activeCamera = camera;
+    bus = new EventBus<ConfigEvents>();
+    configs = new ConfigService(async () => ({}), bus);
+    expect(configs.replace(BOUNDARY_NOTIFICATION).ok).toBe(true);
+    expect(configs.replace(STAR_ARENA).ok).toBe(true);
+    builder = new SceneBuilder(scene, configs, bus, quality());
+    builder.buildArena("arena.test");
+  });
+
+  afterEach(() => {
+    builder.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  /** Where a sky mesh sits relative to the viewer after a frame at `at`. */
+  function offsetFromCamera(name: string, at: Vector3): Vector3 {
+    camera.position.copyFrom(at);
+    scene.render();
+    return scene.getMeshByName(name)!.getAbsolutePosition().subtract(camera.globalPosition);
+  }
+
+  it("holds the star at one offset from the viewer, wherever the ship flies", () => {
+    const star = scene.getMeshByName("arena.arena.test.star");
+    expect(star).not.toBeNull();
+
+    // Parked along `dir`, at the authored parking distance.
+    const origin = offsetFromCamera(star!.name, Vector3.Zero());
+    expect(origin.length()).toBeCloseTo(220, 3);
+    expect(origin.x).toBeCloseTo(220, 3);
+
+    // Straight AT the star, most of the way across the bubble: without the pin
+    // the gap would close to ~100 and the disc would more than double.
+    const approaching = offsetFromCamera(star!.name, new Vector3(120, 0, 0));
+    expect(approaching.x).toBeCloseTo(origin.x, 3);
+    expect(approaching.length()).toBeCloseTo(220, 3);
+
+    // And off-axis, where a world-fixed billboard would also slide across the sky.
+    const offAxis = offsetFromCamera(star!.name, new Vector3(-80, 40, 110));
+    expect(offAxis.subtract(origin).length()).toBeCloseTo(0, 3);
+  });
+
+  it("keeps the panorama centred on the viewer", () => {
+    expect(offsetFromCamera("skybox", new Vector3(90, -25, 60)).length()).toBeCloseTo(0, 3);
+  });
+
+  it("drops the pin with the arena, so a disposed star is never written to", () => {
+    const star = scene.getMeshByName("arena.arena.test.star")!;
+    builder.setVisible(true);
+    scene.render();
+    builder.dispose();
+    expect(star.isDisposed()).toBe(true);
+    // A live observer here would write through a disposed mesh on the next frame.
+    expect(() => scene.render()).not.toThrow();
+  });
+});
+
 describe("SceneBuilder spawn markers + editor override", () => {
   let engine: NullEngine;
   let scene: Scene;

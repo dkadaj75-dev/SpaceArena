@@ -157,6 +157,15 @@ export class SceneBuilder {
   private skybox: Mesh | null = null;
   /** Removes the authored star's per-frame animation hook; null when it has none. */
   private starObserver: (() => void) | null = null;
+  /**
+   * Sky nodes the viewer can never approach, with the fixed OFFSET each one
+   * keeps from the camera. See {@link pinToCamera}.
+   */
+  private readonly cameraPinned: Array<{ mesh: Mesh; offset: Vector3 }> = [];
+  /** Removes the camera-pin hook; null while nothing is pinned. */
+  private cameraPinRelease: (() => void) | null = null;
+  /** Scratch for the pin hook, so a per-frame observer allocates nothing. */
+  private readonly cameraPinTarget = new Vector3();
   private unsubscribers: Array<() => void> = [];
   private generation = 0;
   private quality: SceneQuality;
@@ -418,6 +427,54 @@ export class SceneBuilder {
   }
 
   /**
+   * Hold a sky node at a FIXED offset from the viewer, so it neither parallaxes
+   * nor changes apparent size however far a ship flies — which is what a body
+   * millions of kilometres away does, and exactly what `mesh.infiniteDistance`
+   * is for.
+   *
+   * Babylon only honours that flag on an **unparented** node. From
+   * `Meshes/transformNode.ts`:
+   *
+   * ```js
+   * if (this._infiniteDistance) {
+   *   if (!this.parent && camera) { translation = position + cameraGlobalPosition; }
+   * }
+   * ```
+   *
+   * With a parent it takes neither branch and the node simply keeps its local
+   * translation. Every sky node here hangs off `arenaRoot` so one
+   * `disposeRecursive` takes it down with the arena — which silently turned the
+   * panorama and the star back into fixed WORLD points. Parker Point makes that
+   * unmissable: its bubble has radius 126 and its sun is parked at distance
+   * 220, so flying at the star shrank the gap to ~94 and swelled the disc by
+   * more than 2x (owner 2026-08-21, "the sun changes size depending on the
+   * ship's steering"). The star is meant to be BACKGROUND — one apparent size,
+   * everywhere in the arena.
+   *
+   * The flag stays set: {@link freezeStatics} reads it to keep these world
+   * matrices live, and Babylon's `_isSynchronized` reads it to recompute them
+   * every frame. This supplies the translation it declines to perform, through
+   * `setAbsolutePosition` so `arenaRoot` still owns the hierarchy.
+   *
+   * The hook is `onBeforeCameraRender`, not `onBeforeRender`: it fires after
+   * `updateTransformMatrix()` — so `camera.globalPosition` is THIS frame's, not
+   * last frame's — and before `_evaluateActiveMeshes()`, so the position it
+   * writes reaches the draw it was computed for.
+   */
+  private pinToCamera(mesh: Mesh, offset: Vector3): void {
+    this.cameraPinned.push({ mesh, offset: offset.clone() });
+    if (this.cameraPinRelease) return;
+    const observer = this.scene.onBeforeCameraRenderObservable.add((camera) => {
+      for (const pinned of this.cameraPinned) {
+        if (pinned.mesh.isDisposed()) continue;
+        this.cameraPinTarget.copyFrom(camera.globalPosition).addInPlace(pinned.offset);
+        pinned.mesh.setAbsolutePosition(this.cameraPinTarget);
+      }
+    });
+    this.cameraPinRelease = () => this.scene.onBeforeCameraRenderObservable.remove(observer);
+  }
+
+  /**
    * The arena's near STAR (`arena.render.star`) — the main menu's sun, drawn as
    * real geometry in the play space (owner request 2026-08-21, "Parker Point":
    * a sky whose feature is the star rather than a gas giant).
@@ -447,6 +504,10 @@ export class SceneBuilder {
       shell: colorFromHex(authored.shell, Color3.FromHexString("#ff8a1e")),
       corona: colorFromHex(authored.corona, Color3.FromHexString("#ff9433")),
     });
+    // `createStarBillboard` asked for `infiniteDistance`, and it is parented, so
+    // Babylon will not act on it — see {@link pinToCamera}. `mesh.position` is
+    // the offset it wants to hold from the viewer.
+    this.pinToCamera(mesh, mesh.position);
     // A tone-mapped emissive body: the bloom layer would double-count it and
     // wash the whole sky, exactly as it does for the panorama.
     this.glowLayer?.addExcludedMesh(mesh);
@@ -553,6 +614,9 @@ export class SceneBuilder {
       skybox.infiniteDistance = true;
       skybox.isPickable = false;
       skybox.parent = root;
+      // Centred on the viewer, for the same reason and by the same route as the
+      // star — parented, so the flag above is inert on its own.
+      this.pinToCamera(skybox, Vector3.Zero());
       this.skybox = skybox;
       this.glowLayer?.addExcludedMesh(skybox);
     }
@@ -1158,6 +1222,11 @@ export class SceneBuilder {
     // so it would outlive its material and write to a disposed effect.
     this.starObserver?.();
     this.starObserver = null;
+    // Same reason: the pin hook lives on the SCENE and would keep writing to
+    // meshes the root is about to dispose.
+    this.cameraPinRelease?.();
+    this.cameraPinRelease = null;
+    this.cameraPinned.length = 0;
     if (this.root) {
       disposeRecursive(this.root);
       this.root = null;

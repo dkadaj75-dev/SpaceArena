@@ -937,11 +937,12 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     configService,
     authService,
     tacticalCamera,
-    () => {
-      hangar.hide();
-      music.setScreen("menu");
-      lobby.show();
-    },
+    // Leaving the hangar is a return to the MAIN MENU, and the menu's backdrop
+    // was disposed on the way in (`lobby.hide()` -> `setMenuDiorama(false)`), so
+    // it faces exactly the pop-in that `returnToLobby` exists to hide — the
+    // galaxy, the sun and the hull arriving one by one over an empty scene.
+    // Same launch-screen curtain as leaving a match (owner 2026-08-21).
+    () => returnToLobby(() => hangar.hide()),
     quality.current.particles,
     ownership,
     preloadAssets,

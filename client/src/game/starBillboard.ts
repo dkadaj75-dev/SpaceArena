@@ -164,8 +164,14 @@ export interface StarBillboardOptions {
    * Pin the billboard to the CAMERA, like the skybox, so it neither parallaxes
    * nor changes apparent size as the viewer moves — which is what a body
    * millions of km away does. An arena wants this (a ship crossing a 126-unit
-   * bubble would otherwise watch the sun swell by 60% on the approach); the
+   * bubble would otherwise watch the sun swell past 2x on the approach); the
    * menu diorama, whose camera does not travel, deliberately does not.
+   *
+   * CAVEAT: Babylon applies `mesh.infiniteDistance` only to an UNPARENTED node
+   * (`Meshes/transformNode.ts` guards the camera-relative translation with
+   * `!this.parent`). Pass a `parent` with this and the flag is inert on its own
+   * — the caller has to hold the mesh at `position` relative to the camera
+   * itself, as `SceneBuilder.pinToCamera` does.
    */
   infiniteDistance?: boolean;
 }
