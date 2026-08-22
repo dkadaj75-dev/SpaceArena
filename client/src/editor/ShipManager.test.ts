@@ -112,6 +112,27 @@ describe("ShipManager accordions", () => {
     engine.dispose();
   });
 
+  it("offers every module family as an accepts checkbox, new ones included", () => {
+    // The socket editor's family list is `moduleFamily.options`, so the two
+    // support families (2026-08-22) became authorable the moment the enum grew.
+    // Pinned because the alternative — a hand-written list here — is exactly the
+    // thing that silently stops matching the schema.
+    const { manager, scene, engine } = panel();
+    // The accepts list lives on the SELECTED socket, so select the hull's one
+    // hardpoint first (the same click a designer makes in the socket list).
+    const pick = [...manager.element.querySelectorAll<HTMLButtonElement>("button.ed-list-btn")]
+      .find((b) => (b.textContent ?? "").includes("s0"))!;
+    pick.click();
+    const labels = [...manager.element.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      .map((b) => b.parentElement?.textContent?.trim());
+    expect(labels).toContain("disruptor");
+    expect(labels).toContain("repair");
+
+    manager.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
   it("shows the emissive light map gap rather than letting a hull ship without one", () => {
     // Owner 2026-08-22: every ship is meant to have an emissive light texture.
     // Nothing enforces it (the owner paints the images over time), so this row

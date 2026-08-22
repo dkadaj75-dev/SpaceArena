@@ -76,6 +76,33 @@ loaded, and the first symptom is a gamemode falling back to a different arena.
 > `shared/src/sim/balanceRegression.test.ts` currently sit under the design
 > floor and are recorded there as explicit debt.
 
+> **Hardpoint pass (2026-08-22) — supersedes the socket counts in the
+> 2026-08-04 note.** Hardpoints are scarce and uniform now: the Interceptor and
+> the Talon carry **two** (a symmetric wing pair), the Support **three** (nose
+> plus a wing pair), the Brawler **three** (a nose pair plus the spine). Each
+> hull's sockets are ordered hardpoints-first, then the systems bay, so a
+> fitted-slot index reads the way the HUD numbers it — and every previously
+> saved fitting therefore addresses different slots, which both stores now
+> degrade rather than reject (`pruneStaleFitting` server-side, `sanitizeFitting`
+> client-side).
+>
+> Every hardpoint accepts exactly the same six families: `laser`, `kinetic`,
+> `missile`, `shield`, and the two new support families below. The PASSIVE stat
+> modules (`utility` — armour plating, capacitor battery, flux capacitor) are
+> off every hardpoint and are fitted through the `in-auxiliary` internal bay
+> instead; the two light hulls have no auxiliary bay and so cannot fit them at
+> all. No shipped module is `family: "boost"` — boost has ridden the engine
+> internal since 2026-07-31 — so no hardpoint lists that family either.
+>
+> **Two new modules, both cooldown-gated pulses fired through the ordinary
+> `moduleToggle`:** `module.ray-slow-mk1` (`disruptor` family, `slow` block)
+> takes a fraction off the LOCKED target's top speed for a few seconds — a
+> re-application refreshes the timer and takes the stronger factor, it never
+> multiplies — and `module.field-repair-mk1` (`repair` family, `repairField`
+> block) restores flat hull to every ally in a radius, the caster included,
+> never past max hull. Neither authors an `energy` block: a pulse is limited by
+> its own cooldown, exactly as a weapon is limited by its cycle time.
+
 A **bundle** is that pack serialized as one JSON document. It is the unit that
 travels between machines:
 
