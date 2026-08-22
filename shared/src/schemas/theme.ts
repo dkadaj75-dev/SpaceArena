@@ -46,6 +46,9 @@ export const hudModulesSchema = z.object({
       kinetic: z.string().optional(),
       missile: z.string().optional(),
       shield: z.string().optional(),
+      /** Support families (2026-08-22): the slowing ray and the repair field. */
+      disruptor: z.string().optional(),
+      repair: z.string().optional(),
       boost: z.string().optional(),
       utility: z.string().optional(),
       engine: z.string().optional(),
@@ -979,6 +982,13 @@ export const designTokensSchema = z.object({
     .object({
       blue500: z.string().optional(),
       red500: z.string().optional(),
+      /**
+       * The one HELPFUL colour (2026-08-22). Blue is "a system of yours is
+       * doing something" and red is "ordnance"; a repair field is neither, and
+       * the heal numbers it floats have to be readable as good news next to the
+       * red damage numbers. Absent keeps the built-in green.
+       */
+      green500: z.string().optional(),
       white: z.string().optional(),
       n900: z.string().optional(),
       n800: z.string().optional(),

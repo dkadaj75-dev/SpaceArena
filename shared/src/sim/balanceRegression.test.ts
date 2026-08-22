@@ -106,6 +106,14 @@ const fittingOf = (shipId: string): readonly string[] => configs.get<ShipConfig>
 
 const isWeapon = (moduleId: string): boolean => Boolean(configs.get<ModuleConfig>("module", moduleId)?.fire);
 
+/** The fitted-slot index of a spawned ship's shield module (throws if it has none). */
+function shieldSlotOf(sim: ArenaSimulation, entityId: EntityId): number {
+  for (const m of sim.world.modules.get(entityId)!.modules) {
+    if (configs.get<ModuleConfig>("module", m.moduleId)?.mitigation) return m.hardpointIndex;
+  }
+  throw new Error(`ship ${entityId} carries no shield module`);
+}
+
 function round(v: number): number {
   return Math.round(v * 1000) / 1000;
 }
@@ -670,7 +678,11 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
       for (const m of sim.world.modules.get(attacker)!.modules) {
         if (isWeapon(m.moduleId)) m.state = "active";
       }
-      if (raiseShield) sim.applyOrder(defender, { kind: "moduleToggle", hardpointIndex: 3 });
+      // Find the shield rather than hardcoding its slot: which hardpoint a hull
+      // carries its bubble on is content, and the 2026-08-22 pass moved it (the
+      // heavy's shield is on the spine now). A pinned 3 silently toggled the
+      // engine bay instead and this test measured nothing.
+      if (raiseShield) sim.applyOrder(defender, { kind: "moduleToggle", hardpointIndex: shieldSlotOf(sim, defender) });
       warmUpLock(sim, attacker);
       sim.applyOrder(attacker, { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true });
       for (let tick = 1; tick <= 120 * TPS; tick++) {

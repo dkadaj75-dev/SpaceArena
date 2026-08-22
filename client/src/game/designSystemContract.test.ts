@@ -13,13 +13,16 @@ describe("arena design-system token surface", () => {
   it("maps the complete board palette, type scale, lines, and radii", () => {
     const vars = designTokenCssVars(undefined);
     expect(vars).toMatchObject({
-      "--sa-blue-500": "#3B82F6", "--sa-red-500": "#EF4444", "--sa-white": "#E6F0FF",
+      "--sa-blue-500": "#3B82F6", "--sa-red-500": "#EF4444",
+      // The one HELPFUL colour (2026-08-22) — the repair field's family colour
+      // and the hue its heal numbers float in.
+      "--sa-green-500": "#34D399", "--sa-white": "#E6F0FF",
       "--sa-n-900": "#05080D", "--sa-n-800": "#0B1118", "--sa-n-700": "#151E2A",
       "--sa-n-600": "#1E2937", "--sa-n-500": "#334155", "--sa-n-400": "#475569",
       "--sa-line-hairline": "1px", "--sa-line-thin": "2px", "--sa-line-medium": "3px", "--sa-line-strong": "4px",
       "--sa-radius-small": "4px", "--sa-radius-medium": "8px", "--sa-radius-large": "16px",
     });
-    expect(Object.keys(vars)).toHaveLength(22);
+    expect(Object.keys(vars)).toHaveLength(23);
     expect(DEFAULT_DESIGN_TOKENS.h1).toContain("700 32px/40px 'Orbitron'");
     expect(DEFAULT_DESIGN_TOKENS.data).toContain("400 14px/20px 'Orbitron'");
   });

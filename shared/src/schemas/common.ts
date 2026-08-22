@@ -25,7 +25,21 @@ export const moduleFamily = z.enum([
   "kinetic",
   "missile",
   "shield",
+  // --- Support hardpoint families (owner 2026-08-22): the two ways a hardpoint
+  // can act on a ship OTHER than by shooting it or by soaking a hit. Both are
+  // cooldown-gated pulses rather than held tools (see `slow` / `repairField` in
+  // module.ts), and they are separate families rather than one "support" family
+  // because a hull decides per socket which of the two it will carry, and the
+  // HUD colours and glyphs them differently. ---
+  "disruptor",
+  "repair",
   "boost",
+  // `utility` is the PASSIVE stat block (armour plating, capacitor battery, flux
+  // capacitor). Since 2026-08-22 no hardpoint accepts it — the owner's rule for
+  // the new hardpoint layout is "a weapon or a shield, nothing dead weight" — so
+  // it is fitted through a hull's `in-auxiliary` internal bay instead. It is
+  // still not an INTERNAL family: it has no always-on systems behaviour, it just
+  // sits there changing the resolved stats.
   "utility",
   // --- Internal families (owner 2026-07-31): the ship's systems bay. One
   // socket each on every hull; they are always on and shape the hull's stats

@@ -44,6 +44,13 @@ function playerFittingOf(session: GameSession): (string | null)[] {
   return Array.from({ length: Math.max(count, byIndex.size) }, (_, i) => byIndex.get(i) ?? null);
 }
 
+/** The same, in the HEAVY's slot order (it has more slots than the light). */
+function brawlerFittingOf(session: GameSession): (string | null)[] {
+  const ship = session.curSnapshot.ships.find((s) => s.id === session.playerId)!;
+  const byIndex = new Map(ship.modules.map((m) => [m.hardpointIndex, m.moduleId]));
+  return hardpointsOf(brawler).map((_, i) => byIndex.get(i) ?? null);
+}
+
 function practice(options: ConstructorParameters<typeof GameSession>[4]): GameSession {
   return new GameSession(configs, "arena.ring-nebula", "gamemode.practice-bots-1v1", 1, options);
 }
@@ -52,50 +59,53 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
   it("flies the hull and the working fitting the player left the Hangar with", () => {
     const session = practice({
       playerShipId: "ship.brawler",
-      // The original nine heavy slots retain their indices; expansion slots
-      // append after them. Hardpoint 2 is deliberately left empty.
+      // The heavy's slots since the 2026-08-22 hardpoint pass: three hardpoints
+      // first, then the systems bay. Hardpoint 2 (the spine) is deliberately
+      // left empty.
       playerFitting: [
         "module.laser-mk1",
         "module.kinetic-mk1",
         null,
-        "module.shield-mk1",
         "module.engine-sport",
         "module.generator-heavy",
         "module.transformer-cryo",
         "module.countermeasure-chaff",
         "module.sensors-longrange",
+        "module.utility-armor-plating",
       ],
     });
     const ship = session.curSnapshot.ships.find((s) => s.id === session.playerId)!;
     const fitted = ship.modules.map((m) => `${m.hardpointIndex}:${m.moduleId}`);
-    // Slot 8 remains the heavy sensor bay, so this is also the
-    // proof that the requested HULL was the one spawned.
-    expect(hardpointsOf(brawler)).toHaveLength(12);
+    // Slot 8 is the heavy's AUXILIARY bay — the one that takes a passive
+    // utility now that no hardpoint does — so this is also the proof that the
+    // requested HULL was the one spawned.
+    expect(hardpointsOf(brawler)).toHaveLength(9);
     expect(fitted).toEqual([
       "0:module.laser-mk1",
       "1:module.kinetic-mk1",
-      "3:module.shield-mk1",
-      "4:module.engine-sport",
-      "5:module.generator-heavy",
-      "6:module.transformer-cryo",
-      "7:module.countermeasure-chaff",
-      "8:module.sensors-longrange",
+      "3:module.engine-sport",
+      "4:module.generator-heavy",
+      "5:module.transformer-cryo",
+      "6:module.countermeasure-chaff",
+      "7:module.sensors-longrange",
+      "8:module.utility-armor-plating",
     ]);
   });
 
   it("falls back to the ship's default fitting when the Hangar has no opinion", () => {
     const session = practice({});
-    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting, null]);
+    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting]);
   });
 
   it("empties a slot whose module the hardpoint refuses rather than failing the match", () => {
-    // A shield on the nose hardpoint (laser/kinetic only) is not spawnable —
-    // spawnShipFromConfig throws on it — so it must be dropped, not passed on.
-    // Likewise a weapon dropped into the engine bay.
+    // A passive utility on a hardpoint is not spawnable since the 2026-08-22
+    // pass (a hardpoint takes a weapon, a shield or a support module and
+    // nothing else) — spawnShipFromConfig throws on it — so it must be
+    // dropped, not passed on. Likewise a weapon dropped into the engine bay.
     const session = practice({
       playerShipId: "ship.interceptor",
       playerFitting: [
-        "module.shield-mk1", // nose refuses a shield
+        "module.utility-armor-plating", // a hardpoint refuses dead weight
         "module.missile-mk1",
         "module.laser-mk1", // engine bay refuses a weapon
         "module.generator-compact",
@@ -112,7 +122,78 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
       "module.transformer-stock",
       "module.countermeasure-flare",
       "module.sensors-basic",
+    ]);
+  });
+
+  it("degrades a fitting saved against an OLDER socket layout instead of throwing", () => {
+    // A pre-2026-08-22 BRAWLER fitting, verbatim: six hardpoints and six
+    // internals in the old order, twelve slots for a hull that now has nine.
+    // The three cut hardpoints shift every internal three places early, so from
+    // slot 3 on nothing lands in a bay that accepts it — a shield in the engine
+    // bay, an engine in the generator bay. spawnShipFromConfig throws on either,
+    // so the whole point is that none of this reaches it.
+    const session = practice({
+      playerShipId: "ship.brawler",
+      playerFitting: [
+        "module.kinetic-mk1",
+        "module.laser-mk1",
+        "module.missile-mk1",
+        "module.shield-mk1", // was hp-core, now the engine bay
+        "module.engine-civ",
+        "module.generator-compact",
+        "module.transformer-stock",
+        "module.countermeasure-flare",
+        "module.sensors-basic",
+        "module.generator-compact",
+        "module.laser-mk2", // was hp-chin — a slot the hull no longer has
+        "module.utility-armor-plating", // was hp-utility — likewise
+      ],
+    });
+    // The three surviving hardpoints keep the guns that were already on them;
+    // everything the shift misaligned becomes an empty slot the pilot can
+    // re-fill in the Hangar, and the two slots past the end are simply gone.
+    const fitted = brawlerFittingOf(session);
+    expect(fitted).toHaveLength(9);
+    expect(fitted).toEqual([
+      "module.kinetic-mk1",
+      "module.laser-mk1",
+      "module.missile-mk1",
       null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("keeps a stale INTERCEPTOR fitting almost whole — the cut happened to be index-neutral", () => {
+    // Worth pinning rather than leaving to luck: the light hull lost its NOSE
+    // mount and moved its starboard wing up from the end of the socket list, so
+    // the two moves cancel and every systems-bay slot kept its index. A pilot
+    // with a saved light loadout loses exactly the module that was on the third
+    // hardpoint, and nothing else.
+    const session = practice({
+      playerShipId: "ship.interceptor",
+      playerFitting: [
+        "module.laser-mk1",
+        "module.missile-mk1",
+        "module.engine-civ",
+        "module.generator-compact",
+        "module.transformer-stock",
+        "module.countermeasure-flare",
+        "module.sensors-basic",
+        "module.utility-armor-plating", // the retired third hardpoint
+      ],
+    });
+    expect(playerFittingOf(session)).toEqual([
+      "module.laser-mk1",
+      "module.missile-mk1",
+      "module.engine-civ",
+      "module.generator-compact",
+      "module.transformer-stock",
+      "module.countermeasure-flare",
+      "module.sensors-basic",
     ]);
   });
 
@@ -122,12 +203,12 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
       playerFitting: ["module.ghost", null, null, null],
     });
     // Unknown hull ⇒ stock interceptor; an all-empty fit ⇒ its default fitting.
-    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting, null]);
+    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting]);
   });
 
   it("treats an all-empty fitting as 'no opinion' — a module-less ship is not playable", () => {
     const session = practice({ playerShipId: "ship.interceptor", playerFitting: [null, null, null, null] });
-    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting, null]);
+    expect(playerFittingOf(session)).toEqual([...interceptor.defaultFitting]);
   });
 });
 

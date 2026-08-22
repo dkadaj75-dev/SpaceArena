@@ -1,7 +1,7 @@
 {
   "id": "ship.support",
   "type": "ship",
-  "version": 4,
+  "version": 5,
   "name": "Support",
   "class": "medium",
   "core": {
@@ -59,7 +59,11 @@
       "kind": "hardpoint",
       "accepts": [
         "laser",
-        "kinetic"
+        "kinetic",
+        "missile",
+        "shield",
+        "disruptor",
+        "repair"
       ]
     },
     {
@@ -73,22 +77,31 @@
       },
       "kind": "hardpoint",
       "accepts": [
+        "laser",
+        "kinetic",
         "missile",
-        "kinetic"
+        "shield",
+        "disruptor",
+        "repair"
       ]
     },
     {
-      "id": "hp-core",
+      "id": "hp-support",
       "transform": {
         "pos": [
+          1.045,
           0,
-          0.266,
-          0.285
+          -0.19
         ]
       },
       "kind": "hardpoint",
       "accepts": [
-        "shield"
+        "laser",
+        "kinetic",
+        "missile",
+        "shield",
+        "disruptor",
+        "repair"
       ]
     },
     {
@@ -174,22 +187,8 @@
       "accepts": [
         "generator",
         "countermeasure",
-        "sensors"
-      ]
-    },
-    {
-      "id": "hp-support",
-      "transform": {
-        "pos": [
-          1.045,
-          0,
-          -0.19
-        ]
-      },
-      "kind": "hardpoint",
-      "accepts": [
-        "utility",
-        "shield"
+        "sensors",
+        "utility"
       ]
     },
     {

@@ -17,6 +17,12 @@ export const MODULE_FAMILY_COLOR_FALLBACKS: Readonly<Record<ModuleFamily, string
   laser: DEFAULT_DESIGN_TOKENS.red500,
   kinetic: DEFAULT_DESIGN_TOKENS.red500,
   utility: DEFAULT_DESIGN_TOKENS.white,
+  // The two support families (2026-08-22) read as NOT-a-gun at a glance: the
+  // slowing ray borrows the blue of the other things that act on a hull without
+  // damaging it, the repair field takes green, the one hue nothing else on the
+  // rail uses — a heal is the only button whose effect is good for you.
+  disruptor: DEFAULT_DESIGN_TOKENS.blue500,
+  repair: DEFAULT_DESIGN_TOKENS.green500,
   boost: DEFAULT_DESIGN_TOKENS.blue500,
   // Internals (2026-07-31). They get no HUD button, but the hangar colour-codes
   // slots from the same map, so every family needs an entry.

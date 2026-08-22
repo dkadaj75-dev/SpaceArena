@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { ShipConfig } from "@space-arena/shared";
+import type { ModuleFamily, ShipConfig } from "@space-arena/shared";
 import {
   buildHardpointMap,
   fittedModuleIdsOf,
   slotAccepts,
   slotsFromDefaultFitting,
   slotsFromHardpointMap,
+  slotsFromModuleIds,
   socketFor,
 } from "./hangarFitting.js";
 
@@ -73,6 +74,30 @@ describe("hangarFitting slot grid", () => {
     expect(slotAccepts(slots[0]!, "laser")).toBe(true);
     expect(slotAccepts(slots[0]!, "shield")).toBe(false);
     expect(slotAccepts(slots[1]!, "shield")).toBe(true);
+  });
+
+  it("drops stale entries from a stored positional fitting rather than showing an illegal fit", () => {
+    // The two shapes a fitting saved against an OLDER socket layout arrives in:
+    // an entry past the end, and an entry whose family this slot refuses
+    // because the indices shifted under it. Both must read as an empty slot —
+    // showing them would put the module in the Hangar and then throw at spawn.
+    const familyOf = (id: string): ModuleFamily | undefined =>
+      id === "module.shield-mk1" ? "shield" : id === "module.laser-mk1" ? "laser" : undefined;
+    const slots = slotsFromModuleIds(
+      ship,
+      ["module.shield-mk1", "module.laser-mk1", "module.laser-mk1"],
+      familyOf,
+    );
+    expect(slots).toHaveLength(2); // the third entry has no socket at all
+    expect(slots[0]!.moduleId).toBeNull(); // hp-nose refuses a shield
+    expect(slots[1]!.moduleId).toBeNull(); // hp-core refuses a laser
+  });
+
+  it("keeps a stored fitting whose entries still fit, and a module the pack no longer ships is dropped", () => {
+    const familyOf = (id: string): ModuleFamily | undefined => (id === "module.laser-mk1" ? "laser" : undefined);
+    const slots = slotsFromModuleIds(ship, ["module.laser-mk1", "module.deleted-mk9"], familyOf);
+    expect(slots[0]!.moduleId).toBe("module.laser-mk1");
+    expect(slots[1]!.moduleId).toBeNull();
   });
 
   it("looks up the hardpoint socket for a given index", () => {

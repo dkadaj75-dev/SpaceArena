@@ -1,7 +1,7 @@
 {
   "id": "ship.talon",
   "type": "ship",
-  "version": 4,
+  "version": 5,
   "name": "Talon",
   "class": "light",
   "core": {
@@ -53,21 +53,6 @@
   },
   "sockets": [
     {
-      "id": "hp-nose",
-      "transform": {
-        "pos": [
-          0,
-          0.0316,
-          1.6316
-        ]
-      },
-      "kind": "hardpoint",
-      "accepts": [
-        "laser",
-        "kinetic"
-      ]
-    },
-    {
       "id": "hp-wing-l",
       "transform": {
         "pos": [
@@ -78,9 +63,31 @@
       },
       "kind": "hardpoint",
       "accepts": [
-        "missile",
+        "laser",
         "kinetic",
-        "shield"
+        "missile",
+        "shield",
+        "disruptor",
+        "repair"
+      ]
+    },
+    {
+      "id": "hp-wing-r",
+      "transform": {
+        "pos": [
+          1,
+          -0.0526,
+          -0.9474
+        ]
+      },
+      "kind": "hardpoint",
+      "accepts": [
+        "laser",
+        "kinetic",
+        "missile",
+        "shield",
+        "disruptor",
+        "repair"
       ]
     },
     {
@@ -151,20 +158,6 @@
       "kind": "internal",
       "accepts": [
         "sensors"
-      ]
-    },
-    {
-      "id": "hp-wing-r",
-      "transform": {
-        "pos": [
-          1,
-          -0.0526,
-          -0.9474
-        ]
-      },
-      "kind": "hardpoint",
-      "accepts": [
-        "utility"
       ]
     },
     {

@@ -76,7 +76,11 @@ describe("ModuleEditor", () => {
 
     const family = panel.element.querySelector<HTMLSelectElement>('[name="family"]')!;
     expect(Array.from(family.options).map((option) => option.textContent)).toEqual([
-      "laser", "kinetic", "missile", "shield", "boost", "utility",
+      "laser", "kinetic", "missile", "shield",
+      // The support families (2026-08-22) — the slowing ray and the repair
+      // field, authorable here the moment the enum grew, with no editor code.
+      "disruptor", "repair",
+      "boost", "utility",
       // The internal bay's families (2026-07-31) — the form is generated from
       // the schema, so they appear here the moment the enum grows.
       "engine", "generator", "transformer", "countermeasure", "sensors",

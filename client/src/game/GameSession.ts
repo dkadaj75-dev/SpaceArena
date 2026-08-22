@@ -39,12 +39,37 @@ function resolvePlayerShipId(configs: ConfigService, requested: string | null | 
 }
 
 /**
- * The requested fitting, sanitised against `ship`'s sockets: an entry is kept
- * only where the hull HAS that hardpoint and the hardpoint accepts the module's
- * family. Anything else becomes an empty slot rather than a spawn-time throw —
- * a stale loadout in localStorage must never block a match. An entirely empty
- * (or absent) request falls back to the hull's `defaultFitting`, since a ship
- * with no modules at all is not a playable state.
+ * A positional fitting sanitised against `ship`'s sockets: an entry survives
+ * only where the hull HAS that slot and the slot accepts the module's family.
+ * Anything else becomes an empty slot rather than a spawn-time throw
+ * (`spawnShipFromConfig` treats both as programming errors and throws).
+ *
+ * Both stale shapes are real and both arrive from CONTENT, not from a bug: a
+ * loadout saved in localStorage against an older socket layout (the 2026-08-22
+ * hardpoint pass cut and re-ordered every hull's mounts), and an authored
+ * fitting in a tutorial or gamemode written against the hull as it was. Neither
+ * may cost the player a match, so both degrade to empty slots.
+ */
+export function sanitizeFitting(
+  configs: ConfigService,
+  ship: ShipConfig,
+  requested: readonly (string | null)[],
+): (string | null)[] {
+  const hardpoints = hardpointsOf(ship);
+  return requested.slice(0, hardpoints.length).map((moduleId, index) => {
+    if (!moduleId) return null;
+    const family = configs.get<ModuleConfig>("module", moduleId)?.family;
+    if (!family) return null;
+    return hardpoints[index]?.accepts.includes(family) ? moduleId : null;
+  });
+}
+
+/**
+ * The PLAYER's fitting: {@link sanitizeFitting} plus the one rule that only
+ * applies to the hull the pilot is flying — an entirely empty (or absent)
+ * request falls back to the hull's `defaultFitting`, since a ship with no
+ * modules at all is not a playable state. A scripted bot is allowed to be
+ * unarmed, so it does not go through this.
  */
 function resolvePlayerFitting(
   configs: ConfigService,
@@ -52,13 +77,7 @@ function resolvePlayerFitting(
   requested: readonly (string | null)[] | null | undefined,
 ): readonly (string | null)[] {
   if (!requested?.length) return ship.defaultFitting;
-  const hardpoints = hardpointsOf(ship);
-  const fitting = requested.slice(0, hardpoints.length).map((moduleId, index) => {
-    if (!moduleId) return null;
-    const family = configs.get<ModuleConfig>("module", moduleId)?.family;
-    if (!family) return null;
-    return hardpoints[index]?.accepts.includes(family) ? moduleId : null;
-  });
+  const fitting = sanitizeFitting(configs, ship, requested);
   if (fitting.every((m) => m === null)) return ship.defaultFitting;
   return fitting;
 }
@@ -390,7 +409,13 @@ export class GameSession {
     };
     // Nose to nose: heading is the player's, mirrored; pitch mirrored with it.
     mirrorAttitude(self?.heading ?? 0, self?.pitch ?? 0, scriptedAttitude);
-    const fitting = spawn.fitting ?? [];
+    // Sanitised, not raw: an authored tutorial/gamemode fitting is written
+    // against the hull as it was on the day it was authored, and a socket cut
+    // since then would otherwise throw out of `spawnShipFromConfig` in the
+    // middle of a tutorial step. An ABSENT fitting still means "no modules" —
+    // a scripted drone is allowed to be unarmed — so the fallback that
+    // `resolvePlayerFitting` applies to the pilot is deliberately not used here.
+    const fitting = spawn.fitting ? sanitizeFitting(this.configs, ship, spawn.fitting) : [];
     const team = spawn.team ?? 1;
     const id = this.sim.spawnPlayerAt(
       spawn.shipId,

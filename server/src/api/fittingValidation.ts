@@ -56,6 +56,55 @@ export function validateFitting(
 }
 
 /**
+ * Drop the entries of a STORED fitting that the ship's sockets no longer
+ * support: an index past the socket count, or a module whose family the socket
+ * at that index does not accept.
+ *
+ * This exists because a fitting outlives the hull it was saved against. Sockets
+ * are content — the 2026-08-22 hardpoint pass cut the Interceptor from three
+ * hardpoints to two and re-ordered every hull's slots — and every fitting saved
+ * before it now addresses a slot that moved or vanished. {@link validateFitting}
+ * rejects those, and rejecting is right for a fitting a client is asking to
+ * SAVE: that is a live edit, and a silent prune would be the API deciding what
+ * the player meant.
+ *
+ * A fitting being loaded to fly is the opposite case. Nobody is asking for
+ * anything, the mismatch is the pack's doing rather than the player's, and the
+ * only honest options are "fly it minus the slots that no longer exist" or
+ * "refuse to let them into the match". So the room prunes first and validates
+ * what is left (see `ArenaRoom.resolveFitting`) — ownership and level are still
+ * enforced on every surviving entry.
+ *
+ * Returns the pruned map plus the keys removed, so the caller can log the drop
+ * rather than silently flying a different loadout than the player saved.
+ */
+export function pruneStaleFitting(
+  configs: ConfigService,
+  shipId: string,
+  hardpointMap: HardpointMap,
+): { map: HardpointMap; dropped: string[] } {
+  const ship = configs.get<ShipConfig>("ship", shipId);
+  if (!ship) return { map: {}, dropped: Object.keys(hardpointMap) };
+  const hardpoints = hardpointsOf(ship);
+  const map: HardpointMap = {};
+  const dropped: string[] = [];
+  for (const [key, moduleId] of Object.entries(hardpointMap)) {
+    const idx = Number(key);
+    const socket = Number.isInteger(idx) && idx >= 0 ? hardpoints[idx] : undefined;
+    const family = configs.get<ModuleConfig>("module", moduleId)?.family;
+    // An UNKNOWN module is left in place on purpose: it is not a socket-shape
+    // problem, and `validateFitting` has a precise `unknown-module` answer for
+    // it that a prune here would turn into a silently emptier ship.
+    if (!socket || (family !== undefined && !socket.accepts.includes(family))) {
+      dropped.push(key);
+      continue;
+    }
+    map[key] = moduleId;
+  }
+  return { map, dropped };
+}
+
+/**
  * Expand a hardpoint map into a **positional** module list for spawning: the
  * array index is the hardpoint index and empty hardpoints are `null`. This
  * preserves hardpoint positions end-to-end so a fit like `{0:laser, 2:shield}`

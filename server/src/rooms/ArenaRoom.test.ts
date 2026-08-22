@@ -948,6 +948,62 @@ describe("ArenaRoom", () => {
     await c.leave();
   });
 
+  it("flies a STORED fitting that no longer matches the hull's sockets, minus the stale slots", async () => {
+    // The 2026-08-22 hardpoint pass cut and re-ordered every hull's mounts under
+    // fittings already sitting in this table. Rejecting those would have locked
+    // every player who ever saved a loadout out of the game, so the room prunes
+    // the slots the hull no longer has and flies the rest.
+    usersRepo.create({ id: "u-stale", email: null, pass_hash: null, guest_token: "gt-stale" });
+    seedNewUser(configs, "u-stale", "Stale");
+    const fit = fittingsRepo.create({
+      id: "fit-stale",
+      user_id: "u-stale",
+      ship_id: "ship.interceptor",
+      name: "Stale",
+      hardpointMap: {
+        "0": "module.laser-mk1",
+        // Index 7 no longer exists on the light hull (7 fittable slots, 0..6),
+        // and a passive utility is no longer accepted on any hardpoint anyway.
+        "7": "module.utility-armor-plating",
+      },
+    });
+    const token = signAccessToken("u-stale");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c = await colyseus.connectTo(room, { token, fittingId: fit.id });
+    await advance(room, 1);
+    const ps = room.state.players.get(c.sessionId)!;
+    // The surviving slot flew; the stale one is simply absent.
+    expect([...ps.modules].map((m) => m.hardpointIndex)).toEqual([0]);
+    expect([...ps.modules][0]!.moduleId).toBe("module.laser-mk1");
+    await c.leave();
+  });
+
+  it("falls back to the stock loadout when NOTHING of a stored fitting survives the pack", async () => {
+    usersRepo.create({ id: "u-gone", email: null, pass_hash: null, guest_token: "gt-gone" });
+    seedNewUser(configs, "u-gone", "Gone");
+    const fit = fittingsRepo.create({
+      id: "fit-gone",
+      user_id: "u-gone",
+      ship_id: "ship.interceptor",
+      name: "Gone",
+      // Every entry addresses a slot this hull no longer has.
+      hardpointMap: { "7": "module.laser-mk1", "9": "module.missile-mk1" },
+    });
+    const token = signAccessToken("u-gone");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c = await colyseus.connectTo(room, { token, fittingId: fit.id });
+    await advance(room, 1);
+    const ps = room.state.players.get(c.sessionId)!;
+    // The HULL the player chose, on its stock fitting — an empty hull is not a
+    // loadout, and swapping their ship as well would be a second surprise.
+    expect(ps.shipId).toBe("ship.interceptor");
+    const stock = configs.get<ShipConfig>("ship", "ship.interceptor")!.defaultFitting.filter((m) => m !== null);
+    expect(ps.modules.length).toBe(stock.length);
+    await c.leave();
+  });
+
   it("rejects a join whose fitting references an unowned module (Finding 1)", async () => {
     usersRepo.create({ id: "u-cheat", email: null, pass_hash: null, guest_token: "gt-cheat" });
     seedNewUser(configs, "u-cheat", "Cheater");

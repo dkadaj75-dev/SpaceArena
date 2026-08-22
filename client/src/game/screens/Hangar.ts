@@ -912,7 +912,12 @@ export class Hangar {
   private slotsForShip(ship: ShipConfig): HangarSlot[] {
     if (!this.isMainShip(ship.id)) return slotsFromDefaultFitting(ship);
     const stored = loadHangarSelection();
-    return stored.moduleIds ? slotsFromModuleIds(ship, stored.moduleIds) : slotsFromDefaultFitting(ship);
+    // The family lookup is what lets a stored fitting saved against an OLDER
+    // socket layout degrade to empty slots instead of an illegal fit (see
+    // `slotsFromModuleIds`).
+    return stored.moduleIds
+      ? slotsFromModuleIds(ship, stored.moduleIds, (id) => this.configs.get<ModuleConfig>("module", id)?.family)
+      : slotsFromDefaultFitting(ship);
   }
 
   private selectShip(index: number): void {

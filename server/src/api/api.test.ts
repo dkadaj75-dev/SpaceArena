@@ -35,12 +35,14 @@ describe("fittings API", () => {
     expect(ok.status).toBe(201);
     expect(ok.body.fitting.id).toBeTruthy();
 
-    // Wrong family: hardpoint 0 accepts laser/kinetic, not missile. The module is
-    // a pre-owned starter, so only the family can be what fails here.
+    // Wrong family: every hardpoint takes a weapon, a shield or a support
+    // module since 2026-08-22, and nothing else — so the passive utilities are
+    // what a hardpoint refuses now. The module is a pre-owned starter, so only
+    // the family can be what fails here.
     const wrongFamily = await request(app)
       .post("/api/fittings")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", name: "Bad", hardpointMap: { "0": "module.missile-mk1" } });
+      .send({ shipId: "ship.interceptor", name: "Bad", hardpointMap: { "0": "module.utility-capacitor-battery" } });
     expect(wrongFamily.status).toBe(400);
     expect(wrongFamily.body.error.code).toBe("family-mismatch");
 

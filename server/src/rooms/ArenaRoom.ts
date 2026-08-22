@@ -38,7 +38,7 @@ import { getConfigService } from "../configService.js";
 import { verifyAccessToken } from "../auth/tokens.js";
 import { fittingsRepo, ownedModulesRepo, profilesRepo, selectedCosmeticsRepo, shipUpgradesRepo } from "../db/repos.js";
 import { ownedCosmeticIds } from "../api/ownership.js";
-import { hardpointMapToFitting, validateFitting } from "../api/fittingValidation.js";
+import { hardpointMapToFitting, pruneStaleFitting, validateFitting } from "../api/fittingValidation.js";
 import { finalizeMatch, type Participant } from "../progression/service.js";
 import { getMetrics, instrumentClientEgress } from "../telemetry/metrics.js";
 import { ArenaState, PlayerState, ModuleState, AsteroidState } from "./state/ArenaState.js";
@@ -356,6 +356,18 @@ export class ArenaRoom extends Room<ArenaState> {
    * loads that fitting; otherwise fall back to the requested (or default) ship's
    * `defaultFitting`. Either way, an invalid resolved fitting **rejects the join**
    * (Finding 1) rather than spawning an illegal loadout.
+   *
+   * The one thing that does NOT reject is a STORED fitting gone stale against
+   * the current pack (2026-08-22). Sockets are content: the hardpoint pass that
+   * cut every hull's mounts left every previously saved fitting addressing slots
+   * that moved or vanished, and rejecting those would have locked every player
+   * who ever saved a loadout out of the game until they re-fitted. So a stored
+   * fitting is PRUNED to what its hull still has ({@link pruneStaleFitting}) and
+   * the remainder validated; a prune that empties it falls all the way back to
+   * the hull's `defaultFitting`, because a ship with no guns is not a loadout.
+   * Ownership and level are enforced on every surviving entry exactly as before,
+   * so this widens nothing a client can exploit — it only forgives the pack for
+   * changing under a row in the database.
    */
   private resolveFitting(
     configs: ReturnType<typeof getConfigService>,
@@ -370,7 +382,21 @@ export class ArenaRoom extends Room<ArenaState> {
       const fit = fittingsRepo.byId(options.fittingId);
       if (fit && fit.user_id === userId && configs.get<ShipConfig>("ship", fit.ship_id)) {
         shipId = fit.ship_id;
-        hardpointMap = fit.hardpointMap;
+        const pruned = pruneStaleFitting(configs, fit.ship_id, fit.hardpointMap);
+        if (pruned.dropped.length > 0) {
+          log.warn("stored fitting no longer matches the hull's sockets; dropping stale slots", {
+            fittingId: options.fittingId,
+            shipId,
+            dropped: pruned.dropped,
+          });
+        }
+        // Everything dropped ⇒ nothing of this fitting survives the pack. Keep
+        // the HULL the player chose and give it its stock loadout: an empty
+        // hull is not a loadout, and silently swapping their ship as well would
+        // be a second surprise on top of the first.
+        hardpointMap = Object.keys(pruned.map).length > 0
+          ? pruned.map
+          : defaultFittingToHardpointMap(configs.get<ShipConfig>("ship", fit.ship_id)!.defaultFitting);
       } else {
         log.warn("fitting not found / not owned / unknown ship; using default", { fittingId: options.fittingId, userId });
       }

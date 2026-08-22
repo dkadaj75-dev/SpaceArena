@@ -2,7 +2,7 @@ import type { ThemeConfig } from "@space-arena/shared";
 
 /** Board-authored defaults also keep older content packs visually coherent. */
 export const DEFAULT_DESIGN_TOKENS = {
-  blue500: "#3B82F6", red500: "#EF4444", white: "#E6F0FF",
+  blue500: "#3B82F6", red500: "#EF4444", green500: "#34D399", white: "#E6F0FF",
   n900: "#05080D", n800: "#0B1118", n700: "#151E2A", n600: "#1E2937", n500: "#334155", n400: "#475569",
   h1: "700 32px/40px 'Orbitron', system-ui, sans-serif",
   h2: "600 20px/28px 'Orbitron', system-ui, sans-serif",
@@ -22,7 +22,8 @@ export function designTokenCssVars(theme: ThemeConfig | undefined): Record<strin
   const r = theme?.tokens?.radii;
   const d = DEFAULT_DESIGN_TOKENS;
   return {
-    "--sa-blue-500": p?.blue500 ?? d.blue500, "--sa-red-500": p?.red500 ?? d.red500, "--sa-white": p?.white ?? d.white,
+    "--sa-blue-500": p?.blue500 ?? d.blue500, "--sa-red-500": p?.red500 ?? d.red500,
+    "--sa-green-500": p?.green500 ?? d.green500, "--sa-white": p?.white ?? d.white,
     "--sa-n-900": p?.n900 ?? d.n900, "--sa-n-800": p?.n800 ?? d.n800, "--sa-n-700": p?.n700 ?? d.n700,
     "--sa-n-600": p?.n600 ?? d.n600, "--sa-n-500": p?.n500 ?? d.n500, "--sa-n-400": p?.n400 ?? d.n400,
     "--sa-type-h1": t?.h1 ?? d.h1, "--sa-type-h2": t?.h2 ?? d.h2, "--sa-type-h3": t?.h3 ?? d.h3,

@@ -134,9 +134,12 @@ function approachHomeFlagFromAbove(seed: number) {
   const profile = configs.get<BotprofileConfig>("botprofile", "bot.flagrunner")!;
   const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
   const enemy = sim.snapshot().flags.find((flag) => flag.team === 1)!;
+  // The light hull's seven slots since 2026-08-22: two hardpoints, then the
+  // systems bay. It has no auxiliary bay, so the flux capacitor that used to
+  // ride its third hardpoint has nowhere to go on this airframe.
   const fitting = [
     "module.kinetic-mk1", "module.shield-mk1", "module.engine-mk2", "module.generator-dynamo",
-    "module.transformer-mk3", "module.countermeasure-spoofer", "module.sensors-snap", "module.utility-flux-capacitor-mk2",
+    "module.transformer-mk3", "module.countermeasure-spoofer", "module.sensors-snap",
   ];
   const vertical = 15;
   const initialDistance = 30;

@@ -1,7 +1,7 @@
 {
   "id": "tutorial.basics",
   "type": "tutorial",
-  "version": 1,
+  "version": 2,
   "name": "Flight School",
   "gamemode": "gamemode.tutorial",
   "arena": "arena.ring-nebula",
@@ -16,8 +16,7 @@
       "module.generator-compact",
       "module.transformer-stock",
       "module.countermeasure-flare",
-      "module.sensors-basic",
-      null
+      "module.sensors-basic"
     ]
   },
   "steps": [

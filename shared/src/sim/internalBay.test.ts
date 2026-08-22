@@ -31,10 +31,14 @@ function withInternal(moduleId: string) {
 
 describe("hull slot layout (owner 2026-07-31)", () => {
   it("gives each class its expanded hardpoint count and authored internal bay", () => {
+    // Counts set by the owner on 2026-08-22: a hardpoint is now a real
+    // decision, so there are few of them and every one of them is a weapon, a
+    // shield or a support module.
     const expected: Array<[string, number, number]> = [
-      ["ship.interceptor", 3, 5], // light: one small external option
-      ["ship.support", 4, 6], // medium: support hardpoint + auxiliary bay
-      ["ship.brawler", 6, 6], // heavy: weapon + utility hardpoints + auxiliary bay
+      ["ship.interceptor", 2, 5], // light: a symmetric wing pair
+      ["ship.talon", 2, 5], // light: the same pair on the same airframe
+      ["ship.support", 3, 6], // medium: nose + wing pair, auxiliary bay
+      ["ship.brawler", 3, 6], // heavy: nose pair + spine, auxiliary bay
     ];
     for (const [shipId, hardpoints, internals] of expected) {
       const ship = shipOf(shipId);
@@ -55,15 +59,40 @@ describe("hull slot layout (owner 2026-07-31)", () => {
     }
   });
 
-  it("keeps weapons and shields off the internal bay, and systems off the hardpoints", () => {
-    for (const shipId of ["ship.interceptor", "ship.support", "ship.brawler"]) {
+  it("keeps systems off the hardpoints, and dead weight off them too (2026-08-22)", () => {
+    // "Every hardpoint can receive a weapon or a shield, but no heatsink here"
+    // — the owner's rule, checked as written: the PASSIVE stat modules
+    // (`utility`) are the thing a hardpoint may no longer carry, and they moved
+    // to the auxiliary internal bay of the hulls that have one.
+    const HARDPOINT_FAMILIES = ["laser", "kinetic", "missile", "shield", "disruptor", "repair"];
+    for (const shipId of ["ship.interceptor", "ship.talon", "ship.support", "ship.brawler"]) {
       const ship = shipOf(shipId);
       for (const socket of weaponHardpointsOf(ship)) {
-        expect(socket.accepts.every((f) => ["laser", "kinetic", "missile", "shield", "utility"].includes(f))).toBe(true);
+        expect(socket.accepts, `${shipId} ${socket.id}`).toEqual(HARDPOINT_FAMILIES);
       }
       for (const socket of internalsOf(ship)) {
-        expect(socket.accepts.every((f) => ["engine", "generator", "transformer", "countermeasure", "sensors"].includes(f))).toBe(true);
+        expect(
+          socket.accepts.every((f) =>
+            ["engine", "generator", "transformer", "countermeasure", "sensors", "utility"].includes(f),
+          ),
+          `${shipId} ${socket.id}`,
+        ).toBe(true);
       }
+    }
+  });
+
+  it("leaves the passive utilities somewhere to live on the hulls that carry them", () => {
+    // The other half of the rule above. Taking `utility` off every hardpoint
+    // would have orphaned six shipped modules outright, so the two hulls with
+    // an auxiliary bay take them there — and the two light hulls, which have no
+    // spare internal volume, genuinely cannot fit them any more.
+    for (const shipId of ["ship.support", "ship.brawler"]) {
+      const aux = internalsOf(shipOf(shipId)).find((s) => s.id === "in-auxiliary");
+      expect(aux?.accepts, `${shipId} auxiliary bay`).toContain("utility");
+    }
+    for (const shipId of ["ship.interceptor", "ship.talon"]) {
+      const ship = shipOf(shipId);
+      expect(hardpointsOf(ship).some((s) => s.accepts.includes("utility")), `${shipId}`).toBe(false);
     }
   });
 });
