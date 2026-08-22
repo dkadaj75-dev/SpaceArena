@@ -2,6 +2,8 @@ import { Color3, Mesh, MultiMaterial, Texture, type BaseTexture, type Material, 
 import {
   elementOfMaterial,
   isPropulsionSocket,
+  skinEmissiveFor,
+  skinSwapsAnyTexture,
   styleIsEmpty,
   SURFACE_ELEMENTS,
   wiringFor,
@@ -17,29 +19,41 @@ import {
 import { mirrorThrustGlow } from "../core/thrustGlow.js";
 import { cosmeticById } from "./cosmetics.js";
 import { albedoTexture, DEFAULT_PATTERN_SCALE } from "./paintPattern.js";
+import { applySkinAlbedo, applySkinEmissive, contentUrl, loadSkinTexture, type TextureSlot } from "./skinTexture.js";
 
 /**
- * Cosmetic paint on a hull (contract §5).
+ * Cosmetics on a hull (contract §5) — both kinds of them.
  *
  * Ships render as INSTANCES of a shared, disabled master mesh, and an instance
- * cannot own a material — so a paint cannot be a per-ship material tweak
+ * cannot own a material — so a livery cannot be a per-ship material tweak
  * without blacking out every hull in the match (the same trap the Hangar's
- * locked silhouette documents). A paint therefore produces its own painted
+ * locked silhouette documents). A cosmetic therefore produces its own painted
  * MASTER, cloned once per (hull, cosmetic) pair and instanced from like any
- * other: ten ships wearing one paint still cost one extra draw batch, not ten.
+ * other: ten ships wearing one skin still cost one extra draw batch, not ten.
+ * That is true of a texture pack exactly as it was of a paint — the pack loads
+ * its images ONCE per (hull, skin), not once per ship.
  *
- * WHICH plates a skin reaches is decided by the SHIP, not the skin. `ship.skin`
- * wires each element (body / canopy / wings / emissive) to that model's own
- * material names; the skin then says what body, canopy and wings LOOK like. A
- * material the hull wires to no element is never touched — roughness, metallic,
- * clearcoat and all — which is what lets a livery cover the Interceptor's shell
- * plates while its canopy glass, dark tech recesses and engine bloom stay
- * exactly as the artist shipped them.
+ * WHAT a cosmetic does to the materials it reaches depends on its kind:
+ *
+ *  - `kind: "skin"` (CURRENT) — swap the owner's authored albedo onto the
+ *    element's materials, and the emissive light map onto the emissive
+ *    element's. See {@link skinnedMaterial} and `./skinTexture.ts`.
+ *  - `kind: "paint"` (LEGACY) — the procedural colour/pattern/finish recipe.
+ *    See {@link applyElementStyle} and `./paintPattern.ts`. Unchanged, because
+ *    32 shipped paints and the whole shop run on it.
+ *
+ * WHICH plates either one reaches is decided by the SHIP, not the cosmetic.
+ * `ship.skin` wires each element (body / canopy / wings / emissive) to that
+ * model's own material names. A material the hull wires to no element is never
+ * touched — roughness, metallic, clearcoat and all — which is what lets a
+ * livery cover the Interceptor's shell plates while its canopy glass, dark tech
+ * recesses and engine bloom stay exactly as the artist shipped them.
  *
  * Nothing here mutates a master or its materials: an absent/unknown cosmetic id
  * hands the base master straight back, an unwired slot keeps the ORIGINAL
- * material object rather than a clone of it, and disposal only ever frees
- * clones this bank made.
+ * material object rather than a clone of it, a texture file that does not exist
+ * yet leaves the shipped material alone, and disposal only ever frees clones
+ * this bank made.
  */
 
 /** Glow strength used when a material carries no authored emissive of its own. */
@@ -48,15 +62,9 @@ const DEFAULT_GLOW = 0.15;
 /** Neutral plate under a texture that authors no colour of its own. */
 const NEUTRAL_BASE = "#ffffff";
 
-/** The material properties a style touches — duck-typed so tests can mock them. */
-interface StyleTarget {
-  name?: string;
-  diffuseColor?: Color3;
-  albedoColor?: Color3;
-  emissiveColor?: Color3;
+/** The material properties a LEGACY paint style touches — duck-typed so tests can mock them. */
+interface StyleTarget extends TextureSlot {
   specularColor?: Color3;
-  diffuseTexture?: BaseTexture | null;
-  albedoTexture?: BaseTexture | null;
   bumpTexture?: BaseTexture | null;
   metallicTexture?: BaseTexture | null;
   useRoughnessFromMetallicTextureAlpha?: boolean;
@@ -160,11 +168,6 @@ function safeColor(hex: string | undefined): Color3 | null {
   return Color3.FromHexString(hex);
 }
 
-/** Content-relative asset path → the URL the dev server and the build both serve. */
-function contentUrl(path: string): string {
-  return `${import.meta.env.BASE_URL}content/${path}`;
-}
-
 /**
  * A readable second colour when a pattern authors none: black on a light plate,
  * white on a dark one. A stripe the same colour as the plate is not a pattern.
@@ -174,26 +177,73 @@ function defaultMark(base: Color3 | null): string {
   return base.r + base.g + base.b > 1.5 ? "#16171b" : "#f2f2f0";
 }
 
+/**
+ * One authored image, and every material slot waiting for it.
+ *
+ * A texture pack is loaded ONCE per (variant, path): a hull that wires four
+ * plates to `body` shares one Texture across all four, and so do the painted
+ * LOD clones built in the same pass. `applied` is what makes that safe against
+ * ordering — a slot registered after the image has already landed is served
+ * immediately instead of waiting for a load that will never fire again.
+ */
+class SharedSkinTexture {
+  readonly texture: Texture;
+  private readonly albedoSlots: TextureSlot[] = [];
+  private readonly emissiveSlots: TextureSlot[] = [];
+  private loaded: Texture | null = null;
+
+  constructor(scene: Scene, path: string, alive: () => boolean) {
+    this.texture = loadSkinTexture(scene, path, (image) => {
+      // The variant can be freed before a slow image lands (a skin re-edited in
+      // the F10 tool re-stages its preview); assigning onto materials that have
+      // been disposed is how that turns into a crash.
+      if (!alive()) return;
+      this.loaded = image;
+      for (const slot of this.albedoSlots) applySkinAlbedo(slot, image);
+      for (const slot of this.emissiveSlots) applySkinEmissive(slot, image);
+    });
+  }
+
+  /** Register one material slot for one channel of this image. */
+  want(slot: TextureSlot, channel: "albedo" | "emissive"): void {
+    const slots = channel === "albedo" ? this.albedoSlots : this.emissiveSlots;
+    slots.push(slot);
+    if (!this.loaded) return;
+    if (channel === "albedo") applySkinAlbedo(slot, this.loaded);
+    else applySkinEmissive(slot, this.loaded);
+  }
+}
+
 interface PaintVariant {
   master: Mesh;
   materials: Material[];
   textures: BaseTexture[];
   lodMeshes: Mesh[];
-  /** One built map-set per element, so a four-material body composites once. */
+  /** LEGACY paint: one built map-set per element, so a four-material body composites once. */
   maps: Partial<Record<SurfaceElement, ElementMaps>>;
+  /** Texture skin: one loader per authored image path, shared by every slot that wants it. */
+  skinTextures: Map<string, SharedSkinTexture>;
+  /** Freed. Async image loads check this before touching a disposed material. */
+  disposed: boolean;
 }
 
 /**
- * Whether this (hull, skin) pair changes any SURFACE at all — both sides have
- * to agree: the hull wires the element to at least one material AND the skin
- * fills that element in. Neither alone paints anything.
+ * Whether this (hull, cosmetic) pair changes any SURFACE at all — both sides
+ * have to agree: the hull wires the element to at least one material AND the
+ * cosmetic says something about it. Neither alone changes a pixel.
  *
  * Checked before the clone, not after: a hull that wires nothing must hand back
  * the base master, or every skin in the shop would silently cost an extra draw
  * batch and a material tree to render pixels identical to the unpainted hull.
  * Propulsion is excluded — it swaps particles, never a material.
+ *
+ * A MISSING FILE deliberately does not disqualify a texture skin here: whether
+ * the owner has painted it yet is not knowable synchronously, and a livery that
+ * silently fell back to "no clone at all" the first time it was staged would
+ * still be unpainted after the file appeared.
  */
-function paintsAnything(ship: Pick<ShipConfig, "skin"> | undefined, cosmetic: CosmeticConfig): boolean {
+function changesAnySurface(ship: Pick<ShipConfig, "skin"> | undefined, cosmetic: CosmeticConfig): boolean {
+  if (cosmetic.kind === "skin") return skinSwapsAnyTexture(ship?.skin, cosmetic);
   return SURFACE_ELEMENTS.some(
     (element) => wiringFor(ship?.skin, element).length > 0 && !styleIsEmpty(cosmetic.elements?.[element]),
   );
@@ -214,13 +264,22 @@ export class ShipPaintBank {
 
   /**
    * The master to instance this hull from. Returns `base` untouched for an
-   * absent, unknown or styleless cosmetic id — standard IS the base look — and
-   * for a hull that wires no elements at all.
+   * absent, unknown or empty cosmetic id, and for a hull that wires no elements
+   * at all.
+   *
+   * The `-standard` shortcut is LEGACY-PAINT ONLY, and the kind check has to
+   * come first: `cosmetic.paint-<hull>-standard` is the shipped look by
+   * definition ({@link baseCosmeticIdFor}), so cloning a master to repaint it in
+   * the colour it already is would cost a draw batch for nothing. A texture
+   * skin called `skin-<hull>-standard` is an ordinary skin that happens to be
+   * named that, and it has real images to swap in.
    */
   masterFor(base: Mesh, ship: Pick<ShipConfig, "skin"> | undefined, cosmeticId: string | null): Mesh {
-    if (!cosmeticId || cosmeticId.endsWith("-standard")) return base;
+    if (!cosmeticId) return base;
     const cosmetic = cosmeticById(this.configs, cosmeticId);
-    if (!cosmetic || !paintsAnything(ship, cosmetic)) return base;
+    if (!cosmetic) return base;
+    if (cosmetic.kind === "paint" && cosmeticId.endsWith("-standard")) return base;
+    if (!changesAnySurface(ship, cosmetic)) return base;
     const key = `${base.uniqueId}|${cosmetic.id}`;
     const cached = this.variants.get(key);
     if (cached && !cached.master.isDisposed()) return cached.master;
@@ -232,7 +291,15 @@ export class ShipPaintBank {
     clone.isPickable = false;
     clone.setEnabled(false);
 
-    const variant: PaintVariant = { master: clone, materials: [], textures: [], lodMeshes: [], maps: {} };
+    const variant: PaintVariant = {
+      master: clone,
+      materials: [],
+      textures: [],
+      lodMeshes: [],
+      maps: {},
+      skinTextures: new Map(),
+      disposed: false,
+    };
     clone.material = this.paintedMaterial(base.material, ship, cosmetic, variant);
     for (const child of clone.getChildMeshes(false)) {
       child.material = this.paintedMaterial(child.material, ship, cosmetic, variant);
@@ -266,9 +333,13 @@ export class ShipPaintBank {
   }
 
   /**
-   * Clone + paint a material tree, recording every clone for disposal. A slot
+   * Clone + restyle a material tree, recording every clone for disposal. A slot
    * the hull wires to no element keeps the ORIGINAL material object — an
    * unwired canopy is bit-identical to the unpainted hull's, not a copy of it.
+   *
+   * Kind-agnostic on purpose: {@link changeForMaterial} resolves "what does this
+   * cosmetic do to a material called X" once, and everything about cloning,
+   * MultiMaterial sub-slots and disposal is shared by paints and texture packs.
    */
   private paintedMaterial(
     source: Material | null,
@@ -277,40 +348,84 @@ export class ShipPaintBank {
     variant: PaintVariant,
   ): Material | null {
     if (!source) return null;
-    const styleOf = (name: string): SkinElementStyle | null => {
-      const element = elementOfMaterial(ship?.skin, name);
-      if (!element) return null;
-      const style = cosmetic.elements?.[element];
-      return style && !styleIsEmpty(style) ? style : null;
-    };
+    const changeOf = (name: string): ((material: Material) => void) | null =>
+      this.changeForMaterial(ship, cosmetic, name, variant);
 
     // A MultiMaterial's clone still points at the ORIGINAL sub-materials; each
-    // painted one has to be cloned in turn or the style would leak onto every
+    // restyled one has to be cloned in turn or the livery would leak onto every
     // unpainted hull.
     if (source instanceof MultiMaterial) {
-      const styles = source.subMaterials.map((sub) => (sub ? styleOf(sub.name) : null));
-      if (styles.every((style) => style === null)) return source;
+      const changes = source.subMaterials.map((sub) => (sub ? changeOf(sub.name) : null));
+      if (changes.every((change) => change === null)) return source;
       const clone = source.clone(`${source.name}.${cosmetic.id}`);
       if (!clone) return source;
       variant.materials.push(clone);
       (clone as MultiMaterial).subMaterials = source.subMaterials.map((sub, index) => {
-        const style = styles[index];
-        if (!sub || !style) return sub;
+        const change = changes[index];
+        if (!sub || !change) return sub;
         const subClone = sub.clone(`${sub.name}.${cosmetic.id}`) ?? sub;
         if (subClone !== sub) variant.materials.push(subClone);
-        applyElementStyle(subClone, style, this.mapsFor(ship, cosmetic, sub.name, variant));
+        change(subClone);
         return subClone;
       });
       return clone;
     }
 
-    const style = styleOf(source.name);
-    if (!style) return source;
+    const change = changeOf(source.name);
+    if (!change) return source;
     const clone = source.clone(`${source.name}.${cosmetic.id}`);
     if (!clone) return source;
     variant.materials.push(clone);
-    applyElementStyle(clone, style, this.mapsFor(ship, cosmetic, source.name, variant));
+    change(clone);
     return clone;
+  }
+
+  /**
+   * What this cosmetic does to a material called `materialName` on this hull,
+   * or `null` for "leave it exactly as the artist shipped it" — which is both
+   * the answer for an unwired material and the answer for an element the
+   * cosmetic says nothing about.
+   *
+   * Returning a CLOSURE rather than applying in place is what lets the caller
+   * decide whether a clone is needed before it makes one: a MultiMaterial whose
+   * every slot answers `null` is handed back untouched.
+   */
+  private changeForMaterial(
+    ship: Pick<ShipConfig, "skin"> | undefined,
+    cosmetic: CosmeticConfig,
+    materialName: string,
+    variant: PaintVariant,
+  ): ((material: Material) => void) | null {
+    const element = elementOfMaterial(ship?.skin, materialName);
+    if (!element) return null;
+
+    if (cosmetic.kind === "skin") {
+      const albedo = cosmetic.textures?.[element];
+      // The emissive LIGHT map lands on the emissive element's materials only —
+      // those ARE the lit plates, by the hull's own declaration. It comes from
+      // the skin when the skin relights the ship, and from the hull otherwise.
+      const emissive = element === "emissive" ? skinEmissiveFor(ship?.skin, cosmetic) : undefined;
+      if (albedo === undefined && emissive === undefined) return null;
+      return (material) => {
+        const slot = material as unknown as TextureSlot;
+        if (albedo !== undefined) this.skinTexture(albedo, variant).want(slot, "albedo");
+        if (emissive !== undefined) this.skinTexture(emissive, variant).want(slot, "emissive");
+      };
+    }
+
+    const style = cosmetic.elements?.[element];
+    if (!style || styleIsEmpty(style)) return null;
+    return (material) => applyElementStyle(material, style, this.mapsFor(ship, cosmetic, materialName, variant));
+  }
+
+  /** The shared loader for one authored image inside this variant, made on first want. */
+  private skinTexture(path: string, variant: PaintVariant): SharedSkinTexture {
+    const cached = variant.skinTextures.get(path);
+    if (cached) return cached;
+    const shared = new SharedSkinTexture(this.scene, path, () => !variant.disposed);
+    variant.skinTextures.set(path, shared);
+    variant.textures.push(shared.texture);
+    return shared;
   }
 
   /**
@@ -389,6 +504,9 @@ export class ShipPaintBank {
   }
 
   private freeVariant(variant: PaintVariant): void {
+    // Set FIRST: an authored image still in flight resolves onto materials that
+    // are about to stop existing, and the flag is what it checks.
+    variant.disposed = true;
     for (const material of variant.materials) material.dispose();
     for (const texture of variant.textures) texture.dispose();
     for (const lod of variant.lodMeshes) if (!lod.isDisposed()) lod.dispose(false, false);

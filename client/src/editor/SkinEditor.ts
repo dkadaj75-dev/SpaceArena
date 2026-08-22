@@ -3,8 +3,11 @@ import {
   allCosmetics,
   cosmeticDisplayName,
   cosmeticsForShip,
+  EMISSIVE_GAP_MESSAGE,
   isSurfaceElement,
   paintPattern,
+  shipEmissiveGap,
+  skinEmissiveFor,
   SKIN_ELEMENT_LABEL,
   SKIN_ELEMENTS,
   styleIsEmpty,
@@ -26,6 +29,7 @@ import { ShipPaintBank } from "../game/shipPaint.js";
 import { applicationNotice } from "./applicationScope.js";
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { saveConfig } from "./saveConfig.js";
+import { attachTextureDatalist, TEXTURE_DATALIST_ID } from "./texturePaths.js";
 
 /**
  * Skins (F10 → Ships → Skins) — where a livery is authored.
@@ -37,9 +41,20 @@ import { saveConfig } from "./saveConfig.js";
  * not landing: an element the hull wires to nothing is inert here, however
  * fully it is filled in.
  *
- * The preview is the real renderer. It stages the hull through the same
- * {@link ShipPaintBank} the match and the Hangar use, so what this tool shows
- * is what a pilot flies.
+ * TWO EDITORS IN ONE, chosen by the cosmetic's kind:
+ *
+ *  - `kind: "skin"` — the CURRENT pipeline. One authored image path per
+ *    element, plus the emissive light map. The owner paints the files outside
+ *    the game against each hull's UV layout, so the whole UI is a path per
+ *    element and a live preview of the result.
+ *  - `kind: "paint"` — the LEGACY procedural editor: colour, pattern, surface
+ *    finish. Kept in full, because the 32 shipped paints are authored with it
+ *    and the owner replaces them at his own pace.
+ *
+ * The preview is the real renderer either way. It stages the hull through the
+ * same {@link ShipPaintBank} the match and the Hangar use, so what this tool
+ * shows is what a pilot flies — including a texture path that does not resolve,
+ * which previews exactly as it will ship: the plate the GLB came with.
  */
 
 /** The empty option of every "pick one, or don't" dropdown. */
@@ -71,16 +86,25 @@ export interface ElementRow {
  * Every element, with the hull's wiring and whether the skin fills it. Elements
  * are always ALL listed, wired or not — a designer has to be able to see that
  * canopies exist and are unwired, which a filtered list would hide.
+ *
+ * "Filled in" means whatever the cosmetic's kind means by it: an authored
+ * texture path for a skin, a non-empty style for a legacy paint. The emissive
+ * element counts the hull's OWN light map too, because that is what a texture
+ * skin renders there when it authors none of its own.
  */
 export function elementRows(
   ship: Pick<ShipConfig, "skin"> | undefined,
-  cosmetic: Pick<CosmeticConfig, "elements">,
+  cosmetic: Pick<CosmeticConfig, "kind" | "elements" | "textures" | "emissive">,
 ): ElementRow[] {
   return SKIN_ELEMENTS.map((element) => {
     const wired = wiringFor(ship?.skin, element);
-    const styled = isSurfaceElement(element)
-      ? !styleIsEmpty(cosmetic.elements?.[element])
-      : cosmetic.elements?.propulsion?.effect !== undefined;
+    let styled: boolean;
+    if (!isSurfaceElement(element)) styled = cosmetic.elements?.propulsion?.effect !== undefined;
+    else if (cosmetic.kind === "skin") {
+      styled =
+        cosmetic.textures?.[element] !== undefined ||
+        (element === "emissive" && skinEmissiveFor(ship?.skin, cosmetic) !== undefined);
+    } else styled = !styleIsEmpty(cosmetic.elements?.[element]);
     return { element, label: SKIN_ELEMENT_LABEL[element], wired, styled, inert: styled && wired.length === 0 };
   });
 }
@@ -103,6 +127,30 @@ export function withElementStyle(
   return { ...cosmetic, elements };
 }
 
+/**
+ * `cosmetic` with one element's authored texture set, or CLEARED when `path` is
+ * blank — the same "absent means keep the artist's own" rule the paint path
+ * follows, one level up: a cleared element renders the GLB's plate.
+ */
+export function withElementTexture(
+  cosmetic: CosmeticConfig,
+  element: SurfaceElement,
+  path: string,
+): CosmeticConfig {
+  const textures = { ...cosmetic.textures };
+  if (path.trim().length === 0) delete textures[element];
+  else textures[element] = path.trim();
+  return { ...cosmetic, textures };
+}
+
+/** `cosmetic` with its own emissive light map set, or cleared back to the hull's. */
+export function withEmissiveTexture(cosmetic: CosmeticConfig, path: string): CosmeticConfig {
+  const next = { ...cosmetic };
+  if (path.trim().length === 0) delete next.emissive;
+  else next.emissive = path.trim();
+  return next;
+}
+
 /** `cosmetic` with the propulsion effect set, or cleared when `effect` is null. */
 export function withPropulsionEffect(cosmetic: CosmeticConfig, effect: string | null): CosmeticConfig {
   const elements = { ...cosmetic.elements };
@@ -111,19 +159,33 @@ export function withPropulsionEffect(cosmetic: CosmeticConfig, effect: string | 
   return { ...cosmetic, elements };
 }
 
-/** A fresh skin for `ship`, styling nothing — the designer fills the elements in. */
-export function newSkinFor(ship: Pick<ShipConfig, "id">, existingIds: readonly string[]): CosmeticConfig {
+/**
+ * A fresh cosmetic for `ship`, styling nothing — the designer fills the
+ * elements in.
+ *
+ * `kind` defaults to the CURRENT pipeline: new liveries are authored texture
+ * packs, and the legacy procedural path is reachable only by duplicating one of
+ * the shipped paints. The id prefix follows the kind (`skin-…` / `paint-…`), so
+ * a pack's filenames say which pipeline each cosmetic belongs to without
+ * opening it.
+ */
+export function newSkinFor(
+  ship: Pick<ShipConfig, "id">,
+  existingIds: readonly string[],
+  kind: CosmeticConfig["kind"] = "skin",
+): CosmeticConfig {
   const slug = ship.id.split(".").pop() ?? ship.id;
   let n = 1;
-  while (existingIds.includes(`cosmetic.paint-${slug}-custom-${n}`)) n++;
+  while (existingIds.includes(`cosmetic.${kind}-${slug}-custom-${n}`)) n++;
   return {
-    id: `cosmetic.paint-${slug}-custom-${n}`,
+    id: `cosmetic.${kind}-${slug}-custom-${n}`,
     type: "cosmetic",
     version: 3,
     name: `Custom ${n}`,
-    kind: "paint",
+    kind,
     price: 0,
     target: ship.id,
+    textures: {},
     elements: {},
   };
 }
@@ -209,6 +271,17 @@ export class SkinEditor implements EditorPanel {
       return;
     }
 
+    // Which of the two pipelines this cosmetic belongs to. Shown always, not
+    // only for the legacy one: a designer opening a panel of path boxes and a
+    // panel of colour wheels has to know why they differ.
+    const kindLine = hint(
+      cosmetic.kind === "skin"
+        ? "Texture skin — one authored image per element, painted outside the game on this hull's UVs."
+        : "Legacy paint — a procedural colour / pattern / finish recipe. New liveries are texture skins; this one is kept working as authored.",
+    );
+    kindLine.dataset["kind"] = cosmetic.kind;
+    this.element.append(kindLine);
+
     const rows = elementRows(this.ship(), cosmetic);
     if (rows.every((entry) => entry.wired.length === 0)) {
       this.element.append(
@@ -216,12 +289,70 @@ export class SkinEditor implements EditorPanel {
       );
     }
     for (const entry of rows) {
-      this.element.append(
-        entry.element === "propulsion"
-          ? this.propulsionSection(cosmetic, entry)
-          : this.surfaceSection(cosmetic, entry.element as SurfaceElement, entry),
-      );
+      if (entry.element === "propulsion") {
+        this.element.append(this.propulsionSection(cosmetic, entry));
+      } else if (cosmetic.kind === "skin") {
+        this.element.append(this.textureSection(cosmetic, entry.element as SurfaceElement, entry));
+      } else {
+        this.element.append(this.surfaceSection(cosmetic, entry.element as SurfaceElement, entry));
+      }
     }
+  }
+
+  /**
+   * One element of a TEXTURE skin: the authored albedo, and — on the emissive
+   * element — the light map that is the owner's one hard rule.
+   *
+   * A free-text path with a datalist, not a picker, because the workflow is
+   * "scaffold the pack, paint the files": the path has to be authorable before
+   * the image exists. Nothing here validates that the file is there — the
+   * renderer's fallback does, visibly, in the preview beside this panel.
+   */
+  private textureSection(cosmetic: CosmeticConfig, element: SurfaceElement, info: ElementRow): HTMLElement {
+    const box = this.section(info.label, element);
+    box.append(this.wiringLine(info, "material"));
+
+    const albedo = this.pathInput(cosmetic.textures?.[element] ?? "", `ships/textures/<hull>/<skin>/${element}.png`, (value) =>
+      this.replace(withElementTexture(this.cosmetic() ?? cosmetic, element, value)),
+    );
+    box.append(row(text("Albedo "), albedo));
+
+    if (element !== "emissive") {
+      box.append(hint("The hand-painted base-colour map for this element's materials, unwrapped on this hull's UVs. Blank keeps the plate the model shipped with."));
+      return box;
+    }
+
+    // --- the emissive light map ------------------------------------------
+    const ship = this.ship();
+    const own = cosmetic.emissive ?? "";
+    const light = this.pathInput(own, ship?.skin?.emissiveTexture ?? "ships/textures/<hull>/standard/lights.png", (value) =>
+      this.replace(withEmissiveTexture(this.cosmetic() ?? cosmetic, value)),
+    );
+    box.append(row(text("Light map "), light));
+
+    const gap = shipEmissiveGap(ship?.skin);
+    if (gap && !own) box.append(warn(EMISSIVE_GAP_MESSAGE[gap]));
+    box.append(
+      hint(
+        own
+          ? "This livery relights the ship with its own map, instead of the hull's."
+          : "Blank inherits the hull's own light map (Ships → Skins logic), which is what most liveries want — the lit strips are the model's geometry.",
+      ),
+    );
+    return box;
+  }
+
+  /** A content-relative image path box, backed by the dev server's file list. */
+  private pathInput(value: string, placeholder: string, commit: (value: string) => void): HTMLInputElement {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "ed-input";
+    input.placeholder = placeholder;
+    input.value = value;
+    input.setAttribute("list", TEXTURE_DATALIST_ID);
+    attachTextureDatalist();
+    input.addEventListener("change", () => commit(input.value));
+    return input;
   }
 
   /**
@@ -245,9 +376,13 @@ export class SkinEditor implements EditorPanel {
   }
 
   /**
-   * One surface element: what it covers on this hull, then texture, colour,
-   * pattern and surface. Every control is "off" by default, and off means the
-   * model keeps what the artist gave it.
+   * LEGACY paint. One surface element: what it covers on this hull, then
+   * texture, colour, pattern and surface. Every control is "off" by default,
+   * and off means the model keeps what the artist gave it.
+   *
+   * Unchanged by the 2026-08-22 texture redesign and deliberately so: 32 shipped
+   * paints were authored here and have to stay editable until each one has an
+   * authored pack to replace it.
    */
   private surfaceSection(cosmetic: CosmeticConfig, element: SurfaceElement, info: ElementRow): HTMLElement {
     const box = this.section(info.label, element);

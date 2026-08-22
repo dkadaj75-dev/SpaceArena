@@ -1,4 +1,14 @@
-import { Color3, MultiMaterial, NullEngine, Scene, StandardMaterial, MeshBuilder, type Mesh } from "@babylonjs/core";
+import {
+  Color3,
+  MeshBuilder,
+  MultiMaterial,
+  NullEngine,
+  PBRMaterial,
+  Scene,
+  StandardMaterial,
+  type Mesh,
+  type Texture,
+} from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 import type { ShipConfig, ShipSnapshot } from "@space-arena/shared";
 import { COSMETICS, RENDER_COSMETICS, shopConfigs } from "./__fixtures__/shopContent.js";
@@ -220,6 +230,180 @@ describe("painted masters", () => {
     bank.invalidate("cosmetic.paint-interceptor-shellonly");
     expect(bank.size).toBe(1);
     bank.dispose();
+  });
+});
+
+describe("texture skins", () => {
+  /**
+   * A PBR hull, because a texture pack's whole job is the albedo + emissive
+   * channels a glTF material exposes. Sub-materials are named after the
+   * Interceptor's real slots, wired by {@link WIRED}.
+   */
+  function texturedHull(): { bank: ShipPaintBank; master: Mesh; slots: PBRMaterial[]; scene: Scene; engine: NullEngine } {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const master = MeshBuilder.CreateBox("master.human_light", { size: 1 }, scene);
+    const slots = ["SHELL_WHITE", "CANOPY_GLASS", "ENGINE_GLOW"].map((name) => {
+      const mat = new PBRMaterial(name, scene);
+      mat.albedoColor = new Color3(0.6, 0.2, 0.2);
+      mat.emissiveColor = new Color3(0, 0, 0);
+      return mat;
+    });
+    const multi = new MultiMaterial("hull.multi", scene);
+    multi.subMaterials = slots;
+    master.material = multi;
+    master.setEnabled(false);
+    return { bank: new ShipPaintBank(scene, shopConfigs([...COSMETICS, ...RENDER_COSMETICS])), master, slots, scene, engine };
+  }
+
+  const subs = (mesh: Mesh): PBRMaterial[] => (mesh.material as MultiMaterial).subMaterials as PBRMaterial[];
+
+  /** NullEngine resolves its fake texture loads on a macrotask. */
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("swaps the authored albedo onto the wired element and nothing else", async () => {
+    const { bank, master, slots, scene, engine } = texturedHull();
+    const painted = bank.masterFor(master, WIRED, "cosmetic.skin-interceptor-ash");
+    await settle();
+
+    expect(subs(painted)[0]!.albedoTexture).not.toBeNull();
+    // The map carries its own colour; the factor under it must not double it.
+    expect(subs(painted)[0]!.albedoColor.toHexString().toLowerCase()).toBe("#ffffff");
+    // The canopy and the bloom are the very same material objects the unpainted
+    // hull draws with — this skin authors neither element.
+    expect(subs(painted)[1]).toBe(slots[1]);
+    expect(subs(painted)[2]).toBe(slots[2]);
+    // And the base master's own shell is untouched.
+    expect(slots[0]!.albedoTexture).toBeNull();
+
+    bank.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("puts a pack's images on each element, and the light map on the emissive one", async () => {
+    const { bank, master, scene, engine } = texturedHull();
+    const painted = bank.masterFor(master, WIRED, "cosmetic.skin-interceptor-pack");
+    await settle();
+
+    expect(subs(painted)[0]!.albedoTexture).not.toBeNull();
+    expect(subs(painted)[1]!.albedoTexture).not.toBeNull();
+    expect(subs(painted)[2]!.albedoTexture).not.toBeNull();
+    // Three separate images, one per element — not one image on three slots.
+    const urls = [0, 1, 2].map((i) => (subs(painted)[i]!.albedoTexture as Texture).url);
+    expect(new Set(urls).size).toBe(3);
+
+    bank.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("lights the emissive element from the HULL's map when the skin authors none", async () => {
+    const { bank, master, scene, engine } = texturedHull();
+    const hull = { skin: { ...WIRED.skin, emissiveTexture: "ships/textures/interceptor/standard/lights.png" } };
+    const painted = bank.masterFor(master, hull, "cosmetic.skin-interceptor-ash");
+    await settle();
+
+    const glow = subs(painted)[2]!;
+    expect((glow.emissiveTexture as Texture).url).toContain("standard/lights.png");
+    // A black emissive multiplier would swallow the map entirely.
+    expect(glow.emissiveColor.toHexString().toLowerCase()).toBe("#ffffff");
+
+    bank.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("lets a livery relight the ship with its own map instead", async () => {
+    const { bank, master, scene, engine } = texturedHull();
+    const hull = { skin: { ...WIRED.skin, emissiveTexture: "ships/textures/interceptor/standard/lights.png" } };
+    const painted = bank.masterFor(master, hull, "cosmetic.skin-interceptor-lit");
+    await settle();
+
+    expect((subs(painted)[2]!.emissiveTexture as Texture).url).toContain("lit/lights.png");
+
+    bank.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("keeps the shipped material when the owner has not painted the file yet", () => {
+    // The renderer cannot know the file is missing until the request fails, so
+    // the image is applied only ON LOAD — never assigned first and rolled back,
+    // which would leave the hull undrawn for the length of the failed request.
+    const { bank, master, scene, engine } = texturedHull();
+    const painted = bank.masterFor(master, WIRED, "cosmetic.skin-interceptor-ash");
+    // Before the load resolves (and forever, if it 404s): the clone's shell
+    // still carries exactly what the GLB gave it.
+    expect(subs(painted)[0]!.albedoTexture).toBeNull();
+    expect(subs(painted)[0]!.albedoColor.toHexString().toLowerCase()).not.toBe("#ffffff");
+
+    bank.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("refuses a master for a skin that swaps nothing, or a hull that wires nothing", () => {
+    const { bank, master, scene, engine } = texturedHull();
+    expect(bank.masterFor(master, WIRED, "cosmetic.skin-interceptor-blank")).toBe(master);
+    expect(bank.masterFor(master, { skin: { wings: ["WING"] } }, "cosmetic.skin-interceptor-ash")).toBe(master);
+    expect(bank.size).toBe(0);
+
+    bank.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("stages a skin named -standard, unlike the legacy paint of that name", () => {
+    // `paint-<hull>-standard` IS the shipped look by definition, so it short-
+    // circuits. A texture pack called `skin-<hull>-standard` is an ordinary skin
+    // with real images to swap in, and must not be caught by the same suffix.
+    const { bank, master, scene, engine } = texturedHull();
+    expect(bank.masterFor(master, WIRED, "cosmetic.paint-interceptor-standard")).toBe(master);
+
+    const configs = shopConfigs([
+      ...RENDER_COSMETICS,
+      { ...RENDER_COSMETICS.find((c) => c.id === "cosmetic.skin-interceptor-ash")!, id: "cosmetic.skin-interceptor-standard" },
+    ]);
+    const other = new ShipPaintBank(scene, configs);
+    expect(other.masterFor(master, WIRED, "cosmetic.skin-interceptor-standard")).not.toBe(master);
+    other.dispose();
+
+    bank.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("loads one image per (hull, skin), not one per material or per ship", async () => {
+    const { bank, master, scene, engine } = texturedHull();
+    // Both plates wired to `body`: one authored image, shared.
+    const hull = { skin: { body: ["SHELL_WHITE", "CANOPY_GLASS"] } };
+    const painted = bank.masterFor(master, hull, "cosmetic.skin-interceptor-ash");
+    await settle();
+
+    expect(subs(painted)[0]!.albedoTexture).toBe(subs(painted)[1]!.albedoTexture);
+    expect(bank.masterFor(master, hull, "cosmetic.skin-interceptor-ash")).toBe(painted);
+    expect(bank.size).toBe(1);
+
+    bank.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("never touches a material after its variant has been freed", async () => {
+    // The F10 tool re-stages the preview on every edit; an image still in
+    // flight would otherwise resolve onto a disposed material.
+    const { bank, master, scene, engine } = texturedHull();
+    const painted = bank.masterFor(master, WIRED, "cosmetic.skin-interceptor-ash");
+    const shell = subs(painted)[0]!;
+    bank.dispose();
+    await settle();
+
+    expect(shell.albedoTexture).toBeNull();
+    expect(bank.size).toBe(0);
+
+    scene.dispose();
+    engine.dispose();
   });
 });
 

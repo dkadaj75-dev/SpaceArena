@@ -27,8 +27,10 @@ import {
   moduleFamily,
   PURSUIT_ZOOM_MAX,
   PURSUIT_ZOOM_MIN,
+  shipEmissiveGap,
   shipSchema,
   signalId,
+  EMISSIVE_GAP_MESSAGE,
   SKIN_ELEMENT_LABEL,
   SKIN_ELEMENTS,
   wiringFor,
@@ -38,6 +40,7 @@ import {
   type ModuleFamily,
   type ShipCombat,
   type ShipConfig,
+  type ShipSkinWiring,
   type SignalId,
   type SkinElement,
   type SocketConfig,
@@ -70,6 +73,7 @@ import {
   type SocketKind,
 } from "./socketOps.js";
 import { StickyWarnings } from "./stickyWarnings.js";
+import { attachTextureDatalist, TEXTURE_DATALIST_ID } from "./texturePaths.js";
 import { applicationNotice } from "./applicationScope.js";
 import { ViewportContextPanel, type CtxField, type CtxView } from "./ViewportContextPanel.js";
 
@@ -480,22 +484,68 @@ export class ShipManager implements EditorPanel {
 
     box.append(
       hint("Materials come from the loaded GLB; propulsion takes emitter socket ids instead, because a skin swaps their particle effect rather than their surface."),
+      this.emissiveTextureRow(ship),
     );
+    return box;
+  }
+
+  /**
+   * THE EMISSIVE LIGHT MAP (owner 2026-08-22: "there should be an emissive
+   * light texture for each ship").
+   *
+   * It sits at the bottom of the skins logic because it is the hull's, not a
+   * livery's: every skin lights the same strips, windows and exhaust interiors,
+   * and a skin only overrides it when it deliberately relights the ship.
+   *
+   * The gap is shown, never enforced. A hull with no emissive wiring has
+   * nowhere to put a map and a hull with no map has nothing to put, and both
+   * are ordinary mid-authoring states — but neither may be SILENT, or a ship
+   * ships without the one texture the owner said every ship must have.
+   */
+  private emissiveTextureRow(ship: ShipConfig): HTMLElement {
+    const box = document.createElement("div");
+    box.dataset["emissiveTexture"] = "";
+    const gap = shipEmissiveGap(ship.skin);
+    if (gap) box.append(warn(EMISSIVE_GAP_MESSAGE[gap]));
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "ed-input";
+    input.placeholder = "ships/textures/<hull>/standard/lights.png";
+    input.value = ship.skin?.emissiveTexture ?? "";
+    input.setAttribute("list", TEXTURE_DATALIST_ID);
+    attachTextureDatalist();
+    input.addEventListener("change", () => this.setEmissiveTexture(input.value.trim()));
+
+    box.append(row(text("Emissive light texture "), input));
     return box;
   }
 
   /** Commit one element's wiring, dropping the key entirely when it empties. */
   private setWiring(element: SkinElement, names: string[]): void {
+    this.patchSkin({ [element]: names.length === 0 ? undefined : names });
+  }
+
+  /** Commit the hull's own emissive light map; a blank box clears it. */
+  private setEmissiveTexture(path: string): void {
+    this.patchSkin({ emissiveTexture: path.length === 0 ? undefined : path });
+  }
+
+  /**
+   * Patch the skins block, dropping keys that have emptied out.
+   *
+   * An all-empty block is written as ABSENT, not as `{}`: "this hull wires
+   * nothing" and "this hull has no skins logic yet" are the same state, and only
+   * one of them should reach the content file.
+   */
+  private patchSkin(patch: Partial<ShipSkinWiring>): void {
     const current = this.ship();
     if (!current) return;
-    const skin: Record<string, string[]> = { ...current.skin, [element]: names };
-    if (names.length === 0) delete skin[element];
-    // An all-empty wiring block is written as ABSENT, not as `{}`: "this hull
-    // wires nothing" and "this hull has no skins logic yet" are the same state,
-    // and only one of them should reach the content file.
+    const skin: Record<string, unknown> = { ...current.skin, ...patch };
+    for (const [key, value] of Object.entries(patch)) if (value === undefined) delete skin[key];
     const next: ShipConfig = Object.keys(skin).length === 0
       ? { ...current, skin: undefined }
-      : { ...current, skin };
+      : { ...current, skin: skin as ShipSkinWiring };
     this.replace(next);
     this.renderUi();
   }

@@ -52,6 +52,32 @@ export function isSurfaceElement(element: SkinElement): element is SurfaceElemen
 const nameList = z.array(z.string().min(1));
 
 /**
+ * A content-relative image file: `ships/textures/interceptor/standard/body.png`.
+ *
+ * Deliberately a PATH and not a `texture.*` config id, unlike the legacy paint
+ * path's {@link skinElementStyle.texture}. A texture config is the right shape
+ * for a REUSABLE tiling plate (it carries scale, category, companion maps and a
+ * designer-chosen name); an authored skin texture is the opposite — one bespoke
+ * image unwrapped for exactly one material of exactly one hull, that nothing
+ * else will ever point at. Wrapping each of those in its own config would mean
+ * one JSON file per PNG the owner paints, for no reuse and no extra data.
+ *
+ * Rejects a leading `/` and a leading `content/`: every asset path in the pack
+ * is relative to content/ (`render.model`, `skybox.texture`, `texture.source`),
+ * and the one convention that is authored WITH the prefix (theme music) is the
+ * one that keeps tripping the content sweep.
+ */
+export const contentImagePath = z
+  .string()
+  .min(1)
+  .refine((p) => !p.startsWith("/") && !p.startsWith("content/"), {
+    message: "texture path is relative to content/ — drop the leading \"/\" or \"content/\"",
+  })
+  .refine((p) => /\.(png|jpe?g|webp|ktx2)$/i.test(p), {
+    message: "texture path must name an image file (.png, .jpg, .webp, .ktx2)",
+  });
+
+/**
  * Ship-side wiring: which of THIS hull's materials (and, for propulsion, which
  * of its emitter sockets) each element covers.
  *
@@ -67,6 +93,22 @@ export const shipSkinWiring = z.object({
   emissive: nameList.optional(),
   /** Emitter SOCKET ids (`eng-l`, `boost-plume`), not material names. */
   propulsion: nameList.optional(),
+  /**
+   * THE HULL'S OWN EMISSIVE LIGHT MAP (owner 2026-08-22, the one hard rule of
+   * the texture-skin redesign: "there should be an emissive light texture for
+   * each ship").
+   *
+   * The odd one out in this object — a path, not a list of names — and it is
+   * here rather than on a skin because it belongs to the HULL: the lit strips,
+   * windows and exhaust interiors are geometry the model was built with, and
+   * every livery lights the same ones. A skin may override it
+   * (`cosmetic.emissive`); a skin that does not, wears this.
+   *
+   * Applied to the materials `emissive` wires, so a hull that authors this and
+   * wires nothing has a gap — reported by {@link shipEmissiveGap}, never fixed
+   * silently.
+   */
+  emissiveTexture: contentImagePath.optional(),
 }).strict();
 export type ShipSkinWiring = z.infer<typeof shipSkinWiring>;
 
@@ -99,7 +141,82 @@ export function isPropulsionSocket(wiring: ShipSkinWiring | undefined, socketId:
   return wiringFor(wiring, "propulsion").some((id) => id.trim().toLowerCase() === wanted);
 }
 
-// ---------------------------------------------------------------- style ----
+/**
+ * Whether this hull can wear an emissive light map at all, and why not when it
+ * cannot. `null` = no gap.
+ *
+ * The owner's rule is "an emissive light texture for EACH ship", and there are
+ * two independent ways to miss it: no material wired to the `emissive` element
+ * (nowhere to put the map), or no map authored (nothing to put). Both are
+ * reported rather than enforced by the schema, because failing the pack load
+ * would mean no hull could be added until its light map existed — and the whole
+ * point of this pipeline is that the owner paints the images at his own pace.
+ * The gap has to be LOUD (the Ship tool's warning row, the content validator's
+ * summary) and never silent.
+ */
+export function shipEmissiveGap(wiring: ShipSkinWiring | undefined): "unwired" | "unpainted" | null {
+  if (wiringFor(wiring, "emissive").length === 0) return "unwired";
+  if (!wiring?.emissiveTexture) return "unpainted";
+  return null;
+}
+
+/** One line a designer can act on, for each {@link shipEmissiveGap} state. */
+export const EMISSIVE_GAP_MESSAGE: Record<"unwired" | "unpainted", string> = {
+  unwired:
+    "No material wired to Emissive light — this hull has nowhere to put an emissive map. Wire the lit slot (strips, windows, exhaust interiors) above.",
+  unpainted:
+    "No emissive light texture — every ship is meant to have one. Paint it and point the field below at it; until then the hull emits whatever the GLB authored.",
+};
+
+// -------------------------------------------------------------- textures ----
+
+/**
+ * A TEXTURE PACK: the authored images one skin swaps onto a hull (owner
+ * 2026-08-22). This is what a skin IS now — "skins are basically a swap between
+ * a ship texture, or a texture pack (when several textures are present)".
+ *
+ * Keyed by ELEMENT, not by GLB material name, for the same reason the styles
+ * below are: the hull already declares which of its materials each element
+ * covers ({@link shipSkinWiring}), so an element-keyed pack inherits the gate
+ * (an unwired element refuses the texture), survives a material rename, and
+ * lets one image cover the four plates a hull happens to have split its body
+ * into. A material-keyed pack would re-state that wiring inside every skin and
+ * make each one model-specific twice over.
+ *
+ * ONE entry is the whole-hull UV swap the owner described (a hull with a single
+ * UV-mapped material wires only `body`); FOUR is a pack. Materials that need
+ * their own separately-unwrapped image need their own element — which is what
+ * the element vocabulary is for.
+ *
+ * Every value is an ALBEDO/base-colour map. The emissive LIGHT map is not in
+ * here: it is `cosmetic.emissive`, because it belongs to the hull first and a
+ * skin only overrides it.
+ */
+export const skinTextures = z.object({
+  body: contentImagePath.optional(),
+  canopy: contentImagePath.optional(),
+  wings: contentImagePath.optional(),
+  /** The albedo of the LIT plates. Their light map is `cosmetic.emissive`. */
+  emissive: contentImagePath.optional(),
+// STRICT for the same reason `skinElements` is: two tools write these keys and a
+// typo'd element must fail the load, not vanish into a skin that renders nothing.
+}).strict();
+export type SkinTextures = z.infer<typeof skinTextures>;
+
+/** Whether this pack would swap anything at all. An all-blank pack is not a pack. */
+export function texturesAreEmpty(textures: SkinTextures | undefined): boolean {
+  if (!textures) return true;
+  return SURFACE_ELEMENTS.every((element) => textures[element] === undefined);
+}
+
+// --------------------------------------------------- style (LEGACY paint) ----
+//
+// Everything below this line belongs to the PROCEDURAL paint path — colour +
+// pattern + finish recipes, `kind: "paint"`. It is the legacy pipeline as of
+// the 2026-08-22 texture redesign: the 32 shipped paints and the whole shop /
+// ownership surface still run on it, and it keeps working unchanged until the
+// owner has authored texture packs to replace them. New liveries are
+// `kind: "skin"` texture packs; nothing new should reach for these.
 
 /** `#rrggbb`. No named colours, no alpha — the renderer tints materials with this verbatim. */
 export const hexColor = z

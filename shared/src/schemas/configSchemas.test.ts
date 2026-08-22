@@ -481,6 +481,22 @@ describe("ship schema", () => {
     expect(mutated("ship", setResist(-0.01))).toBe(false);
   });
 
+  it("takes the hull's own emissive light map as a content-relative image path", () => {
+    // Owner 2026-08-22: the lit strips belong to the MODEL, so the map that
+    // lights them lives on the ship and every livery inherits it.
+    const skin = (value: unknown) => (d: Record<string, unknown>) => {
+      d["skin"] = { body: ["HULL"], emissive: ["GLOW"], emissiveTexture: value };
+    };
+    expect(mutated("ship", skin("ships/textures/talon/standard/lights.png"))).toBe(true);
+    expect(mutated("ship", skin("texture.hull-plate-rough"))).toBe(false);
+    expect(mutated("ship", skin("content/ships/textures/talon/standard/lights.png"))).toBe(false);
+    // Absent is legal and means "not painted yet" — reported by
+    // `shipEmissiveGap`, never by a failed pack load.
+    expect(mutated("ship", (d) => (d["skin"] = { body: ["HULL"] }))).toBe(true);
+    // ...but a typo'd element still fails, as it always has.
+    expect(mutated("ship", (d) => (d["skin"] = { fuselage: ["HULL"] }))).toBe(false);
+  });
+
   it("requires all three upgrade tracks", () => {
     for (const track of ["hull", "engine", "energy"]) {
       expect(mutated("ship", (d) => delete (d["upgradeTracks"] as Record<string, unknown>)[track])).toBe(false);

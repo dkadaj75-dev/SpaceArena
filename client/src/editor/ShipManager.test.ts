@@ -112,6 +112,22 @@ describe("ShipManager accordions", () => {
     engine.dispose();
   });
 
+  it("shows the emissive light map gap rather than letting a hull ship without one", () => {
+    // Owner 2026-08-22: every ship is meant to have an emissive light texture.
+    // Nothing enforces it (the owner paints the images over time), so this row
+    // is the only place the gap surfaces while a hull is being authored.
+    const { manager, scene, engine } = panel();
+    const box = manager.element.querySelector<HTMLElement>("[data-emissive-texture]")!;
+
+    // This hull wires no emissive element at all: nowhere to put a map.
+    expect(box.querySelector(".ed-warn")?.textContent).toContain("nowhere to put an emissive map");
+    expect(box.querySelector<HTMLInputElement>('input[type="text"]')!.value).toBe("");
+
+    manager.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
   it("keeps a section the designer opened open across renderUi's rebuild", () => {
     const { manager, scene, engine } = panel();
     const titleOf = (d: HTMLDetailsElement): string => d.querySelector("summary")?.textContent ?? "";

@@ -35,7 +35,7 @@ export const COSMETICS: CosmeticConfig[] = [
 /**
  * Skins the shop screens never show (their card assertions pin the catalogue
  * above), but the renderer's tests do: a textured element, a patterned one, and
- * a propulsion swap.
+ * a propulsion swap — plus the texture packs the CURRENT pipeline renders.
  */
 export const RENDER_COSMETICS: CosmeticConfig[] = [
   paint("cosmetic.paint-interceptor-shellonly", "Shell Only", "ship.interceptor", {
@@ -47,6 +47,20 @@ export const RENDER_COSMETICS: CosmeticConfig[] = [
   paint("cosmetic.paint-interceptor-jets", "Jets", "ship.interceptor", {
     propulsion: { effect: "fx.boost-trail" },
   }),
+  // One image on one element: the whole-hull UV swap.
+  skin("cosmetic.skin-interceptor-ash", "Ash", "ship.interceptor", {
+    body: "ships/textures/interceptor/ash/body.png",
+  }),
+  // A pack: several elements, one authored image each.
+  skin("cosmetic.skin-interceptor-pack", "Pack", "ship.interceptor", {
+    body: "ships/textures/interceptor/pack/body.png",
+    canopy: "ships/textures/interceptor/pack/canopy.png",
+    emissive: "ships/textures/interceptor/pack/emissive.png",
+  }),
+  // Relights the ship with its own light map instead of the hull's.
+  skin("cosmetic.skin-interceptor-lit", "Lit", "ship.interceptor", { body: "ships/textures/interceptor/lit/body.png" }, "ships/textures/interceptor/lit/lights.png"),
+  // Authors nothing at all — must never cost a painted master.
+  skin("cosmetic.skin-interceptor-blank", "Blank", "ship.interceptor", {}),
 ];
 
 /** A ConfigService stand-in that answers the three shop registries + the theme. */
@@ -116,5 +130,27 @@ function paint(
   target: CosmeticConfig["target"],
   elements: CosmeticConfig["elements"],
 ): CosmeticConfig {
-  return { id, type: "cosmetic", version: 3, name, kind: "paint", price: 0, target, elements };
+  return { id, type: "cosmetic", version: 3, name, kind: "paint", price: 0, target, textures: {}, elements };
+}
+
+/** A texture pack. `emissive` is the livery's own light map, overriding the hull's. */
+function skin(
+  id: string,
+  name: string,
+  target: CosmeticConfig["target"],
+  textures: CosmeticConfig["textures"],
+  emissive?: string,
+): CosmeticConfig {
+  return {
+    id,
+    type: "cosmetic",
+    version: 3,
+    name,
+    kind: "skin",
+    price: 0,
+    target,
+    textures,
+    elements: {},
+    ...(emissive ? { emissive } : {}),
+  };
 }

@@ -8,6 +8,8 @@ import {
   newSkinFor,
   SkinEditor,
   withElementStyle,
+  withElementTexture,
+  withEmissiveTexture,
   withPropulsionEffect,
 } from "./SkinEditor.js";
 
@@ -32,7 +34,24 @@ function skin(over: Partial<CosmeticConfig> = {}): CosmeticConfig {
     kind: "paint",
     price: 0,
     target: "ship.interceptor",
+    textures: {},
     elements: { body: { color: "#f07800", pattern: "tiger" } },
+    ...over,
+  } as CosmeticConfig;
+}
+
+/** The CURRENT pipeline: one authored image on the hull's one wired element. */
+function pack(over: Partial<CosmeticConfig> = {}): CosmeticConfig {
+  return {
+    id: "cosmetic.skin-interceptor-ash",
+    type: "cosmetic",
+    version: 1,
+    name: "Ash",
+    kind: "skin",
+    price: 0,
+    target: "ship.interceptor",
+    textures: { body: "ships/textures/interceptor/ash/body.png" },
+    elements: {},
     ...over,
   } as CosmeticConfig;
 }
@@ -97,11 +116,49 @@ describe("editing an element", () => {
 describe("new skins", () => {
   it("starts styling nothing, so the designer fills each element in", () => {
     expect(newSkinFor(SHIP, []).elements).toEqual({});
+    expect(newSkinFor(SHIP, []).textures).toEqual({});
     expect(newSkinFor(SHIP, []).target).toBe("ship.interceptor");
   });
 
+  it("starts as a TEXTURE skin — the legacy paint path is reached by duplicating one", () => {
+    expect(newSkinFor(SHIP, []).kind).toBe("skin");
+    expect(newSkinFor(SHIP, []).id).toBe("cosmetic.skin-interceptor-custom-1");
+    expect(newSkinFor(SHIP, [], "paint").id).toBe("cosmetic.paint-interceptor-custom-1");
+  });
+
   it("does not collide with an id already in the pack", () => {
-    expect(newSkinFor(SHIP, ["cosmetic.paint-interceptor-custom-1"]).id).toBe("cosmetic.paint-interceptor-custom-2");
+    expect(newSkinFor(SHIP, ["cosmetic.skin-interceptor-custom-1"]).id).toBe("cosmetic.skin-interceptor-custom-2");
+    expect(newSkinFor(SHIP, ["cosmetic.paint-interceptor-custom-1"], "paint").id).toBe("cosmetic.paint-interceptor-custom-2");
+  });
+});
+
+describe("editing a texture skin", () => {
+  it("sets one element's authored image and leaves the others alone", () => {
+    const next = withElementTexture(pack(), "canopy", "ships/textures/interceptor/ash/canopy.png");
+    expect(next.textures).toEqual({
+      body: "ships/textures/interceptor/ash/body.png",
+      canopy: "ships/textures/interceptor/ash/canopy.png",
+    });
+  });
+
+  it("CLEARS an element when the box is emptied — absent is what the renderer reads", () => {
+    const next = withElementTexture(pack(), "body", "   ");
+    expect(next.textures).not.toHaveProperty("body");
+  });
+
+  it("sets and clears the livery's own light map", () => {
+    const relit = withEmissiveTexture(pack(), "ships/textures/interceptor/ash/lights.png");
+    expect(relit.emissive).toBe("ships/textures/interceptor/ash/lights.png");
+    expect(withEmissiveTexture(relit, "")).not.toHaveProperty("emissive");
+  });
+
+  it("counts an authored image as styling the element, and the hull's map as lighting it", () => {
+    const rows = elementRows(SHIP, pack());
+    expect(rows[0]).toMatchObject({ element: "body", styled: true });
+    expect(rows.find((row) => row.element === "emissive")).toMatchObject({ styled: false });
+
+    const lit = elementRows({ skin: { ...SHIP.skin, emissive: ["GLOW"], emissiveTexture: "ships/textures/i/standard/lights.png" } }, pack());
+    expect(lit.find((row) => row.element === "emissive")).toMatchObject({ styled: true, wired: ["GLOW"] });
   });
 });
 
@@ -186,6 +243,57 @@ describe("SkinEditor panel", () => {
     const bare = { ...SHIP, skin: undefined } as ShipConfig;
     const panel = new SkinEditor(host([skin()], bare).host, vi.fn());
     expect(panel.element.querySelector(".ed-warn")?.textContent).toContain("wires no skin elements");
+    panel.dispose();
+  });
+
+  it("shows a texture skin as one path box per element, not the paint controls", () => {
+    const panel = new SkinEditor(host([pack()]).host, vi.fn());
+    const body = panel.element.querySelector('[data-section="body"]')!;
+
+    expect(body.querySelector<HTMLInputElement>('input[type="text"]')!.value).toBe(
+      "ships/textures/interceptor/ash/body.png",
+    );
+    // No colour wheel, no pattern dropdown, no finish knobs: this pipeline has
+    // exactly one authored thing per element.
+    expect(body.querySelector('input[type="color"]')).toBeNull();
+    expect(body.querySelectorAll('input[type="range"]')).toHaveLength(0);
+    expect(panel.element.querySelector('[data-kind="skin"]')).not.toBeNull();
+    panel.dispose();
+  });
+
+  it("commits an edited texture path into the right element", () => {
+    const skins = [pack()];
+    const panel = new SkinEditor(host(skins).host, vi.fn());
+    const input = panel.element.querySelector<HTMLInputElement>('[data-section="canopy"] input[type="text"]')!;
+    input.value = "ships/textures/interceptor/ash/canopy.png";
+    input.dispatchEvent(new Event("change"));
+    expect(skins[0]!.textures).toMatchObject({ canopy: "ships/textures/interceptor/ash/canopy.png" });
+    panel.dispose();
+  });
+
+  it("offers the light map on the emissive element, and warns when the hull has none", () => {
+    const skins = [pack()];
+    const panel = new SkinEditor(host(skins).host, vi.fn());
+    const emissive = panel.element.querySelector('[data-section="emissive"]')!;
+
+    // Albedo + light map: two paths, because the lit plates have both.
+    const boxes = emissive.querySelectorAll<HTMLInputElement>('input[type="text"]');
+    expect(boxes).toHaveLength(2);
+    // SHIP wires no emissive element at all — the owner's one hard rule, unmet.
+    expect(emissive.querySelector(".ed-warn")?.textContent).toContain("nowhere to put an emissive map");
+
+    boxes[1]!.value = "ships/textures/interceptor/ash/lights.png";
+    boxes[1]!.dispatchEvent(new Event("change"));
+    expect(skins[0]!.emissive).toBe("ships/textures/interceptor/ash/lights.png");
+    panel.dispose();
+  });
+
+  it("keeps the legacy paint editor for a kind:\"paint\" cosmetic", () => {
+    const panel = new SkinEditor(host([skin()]).host, vi.fn());
+    const body = panel.element.querySelector('[data-section="body"]')!;
+    expect(body.querySelector('input[type="color"]')).not.toBeNull();
+    expect(body.querySelectorAll('input[type="range"]')).toHaveLength(4);
+    expect(panel.element.querySelector('[data-kind="paint"]')?.textContent).toContain("Legacy paint");
     panel.dispose();
   });
 
