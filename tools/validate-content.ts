@@ -10,7 +10,16 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { CONFIG_TYPES, ConfigService, rockTextureSet, type AnyConfig, type ConfigError, type ThemeConfig } from "@space-arena/shared";
+import {
+  CONFIG_TYPES,
+  ConfigService,
+  rockTextureSet,
+  shipEmissiveGap,
+  type AnyConfig,
+  type ConfigError,
+  type ShipConfig,
+  type ThemeConfig,
+} from "@space-arena/shared";
 
 const CONTENT_DIR = fileURLToPath(new URL("../content/", import.meta.url));
 const MANIFEST = "manifest.json";
@@ -166,10 +175,23 @@ const ASSET_PATH_KEYS = new Set([
   "clouds",
   "night",
   "ocean",
+  // The texture-skin pipeline (2026-08-22): a hull's own emissive light map
+  // (`ship.skin.emissiveTexture`) and a livery's override (`cosmetic.emissive`).
+  "emissiveTexture",
+  "emissive",
 ]);
 
 /**
- * Recursively collect every string value at one of {@link ASSET_PATH_KEYS}.
+ * Keys whose VALUE is a record of asset paths rather than one path. A skin's
+ * `textures` block is keyed by skin element (`body`, `canopy`, …), so no fixed
+ * key name could ever reach the paths inside it — and every image the owner
+ * paints would be reported as an orphan, inviting someone to delete a livery.
+ */
+const ASSET_PATH_RECORD_KEYS = new Set(["textures"]);
+
+/**
+ * Recursively collect every string value at one of {@link ASSET_PATH_KEYS}, and
+ * every string leaf of a {@link ASSET_PATH_RECORD_KEYS} record.
  * Walking the already-validated config tree, rather than grepping raw JSON,
  * means a field zod would have rejected can never smuggle in a bogus path.
  */
@@ -182,6 +204,10 @@ function collectModelTextureRefs(value: unknown, out: Set<string>): void {
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     if (ASSET_PATH_KEYS.has(key) && typeof child === "string" && child.length > 0) {
       out.add(child);
+    } else if (ASSET_PATH_RECORD_KEYS.has(key) && child !== null && typeof child === "object") {
+      for (const path of Object.values(child as Record<string, unknown>)) {
+        if (typeof path === "string" && path.length > 0) out.add(path);
+      }
     } else {
       collectModelTextureRefs(child, out);
     }
@@ -342,6 +368,40 @@ function printSweep(result: SweepResult): void {
   console.log("");
 }
 
+/**
+ * THE EMISSIVE LIGHT MAP ROLL-CALL (owner 2026-08-22: "there should be an
+ * emissive light texture for each ship").
+ *
+ * A warning, not a gate, for the same reason the orphan sweep is: the owner
+ * paints these images himself, over time, and a hull that ships before its
+ * light map is normal authoring traffic rather than a broken build. But it must
+ * never be SILENT — a missing light map is invisible in-game (the hull simply
+ * emits whatever the GLB authored, which is usually nothing), so this list is
+ * the only place the gap shows up outside the F10 Ship tool.
+ */
+function printEmissiveGaps(service: ConfigService): void {
+  const gaps = service
+    .getAll<ShipConfig>("ship")
+    .map((ship) => ({ ship, gap: shipEmissiveGap(ship.skin) }))
+    .filter((entry): entry is { ship: ShipConfig; gap: "unwired" | "unpainted" } => entry.gap !== null);
+
+  console.log("\nEmissive light textures — WARNING only, never fails the build\n");
+  if (gaps.length === 0) {
+    console.log("  ✔ every hull wires an emissive element and declares its light map.");
+    console.log("");
+    return;
+  }
+  console.log(`  ⚠ ${gaps.length} hull(s) without an emissive light texture:`);
+  for (const { ship, gap } of gaps) {
+    console.log(`      ${ship.id.padEnd(18)} ${gap === "unwired" ? "no emissive element wired" : "wired, but no ship.skin.emissiveTexture"}`);
+  }
+  console.log(
+    "\n  Fix: paint content/ships/textures/<hull>/standard/lights.png and set\n" +
+      "  ship.skin.emissiveTexture (F10 → Ships → Skins logic). See docs/SKINS.md.",
+  );
+  console.log("");
+}
+
 async function main(): Promise<void> {
   const service = new ConfigService(fsLoader);
   const result = await service.load(MANIFEST);
@@ -367,6 +427,8 @@ async function main(): Promise<void> {
     console.error("validate:content FAILED");
     process.exit(1);
   }
+
+  printEmissiveGaps(service);
 
   const total = Object.values(result.counts).reduce((a, b) => a + (b ?? 0), 0);
   const breakdown = Object.entries(result.counts)

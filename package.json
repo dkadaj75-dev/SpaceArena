@@ -20,6 +20,7 @@
     "validate:terrain": "node tools/lunar-rift-seam-audit.mjs --lod 0 && node tools/lunar-rift-seam-audit.mjs --lod 1 && node tools/lunar-rift-seam-audit.mjs --lod mix",
     "content:export": "tsx tools/export-content.ts",
     "content:proof": "tsx tools/pack-proof.ts",
+    "content:ship-textures": "tsx tools/extract-ship-textures.ts",
     "bundle:budget": "tsx tools/bundle-budget.ts",
     "loadtest": "tsx tools/loadtest.ts --rooms 20 --duration 60",
     "loadtest:soak": "tsx tools/loadtest.ts --rooms 20 --duration 3600",
