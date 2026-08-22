@@ -1,0 +1,41 @@
+{
+  "id": "module.alloy-martian-p4",
+  "type": "module",
+  "version": 1,
+  "family": "hull",
+  "level": 4,
+  "name": "Martian Alloy Purity IV",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "hull.base",
+      "op": "mul",
+      "value": 1.5
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 0.9
+    },
+    {
+      "target": "hull.resists.energy",
+      "op": "mul",
+      "value": 0.85
+    },
+    {
+      "target": "hull.resists.kinetic",
+      "op": "mul",
+      "value": 1.3
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: hull]",
+    "shortName": "Martian IV",
+    "label": "Alloy"
+  },
+  "price": 2500,
+  "requiresLevel": 5
+}

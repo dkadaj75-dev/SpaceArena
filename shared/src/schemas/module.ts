@@ -237,9 +237,12 @@ const moduleObject = z.object({
    * current this module occupies WHILE ACTIVE, independent of the energy it
    * drains from the capacitor over time.
    *
-   * This is what makes two big lasers mutually exclusive on a hull whose
-   * transformer cannot feed both: you may fit them, but bringing one up takes
-   * the other down. Distinct from the module's own {@link energyBlock} tank,
+   * This is what makes two big lasers mutually exclusive on a hull whose rail
+   * cannot feed both: you may fit them, but bringing one up takes
+   * the other down. Since the transformer family was retired (2026-08-22) the
+   * rail's capacity is a pure HULL stat — `core.power.capacity`, authored per
+   * ship — rather than something a bay contributes to.
+   * Distinct from the module's own {@link energyBlock} tank,
    * which is charge spent over time. Omitted ⇒ 0, i.e. the module is always
    * compatible with everything (internals and utilities).
    */
@@ -356,13 +359,27 @@ export const moduleSchema = moduleObject.superRefine((mod, ctx) => {
     });
   }
   // The rail is a HARDPOINT budget. Internals have no toggle, so a draw on one
-  // could only ever mean a bay that shuts itself off — and the transformer that
-  // *feeds* the rail is itself an internal.
+  // could only ever mean a bay that shuts itself off, and the capacity it would
+  // draw against is a hull stat no bay contributes to any more (2026-08-22).
   if (mod.power && isInternalFamily(mod.family)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `internal family '${mod.family}' does not draw on the power rail — the rail is a hardpoint budget`,
       path: ["power"],
+    });
+  }
+  // An ALLOY (`hull` family, owner 2026-08-22) is the airframe itself, not a
+  // device bolted into it: no trigger, no tank, no bubble. Every other internal
+  // is allowed exactly one behaviour block it is named for (a generator's
+  // `recharge`, a pod's `jettison`, an engine's `boost`); this one is allowed
+  // none, and its whole effect is the `passives` list. Saying so here stops a
+  // pack from parking a shield or a gun in the alloy bay, where the HUD would
+  // never draw a button for it and the pilot could never fire it.
+  if (mod.family === "hull" && (mod.fire || mod.mitigation || mod.energy)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "a 'hull' alloy is purely passive — author `passives`, not fire/mitigation/energy",
+      path: ["family"],
     });
   }
   if (mod.jettison && mod.family !== "countermeasure") {

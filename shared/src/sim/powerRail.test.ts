@@ -8,6 +8,7 @@ import { moduleSystem } from "./systems/ModuleSystem.js";
 import {
   INTERCEPTOR_FITTING,
   INTERCEPTOR_FITTING_OVERSUBSCRIBED,
+  INTERCEPTOR_SLOTS,
   loadTestConfigs,
   makeWorld,
 } from "./testutil.js";
@@ -52,11 +53,11 @@ describe("power rail draw (owner 2026-07-31)", () => {
 
   it("never charges an INTERNAL — the bay supplies the rail, it does not contend", () => {
     for (const id of [
-      "module.engine-civ",
-      "module.generator-compact",
-      "module.transformer-stock",
+      "module.engine-earth-eng1",
+      "module.generator-earth-eng1",
+      "module.alloy-earth-p1",
       "module.countermeasure-flare",
-      "module.sensors-basic",
+      "module.sensors-common-mk1",
     ]) {
       expect(draw(id), id).toBe(0);
     }
@@ -79,15 +80,25 @@ describe("power rail draw (owner 2026-07-31)", () => {
   });
 });
 
-describe("the transformer is what sizes the rail", () => {
-  it("a superconducting bus feeds more than the stock one", () => {
-    const swap = (t: string) => INTERCEPTOR_FITTING.map((m) => (m.startsWith("module.transformer") ? t : m));
-    expect(railOf("ship.interceptor", swap("module.transformer-efficient"))).toBeGreaterThan(
-      railOf("ship.interceptor", swap("module.transformer-stock")),
-    );
+describe("the HULL is what sizes the rail (owner 2026-08-22)", () => {
+  it("no fitted module widens or narrows it", () => {
+    // The transformer family used to feed the rail, and choosing one was
+    // choosing how much you could run at once. It is gone, and capacity is now
+    // authored on the airframe alone — so swapping every internal a hull can
+    // take must leave the rail exactly where it was.
+    const swap = (bay: number, mod: string) => {
+      const fitting = [...INTERCEPTOR_FITTING];
+      fitting[bay] = mod;
+      return railOf("ship.interceptor", fitting);
+    };
+    const stock = railOf("ship.interceptor", INTERCEPTOR_FITTING);
+    expect(swap(INTERCEPTOR_SLOTS.hull, "module.alloy-martian-p4")).toBe(stock);
+    expect(swap(INTERCEPTOR_SLOTS.engine, "module.engine-earth-eng4")).toBe(stock);
+    expect(swap(INTERCEPTOR_SLOTS.generator, "module.generator-earth-eng4")).toBe(stock);
+    expect(swap(INTERCEPTOR_SLOTS.sensors, "module.sensors-sharpshooter-mk4")).toBe(stock);
   });
 
-  it("a heavier hull carries a wider rail than a light one, bus for bus", () => {
+  it("a heavier hull carries a wider rail than a light one", () => {
     const brawler = configs.get<ShipConfig>("ship", "ship.brawler")!;
     const interceptor = configs.get<ShipConfig>("ship", "ship.interceptor")!;
     expect(railOf("ship.brawler", brawler.defaultFitting.filter((m): m is string => m !== null))).toBeGreaterThan(

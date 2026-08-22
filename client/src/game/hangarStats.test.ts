@@ -68,8 +68,12 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     const laser = configs.get<ModuleConfig>("module", "module.laser-mk1")!;
     const missile = configs.get<ModuleConfig>("module", "module.missile-mk1")!;
     // The light hull's stock fit: laser + missile on its two hardpoints, plus
-    // the five stock internals. No fitted module carries an energy tank.
-    expect(panel.energyReserve).toBe(0);
+    // the five stock internals. Weapons carry no tank at all, so the whole
+    // reserve is the ENGINE's boost bottle — every mark of the Earth Engine
+    // line carries the same afterburner (owner 2026-08-22), the baseline mark
+    // included, so the stock hull now leaves the pad with a charged bottle.
+    const engine = configs.get<ModuleConfig>("module", "module.engine-earth-eng1")!;
+    expect(panel.energyReserve).toBe(engine.energy!.capacity);
     expect(panel.dps).toBeCloseTo(
       laser.fire!.damage / laser.fire!.cycleTime + missile.fire!.damage / missile.fire!.cycleTime,
       6,
@@ -135,13 +139,48 @@ describe("computeStatPanel (Hangar stat panel)", () => {
     expect(panel.powerOverSubscribed).toBe(true);
   });
 
-  it("counts the transformer as the thing that widens the rail", () => {
+  it("quotes the rail as a HULL property no alloy can widen (2026-08-22)", () => {
     const swap = (t: string) =>
-      interceptor.defaultFitting.map((m) => (m?.startsWith("module.transformer") ? t : m));
-    const stock = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.transformer-stock") });
-    const better = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.transformer-efficient") });
-    expect(better.powerCapacity).toBeGreaterThan(stock.powerCapacity);
-    expect(better.powerDrawTotal).toBe(stock.powerDrawTotal);
+      interceptor.defaultFitting.map((m) => (m?.startsWith("module.alloy-") ? t : m));
+    const stock = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.alloy-earth-p1") });
+    const heavy = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.alloy-martian-p4") });
+    // The transformer used to feed the rail and this test used to prove it.
+    // With that family retired the rail is authored on the airframe, so the
+    // strongest alloy in the game moves the hull, the speed and the resists —
+    // and leaves the power budget exactly where it found it.
+    expect(heavy.powerCapacity).toBe(stock.powerCapacity);
+    expect(heavy.powerDrawTotal).toBe(stock.powerDrawTotal);
+    expect(heavy.hullMax).toBeGreaterThan(stock.hullMax);
+  });
+
+  it("shows the resolved resists, which the alloy bay is the first thing to move", () => {
+    const swap = (t: string) =>
+      interceptor.defaultFitting.map((m) => (m?.startsWith("module.alloy-") ? t : m));
+    const stock = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.alloy-earth-p1") });
+    const martian = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.alloy-martian-p4") });
+    const lunar = computeStatPanel(interceptor, configs, { fittedModuleIds: swap("module.alloy-lunar-p4") });
+    // Martian hardens against kinetic; Lunar softens against it. The panel must
+    // quote the RESOLVED column, not the hull's authored one, or the effective
+    // HP beside it would describe a ship nobody is flying.
+    expect(martian.resistKinetic).toBeGreaterThan(stock.resistKinetic);
+    expect(lunar.resistKinetic).toBeLessThan(stock.resistKinetic);
+    expect(martian.ehpApprox).toBeGreaterThan(stock.ehpApprox);
+  });
+
+  it("reads the Earth alloy's 'Shields' column as the hull's shield reserve", () => {
+    const swap = (t: string) =>
+      interceptor.defaultFitting.map((m) => (m?.startsWith("module.alloy-") ? t : m));
+    const fit = (alloy: string) => {
+      const ids = swap(alloy);
+      ids[1] = "module.shield-mk1"; // the light hull's stock fit carries no shield
+      return computeStatPanel(interceptor, configs, { fittedModuleIds: ids });
+    };
+    const stock = fit("module.alloy-earth-p1");
+    const plated = fit("module.alloy-earth-p4");
+    expect(plated.shieldEfficiency).toBeCloseTo(stock.shieldEfficiency * 1.2, 9);
+    // …and because a shield's reserve IS its tank, the rolled-up tank total
+    // moves with it. That is the whole reason "Shields %" maps here.
+    expect(plated.energyReserve).toBeGreaterThan(stock.energyReserve);
   });
 
   it("is deterministic for identical inputs", () => {

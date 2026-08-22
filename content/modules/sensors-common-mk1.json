@@ -1,0 +1,20 @@
+{
+  "id": "module.sensors-common-mk1",
+  "type": "module",
+  "version": 1,
+  "family": "sensors",
+  "level": 1,
+  "name": "Common Sensors Mark I",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [],
+  "ui": {
+    "icon": "[ICON: sensors]",
+    "shortName": "Common I",
+    "label": "Sensors"
+  },
+  "price": 0,
+  "requiresLevel": 1
+}

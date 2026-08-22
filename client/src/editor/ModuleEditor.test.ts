@@ -82,8 +82,10 @@ describe("ModuleEditor", () => {
       "disruptor", "repair",
       "boost", "utility",
       // The internal bay's families (2026-07-31) — the form is generated from
-      // the schema, so they appear here the moment the enum grows.
-      "engine", "generator", "transformer", "countermeasure", "sensors",
+      // the schema, so they appear here the moment the enum grows. `hull` (the
+      // alloy bay, 2026-08-22) arrived exactly that way, and `transformer` left
+      // the same way: one edit to the zod enum, no editor code either time.
+      "engine", "generator", "hull", "countermeasure", "sensors",
     ]);
     expect(panel.element.querySelector('[name="fire.mode"]')).not.toBeNull();
     // Cycle time is what a weapon is authored in (heat deleted 2026-08-20).

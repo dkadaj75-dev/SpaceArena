@@ -66,11 +66,11 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
         "module.laser-mk1",
         "module.kinetic-mk1",
         null,
-        "module.engine-sport",
-        "module.generator-heavy",
-        "module.transformer-cryo",
+        "module.engine-earth-eng2",
+        "module.generator-earth-eng2",
+        "module.alloy-martian-p2",
         "module.countermeasure-chaff",
-        "module.sensors-longrange",
+        "module.sensors-sharpshooter-mk2",
         "module.utility-armor-plating",
       ],
     });
@@ -83,11 +83,11 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
     expect(fitted).toEqual([
       "0:module.laser-mk1",
       "1:module.kinetic-mk1",
-      "3:module.engine-sport",
-      "4:module.generator-heavy",
-      "5:module.transformer-cryo",
+      "3:module.engine-earth-eng2",
+      "4:module.generator-earth-eng2",
+      "5:module.alloy-martian-p2",
       "6:module.countermeasure-chaff",
-      "7:module.sensors-longrange",
+      "7:module.sensors-sharpshooter-mk2",
       "8:module.utility-armor-plating",
     ]);
   });
@@ -108,20 +108,20 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
         "module.utility-armor-plating", // a hardpoint refuses dead weight
         "module.missile-mk1",
         "module.laser-mk1", // engine bay refuses a weapon
-        "module.generator-compact",
-        "module.transformer-stock",
+        "module.generator-earth-eng1",
+        "module.alloy-earth-p1",
         "module.countermeasure-flare",
-        "module.sensors-basic",
+        "module.sensors-common-mk1",
       ],
     });
     expect(playerFittingOf(session)).toEqual([
       null,
       "module.missile-mk1",
       null,
-      "module.generator-compact",
-      "module.transformer-stock",
+      "module.generator-earth-eng1",
+      "module.alloy-earth-p1",
       "module.countermeasure-flare",
-      "module.sensors-basic",
+      "module.sensors-common-mk1",
     ]);
   });
 
@@ -139,12 +139,12 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
         "module.laser-mk1",
         "module.missile-mk1",
         "module.shield-mk1", // was hp-core, now the engine bay
-        "module.engine-civ",
-        "module.generator-compact",
-        "module.transformer-stock",
+        "module.engine-earth-eng1",
+        "module.generator-earth-eng1",
+        "module.alloy-earth-p1",
         "module.countermeasure-flare",
-        "module.sensors-basic",
-        "module.generator-compact",
+        "module.sensors-common-mk1",
+        "module.generator-earth-eng1",
         "module.laser-mk2", // was hp-chin — a slot the hull no longer has
         "module.utility-armor-plating", // was hp-utility — likewise
       ],
@@ -178,22 +178,22 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
       playerFitting: [
         "module.laser-mk1",
         "module.missile-mk1",
-        "module.engine-civ",
-        "module.generator-compact",
-        "module.transformer-stock",
+        "module.engine-earth-eng1",
+        "module.generator-earth-eng1",
+        "module.alloy-earth-p1",
         "module.countermeasure-flare",
-        "module.sensors-basic",
+        "module.sensors-common-mk1",
         "module.utility-armor-plating", // the retired third hardpoint
       ],
     });
     expect(playerFittingOf(session)).toEqual([
       "module.laser-mk1",
       "module.missile-mk1",
-      "module.engine-civ",
-      "module.generator-compact",
-      "module.transformer-stock",
+      "module.engine-earth-eng1",
+      "module.generator-earth-eng1",
+      "module.alloy-earth-p1",
       "module.countermeasure-flare",
-      "module.sensors-basic",
+      "module.sensors-common-mk1",
     ]);
   });
 

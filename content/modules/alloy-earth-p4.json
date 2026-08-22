@@ -1,0 +1,36 @@
+{
+  "id": "module.alloy-earth-p4",
+  "type": "module",
+  "version": 1,
+  "family": "hull",
+  "level": 4,
+  "name": "Earth Alloy Purity IV",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "hull.base",
+      "op": "mul",
+      "value": 1.2
+    },
+    {
+      "target": "combat.shieldEfficiency",
+      "op": "mul",
+      "value": 1.2
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 0.925
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: hull]",
+    "shortName": "E-Alloy IV",
+    "label": "Alloy"
+  },
+  "price": 2200,
+  "requiresLevel": 5
+}

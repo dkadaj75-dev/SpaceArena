@@ -1,44 +1,39 @@
 {
-  "id": "module.engine-endurance",
+  "id": "module.engine-earth-eng2",
   "type": "module",
   "version": 1,
   "family": "engine",
   "level": 2,
-  "name": "Endurance Drive",
+  "name": "Earth Engine Engineered II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
   },
   "energy": {
-    "capacity": 90,
-    "rechargePerSec": 9.0,
-    "drawPerSec": 18
+    "capacity": 55,
+    "rechargePerSec": 7.4,
+    "drawPerSec": 20
   },
   "boost": {
-    "speedMult": 1.48
+    "speedMult": 1.7
   },
   "passives": [
     {
       "target": "engine.nominalSpeed",
       "op": "mul",
-      "value": 1.05
+      "value": 1.15
     },
     {
-      "target": "engine.accel",
+      "target": "efficiency.energyDraw",
       "op": "mul",
-      "value": 0.94
-    },
-    {
-      "target": "engine.turnRate",
-      "op": "mul",
-      "value": 0.96
+      "value": 1.1
     }
   ],
   "ui": {
     "icon": "[ICON: engine]",
-    "shortName": "Endurance",
+    "shortName": "E-Engine II",
     "label": "Engine"
   },
-  "price": 850,
+  "price": 700,
   "requiresLevel": 2
 }

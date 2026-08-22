@@ -240,7 +240,7 @@ describe("flightStep ⇄ NavigationSystem parity (FLIGHT.md §1, BUBBLE.md §A)"
     const id = spawnShipFromConfig(world, configs, "ship.interceptor", INTERCEPTOR_FITTING_BOOST, 0, { x: 0, z: 0 }, 0);
     const boost = world.modules.get(id)!.modules[2]!;
     boost.state = "active"; // always-on drive with a full energy bottle
-    const boostMult = configs.get<ModuleConfig>("module", "module.engine-sport")!.boost!.speedMult;
+    const boostMult = configs.get<ModuleConfig>("module", "module.engine-earth-eng2")!.boost!.speedMult;
 
     const tf = world.transforms.get(id)!;
     const vel = world.velocities.get(id)!;

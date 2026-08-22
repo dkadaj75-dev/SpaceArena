@@ -1,10 +1,10 @@
 {
-  "id": "module.sensors-precision",
+  "id": "module.sensors-sharpshooter-mk4",
   "type": "module",
   "version": 1,
   "family": "sensors",
-  "level": 3,
-  "name": "Precision Tracking Array",
+  "level": 4,
+  "name": "Sharpshooter Mark IV",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -13,24 +13,19 @@
     {
       "target": "sensors.lockRange",
       "op": "mul",
-      "value": 1.15
+      "value": 1.25
     },
     {
       "target": "sensors.lockTimeSec",
       "op": "mul",
-      "value": 0.78
-    },
-    {
-      "target": "sensors.coneDeg",
-      "op": "mul",
-      "value": 0.72
+      "value": 0.9
     }
   ],
   "ui": {
     "icon": "[ICON: sensors]",
-    "shortName": "Precision",
+    "shortName": "Sharp IV",
     "label": "Sensors"
   },
-  "price": 1550,
-  "requiresLevel": 4
+  "price": 2400,
+  "requiresLevel": 5
 }

@@ -53,7 +53,8 @@ export const hudModulesSchema = z.object({
       utility: z.string().optional(),
       engine: z.string().optional(),
       generator: z.string().optional(),
-      transformer: z.string().optional(),
+      /** The alloy bay (2026-08-22), on the socket `transformer` used to hold. */
+      hull: z.string().optional(),
       countermeasure: z.string().optional(),
       sensors: z.string().optional(),
     })

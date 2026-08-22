@@ -8,7 +8,7 @@ import {
   type ShipConfig,
 } from "../schemas/index.js";
 import { resolveShipStats } from "./resolveStats.js";
-import { INTERCEPTOR_FITTING, loadTestConfigs } from "./testutil.js";
+import { INTERCEPTOR_FITTING, INTERCEPTOR_SLOTS, loadTestConfigs } from "./testutil.js";
 
 let configs: ConfigService;
 let interceptor: ShipConfig;
@@ -46,7 +46,11 @@ describe("hull slot layout (owner 2026-07-31)", () => {
       expect(internalsOf(ship).slice(0, 5).map((s) => s.accepts[0]), `${shipId} core internals`).toEqual([
         "engine",
         "generator",
-        "transformer",
+        // The ALLOY bay (owner 2026-08-22), on the socket the retired
+        // transformer family used to hold — same index, so a stored fitting's
+        // slot 4 still addresses an internal rather than shifting everything
+        // after it.
+        "hull",
         "countermeasure",
         "sensors",
       ]);
@@ -73,7 +77,7 @@ describe("hull slot layout (owner 2026-07-31)", () => {
       for (const socket of internalsOf(ship)) {
         expect(
           socket.accepts.every((f) =>
-            ["engine", "generator", "transformer", "countermeasure", "sensors", "utility"].includes(f),
+            ["engine", "generator", "hull", "countermeasure", "sensors", "utility"].includes(f),
           ),
           `${shipId} ${socket.id}`,
         ).toBe(true);
@@ -97,48 +101,165 @@ describe("hull slot layout (owner 2026-07-31)", () => {
   });
 });
 
-describe("internals shape the hull", () => {
+/**
+ * THE 2026-08-22 INTERNAL REWORK, stat hook by stat hook.
+ *
+ * Every value in the owner's tables is a PERCENT MODIFIER on the hull's base
+ * stat, expressed as a `mul` passive through the one stat resolver. These tests
+ * assert the exact arithmetic rather than a direction, because "bigger than
+ * stock" would pass just as happily if a +50% engine were wired to +5%.
+ *
+ * The BASE the percentages are read against is the hull as authored, which is
+ * what makes the baseline modules (Earth Engine Engineered I, Earth Generator
+ * Engineered I, Earth Alloy Purity I, Common Sensors Mark I) meaningful: they
+ * author no passives at all, so a ship on its default fitting flies on exactly
+ * its authored numbers. `base()` below fits precisely those, so every
+ * expectation reads as "hull stat × the table's percent".
+ */
+describe("internals shape the hull (owner 2026-08-22)", () => {
   const base = () => resolveShipStats(interceptor, configs, { fittedModuleIds: INTERCEPTOR_FITTING });
+  /** The hull's AUTHORED core — what every percentage in the tables is read against. */
+  const authored = () => interceptor.core;
 
-  it("ENGINE: the stock drive has no boost at all; the sporting one trades turn rate for speed", () => {
-    expect(configs.get<ModuleConfig>("module", "module.engine-civ")!.boost).toBeUndefined();
-    const sport = configs.get<ModuleConfig>("module", "module.engine-sport")!;
-    expect(sport.boost!.speedMult).toBeGreaterThan(1);
-
+  it("BASELINE: the four default internals move nothing at all", () => {
     const stock = base();
-    const fast = withInternal("module.engine-sport");
-    expect(fast.engine.nominalSpeed).toBeGreaterThan(stock.engine.nominalSpeed);
-    expect(fast.engine.turnRate).toBeLessThan(stock.engine.turnRate);
-
-    // …and the agile drive is the mirror image of that trade.
-    const agile = withInternal("module.engine-agile");
-    expect(agile.engine.turnRate).toBeGreaterThan(stock.engine.turnRate);
-    expect(agile.engine.nominalSpeed).toBeLessThan(stock.engine.nominalSpeed);
+    const c = authored();
+    expect(stock.engine.nominalSpeed).toBe(c.engine.nominalSpeed);
+    expect(stock.hull).toBe(c.hull.base);
+    expect(stock.efficiency.energyDraw).toBe(1);
+    expect(stock.energyStore.multiplier).toBe(1);
+    expect(stock.sensors.lockRange).toBe(c.sensors.lockRange);
+    expect(stock.sensors.lockTimeSec).toBe(c.sensors.lockTimeSec);
+    expect(stock.resists).toEqual({ kinetic: c.hull.resists.kinetic, energy: c.hull.resists.energy });
+    for (const id of [
+      "module.engine-earth-eng1",
+      "module.generator-earth-eng1",
+      "module.alloy-earth-p1",
+      "module.sensors-common-mk1",
+    ]) {
+      expect(configs.get<ModuleConfig>("module", id)!.passives, id).toEqual([]);
+    }
   });
 
-  it("GENERATOR: a bigger plant refills the module tanks faster and costs top speed", () => {
-    const stock = base();
-    const heavy = withInternal("module.generator-heavy");
-    expect(heavy.recharge.multiplier).toBeGreaterThan(stock.recharge.multiplier);
-    expect(heavy.energyStore.multiplier).toBeGreaterThan(stock.energyStore.multiplier);
-    expect(heavy.engine.nominalSpeed).toBeLessThan(stock.engine.nominalSpeed);
-
-    // The siege plant takes that trade further on both axes.
-    const siege = withInternal("module.generator-siege");
-    expect(siege.recharge.multiplier).toBeGreaterThan(heavy.recharge.multiplier);
-    expect(siege.engine.nominalSpeed).toBeLessThan(heavy.engine.nominalSpeed);
+  it("ENGINE: buys top speed and pays for it in ship-wide energy draw", () => {
+    const c = authored();
+    // Owner's table: II +15%/+10%, III +30%/+20%, IV +50%/+30%.
+    for (const [id, speed, draw] of [
+      ["module.engine-earth-eng2", 1.15, 1.1],
+      ["module.engine-earth-eng3", 1.3, 1.2],
+      ["module.engine-earth-eng4", 1.5, 1.3],
+    ] as const) {
+      const core = withInternal(id);
+      expect(core.engine.nominalSpeed, id).toBeCloseTo(c.engine.nominalSpeed * speed, 9);
+      // `efficiency.energyDraw` is the DOWNSIDE, and it is the hook the retired
+      // transformer family owned — EnergySystem still bills exactly this one
+      // multiplier per drain, so a faster hull empties every tank sooner.
+      expect(core.efficiency.energyDraw, id).toBeCloseTo(draw, 9);
+    }
   });
 
-  it("TRANSFORMER: trades rail capacity against how thirstily every module runs", () => {
+  it("ENGINE: every mark carries the same afterburner, so boost is not a mark reward", () => {
+    // Boost has ridden the engine internal since 2026-07-31 and the owner's
+    // table lists two stats, neither of them boost. Making the afterburner
+    // better up the line would be inventing progression the sheet does not
+    // have; taking it away entirely would delete the BOOST button from the
+    // shipped pack. So all four marks carry one identical block.
+    const blocks = ["eng1", "eng2", "eng3", "eng4"].map(
+      (m) => configs.get<ModuleConfig>("module", `module.engine-earth-${m}`)!,
+    );
+    for (const mod of blocks) {
+      expect(mod.boost, mod.id).toEqual(blocks[0]!.boost);
+      expect(mod.energy, mod.id).toEqual(blocks[0]!.energy);
+      expect(mod.boost!.speedMult).toBeGreaterThan(1);
+    }
+  });
+
+  it("GENERATOR: sizes the module tanks, and touches nothing else", () => {
+    const c = authored();
+    // Owner's single column is Power capacity — `energyStore.multiplier`, the
+    // size of every tank the hull carries. The old line's recharge-rate and
+    // top-speed trades are gone with it.
+    for (const [id, cap] of [
+      ["module.generator-earth-eng2", 1.1],
+      ["module.generator-earth-eng3", 1.25],
+      ["module.generator-earth-eng4", 1.5],
+    ] as const) {
+      const core = withInternal(id);
+      expect(core.energyStore.multiplier, id).toBeCloseTo(cap, 9);
+      expect(core.recharge.multiplier, id).toBe(1);
+      expect(core.engine.nominalSpeed, id).toBe(c.engine.nominalSpeed);
+    }
+  });
+
+  it("HULL: the Martian plate is structure and kinetic hardening bought with speed and energy resist", () => {
+    const c = authored();
+    const core = withInternal("module.alloy-martian-p4");
+    expect(core.hull).toBeCloseTo(c.hull.base * 1.5, 9);
+    expect(core.engine.nominalSpeed).toBeCloseTo(c.engine.nominalSpeed * 0.9, 9);
+    expect(core.resists.kinetic).toBeCloseTo(c.hull.resists.kinetic * 1.3, 9);
+    expect(core.resists.energy).toBeCloseTo(c.hull.resists.energy * 0.85, 9);
+  });
+
+  it("HULL: the Lunar plate is the mirror image — thin, fast and energy-hardened", () => {
+    const c = authored();
+    const core = withInternal("module.alloy-lunar-p4");
+    expect(core.hull).toBeCloseTo(c.hull.base * 0.8, 9);
+    expect(core.engine.nominalSpeed).toBeCloseTo(c.engine.nominalSpeed * 1.25, 9);
+    expect(core.resists.kinetic).toBeCloseTo(c.hull.resists.kinetic * 0.85, 9);
+    expect(core.resists.energy).toBeCloseTo(c.hull.resists.energy * 1.3, 9);
+  });
+
+  it("HULL: the Earth plate is the only line that touches the shield reserve", () => {
+    const c = authored();
     const stock = base();
-    expect(stock.efficiency).toEqual({ energyDraw: 1 });
+    const core = withInternal("module.alloy-earth-p4");
+    expect(core.hull).toBeCloseTo(c.hull.base * 1.2, 9);
+    // "Shields ±X%" is the hull's SHIELD RESERVE multiplier: a shield's tank IS
+    // its strength in this engine (`moduleTankCapacity` sizes it, EnergySystem
+    // refills it at the same scale), so this is the honest reading of the word.
+    expect(core.combat.shieldEfficiency).toBeCloseTo(stock.combat.shieldEfficiency * 1.2, 9);
+    expect(core.engine.nominalSpeed).toBeCloseTo(c.engine.nominalSpeed * 0.925, 9);
+    // …and it leaves both resist columns exactly where the hull authored them.
+    expect(core.resists).toEqual(stock.resists);
+  });
 
-    const efficient = withInternal("module.transformer-efficient");
-    expect(efficient.efficiency.energyDraw).toBeLessThan(1); // cheaper to run…
-    expect(efficient.power.capacity).toBeGreaterThan(stock.power.capacity);
+  it("HULL: a resist can never be pushed outside its band by a stack of alloys", () => {
+    // The Talon authors 0.2755 energy resist — the highest shipped — and the
+    // resolver holds every resist to the same 0..0.95 the schema holds an
+    // author to. Nothing legal makes a hull immune to a damage channel.
+    for (const ship of configs.getAll<ShipConfig>("ship")) {
+      for (const alloy of ["module.alloy-martian-p4", "module.alloy-lunar-p4", "module.alloy-earth-p4"]) {
+        const bay = internalsOf(ship).findIndex((s) => s.accepts.includes("hull"));
+        const fitting = [...ship.defaultFitting];
+        fitting[weaponHardpointsOf(ship).length + bay] = alloy;
+        const core = resolveShipStats(ship, configs, { fittedModuleIds: fitting });
+        for (const key of ["kinetic", "energy"] as const) {
+          expect(core.resists[key], `${ship.id} ${alloy} ${key}`).toBeGreaterThanOrEqual(0);
+          expect(core.resists[key], `${ship.id} ${alloy} ${key}`).toBeLessThanOrEqual(0.95);
+        }
+      }
+    }
+  });
 
-    const cryo = withInternal("module.transformer-cryo");
-    expect(cryo.efficiency.energyDraw).toBeGreaterThan(1); // …the cryo is thirstier
+  it("COMPOSE: an engine bonus and an alloy penalty on the same stat MULTIPLY", () => {
+    // The resolver's rule, stated where a designer will look for it: per stat
+    // path every `add` is summed and every `mul` is multiplied, then
+    // `(base + Σadd) × Πmul`. So the two speed passives compound (×1.5 × ×0.9)
+    // rather than being averaged or added as percentage points (which would
+    // give ×1.40, a visibly different hull).
+    const c = authored();
+    const fitting = [...INTERCEPTOR_FITTING];
+    fitting[INTERCEPTOR_SLOTS.engine] = "module.engine-earth-eng4";
+    fitting[INTERCEPTOR_SLOTS.hull] = "module.alloy-martian-p4";
+    const core = resolveShipStats(interceptor, configs, { fittedModuleIds: fitting });
+    expect(core.engine.nominalSpeed).toBeCloseTo(c.engine.nominalSpeed * 1.5 * 0.9, 9);
+
+    // …and the order the bays are read in cannot matter, because multiplication
+    // does not care. Same two modules, swapped ends of the fitting array.
+    const reversed = [...fitting].reverse();
+    expect(
+      resolveShipStats(interceptor, configs, { fittedModuleIds: reversed }).engine.nominalSpeed,
+    ).toBeCloseTo(core.engine.nominalSpeed, 9);
   });
 
   it("COUNTERMEASURE: every pod in the bay can be launched, and the ladder buys lure time", () => {
@@ -155,14 +276,33 @@ describe("internals shape the hull", () => {
     expect(spoofer.cooldownSec).toBeLessThan(chaff.cooldownSec);
   });
 
-  it("SENSORS: long-range reaches further but locks slower; snap-lock is the reverse", () => {
-    const stock = base();
-    const long = withInternal("module.sensors-longrange");
-    expect(long.sensors.lockRange).toBeGreaterThan(stock.sensors.lockRange);
-    expect(long.sensors.lockTimeSec).toBeGreaterThan(stock.sensors.lockTimeSec);
+  it("SENSORS: the Sharpshooter line buys lock distance AND a faster lock", () => {
+    const c = authored();
+    // Owner's columns are (Lock distance, Lock time), and a NEGATIVE lock time
+    // is a bonus — a faster lock — so it is authored as a multiplier below 1.
+    for (const [id, range, time] of [
+      ["module.sensors-sharpshooter-mk1", 1.05, 0.95],
+      ["module.sensors-sharpshooter-mk2", 1.1, 0.95],
+      ["module.sensors-sharpshooter-mk3", 1.15, 0.9],
+      ["module.sensors-sharpshooter-mk4", 1.25, 0.9],
+    ] as const) {
+      const core = withInternal(id);
+      expect(core.sensors.lockRange, id).toBeCloseTo(c.sensors.lockRange * range, 9);
+      expect(core.sensors.lockTimeSec, id).toBeCloseTo(c.sensors.lockTimeSec * time, 9);
+      expect(core.sensors.lockTimeSec, id).toBeLessThan(c.sensors.lockTimeSec);
+    }
+  });
 
-    const snap = withInternal("module.sensors-snap");
-    expect(snap.sensors.lockTimeSec).toBeLessThan(stock.sensors.lockTimeSec);
-    expect(snap.sensors.lockRange).toBeLessThan(stock.sensors.lockRange);
+  it("SENSORS: the Common line only reaches further, and never locks faster", () => {
+    const c = authored();
+    for (const [id, range] of [
+      ["module.sensors-common-mk2", 1.05],
+      ["module.sensors-common-mk3", 1.1],
+      ["module.sensors-common-mk4", 1.15],
+    ] as const) {
+      const core = withInternal(id);
+      expect(core.sensors.lockRange, id).toBeCloseTo(c.sensors.lockRange * range, 9);
+      expect(core.sensors.lockTimeSec, id).toBe(c.sensors.lockTimeSec);
+    }
   });
 });

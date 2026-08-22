@@ -9,7 +9,7 @@ import { INTERCEPTOR_FITTING_SHIELD as INTERCEPTOR_FITTING, loadTestConfigs } fr
 
 /**
  * Slots the discipline may actually touch: non-weapon support hardpoints. The internal bay
- * (slots 2..6 — engine, generator, transformer, countermeasure, sensors) is the ship
+ * (slots 2..6 — engine, generator, alloy, countermeasure, sensors) is the ship
  * itself and is deliberately never cycled (2026-07-31).
  */
 const TOGGLEABLE_SLOTS = 1;

@@ -9,7 +9,7 @@ import type { ModuleConfig, StatOp } from "@space-arena/shared";
  * What matters differs by family, which is the point:
  *  - a weapon is judged on damage per second, its cycle time and power draw;
  *  - a shield on what it stops and what it costs to hold up;
- *  - an engine/generator/transformer/countermeasure/sensor on the stat it moves.
+ *  - an engine/generator/alloy/countermeasure/sensor on the stat it moves.
  */
 export interface ModuleStat {
   label: string;
@@ -28,24 +28,55 @@ export function moduleDps(cfg: ModuleConfig): number {
 
 const num = (v: number, digits = 0): string => v.toFixed(digits).replace(/\.0+$/, "");
 const signed = (v: number, digits = 0): string => `${v >= 0 ? "+" : ""}${num(v, digits)}`;
-/** A multiplier as a percentage delta: 1.15 → "+15%", 0.88 → "−12%". */
+/**
+ * A multiplier as a percentage delta: 1.15 → "+15%", 0.88 → "−12%",
+ * 0.975 → "−2.5%".
+ *
+ * Rounded to a TENTH of a percent rather than to a whole one. The 2026-08-22
+ * stat tables are authored in half-percent steps — the Lunar Alloy's speed
+ * ladder is +5 / +12.5 / +17.5 / +25, and every line's small penalty is −2.5%
+ * — so whole-percent rounding would print two different marks as the same chip
+ * and would round a −2.5% penalty to −2%, understating it. A chip that says
+ * −2.5% is the number the sim actually applies.
+ */
 const pct = (mult: number): string => {
-  const delta = Math.round((mult - 1) * 100);
-  return `${delta >= 0 ? "+" : "−"}${Math.abs(delta)}%`;
+  const delta = Math.round((mult - 1) * 1000) / 10;
+  return `${delta < 0 ? "−" : "+"}${Math.abs(delta)}%`;
 };
 
-/** Human label for a stat path a passive touches. */
+/**
+ * Human label for a stat path a passive touches.
+ *
+ * These are the words the OWNER's stat tables use, not the code's — a pilot
+ * reading a chip is comparing it against the sheet in the shop, not against
+ * `resolveStats.ts`. So `energyStore.multiplier` prints as "Power cap" and
+ * `efficiency.energyDraw` as "Power draw", which is what the engine and
+ * generator lines were authored as (2026-08-22).
+ */
 const STAT_LABELS: Record<string, string> = {
+  "hull.base": "Hull",
+  // The two resist columns the alloy line trades against each other. Named for
+  // the damage channel rather than for the path, because "Kin. resist +20%" is
+  // the thing a pilot is choosing between hulls on.
+  "hull.resists.kinetic": "Kin. resist",
+  "hull.resists.energy": "Enrg. resist",
   "engine.nominalSpeed": "Speed",
   "engine.accel": "Accel",
   "engine.turnRate": "Turn",
-  "energyStore.multiplier": "Tanks",
+  "energyStore.multiplier": "Power cap",
   "recharge.multiplier": "Recharge",
-  "sensors.lockRange": "Range",
+  "sensors.lockRange": "Lock dist",
   "sensors.lockTimeSec": "Lock time",
   "sensors.coneDeg": "Cone",
-  "efficiency.energyDraw": "Draw",
+  "efficiency.energyDraw": "Power draw",
   "power.capacity": "Power",
+  /**
+   * The hull's shield RESERVE multiplier — every fitted shield's tank, which in
+   * this engine IS the shield's strength. The Earth Alloy line is the only
+   * thing that moves it from a module, and it is authored as "Shields ±X%", so
+   * that is what the chip says.
+   */
+  "combat.shieldEfficiency": "Shields",
 };
 
 function passiveStats(passives: readonly StatOp[] | undefined): ModuleStat[] {
@@ -77,6 +108,15 @@ export function moduleStats(cfg: ModuleConfig): ModuleStat[] {
   if (cfg.mitigation) {
     stats.push({ label: "Absorb", value: `${Math.round(cfg.mitigation.damageReduction * 100)}%` });
   }
+
+  // PASSIVES SIT HERE, not at the end (2026-08-22). For a weapon or a shield the
+  // behaviour block above is the headline and a passive would be a footnote —
+  // but for the internal bays the passives are the ENTIRE module, and the shop
+  // row only has space for four chips. Leaving them last put an Earth Engine's
+  // boost bottle in all four and cut the two stats the line is named for
+  // ("Speed +15%, Power draw +10%") off the end of the row.
+  stats.push(...passiveStats(cfg.passives));
+
   if (cfg.boost) stats.push({ label: "Boost", value: pct(cfg.boost.speedMult) });
   if (cfg.jettison) stats.push({ label: "Jettison", value: `${num(cfg.jettison.cooldownSec)}s` });
 
@@ -114,7 +154,6 @@ export function moduleStats(cfg: ModuleConfig): ModuleStat[] {
 
   if (cfg.recharge) stats.push({ label: "Recharge", value: pct(cfg.recharge.multiplier) });
 
-  stats.push(...passiveStats(cfg.passives));
   return stats;
 }
 

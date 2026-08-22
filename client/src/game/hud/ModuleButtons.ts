@@ -28,7 +28,10 @@ export const MODULE_FAMILY_COLOR_FALLBACKS: Readonly<Record<ModuleFamily, string
   // slots from the same map, so every family needs an entry.
   engine: DEFAULT_DESIGN_TOKENS.blue500,
   generator: DEFAULT_DESIGN_TOKENS.blue500,
-  transformer: DEFAULT_DESIGN_TOKENS.white,
+  // The alloy bay (2026-08-22) takes the white the transformer had: like the
+  // sensor suite it is structure rather than a system that runs, and white is
+  // what the hangar already reads as "part of the airframe".
+  hull: DEFAULT_DESIGN_TOKENS.white,
   countermeasure: DEFAULT_DESIGN_TOKENS.blue500,
   sensors: DEFAULT_DESIGN_TOKENS.white,
 };
@@ -99,7 +102,7 @@ export interface HudSlotCounts {
  * Whether a fitted module deserves its own button in a cluster. Two exclusions,
  * both unchanged from the radial-cluster era:
  *
- *  - Internals (engine, generator, transformer, countermeasure, sensors) are
+ *  - Internals (engine, generator, hull, countermeasure, sensors) are
  *    always-on systems with nothing to toggle, so they are shown in the Hangar
  *    and nowhere else. The one internal ACTION, launching a countermeasure pod,
  *    is the JETTISON slot.

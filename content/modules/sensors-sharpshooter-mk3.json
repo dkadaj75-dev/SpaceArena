@@ -1,0 +1,31 @@
+{
+  "id": "module.sensors-sharpshooter-mk3",
+  "type": "module",
+  "version": 1,
+  "family": "sensors",
+  "level": 3,
+  "name": "Sharpshooter Mark III",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "sensors.lockRange",
+      "op": "mul",
+      "value": 1.15
+    },
+    {
+      "target": "sensors.lockTimeSec",
+      "op": "mul",
+      "value": 0.9
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: sensors]",
+    "shortName": "Sharp III",
+    "label": "Sensors"
+  },
+  "price": 1600,
+  "requiresLevel": 4
+}

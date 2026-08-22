@@ -168,7 +168,12 @@ describe("ArenaRoom", () => {
     expect(p1.modules[0]!.state).toBe(2);
     expect(p1.modules[0]!.cycleTimer).toBeGreaterThan(0);
     expect(p1.modules[0]!.energyCapacity).toBe(0); // a weapon costs no energy
-    expect(p1.modules[2]!.state).toBe(2); // engine bay
+    // The engine bay replicates as RETRACTED (0), not online: every mark of the
+    // Earth Engine line carries an afterburner (owner 2026-08-22), and a
+    // boost-capable engine spawns down until the pilot presses BOOST. The
+    // hull still flies on the engine's passives — state gates the afterburner,
+    // not the drive.
+    expect(p1.modules[2]!.state).toBe(0); // engine bay: boost armed, not lit
     // The continuous-channel flag rides the same per-module state; a `held`
     // laser must never set it.
     expect(p1.modules[0]!.channeling).toBe(false);
@@ -911,13 +916,13 @@ describe("ArenaRoom", () => {
     usersRepo.create({ id: "u-sparse", email: null, pass_hash: null, guest_token: "gt-sparse" });
     seedNewUser(configs, "u-sparse", "Sparse");
     // Own the shield so the fit is legal, then save the sparse fitting.
-    ownedModulesRepo.grant("u-sparse", "module.generator-compact", 1);
+    ownedModulesRepo.grant("u-sparse", "module.generator-earth-eng1", 1);
     const fit = fittingsRepo.create({
       id: "fit-sparse",
       user_id: "u-sparse",
       ship_id: "ship.interceptor",
       name: "Sparse",
-      hardpointMap: { "0": "module.laser-mk1", "3": "module.generator-compact" },
+      hardpointMap: { "0": "module.laser-mk1", "3": "module.generator-earth-eng1" },
     });
     const token = signAccessToken("u-sparse");
 
@@ -1056,6 +1061,75 @@ describe("ArenaRoom", () => {
     expect(ps.shipId).toBe("ship.interceptor");
     const stock = configs.get<ShipConfig>("ship", "ship.interceptor")!.defaultFitting.filter((m) => m !== null);
     expect(ps.modules.length).toBe(stock.length);
+    await c.leave();
+  });
+
+  it("flies a fitting full of DELETED module ids rather than rejecting the join (2026-08-22)", async () => {
+    // The internal rework deleted twenty-five module ids outright — the whole
+    // transformer family, and every old engine, generator and sensor — and
+    // renamed the `in-transformer` socket to `in-hull`. Every fitting saved
+    // before it therefore names modules the pack no longer ships, in a bay that
+    // now accepts a different family.
+    //
+    // That is the pack changing under a database row, not a player misbehaving,
+    // so it prunes exactly like a vanished socket. Before this, `unknown-module`
+    // came back out of `validateFitting` and the join was REFUSED, which would
+    // have locked out every stored loadout in existence.
+    usersRepo.create({ id: "u-dead", email: null, pass_hash: null, guest_token: "gt-dead" });
+    seedNewUser(configs, "u-dead", "Dead ids");
+    const fit = fittingsRepo.create({
+      id: "fit-dead",
+      user_id: "u-dead",
+      ship_id: "ship.interceptor",
+      name: "Pre-rework",
+      hardpointMap: {
+        "0": "module.laser-mk1",
+        "2": "module.engine-civ", // deleted with the old engine line
+        "3": "module.generator-compact", // deleted with the old generators
+        "4": "module.transformer-stock", // family retired; the bay is `hull` now
+        "6": "module.sensors-basic", // deleted with the old sensor line
+      },
+    });
+    const token = signAccessToken("u-dead");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c = await colyseus.connectTo(room, { token, fittingId: fit.id });
+    await advance(room, 1);
+    const ps = room.state.players.get(c.sessionId)!;
+    // The one still-shipped module flew; the four dead ids are simply absent,
+    // and nothing threw on the way in.
+    expect([...ps.modules].map((m) => m.hardpointIndex)).toEqual([0]);
+    expect([...ps.modules][0]!.moduleId).toBe("module.laser-mk1");
+    await c.leave();
+  });
+
+  it("falls all the way back to stock when EVERY id in a stored fitting was deleted", async () => {
+    usersRepo.create({ id: "u-allde", email: null, pass_hash: null, guest_token: "gt-allde" });
+    seedNewUser(configs, "u-allde", "All dead");
+    const fit = fittingsRepo.create({
+      id: "fit-allde",
+      user_id: "u-allde",
+      ship_id: "ship.interceptor",
+      name: "All pre-rework internals",
+      hardpointMap: {
+        "2": "module.engine-racing",
+        "3": "module.generator-siege",
+        "4": "module.transformer-cryo",
+        "6": "module.sensors-precision",
+      },
+    });
+    const token = signAccessToken("u-allde");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c = await colyseus.connectTo(room, { token, fittingId: fit.id });
+    await advance(room, 1);
+    const ps = room.state.players.get(c.sessionId)!;
+    expect(ps.shipId).toBe("ship.interceptor");
+    // The hull's stock loadout — which is now the four baseline internals plus
+    // the two stock racks, all of them free and level 1, so a fresh user owns
+    // every one of them and the fall-back cannot itself fail ownership.
+    const stock = configs.get<ShipConfig>("ship", "ship.interceptor")!.defaultFitting.filter((m) => m !== null);
+    expect([...ps.modules].map((m) => m.moduleId)).toEqual(stock);
     await c.leave();
   });
 

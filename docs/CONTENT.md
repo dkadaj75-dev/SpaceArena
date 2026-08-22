@@ -103,6 +103,74 @@ loaded, and the first symptom is a gamemode falling back to a different arena.
 > never past max hull. Neither authors an `energy` block: a pulse is limited by
 > its own cooldown, exactly as a weapon is limited by its cycle time.
 
+> **Internal-family rework (2026-08-22) — supersedes every engine, generator,
+> transformer and sensor module named above.** The HARDPOINT families (weapons,
+> shields, the two support pulses) and the countermeasure pods are untouched.
+> Everything else in the systems bay was replaced wholesale by owner stat
+> tables, and **all 25 old modules in the reworked families were deleted**: the
+> seven engines, the seven generators, the six sensors and the whole
+> five-module `transformer` family.
+>
+> | Family | Line | Marks | What each mark moves (percent of the hull's BASE stat) |
+> | --- | --- | --- | --- |
+> | `engine` | Earth Engine | Engineered I–IV | Speed `engine.nominalSpeed` +0/15/30/50%, paid for in Power draw `efficiency.energyDraw` +0/10/20/30% |
+> | `generator` | Earth Generator | Engineered I–IV | Power capacity `energyStore.multiplier` +0/10/25/50% |
+> | `hull` | Martian Alloy | Purity I–IV | Hull +10/20/30/50%, Speed −5/7.5/9/10%, energy resist −2.5/5/10/15%, kinetic resist +5/10/20/30% |
+> | `hull` | Lunar Alloy | Purity I–IV | Hull −5/10/15/20%, Speed +5/12.5/17.5/25%, energy resist +5/10/20/30%, kinetic resist −2.5/5/10/15% |
+> | `hull` | Earth Alloy | Purity I–IV | Hull +0/5/10/20%, Shields `combat.shieldEfficiency` +0/5/10/20%, Speed −0/2.5/5/7.5% |
+> | `sensors` | Sharpshooter | Mark I–IV | Lock distance +5/10/15/25%, Lock time −5/5/10/10% (below 1 = a FASTER lock) |
+> | `sensors` | Common Sensors | Mark I–IV | Lock distance +0/5/10/15% |
+>
+> **The `transformer` family is gone from the enum, and the `in-transformer`
+> socket on every hull is now `in-hull`, accepting the new `hull` (alloy)
+> family** — same socket, same index, so a stored fitting's slot 4 still
+> addresses an internal instead of shifting everything after it. The
+> transformer's two levers were split: `efficiency.energyDraw` moved to the
+> ENGINE line (a faster drive makes the whole ship thirstier), and the POWER
+> RAIL (`core.power.capacity`) became a pure hull stat that no fitted module
+> widens any more.
+>
+> **The baseline mark of each default line does nothing at all.** Earth Engine
+> Engineered I, Earth Generator Engineered I, Earth Alloy Purity I and Common
+> Sensors Mark I author `passives: []`, are free, and are what every hull
+> default-fits — so a stock ship flies on exactly its authored base stats.
+>
+> **Every value is a percent modifier, resolved through the one stat pipeline**
+> (`shared/src/sim/resolveStats.ts`): per stat path the resolver sums every
+> `add`, multiplies every `mul`, applies `(base + Σadd) × Πmul`, and clamps
+> last. Two modules on the same stat therefore COMPOUND — an Engineered IV
+> engine and a Purity IV Martian plate give `speed × 1.5 × 0.90`, not
+> `× (1 + 0.5 − 0.10)`. Boost and the slowing ray are unaffected by this: they
+> stay runtime multipliers applied to the resolved speed inside
+> `NavigationSystem`. `hull.resists.kinetic` / `hull.resists.energy` joined the
+> resolver's stat paths for this rework (clamped to the schema's 0…0.95) — they
+> were previously the only combat-relevant hull numbers nothing could move.
+>
+> **Boost:** the afterburner has ridden the engine internal since 2026-07-31 and
+> still does, so **all four marks of the Earth Engine carry one IDENTICAL boost
+> block** (`speedMult` 1.7 on a 55-unit bottle — the retired Sport Drive's).
+> The owner's engine table lists two stats, neither of them boost, so making the
+> afterburner better up the line would invent progression the sheet does not
+> have; dropping it entirely would have deleted the BOOST button from the
+> shipped pack, since no module is `family: "boost"`. Holding it constant is the
+> reading that leaves boost availability exactly where it was while keeping the
+> line a two-stat trade. One consequence is visible in the sim: a boost-capable
+> engine spawns RETRACTED (boost is a deliberate activation), so every hull's
+> engine bay now boots down — its `passives` still apply, only the afterburner
+> waits for the button.
+>
+> **`Shields ±X%` is the hull's shield RESERVE multiplier** —
+> `core.combat.shieldEfficiency`, which scales every fitted shield module's own
+> energy tank and the rate it refills. In this engine that tank *is* the shield
+> ("a shield holds exactly as long as its tank"), so it is the honest reading of
+> the word; the absorb ratio belongs to the damage type, not to the hull. Only
+> the Earth Alloy line touches it.
+>
+> The `utility` family (armour plating, capacitor battery, flux capacitor) was
+> NOT in the owner's tables and is untouched — but note that armour plating now
+> overlaps the alloy bay thematically (both trade hull against speed), and it
+> may be the next family to go.
+
 A **bundle** is that pack serialized as one JSON document. It is the unit that
 travels between machines:
 

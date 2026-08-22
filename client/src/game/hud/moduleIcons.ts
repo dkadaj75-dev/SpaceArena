@@ -18,7 +18,7 @@ import type { ModuleConfig } from "@space-arena/shared";
  *      what makes the *shipped* content resolve with no re-authoring, and it is
  *      the only key that distinguishes the two `utility`-family modules.
  *   3. `family` — the honest structural key (`laser`, `kinetic`, `missile`,
- *      `shield`, `disruptor`, `repair`, `boost`, `utility`), so a brand-new module in a known family
+ *      `shield`, `disruptor`, `repair`, `boost`, `hull`, `utility`), so a brand-new module in a known family
  *      gets a sensible glyph before anyone authors an icon for it.
  *   4. {@link FALLBACK_ICON_ID} — a generic hardpoint glyph. A button is never
  *      blank and never shows raw placeholder text.
@@ -82,6 +82,21 @@ const ICON_PATHS: Readonly<Record<string, string>> = {
     '<path d="M14.6 9.6v4.8"/>' +
     '<path d="M17.6 10.4v3.2"/>' +
     '<path d="M20.4 11.2v1.6"/>',
+  /**
+   * Hull alloy (2026-08-22): a plate of armour with its grain showing.
+   *
+   * Deliberately NOT the `shield` outline and NOT the generic hex — an alloy is
+   * the airframe itself, so it reads as a slab of material rather than as a
+   * field or a device. The two diagonals are the crystal grain that the
+   * Martian/Lunar/Earth lines differ in, which is the fiction the family is
+   * named for.
+   */
+  hull:
+    '<path d="M3.6 6.2h16.8v11.6H3.6z"/>' +
+    '<path d="M7.4 6.2 3.6 10"/>' +
+    '<path d="M13.4 6.2 3.6 16"/>' +
+    '<path d="M20.4 7.2 9.8 17.8"/>' +
+    '<path d="M20.4 13.2 15.8 17.8"/>',
   /** Repair field: a cross inside the bubble the pulse fills. */
   repair:
     '<path d="M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6z"/>' +
@@ -103,6 +118,11 @@ const FAMILY_ICONS: Readonly<Record<string, string>> = {
   repair: "repair",
   boost: "boost",
   countermeasure: "countermeasure",
+  // The alloy bay (2026-08-22). The other three internals — engine, generator,
+  // sensors — deliberately keep the generic glyph they have always resolved to;
+  // only the new family gets a distinct one, so the hangar's systems column
+  // gains a shape rather than being redrawn wholesale.
+  hull: "hull",
   utility: FALLBACK_ICON_ID,
 };
 
@@ -115,6 +135,9 @@ const ICON_ALIASES: Readonly<Record<string, string>> = {
   afterburner: "boost",
   thruster: "boost",
   battery: "capacitor",
+  alloy: "hull",
+  plating: "hull",
+  armour: "hull",
   tether: "disruptor",
   slow: "disruptor",
   heal: "repair",

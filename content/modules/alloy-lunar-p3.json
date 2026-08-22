@@ -1,0 +1,41 @@
+{
+  "id": "module.alloy-lunar-p3",
+  "type": "module",
+  "version": 1,
+  "family": "hull",
+  "level": 3,
+  "name": "Lunar Alloy Purity III",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "hull.base",
+      "op": "mul",
+      "value": 0.85
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 1.175
+    },
+    {
+      "target": "hull.resists.energy",
+      "op": "mul",
+      "value": 1.2
+    },
+    {
+      "target": "hull.resists.kinetic",
+      "op": "mul",
+      "value": 0.9
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: hull]",
+    "shortName": "Lunar III",
+    "label": "Alloy"
+  },
+  "price": 1650,
+  "requiresLevel": 4
+}

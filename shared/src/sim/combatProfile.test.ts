@@ -94,7 +94,7 @@ describe("resolveShipStats — the role profile", () => {
   it("holds a passive-stacked value inside the band rather than merely above 0", () => {
     // A utility whose passive multiplies the knob far past the authorable max:
     // the schema bounds the FILE, the resolver has to bound the STACK.
-    const stock = configs.get<ModuleConfig>("module", "module.sensors-basic")!;
+    const stock = configs.get<ModuleConfig>("module", "module.sensors-common-mk1")!;
     const boosted: ModuleConfig = {
       ...stock,
       id: "module.test-dps-passive",
@@ -373,7 +373,7 @@ describe("shield efficiency", () => {
     const core = resolveShipStats(interceptor(), configs);
     core.combat.shieldEfficiency = 2;
     const shield = configs.get<ModuleConfig>("module", "module.shield-mk1")!;
-    const engine = configs.get<ModuleConfig>("module", "module.engine-sport")!;
+    const engine = configs.get<ModuleConfig>("module", "module.engine-earth-eng2")!;
 
     expect(moduleTankCapacity(shield, core)).toBeCloseTo(
       shield.energy!.capacity * core.energyStore.multiplier * 2,

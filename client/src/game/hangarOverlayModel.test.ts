@@ -12,6 +12,9 @@ function panel(over: Partial<HangarStatPanel> = {}): HangarStatPanel {
     dps: 20,
     sustainedDps: 14,
     ehpApprox: 110,
+    resistKinetic: 0.1,
+    resistEnergy: 0.2,
+    shieldEfficiency: 1,
     powerCapacity: 10,
     powerDrawTotal: 6,
     powerDrawRetracted: 4,
@@ -29,7 +32,12 @@ function gauge(model: ReturnType<typeof buildOverlayModel>, key: HangarGaugeKey)
 describe("hangar stage overlay gauges", () => {
   it("shows every headline characteristic, power first", () => {
     const model = buildOverlayModel(panel(), null);
-    expect(model.gauges.map((g) => g.key)).toEqual(["power", "hull", "speed", "tanks", "sustained", "dps"]);
+    // The two resist rows sit next to HULL, not next to speed: they answer the
+    // same question the hull bar does — what this airframe survives — and the
+    // alloy bay (2026-08-22) is the module that moves all three at once.
+    expect(model.gauges.map((g) => g.key)).toEqual([
+      "power", "hull", "resistKinetic", "resistEnergy", "speed", "tanks", "sustained", "dps",
+    ]);
     expect(model.previewing).toBe(false);
   });
 

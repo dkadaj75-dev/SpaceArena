@@ -1,5 +1,12 @@
 import type { ConfigService } from "../core/ConfigService.js";
-import { COMBAT_MULT_MAX, COMBAT_MULT_MIN, DEFAULT_COMBAT_MULT, type DamageType } from "../schemas/common.js";
+import {
+  COMBAT_MULT_MAX,
+  COMBAT_MULT_MIN,
+  DEFAULT_COMBAT_MULT,
+  RESIST_MAX,
+  RESIST_MIN,
+  type DamageType,
+} from "../schemas/common.js";
 import type { ModuleConfig, ShipConfig, StatOp, UpgradeConfig } from "../schemas/index.js";
 import type { ShipCore } from "./components.js";
 
@@ -20,6 +27,15 @@ const ZERO_LEVELS: UpgradeLevels = { hull: 0, engine: 0, energy: 0 };
 /** Canonical stat paths (no `core.` prefix). Order fixed for determinism. */
 const STAT_PATHS = [
   "hull.base",
+  // The hull's RESIST columns (owner 2026-08-22). They used to be copied
+  // straight out of the ship config into the resolved core, which meant they
+  // were the only combat-relevant hull numbers nothing could move — no upgrade
+  // track, no module passive. The alloy line is exactly a trade against them
+  // ("Martian Purity IV: +50% hull, +30% kinetic resist, −15% energy resist"),
+  // so they become ordinary stat paths and travel the same add→mul→clamp road
+  // as everything else. See {@link RESIST_PATHS} for the band.
+  "hull.resists.kinetic",
+  "hull.resists.energy",
   "engine.nominalSpeed",
   "engine.accel",
   "engine.turnRate",
@@ -51,6 +67,17 @@ const COMBAT_PATHS: ReadonlySet<string> = new Set(
   STAT_PATHS.filter((p) => p.startsWith("combat.")),
 );
 
+/**
+ * Stat paths held to the RESIST band rather than merely floored at 0 — the same
+ * band `hull.resists` enforces on an author. A resist is a FRACTION of a hit
+ * removed, so letting a stack of alloys push one to 1 would make a hull immune
+ * to a whole damage channel, and letting one push below 0 would silently turn a
+ * resist into a vulnerability nothing in the pipeline is written for.
+ */
+const RESIST_PATHS: ReadonlySet<string> = new Set(
+  STAT_PATHS.filter((p) => p.startsWith("hull.resists.")),
+);
+
 /** Strip an optional leading `core.` so authors may write either form. */
 function normalizePath(target: string): string {
   return target.startsWith("core.") ? target.slice("core.".length) : target;
@@ -61,8 +88,26 @@ function normalizePath(target: string): string {
  *
  *   ship class base
  *     → upgrade track levels   (upgrade config `add`/`mul` records = op bag)
- *     → module passive ops     (utility modules' `passives: StatOp[]`)
+ *     → module passive ops     (every fitted module's `passives: StatOp[]`)
  *     → apply add, then mul, then clamp
+ *
+ * ## The compose rule for stacked percentages (owner 2026-08-22)
+ *
+ * Per stat path: every `add` is SUMMED into one offset, every `mul` is
+ * MULTIPLIED into one factor, and the result is `(base + Σadd) × Πmul`, clamped
+ * last. So two modules that each move the same stat COMPOUND rather than
+ * cancel or average: an Earth Engine Engineered IV (`engine.nominalSpeed` ×1.5)
+ * fitted alongside a Martian Alloy Purity IV (×0.90) resolves to
+ * `27 × 1.5 × 0.90 = 36.45`, not `27 × (1 + 0.5 − 0.10)`.
+ *
+ * Multiplication is commutative and every op comes from the ordered fitting, so
+ * the result does not depend on which bay is read first — the resolver is
+ * deterministic in the strong sense (same inputs ⇒ same bits), which is what
+ * the golden-fingerprint suite pins.
+ *
+ * Runtime multipliers are NOT part of this: boost (`boost.speedMult`) and the
+ * slowing ray both multiply the RESOLVED speed inside NavigationSystem, once
+ * per tick, and never touch the core.
  *
  * The one resolver used by sim spawn (server passes the player's DB upgrade
  * levels) and exported for the future hangar stat panel / balance workbench.
@@ -79,6 +124,8 @@ export function resolveShipStats(
   // Flatten base stats into a path→value bag.
   const base: Record<string, number> = {
     "hull.base": c.hull.base,
+    "hull.resists.kinetic": c.hull.resists.kinetic,
+    "hull.resists.energy": c.hull.resists.energy,
     "engine.nominalSpeed": c.engine.nominalSpeed,
     "engine.accel": c.engine.accel,
     "engine.turnRate": c.engine.turnRate,
@@ -93,7 +140,8 @@ export function resolveShipStats(
     "power.capacity": c.power?.capacity ?? 0,
     // Defaulted rather than required: the schema always supplies this block,
     // but hand-built configs (editor previews, balance workbench) may omit it,
-    // and "no transformer opinion" is exactly a multiplier of 1.
+    // and "nothing is taxing this ship's draw" is exactly a multiplier of 1.
+    // The Earth Engine line is what moves it now (owner 2026-08-22).
     "efficiency.energyDraw": c.efficiency?.energyDraw ?? 1,
     // Role profile: absent block, and absent field within it, both mean 1.
     "combat.damageOutput.kinetic": c.combat?.damageOutput?.kinetic ?? DEFAULT_COMBAT_MULT,
@@ -132,9 +180,11 @@ export function resolveShipStats(
     for (const [k, v] of Object.entries(level.mul ?? {})) mulOp(k, v);
   }
 
-  // 2. Module passives (utility modules) plus the ship-wide block a generator
-  //    authors directly. Iterate in fitted order for determinism; the block is
-  //    multiplicative, so two generators stack.
+  // 2. Module passives — every fitted module, internal bays included (the
+  //    engine, alloy and sensor lines are ENTIRELY passives since 2026-08-22)
+  //    — plus the ship-wide block a generator authors directly. Iterate in
+  //    fitted order for determinism; the block is multiplicative, so two
+  //    generators stack, and so do two passives on the same path.
   for (const moduleId of opts.fittedModuleIds ?? []) {
     if (!moduleId) continue;
     const mod = configs.get<ModuleConfig>("module", moduleId);
@@ -155,6 +205,10 @@ export function resolveShipStats(
       stats[path] = Number.isFinite(v) ? Math.min(COMBAT_MULT_MAX, Math.max(COMBAT_MULT_MIN, v)) : DEFAULT_COMBAT_MULT;
       continue;
     }
+    if (RESIST_PATHS.has(path)) {
+      stats[path] = Number.isFinite(v) ? Math.min(RESIST_MAX, Math.max(RESIST_MIN, v)) : RESIST_MIN;
+      continue;
+    }
     stats[path] = v < 0 ? 0 : v;
   }
 
@@ -164,7 +218,7 @@ export function resolveShipStats(
     hullMax,
     shield: 0,
     shieldMax: 0,
-    resists: { kinetic: c.hull.resists.kinetic, energy: c.hull.resists.energy },
+    resists: { kinetic: stats["hull.resists.kinetic"]!, energy: stats["hull.resists.energy"]! },
     engine: {
       nominalSpeed: stats["engine.nominalSpeed"]!,
       accel: stats["engine.accel"]!,

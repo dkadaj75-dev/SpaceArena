@@ -1,19 +1,19 @@
 {
-  "id": "module.sensors-basic",
+  "id": "module.alloy-earth-p1",
   "type": "module",
   "version": 1,
-  "family": "sensors",
+  "family": "hull",
   "level": 1,
-  "name": "Standard Array",
+  "name": "Earth Alloy Purity I",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
   },
   "passives": [],
   "ui": {
-    "icon": "[ICON: sensors]",
-    "shortName": "Std Array",
-    "label": "Sensors"
+    "icon": "[ICON: hull]",
+    "shortName": "E-Alloy I",
+    "label": "Alloy"
   },
   "price": 0,
   "requiresLevel": 1

@@ -16,7 +16,22 @@ import type { HangarStatPanel } from "./hangarStats.js";
  * improvement) is testable without a DOM or an engine.
  */
 
-export type HangarGaugeKey = "power" | "hull" | "speed" | "tanks" | "sustained" | "dps";
+export type HangarGaugeKey =
+  | "power"
+  | "hull"
+  // The two resist columns (2026-08-22). They joined the overlay with the alloy
+  // bay: until an internal could move them they were a constant per hull and a
+  // gauge would have been decoration, but a Martian plate now buys kinetic
+  // resist with energy resist and the pilot has to be able to SEE that trade
+  // while hovering the module. The Earth Alloy's "Shields +20%" needs no gauge
+  // of its own — it scales every fitted shield's tank, which is exactly what
+  // the `tanks` bar already measures.
+  | "resistKinetic"
+  | "resistEnergy"
+  | "speed"
+  | "tanks"
+  | "sustained"
+  | "dps";
 
 /** Which way a change moves for the PILOT, not for the number. */
 export type HangarGaugeTrend = "none" | "better" | "worse";
@@ -83,6 +98,13 @@ export interface HangarOverlayModel {
  */
 export const HANGAR_GAUGE_REFERENCE: Record<Exclude<HangarGaugeKey, "power">, number> = {
   hull: 250,
+  // Resists are carried through this model as PERCENTAGES (0..95), not as the
+  // 0..0.95 fraction the sim uses, so the generic delta formatter prints
+  // "+3" rather than "+0.03". 50 is the full-scale reference: the schema's
+  // ceiling is 95, but no shipped hull is near it and a bar that never left its
+  // first quarter would say nothing.
+  resistKinetic: 50,
+  resistEnergy: 50,
   speed: 40,
   tanks: 250,
   sustained: 40,
@@ -126,6 +148,26 @@ const SPECS: readonly GaugeSpec[] = [
     value: (p) => p.hullMax,
     reference: () => HANGAR_GAUGE_REFERENCE.hull,
     valueText: (p) => round(p.hullMax, 0),
+    warn: () => false,
+  },
+  {
+    key: "resistKinetic",
+    label: "Kin. resist",
+    decimals: 0,
+    higherIsBetter: true,
+    value: (p) => p.resistKinetic * 100,
+    reference: () => HANGAR_GAUGE_REFERENCE.resistKinetic,
+    valueText: (p) => `${round(p.resistKinetic * 100, 0)}%`,
+    warn: () => false,
+  },
+  {
+    key: "resistEnergy",
+    label: "Enrg. resist",
+    decimals: 0,
+    higherIsBetter: true,
+    value: (p) => p.resistEnergy * 100,
+    reference: () => HANGAR_GAUGE_REFERENCE.resistEnergy,
+    valueText: (p) => `${round(p.resistEnergy * 100, 0)}%`,
     warn: () => false,
   },
   {

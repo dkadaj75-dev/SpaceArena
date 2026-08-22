@@ -663,11 +663,11 @@ describe("CombatSystem continuous channel", () => {
   const BEAM_FITTING = [
     "module.beamlaser-mk1",
     "module.missile-mk1",
-    "module.engine-civ",
-    "module.generator-compact",
-    "module.transformer-stock",
+    "module.engine-earth-eng1",
+    "module.generator-earth-eng1",
+    "module.alloy-earth-p1",
     "module.countermeasure-flare",
-    "module.sensors-basic",
+    "module.sensors-common-mk1",
   ];
 
   /** Same fixture as {@link duel}, fitted with the continuous beam on hardpoint 0. */

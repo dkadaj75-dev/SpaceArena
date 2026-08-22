@@ -43,7 +43,8 @@ describe("moduleDps", () => {
 
   it("is 0 for anything that does not shoot", () => {
     expect(moduleDps(mod("module.shield-mk1"))).toBe(0);
-    expect(moduleDps(mod("module.generator-heavy"))).toBe(0);
+    expect(moduleDps(mod("module.generator-earth-eng3"))).toBe(0);
+    expect(moduleDps(mod("module.alloy-martian-p2"))).toBe(0);
   });
 });
 
@@ -72,26 +73,45 @@ describe("moduleStats — the numbers each family is judged on", () => {
     expect(valueOf("module.shield-mk1", "Absorb")).toBe("50%");
   });
 
-  it("shows an engine's boost and the stats it moves, as percentages", () => {
-    const shown = labels("module.engine-sport");
-    expect(shown).toContain("Boost");
-    expect(shown).toContain("Speed");
-    expect(shown).toContain("Turn");
-    expect(valueOf("module.engine-sport", "Speed")).toBe("+15%");
-    expect(valueOf("module.engine-sport", "Turn")).toBe("−8%");
+  it("shows an engine's two-sided trade FIRST, then its boost", () => {
+    // Owner 2026-08-22: the Earth Engine line is judged on exactly two numbers,
+    // and the shop row only prints four chips — so the passives lead and the
+    // afterburner (identical on every mark, therefore not a differentiator)
+    // follows. If these ever swap back, an engine's row becomes four chips
+    // about a boost bottle that every engine in the game shares.
+    expect(labels("module.engine-earth-eng2").slice(0, 3)).toEqual(["Speed", "Power draw", "Boost"]);
+    expect(valueOf("module.engine-earth-eng2", "Speed")).toBe("+15%");
+    expect(valueOf("module.engine-earth-eng2", "Power draw")).toBe("+10%");
+    expect(valueOf("module.engine-earth-eng4", "Speed")).toBe("+50%");
+    expect(valueOf("module.engine-earth-eng4", "Power draw")).toBe("+30%");
   });
 
-  it("shows a generator's recharge gain AND the speed it costs", () => {
-    expect(valueOf("module.generator-heavy", "Recharge")).toBe("+70%");
-    expect(valueOf("module.generator-heavy", "Tanks")).toBe("+20%");
-    expect(valueOf("module.generator-heavy", "Speed")).toBe("−12%");
+  it("shows a generator's one column — the size of the tanks", () => {
+    expect(labels("module.generator-earth-eng3")).toEqual(["Power cap"]);
+    expect(valueOf("module.generator-earth-eng3", "Power cap")).toBe("+25%");
+    expect(valueOf("module.generator-earth-eng4", "Power cap")).toBe("+50%");
+    // The baseline mark is honest about doing nothing rather than inventing a chip.
+    expect(moduleSummaryLine(mod("module.generator-earth-eng1"))).toBe("No active effect");
   });
 
-  it("shows a transformer's two-sided trade", () => {
-    expect(valueOf("module.transformer-efficient", "Draw")).toBe("−22%");
-    expect(valueOf("module.transformer-efficient", "Power")).toBe("+10");
-    expect(valueOf("module.transformer-cryo", "Draw")).toBe("+20%");
-    expect(valueOf("module.transformer-cryo", "Power")).toBe("+6");
+  it("shows an alloy's whole trade, HALF-percents included", () => {
+    // Every value in the owner's alloy table is a percent modifier, and several
+    // are half-percents (−2.5%, +12.5%). Rounding those to whole numbers would
+    // print two marks of the same line identically, so the chip carries a tenth.
+    expect(labels("module.alloy-martian-p1")).toEqual(["Hull", "Speed", "Enrg. resist", "Kin. resist"]);
+    expect(valueOf("module.alloy-martian-p1", "Hull")).toBe("+10%");
+    expect(valueOf("module.alloy-martian-p1", "Speed")).toBe("−5%");
+    expect(valueOf("module.alloy-martian-p1", "Enrg. resist")).toBe("−2.5%");
+    expect(valueOf("module.alloy-martian-p1", "Kin. resist")).toBe("+5%");
+
+    expect(valueOf("module.alloy-lunar-p2", "Speed")).toBe("+12.5%");
+    expect(valueOf("module.alloy-lunar-p4", "Hull")).toBe("−20%");
+    expect(valueOf("module.alloy-lunar-p4", "Enrg. resist")).toBe("+30%");
+
+    // Earth is the only line that touches the shield reserve, and it is
+    // labelled the way the owner wrote it rather than the way the code spells it.
+    expect(valueOf("module.alloy-earth-p4", "Shields")).toBe("+20%");
+    expect(valueOf("module.alloy-earth-p4", "Speed")).toBe("−7.5%");
   });
 
   it("advertises a countermeasure pod's jettison cooldown", () => {
@@ -99,10 +119,15 @@ describe("moduleStats — the numbers each family is judged on", () => {
     expect(valueOf("module.countermeasure-flare", "Jettison")).toBe("30s");
   });
 
-  it("shows sensor reach and lock time", () => {
-    expect(valueOf("module.sensors-longrange", "Range")).toBe("+30%");
-    expect(valueOf("module.sensors-longrange", "Lock time")).toBe("+25%");
-    expect(valueOf("module.sensors-snap", "Lock time")).toBe("−40%");
+  it("shows sensor reach and lock time, in the owner's words", () => {
+    // "Lock distance" and "Lock time", the two columns of the 2026-08-22 sensor
+    // tables — a NEGATIVE lock time is the bonus, so the chip prints a minus.
+    expect(labels("module.sensors-sharpshooter-mk4")).toEqual(["Lock dist", "Lock time"]);
+    expect(valueOf("module.sensors-sharpshooter-mk4", "Lock dist")).toBe("+25%");
+    expect(valueOf("module.sensors-sharpshooter-mk4", "Lock time")).toBe("−10%");
+    // The Common line only reaches further; it never buys a faster lock.
+    expect(labels("module.sensors-common-mk3")).toEqual(["Lock dist"]);
+    expect(valueOf("module.sensors-common-mk3", "Lock dist")).toBe("+10%");
   });
 
   it("never returns an empty summary for a shipped module", () => {
@@ -146,7 +171,7 @@ describe("moduleSummaryLine", () => {
   });
 
   it("falls back to a plain phrase for a module with nothing to show", () => {
-    const inert = { ...mod("module.transformer-stock"), passives: [] } as ModuleConfig;
+    const inert = { ...mod("module.alloy-earth-p1"), passives: [] } as ModuleConfig;
     expect(moduleSummaryLine(inert)).toBe("No active effect");
   });
 });

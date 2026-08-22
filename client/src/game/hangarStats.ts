@@ -36,7 +36,25 @@ export interface HangarStatPanel {
   sustainedDps: number;
   /** hullMax stretched by the ship's average kinetic/energy resist — a rough "effective HP", not sim-accurate. */
   ehpApprox: number;
-  /** Power-rail current the hull can deliver (2026-07-31), mostly from the transformer. */
+  /**
+   * The hull's RESOLVED resist columns, 0..0.95 — the fraction of a hit of that
+   * type the airframe simply does not take.
+   *
+   * Resolved, not authored: the alloy line (2026-08-22) trades one column
+   * against the other, so a Martian plate genuinely changes what this hull
+   * survives and the panel has to quote what the sim will use. Before the alloy
+   * bay existed nothing could move these, which is why the panel never carried
+   * them.
+   */
+  resistKinetic: number;
+  resistEnergy: number;
+  /**
+   * The hull's SHIELD RESERVE multiplier — what every fitted shield's tank (and
+   * the rate it refills at) is scaled by. That tank IS the shield in this
+   * engine, so this is the number the Earth Alloy line calls "Shields ±X%".
+   */
+  shieldEfficiency: number;
+  /** Power-rail current the hull can deliver (2026-07-31) — a pure hull stat since the transformer family was retired. */
   powerCapacity: number;
   /** Rail current the fitted hardpoints would hold if every one of them were online at once. */
   powerDrawTotal: number;
@@ -122,7 +140,10 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
 
   const powerDrawTotal = fittingPowerDraw(configs, opts.fittedModuleIds);
 
-  const avgResist = (ship.core.hull.resists.kinetic + ship.core.hull.resists.energy) / 2;
+  // RESOLVED resists, not the authored ones. An alloy in the hull bay moves
+  // both columns (2026-08-22), so reading them off the ship config would have
+  // quoted an effective-HP figure for a hull nobody is flying.
+  const avgResist = (core.resists.kinetic + core.resists.energy) / 2;
   const ehpApprox = core.hullMax / Math.max(0.05, 1 - avgResist);
 
   return {
@@ -133,6 +154,9 @@ export function computeStatPanel(ship: ShipConfig, configs: ConfigService, opts:
     dps,
     sustainedDps,
     ehpApprox,
+    resistKinetic: core.resists.kinetic,
+    resistEnergy: core.resists.energy,
+    shieldEfficiency: core.combat.shieldEfficiency,
     powerCapacity: core.power.capacity,
     powerDrawTotal,
     powerDrawRetracted,

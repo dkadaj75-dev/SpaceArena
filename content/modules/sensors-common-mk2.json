@@ -1,10 +1,10 @@
 {
-  "id": "module.sensors-mk2",
+  "id": "module.sensors-common-mk2",
   "type": "module",
   "version": 1,
   "family": "sensors",
   "level": 2,
-  "name": "Standard Array Mk II",
+  "name": "Common Sensors Mark II",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -13,17 +13,12 @@
     {
       "target": "sensors.lockRange",
       "op": "mul",
-      "value": 1.25
-    },
-    {
-      "target": "sensors.lockTimeSec",
-      "op": "mul",
-      "value": 0.9
+      "value": 1.05
     }
   ],
   "ui": {
     "icon": "[ICON: sensors]",
-    "shortName": "Std Array",
+    "shortName": "Common II",
     "label": "Sensors"
   },
   "price": 600,

@@ -1,0 +1,26 @@
+{
+  "id": "module.sensors-common-mk4",
+  "type": "module",
+  "version": 1,
+  "family": "sensors",
+  "level": 4,
+  "name": "Common Sensors Mark IV",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "sensors.lockRange",
+      "op": "mul",
+      "value": 1.15
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: sensors]",
+    "shortName": "Common IV",
+    "label": "Sensors"
+  },
+  "price": 1900,
+  "requiresLevel": 5
+}

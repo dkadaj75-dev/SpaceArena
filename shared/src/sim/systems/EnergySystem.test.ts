@@ -7,6 +7,7 @@ import {
   INTERCEPTOR_FITTING,
   INTERCEPTOR_FITTING_BOOST,
   INTERCEPTOR_FITTING_SHIELD,
+  INTERCEPTOR_SLOTS,
   loadTestConfigs,
   makeWorld,
 } from "../testutil.js";
@@ -70,16 +71,51 @@ describe("EnergySystem — per-module energy", () => {
     expect(shield.energy).toBeGreaterThan(1);
   });
 
-  it("scales refills with the fitted generator", () => {
-    const rateFor = (gen: string): number => {
+  it("sizes the tanks with the fitted generator, and leaves the refill RATE alone", () => {
+    // The generator's single column is Power CAPACITY since the family was
+    // reworked (owner 2026-08-22): a bigger plant HOLDS more charge, it does
+    // not push it back in faster. Measured on the boost bottle, because a tank
+    // is the only place `energyStore.multiplier` is observable.
+    const fit = (gen: string): { tank: number; recharge: number } => {
       const fitting = [...INTERCEPTOR_FITTING_BOOST];
-      fitting[3] = gen;
+      fitting[INTERCEPTOR_SLOTS.generator] = gen;
       const world = makeWorld(configs);
       const id = spawnShipFromConfig(world, configs, "ship.interceptor", fitting, 0, { x: 0, z: 0 }, 0);
-      return world.shipCores.get(id)!.recharge.multiplier;
+      return {
+        tank: world.modules.get(id)!.modules.find((m) => m.energyCapacity > 0)!.energyCapacity,
+        recharge: world.shipCores.get(id)!.recharge.multiplier,
+      };
     };
-    expect(rateFor("module.generator-compact-mk2")).toBeGreaterThan(rateFor("module.generator-compact"));
-    expect(rateFor("module.generator-siege")).toBeGreaterThan(rateFor("module.generator-heavy"));
+    const stock = fit("module.generator-earth-eng1");
+    const mid = fit("module.generator-earth-eng2");
+    const big = fit("module.generator-earth-eng4");
+    expect(mid.tank).toBeGreaterThan(stock.tank);
+    expect(big.tank).toBeGreaterThan(mid.tank);
+    expect(big.tank).toBeCloseTo(stock.tank * 1.5, 9);
+    // …and the ship-wide recharge multiplier is untouched by all three.
+    expect([stock.recharge, mid.recharge, big.recharge]).toEqual([1, 1, 1]);
+  });
+
+  it("bills a module's drain through the ENGINE's ship-wide draw multiplier", () => {
+    // `efficiency.energyDraw` was the transformer's lever and is the Earth
+    // Engine line's downside now (owner 2026-08-22). One multiplier, billed in
+    // exactly one place, so "Power draw +30%" is thirty percent off the life of
+    // every tank on the ship — here, the boost bottle.
+    const drainWith = (engine: string): number => {
+      const fitting = [...INTERCEPTOR_FITTING_BOOST];
+      fitting[INTERCEPTOR_SLOTS.engine] = engine;
+      const world = makeWorld(configs);
+      const id = spawnShipFromConfig(world, configs, "ship.interceptor", fitting, 0, { x: 0, z: 0 }, 0);
+      const tank = world.modules.get(id)!.modules.find((m) => m.energyCapacity > 0)!;
+      tank.state = "active";
+      tank.workedThisTick = true;
+      const before = tank.energy;
+      energySystem(world, 1);
+      return before - tank.energy;
+    };
+    const stock = drainWith("module.engine-earth-eng1");
+    expect(drainWith("module.engine-earth-eng2")).toBeCloseTo(stock * 1.1, 9);
+    expect(drainWith("module.engine-earth-eng4")).toBeCloseTo(stock * 1.3, 9);
   });
 });
 

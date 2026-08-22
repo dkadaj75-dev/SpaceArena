@@ -1,0 +1,28 @@
+{
+  "id": "module.engine-earth-eng1",
+  "type": "module",
+  "version": 1,
+  "family": "engine",
+  "level": 1,
+  "name": "Earth Engine Engineered I",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "energy": {
+    "capacity": 55,
+    "rechargePerSec": 7.4,
+    "drawPerSec": 20
+  },
+  "boost": {
+    "speedMult": 1.7
+  },
+  "passives": [],
+  "ui": {
+    "icon": "[ICON: engine]",
+    "shortName": "E-Engine I",
+    "label": "Engine"
+  },
+  "price": 0,
+  "requiresLevel": 1
+}

@@ -61,11 +61,11 @@ const GAMEMODE_ID = "gamemode.practice-ctf-5v5";
 const FITTING = [
   "module.laser-mk1",
   "module.missile-mk1",
-  "module.engine-civ",
-  "module.generator-compact",
-  "module.transformer-stock",
+  "module.engine-earth-eng1",
+  "module.generator-earth-eng1",
+  "module.alloy-earth-p1",
   "module.countermeasure-chaff",
-  "module.sensors-basic",
+  "module.sensors-common-mk1",
 ];
 
 /** Position codec is int16 deci-units → half a decimetre of slack. */

@@ -1,44 +1,39 @@
 {
-  "id": "module.engine-racing",
+  "id": "module.engine-earth-eng4",
   "type": "module",
   "version": 1,
   "family": "engine",
-  "level": 3,
-  "name": "Racing Overdrive",
+  "level": 4,
+  "name": "Earth Engine Engineered IV",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
   },
   "energy": {
-    "capacity": 60,
-    "rechargePerSec": 6.4,
-    "drawPerSec": 24
+    "capacity": 55,
+    "rechargePerSec": 7.4,
+    "drawPerSec": 20
   },
   "boost": {
-    "speedMult": 2.0
+    "speedMult": 1.7
   },
   "passives": [
     {
       "target": "engine.nominalSpeed",
       "op": "mul",
-      "value": 1.22
+      "value": 1.5
     },
     {
-      "target": "engine.accel",
+      "target": "efficiency.energyDraw",
       "op": "mul",
-      "value": 1.28
-    },
-    {
-      "target": "engine.turnRate",
-      "op": "mul",
-      "value": 0.82
+      "value": 1.3
     }
   ],
   "ui": {
     "icon": "[ICON: engine]",
-    "shortName": "Overdrive",
+    "shortName": "E-Engine IV",
     "label": "Engine"
   },
-  "price": 1800,
+  "price": 2250,
   "requiresLevel": 5
 }

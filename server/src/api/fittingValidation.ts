@@ -56,9 +56,9 @@ export function validateFitting(
 }
 
 /**
- * Drop the entries of a STORED fitting that the ship's sockets no longer
- * support: an index past the socket count, or a module whose family the socket
- * at that index does not accept.
+ * Drop the entries of a STORED fitting the current pack can no longer honour:
+ * an index past the socket count, a module whose family the socket at that
+ * index does not accept, or a module the pack does not ship at all.
  *
  * This exists because a fitting outlives the hull it was saved against. Sockets
  * are content — the 2026-08-22 hardpoint pass cut the Interceptor from three
@@ -92,10 +92,22 @@ export function pruneStaleFitting(
     const idx = Number(key);
     const socket = Number.isInteger(idx) && idx >= 0 ? hardpoints[idx] : undefined;
     const family = configs.get<ModuleConfig>("module", moduleId)?.family;
-    // An UNKNOWN module is left in place on purpose: it is not a socket-shape
-    // problem, and `validateFitting` has a precise `unknown-module` answer for
-    // it that a prune here would turn into a silently emptier ship.
-    if (!socket || (family !== undefined && !socket.accepts.includes(family))) {
+    // An UNKNOWN module is dropped too (owner 2026-08-22). It used to be left
+    // in place, on the reasoning that `validateFitting` had a precise
+    // `unknown-module` answer for it — but that answer REJECTS THE JOIN, and
+    // the reasoning only held while module ids were forever. The internal
+    // rework deleted twenty-five of them (the whole transformer family, and
+    // every old engine, generator and sensor), so every fitting saved before it
+    // names modules that no longer exist. That is the pack changing under a
+    // database row, which is exactly the case this function exists to forgive:
+    // the same event as a socket vanishing, differing only in which half of the
+    // pair went missing. Rejecting would lock out every player who ever saved a
+    // loadout.
+    //
+    // The SAVE path is untouched and still rejects: `validateFitting` keeps its
+    // `unknown-module` code, and a client asking to store a fitting full of
+    // dead ids is making a live edit, not carrying an old row.
+    if (!socket || family === undefined || !socket.accepts.includes(family)) {
       dropped.push(key);
       continue;
     }

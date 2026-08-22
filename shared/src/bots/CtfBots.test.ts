@@ -138,8 +138,8 @@ function approachHomeFlagFromAbove(seed: number) {
   // systems bay. It has no auxiliary bay, so the flux capacitor that used to
   // ride its third hardpoint has nowhere to go on this airframe.
   const fitting = [
-    "module.kinetic-mk1", "module.shield-mk1", "module.engine-mk2", "module.generator-dynamo",
-    "module.transformer-mk3", "module.countermeasure-spoofer", "module.sensors-snap",
+    "module.kinetic-mk1", "module.shield-mk1", "module.engine-earth-eng2", "module.generator-earth-eng3",
+    "module.alloy-earth-p3", "module.countermeasure-spoofer", "module.sensors-sharpshooter-mk3",
   ];
   const vertical = 15;
   const initialDistance = 30;

@@ -1,29 +1,26 @@
 {
-  "id": "module.generator-dynamo",
+  "id": "module.generator-earth-eng4",
   "type": "module",
   "version": 1,
   "family": "generator",
-  "level": 2,
-  "name": "High-Output Dynamo",
+  "level": 4,
+  "name": "Earth Generator Engineered IV",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
-  },
-  "recharge": {
-    "multiplier": 2.1
   },
   "passives": [
     {
       "target": "energyStore.multiplier",
       "op": "mul",
-      "value": 0.85
+      "value": 1.5
     }
   ],
   "ui": {
     "icon": "[ICON: generator]",
-    "shortName": "Dynamo",
+    "shortName": "E-Gen IV",
     "label": "Generator"
   },
-  "price": 1150,
-  "requiresLevel": 3
+  "price": 2150,
+  "requiresLevel": 5
 }

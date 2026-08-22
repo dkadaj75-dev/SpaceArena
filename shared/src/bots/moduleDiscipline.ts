@@ -73,8 +73,8 @@ export function planModuleOrders(
     // Toggling them adds retract/deploy downtime for nothing; fireDiscipline
     // manages when they actually pull the trigger.
     if (cfg.fire) continue;
-    // Never touch the internal bay (2026-07-31). Engine, generator,
-    // transformer, countermeasure and sensors are the ship itself, not a power
+    // Never touch the internal bay (2026-07-31). Engine, generator, alloy,
+    // countermeasure and sensors are the ship itself, not a power
     // budget to cycle — a bot shutting its own engine down to save a little
     // charge would simply stop flying.
     if (isInternalFamily(cfg.family)) continue;

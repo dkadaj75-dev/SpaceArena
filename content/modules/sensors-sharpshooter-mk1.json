@@ -1,10 +1,10 @@
 {
-  "id": "module.sensors-mk3",
+  "id": "module.sensors-sharpshooter-mk1",
   "type": "module",
   "version": 1,
   "family": "sensors",
-  "level": 3,
-  "name": "Standard Array Mk III",
+  "level": 1,
+  "name": "Sharpshooter Mark I",
   "activation": {
     "deployTime": 0,
     "retractTime": 0
@@ -13,19 +13,19 @@
     {
       "target": "sensors.lockRange",
       "op": "mul",
-      "value": 1.55
+      "value": 1.05
     },
     {
       "target": "sensors.lockTimeSec",
       "op": "mul",
-      "value": 0.78
+      "value": 0.95
     }
   ],
   "ui": {
     "icon": "[ICON: sensors]",
-    "shortName": "Std Array",
+    "shortName": "Sharp I",
     "label": "Sensors"
   },
-  "price": 1400,
-  "requiresLevel": 4
+  "price": 450,
+  "requiresLevel": 2
 }

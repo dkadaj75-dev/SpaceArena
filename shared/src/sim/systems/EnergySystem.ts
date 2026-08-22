@@ -20,8 +20,10 @@ import type { World } from "../World.js";
  *     `energy.rechargePerSec × recharge.multiplier × dt` up to its capacity,
  *     with a SHIELD additionally scaled by the hull's `combat.shieldEfficiency`.
  *
- * The ship-wide recharge multiplier comes from the fitted generator; the
- * transformer's `efficiency.energyDraw` taxes draw per module. Nothing here
+ * The ship-wide recharge multiplier is a hull stat (a utility capacitor can
+ * move it); `efficiency.energyDraw` taxes draw per module and is the ENGINE's
+ * lever since the transformer family was retired (owner 2026-08-22) — a faster
+ * Earth Engine makes every tank on the ship drain faster. Nothing here
  * damages a hull — a loadout cannot kill its own pilot.
  */
 export function energySystem(world: World, dt: number): void {

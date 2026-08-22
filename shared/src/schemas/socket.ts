@@ -62,7 +62,8 @@ export type HardpointSocket = z.infer<typeof hardpointSocket>;
 
 /**
  * Internal socket — the ship's systems bay (owner 2026-07-31): engine,
- * generator, transformer, countermeasure, sensors. Structurally identical to a
+ * generator, hull (the alloy bay, which took the retired transformer's socket
+ * on 2026-08-22), countermeasure, sensors. Structurally identical to a
  * hardpoint (a named attachment point with an `accepts` list) and it shares the
  * SAME fitted-slot index space, so a fitting is still one positional array and
  * the sim/netcode/HUD keep addressing modules by a single index (see

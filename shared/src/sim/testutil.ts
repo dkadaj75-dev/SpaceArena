@@ -158,18 +158,19 @@ export function pinLock(world: World, entityId: EntityId): void {
 
 /**
  * The light hull's slots in order (owner 2026-07-31): two hardpoints, then the
- * five-bay internal block (engine, generator, transformer, countermeasure, sensors).
+ * five-bay internal block (engine, generator, hull, countermeasure, sensors) —
+ * the alloy bay took the retired transformer's socket on 2026-08-22.
  * Mirrors `ship.interceptor`'s `defaultFitting` — tests that want a weapon on a
  * specific index address 0 (laser) and 1 (missile); anything ≥ 2 is an internal.
  */
 export const INTERCEPTOR_FITTING = [
   "module.laser-mk1",
   "module.missile-mk1",
-  "module.engine-civ",
-  "module.generator-compact",
-  "module.transformer-stock",
+  "module.engine-earth-eng1",
+  "module.generator-earth-eng1",
+  "module.alloy-earth-p1",
   "module.countermeasure-flare",
-  "module.sensors-basic",
+  "module.sensors-common-mk1",
 ];
 
 /** Fitted-slot index of each internal bay on the light hull. */
@@ -178,7 +179,7 @@ export const INTERCEPTOR_SLOTS = {
   missile: 1,
   engine: 2,
   generator: 3,
-  transformer: 4,
+  hull: 4,
   countermeasure: 5,
   sensors: 6,
 } as const;
@@ -191,11 +192,11 @@ export const INTERCEPTOR_SLOTS = {
 export const INTERCEPTOR_FITTING_SHIELD = [
   "module.laser-mk1",
   "module.shield-mk1",
-  "module.engine-civ",
-  "module.generator-compact",
-  "module.transformer-stock",
+  "module.engine-earth-eng1",
+  "module.generator-earth-eng1",
+  "module.alloy-earth-p1",
   "module.countermeasure-flare",
-  "module.sensors-basic",
+  "module.sensors-common-mk1",
 ];
 
 /**
@@ -207,37 +208,44 @@ export const INTERCEPTOR_FITTING_SHIELD = [
 export const INTERCEPTOR_FITTING_SLOW_RAY = [
   "module.laser-mk1",
   "module.ray-slow-mk1",
-  "module.engine-civ",
-  "module.generator-compact",
-  "module.transformer-stock",
+  "module.engine-earth-eng1",
+  "module.generator-earth-eng1",
+  "module.alloy-earth-p1",
   "module.countermeasure-flare",
-  "module.sensors-basic",
+  "module.sensors-common-mk1",
 ];
 
 /** The same, carrying a REPAIR FIELD instead of the ray. */
 export const INTERCEPTOR_FITTING_REPAIR = [
   "module.laser-mk1",
   "module.field-repair-mk1",
-  "module.engine-civ",
-  "module.generator-compact",
-  "module.transformer-stock",
+  "module.engine-earth-eng1",
+  "module.generator-earth-eng1",
+  "module.alloy-earth-p1",
   "module.countermeasure-flare",
-  "module.sensors-basic",
+  "module.sensors-common-mk1",
 ];
 
 /**
  * The light hull with a BOOSTING engine. Boost lives on the engine internal
  * since 2026-07-31, so "does this hull have an afterburner" is a question about
  * slot {@link INTERCEPTOR_SLOTS.engine}, not about a hardpoint.
+ *
+ * Since the Earth Engine line replaced the old drives (owner 2026-08-22) EVERY
+ * mark carries the same afterburner, so this fixture differs from
+ * {@link INTERCEPTOR_FITTING} only in which mark is fitted — it is kept as a
+ * separate, named constant because the tests that use it are about the boost
+ * mechanism, and reading `INTERCEPTOR_FITTING` there would hide what they need
+ * from the fitting.
  */
 export const INTERCEPTOR_FITTING_BOOST = [
   "module.laser-mk1",
   "module.missile-mk1",
-  "module.engine-sport",
-  "module.generator-compact",
-  "module.transformer-stock",
+  "module.engine-earth-eng2",
+  "module.generator-earth-eng1",
+  "module.alloy-earth-p1",
   "module.countermeasure-flare",
-  "module.sensors-basic",
+  "module.sensors-common-mk1",
 ];
 
 /**
@@ -249,22 +257,22 @@ export const INTERCEPTOR_FITTING_BOOST = [
 export const INTERCEPTOR_FITTING_OVERSUBSCRIBED = [
   "module.laser-mk2",
   "module.shield-mk2",
-  "module.engine-civ",
-  "module.generator-compact",
-  "module.transformer-stock",
+  "module.engine-earth-eng1",
+  "module.generator-earth-eng1",
+  "module.alloy-earth-p1",
   "module.countermeasure-flare",
-  "module.sensors-basic",
+  "module.sensors-common-mk1",
 ];
 
 /** As {@link INTERCEPTOR_FITTING}, but carrying the longer-lived chaff pod. */
 export const INTERCEPTOR_FITTING_CHAFF = [
   "module.laser-mk1",
   "module.missile-mk1",
-  "module.engine-civ",
-  "module.generator-compact",
-  "module.transformer-stock",
+  "module.engine-earth-eng1",
+  "module.generator-earth-eng1",
+  "module.alloy-earth-p1",
   "module.countermeasure-chaff",
-  "module.sensors-basic",
+  "module.sensors-common-mk1",
 ];
 
 /**

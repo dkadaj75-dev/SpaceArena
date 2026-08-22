@@ -1,0 +1,36 @@
+{
+  "id": "module.alloy-earth-p3",
+  "type": "module",
+  "version": 1,
+  "family": "hull",
+  "level": 3,
+  "name": "Earth Alloy Purity III",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "hull.base",
+      "op": "mul",
+      "value": 1.1
+    },
+    {
+      "target": "combat.shieldEfficiency",
+      "op": "mul",
+      "value": 1.1
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 0.95
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: hull]",
+    "shortName": "E-Alloy III",
+    "label": "Alloy"
+  },
+  "price": 1400,
+  "requiresLevel": 4
+}

@@ -1,7 +1,7 @@
 {
   "id": "ship.interceptor",
   "type": "ship",
-  "version": 6,
+  "version": 7,
   "name": "Interceptor",
   "class": "light",
   "core": {
@@ -119,7 +119,7 @@
       ]
     },
     {
-      "id": "in-transformer",
+      "id": "in-hull",
       "transform": {
         "pos": [
           0.35,
@@ -129,7 +129,7 @@
       },
       "kind": "internal",
       "accepts": [
-        "transformer"
+        "hull"
       ]
     },
     {
@@ -366,11 +366,11 @@
   "defaultFitting": [
     "module.laser-mk1",
     "module.missile-mk1",
-    "module.engine-civ",
-    "module.generator-compact",
-    "module.transformer-stock",
+    "module.engine-earth-eng1",
+    "module.generator-earth-eng1",
+    "module.alloy-earth-p1",
     "module.countermeasure-flare",
-    "module.sensors-basic"
+    "module.sensors-common-mk1"
   ],
   "render": {
     "recipe": "procedural.arrowhead",

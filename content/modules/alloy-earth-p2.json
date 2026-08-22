@@ -1,0 +1,36 @@
+{
+  "id": "module.alloy-earth-p2",
+  "type": "module",
+  "version": 1,
+  "family": "hull",
+  "level": 2,
+  "name": "Earth Alloy Purity II",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "hull.base",
+      "op": "mul",
+      "value": 1.05
+    },
+    {
+      "target": "combat.shieldEfficiency",
+      "op": "mul",
+      "value": 1.05
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 0.975
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: hull]",
+    "shortName": "E-Alloy II",
+    "label": "Alloy"
+  },
+  "price": 700,
+  "requiresLevel": 2
+}

@@ -39,9 +39,13 @@ describe("ModuleSystem state machine", () => {
   it("spawns weapons ONLINE and ordinary internals active", () => {
     const { world, id } = shipWorld();
     const states = world.modules.get(id)!.modules.map((m) => m.state);
-    // Light hull: laser + missile come online and its non-boosting internals
-    // are always-on systems.
-    expect(states).toEqual(["active", "active", "active", "active", "active", "active", "active"]);
+    // Light hull: laser + missile come online, and so does every always-on
+    // internal. The ENGINE is the exception, at slot 2: every mark of the Earth
+    // Engine line carries an afterburner (owner 2026-08-22), and a
+    // boost-capable engine spawns DOWN — boost is a deliberate, energy-priced
+    // activation, not something a hull leaves running. Its `passives` (speed,
+    // draw) apply either way; only the afterburner waits for the button.
+    expect(states).toEqual(["active", "active", "retracted", "active", "active", "active", "active"]);
   });
 
   it("counts down a clip reload, refills it, and re-arms automatically", () => {
@@ -70,7 +74,7 @@ describe("ModuleSystem state machine", () => {
       world,
       configs,
       "ship.interceptor",
-      ["module.laser-mk1", "module.missile-mk1", "module.engine-sport", "module.generator-compact", "module.transformer-stock", "module.countermeasure-flare", "module.sensors-basic"],
+      ["module.laser-mk1", "module.missile-mk1", "module.engine-earth-eng2", "module.generator-earth-eng1", "module.alloy-earth-p1", "module.countermeasure-flare", "module.sensors-common-mk1"],
       0,
       { x: 0, z: 0 },
       0,
@@ -219,7 +223,7 @@ describe("ModuleSystem state machine — reversals, forced exits and guards", ()
       world,
       configs,
       "ship.interceptor",
-      [null, null, null, null, null, null, "module.sensors-basic"],
+      [null, null, null, null, null, null, "module.sensors-common-mk1"],
       0,
       { x: 0, z: 0 },
       0,

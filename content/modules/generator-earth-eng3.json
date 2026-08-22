@@ -1,0 +1,26 @@
+{
+  "id": "module.generator-earth-eng3",
+  "type": "module",
+  "version": 1,
+  "family": "generator",
+  "level": 3,
+  "name": "Earth Generator Engineered III",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "energyStore.multiplier",
+      "op": "mul",
+      "value": 1.25
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: generator]",
+    "shortName": "E-Gen III",
+    "label": "Generator"
+  },
+  "price": 1350,
+  "requiresLevel": 4
+}

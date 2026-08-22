@@ -47,8 +47,10 @@ const shipCore = z.object({
    * Think voltage vs amperage. A module's own `energy` tank is the reservoir it
    * drains over time; this is the instantaneous current the hull can deliver.
    * Every active hardpoint module occupies its `power.draw` while it is up, and
-   * the total may never exceed this. Most of it comes from the fitted
-   * TRANSFORMER, so choosing one is choosing how much you can run together.
+   * the total may never exceed this. Since the transformer family was retired
+   * (owner 2026-08-22) this is a pure HULL property: the rail is as wide as the
+   * airframe was built, and no bay widens it. Choosing a hull is therefore
+   * choosing how much you can run together.
    *
    * A fitting whose modules sum past this is still legal to build — the Hangar
    * warns — it simply cannot have them all online simultaneously.
@@ -57,10 +59,14 @@ const shipCore = z.object({
     .object({ capacity: z.number().nonnegative().default(0) })
     .default({ capacity: 0 }),
   /**
-   * Ship-wide efficiency multipliers (owner 2026-07-31), the TRANSFORMER's
-   * lever: `energyDraw` scales every module's own energy draw. It defaults to 1
-   * (the hull as authored) and is moved by the fitted transformer's passives, so
-   * a good one makes the whole loadout cheaper to run while a cheap one taxes it.
+   * Ship-wide efficiency multipliers (owner 2026-07-31): `energyDraw` scales
+   * every module's own energy draw. It defaults to 1 (the hull as authored).
+   *
+   * This was the transformer's lever until that family was retired (owner
+   * 2026-08-22); the ENGINE line owns it now, and moves it the other way — an
+   * Earth Engine buys speed by making the whole ship thirstier ("Power draw
+   * +20%" is `efficiency.energyDraw` × 1.2). The plumbing is unchanged, which
+   * is the point: EnergySystem still bills exactly one multiplier per drain.
    */
   efficiency: z
     .object({ energyDraw: z.number().nonnegative().default(1) })

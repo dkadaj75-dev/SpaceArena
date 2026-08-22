@@ -1,0 +1,31 @@
+{
+  "id": "module.sensors-sharpshooter-mk2",
+  "type": "module",
+  "version": 1,
+  "family": "sensors",
+  "level": 2,
+  "name": "Sharpshooter Mark II",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "sensors.lockRange",
+      "op": "mul",
+      "value": 1.1
+    },
+    {
+      "target": "sensors.lockTimeSec",
+      "op": "mul",
+      "value": 0.95
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: sensors]",
+    "shortName": "Sharp II",
+    "label": "Sensors"
+  },
+  "price": 950,
+  "requiresLevel": 3
+}

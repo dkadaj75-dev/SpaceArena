@@ -46,7 +46,12 @@ export const moduleFamily = z.enum([
   // rather than being fired. See `internalFamily` below. ---
   "engine",
   "generator",
-  "transformer",
+  // `hull` is the ALLOY bay (owner 2026-08-22). It took the socket the retired
+  // `transformer` family held, and it is the same KIND of thing every other
+  // internal is — an always-on module that changes what the hull is — except
+  // that what it changes is the airframe itself: how much structure it carries,
+  // how fast it moves, and what it shrugs off. See `content/modules/alloy-*`.
+  "hull",
   "countermeasure",
   "sensors",
 ]);
@@ -57,19 +62,23 @@ export type ModuleFamily = z.infer<typeof moduleFamily>;
  * (owner 2026-07-31). Hardpoints carry what shoots or shields; internals are the
  * ship's systems — they never activate, they change what the hull IS:
  *
- *  - `engine`      — speed / acceleration / turn rate, and whether the hull has
- *                    a boost at all (the base engine does not)
- *  - `generator`   — how fast every module tank refills, at the cost of top speed: a
- *                    bigger plant is heavier and steals thrust
- *  - `transformer` — how efficiently power is delivered: scales BOTH energy
- *                    draw across the whole ship
+ *  - `engine`      — how fast the hull moves, and what that speed costs it in
+ *                    energy draw (the Earth Engine line, owner 2026-08-22)
+ *  - `generator`   — how big every module tank on the hull is (`energyStore`)
+ *  - `hull`        — the ALLOY the airframe is built from: structure, speed and
+ *                    the two damage resists, traded against each other
  *  - `countermeasure` — decoy pods; the fitted one can be
  *                    JETTISONED as a decoy (see `moduleSchema.jettison`)
  *  - `sensors`     — lock range, lock time and cone width
  *
+ * The `transformer` family was RETIRED on 2026-08-22 (owner). Its one live stat
+ * hook — `efficiency.energyDraw`, the ship-wide multiplier on what every module
+ * spends — did not die with it: the Earth Engine line took it over, so a faster
+ * drive is paid for in a thirstier ship rather than in a separate bay.
+ *
  * Exported as a runtime set so UI and validation share one source of truth.
  */
-export const INTERNAL_FAMILIES = ["engine", "generator", "transformer", "countermeasure", "sensors"] as const;
+export const INTERNAL_FAMILIES = ["engine", "generator", "hull", "countermeasure", "sensors"] as const;
 export type InternalFamily = (typeof INTERNAL_FAMILIES)[number];
 
 /** Whether a family belongs in the internal bay rather than on a hardpoint. */
@@ -181,10 +190,21 @@ export const collider = z.object({
 });
 export type Collider = z.infer<typeof collider>;
 
+/**
+ * Legal band for a resist, shared by the schema below and by the stat resolver
+ * that clamps the post-passive value. One constant for both because they bound
+ * the same quantity from two directions: the schema bounds what an AUTHOR may
+ * write on a hull, the resolver bounds what a stack of alloys and upgrades may
+ * add on top. 0.95 rather than 1 so no legal combination of content produces a
+ * hull that is immune to a damage channel.
+ */
+export const RESIST_MIN = 0;
+export const RESIST_MAX = 0.95;
+
 /** Resist matrix: fraction of incoming damage removed, per channel. */
 export const resists = z.object({
-  kinetic: z.number().min(0).max(0.95),
-  energy: z.number().min(0).max(0.95),
+  kinetic: z.number().min(RESIST_MIN).max(RESIST_MAX),
+  energy: z.number().min(RESIST_MIN).max(RESIST_MAX),
 });
 export type Resists = z.infer<typeof resists>;
 

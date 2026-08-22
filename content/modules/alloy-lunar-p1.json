@@ -1,0 +1,41 @@
+{
+  "id": "module.alloy-lunar-p1",
+  "type": "module",
+  "version": 1,
+  "family": "hull",
+  "level": 1,
+  "name": "Lunar Alloy Purity I",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "hull.base",
+      "op": "mul",
+      "value": 0.95
+    },
+    {
+      "target": "engine.nominalSpeed",
+      "op": "mul",
+      "value": 1.05
+    },
+    {
+      "target": "hull.resists.energy",
+      "op": "mul",
+      "value": 1.05
+    },
+    {
+      "target": "hull.resists.kinetic",
+      "op": "mul",
+      "value": 0.975
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: hull]",
+    "shortName": "Lunar I",
+    "label": "Alloy"
+  },
+  "price": 500,
+  "requiresLevel": 2
+}

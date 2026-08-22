@@ -9,10 +9,15 @@ import type { ModuleRuntime } from "./components.js";
  * A module's own energy tank is a reservoir: it drains while the module works
  * and refills while it rests. The rail is the opposite kind of quantity — an
  * instantaneous current budget. A module occupies its `power.draw` for as long as it is active, and
- * the sum across active modules may never exceed the hull's `power.capacity`
- * (mostly supplied by the fitted transformer).
+ * the sum across active modules may never exceed the hull's `power.capacity`.
  *
- * The consequence, and the point: a hull whose transformer delivers 15 can
+ * Capacity is a pure HULL stat since the transformer family was retired (owner
+ * 2026-08-22): no bay widens the rail any more, so how much a ship can run at
+ * once is decided when the pilot picks the airframe, not when they pick a
+ * module. That also means the rail no longer moves when a fitting changes,
+ * which is what makes the Hangar's warning a property of the fit alone.
+ *
+ * The consequence, and the point: a hull whose rail delivers 15 can
  * carry a 10-draw laser and an 8-draw shield, but never run both. Raising the
  * shield is refused while the gun holds the rail — a real decision rather than a
  * fitting-screen error.

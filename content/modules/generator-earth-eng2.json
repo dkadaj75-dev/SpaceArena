@@ -1,0 +1,26 @@
+{
+  "id": "module.generator-earth-eng2",
+  "type": "module",
+  "version": 1,
+  "family": "generator",
+  "level": 2,
+  "name": "Earth Generator Engineered II",
+  "activation": {
+    "deployTime": 0,
+    "retractTime": 0
+  },
+  "passives": [
+    {
+      "target": "energyStore.multiplier",
+      "op": "mul",
+      "value": 1.1
+    }
+  ],
+  "ui": {
+    "icon": "[ICON: generator]",
+    "shortName": "E-Gen II",
+    "label": "Generator"
+  },
+  "price": 650,
+  "requiresLevel": 2
+}
