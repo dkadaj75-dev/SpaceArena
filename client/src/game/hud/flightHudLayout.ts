@@ -186,6 +186,8 @@ export interface ReticleLayout {
   strokePx: number;
   bracketSizePx: number;
   ringStrokePx: number;
+  /** Same ring, once the lock is ACQUIRED. Half of {@link ringStrokePx} unless authored. */
+  lockedRingStrokePx: number;
   targetNameOffsetPx: number;
   targetNameSizePx: number;
   blockedText: string;
@@ -247,6 +249,14 @@ export interface FlightHudLayout {
   enemyArrows: EnemyArrowsLayout;
   orders: FlightOrderLayout;
 }
+
+/**
+ * How much of the acquiring ring's stroke survives once the lock is ACQUIRED
+ * (owner 2026-08-22: "lock circle 50% thinner when locked"). Applied only when
+ * the theme does not author `reticle.lockedRingStrokePx` outright, so this is
+ * the *rule*, not a hard cap — a pack is still free to say otherwise.
+ */
+export const LOCKED_RING_STROKE_FACTOR = 0.5;
 
 /** Fallbacks for a theme with no (or a partial) `hud.flight` block. */
 export const FLIGHT_HUD_DEFAULTS = {
@@ -324,6 +334,7 @@ export const FLIGHT_HUD_DEFAULTS = {
     strokePx: 2,
     bracketSizePx: 54,
     ringStrokePx: 4,
+    lockedRingStrokePx: 2,
     targetNameOffsetPx: 12,
     targetNameSizePx: 10,
     blockedText: "NO LOCK",
@@ -740,6 +751,13 @@ export function resolveFlightHudLayout(
       strokePx: (reticle.strokePx ?? d.reticle.strokePx) * scale,
       bracketSizePx: (reticle.bracketSizePx ?? d.reticle.bracketSizePx) * scale,
       ringStrokePx: (reticle.ringStrokePx ?? d.reticle.ringStrokePx) * scale,
+      // Derived from the ACQUIRING width when unauthored, not from the default
+      // constant: a theme that thickened its progress ring should get a locked
+      // ring that is thinner *than its own*, otherwise "50% thinner" would
+      // silently mean "thicker" for anything authored below the default.
+      lockedRingStrokePx:
+        (reticle.lockedRingStrokePx ??
+          (reticle.ringStrokePx ?? d.reticle.ringStrokePx) * LOCKED_RING_STROKE_FACTOR) * scale,
       targetNameOffsetPx: (reticle.targetNameOffsetPx ?? d.reticle.targetNameOffsetPx) * scale,
       targetNameSizePx: (reticle.targetNameSizePx ?? d.reticle.targetNameSizePx) * scale,
       blockedText: reticle.blockedText ?? d.reticle.blockedText,

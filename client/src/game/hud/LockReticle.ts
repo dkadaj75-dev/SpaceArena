@@ -160,6 +160,12 @@ export class LockReticle {
     this.bracket.style.height = px;
     this.bracket.style.setProperty("--hud-reticle-target-name-offset", `${layout.reticle.targetNameOffsetPx}px`);
     this.bracket.style.setProperty("--hud-reticle-target-name-size", `${layout.reticle.targetNameSizePx}px`);
+    // The ACQUIRED ring width is a state override, so it is written on the node
+    // that carries the state (`.locked` lives on the bracket) rather than on the
+    // HUD root next to the acquiring width. That also keeps this component
+    // self-sufficient: a reticle mounted on its own — as the tests do — still
+    // resolves both widths without the HUD root's variable block.
+    this.bracket.style.setProperty("--hud-reticle-locked-ring-stroke", `${layout.reticle.lockedRingStrokePx}px`);
     this.blocked.textContent = layout.reticle.blockedText;
     this.blockedFlashMs = layout.reticle.blockedFlashMs;
     this.showZone = layout.reticle.showZone;

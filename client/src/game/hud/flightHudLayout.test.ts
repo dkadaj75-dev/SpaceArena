@@ -212,6 +212,36 @@ describe("resolveFlightHudLayout", () => {
     expect(layout.orders.turnEpsilon).toBe(0.05);
     expect(layout.reticle.maxRadiusFraction).toBe(0.82);
   });
+
+  /**
+   * Owner 2026-08-22: "lock circle 50% thinner when locked". The rule is
+   * expressed against whatever the theme authored for the ACQUIRING ring, not
+   * against the built-in default — otherwise a pack with a hairline progress
+   * ring would get a *thicker* one on completion.
+   */
+  it("halves the acquiring ring for the locked state, relative to the theme's own width", () => {
+    const shipped = resolveFlightHudLayout(theme(), PORTRAIT);
+    expect(shipped.reticle.ringStrokePx).toBe(4);
+    expect(shipped.reticle.lockedRingStrokePx).toBe(2);
+
+    const thick = resolveFlightHudLayout(
+      theme({ flight: { reticle: { ringStrokePx: 9 } } }),
+      PORTRAIT,
+    );
+    expect(thick.reticle.lockedRingStrokePx).toBe(4.5);
+
+    // An explicit authored value wins outright, including "keep them equal".
+    const pinned = resolveFlightHudLayout(
+      theme({ flight: { reticle: { ringStrokePx: 4, lockedRingStrokePx: 4 } } }),
+      PORTRAIT,
+    );
+    expect(pinned.reticle.lockedRingStrokePx).toBe(4);
+
+    // It is geometry, so it scales with the orientation block like its sibling.
+    const landscape = resolveFlightHudLayout(theme(), LANDSCAPE);
+    expect(landscape.reticle.ringStrokePx).toBe(2);
+    expect(landscape.reticle.lockedRingStrokePx).toBe(1);
+  });
 });
 
 describe("secondary action geometry", () => {

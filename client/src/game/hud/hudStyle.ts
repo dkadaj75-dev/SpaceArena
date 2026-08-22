@@ -990,9 +990,16 @@ const CSS = `
   border-color: var(--hud-danger, var(--sa-red-500));
   filter: drop-shadow(0 0 calc(8px * var(--hud-glow)) var(--hud-danger, var(--sa-red-500)));
 }
+/* ACQUIRED: the ring stops being a filling gauge and becomes a confirmation, so
+   it thins to --hud-reticle-locked-ring-stroke (half the acquiring width
+   unless the theme says otherwise — owner 2026-08-22). LockReticle writes the
+   property on the bracket itself; the literal fallback here is only for a
+   reticle mounted outside a resolved layout. */
 .hud-reticle-bracket.locked .ring {
   background: conic-gradient(var(--hud-danger, var(--sa-red-500)) 100%, var(--hud-danger, var(--sa-red-500)) 0);
   animation: hud-lock-pulse 0.9s ease-in-out infinite;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-reticle-locked-ring-stroke, 2px)), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--hud-reticle-locked-ring-stroke, 2px)), #000 0);
 }
 @keyframes hud-lock-pulse {
   0%, 100% { opacity: 1; }

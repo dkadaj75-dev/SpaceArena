@@ -186,6 +186,7 @@
         "strokePx": 2,
         "bracketSizePx": 54,
         "ringStrokePx": 4,
+        "lockedRingStrokePx": 2,
         "targetNameOffsetPx": 12,
         "targetNameSizePx": 10
       },

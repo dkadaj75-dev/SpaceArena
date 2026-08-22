@@ -121,6 +121,51 @@ describe("LockReticle distance label", () => {
     expect(blocked.classList).not.toContain("visible");
   });
 
+  /**
+   * Owner 2026-08-22: "lock circle 50% thinner when locked". The ACQUIRING ring
+   * has to be thick enough to read a partial sweep; once it completes it is only
+   * a confirmation, and the corner ticks plus the LOCKED readout already carry
+   * that. So the width halves on completion — and the acquiring width, which the
+   * pilot spends most of a fight looking at, is untouched.
+   */
+  it("halves the ring's stroke once the lock is ACQUIRED, leaving the acquiring width alone", () => {
+    const root = document.createElement("div");
+    const layout = resolveFlightHudLayout(undefined, { width: 800, height: 600 });
+    const reticle = new LockReticle(root, layout);
+    const bracket = root.querySelector<HTMLElement>(".hud-reticle-bracket")!;
+
+    expect(layout.reticle.ringStrokePx).toBe(4);
+    expect(layout.reticle.lockedRingStrokePx).toBe(layout.reticle.ringStrokePx / 2);
+    // Both widths are resolvable from the bracket, so the `.locked` rule and the
+    // base rule can never disagree about which one is in force.
+    expect(bracket.style.getPropertyValue("--hud-reticle-locked-ring-stroke")).toBe("2px");
+
+    // The state flip is what selects it — nothing about the geometry changes.
+    reticle.update(true, 400, 300, 0.5, false, 50);
+    expect(bracket.classList.contains("locked")).toBe(false);
+    reticle.update(true, 400, 300, 1, true, 50);
+    expect(bracket.classList.contains("locked")).toBe(true);
+    expect(bracket.style.getPropertyValue("--hud-reticle-locked-ring-stroke")).toBe("2px");
+    reticle.dispose();
+  });
+
+  it("lets a theme author the locked ring width outright", () => {
+    const root = document.createElement("div");
+    const reticle = new LockReticle(
+      root,
+      resolveFlightHudLayout(
+        { hud: { flight: { reticle: { ringStrokePx: 6, lockedRingStrokePx: 5 } } } } as never,
+        { width: 800, height: 600 },
+      ),
+    );
+    // An authored value wins over the halving rule — a pack that wants the old
+    // single-weight look sets both to the same number.
+    expect(
+      root.querySelector<HTMLElement>(".hud-reticle-bracket")!.style.getPropertyValue("--hud-reticle-locked-ring-stroke"),
+    ).toBe("5px");
+    reticle.dispose();
+  });
+
   it("can hide the full cone circle without hiding the target bracket", () => {
     const root = document.createElement("div");
     const reticle = new LockReticle(

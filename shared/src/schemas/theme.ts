@@ -397,8 +397,25 @@ export const lockReticleSchema = z.object({
   strokePx: z.number().nonnegative().optional(),
   /** Side length of the bracket drawn on the current lock candidate. */
   bracketSizePx: z.number().positive().optional(),
-  /** Stroke width of the lock-progress ring around the bracket. */
+  /** Stroke width of the lock-progress ring around the bracket, while ACQUIRING. */
   ringStrokePx: z.number().nonnegative().optional(),
+  /**
+   * Stroke width of the same ring once the lock is ACQUIRED (owner 2026-08-22:
+   * "lock circle 50% thinner when locked").
+   *
+   * WHY a second knob rather than one width for both states: the acquiring ring
+   * is a *filling gauge* — it has to be thick enough to read a partial sweep
+   * against the arena at a glance. Once it completes, the same weight is just a
+   * heavy red donut sitting on the target the pilot is trying to look at, and
+   * the bracket's corner ticks plus the LOCKED readout already carry the state.
+   * Thinning it on completion keeps the confirmation without the mask.
+   *
+   * Absent, it derives as HALF of {@link ringStrokePx} (see
+   * `LOCKED_RING_STROKE_FACTOR` in `client/src/game/hud/flightHudLayout.ts`), so
+   * a theme that only authors the acquiring width still gets the thinning — and
+   * a theme that wants the old single-weight look sets both to the same number.
+   */
+  lockedRingStrokePx: z.number().nonnegative().optional(),
   /** Gap from the bracket's right edge to the locked target name. */
   targetNameOffsetPx: z.number().nonnegative().optional(),
   /** Locked target-name font size. */
