@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-repair",
+  "type": "action",
+  "version": 1,
+  "name": "Play Repair Field Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: repair_pulse]", "volume": 0.65 }
+}

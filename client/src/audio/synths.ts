@@ -160,6 +160,22 @@ export const SOUND_SYNTHS: Record<string, SynthFn> = {
     ),
   /** Shield dropped: falling sweep. */
   shield_down: (t) => tone(t, { type: "sine", from: 880, to: 240, duration: 0.3, peak: 0.14, attack: 0.05 }),
+  /**
+   * Slowing ray firing (2026-08-22): a descending sweep under a filtered hiss —
+   * the opposite shape to `shield_up`, because what it does to the target is
+   * the opposite of raising something.
+   */
+  tether_fire: (t) =>
+    longest(
+      tone(t, { type: "sawtooth", from: 720, to: 180, duration: 0.42, peak: 0.13, attack: 0.06 }),
+      noise(t, { duration: 0.38, peak: 0.08, filter: { type: "bandpass", from: 1400, to: 320 } }),
+    ),
+  /** Repair field pulse: a soft two-note bloom, the one cue on the rail that is good news. */
+  repair_pulse: (t) =>
+    longest(
+      tone(t, { type: "sine", from: 420, to: 660, duration: 0.3, peak: 0.14, attack: 0.25 }),
+      tone(t, { type: "sine", from: 660, to: 990, duration: 0.34, peak: 0.1, attack: 0.3, delay: 0.1 }),
+    ),
   /** Afterburner ignition. */
   boost_engage: (t) =>
     longest(

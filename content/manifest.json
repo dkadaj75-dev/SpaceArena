@@ -123,6 +123,8 @@
     "actions/play-sound-shield-up.json",
     "actions/play-sound-shield-down.json",
     "actions/play-sound-boost-up.json",
+    "actions/play-sound-tether.json",
+    "actions/play-sound-repair.json",
     "modules/beamlaser-mk3.json",
     "modules/engine-mk2.json",
     "modules/engine-mk3.json",

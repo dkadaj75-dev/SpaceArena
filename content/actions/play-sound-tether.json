@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-tether",
+  "type": "action",
+  "version": 1,
+  "name": "Play Slowing Ray Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: tether_fire]", "volume": 0.7 }
+}

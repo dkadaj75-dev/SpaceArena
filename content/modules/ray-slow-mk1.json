@@ -19,7 +19,7 @@
     "cooldownSec": 12
   },
   "onActivate": [
-    "action.play-sound-shield-up"
+    "action.play-sound-tether"
   ],
   "ui": {
     "icon": "[ICON: disruptor]",
