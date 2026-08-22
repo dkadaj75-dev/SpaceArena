@@ -46,11 +46,16 @@ export interface ApiProfile {
   role?: "player" | "admin";
 }
 
+/**
+ * One row of `/api/fittings` — a pilot's loadout for ONE hull, and since
+ * 2026-08-22 the only row they have for it. The server still stores a `name`
+ * column (it is `NOT NULL` in the original schema) but writes a constant into
+ * it; it is deliberately absent here so no UI can grow a fitting name back.
+ */
 export interface ApiFitting {
   id: string;
   user_id: string;
   ship_id: string;
-  name: string;
   hardpointMap: HardpointMap;
   created_at: string;
 }
@@ -152,20 +157,19 @@ export class HangarApi {
     return this.request("POST", `/api/ships/${encodeURIComponent(shipId)}/upgrade`, { track });
   }
 
+  /** Every hull's loadout, at most one row per ship. */
   fittings(signal?: AbortSignal): Promise<{ fittings: ApiFitting[] }> {
     return this.request("GET", "/api/fittings", undefined, signal);
   }
 
-  createFitting(shipId: string, name: string, hardpointMap: HardpointMap): Promise<{ fitting: ApiFitting }> {
-    return this.request("POST", "/api/fittings", { shipId, name, hardpointMap });
-  }
-
-  updateFitting(id: string, body: { name?: string; hardpointMap?: HardpointMap }): Promise<{ fitting: ApiFitting }> {
-    return this.request("PUT", `/api/fittings/${encodeURIComponent(id)}`, body);
-  }
-
-  deleteFitting(id: string): Promise<{ ok: true }> {
-    return this.request("DELETE", `/api/fittings/${encodeURIComponent(id)}`);
+  /**
+   * Make `hardpointMap` this hull's loadout. An upsert addressed by SHIP id:
+   * the row's own id is derived server-side from (user, ship), so the client
+   * never holds, stores or sends a fitting id — which is what let the whole
+   * save/load/select/delete surface disappear without the wire changing shape.
+   */
+  saveLoadout(shipId: string, hardpointMap: HardpointMap): Promise<{ fitting: ApiFitting }> {
+    return this.request("PUT", `/api/fittings/${encodeURIComponent(shipId)}`, { hardpointMap });
   }
 
   private async request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {

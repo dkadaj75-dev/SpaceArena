@@ -51,17 +51,27 @@ production — a missing secret when `NODE_ENV=production` is a hard startup fai
 tokenless/invalid-token joins are accepted only when `DEV_ALLOW_ANON=1` **and**
 `NODE_ENV!=='production'`; otherwise a valid access token is required.
 
-## Fittings — `/api/fittings` (auth required)
+## Loadouts — `/api/fittings` (auth required)
 
-A fitting is `{ id, user_id, ship_id, name, hardpointMap, created_at }` where
+A pilot has exactly **one loadout per hull** (owner 2026-08-22): fitting a module
+*is* saving it, so there are no named fittings to create, select, rename or
+delete. A loadout is `{ id, user_id, ship_id, hardpointMap, created_at }` where
 `hardpointMap` is `{ "<hardpointIndex>": "<moduleId>" }` (missing index = empty).
+
+The row `id` is **derived**, never chosen by a client:
+`loadout:<userId>:<shipId>` (`loadoutFittingId()` in `shared/src/net/api.ts`).
+That is why the write route takes a **ship** id and why a client cannot address
+another pilot's row — it cannot mint the user half of the key.
 
 | Method & path | Body | Notes |
 |---|---|---|
-| `GET /` | — | `{ fittings: Fitting[] }`. |
-| `POST /` | `{ shipId, name, hardpointMap }` | 201 `{ fitting }`. Validated (below). |
-| `PUT /:id` | `{ name?, hardpointMap? }` | 200 `{ fitting }`. 404 if not owned. |
-| `DELETE /:id` | — | 200 `{ ok: true }`. 404 if not owned. |
+| `GET /` | — | `{ fittings: Loadout[] }`, at most one row per ship. |
+| `PUT /:shipId` | `{ hardpointMap }` | 200 `{ fitting }`. Upsert. Validated (below). `404 not-found` for a path that is not a ship (an old client's stale row id lands here). |
+
+Rows are created and repaired by `ensureImplicitLoadouts()` (`db/seed.ts`), which
+runs on every auth: a hull with no row takes the account's most recent *named*
+fitting for that hull if one survives from before the change, otherwise the
+hull's stock `defaultFitting`; every other row for that hull is then dropped.
 
 **Validation** (400 with a specific `code`) — a fit is rejected only if *illegal*;
 *risky* fits (e.g. idle energy draw > regen) are allowed:

@@ -6,7 +6,6 @@ import {
   slotAccepts,
   slotsFromDefaultFitting,
   slotsFromHardpointMap,
-  slotsFromModuleIds,
   socketFor,
 } from "./hangarFitting.js";
 
@@ -76,16 +75,16 @@ describe("hangarFitting slot grid", () => {
     expect(slotAccepts(slots[1]!, "shield")).toBe(true);
   });
 
-  it("drops stale entries from a stored positional fitting rather than showing an illegal fit", () => {
-    // The two shapes a fitting saved against an OLDER socket layout arrives in:
-    // an entry past the end, and an entry whose family this slot refuses
-    // because the indices shifted under it. Both must read as an empty slot —
-    // showing them would put the module in the Hangar and then throw at spawn.
+  it("drops stale entries from a STORED loadout rather than showing an illegal fit", () => {
+    // The shapes a loadout stored against an OLDER socket layout arrives in: an
+    // entry past the end, and an entry whose family this slot refuses because
+    // the indices shifted under it. Both must read as an empty slot — showing
+    // them would put the module in the Hangar and then throw at spawn.
     const familyOf = (id: string): ModuleFamily | undefined =>
       id === "module.shield-mk1" ? "shield" : id === "module.laser-mk1" ? "laser" : undefined;
-    const slots = slotsFromModuleIds(
+    const slots = slotsFromHardpointMap(
       ship,
-      ["module.shield-mk1", "module.laser-mk1", "module.laser-mk1"],
+      { "0": "module.shield-mk1", "1": "module.laser-mk1", "2": "module.laser-mk1" },
       familyOf,
     );
     expect(slots).toHaveLength(2); // the third entry has no socket at all
@@ -93,11 +92,16 @@ describe("hangarFitting slot grid", () => {
     expect(slots[1]!.moduleId).toBeNull(); // hp-core refuses a laser
   });
 
-  it("keeps a stored fitting whose entries still fit, and a module the pack no longer ships is dropped", () => {
+  it("keeps a stored loadout whose entries still fit, and a module the pack no longer ships is dropped", () => {
     const familyOf = (id: string): ModuleFamily | undefined => (id === "module.laser-mk1" ? "laser" : undefined);
-    const slots = slotsFromModuleIds(ship, ["module.laser-mk1", "module.deleted-mk9"], familyOf);
+    const slots = slotsFromHardpointMap(ship, { "0": "module.laser-mk1", "1": "module.deleted-mk9" }, familyOf);
     expect(slots[0]!.moduleId).toBe("module.laser-mk1");
     expect(slots[1]!.moduleId).toBeNull();
+  });
+
+  it("takes a map on trust when no family lookup is supplied (an in-memory map cannot have shifted)", () => {
+    const slots = slotsFromHardpointMap(ship, { "0": "module.shield-mk1" });
+    expect(slots[0]!.moduleId).toBe("module.shield-mk1");
   });
 
   it("looks up the hardpoint socket for a given index", () => {

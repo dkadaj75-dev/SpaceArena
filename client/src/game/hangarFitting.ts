@@ -15,15 +15,45 @@ export interface HangarSlot {
   moduleId: string | null;
 }
 
-/** Build the slot grid for a ship from its (possibly empty) socket → module map. */
-export function slotsFromHardpointMap(ship: ShipConfig, map: HardpointMap | undefined): HangarSlot[] {
-  return hardpointsOf(ship).map((socket, i) => ({
-    hardpointIndex: i,
-    socketId: socket.id,
-    kind: socket.kind,
-    accepts: socket.accepts,
-    moduleId: map?.[String(i)] ?? null,
-  }));
+/**
+ * Build the slot grid for a ship from its (possibly empty) socket → module map.
+ *
+ * Pass `familyOf` for a map that came out of STORAGE (the offline store, or a
+ * `/api/fittings` row); omit it for a map built in memory this frame, where an
+ * index cannot have shifted underneath it.
+ *
+ * With it, two kinds of staleness are dropped rather than shown, because the
+ * sockets are CONTENT and the 2026-08-22 hardpoint pass cut and re-ordered every
+ * hull's mounts under loadouts already stored:
+ *
+ *  - entries past the socket count, which address a mount this hull no longer
+ *    has at all;
+ *  - entries whose family the socket at that index does not accept, which is
+ *    what an index SHIFT looks like from here. Showing them would put an engine
+ *    in a weapon bay in the Hangar and then throw at spawn (`spawn.ts` treats a
+ *    family mismatch as a programming error), so the honest render of a shifted
+ *    loadout is an empty slot the pilot can re-fill.
+ *
+ * `familyOf` resolves a module id to its family; a module the pack no longer
+ * ships resolves to `undefined` and is dropped for the same reason.
+ */
+export function slotsFromHardpointMap(
+  ship: ShipConfig,
+  map: HardpointMap | undefined,
+  familyOf?: (moduleId: string) => ModuleFamily | undefined,
+): HangarSlot[] {
+  return hardpointsOf(ship).map((socket, i) => {
+    const moduleId = map?.[String(i)] ?? null;
+    const family = moduleId && familyOf ? familyOf(moduleId) : undefined;
+    const fits = moduleId === null || familyOf === undefined || (family !== undefined && socket.accepts.includes(family));
+    return {
+      hardpointIndex: i,
+      socketId: socket.id,
+      kind: socket.kind,
+      accepts: socket.accepts,
+      moduleId: fits ? moduleId : null,
+    };
+  });
 }
 
 /** Build the slot grid for a ship from its `defaultFitting` (positional, hardpoint order). */
@@ -35,45 +65,6 @@ export function slotsFromDefaultFitting(ship: ShipConfig): HangarSlot[] {
     accepts: socket.accepts,
     moduleId: ship.defaultFitting[i] ?? null,
   }));
-}
-
-/**
- * Build the slot grid from a POSITIONAL module list — the shape the working
- * fitting is stored in (2026-07-31), so re-opening the Hangar on your main hull
- * shows the loadout you actually fly rather than the hull's stock one.
- *
- * Two kinds of staleness are dropped rather than shown, because the list is
- * `localStorage` and the sockets are content — the 2026-08-22 hardpoint pass
- * cut and re-ordered every hull's mounts under fittings already saved:
- *
- *  - entries PAST the socket count, which address a mount this hull no longer
- *    has at all;
- *  - entries whose family the socket at that index does not accept, which is
- *    what an index SHIFT looks like from here. Showing them would put an engine
- *    in a weapon bay in the Hangar and then throw at spawn (`spawn.ts` treats a
- *    family mismatch as a programming error), so the honest render of a shifted
- *    fitting is an empty slot the pilot can re-fill.
- *
- * `familyOf` resolves a module id to its family; a module the pack no longer
- * ships resolves to `undefined` and is dropped for the same reason.
- */
-export function slotsFromModuleIds(
-  ship: ShipConfig,
-  moduleIds: readonly (string | null)[],
-  familyOf?: (moduleId: string) => ModuleFamily | undefined,
-): HangarSlot[] {
-  return hardpointsOf(ship).map((socket, i) => {
-    const moduleId = moduleIds[i] ?? null;
-    const family = moduleId && familyOf ? familyOf(moduleId) : undefined;
-    const fits = moduleId === null || familyOf === undefined || (family !== undefined && socket.accepts.includes(family));
-    return {
-      hardpointIndex: i,
-      socketId: socket.id,
-      kind: socket.kind,
-      accepts: socket.accepts,
-      moduleId: fits ? moduleId : null,
-    };
-  });
 }
 
 /**

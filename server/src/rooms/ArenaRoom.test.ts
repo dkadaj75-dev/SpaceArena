@@ -11,6 +11,7 @@ import {
   decodeFlags,
   decodePitch,
   decodeTeamScores,
+  loadoutFittingId,
   setGlobalLogLevel,
   type ArenaConfig,
   type BotprofileConfig,
@@ -1006,6 +1007,49 @@ describe("ArenaRoom", () => {
 
     await shooter.leave();
     await victim.leave();
+  });
+
+  /**
+   * Owner 2026-08-22: one loadout per hull, and the client stops sending a
+   * fitting id entirely — it has none to send. The room looks the row up from
+   * the authenticated user plus the hull in the join options, which is also what
+   * makes the id unforgeable: the user half is not the client's to choose.
+   */
+  it("flies the pilot's ONE loadout for the requested hull, with no fittingId on the wire", async () => {
+    usersRepo.create({ id: "u-implicit", email: null, pass_hash: null, guest_token: "gt-implicit" });
+    seedNewUser(configs, "u-implicit", "Implicit");
+    fittingsRepo.upsert({
+      id: loadoutFittingId("u-implicit", "ship.interceptor"),
+      user_id: "u-implicit",
+      ship_id: "ship.interceptor",
+      hardpointMap: { "0": "module.laser-mk1" },
+    });
+    const token = signAccessToken("u-implicit");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c = await colyseus.connectTo(room, { token, shipId: "ship.interceptor" });
+    await advance(room, 1);
+    const ps = room.state.players.get(c.sessionId)!;
+    expect(ps.shipId).toBe("ship.interceptor");
+    expect([...ps.modules].map((m) => m.moduleId)).toEqual(["module.laser-mk1"]);
+    await c.leave();
+  });
+
+  it("falls back to the hull's stock fit for a pilot with no loadout for it", async () => {
+    usersRepo.create({ id: "u-noload", email: null, pass_hash: null, guest_token: "gt-noload" });
+    seedNewUser(configs, "u-noload", "No loadout");
+    // Nothing stored for this hull at all — an account that predates it, or one
+    // whose migration has yet to run. It must still get into the match.
+    fittingsRepo.delete(loadoutFittingId("u-noload", "ship.interceptor"));
+    const token = signAccessToken("u-noload");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 1 });
+    const c = await colyseus.connectTo(room, { token, shipId: "ship.interceptor" });
+    await advance(room, 1);
+    const ps = room.state.players.get(c.sessionId)!;
+    expect(ps.shipId).toBe("ship.interceptor");
+    expect([...ps.modules].length).toBeGreaterThan(0);
+    await c.leave();
   });
 
   it("flies a STORED fitting that no longer matches the hull's sockets, minus the stale slots", async () => {

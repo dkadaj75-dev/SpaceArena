@@ -12,6 +12,7 @@ import { designTokenCssVars } from "../themeTokens.js";
 import {
   createLogger,
   type ConfigService,
+  type HardpointMap,
   type ModuleConfig,
   type ModuleSnapshot,
   type ShipConfig,
@@ -24,24 +25,18 @@ import {
 import { AssetRegistry } from "../../core/AssetRegistry.js";
 import { ModelLoadQueue } from "../../core/modelLoadQueue.js";
 import type { AuthService } from "../../core/AuthService.js";
-import { HangarApi, HangarApiError, HangarRefreshScope, type ApiFitting, type ApiModule, type ApiShip } from "../HangarApi.js";
+import { HangarApi, HangarApiError, HangarRefreshScope, type ApiModule, type ApiShip } from "../HangarApi.js";
 import {
   buildHardpointMap,
   fittedModuleIdsOf,
   slotAccepts,
   slotsFromDefaultFitting,
   slotsFromHardpointMap,
-  slotsFromModuleIds,
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
 import { buildOverlayModel, type HangarGauge } from "../hangarOverlayModel.js";
-import {
-  deleteLocalFitting,
-  isLocalFittingId,
-  listLocalFittings,
-  saveLocalFitting,
-} from "../offlineFittings.js";
+import { loadLocalLoadout, saveLocalLoadout } from "../offlineFittings.js";
 import { moduleStats } from "../moduleSummary.js";
 import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
 import type { OwnershipStore } from "../ownershipStore.js";
@@ -64,14 +59,13 @@ import { allHangarShipJobs, hangarPriorityJobs } from "../hangarAssetPreload.js"
 const log = createLogger("Hangar");
 
 /**
- * The MAIN loadout (owner 2026-07-31): the ship, the fitting and the working
- * module list the player actually takes into a match. Browsing the hangar does
- * NOT touch it — you can swipe through every hull in the bay without losing
- * what you fly. It changes only when the player sets a new main, or when they
- * edit the fit of the hull that already is one.
+ * The MAIN loadout (owner 2026-07-31): the ship and the module list the player
+ * actually takes into a match. Browsing the hangar does NOT touch it — you can
+ * swipe through every hull in the bay without losing what you fly. It changes
+ * only when the player sets a new main, or when they edit the fit of the hull
+ * that already is one.
  */
 const LS_SHIP = "hangar.shipId";
-const LS_FITTING = "hangar.fittingId";
 /** Where the carousel was left last time. Presentation only — never flown. */
 const LS_BROWSE = "hangar.browseShipId";
 /**
@@ -83,11 +77,11 @@ const LS_BROWSE = "hangar.browseShipId";
  */
 const LS_UPGRADES = "hangar.upgrades";
 /**
- * The WORKING fitting — the module ids currently in the slots, saved or not.
- * Stored so that whatever is on screen when the player leaves the Hangar is
- * what they fly (owner 2026-07-31). Kept beside the ship id for the same reason
- * {@link LS_UPGRADES} is: a module list belonging to another hull would not fit
- * this one's sockets.
+ * The MAIN hull's loadout as a POSITIONAL module list — a derived cache of what
+ * the per-hull loadout store already holds, in the shape an offline match spawns
+ * from directly ({@link loadHangarSelection}). Kept beside the ship id for the
+ * same reason {@link LS_UPGRADES} is: a module list belonging to another hull
+ * would not fit this one's sockets.
  */
 const LS_MODULES = "hangar.moduleIds";
 const THEME_ID = "theme.default";
@@ -104,20 +98,21 @@ const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine:
  * slot in the viewer's top-right corner. The rail is purely about outfitting
  * the hull already on the stage.
  */
-type HangarCategory = "skins" | "hardpoints" | "internals" | "fitting";
+type HangarCategory = "skins" | "hardpoints" | "internals";
 
 export interface HangarSelection {
   shipId: string | null;
-  fittingId: string | null;
   /** Upgrade levels cached for {@link HangarSelection.shipId}; null when unknown (never logged in / never opened Hangar). */
   upgradeLevels: UpgradeLevels | null;
   /**
-   * The working fitting for {@link HangarSelection.shipId} as a POSITIONAL
-   * module-id array (index = hardpoint index, `null` = empty), or null when
-   * unknown. This is what the player last had in the slots — a saved fitting
-   * they selected, or unsaved edits. Offline matches spawn from it directly;
-   * online matches still send `fittingId`, because the server validates module
-   * ownership against the DB and cannot take an arbitrary list on trust.
+   * The loadout for {@link HangarSelection.shipId} as a POSITIONAL module-id
+   * array (index = hardpoint index, `null` = empty), or null when unknown.
+   * Offline matches spawn from it directly.
+   *
+   * An ONLINE match sends no loadout at all: the server holds one row per
+   * (user, ship) and looks it up from the authenticated user plus the hull in
+   * the join options, because it validates module ownership against the DB and
+   * cannot take a client's list on trust anyway (owner 2026-08-22).
    */
   moduleIds: (string | null)[] | null;
 }
@@ -131,14 +126,13 @@ export function loadHangarSelection(): HangarSelection {
   const shipId = localStorage.getItem(LS_SHIP) ?? STARTER_SHIP_ID;
   return {
     shipId,
-    fittingId: localStorage.getItem(LS_FITTING),
     upgradeLevels: loadCachedUpgrades(shipId),
     moduleIds: loadCachedModules(shipId),
   };
 }
 
 /**
- * The working fitting, but only if it was stored for `shipId` — a list from
+ * The main hull's loadout, but only if it was stored for `shipId` — a list from
  * another hull would address sockets this one does not have (spawn throws on a
  * fitting whose family a hardpoint refuses), so an unknown fit is safer than a
  * wrong one: callers fall back to the ship's `defaultFitting`.
@@ -193,14 +187,24 @@ function loadCachedUpgrades(shipId: string | null): UpgradeLevels | null {
  *
  * Ship/module/upgrade browsing works fully offline (local `ConfigService`).
  *
+ * ## One loadout per hull (owner 2026-08-22)
+ *
+ * There is no fitting submenu, because there is nothing to manage: "when a
+ * player fits its ship, it becomes the fitting the ship is going to use". Every
+ * slot edit IS the save — {@link Hangar.persistLoadout} writes it immediately,
+ * to the server when signed in and to `localStorage` when not — and the hull
+ * that has never been fitted shows its stock `defaultFitting`. Nothing in the
+ * UI names, selects or deletes a loadout, and the client never holds a fitting
+ * id: the server derives the row's id from (user, ship).
+ *
  * ## Offline fitting (TESTING AFFORDANCE — owner 2026-07-31, to be removed)
  *
- * Fitting and saving are available WITHOUT an account: every module counts as
- * owned, level gates are ignored, and named fittings live in `localStorage`
- * (see `offlineFittings.ts`). Only the parts that move real credits —
- * purchases and upgrade tracks — still require `/api/*` and a real account.
- * Removing this later means deleting `offlineFittings.ts` and the
- * `offlineFitting` branch here; nothing else grew a second code path.
+ * Fitting is available WITHOUT an account: every module counts as owned, level
+ * gates are ignored, and the loadouts live in `localStorage` (see
+ * `offlineFittings.ts`). Only the parts that move real credits — purchases and
+ * upgrade tracks — still require `/api/*` and a real account. Removing this
+ * later means deleting `offlineFittings.ts` and the `offlineFitting` branch
+ * here; nothing else grew a second code path.
  */
 export class Hangar {
   private readonly root: HTMLDivElement;
@@ -229,8 +233,13 @@ export class Hangar {
   private shipIndex = 0;
   private apiShips: ApiShip[] = [];
   private apiModules: ApiModule[] = [];
-  private fittings: ApiFitting[] = [];
-  private selectedFittingId: string | null = null;
+  /**
+   * The signed-in pilot's loadouts, hull id → hardpoint map, as `/api/fittings`
+   * last reported them. Empty while signed out, where {@link loadLocalLoadout}
+   * is the store instead — see {@link storedLoadout}, the one place that knows
+   * which of the two is in force.
+   */
+  private serverLoadouts = new Map<string, HardpointMap>();
   private slots: HangarSlot[] = [];
   private pickerHardpoint: number | null = null;
   private category: HangarCategory = "hardpoints";
@@ -513,19 +522,19 @@ export class Hangar {
       const starter = this.ships.find((s) => s.id === STARTER_SHIP_ID) ?? this.ships[0];
       if (starter) localStorage.setItem(LS_SHIP, starter.id);
     }
-    const stored = loadHangarSelection();
     // Open where the player left the carousel; the main hull is the fallback.
-    const browseId = localStorage.getItem(LS_BROWSE) ?? stored.shipId;
+    const browseId = localStorage.getItem(LS_BROWSE) ?? loadHangarSelection().shipId;
     const idx = browseId ? this.ships.findIndex((s) => s.id === browseId) : -1;
     this.shipIndex = idx >= 0 ? idx : 0;
-    this.selectedFittingId = null;
     const fittingContextToken = ++this.fittingContextToken;
     this.pickerHardpoint = null;
     this.category = "hardpoints";
     this.error = "";
 
     const ship = this.currentShip();
-    // On your MAIN hull, open on the loadout you actually fly — not its stock fit.
+    // Every hull opens on ITS OWN loadout — the stock fit only for one never
+    // fitted (owner 2026-08-22). Signed in, the real answer arrives with the
+    // `/api/fittings` read below; this is the local guess until it does.
     this.slots = ship ? this.slotsForShip(ship) : [];
 
     this.root.style.display = "flex";
@@ -558,11 +567,21 @@ export class Hangar {
     this.applyStageViewport();
     void this.revealAfterPriorityLoad(visitToken);
 
+    // The server's copy of this hull's loadout lands after the first paint. Adopt
+    // it only if nothing has moved since — a different hull on the stage, or an
+    // edit the player already made, both mean the answer is stale on arrival.
     const storedShipId = ship?.id;
     void this.refreshFromServer().then((applied) => {
-      if (applied && this.isVisible && this.visitToken === visitToken && this.fittingContextToken === fittingContextToken && this.currentShip()?.id === storedShipId && stored.fittingId && this.fittings.some((f) => f.id === stored.fittingId && f.ship_id === storedShipId)) {
-        this.loadFitting(stored.fittingId);
-      }
+      if (!applied || !this.isVisible) return;
+      if (this.visitToken !== visitToken || this.fittingContextToken !== fittingContextToken) return;
+      const current = this.currentShip();
+      if (!current || current.id !== storedShipId) return;
+      this.slots = this.slotsForShip(current);
+      // Re-cache the positional list an offline match spawns from: the server's
+      // answer may differ from the local guess this visit opened on.
+      this.persistSelection();
+      this.rebuildPreview();
+      this.render();
     });
   }
 
@@ -654,8 +673,9 @@ export class Hangar {
       if (!this.refreshScope.isCurrent(request.token, request.signal) || !this.isVisible) return false;
       this.apiShips = [];
       this.apiModules = [];
-      // Offline test mode: named fittings come from localStorage instead.
-      this.fittings = listLocalFittings();
+      // Offline test mode: the loadouts live in localStorage instead, and are
+      // read per hull on demand — there is no list to hold here.
+      this.serverLoadouts.clear();
       this.busy = false;
       this.render();
       return true;
@@ -667,7 +687,9 @@ export class Hangar {
       if (!this.refreshScope.isCurrent(request.token, request.signal) || !this.isVisible) return false;
       this.apiShips = shipsRes.ships;
       this.apiModules = modulesRes.modules;
-      this.fittings = fittingsRes.fittings;
+      // One row per hull since 2026-08-22; a duplicate could only come from a
+      // pre-migration server, and last-wins matches the migration's own rule.
+      this.serverLoadouts = new Map(fittingsRes.fittings.map((f) => [f.ship_id, f.hardpointMap]));
       this.error = "";
       // Freshly-read upgrade levels: re-cache them for the match predictor, or
       // a purchase made this visit would stay invisible to it until the player
@@ -905,24 +927,35 @@ export class Hangar {
   // --- state transitions -----------------------------------------------------
 
   /**
-   * The slot grid to open a hull on: the loadout you fly if this is your MAIN,
-   * its stock fitting otherwise. Browsing another hull must never inherit the
-   * main's modules — they belong to different sockets.
+   * THE loadout for one hull — server-side when signed in, `localStorage` when
+   * not. The single place that knows which store is in force, so nothing else
+   * in the screen has to branch on the account state to read a fit.
+   *
+   * Null means "never fitted this hull", which is a different answer from "an
+   * empty loadout": the caller opens the hull on its stock `defaultFitting`
+   * rather than on a bare hull nobody chose.
+   */
+  private storedLoadout(shipId: string): HardpointMap | null {
+    if (this.offlineFitting) return loadLocalLoadout(shipId);
+    return this.serverLoadouts.get(shipId) ?? null;
+  }
+
+  /**
+   * The slot grid to open a hull on: that hull's own loadout, or its stock
+   * fitting if it has never been fitted. Every hull carries its own since
+   * 2026-08-22 — browsing the bay shows each ship as the pilot last left it, and
+   * still never touches which hull is MAIN.
    */
   private slotsForShip(ship: ShipConfig): HangarSlot[] {
-    if (!this.isMainShip(ship.id)) return slotsFromDefaultFitting(ship);
-    const stored = loadHangarSelection();
-    // The family lookup is what lets a stored fitting saved against an OLDER
-    // socket layout degrade to empty slots instead of an illegal fit (see
-    // `slotsFromModuleIds`).
-    return stored.moduleIds
-      ? slotsFromModuleIds(ship, stored.moduleIds, (id) => this.configs.get<ModuleConfig>("module", id)?.family)
-      : slotsFromDefaultFitting(ship);
+    const stored = this.storedLoadout(ship.id);
+    if (!stored) return slotsFromDefaultFitting(ship);
+    // The family lookup is what lets a loadout stored against an OLDER socket
+    // layout degrade to empty slots instead of an illegal fit.
+    return slotsFromHardpointMap(ship, stored, (id) => this.configs.get<ModuleConfig>("module", id)?.family);
   }
 
   private selectShip(index: number): void {
     this.shipIndex = index;
-    this.selectedFittingId = null;
     this.fittingContextToken++;
     this.pickerHardpoint = null;
     const ship = this.currentShip();
@@ -1035,19 +1068,6 @@ export class Hangar {
     this.render();
   }
 
-  private loadFitting(fittingId: string | null): void {
-    const ship = this.currentShip();
-    if (!ship) return;
-    this.selectedFittingId = fittingId;
-    this.fittingContextToken++;
-    const fitting = fittingId ? this.fittings.find((f) => f.id === fittingId) : undefined;
-    this.slots = fitting ? slotsFromHardpointMap(ship, fitting.hardpointMap) : slotsFromDefaultFitting(ship);
-    this.pickerHardpoint = null;
-    this.persistSelection();
-    this.rebuildPreview();
-    this.render();
-  }
-
   private selectSlot(hardpointIndex: number): void {
     // A callout on the hull can address a bay the rail is not currently showing;
     // follow it, or the module list would open under the wrong heading.
@@ -1066,8 +1086,9 @@ export class Hangar {
     this.onLoadoutChanged?.();
     this.fittingContextToken++;
     this.pickerHardpoint = null;
-    // Persist immediately: an unsaved edit still flies (owner 2026-07-31), so
-    // the working fit must survive walking straight out of the Hangar.
+    // Fitting IS saving (owner 2026-08-22). There is no submenu to confirm in,
+    // so the write happens here or nowhere.
+    this.persistLoadout();
     this.persistSelection();
     this.rebuildPreview();
     this.render();
@@ -1124,68 +1145,34 @@ export class Hangar {
     }
   }
 
-  private async saveFitting(name: string): Promise<void> {
+  /**
+   * Write what is in the slots as THIS hull's loadout. Called from every slot
+   * edit, because since 2026-08-22 fitting a module IS saving it — there is no
+   * name to type, no fitting to select and no button to press.
+   *
+   * The write is FIRE-AND-FORGET when signed in, and the local map is updated
+   * before it goes out. A hangar that blocked on a round trip per slot would
+   * make fitting feel like filing paperwork, and the optimism costs nothing that
+   * matters: the server re-validates ownership and family on every write, so the
+   * worst case is an error line and a screen that re-reads the truth on the next
+   * visit. It is also why a rejected write puts the message on screen rather
+   * than silently reverting the slot the player is looking at.
+   */
+  private persistLoadout(): void {
     const ship = this.currentShip();
-    if (!ship || !name.trim()) return;
+    if (!ship) return;
     const hardpointMap = buildHardpointMap(this.slots);
 
-    // Offline test mode: save to localStorage, no server round trip. Also the
-    // path taken for a LOCAL fitting the player is updating while signed out.
     if (this.offlineFitting) {
-      const saved = saveLocalFitting({
-        id: this.selectedFittingId,
-        shipId: ship.id,
-        name: name.trim(),
-        hardpointMap,
-      });
-      this.selectedFittingId = saved.id;
-      this.fittings = listLocalFittings();
-      this.error = "";
-      this.persistSelection();
-      this.render();
+      saveLocalLoadout(ship.id, hardpointMap);
       return;
     }
-
-    this.busy = true;
-    this.render();
-    try {
-      if (this.selectedFittingId) {
-        const { fitting } = await this.api.updateFitting(this.selectedFittingId, { name: name.trim(), hardpointMap });
-        this.selectedFittingId = fitting.id;
-      } else {
-        const { fitting } = await this.api.createFitting(ship.id, name.trim(), hardpointMap);
-        this.selectedFittingId = fitting.id;
-      }
-      this.persistSelection();
-      await this.refreshFromServer();
-    } catch (err) {
-      if (!this.isVisible) return;
-      this.error = errorMessage(err, "Save failed");
-      this.busy = false;
+    this.serverLoadouts.set(ship.id, hardpointMap);
+    void this.api.saveLoadout(ship.id, hardpointMap).catch((err: unknown) => {
+      if (!this.isVisible || this.currentShip()?.id !== ship.id) return;
+      this.error = errorMessage(err, "Could not save this fit");
       this.render();
-    }
-  }
-
-  private async deleteFitting(): Promise<void> {
-    if (!this.selectedFittingId) return;
-    if (isLocalFittingId(this.selectedFittingId)) {
-      deleteLocalFitting(this.selectedFittingId);
-      this.fittings = listLocalFittings();
-      this.loadFitting(null);
-      return;
-    }
-    this.busy = true;
-    this.render();
-    try {
-      await this.api.deleteFitting(this.selectedFittingId);
-      this.loadFitting(null);
-      await this.refreshFromServer();
-    } catch (err) {
-      if (!this.isVisible) return;
-      this.error = errorMessage(err, "Delete failed");
-      this.busy = false;
-      this.render();
-    }
+    });
   }
 
   /** Remember where the carousel is. Presentation only — never flown. */
@@ -1213,8 +1200,6 @@ export class Hangar {
     const shipId = this.currentShip()?.id ?? null;
     if (shipId) localStorage.setItem(LS_SHIP, shipId);
     else localStorage.removeItem(LS_SHIP);
-    if (this.selectedFittingId) localStorage.setItem(LS_FITTING, this.selectedFittingId);
-    else localStorage.removeItem(LS_FITTING);
     // Stored WITH the ship id: `loadCachedUpgrades` refuses levels belonging to
     // another hull. Dropped entirely for an unauthenticated visitor, whose
     // `apiShips` list is empty and whose levels are therefore unknown, not zero.
@@ -1223,9 +1208,11 @@ export class Hangar {
     } else {
       localStorage.removeItem(LS_UPGRADES);
     }
-    // The WORKING fitting, saved or not: what is in the slots right now is what
-    // the player flies next (owner 2026-07-31). Written on every fit change, so
-    // simply walking out of the Hangar keeps the loadout on screen.
+    // The MAIN hull's loadout in POSITIONAL form — the shape an offline match
+    // spawns from. A cache of what the per-hull store already holds, kept here
+    // because the match path has no ConfigService lookup to turn a hardpoint map
+    // back into slot order, and re-derived on every fit change so walking
+    // straight out of the Hangar flies exactly what is on screen.
     if (shipId) {
       localStorage.setItem(LS_MODULES, JSON.stringify({ shipId, moduleIds: fittedModuleIdsOf(this.slots) }));
     } else {
@@ -1501,8 +1488,8 @@ export class Hangar {
     }
     if (this.error) content.append(el("div", "hangar-error", this.error));
 
-    // A hull you have not bought shows its stats and nothing else: there is no
-    // fitting to edit and no fitting to save until it is yours. The unlock
+    // A hull you have not bought shows its stats and nothing else: there is
+    // nothing to fit until it is yours. The unlock
     // itself lives on the stage, in the corner slot the main badge occupies for
     // a hull you do own.
     if (!owned) {
@@ -1510,9 +1497,6 @@ export class Hangar {
       content.append(this.buildStatPanel(ship));
     } else if (this.category === "skins") {
       content.append(this.buildSkins(ship));
-    } else if (this.category === "fitting") {
-      content.append(this.buildFittingControls(ship));
-      content.append(this.buildStatPanel(ship));
     } else {
       content.append(this.buildSlotGrid(this.category === "internals" ? "internal" : "hardpoint"));
       if (this.pickerHardpoint !== null) {
@@ -1540,7 +1524,10 @@ export class Hangar {
       { key: "skins", label: "Skins", hint: "Hull paint and finish" },
       { key: "hardpoints", label: "Hardpoints", hint: "Weapons and shields" },
       { key: "internals", label: "Core internal", hint: "Engine, reactor, sink · upgrades" },
-      { key: "fitting", label: "Fitting", hint: "Save and load loadouts" },
+      // There is no FITTING bay (owner 2026-08-22). Saving, loading, naming and
+      // deleting loadouts were the only things it did, and a hull now simply
+      // keeps whatever is in its slots — so the rail is the bays and nothing
+      // else, which is what the owner meant by "it will simplify the menu".
     ];
     for (const entry of entries) {
       const btn = document.createElement("button");
@@ -1875,57 +1862,6 @@ export class Hangar {
       row.append(btn);
       wrap.append(row);
     }
-    return wrap;
-  }
-
-  private buildFittingControls(ship: ShipConfig): HTMLDivElement {
-    const wrap = el("div", "hangar-fit-controls");
-    wrap.append(el("div", "hangar-section-title", "Fitting"));
-
-    const select = document.createElement("select");
-    select.className = "hangar-select";
-    select.disabled = this.busy;
-    const defaultOpt = document.createElement("option");
-    defaultOpt.value = "";
-    defaultOpt.textContent = "Default fit";
-    select.append(defaultOpt);
-    for (const f of this.fittings.filter((f) => f.ship_id === ship.id)) {
-      const opt = document.createElement("option");
-      opt.value = f.id;
-      opt.textContent = f.name;
-      select.append(opt);
-    }
-    select.value = this.selectedFittingId ?? "";
-    select.addEventListener("change", () => this.loadFitting(select.value || null));
-    wrap.append(select);
-
-    const nameInput = document.createElement("input");
-    nameInput.className = "hangar-input";
-    nameInput.type = "text";
-    nameInput.placeholder = "Fitting name";
-    nameInput.maxLength = 60;
-    nameInput.disabled = this.busy;
-    const current = this.selectedFittingId ? this.fittings.find((f) => f.id === this.selectedFittingId) : undefined;
-    nameInput.value = current?.name ?? "";
-    wrap.append(nameInput);
-
-    const row = el("div", "hangar-fit-btn-row");
-    const saveBtn = document.createElement("button");
-    saveBtn.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
-    saveBtn.textContent = this.selectedFittingId ? "Update fitting" : "Save new fitting";
-    saveBtn.disabled = this.busy;
-    saveBtn.addEventListener("click", () => void this.saveFitting(nameInput.value));
-    row.append(saveBtn);
-
-    if (this.selectedFittingId) {
-      const delBtn = document.createElement("button");
-      delBtn.className = "hangar-btn hangar-btn-danger sa-button sa-button--danger";
-      delBtn.textContent = "Delete";
-      delBtn.disabled = this.busy;
-      delBtn.addEventListener("click", () => void this.deleteFitting());
-      row.append(delBtn);
-    }
-    wrap.append(row);
     return wrap;
   }
 
@@ -2476,11 +2412,9 @@ const HANGAR_CSS = `
 .hangar-pips { display: flex; flex-wrap: wrap; gap: 3px; flex: 1 1 60px; }
 .pip { width: 9px; height: 5px; background: rgba(255,255,255,.12); }
 .pip.filled { background: var(--hg-accent); }
-.hangar-fit-controls { display: flex; flex-direction: column; gap: 6px; }
-.hangar-fit-btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.hangar-select, .hangar-input { width: 100%; box-sizing: border-box; padding: 8px; min-height: 38px; font-size: 16px; background: rgba(0,0,0,.35); color: var(--sa-white); border: 1px solid var(--hg-line); }
+/* The fit-controls block (a select, a name field and Save/Delete) went with the
+   fitting submenu — owner 2026-08-22. Nothing in the screen types text now. */
 .hangar-btn { padding: 7px 12px; min-height: 34px; touch-action: manipulation; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; background: var(--hg-panel-2); color: var(--sa-white); border: 1px solid var(--hg-line); cursor: pointer; }
 .hangar-btn:disabled { opacity: .45; cursor: default; }
 .hangar-btn-primary { background: var(--hg-accent); color: var(--sa-n-900); font-weight: 700; border-color: var(--hg-accent); }
-.hangar-btn-danger { background: transparent; color: var(--hg-danger); border-color: var(--hg-danger); }
 `;

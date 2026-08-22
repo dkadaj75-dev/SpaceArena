@@ -1244,12 +1244,16 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   boot?.subtitle(health.online ? "READY" : "READY — OFFLINE");
   await boot?.dismiss(health.online ? 0 : 1600);
 
-  /** The Hangar's last-saved ship/fitting choice (ROADMAP §9 4.5), as additive NetGameSession join options. */
-  function hangarJoinOptions(): { shipId?: string; fittingId?: string; cosmeticId?: string } {
+  /**
+   * The Hangar's chosen hull (ROADMAP §9 4.5), as additive NetGameSession join
+   * options. No fitting id: since 2026-08-22 a pilot has ONE loadout per hull
+   * and the server derives that row's id from the authenticated user plus the
+   * hull named here, so there is nothing for the client to hold or send.
+   */
+  function hangarJoinOptions(): { shipId?: string; cosmeticId?: string } {
     const sel = loadHangarSelection();
-    const opts: { shipId?: string; fittingId?: string; cosmeticId?: string } = {};
+    const opts: { shipId?: string; cosmeticId?: string } = {};
     if (sel.shipId) opts.shipId = sel.shipId;
-    if (sel.fittingId) opts.fittingId = sel.fittingId;
     // Stated, not assumed: the room re-reads its own selection when this is
     // absent, and re-validates ownership either way.
     const cosmeticId = sel.shipId ? ownership.selectedCosmetic(sel.shipId) : null;

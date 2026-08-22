@@ -375,12 +375,52 @@ function toFittingRow(raw: Omit<FittingRow, "hardpointMap"> & { hardpoint_map: s
   return { ...rest, hardpointMap: JSON.parse(hardpoint_map) as HardpointMap };
 }
 
+/**
+ * The `name` column survives the death of named fittings (2026-08-22) only
+ * because it is `NOT NULL` in `001-init.sql` and a migration to drop it would be
+ * a table rebuild for a column nothing reads. Every row written from here on
+ * carries this constant, so a row's name can never be mistaken for pilot input.
+ */
+export const IMPLICIT_LOADOUT_NAME = "Loadout";
+
 export const fittingsRepo = {
   byUser(userId: string): FittingRow[] {
     const rows = getDb()
       .prepare("SELECT * FROM fittings WHERE user_id = ? ORDER BY created_at ASC")
       .all(userId) as Array<Omit<FittingRow, "hardpointMap"> & { hardpoint_map: string }>;
     return rows.map(toFittingRow);
+  },
+  /**
+   * Every row this user has for one hull, NEWEST FIRST. Only the migration in
+   * `seed.ts` needs the plural: since 2026-08-22 there is one row per (user,
+   * ship), but accounts that predate that still carry a pile of named fittings,
+   * and "newest first" is what picks the one that becomes the implicit loadout.
+   */
+  byUserShip(userId: string, shipId: string): FittingRow[] {
+    const rows = getDb()
+      .prepare("SELECT * FROM fittings WHERE user_id = ? AND ship_id = ? ORDER BY created_at DESC")
+      .all(userId, shipId) as Array<Omit<FittingRow, "hardpointMap"> & { hardpoint_map: string }>;
+    return rows.map(toFittingRow);
+  },
+  /**
+   * Write a pilot's loadout for one hull. An UPSERT rather than create-or-update
+   * because the caller never asks whether the row exists: the id is derived from
+   * (user, ship) — see `loadoutFittingId` — so "fit a module" is one statement
+   * with no read in front of it, and two rapid slot edits cannot race into two
+   * rows.
+   */
+  upsert(row: { id: string; user_id: string; ship_id: string; hardpointMap: HardpointMap; created_at?: number }): FittingRow {
+    const created_at = row.created_at ?? Date.now();
+    getDb()
+      .prepare(
+        `INSERT INTO fittings (id, user_id, ship_id, name, hardpoint_map, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET hardpoint_map = excluded.hardpoint_map`,
+      )
+      .run(row.id, row.user_id, row.ship_id, IMPLICIT_LOADOUT_NAME, JSON.stringify(row.hardpointMap), created_at);
+    // Re-read: on an update the stored `created_at` is the ORIGINAL one, not the
+    // stamp above, and callers hand this straight back to the client.
+    return this.byId(row.id)!;
   },
   byId(id: string): FittingRow | undefined {
     const raw = getDb().prepare("SELECT * FROM fittings WHERE id = ?").get(id) as
@@ -397,21 +437,7 @@ export const fittingsRepo = {
       .run(row.id, row.user_id, row.ship_id, row.name, JSON.stringify(row.hardpointMap), created_at);
     return { ...row, created_at };
   },
-  update(id: string, patch: { name?: string; hardpointMap?: HardpointMap }): void {
-    const sets: string[] = [];
-    const args: unknown[] = [];
-    if (patch.name !== undefined) {
-      sets.push("name = ?");
-      args.push(patch.name);
-    }
-    if (patch.hardpointMap !== undefined) {
-      sets.push("hardpoint_map = ?");
-      args.push(JSON.stringify(patch.hardpointMap));
-    }
-    if (sets.length === 0) return;
-    args.push(id);
-    getDb().prepare(`UPDATE fittings SET ${sets.join(", ")} WHERE id = ?`).run(...args);
-  },
+  /** Only the migration deletes now: a pilot cannot delete their one loadout. */
   delete(id: string): void {
     getDb().prepare("DELETE FROM fittings WHERE id = ?").run(id);
   },

@@ -12,11 +12,13 @@ import { Hangar } from "./Hangar.js";
 
 /**
  * The Hangar's STATE MACHINE, driven through the DOM the player actually
- * presses: the outfitting rail, the slot grid, the module picker and the
- * fitting controls. `hangarLoadout.test.ts` already covers the module-level
- * storage helpers (`loadHangarSelection` and friends), so nothing here re-tests
- * those in isolation — they appear only as the persistence a screen action is
- * expected to leave behind.
+ * presses: the outfitting rail, the slot grid and the module picker. There is no
+ * fitting submenu to drive since 2026-08-22 — fitting a module IS saving it —
+ * so the persistence assertions below hang off the slot edits themselves.
+ * `hangarLoadout.test.ts` already covers the module-level storage helpers
+ * (`loadHangarSelection` and friends), so nothing here re-tests those in
+ * isolation — they appear only as the persistence a screen action is expected to
+ * leave behind.
  *
  * The screen takes real collaborators, so the fakes below are the smallest
  * things that satisfy them:
@@ -198,12 +200,24 @@ const pickerAction = (moduleId: string): HTMLButtonElement =>
 const removeButton = (): HTMLButtonElement =>
   [...document.querySelectorAll<HTMLButtonElement>(".hangar-picker button")].find((b) => b.textContent === "Remove module")!;
 const stageAction = (): HTMLElement => document.querySelector<HTMLElement>(".hangar-stage-action")!;
-const fittingSelect = (): HTMLSelectElement => document.querySelector<HTMLSelectElement>(".hangar-select")!;
-const fittingName = (): HTMLInputElement => document.querySelector<HTMLInputElement>(".hangar-input")!;
-const saveButton = (): HTMLButtonElement =>
-  document.querySelector<HTMLButtonElement>(".hangar-fit-btn-row .hangar-btn-primary")!;
 const workingFit = (): { shipId?: string; moduleIds?: (string | null)[] } | null =>
   JSON.parse(localStorage.getItem("hangar.moduleIds") ?? "null") as { shipId?: string; moduleIds?: (string | null)[] } | null;
+/** The per-hull loadout store the offline Hangar writes on every slot edit. */
+const loadouts = (): Record<string, Record<string, string>> =>
+  JSON.parse(localStorage.getItem("hangar.loadouts") ?? "{}") as Record<string, Record<string, string>>;
+
+/**
+ * Leave and re-enter the SAME screen, optionally parking the carousel on another
+ * hull. Mounting a second `Hangar` would leave the first one's markup in the
+ * document (hide() only display:none-s it), and every probe here is a global
+ * query — so re-entry is the honest way to test "what does it open on".
+ */
+async function reopen(hangar: Hangar, browse?: string): Promise<void> {
+  hangar.hide();
+  if (browse) localStorage.setItem("hangar.browseShipId", browse);
+  hangar.show();
+  await vi.waitFor(() => expect(document.querySelector(".hangar-loading-overlay")).toBeNull());
+}
 
 /** Open the picker for a slot by its socket label, e.g. "hp-nose". */
 function openSlot(socketId: string): void {
@@ -225,11 +239,8 @@ describe("hangar rail", () => {
     // The upgrade tracks ARE the hull's internals, so they ride in this bay.
     expect(document.querySelector(".hangar-upgrades")).not.toBeNull();
 
-    rail("fitting").click();
-    expect(document.querySelector(".hangar-fit-controls")).not.toBeNull();
-    expect(document.querySelector(".hangar-slot-grid")).toBeNull();
-
     rail("skins").click();
+    expect(document.querySelector(".hangar-slot-grid")).toBeNull();
     // Only this hull's paints, id-sorted (`cosmeticsForShip` is pack-order independent).
     expect([...document.querySelectorAll<HTMLElement>(".hangar-skin")].map((r) => r.dataset["cosmetic"])).toEqual([
       "cosmetic.paint-interceptor-crimson",
@@ -238,6 +249,12 @@ describe("hangar rail", () => {
     ]);
     // Exactly one bay is ever active — the rail is a radio group, not a stack.
     expect(document.querySelectorAll(".hangar-rail-btn.active")).toHaveLength(1);
+    // …and there is no FITTING bay any more (owner 2026-08-22): saving, naming
+    // and deleting loadouts were all it did, and fitting a module now IS saving
+    // it. The rail is bays and the Back button, nothing else.
+    expect([...document.querySelectorAll<HTMLElement>(".hangar-rail-btn[data-category]")].map((b) => b.dataset["category"]))
+      .toEqual(["skins", "hardpoints", "internals"]);
+    expect(document.body.textContent).not.toContain("Fitting name");
   });
 
   it("drops an open picker when the bay changes", async () => {
@@ -349,73 +366,78 @@ describe("hangar equip and remove", () => {
   });
 });
 
-describe("hangar fittings", () => {
-  /** Dirty the working fit, then open the bay that can save it. */
-  async function dirtyThenFitting(): Promise<Hangar> {
-    const hangar = await mount();
+/**
+ * Owner 2026-08-22: "when a player fits its ship, it becomes the fitting the
+ * ship is going to use." So there is nothing to save, name, select or delete —
+ * these pin that the slot edit itself is the whole transaction, that it survives
+ * leaving and re-entering the screen, and that each hull keeps its OWN.
+ */
+describe("hangar loadouts (one per hull, implicit)", () => {
+  it("writes the hull's loadout the moment a slot changes, with no save step", async () => {
+    await mount();
+    expect(loadouts()).toEqual({});
+
     openSlot("hp-wing");
     pickerAction("module.kinetic-mk1").click();
-    rail("fitting").click();
-    return hangar;
-  }
 
-  it("saves the dirty working fit under a name and switches to updating it", async () => {
-    await dirtyThenFitting();
-    expect(saveButton().textContent).toBe("Save new fitting");
-    expect(document.querySelector(".hangar-btn-danger")).toBeNull();
-
-    fittingName().value = "Strike";
-    saveButton().click();
-
-    await vi.waitFor(() => expect(saveButton().textContent).toBe("Update fitting"));
-    const saved = JSON.parse(localStorage.getItem("hangar.localFittings")!) as {
-      id: string; ship_id: string; name: string; hardpointMap: Record<string, string>;
-    }[];
-    expect(saved).toHaveLength(1);
-    expect(saved[0]).toMatchObject({
-      ship_id: "ship.interceptor",
-      name: "Strike",
-      hardpointMap: { "0": "module.laser-mk1", "1": "module.kinetic-mk1" },
+    expect(loadouts()).toEqual({
+      "ship.interceptor": { "0": "module.laser-mk1", "1": "module.kinetic-mk1" },
     });
-    // Saved on the MAIN hull, so it becomes the fitting a match launches with.
-    expect(localStorage.getItem("hangar.fittingId")).toBe(saved[0]!.id);
-    expect(fittingSelect().value).toBe(saved[0]!.id);
-    expect([...fittingSelect().options].map((o) => o.textContent)).toEqual(["Default fit", "Strike"]);
-    expect(document.querySelector(".hangar-btn-danger")).not.toBeNull();
+    // Nothing was pressed to make that happen, and nothing is offered to undo it.
+    expect(document.querySelector(".hangar-fit-controls")).toBeNull();
+    expect(document.querySelector(".hangar-btn-danger")).toBeNull();
   });
 
-  it("reloads a saved fitting, and Default fit puts the stock loadout back", async () => {
-    await dirtyThenFitting();
-    fittingName().value = "Strike";
-    saveButton().click();
-    await vi.waitFor(() => expect(saveButton().textContent).toBe("Update fitting"));
-    const savedId = fittingSelect().value;
+  it("re-opens every hull on its own loadout, including one that is not the main", async () => {
+    const first = await mount({ main: "ship.interceptor" });
+    openSlot("hp-wing");
+    pickerAction("module.kinetic-mk1").click();
 
-    fittingSelect().value = "";
-    fittingSelect().dispatchEvent(new Event("change"));
-    rail("hardpoints").click();
-    expect(slotLabels()).toEqual(["Pulse Laser Mk I", "Empty"]);
+    // Browse to the OTHER hull and fit it too. It is not the main, so this must
+    // still be remembered — a loadout belongs to the ship, not to the choice of
+    // what to fly.
+    await reopen(first, "ship.brawler");
+    // The brawler's stock fit — one hardpoint, and the rail shows one bay.
+    expect(slotLabels()).toEqual(["Empty"]);
+    openSlot("hp-turret");
+    pickerAction("module.kinetic-mk1").click();
+    expect(loadouts()["ship.brawler"]).toEqual({ "0": "module.kinetic-mk1" });
 
-    rail("fitting").click();
-    fittingSelect().value = savedId;
-    fittingSelect().dispatchEvent(new Event("change"));
-    rail("hardpoints").click();
+    // Back to the interceptor: its own fit, untouched by the brawler's.
+    await reopen(first, "ship.interceptor");
     expect(slotLabels()).toEqual(["Pulse Laser Mk I", "Autocannon Mk I"]);
   });
 
-  it("deletes the selected fitting and falls back to the stock loadout", async () => {
-    await dirtyThenFitting();
-    fittingName().value = "Strike";
-    saveButton().click();
-    await vi.waitFor(() => expect(saveButton().textContent).toBe("Update fitting"));
-
-    document.querySelector<HTMLButtonElement>(".hangar-btn-danger")!.click();
-
-    await vi.waitFor(() => expect(saveButton().textContent).toBe("Save new fitting"));
-    expect(JSON.parse(localStorage.getItem("hangar.localFittings")!)).toEqual([]);
-    expect([...fittingSelect().options].map((o) => o.textContent)).toEqual(["Default fit"]);
-    rail("hardpoints").click();
+  it("opens a hull on its STOCK fit until the pilot touches a slot", async () => {
+    const hangar = await mount();
     expect(slotLabels()).toEqual(["Pulse Laser Mk I", "Empty"]);
+    // Emptying every slot is a real loadout, not "never fitted": it must come
+    // back empty rather than reverting to the stock fit on the next visit.
+    openSlot("hp-nose");
+    removeButton().click();
+    expect(loadouts()["ship.interceptor"]).toEqual({});
+
+    await reopen(hangar);
+    expect(slotLabels()).toEqual(["Empty", "Empty"]);
+  });
+
+  it("folds a pre-2026-08-22 browser's named fittings into one loadout per hull", async () => {
+    // What the old save/load submenu left behind, plus the id it had selected.
+    localStorage.setItem(
+      "hangar.localFittings",
+      JSON.stringify([
+        { id: "local:old", user_id: "local", ship_id: "ship.interceptor", name: "Strike", hardpointMap: { "1": "module.kinetic-mk1" }, created_at: "" },
+        { id: "local:newer", user_id: "local", ship_id: "ship.interceptor", name: "Brawl", hardpointMap: { "0": "module.laser-mk1" }, created_at: "" },
+      ]),
+    );
+    localStorage.setItem("hangar.fittingId", "local:old");
+
+    await mount();
+
+    // The SELECTED one became the hull's loadout, and the old keys are gone.
+    expect(slotLabels()).toEqual(["Empty", "Autocannon Mk I"]);
+    expect(localStorage.getItem("hangar.localFittings")).toBeNull();
+    expect(localStorage.getItem("hangar.fittingId")).toBeNull();
   });
 });
 

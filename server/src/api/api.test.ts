@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
-import { setGlobalLogLevel } from "@space-arena/shared";
+import { loadoutFittingId, setGlobalLogLevel } from "@space-arena/shared";
 import { loadContent, setConfigService } from "../configService.js";
 import { openDatabase, setDb } from "../db/index.js";
 import { clientMetricsRepo, profilesRepo } from "../db/repos.js";
@@ -23,37 +23,77 @@ beforeAll(async () => {
   app = createHttpApp();
 });
 
-describe("fittings API", () => {
-  it("accepts a valid fit and rejects wrong-family / non-owned modules", async () => {
-    const { auth } = await newUser("fit@example.com");
+/**
+ * One loadout per hull, addressed by SHIP id (owner 2026-08-22). The row's own
+ * id is derived server-side from (user, ship), so a client neither holds one nor
+ * can name someone else's.
+ */
+describe("loadouts API", () => {
+  it("upserts a hull's loadout in place, and rejects wrong-family / non-owned modules", async () => {
+    const { auth, userId } = await newUser("fit@example.com");
+
+    // A fresh account already HAS a loadout per hull (seeded from the stock fit),
+    // so there is never a "create" — only writes to the row that exists.
+    const before = await request(app).get("/api/fittings").set("Authorization", auth);
+    expect(before.status).toBe(200);
+    const forShip = (body: { fittings: { ship_id: string; id: string }[] }, shipId: string) =>
+      body.fittings.filter((f) => f.ship_id === shipId);
+    expect(forShip(before.body, "ship.interceptor")).toHaveLength(1);
+    const rowId = forShip(before.body, "ship.interceptor")[0]!.id;
+    expect(rowId).toBe(loadoutFittingId(userId, "ship.interceptor"));
 
     // Valid: hardpoint 0 accepts laser; laser-mk1 is a starter (owned, level 1).
     const ok = await request(app)
-      .post("/api/fittings")
+      .put("/api/fittings/ship.interceptor")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", name: "Laser only", hardpointMap: { "0": "module.laser-mk1" } });
-    expect(ok.status).toBe(201);
-    expect(ok.body.fitting.id).toBeTruthy();
+      .send({ hardpointMap: { "0": "module.laser-mk1" } });
+    expect(ok.status).toBe(200);
+    expect(ok.body.fitting.id).toBe(rowId);
+    expect(ok.body.fitting.hardpointMap).toEqual({ "0": "module.laser-mk1" });
+
+    // A second write REPLACES it rather than adding a row: a hull has one fit.
+    const again = await request(app)
+      .put("/api/fittings/ship.interceptor")
+      .set("Authorization", auth)
+      .send({ hardpointMap: {} });
+    expect(again.status).toBe(200);
+    const after = await request(app).get("/api/fittings").set("Authorization", auth);
+    expect(forShip(after.body, "ship.interceptor")).toHaveLength(1);
+    expect(forShip(after.body, "ship.interceptor")[0]).toMatchObject({ id: rowId, hardpointMap: {} });
 
     // Wrong family: every hardpoint takes a weapon, a shield or a support
     // module since 2026-08-22, and nothing else — so the passive utilities are
     // what a hardpoint refuses now. The module is a pre-owned starter, so only
     // the family can be what fails here.
     const wrongFamily = await request(app)
-      .post("/api/fittings")
+      .put("/api/fittings/ship.interceptor")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", name: "Bad", hardpointMap: { "0": "module.utility-capacitor-battery" } });
+      .send({ hardpointMap: { "0": "module.utility-capacitor-battery" } });
     expect(wrongFamily.status).toBe(400);
     expect(wrongFamily.body.error.code).toBe("family-mismatch");
 
     // Not owned: shield-mk2 fits hardpoint 1 by family but is a priced module the
     // fresh user does not own (mk1 modules are the free, pre-owned starter kit).
     const notOwned = await request(app)
-      .post("/api/fittings")
+      .put("/api/fittings/ship.interceptor")
       .set("Authorization", auth)
-      .send({ shipId: "ship.interceptor", name: "Bad2", hardpointMap: { "1": "module.shield-mk2" } });
+      .send({ hardpointMap: { "1": "module.shield-mk2" } });
     expect(notOwned.status).toBe(400);
     expect(notOwned.body.error.code).toBe("not-owned");
+
+    // A rejected write changes nothing.
+    const unchanged = await request(app).get("/api/fittings").set("Authorization", auth);
+    expect(forShip(unchanged.body, "ship.interceptor")[0]).toMatchObject({ hardpointMap: {} });
+  });
+
+  it("404s a path that is not a ship — an old client's stale row id lands here", async () => {
+    const { auth } = await newUser("stalefit@example.com");
+    const res = await request(app)
+      .put("/api/fittings/8f0c6c2e-0000-4000-8000-000000000000")
+      .set("Authorization", auth)
+      .send({ hardpointMap: {} });
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("not-found");
   });
 
   it("requires auth", async () => {

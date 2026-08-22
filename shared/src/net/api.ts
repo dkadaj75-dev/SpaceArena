@@ -58,20 +58,38 @@ export const hardpointMapSchema = z.record(
 );
 export type HardpointMap = z.infer<typeof hardpointMapSchema>;
 
-export const fittingNameSchema = z.string().min(1).max(60);
+/**
+ * A pilot has exactly ONE loadout per hull, and it is whatever is in the slots
+ * (owner 2026-08-22: "when a player fits its ship, it becomes the fitting the
+ * ship is going to use — we don't need to save fitting names etc").
+ *
+ * Named fittings are gone: no save, no load, no select, no delete, no names
+ * anywhere. What is left is a single implicit row per (user, ship), and this is
+ * its well-known id. Deriving it rather than allocating a uuid is what let the
+ * change stay inside the existing `/api/fittings` shape — the row is addressable
+ * without a lookup table, an upsert needs no "does it exist yet" round trip, and
+ * the id itself carries the ownership claim the server re-checks anyway.
+ *
+ * The user id is part of the key because `fittings.id` is the table's primary
+ * key and therefore global: two pilots flying the same hull need two rows.
+ */
+export const LOADOUT_FITTING_PREFIX = "loadout:";
 
-export const createFittingBodySchema = z.object({
-  shipId: z.string().min(1).max(80),
-  name: fittingNameSchema,
+export function loadoutFittingId(userId: string, shipId: string): string {
+  return `${LOADOUT_FITTING_PREFIX}${userId}:${shipId}`;
+}
+
+/**
+ * `PUT /api/fittings/:shipId` — the whole write surface for a loadout. There is
+ * no create/delete pair any more: a hull always has a loadout (its stock fit
+ * until the pilot touches a slot), so every write is an upsert of the same row,
+ * and "delete" would only mean "put the stock fit back", which is what emptying
+ * the slots already does.
+ */
+export const saveLoadoutBodySchema = z.object({
   hardpointMap: hardpointMapSchema,
 });
-export type CreateFittingBody = z.infer<typeof createFittingBodySchema>;
-
-export const updateFittingBodySchema = z.object({
-  name: fittingNameSchema.optional(),
-  hardpointMap: hardpointMapSchema.optional(),
-});
-export type UpdateFittingBody = z.infer<typeof updateFittingBodySchema>;
+export type SaveLoadoutBody = z.infer<typeof saveLoadoutBodySchema>;
 
 // ---------------------------------------------------------------------------
 // Ships / upgrades / modules

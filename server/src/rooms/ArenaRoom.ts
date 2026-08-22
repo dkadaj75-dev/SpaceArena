@@ -15,6 +15,7 @@ import {
   teamSizeOf,
   SIM_TICK_RATE,
   createLogger,
+  loadoutFittingId,
   orderMessageSchema,
   MSG_ORDER,
   MSG_ORDER_ACK,
@@ -352,10 +353,11 @@ export class ArenaRoom extends Room<ArenaState> {
   /**
    * Pick the ship + ordered module list to spawn, then **validate it** against
    * the joining player's ownership/level and the ship's current sockets (same
-   * logic as the REST fitting API). An authed user passing a `fittingId` they own
-   * loads that fitting; otherwise fall back to the requested (or default) ship's
-   * `defaultFitting`. Either way, an invalid resolved fitting **rejects the join**
-   * (Finding 1) rather than spawning an illegal loadout.
+   * logic as the REST fitting API). Three sources, in order: a `fittingId` the
+   * user owns (legacy — see the branch), then the user's ONE stored loadout for
+   * the hull they asked for, then that hull's `defaultFitting`. Whichever wins,
+   * an invalid resolved fitting **rejects the join** (Finding 1) rather than
+   * spawning an illegal loadout.
    *
    * The one thing that does NOT reject is a STORED fitting gone stale against
    * the current pack (2026-08-22). Sockets are content: the hardpoint pass that
@@ -378,27 +380,31 @@ export class ArenaRoom extends Room<ArenaState> {
     let shipId: string | null = null;
     let hardpointMap: HardpointMap | null = null;
 
+    // A row named OUTRIGHT still wins. Nothing in the shipped client sends this
+    // any more (see below), but the option is part of the join wire and an old
+    // build with a stale id in `localStorage` still arrives with one — which
+    // resolves to "not found" and falls through, rather than wedging the join.
     if (userId && options.fittingId) {
       const fit = fittingsRepo.byId(options.fittingId);
       if (fit && fit.user_id === userId && configs.get<ShipConfig>("ship", fit.ship_id)) {
         shipId = fit.ship_id;
-        const pruned = pruneStaleFitting(configs, fit.ship_id, fit.hardpointMap);
-        if (pruned.dropped.length > 0) {
-          log.warn("stored fitting no longer matches the hull's sockets; dropping stale slots", {
-            fittingId: options.fittingId,
-            shipId,
-            dropped: pruned.dropped,
-          });
-        }
-        // Everything dropped ⇒ nothing of this fitting survives the pack. Keep
-        // the HULL the player chose and give it its stock loadout: an empty
-        // hull is not a loadout, and silently swapping their ship as well would
-        // be a second surprise on top of the first.
-        hardpointMap = Object.keys(pruned.map).length > 0
-          ? pruned.map
-          : defaultFittingToHardpointMap(configs.get<ShipConfig>("ship", fit.ship_id)!.defaultFitting);
+        hardpointMap = this.storedFittingMap(configs, fit.ship_id, fit.hardpointMap, options.fittingId);
       } else {
         log.warn("fitting not found / not owned / unknown ship; using default", { fittingId: options.fittingId, userId });
+      }
+    }
+
+    // The pilot's ONE loadout for the hull they asked for (owner 2026-08-22).
+    // The client sends no fitting id at all now: there is exactly one row per
+    // (user, ship) and its id is DERIVED, so the room can look it up from the
+    // authenticated user plus the requested hull — which is also why a client
+    // can no longer name someone else's row, having nothing to name it with.
+    if (!shipId || !hardpointMap) {
+      const wanted = options.shipId && configs.get<ShipConfig>("ship", options.shipId) ? options.shipId : null;
+      const fit = userId && wanted ? fittingsRepo.byId(loadoutFittingId(userId, wanted)) : undefined;
+      if (fit && wanted) {
+        shipId = wanted;
+        hardpointMap = this.storedFittingMap(configs, wanted, fit.hardpointMap, fit.id);
       }
     }
 
@@ -416,6 +422,33 @@ export class ArenaRoom extends Room<ArenaState> {
     }
     const ship = configs.get<ShipConfig>("ship", shipId)!;
     return { shipId, fitting: hardpointMapToFitting(ship, hardpointMap) };
+  }
+
+  /**
+   * A map read out of the DATABASE, forgiven for the pack having changed under
+   * it. Shared by both stored-fitting paths above so they cannot disagree about
+   * how much staleness a join survives.
+   */
+  private storedFittingMap(
+    configs: ReturnType<typeof getConfigService>,
+    shipId: string,
+    stored: HardpointMap,
+    rowId: string,
+  ): HardpointMap {
+    const pruned = pruneStaleFitting(configs, shipId, stored);
+    if (pruned.dropped.length > 0) {
+      log.warn("stored fitting no longer matches the hull's sockets; dropping stale slots", {
+        fittingId: rowId,
+        shipId,
+        dropped: pruned.dropped,
+      });
+    }
+    // Everything dropped ⇒ nothing of this fitting survives the pack. Keep the
+    // HULL the player chose and give it its stock loadout: an empty hull is not
+    // a loadout, and silently swapping their ship as well would be a second
+    // surprise on top of the first.
+    if (Object.keys(pruned.map).length > 0) return pruned.map;
+    return defaultFittingToHardpointMap(configs.get<ShipConfig>("ship", shipId)!.defaultFitting);
   }
 
   /**

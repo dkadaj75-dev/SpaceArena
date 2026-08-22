@@ -951,10 +951,8 @@ const CSS = `
 }
 .sa-button { min-height:40px; padding:8px 18px; }
 .sa-button--primary { background:var(--sa-blue-500); border-color:var(--sa-blue-500); }
-.sa-button--danger { background:var(--sa-red-500); border-color:var(--sa-red-500); }
 .sa-button--secondary { background:var(--sa-n-800); border-color:var(--sa-n-400); }
 .sa-button:hover:not(:disabled), .sa-button[data-state="hover"] { background:color-mix(in srgb, var(--sa-button-color, var(--sa-blue-500)) 82%, var(--sa-white)); }
-.sa-button--danger { --sa-button-color:var(--sa-red-500); }
 .sa-button--secondary { --sa-button-color:var(--sa-n-600); }
 .sa-button:active:not(:disabled), .sa-button[data-state="pressed"] { transform:translateY(1px); background:color-mix(in srgb, var(--sa-button-color, var(--sa-blue-500)) 78%, var(--sa-n-900)); }
 .sa-button:disabled, .sa-button[data-state="disabled"] { opacity:.38; cursor:not-allowed; filter:saturate(.25); }

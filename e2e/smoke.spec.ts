@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
  * End-to-end smoke test (ROADMAP §11 6.1).
  *
  * One test, one sequential journey through the whole client:
- *   guest login → lobby → hangar (fit + save a fitting) → lobby →
+ *   guest login → lobby → hangar (fit a module, which IS the save) → lobby →
  *   practice match → fire a module → match ends → back to the lobby.
  *
  * Everything is driven through real UI affordances and real player orders. The
@@ -180,16 +180,11 @@ test("guest can log in, fit a ship, play a practice match and return to the lobb
   await expect(slot).toHaveClass(/\bfilled\b/);
   await expect(slotLabel).not.toHaveText("Empty");
 
-  // Persist it. The button is "Save new fitting" for a fresh fit and
-  // "Update fitting" once one is selected — accept whichever rendered.
-  await rail("fitting").click();
-  const saveButton = hangar.locator(".hangar-fit-controls .hangar-btn-primary");
-  await expect(saveButton).toHaveText(/^(Save new fitting|Update fitting)$/);
-  await hangar.locator(".hangar-input").fill("E2E Smoke Fit");
-  await saveButton.click();
-
-  // A saved fitting becomes the selected one, which is what flips the label.
-  await expect(saveButton).toHaveText("Update fitting");
+  // …and that WAS the save (owner 2026-08-22): a pilot has one loadout per hull
+  // and fitting a module writes it, so there is no fitting bay to visit, nothing
+  // to name and no button to press. The proof it landed is a clean screen — a
+  // rejected write is the one thing that would put an error line here.
+  await expect(hangar.locator('.hangar-rail-btn[data-category="fitting"]')).toHaveCount(0);
   await expect(hangar.locator(".hangar-error")).toHaveCount(0);
 
   // The hangar is split in two: the ship's 3D stage and this panel, siblings
