@@ -55,6 +55,21 @@ describe("shop modules tab", () => {
     // Chips come from moduleSummary so the shop and the Hangar picker agree.
     expect(laser.entries[0]!.chips[0]).toEqual({ label: "DPS", value: "5" });
   });
+
+  it("ignores ownership of modules the pack no longer ships (2026-08-22)", () => {
+    // A player who bought a transformer before the family was retired still has
+    // the purchase row, and the API still hands the id back in `owned.modules`.
+    // The shop is a projection of the CATALOGUE — it lists what exists and asks
+    // ownership about each one — so a dead id has nothing to attach to and can
+    // neither add a phantom row nor wedge the list. Verified rather than
+    // assumed, because the opposite shape (iterate what is OWNED, look up the
+    // config) would have thrown on every one of these rows.
+    const live = new FakeOwnershipStore({ modules: ["module.laser-mk1"] });
+    const withGhosts = new FakeOwnershipStore({
+      modules: ["module.laser-mk1", "module.transformer-stock", "module.engine-civ", "module.sensors-basic"],
+    });
+    expect(moduleGroups(configs, withGhosts)).toEqual(moduleGroups(configs, live));
+  });
 });
 
 describe("shop paints tab", () => {

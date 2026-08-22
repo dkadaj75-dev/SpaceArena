@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ConfigService, dist3, facingVec, setGlobalLogLevel, type SimEvent } from "@space-arena/shared";
-import { GameSession } from "./GameSession.js";
+import { ConfigService, dist3, facingVec, setGlobalLogLevel, type ShipConfig, type SimEvent } from "@space-arena/shared";
+import { GameSession, sanitizeFitting } from "./GameSession.js";
 
 setGlobalLogLevel("error");
 
@@ -97,7 +97,7 @@ describe("scripted spawn", () => {
     const id = session.spawnScripted({
       shipId: "ship.interceptor",
       profile: "bot.tutorial",
-      fitting: ["module.laser-mk1", null, "module.engine-civ"],
+      fitting: ["module.laser-mk1", null, "module.engine-earth-eng1"],
       team: 1,
       hull: 34,
     })!;
@@ -147,5 +147,73 @@ describe("scripted spawn", () => {
     // Elimination is off and the frag target is unreachable, so killing every
     // scripted target does NOT raise the results screen over the coach mark.
     expect(session.isEnded).toBe(false);
+  });
+});
+
+/**
+ * OFFLINE FITTING MIGRATION (owner 2026-08-22). The client's half of the same
+ * problem the server solves with `pruneStaleFitting`: a loadout in this
+ * browser's `localStorage`, saved against a pack whose module ids have since
+ * been deleted.
+ *
+ * Run against the SHIPPED pack for the same reason the rest of this file is: the
+ * whole risk is that a REAL hull's sockets reject a REAL stored id, and a
+ * synthetic fixture cannot show that.
+ */
+describe("a stored fitting full of deleted module ids (2026-08-22)", () => {
+  /** Exactly what a pre-rework localStorage loadout for the light hull held. */
+  const PRE_REWORK = [
+    "module.laser-mk1",
+    "module.missile-mk1",
+    "module.engine-civ", // the old engine line
+    "module.generator-compact", // the old generators
+    "module.transformer-stock", // family retired; the bay is `hull` now
+    "module.countermeasure-flare", // …this one survived the rework
+    "module.sensors-basic", // the old sensor line
+  ];
+
+  it("degrades the dead slots to empty rather than throwing at spawn", () => {
+    const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+    const fitting = sanitizeFitting(configs, ship, PRE_REWORK);
+    // `spawnShipFromConfig` treats an unknown module id as a programming error
+    // and throws; an empty slot it simply skips. So the only safe rendering of a
+    // deleted id is `null`, and the survivors must keep their INDEX — a
+    // compacted array would put the countermeasure in the engine bay.
+    expect(fitting).toEqual([
+      "module.laser-mk1",
+      "module.missile-mk1",
+      null,
+      null,
+      null,
+      "module.countermeasure-flare",
+      null,
+    ]);
+  });
+
+  it("still launches a playable session on it", () => {
+    // The end-to-end claim: a returning player with a pre-rework loadout flies,
+    // rather than meeting a crash or an empty hull. Their weapons survived, so
+    // this is NOT the fall-back-to-stock path — it is the degraded fit itself.
+    const session = new GameSession(configs, "arena.ring-nebula", "gamemode.tutorial", 1, {
+      playerShipId: "ship.interceptor",
+      playerFitting: PRE_REWORK,
+    });
+    const me = session.curSnapshot.ships.find((s) => s.id === session.playerId)!;
+    expect(me).toBeDefined();
+    expect(me.modules.map((m) => m.moduleId).sort()).toEqual([
+      "module.countermeasure-flare",
+      "module.laser-mk1",
+      "module.missile-mk1",
+    ]);
+  });
+
+  it("falls back to the hull's stock loadout when EVERY id is dead", () => {
+    const session = new GameSession(configs, "arena.ring-nebula", "gamemode.tutorial", 1, {
+      playerShipId: "ship.interceptor",
+      playerFitting: ["module.transformer-mk3", "module.engine-racing"],
+    });
+    const ship = configs.get<ShipConfig>("ship", "ship.interceptor")!;
+    const me = session.curSnapshot.ships.find((s) => s.id === session.playerId)!;
+    expect(me.modules.map((m) => m.moduleId)).toEqual(ship.defaultFitting);
   });
 });
