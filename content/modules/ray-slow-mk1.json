@@ -1,0 +1,31 @@
+{
+  "id": "module.ray-slow-mk1",
+  "type": "module",
+  "version": 1,
+  "family": "disruptor",
+  "level": 1,
+  "name": "Tether Ray Mk I",
+  "activation": {
+    "deployTime": 0.35,
+    "retractTime": 0.2
+  },
+  "power": {
+    "draw": 3
+  },
+  "slow": {
+    "range": 110,
+    "factor": 0.35,
+    "durationSec": 4,
+    "cooldownSec": 12
+  },
+  "onActivate": [
+    "action.play-sound-shield-up"
+  ],
+  "ui": {
+    "icon": "[ICON: disruptor]",
+    "shortName": "Tether Ray",
+    "label": "Slowing Ray"
+  },
+  "price": 900,
+  "requiresLevel": 3
+}

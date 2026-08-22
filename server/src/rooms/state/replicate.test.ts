@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   ArenaSimulation,
   FlagTrailAccumulator,
+  applySlow,
   decodeSnapshot,
   setGlobalLogLevel,
   type ArenaConfig,
@@ -194,6 +195,7 @@ describe("replication round trip", () => {
       expect(Math.abs(got.throttle - ship.throttle)).toBeLessThanOrEqual(UNIT_TOL);
       expect(Math.abs(got.lockProgress - ship.lockProgress)).toBeLessThanOrEqual(UNIT_TOL);
       expect(got.locked).toBe(ship.locked);
+      expect(Math.abs((got.slowFactor ?? 0) - (ship.slowFactor ?? 0))).toBeLessThanOrEqual(UNIT_TOL);
       expect(got.targetId).toBe(ship.targetId ?? null);
       expect(got.cosmeticId).toBe(ship.cosmeticId === "" ? undefined : ship.cosmeticId);
       // Velocity IS replicated as of 2026-08-18 (three int16 deci-unit fields,
@@ -219,6 +221,21 @@ describe("replication round trip", () => {
       expect(got.colliderRadius).toBeUndefined();
       expect(got.sensorRange).toBeUndefined();
     }
+  });
+
+  it("carries a live slowing-ray effect to the clients (owner 2026-08-22)", () => {
+    // Its own test rather than a line in the sweep above, because the sweep
+    // flies a clean match where nothing is slowed — and a field that only ever
+    // replicates 0 would pass that sweep with no writer at all.
+    const room = createRoom();
+    const a = join(room, "session-a", 0, { x: 40, y: 6, z: -25 });
+    applySlow(room.sim.world, a, 0.35, 4, null);
+
+    const snap = room.sim.snapshot();
+    const decoded = roundTrip(room, snap);
+    const got = decoded.ships.find((s) => s.id === a)!;
+    expect(got.slowFactor).toBeGreaterThan(0);
+    expect(Math.abs(got.slowFactor! - 0.35)).toBeLessThanOrEqual(UNIT_TOL);
   });
 
   it("carries every replicated module field, by hardpoint and not by array slot", () => {

@@ -1,7 +1,9 @@
 import type { ConfigService } from "../core/ConfigService.js";
 import type { BotprofileConfig } from "../schemas/botprofile.js";
 import { isInternalFamily } from "../schemas/common.js";
-import type { ModuleConfig } from "../schemas/module.js";
+import { abilityOf, type ModuleConfig } from "../schemas/module.js";
+import type { ShipSnapshot } from "../sim/ArenaSimulation.js";
+import { dist3 } from "../sim/math.js";
 import type { Order } from "../sim/orders.js";
 import type { BotContext } from "./context.js";
 
@@ -13,7 +15,11 @@ export type ModuleDecisionReason =
   | "shield-engaged"
   | "shield-disengaged"
   | "energy-reserve"
-  | "boost-requested";
+  | "boost-requested"
+  /** A slowing ray fired at the bot's locked target (2026-08-22). */
+  | "slow-target"
+  /** A repair field fired because an ally in radius is hurt. */
+  | "repair-wing";
 
 export interface ModuleDecision {
   hardpointIndex: number;
@@ -73,6 +79,18 @@ export function planModuleOrders(
     // charge would simply stop flying.
     if (isInternalFamily(cfg.family)) continue;
 
+    // SUPPORT PULSES (2026-08-22) take their own decision and then stop: their
+    // toggle is an ACTIVATION, not a switch, so the "already on ⇒ leave it
+    // alone" and energy-reserve rules below say nothing useful about them.
+    if (abilityOf(cfg)) {
+      const pulse = planPulse(ctx, cfg, m);
+      if (pulse) {
+        orders.push({ kind: "moduleToggle", hardpointIndex: m.hardpointIndex });
+        decisions.push({ hardpointIndex: m.hardpointIndex, moduleId: m.moduleId, activate: true, reason: pulse });
+      }
+      continue;
+    }
+
     const isActive = m.state === "active";
     const isShield = cfg.family === "shield";
 
@@ -104,4 +122,57 @@ export function planModuleOrders(
   }
 
   return { orders, decisions };
+}
+
+/**
+ * Hull fraction below which a bot considers a wingman worth a repair pulse.
+ * High enough that the field is used while the fight is still on rather than
+ * saved for a hull that is already dead, low enough that a bot does not burn an
+ * 18-second cooldown on a scratch.
+ */
+const REPAIR_HULL_FRACTION = 0.7;
+
+/**
+ * Whether to spend a support pulse this decision, and why — the whole of the
+ * bot's judgement about the two 2026-08-22 modules.
+ *
+ * Deliberately minimal. A pulse has one input (is there something worth
+ * pointing it at) and one cost (its cooldown), so a utility score would be
+ * three numbers dressed up as a decision:
+ *
+ *  - SLOWING RAY — fire at the bot's locked target when it is inside the
+ *    authored range. That is exactly the sim's own gate, so a bot never spends
+ *    a cooldown on a pulse that cannot land.
+ *  - REPAIR FIELD — fire when any ally in radius, the bot itself included, is
+ *    under {@link REPAIR_HULL_FRACTION} of its hull. Same self-inclusion rule
+ *    the module itself has, so a lone bot still heals itself.
+ *
+ * Returns null when the module is cold, mid-transition, or has nothing to do.
+ */
+function planPulse(
+  ctx: BotContext,
+  cfg: ModuleConfig,
+  m: BotContext["self"]["modules"][number],
+): ModuleDecisionReason | null {
+  // The sim refuses a raise while the cooldown runs (`ModuleSystem.pulseReady`),
+  // so asking anyway would be an order per decision tick that never lands —
+  // against the bot's rate budget and noise in the Behavior Editor's log.
+  if (m.cycleTimer > 0 || m.state !== "retracted") return null;
+
+  if (cfg.slow) {
+    if (!ctx.self.locked || ctx.target === null) return null;
+    return ctx.distance <= cfg.slow.range ? "slow-target" : null;
+  }
+  if (cfg.repairField) {
+    const radius = cfg.repairField.radiusUnits;
+    const hurt = (s: ShipSnapshot): boolean =>
+      s.hullMax > 0 && s.hull > 0 && s.hull / s.hullMax < REPAIR_HULL_FRACTION;
+    if (hurt(ctx.self)) return "repair-wing";
+    for (const ally of ctx.allies) {
+      if (!hurt(ally)) continue;
+      if (dist3(ctx.self.pos, ally.pos) <= radius) return "repair-wing";
+    }
+    return null;
+  }
+  return null;
 }

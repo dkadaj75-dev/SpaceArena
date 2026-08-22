@@ -61,6 +61,13 @@ function fakeConfigs(): ConfigService {
         requiresLineOfSight: true,
       },
     },
+    "module.ray-slow-mk1": {
+      name: "Tether Ray Mk I",
+      family: "disruptor",
+      ui: { icon: "D", label: "Slowing Ray", shortName: "Tether Ray" },
+      activation: { deployTime: 0.35, retractTime: 0.2 },
+      slow: { range: 110, factor: 0.35, durationSec: 4, cooldownSec: 12 },
+    },
     "module.kinetic-mk1": {
       name: "Autocannon Mk I",
       family: "kinetic",
@@ -636,6 +643,52 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       expect(lowAmmoThreshold(4)).toBe(1);
       expect(lowAmmoThreshold(1)).toBe(1);
     });
+  });
+
+  it("draws a SUPPORT PULSE's cooldown on the same ring a weapon and a collapsed shield use", () => {
+    // The pulse (2026-08-22) banks its cooldown on the same replicated
+    // `cycleTimer`, so the rail needs no fourth kind of ring — but it does need
+    // to know the module's cooldown TOTAL, or the sweep would be a fraction of
+    // a cycle time the module does not have.
+    const root = document.createElement("div");
+    const buttons = new ModuleButtons(root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1);
+    buttons.update(snapshotWithModules([
+      { hardpointIndex: 0, moduleId: "module.ray-slow-mk1", state: "retracted", cycleTimer: 3 },
+    ]));
+    const ray = root.querySelector<HTMLElement>('[aria-label="01 Tether Ray Mk I"]')!;
+    // 3 s left of a 12 s cooldown ⇒ three quarters of the way back to ready.
+    expect(ray.classList).toContain("ring-cooldown");
+    expect(ray.classList).toContain("on-cooldown");
+    expect(ray.style.getPropertyValue("--ring")).toBe("75");
+    expect(root.querySelector<HTMLElement>(".cooldown-secs")!.textContent).toBe("3");
+
+    // Cold to ready: the ring and the countdown both clear, and the button goes
+    // back to having no ring at all (a pulse carries no energy tank).
+    buttons.update(snapshotWithModules([
+      { hardpointIndex: 0, moduleId: "module.ray-slow-mk1", state: "retracted", cycleTimer: 0 },
+    ]));
+    expect(ray.classList).not.toContain("ring-cooldown");
+    expect(ray.classList).not.toContain("on-cooldown");
+    expect(root.querySelector<HTMLElement>(".cooldown-secs")!.hidden).toBe(true);
+    buttons.dispose();
+  });
+
+  it("gives a support pulse a UTILITY-cluster button whose tap is one moduleToggle", () => {
+    const root = document.createElement("div");
+    const order = vi.fn();
+    const buttons = new ModuleButtons(root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order } as unknown as GameSession, 1);
+    buttons.update(snapshotWithModules([
+      { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
+      { hardpointIndex: 3, moduleId: "module.ray-slow-mk1", state: "retracted" },
+    ]));
+    const ray = root.querySelector<HTMLElement>('[aria-label="01 Tether Ray Mk I"]')!;
+    expect(ray.dataset["side"]).toBe("utilities");
+    ray.dispatchEvent(new Event("click", { bubbles: true }));
+    // ONE toggle, carrying the true hardpoint index — the pulse rides the order
+    // the deployables already send (see AbilitySystem for why).
+    expect(order).toHaveBeenCalledTimes(1);
+    expect(order).toHaveBeenCalledWith({ kind: "moduleToggle", hardpointIndex: 3 });
+    buttons.dispose();
   });
 
   it("clears the cooldown ring the moment the weapon is ready again", () => {

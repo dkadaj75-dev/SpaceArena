@@ -1,7 +1,7 @@
 {
   "id": "ship.interceptor",
   "type": "ship",
-  "version": 5,
+  "version": 6,
   "name": "Interceptor",
   "class": "light",
   "core": {
@@ -325,6 +325,38 @@
             [
               1,
               1
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "slow-arcs",
+      "transform": {
+        "pos": [
+          0,
+          0.28,
+          0.1
+        ]
+      },
+      "kind": "emitter",
+      "effect": "fx.tether-drag",
+      "bindings": [
+        {
+          "source": "slowed",
+          "param": "emitRate",
+          "curve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.1,
+              20
+            ],
+            [
+              1,
+              70
             ]
           ]
         }

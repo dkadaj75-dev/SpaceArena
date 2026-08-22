@@ -19,7 +19,7 @@ export const DAMAGE_HIDDEN_DISTANCE = 500;
  * shield, and reads small and blue for everyone — see the note on
  * {@link DamageRelation} for why that exception is deliberate.
  */
-type DamageLayer = "shield" | "hull";
+type DamageLayer = "shield" | "hull" | "repair";
 /**
  * Board semantics (design system v1.0): red is threat/damage to MY side, white
  * is neutral information. So a value is coloured by WHO took the hit, not by
@@ -30,6 +30,12 @@ type DamageLayer = "shield" | "hull";
  * to anyone, so it takes the HUD's own blue (`--hud-primary`) and a smaller
  * type size regardless of relation, and the relation is kept on the slot only so
  * a friendly and a hostile absorb never merge into one label.
+ *
+ * REPAIR (2026-08-22) sits outside it for the mirror-image reason: hull GIVEN
+ * BACK by a repair field is the only good news on the rail, and it is drawn in
+ * the one colour nothing else uses (`--sa-green-500`) with a leading `+`. A heal
+ * can only ever land on your own side, so it carries the friendly relation and
+ * can never merge with a damage label on the same hull.
  */
 type DamageRelation = "friendly" | "hostile";
 
@@ -57,6 +63,15 @@ interface LabelSlot {
  */
 export function formatDamageAmount(amount: number): string {
   return String(Math.max(1, Math.round(amount)));
+}
+
+/**
+ * What one label prints: a bare integer for damage, and a SIGNED one for a
+ * repair, so a heal and a hit are never read as the same event at a glance.
+ */
+export function labelTextFor(layer: DamageLayer, amount: number): string {
+  const text = formatDamageAmount(amount);
+  return layer === "repair" ? `+${text}` : text;
 }
 
 /** Size is intentionally capped: a kill is emphatic without covering the ship. */
@@ -153,6 +168,12 @@ export class FloatingDamageText {
       if (event.type === "damage" && !event.isAsteroid) {
         if (!this.isMine(event.sourceId, event.targetId)) continue;
         this.add(event.targetId, event.amount, "hull");
+      } else if (event.type === "hullRepaired") {
+        // Same "my fight only" rule as the two above: the pulse I cast, or the
+        // one that healed me. A medic on the far side of the arena topping up
+        // their own wing is not my business.
+        if (!this.isMine(event.sourceId, event.targetId)) continue;
+        this.add(event.targetId, event.amount, "repair");
       } else if (event.type === "shieldAbsorb") {
         if (!this.isMine(event.sourceId, event.targetId)) continue;
         // `hullAvoided`, NOT `amount`: the shield layer floats the damage the
@@ -247,7 +268,7 @@ export class FloatingDamageText {
       slot.amount += amount;
       slot.ageMs = Math.min(slot.ageMs, 180);
       slot.mergedAtMs = this.clockMs;
-      slot.el.textContent = formatDamageAmount(slot.amount);
+      slot.el.textContent = labelTextFor(layer, slot.amount);
       slot.el.style.setProperty("--hud-damage-scale", String(damageTextScale(slot.amount)));
       return;
     }
@@ -263,7 +284,7 @@ export class FloatingDamageText {
     slot.lastY = Number.NaN;
     slot.lastOpacity = Number.NaN;
     slot.el.className = `hud-damage-number ${layer} ${relation}`;
-    slot.el.textContent = formatDamageAmount(amount);
+    slot.el.textContent = labelTextFor(layer, amount);
     slot.el.style.setProperty("--hud-damage-scale", String(damageTextScale(amount)));
     slot.el.hidden = false;
   }

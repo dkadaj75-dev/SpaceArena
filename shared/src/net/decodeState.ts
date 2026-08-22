@@ -206,6 +206,10 @@ export function decodeShip(p: any): ShipSnapshot {
     launchLocked: Boolean(p.launchLocked),
     lockProgress: decodeUnit(p.lockProgress ?? 0),
     locked: Boolean(p.locked),
+    // Slowing-ray strength (2026-08-22), same unit codec. A peer that predates
+    // the field sends nothing, which decodes to 0 — "flying free" — so an old
+    // server never makes a client draw a slow that is not there.
+    slowFactor: decodeUnit(p.slowFactor ?? 0),
     cosmeticId: decodeCosmeticId(p.cosmeticId),
     modules: decodeModules(p.modules),
   };

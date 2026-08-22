@@ -1,7 +1,7 @@
 {
   "id": "progression.default",
   "type": "progression",
-  "version": 1,
+  "version": 2,
   "name": "Default Progression",
   "xpCurve": [
     0,
@@ -51,7 +51,9 @@
       "module.beamlaser-mk2",
       "module.generator-dynamo",
       "module.countermeasure-chaff",
+      "module.field-repair-mk1",
       "module.missile-mk2",
+      "module.ray-slow-mk1",
       "module.shield-mk2",
       "module.transformer-cryo",
       "module.transformer-efficient",

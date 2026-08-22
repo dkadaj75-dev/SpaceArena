@@ -10,6 +10,7 @@ import { matchCountdownSecOf } from "./tuningDefaults.js";
 import { reresolveShipsUsingConfig } from "./reresolveShip.js";
 import type { UpgradeLevels } from "./resolveStats.js";
 import { spawnAsteroid, spawnShipFromConfig } from "./spawn.js";
+import { abilitySystem } from "./systems/AbilitySystem.js";
 import { collisionSystem } from "./systems/CollisionSystem.js";
 import { cleanupSystem } from "./systems/CleanupSystem.js";
 import { ctfSystem, returnFlagHome, tryCapture } from "./systems/CtfSystem.js";
@@ -108,6 +109,18 @@ export interface ShipSnapshot {
   lockProgress: number;
   /** True while the lock is complete; weapons only fire in this state. */
   locked: boolean;
+  /**
+   * Fraction of top speed a slowing ray is currently taking off this hull, 0..1
+   * (owner 2026-08-22). ABSENT or 0 both mean "flying free", so every consumer
+   * reads `slowFactor ?? 0` and a hand-built snapshot in a test does not have to
+   * know the field exists.
+   *
+   * Replicated because BOTH sides need it and neither can derive it: a remote
+   * client draws the slowed hull's effect from it, and the local client's own
+   * predictor folds it into the same multiplier boost uses, or it would predict
+   * a speed the server never gives.
+   */
+  slowFactor?: number;
   /**
    * Equipped paint (`cosmetic.*`), or ABSENT for the hull's authored look. The
    * renderer receives the target hull's base paint for absent or stale ids — the
@@ -851,6 +864,12 @@ export class ArenaSimulation {
     this.tickLaunchSequences(dt);
     navigationSystem(w, dt);
     moduleSystem(w, dt);
+    // Immediately after the state machine: a support pulse fires on the tick its
+    // module reaches `active`, so the toggle the pilot sent this tick is spent
+    // this tick. Before targeting and combat so a ray and the guns resolve
+    // against the same lock, and a hull healed here is healed before anything
+    // shoots at it.
+    abilitySystem(w, dt);
     // Before targeting: a countermeasure jettisoned this tick must already be luring
     // this tick, and its decoy must exist before missiles pick a seeker head.
     jettisonSystem(w, dt);
@@ -1146,6 +1165,7 @@ export class ArenaSimulation {
         // instantly, so report the flag rather than dividing by zero.
         lockProgress: lockFraction(core, ref),
         locked: ref?.locked ?? false,
+        slowFactor: w.slows.get(id)?.factor ?? 0,
         cosmeticId: this.spawnRecords.get(id)?.cosmeticId,
         modules: mods.modules.map((m) => ({
           moduleId: m.moduleId,

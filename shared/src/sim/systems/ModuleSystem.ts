@@ -1,4 +1,4 @@
-import type { ModuleConfig } from "../../schemas/index.js";
+import { abilityOf, type ModuleConfig } from "../../schemas/index.js";
 import type { ModuleRuntime, ModuleState } from "../components.js";
 import { activePowerDraw, modulesToShedFor, powerDrawOf } from "../powerRail.js";
 import type { World } from "../World.js";
@@ -89,6 +89,7 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
       // bottle from stuttering one tick of thrust per three of trickle-charge.
       if (!tankReady(m, cfg)) return;
       if (!collapseReady(m, cfg)) return;
+      if (!pulseReady(m, cfg)) return;
       // POWER RAIL (2026-07-31): bringing this up may mean taking others down.
       // That is the intended trade, and it happens AUTOMATICALLY — the pilot
       // clicks the big shield, the guns drop offline, no fitting-screen error.
@@ -115,6 +116,7 @@ function toggle(world: World, entityId: number, m: ModuleRuntime, siblings: read
       // Re-deploy.
       if (!tankReady(m, cfg)) return;
       if (!collapseReady(m, cfg)) return;
+      if (!pulseReady(m, cfg)) return;
       if (!clearRailFor(world, entityId, m, siblings)) return;
       m.stateTimer = cfg.activation.deployTime;
       transition(world, entityId, m, cfg.activation.deployTime <= 0 ? "active" : "deploying", cfg.onActivate);
@@ -148,6 +150,23 @@ export function tankReady(m: ModuleRuntime, cfg: ModuleConfig | undefined): bool
  */
 export function collapseReady(m: ModuleRuntime, cfg: ModuleConfig | undefined): boolean {
   return !cfg?.mitigation || m.cycleTimer <= 0;
+}
+
+/**
+ * Whether a SUPPORT PULSE (slowing ray, repair field) is off its cooldown.
+ * Non-pulse modules are always ready.
+ *
+ * A pulse's raise IS its activation (see AbilitySystem), so this is the gate
+ * that makes the cooldown mean anything: without it a pilot holding the button
+ * would re-fire the ray every tick. Banked on the module's own `cycleTimer`
+ * exactly as a collapsed shield's lockout and a pod's jettison timer are — all
+ * three are "this module is cold", and the HUD draws one ring for all three.
+ *
+ * Exported for the same reason {@link tankReady} and {@link collapseReady} are:
+ * the HUD and the bots must be able to ask the question the sim answers.
+ */
+export function pulseReady(m: ModuleRuntime, cfg: ModuleConfig | undefined): boolean {
+  return abilityOf(cfg) === undefined || m.cycleTimer <= 0;
 }
 
 /**

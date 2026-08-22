@@ -18,7 +18,7 @@ import type { ModuleConfig } from "@space-arena/shared";
  *      what makes the *shipped* content resolve with no re-authoring, and it is
  *      the only key that distinguishes the two `utility`-family modules.
  *   3. `family` — the honest structural key (`laser`, `kinetic`, `missile`,
- *      `shield`, `boost`, `utility`), so a brand-new module in a known family
+ *      `shield`, `disruptor`, `repair`, `boost`, `utility`), so a brand-new module in a known family
  *      gets a sensible glyph before anyone authors an icon for it.
  *   4. {@link FALLBACK_ICON_ID} — a generic hardpoint glyph. A button is never
  *      blank and never shows raw placeholder text.
@@ -74,6 +74,19 @@ const ICON_PATHS: Readonly<Record<string, string>> = {
     '<path d="M15.4 12.4V9.2h-3.2"/>' +
     '<path d="M10.8 18 18.6 15.6"/>' +
     '<path d="M8.2 13.4 10.6 5.6"/>',
+  /** Slowing ray: an emitter throwing a beam that breaks into braking bars. */
+  disruptor:
+    '<path d="M2.6 12h4.2"/>' +
+    '<path d="M6.8 9.2h3.4v5.6H6.8z"/>' +
+    '<path d="M11.8 12h9.6"/>' +
+    '<path d="M14.6 9.6v4.8"/>' +
+    '<path d="M17.6 10.4v3.2"/>' +
+    '<path d="M20.4 11.2v1.6"/>',
+  /** Repair field: a cross inside the bubble the pulse fills. */
+  repair:
+    '<path d="M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6z"/>' +
+    '<path d="M12 7.8v8.4"/>' +
+    '<path d="M7.8 12h8.4"/>',
   /** Generic hardpoint: the fallback, and the glyph for an unclassed utility. */
   [FALLBACK_ICON_ID]:
     '<path d="M12 2.8 19.6 7.4v9.2L12 21.2 4.4 16.6V7.4z"/>' +
@@ -86,6 +99,8 @@ const FAMILY_ICONS: Readonly<Record<string, string>> = {
   kinetic: "kinetic",
   missile: "missile",
   shield: "shield",
+  disruptor: "disruptor",
+  repair: "repair",
   boost: "boost",
   countermeasure: "countermeasure",
   utility: FALLBACK_ICON_ID,
@@ -100,6 +115,11 @@ const ICON_ALIASES: Readonly<Record<string, string>> = {
   afterburner: "boost",
   thruster: "boost",
   battery: "capacitor",
+  tether: "disruptor",
+  slow: "disruptor",
+  heal: "repair",
+  medic: "repair",
+  nanite: "repair",
   flare: "countermeasure",
   flares: "countermeasure",
   chaff: "countermeasure",

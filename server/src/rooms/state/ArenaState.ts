@@ -166,6 +166,20 @@ export class PlayerState extends Schema {
   /** True once the lock completed — the sim's weapons gate (FLIGHT.md §2). */
   @type("boolean") locked = false;
   /**
+   * Fraction of this hull's top speed a slowing ray is currently removing,
+   * normalized 0..1 as uint8 (shared `encodeUnit`/`decodeUnit`) — 0 for a ship
+   * flying free (owner 2026-08-22).
+   *
+   * It has to travel, and it cannot be derived on either side. A remote client
+   * needs it to draw the slowed hull; the SLOWED client needs it because its own
+   * predictor folds it into the same multiplier boost uses, and a predictor that
+   * did not know would run away from the server for the whole four seconds and
+   * then be dragged back by the correction blend (FLIGHT.md §5). A uint8 is
+   * ample: the authored band is 0.1..0.6 and the field is a visual/predictive
+   * scale, not an authority on anyone's position.
+   */
+  @type("uint8") slowFactor = 0;
+  /**
    * Entity the sensors are warming/holding, or -1 for none. Replicated with the
    * two fields above because they are one reading: `lockProgress` alone cannot
    * tell the HUD which enemy to bracket, and the reticle is the whole point of

@@ -106,6 +106,10 @@ export function applyShipSnapshot(ps: PlayerState, ship: ShipSnapshot): void {
   if (ps.launchLocked !== launchLocked) ps.launchLocked = launchLocked;
   if (ps.lockProgress !== qLock) ps.lockProgress = qLock;
   if (ps.locked !== ship.locked) ps.locked = ship.locked;
+  // Slowing-ray strength, on the same unit codec (2026-08-22). Absent means
+  // "flying free", which is the same thing as 0.
+  const qSlow = encodeUnit(ship.slowFactor ?? 0);
+  if (ps.slowFactor !== qSlow) ps.slowFactor = qSlow;
   const targetId = ship.targetId ?? -1;
   if (ps.targetId !== targetId) ps.targetId = targetId;
 

@@ -49,7 +49,7 @@
  * a silent protocol break in exactly the way a rename is. Pinning the order
  * makes that fail the server assertion too.
  *
- * 72 fields across 8 classes. Keep the per-class comment counts up to date —
+ * 73 fields across 8 classes. Keep the per-class comment counts up to date —
  * they are the cheapest possible review signal that a field was added or lost.
  */
 export const WIRE_FIELDS = {
@@ -66,7 +66,7 @@ export const WIRE_FIELDS = {
     "channeling",
     "shieldPool",
   ]),
-  /** 27 */
+  /** 28 */
   PlayerState: Object.freeze([
     "entityId",
     "team",
@@ -94,6 +94,7 @@ export const WIRE_FIELDS = {
     "launchLocked",
     "lockProgress",
     "locked",
+    "slowFactor",
     "targetId",
     "modules",
   ]),

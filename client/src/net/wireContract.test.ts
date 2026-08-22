@@ -31,7 +31,7 @@ function wireState(): Record<string, unknown> {
         vx: encodeCenti(12), vy: encodeCenti(0), vz: encodeCenti(-4),
         hull: 50, hullMax: 60,
         shieldPool: 0, throttle: 0, launchHold: 0, launchLocked: false, lockProgress: 0,
-        locked: false, targetId: -1,
+        locked: false, slowFactor: 0, targetId: -1,
         modules: [{
           moduleId: "module.laser-mk1", hardpointIndex: 0, state: 2, stateTimer: 0, rounds: 0,
           energy: 0, energyCapacity: 0, cycleTimer: 0,

@@ -84,6 +84,13 @@ export const SIGNAL_REGISTRY: Record<SignalId, SignalFn> = {
   firing: (s) => (s.modules.some((m) => m.state === "active" && (m.cycleTimer > 0 || m.channeling)) ? 1 : 0),
   /** Absolute speed as a fraction of a reference top speed, 0..1. */
   speedFraction: (s, p) => clamp01(frameStep(s, p) / REFERENCE_TOP_STEP),
+  /**
+   * Slowing-ray strength on this hull, 0..1 — the replicated `slowFactor`
+   * (owner 2026-08-22), read straight off the snapshot so it is identical
+   * offline and online, and on every client rather than only the victim's.
+   * 0 (or an absent field, from a peer that predates it) is "flying free".
+   */
+  slowed: (s) => clamp01(s.slowFactor ?? 0),
 };
 
 /** Evaluate one signal by id. */

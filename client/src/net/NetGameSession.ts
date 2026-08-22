@@ -1033,7 +1033,14 @@ export class NetGameSession extends GameSession {
           throttle: held.throttle,
           turn: held.turn,
           pitchStick: held.pitchStick,
-          boostMult: held.boost ? this.predBoostMult(player) : 1,
+          // ONE speed multiplier, exactly as the sim composes it
+          // (`NavigationSystem`): boost when asked for and granted, times
+          // whatever a slowing ray is taking off this hull. The slow is
+          // replicated (`PlayerState.slowFactor`) precisely so the predictor
+          // can see it — without it a slowed local player would predict full
+          // speed for the whole four seconds and be dragged back by the
+          // correction blend the entire time (FLIGHT.md §5).
+          boostMult: (held.boost ? this.predBoostMult(player) : 1) * (1 - (player.slowFactor ?? 0)),
         },
         engine,
         dt,

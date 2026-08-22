@@ -4,6 +4,7 @@ import { Client as ColyseusClient, type SeatReservation } from "colyseus.js";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { boot, ColyseusTestServer } from "@colyseus/testing";
 import {
+  type ArenaSimulation,
   FlagTrailAccumulator,
   decodeCenti,
   decodeDecoys,
@@ -946,6 +947,60 @@ describe("ArenaRoom", () => {
     expect(generatorAfter.state).toBe(0);
 
     await c.leave();
+  });
+
+  it("fires a support pulse from a client's tap and replicates what it did (owner 2026-08-22)", async () => {
+    // The whole ONLINE path for the 2026-08-22 modules in one test: the client
+    // sends the same `moduleToggle` a shield uses, the room validates and
+    // applies it, the server-authoritative sim spends the pulse, and the result
+    // comes back down the wire. Nothing here is new netcode — that is the point.
+    usersRepo.create({ id: "u-ray", email: null, pass_hash: null, guest_token: "gt-ray" });
+    seedNewUser(configs, "u-ray", "Ray");
+    ownedModulesRepo.grant("u-ray", "module.ray-slow-mk1", 1);
+    // The ray is a level-3 module; the fitting validator enforces that.
+    profilesRepo.setProgress("u-ray", 5, 0, 0);
+    const fit = fittingsRepo.create({
+      id: "fit-ray",
+      user_id: "u-ray",
+      ship_id: "ship.interceptor",
+      name: "Ray",
+      hardpointMap: { "0": "module.laser-mk1", "1": "module.ray-slow-mk1" },
+    });
+    const token = signAccessToken("u-ray");
+
+    const room = await colyseus.createRoom<ArenaState>("arena", { gamemode: "gamemode.duel-1v1", minPlayers: 2 });
+    const shooter = await colyseus.connectTo(room, { token, fittingId: fit.id });
+    const victim = await colyseus.connectTo(room, {});
+    await advance(room, 2);
+
+    const shooterId = room.state.players.get(shooter.sessionId)!.entityId;
+    const victimId = room.state.players.get(victim.sessionId)!.entityId;
+    // Park the two hulls in each other's faces and hand the shooter its lock,
+    // so the pulse has something to reach for without flying a whole approach.
+    // (`room` is the test harness's typed façade; the live sim is not on it —
+    // same cast the LoS/kill tests above use.)
+    const world = (room as unknown as { sim: ArenaSimulation }).sim.world;
+    world.transforms.get(victimId)!.pos = { x: 20, y: 0, z: 0 };
+    world.transforms.get(shooterId)!.pos = { x: 0, y: 0, z: 0 };
+    const ref = world.targets.get(shooterId)!;
+    ref.targetId = victimId;
+    ref.lockProgress = world.shipCores.get(shooterId)!.sensors.lockTimeSec;
+    ref.locked = true;
+
+    shooter.send("order", { seq: 1, order: { kind: "moduleToggle", hardpointIndex: 1 } });
+    const ack = await shooter.waitForMessage("orderAck");
+    expect(ack).toMatchObject({ seq: 1, accepted: true });
+    await advance(room, 30);
+
+    // The victim is slowed in the sim AND on the wire, where both clients read it.
+    expect(world.slows.get(victimId)?.factor).toBeGreaterThan(0);
+    expect(room.state.players.get(victim.sessionId)!.slowFactor).toBeGreaterThan(0);
+    // And the emitter is cold, on the `cycleTimer` the HUD already draws.
+    const rayState = [...room.state.players.get(shooter.sessionId)!.modules].find((m) => m.hardpointIndex === 1)!;
+    expect(rayState.cycleTimer).toBeGreaterThan(0);
+
+    await shooter.leave();
+    await victim.leave();
   });
 
   it("flies a STORED fitting that no longer matches the hull's sockets, minus the stale slots", async () => {

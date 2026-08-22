@@ -112,6 +112,28 @@ describe("moduleStats — the numbers each family is judged on", () => {
   });
 });
 
+describe("the support pulses (owner 2026-08-22)", () => {
+  it("quotes the slowing ray as how much, for how long, how far and the wait", () => {
+    expect(labels("module.ray-slow-mk1")).toEqual(["Slow", "For", "Range", "Cooldown", "Power"]);
+    expect(valueOf("module.ray-slow-mk1", "Slow")).toBe("−35%");
+    expect(valueOf("module.ray-slow-mk1", "For")).toBe("4s");
+    expect(valueOf("module.ray-slow-mk1", "Cooldown")).toBe("12s");
+  });
+
+  it("quotes the repair field as hull given, how wide, and the wait", () => {
+    expect(labels("module.field-repair-mk1")).toEqual(["Repair", "Radius", "Cooldown", "Power"]);
+    expect(valueOf("module.field-repair-mk1", "Repair")).toBe("+40");
+    expect(valueOf("module.field-repair-mk1", "Radius")).toBe("45");
+  });
+
+  it("never reports a tank for either — a pulse is limited by its cooldown alone", () => {
+    for (const id of ["module.ray-slow-mk1", "module.field-repair-mk1"]) {
+      expect(labels(id)).not.toContain("Tank");
+      expect(mod(id).energy).toBeUndefined();
+    }
+  });
+});
+
 describe("moduleSummaryLine", () => {
   // The chip line quotes the module's OWN numbers, with no hull multiplier
   // applied.

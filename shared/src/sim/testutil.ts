@@ -199,6 +199,33 @@ export const INTERCEPTOR_FITTING_SHIELD = [
 ];
 
 /**
+ * The light hull with a SLOWING RAY on its second hardpoint (owner 2026-08-22).
+ * Slot {@link INTERCEPTOR_SLOTS.missile} is the one that holds it — a hardpoint
+ * takes any of the six hardpoint families now, so the ray simply replaces the
+ * rack, leaving the laser to keep the hull armed.
+ */
+export const INTERCEPTOR_FITTING_SLOW_RAY = [
+  "module.laser-mk1",
+  "module.ray-slow-mk1",
+  "module.engine-civ",
+  "module.generator-compact",
+  "module.transformer-stock",
+  "module.countermeasure-flare",
+  "module.sensors-basic",
+];
+
+/** The same, carrying a REPAIR FIELD instead of the ray. */
+export const INTERCEPTOR_FITTING_REPAIR = [
+  "module.laser-mk1",
+  "module.field-repair-mk1",
+  "module.engine-civ",
+  "module.generator-compact",
+  "module.transformer-stock",
+  "module.countermeasure-flare",
+  "module.sensors-basic",
+];
+
+/**
  * The light hull with a BOOSTING engine. Boost lives on the engine internal
  * since 2026-07-31, so "does this hull have an afterburner" is a question about
  * slot {@link INTERCEPTOR_SLOTS.engine}, not about a hardpoint.

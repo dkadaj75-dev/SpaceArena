@@ -30,6 +30,33 @@ export type SimEvent =
    * start the cooldown readout.
    */
   | { type: "countermeasureJettisoned"; entityId: EntityId; decoyId: EntityId; moduleId: string; actions?: string[] }
+  /**
+   * A support pulse was spent (owner 2026-08-22): the slowing ray reached for
+   * the lock, or the repair field went off. Emitted whether or not it LANDED —
+   * the cooldown is spent either way, and a renderer wants to draw the emitter
+   * firing regardless. `targetId` is the locked ship a `slow` reached for (null
+   * when there was no lock); a `repairField` never has one.
+   */
+  | {
+      type: "abilityFired";
+      entityId: EntityId;
+      hardpointIndex: number;
+      moduleId: string;
+      kind: "slow" | "repairField";
+      targetId: EntityId | null;
+      actions?: string[];
+    }
+  /** A slow LANDED on `entityId` (fresh or refreshed) — see `AbilitySystem.applySlow`. */
+  | { type: "slowApplied"; entityId: EntityId; sourceId: EntityId | null; factor: number; durationSec: number }
+  /** The slow on `entityId` ran out and the hull flies free again. */
+  | { type: "slowExpired"; entityId: EntityId }
+  /**
+   * Hull given back by a repair field. The mirror of a `damage` event and
+   * deliberately shaped like one, so a HUD can float it with the same widget in
+   * the other colour. `amount` is what was ACTUALLY restored after the hull cap,
+   * so it is never larger than the hole it filled.
+   */
+  | { type: "hullRepaired"; targetId: EntityId; sourceId: EntityId; amount: number; moduleId: string }
   | {
       type: "projectileFired";
       ownerId: EntityId;

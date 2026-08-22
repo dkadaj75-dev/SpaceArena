@@ -113,6 +113,10 @@ export const signalId = z.enum([
   "shieldActive",
   "firing",
   "speedFraction",
+  // Owner 2026-08-22: how hard a slowing ray is holding this hull, 0..1. A
+  // designer binds an emitter to THIS to say what being slowed looks like —
+  // arcing tether particles, a stuttering engine trail — with no client code.
+  "slowed",
 ]);
 export type SignalId = z.infer<typeof signalId>;
 

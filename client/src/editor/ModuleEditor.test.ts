@@ -89,6 +89,17 @@ describe("ModuleEditor", () => {
     // Cycle time is what a weapon is authored in (heat deleted 2026-08-20).
     expect(panel.element.querySelector('[name="fire.cycleTime"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="fire.damage"]')).not.toBeNull();
+    // The two 2026-08-22 pulse blocks are authorable with NO editor code: they
+    // are optional blocks on `moduleSchema`, and SchemaFormGen renders every
+    // optional block behind a presence toggle. If this ever fails, the generated
+    // form has stopped picking up schema changes — which is the whole contract.
+    expect(panel.element.querySelector('[name="slow.factor"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="slow.durationSec"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="slow.cooldownSec"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="slow.range"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="repairField.healAmount"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="repairField.radiusUnits"]')).not.toBeNull();
+    expect(panel.element.querySelector('[name="repairField.cooldownSec"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.icon"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.iconId"]')).not.toBeNull();
     expect(panel.element.querySelector('[name="ui.shortName"]')).not.toBeNull();

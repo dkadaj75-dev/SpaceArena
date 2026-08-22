@@ -1,5 +1,5 @@
 import type { ConfigService, EntityId, EventBus, ConfigEvents, ModuleConfig, ModuleFamily, ModuleSnapshot, ShipSnapshot, Snapshot, ModuleState, ThemeConfig } from "@space-arena/shared";
-import { createLogger, isInternalFamily } from "@space-arena/shared";
+import { abilityOf, createLogger, isInternalFamily } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { resolveHudLayout, type HudLayout } from "./hudLayout.js";
@@ -403,6 +403,11 @@ export class ModuleButtons {
       // the tank refilling tells the pilot nothing about the only thing keeping
       // the bubble down, and the button would otherwise look ready and do nothing.
       const collapsed = entry.cfg?.mitigation !== undefined && m.cycleTimer > 0;
+      // A SUPPORT PULSE between shots (2026-08-22). Same reading as the two
+      // above — "this module is cold" — banked on the same `cycleTimer`, so it
+      // joins them rather than getting a fourth kind of ring.
+      const pulse = abilityOf(entry.cfg);
+      const pulseCooling = pulse !== undefined && m.cycleTimer > 0;
       // A weapon between shots. With heat deleted (2026-08-20) the cycle timer
       // is a weapon's ONLY limiter, so its ring is the whole of what the pilot
       // has to read — it outranks the energy ring on the rare weapon with a tank.
@@ -411,10 +416,12 @@ export class ModuleButtons {
       // fraction rather than a bar that jumps when the module changes job.
       const cooldownTotal = collapsed
         ? entry.cfg!.mitigation!.collapseCooldownSec
+        : pulseCooling
+        ? pulse!.cooldownSec
         : (entry.cfg?.fire?.cycleTime ?? 0);
       const ringKind = reloading
         ? "reload"
-        : collapsed || onCycle
+        : collapsed || onCycle || pulseCooling
         ? "cooldown"
         : m.energyCapacity > 0
           ? "energy"
@@ -444,7 +451,8 @@ export class ModuleButtons {
       // `counting` is the rail's generic "this module is counting down" state. It
       // covers a weapon between shots and, since the collapse rule, a shield
       // locked out after its bubble went down.
-      const counting = (m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0) || collapsed;
+      const counting =
+        (m.state === "active" && entry.cfg?.fire !== undefined && m.cycleTimer > 0) || collapsed || pulseCooling;
       // Only homing weapons still hard-require a lock; straight-fire weapons
       // (laser/kinetic/beam) shoot down the nose without one and never grey out.
       const unarmable =

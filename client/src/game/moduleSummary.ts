@@ -80,6 +80,21 @@ export function moduleStats(cfg: ModuleConfig): ModuleStat[] {
   if (cfg.boost) stats.push({ label: "Boost", value: pct(cfg.boost.speedMult) });
   if (cfg.jettison) stats.push({ label: "Jettison", value: `${num(cfg.jettison.cooldownSec)}s` });
 
+  // The two support pulses (2026-08-22). What a pilot fits them against is HOW
+  // MUCH and FOR HOW LONG, then the wait — so all three travel, in that order,
+  // and the cooldown is last because it is the cost rather than the effect.
+  if (cfg.slow) {
+    stats.push({ label: "Slow", value: `−${Math.round(cfg.slow.factor * 100)}%` });
+    stats.push({ label: "For", value: `${num(cfg.slow.durationSec, 1)}s` });
+    stats.push({ label: "Range", value: num(cfg.slow.range) });
+    stats.push({ label: "Cooldown", value: `${num(cfg.slow.cooldownSec, 1)}s` });
+  }
+  if (cfg.repairField) {
+    stats.push({ label: "Repair", value: `+${num(cfg.repairField.healAmount)}` });
+    stats.push({ label: "Radius", value: num(cfg.repairField.radiusUnits) });
+    stats.push({ label: "Cooldown", value: `${num(cfg.repairField.cooldownSec, 1)}s` });
+  }
+
   // The two axes a pilot fits against (2026-07-31 / 2026-08-07): "Power" is the
   // rail current this module holds while online — a flat number budgeted
   // against the hull's capacity — while "Tank" is the module's OWN energy store

@@ -250,6 +250,30 @@ export interface TargetRef {
   locked: boolean;
 }
 
+/**
+ * A SLOW currently sitting on a ship (owner 2026-08-22) — what a slowing-ray
+ * pulse leaves behind. One per ship, never a list, and that is the stacking
+ * rule made structural rather than enforced by arithmetic:
+ *
+ *  - a second pulse from ANY source REFRESHES the timer;
+ *  - the STRONGEST factor wins while both would be running.
+ *
+ * Two rays therefore never multiply into a parked hull, and a wing focusing one
+ * target gets exactly the effect the best ray among them authored. See
+ * `AbilitySystem.applySlow`.
+ */
+export interface SlowEffect {
+  /**
+   * Fraction of top speed REMOVED, 0..1 — the authored `slow.factor` of
+   * whichever pulse is currently strongest.
+   */
+  factor: number;
+  /** Seconds left before the hull is free again. */
+  remaining: number;
+  /** Whoever landed the pulse that set the current factor; for FX and telemetry. */
+  sourceId: EntityId | null;
+}
+
 export interface ColliderComp {
   radius: number;
 }

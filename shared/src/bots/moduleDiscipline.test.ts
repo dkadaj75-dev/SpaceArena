@@ -74,7 +74,8 @@ function shipWith(
   };
 }
 
-function contextFor(self: ShipSnapshot) {
+/** `extra` seats additional ships (wingmen) alongside the standing enemy. */
+function contextFor(self: ShipSnapshot, extra: readonly ShipSnapshot[] = []) {
   const enemy: ShipSnapshot = { ...shipWith([]), id: 2, team: 1, pos: { x: 25, y: 0, z: 0 }, targetId: 1 };
   const snapshot: Snapshot = {
     tick: 1,
@@ -83,7 +84,7 @@ function contextFor(self: ShipSnapshot) {
     countdownRemaining: 0,
     teamScores: [],
     winnerTeam: null,
-    ships: [self, enemy],
+    ships: [self, enemy, ...extra],
     asteroids: [],
     projectiles: [],
     decoys: [],
@@ -208,5 +209,85 @@ describe("shield collapse cooldown", () => {
     const plan = planModuleOrders(contextFor(self), configs, discipline, true);
     expect(plan.orders).toHaveLength(1);
     expect(plan.decisions[0]).toMatchObject({ hardpointIndex: TOGGLEABLE_SLOTS, activate: true });
+  });
+});
+
+describe("support pulses (owner 2026-08-22)", () => {
+  /**
+   * The test fitting with the pulse module in the shield's slot, so the rest of
+   * the harness above (which builds a light hull's seven slots) is unchanged.
+   */
+  function shipWithPulse(moduleId: string, over: Partial<ModuleSnapshot> = {}): ShipSnapshot {
+    const self = shipWith([]);
+    self.modules[TOGGLEABLE_SLOTS] = {
+      ...self.modules[TOGGLEABLE_SLOTS]!,
+      moduleId,
+      state: "retracted",
+      energy: 0,
+      energyCapacity: 0,
+      ...over,
+    };
+    return self;
+  }
+
+  const RAY = "module.ray-slow-mk1";
+  const FIELD = "module.field-repair-mk1";
+
+  it("fires the ray at a LOCKED target in range", () => {
+    const self = { ...shipWithPulse(RAY), locked: true };
+    const plan = planModuleOrders(contextFor(self), configs, discipline, true);
+    expect(plan.decisions).toEqual([
+      { hardpointIndex: TOGGLEABLE_SLOTS, moduleId: RAY, activate: true, reason: "slow-target" },
+    ]);
+  });
+
+  it("holds the ray without a lock — the sim would spend the cooldown on nothing", () => {
+    const self = { ...shipWithPulse(RAY), locked: false };
+    expect(planModuleOrders(contextFor(self), configs, discipline, true).orders).toEqual([]);
+  });
+
+  it("holds the ray while it is cold rather than shouting at a closed door", () => {
+    const self = { ...shipWithPulse(RAY, { cycleTimer: 4 }), locked: true };
+    expect(planModuleOrders(contextFor(self), configs, discipline, true).orders).toEqual([]);
+  });
+
+  it("fires the repair field for its own hurt hull, and not for a healthy one", () => {
+    const healthy = shipWithPulse(FIELD);
+    expect(planModuleOrders(contextFor(healthy), configs, discipline, true).orders).toEqual([]);
+
+    const hurt = { ...shipWithPulse(FIELD), hull: 50, hullMax: 100 };
+    const plan = planModuleOrders(contextFor(hurt), configs, discipline, true);
+    expect(plan.decisions).toEqual([
+      { hardpointIndex: TOGGLEABLE_SLOTS, moduleId: FIELD, activate: true, reason: "repair-wing" },
+    ]);
+  });
+
+  it("fires the repair field for a hurt WINGMAN inside the radius, and not one outside it", () => {
+    const radius = configs.get<ModuleConfig>("module", FIELD)!.repairField!.radiusUnits;
+    const wingman = (x: number): ShipSnapshot => ({
+      ...shipWith([]),
+      id: 3,
+      team: 0,
+      hull: 30,
+      hullMax: 100,
+      pos: { x, y: 0, z: 0 },
+    });
+
+    const near = planModuleOrders(contextFor(shipWithPulse(FIELD), [wingman(radius - 5)]), configs, discipline, true);
+    expect(near.decisions).toEqual([
+      { hardpointIndex: TOGGLEABLE_SLOTS, moduleId: FIELD, activate: true, reason: "repair-wing" },
+    ]);
+
+    const far = planModuleOrders(contextFor(shipWithPulse(FIELD), [wingman(radius + 5)]), configs, discipline, true);
+    expect(far.orders).toEqual([]);
+  });
+
+  it("ignores a hurt ENEMY — the field only reaches its own team", () => {
+    // `contextFor` seats one enemy 25 units away; wounding it must change
+    // nothing, because allies is what the planner reads.
+    const self = shipWithPulse(FIELD);
+    const ctx = contextFor(self);
+    for (const enemy of ctx.enemies) Object.assign(enemy, { hull: 5, hullMax: 100 });
+    expect(planModuleOrders(ctx, configs, discipline, true).orders).toEqual([]);
   });
 });

@@ -1,0 +1,30 @@
+{
+  "id": "module.field-repair-mk1",
+  "type": "module",
+  "version": 1,
+  "family": "repair",
+  "level": 1,
+  "name": "Nanite Repair Field Mk I",
+  "activation": {
+    "deployTime": 0.5,
+    "retractTime": 0.25
+  },
+  "power": {
+    "draw": 2.5
+  },
+  "repairField": {
+    "radiusUnits": 45,
+    "healAmount": 40,
+    "cooldownSec": 18
+  },
+  "onActivate": [
+    "action.play-sound-shield-up"
+  ],
+  "ui": {
+    "icon": "[ICON: repair]",
+    "shortName": "Repair Fld",
+    "label": "Repair Field"
+  },
+  "price": 900,
+  "requiresLevel": 3
+}

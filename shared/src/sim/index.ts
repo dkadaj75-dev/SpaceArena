@@ -18,6 +18,7 @@ export * from "./signals.js";
 export * from "./damage.js";
 export * from "./los.js";
 export * from "./ArenaSimulation.js";
+export * from "./systems/AbilitySystem.js";
 export * from "./systems/NavigationSystem.js";
 export * from "./systems/ModuleSystem.js";
 export * from "./systems/TargetingSystem.js";

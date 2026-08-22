@@ -1,7 +1,7 @@
 {
   "id": "manifest.default",
   "type": "manifest",
-  "version": 2,
+  "version": 3,
   "name": "Default Content Pack",
   "files": [
     "camera/default.json",
@@ -64,6 +64,7 @@
     "effects/engine-trail.json",
     "effects/damage-smoke.json",
     "effects/boost-trail.json",
+    "effects/tether-drag.json",
     "effects/explosion-light.json",
     "effects/explosion-medium.json",
     "effects/explosion-heavy.json",
@@ -102,6 +103,8 @@
     "modules/transformer-stock.json",
     "modules/transformer-efficient.json",
     "modules/transformer-cryo.json",
+    "modules/ray-slow-mk1.json",
+    "modules/field-repair-mk1.json",
     "modules/countermeasure-flare.json",
     "modules/countermeasure-chaff.json",
     "modules/countermeasure-spoofer.json",

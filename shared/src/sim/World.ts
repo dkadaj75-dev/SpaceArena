@@ -11,6 +11,7 @@ import type {
   Projectile,
   ShipCore,
   ShipLoadout,
+  SlowEffect,
   TargetRef,
   Team,
   Transform3D,
@@ -61,6 +62,12 @@ export class World {
   readonly shipLoadouts = new Map<EntityId, ShipLoadout>();
   readonly modules = new Map<EntityId, ModulesComp>();
   readonly targets = new Map<EntityId, TargetRef>();
+  /**
+   * Live slowing-ray effects, keyed by the SLOWED ship (owner 2026-08-22). At
+   * most one per hull by construction — see {@link SlowEffect} for why that is
+   * the stacking rule and not merely an optimisation. Absent = flying free.
+   */
+  readonly slows = new Map<EntityId, SlowEffect>();
   readonly colliders = new Map<EntityId, ColliderComp>();
   readonly teams = new Map<EntityId, Team>();
   readonly asteroids = new Map<EntityId, AsteroidTag>();
@@ -158,6 +165,7 @@ export class World {
     this.shipLoadouts.delete(id);
     this.modules.delete(id);
     this.targets.delete(id);
+    this.slows.delete(id);
     this.colliders.delete(id);
     this.teams.delete(id);
     this.asteroids.delete(id);

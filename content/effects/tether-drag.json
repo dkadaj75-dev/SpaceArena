@@ -1,0 +1,21 @@
+{
+  "id": "fx.tether-drag",
+  "type": "effect",
+  "version": 1,
+  "name": "Tether Drag",
+  "base": {
+    "capacity": 90,
+    "emitRate": 0,
+    "lifeMin": 0.2,
+    "lifeMax": 0.55,
+    "sizeMin": 0.12,
+    "sizeMax": 0.4,
+    "speedMin": 0.5,
+    "speedMax": 2.5,
+    "color1": "#7fd8ff",
+    "color2": "#2f6fb8",
+    "direction": [0, 1, 0],
+    "gravity": 0
+  },
+  "params": ["emitRate", "lifeMin", "lifeMax", "sizeMin", "sizeMax", "speedMin", "speedMax"]
+}

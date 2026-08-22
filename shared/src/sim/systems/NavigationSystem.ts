@@ -6,6 +6,7 @@ import { advanceFrame, type FrameAttitude } from "../frame.js";
 /** Scratch frame — the sim loops over every ship each tick, so reuse one. */
 const scratchFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
 import { pitchTuningOf } from "../tuningDefaults.js";
+import { slowMultiplierFor } from "./AbilitySystem.js";
 import { carriedFlagOf } from "./CtfSystem.js";
 import type { World } from "../World.js";
 
@@ -125,7 +126,12 @@ export function navigationSystem(world: World, dt: number): void {
     // Continuous flight (FLIGHT.md §1). MUST stay identical to `flightStep` in
     // steering.ts — that function is the client-prediction mirror and a test
     // asserts the two produce the same trajectory.
-    const speedMult = flight.boost ? resolveBoostMult(world, id) : 1;
+    //
+    // A slowing ray (2026-08-22) rides the SAME multiplier boost does, which is
+    // what keeps that mirror honest: the predictor passes one `boostMult` and
+    // has no second concept to get wrong. It scales top speed only — see
+    // {@link slowMultiplierFor} for why acceleration is left alone.
+    const speedMult = (flight.boost ? resolveBoostMult(world, id) : 1) * slowMultiplierFor(world, id);
     advanceFrame(
       tf.heading,
       tf.pitch,

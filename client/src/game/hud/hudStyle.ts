@@ -1259,6 +1259,15 @@ const CSS = `
   opacity: .9;
   font-weight: 700;
 }
+/* Hull GIVEN BACK by a repair field (2026-08-22) leaves the same axis in the
+   other direction: green is the board's one helpful colour and nothing else on
+   the HUD uses it, so a "+40" can never be misread as a hit. Same override
+   position as .shield above, and at the full hull size — a heal is as
+   load-bearing as the damage it undoes. */
+.hud-damage-number.repair {
+  color: var(--hud-repair, var(--sa-green-500));
+  font-weight: 700;
+}
 
 /* --- Results overlay --- */
 .hud-results {

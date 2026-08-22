@@ -284,7 +284,7 @@ function buildSupport(scene: Scene, palette: Palette): Mesh {
  * by {@link import("../game/ShipSocketRig.js").ShipSocketRig}; shape alone
  * should read the family at a glance: laser = thin barrel, kinetic = boxy
  * cannon, missile = tube rack, shield = dome nub, boost = thruster cone,
- * utility = small box. `palette.primary` is the ship's accent color so the
+ * disruptor = emitter dish, repair = ringed canister, utility = small box. `palette.primary` is the ship's accent color so the
  * module reads as part of that ship (see ShipSocketRig).
  */
 function buildModuleFamily(scene: Scene, palette: Palette, family: string): Mesh {
@@ -344,6 +344,33 @@ function buildModuleFamily(scene: Scene, palette: Palette, family: string): Mesh
       );
       mesh.rotation.x = -Math.PI / 2; // flare points aft (-Z)
       mesh.bakeCurrentTransformIntoVertices();
+      break;
+    }
+    case "disruptor": {
+      // Slowing ray: a stubby emitter behind a wide dish, so it reads as
+      // "projects something" rather than "shoots something" at a glance.
+      const body = MeshBuilder.CreateBox("module.disruptor.body", { width: 0.26, height: 0.22, depth: 0.32 }, scene);
+      const dish = MeshBuilder.CreateCylinder(
+        "module.disruptor.dish",
+        { diameterTop: 0.44, diameterBottom: 0.12, height: 0.26, tessellation: 10 },
+        scene,
+      );
+      dish.rotation.x = Math.PI / 2; // mouth forward (+Z)
+      dish.position.set(0, 0, 0.28);
+      dish.bakeCurrentTransformIntoVertices();
+      mesh = Mesh.MergeMeshes([body, dish], true, true, undefined, false, true)!;
+      break;
+    }
+    case "repair": {
+      // Repair field: a squat canister with a ring around it — the shape of a
+      // thing that fills the space around the hull instead of pointing at one.
+      const canister = MeshBuilder.CreateCylinder(
+        "module.repair.canister",
+        { diameter: 0.3, height: 0.34, tessellation: 10 },
+        scene,
+      );
+      const ring = MeshBuilder.CreateTorus("module.repair.ring", { diameter: 0.46, thickness: 0.05, tessellation: 12 }, scene);
+      mesh = Mesh.MergeMeshes([canister, ring], true, true, undefined, false, true)!;
       break;
     }
     case "utility":
@@ -515,6 +542,8 @@ const RECIPES: Record<string, RecipeBuilder> = {
   "procedural.module.kinetic": (scene, palette) => buildModuleFamily(scene, palette, "kinetic"),
   "procedural.module.missile": (scene, palette) => buildModuleFamily(scene, palette, "missile"),
   "procedural.module.shield": (scene, palette) => buildModuleFamily(scene, palette, "shield"),
+  "procedural.module.disruptor": (scene, palette) => buildModuleFamily(scene, palette, "disruptor"),
+  "procedural.module.repair": (scene, palette) => buildModuleFamily(scene, palette, "repair"),
   "procedural.module.boost": (scene, palette) => buildModuleFamily(scene, palette, "boost"),
   "procedural.module.utility": (scene, palette) => buildModuleFamily(scene, palette, "utility"),
 };

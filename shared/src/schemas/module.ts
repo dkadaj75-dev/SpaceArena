@@ -88,6 +88,82 @@ const boostBlock = z.object({
 });
 
 /**
+ * SLOWING RAY block (`disruptor` family, owner 2026-08-22) — the first thing a
+ * hardpoint can do to an enemy that is not damage.
+ *
+ * It is a PULSE, not a held tool: one activation reaches out to the ship's
+ * CURRENT LOCKED TARGET (the same lock the missiles fire through — no second
+ * targeting concept), drops its top speed by {@link slowBlock.factor} for
+ * {@link slowBlock.durationSec}, and then the emitter is cold for
+ * {@link slowBlock.cooldownSec}. Nothing is authored per tick, so re-tuning it
+ * is three numbers and no code.
+ *
+ * The cooldown is the ONLY limiter, for the same reason a weapon's cycle time is
+ * the only limiter on a weapon: an energy tank on top would be a second budget
+ * a pilot has to model to know whether the button will work.
+ */
+const slowBlock = z.object({
+  /**
+   * Reach in world units. Author it BELOW the hull's weapon ranges: a ray that
+   * outranged the guns would be a free opener with no counterplay, and the
+   * point of slowing something is to make it stay inside YOUR range.
+   */
+  range: z.number().positive(),
+  /**
+   * Fraction of the target's top speed REMOVED (0.35 = "70 units becomes 45.5").
+   *
+   * The band is enforced, not advisory. Below ~10% nobody can feel it and the
+   * module is a wasted hardpoint; above ~60% the target is a parked target and
+   * the counter to being slowed stops being "fly differently" and starts being
+   * "die". See `NavigationSystem` for what it multiplies.
+   */
+  factor: z.number().min(0.1).max(0.6),
+  /** Seconds the slow lasts on the target after it lands. */
+  durationSec: z.number().positive(),
+  /** Seconds before the emitter can pulse again. */
+  cooldownSec: z.number().positive(),
+});
+
+/**
+ * REPAIR FIELD block (`repair` family, owner 2026-08-22) — the counterpart: a
+ * pulse that needs no target at all.
+ *
+ * On activation every ALLIED HULL within {@link repairFieldBlock.radiusUnits},
+ * the caster's own included, gains {@link repairFieldBlock.healAmount} hull
+ * (never past its maximum), and the emitter is then cold for
+ * {@link repairFieldBlock.cooldownSec}. Hull only — a shield's reserve is its
+ * energy tank and refills on its own rules, so pouring hull repair into it
+ * would be two systems paying for the same thing.
+ */
+const repairFieldBlock = z.object({
+  /**
+   * Radius of the pulse in world units, measured in true 3D from the caster.
+   * This is the whole skill of the module: a wide field asks nothing of the
+   * pilot, so keep it near the distance a wing actually flies at.
+   */
+  radiusUnits: z.number().positive(),
+  /** FLAT hull points restored to each ally in radius. Never a fraction of max. */
+  healAmount: z.number().positive(),
+  /** Seconds before the field can be pulsed again. */
+  cooldownSec: z.number().positive(),
+});
+
+/**
+ * The cooldown-gated pulse a module carries, or `undefined` for a module that
+ * carries none. One accessor so the sim, the HUD and the bots ask the question
+ * once — every consumer needs "is this an ability, and how long is it cold
+ * for", and none of them should have to know how many blocks there are.
+ */
+export function abilityOf(mod: Pick<ModuleConfig, "slow" | "repairField"> | undefined):
+  | { kind: "slow"; cooldownSec: number }
+  | { kind: "repairField"; cooldownSec: number }
+  | undefined {
+  if (mod?.slow) return { kind: "slow", cooldownSec: mod.slow.cooldownSec };
+  if (mod?.repairField) return { kind: "repairField", cooldownSec: mod.repairField.cooldownSec };
+  return undefined;
+}
+
+/**
  * Per-module ENERGY store (energy overhaul 2026-08-07). There is no shared
  * capacitor: a boost tank, a shield reserve and an active utility each own their
  * own charge, drain it only while they WORK, and refill only while they rest.
@@ -175,6 +251,10 @@ const moduleObject = z.object({
   mitigation: mitigationBlock.optional(),
   boost: boostBlock.optional(),
   jettison: jettisonBlock.optional(),
+  /** Slowing-ray pulse (`disruptor` family) — see {@link slowBlock}. */
+  slow: slowBlock.optional(),
+  /** Repair-field pulse (`repair` family) — see {@link repairFieldBlock}. */
+  repairField: repairFieldBlock.optional(),
   /**
    * Passive stat modifiers a fitted module applies to the ship's resolved core
    * (utility modules: battery, armour plating, …). Ops feed the stat
@@ -297,6 +377,61 @@ export const moduleSchema = moduleObject.superRefine((mod, ctx) => {
       code: z.ZodIssueCode.custom,
       message: "a boost block belongs to the engine that provides it",
       path: ["boost"],
+    });
+  }
+  // --- The support pulses (2026-08-22). Same shape of rule as the four above:
+  // a behaviour block belongs to the family that is NAMED for it, and the
+  // family is not allowed to be an empty promise in the other direction either
+  // — a `disruptor` with no `slow` block is a hardpoint that does nothing, and
+  // the Hangar would happily sell it.
+  if (mod.slow && mod.family !== "disruptor") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "only a 'disruptor' module slows a target",
+      path: ["slow"],
+    });
+  }
+  if (mod.repairField && mod.family !== "repair") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "only a 'repair' module projects a repair field",
+      path: ["repairField"],
+    });
+  }
+  if (mod.family === "disruptor" && !mod.slow) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "a 'disruptor' module must author a slow block — it has nothing else to do",
+      path: ["slow"],
+    });
+  }
+  if (mod.family === "repair" && !mod.repairField) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "a 'repair' module must author a repairField block — it has nothing else to do",
+      path: ["repairField"],
+    });
+  }
+  // A pulse is not a weapon and must not carry a weapon's trigger: `fire` would
+  // give it a second, contradictory activation path (CombatSystem fires it on
+  // the trigger mask; AbilitySystem fires it on the deploy) and a HUD button
+  // that is a trigger and a switch at once.
+  if ((mod.slow || mod.repairField) && mod.fire) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "a support pulse is not a weapon — author the pulse's own block, not fire",
+      path: ["fire"],
+    });
+  }
+  // The cooldown IS the limiter, exactly as `fire.cycleTime` is a weapon's.
+  // A tank on top would be a second budget the pilot has to model to know
+  // whether the button will work — and nothing would ever drain it, since a
+  // pulse does no per-tick work for EnergySystem to charge for.
+  if ((mod.slow || mod.repairField) && mod.energy) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "a support pulse costs no energy — it is limited by its own cooldown",
+      path: ["energy"],
     });
   }
 });
