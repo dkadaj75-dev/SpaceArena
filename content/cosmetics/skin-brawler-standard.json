@@ -1,0 +1,15 @@
+{
+  "id": "cosmetic.skin-brawler-standard",
+  "type": "cosmetic",
+  "version": 1,
+  "name": "Standard Texture Pack",
+  "kind": "skin",
+  "price": 0,
+  "target": "ship.brawler",
+  "textures": {
+    "body": "ships/textures/brawler/standard/body.jpg",
+    "canopy": "ships/textures/brawler/standard/canopy.jpg",
+    "wings": "ships/textures/brawler/standard/wings.jpg",
+    "emissive": "ships/textures/brawler/standard/emissive.jpg"
+  }
+}

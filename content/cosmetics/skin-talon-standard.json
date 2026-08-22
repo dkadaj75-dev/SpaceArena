@@ -1,0 +1,12 @@
+{
+  "id": "cosmetic.skin-talon-standard",
+  "type": "cosmetic",
+  "version": 1,
+  "name": "Standard Texture Pack",
+  "kind": "skin",
+  "price": 0,
+  "target": "ship.talon",
+  "textures": {
+    "body": "ships/textures/talon/standard/body.png"
+  }
+}

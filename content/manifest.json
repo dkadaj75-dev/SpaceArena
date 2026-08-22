@@ -171,6 +171,10 @@
     "cosmetics/paint-talon-zebra.json",
     "cosmetics/paint-talon-tiger.json",
     "cosmetics/paint-talon-rusty.json",
+    "cosmetics/skin-interceptor-standard.json",
+    "cosmetics/skin-brawler-standard.json",
+    "cosmetics/skin-support-standard.json",
+    "cosmetics/skin-talon-standard.json",
     "tutorials/basics.json"
   ]
 }

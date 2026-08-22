@@ -1,0 +1,13 @@
+{
+  "id": "cosmetic.skin-support-standard",
+  "type": "cosmetic",
+  "version": 1,
+  "name": "Standard Texture Pack",
+  "kind": "skin",
+  "price": 0,
+  "target": "ship.support",
+  "textures": {
+    "body": "ships/textures/support/standard/body.jpg",
+    "emissive": "ships/textures/support/standard/emissive.jpg"
+  }
+}

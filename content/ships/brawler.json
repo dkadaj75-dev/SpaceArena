@@ -423,6 +423,9 @@
     "wings": [
       "SS_Wings"
     ],
+    "emissive": [
+      "SS_Nozzles"
+    ],
     "propulsion": [
       "eng-l",
       "eng-r",
