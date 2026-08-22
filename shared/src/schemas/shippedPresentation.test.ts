@@ -168,12 +168,23 @@ describe("shipped theme - compact flight HUD", () => {
     expect(hud?.radar?.elevationDeg).toBeGreaterThan(0);
     expect(hud?.vitalArcs?.enabled).toBe(true);
     // Restrained, but READABLE. It was 0.46 until the owner reported hull and
-    // shield as unreadable mid-fight (2026-08-21); the arcs keep their
-    // semi-circle design and a dark backing halo does most of the work, with the
-    // authored opacity coming up to meet it. The ceiling stays because a fully
-    // opaque arc would compete with the arena rather than frame it.
+    // shield as unreadable mid-fight (2026-08-21); a dark backing halo does most
+    // of the work, with the authored opacity coming up to meet it. The ceiling
+    // stays because a fully opaque arc would compete with the arena rather than
+    // frame it.
     expect(hud?.vitalArcs?.opacity).toBeGreaterThan(0.6);
     expect(hud?.vitalArcs?.opacity).toBeLessThan(0.9);
+    // Two SHORT arcs held apart, not a ring drawn round the ship (owner
+    // 2026-08-22: "a third or a fourth of a circle"). Both bounds matter: much
+    // under a quarter turn and the gauge has too little length to read a
+    // fraction along, much over a third and the pair closes back into a ring.
+    expect(hud?.vitalArcs?.arcDeg ?? 180).toBeGreaterThanOrEqual(90);
+    expect(hud?.vitalArcs?.arcDeg ?? 180).toBeLessThanOrEqual(120);
+    expect(hud?.vitalArcs?.gapPx ?? 0).toBeGreaterThan(0);
+    // Landscape re-authors the gap for its wider viewport but inherits the
+    // sweep, so a phone on its side shows the same SHAPE at a different spread.
+    expect(hud?.landscape?.vitalArcs?.gapPx ?? 0).toBeGreaterThan(0);
+    expect(hud?.landscape?.vitalArcs?.arcDeg).toBeUndefined();
     // The ship-wide ENERGY panel died with the 2026-08-07 energy overhaul:
     // energy is per-module now and rides the module buttons' own rings, so the
     // shipped theme authors no `gauges` block at all. Read off the RAW json:

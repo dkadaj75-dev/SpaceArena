@@ -100,7 +100,7 @@ describe("resolveHudLayout — portrait/landscape blocks", () => {
   it("resolves the 3D radar and centre vital arcs with orientation scaling", () => {
     const configured = theme({
       radar: { sizePx: 140, rangeUnits: 125, elevationDeg: 32, altitudeStemMaxPx: 24 },
-      vitalArcs: { enabled: true, radiusPx: 150, strokePx: 5, arcDeg: 120, opacity: 0.6 },
+      vitalArcs: { enabled: true, radiusPx: 150, strokePx: 5, arcDeg: 120, gapPx: 40, opacity: 0.6 },
       landscape: {
         scale: 0.5,
         radar: { sizePx: 100 },
@@ -112,12 +112,19 @@ describe("resolveHudLayout — portrait/landscape blocks", () => {
     expect(portrait.radar.rangeUnits).toBe(125);
     expect(portrait.vitalArcs.enabled).toBe(true);
     expect(portrait.vitalArcs.radiusPx).toBe(150);
+    expect(portrait.vitalArcs.gapPx).toBe(40);
 
     const landscape = resolveHudLayout(configured, LANDSCAPE);
     expect(landscape.radar.sizePx).toBe(50);
     expect(landscape.radar.rangeUnits).toBe(125);
     expect(landscape.vitalArcs.radiusPx).toBe(65);
     expect(landscape.vitalArcs.opacity).toBe(0.6);
+    // The gap is geometry: it scales with the orientation, and a landscape block
+    // that only re-authors the radius inherits the base gap rather than losing it.
+    expect(landscape.vitalArcs.gapPx).toBe(20);
+    // The SWEEP is an angle, so it survives scaling untouched in both.
+    expect(portrait.vitalArcs.arcDeg).toBe(120);
+    expect(landscape.vitalArcs.arcDeg).toBe(120);
     expect(hudCssVars(landscape)["--hud-radar-size"]).toBe("50px");
   });
 

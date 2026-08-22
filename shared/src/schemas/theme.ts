@@ -188,8 +188,26 @@ export const vitalArcsSchema = z.object({
   /** Radius of the implied circle the left/right arcs follow. */
   radiusPx: z.number().positive().optional(),
   strokePx: z.number().positive().optional(),
-  /** Visible sweep of each side arc. */
+  /**
+   * Visible sweep of each side arc, centred on the horizontal axis. A full 180
+   * is the semi-circle the pair started life as; the shipped theme is far
+   * shorter (owner 2026-08-22: "more like a third or a fourth of a circle"),
+   * because two long arcs read as a ring drawn around the ship and compete with
+   * the reticle sitting inside them.
+   */
   arcDeg: z.number().min(30).max(180).optional(),
+  /**
+   * Extra horizontal separation between the two arcs, in px before `hud.scale`.
+   *
+   * WHY this is not just a bigger `radiusPx`: the radius is the arcs' CURVATURE
+   * as well as their distance from centre, so pushing them apart that way makes
+   * them flatter and taller at the same time — they start crowding the top and
+   * bottom of a portrait viewport, where the throttle and the module cluster
+   * live. `gapPx` slides the left arc left and the right arc right by half this
+   * each, keeping both curves exactly as authored and clearing the middle of the
+   * screen, which is where the fight actually happens (owner 2026-08-22).
+   */
+  gapPx: z.number().nonnegative().optional(),
   /** Signed vertical nudge from the viewport centre. */
   offsetYPx: z.number().optional(),
   /** Overall foreground opacity. */

@@ -12,7 +12,15 @@ interface ArcParts {
   lastPct: number;
 }
 
-/** Subtle hull/shield semicircles flanking the ship without obscuring combat. */
+/**
+ * Subtle hull/shield arcs flanking the ship without obscuring combat.
+ *
+ * They began as facing semicircles. Since 2026-08-22 they are two SHORT arcs
+ * (`vitalArcs.arcDeg`, ~a quarter circle each) held apart by `vitalArcs.gapPx`,
+ * because a near-closed ring around the ship competed with the lock reticle
+ * inside it and with the enemy arrows parked on their interior ring. Both
+ * numbers are theme-authorable per orientation; nothing here is hardcoded.
+ */
 export class VitalArcs {
   private readonly container: HTMLDivElement;
   private readonly svg: SVGSVGElement;
@@ -72,19 +80,30 @@ export class VitalArcs {
     if (!arcs.enabled) return;
 
     const pad = Math.max(8, arcs.strokePx * 2);
-    const size = (arcs.radiusPx + pad) * 2;
-    const centre = size / 2;
-    this.container.style.width = `${size}px`;
-    this.container.style.height = `${size}px`;
+    const height = (arcs.radiusPx + pad) * 2;
+    // The box is WIDER than it is tall by exactly the gap: each arc is drawn on
+    // its own centre, half a gap to either side of the box's middle, so the
+    // left arc's outermost point still lands one `pad` inside the left edge (and
+    // the right arc's inside the right edge) however far apart the two are
+    // pushed. Height is untouched — the gap is a horizontal move only.
+    const width = height + arcs.gapPx;
+    const midX = width / 2;
+    const midY = height / 2;
+    this.container.style.width = `${width}px`;
+    this.container.style.height = `${height}px`;
     this.container.style.marginTop = `${arcs.offsetYPx}px`;
     this.container.style.opacity = String(arcs.opacity);
     this.container.style.setProperty("--hud-vital-stroke", `${arcs.strokePx}px`);
     this.container.style.setProperty("--hud-vital-track-opacity", String(arcs.trackOpacity));
-    this.svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+    this.svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
 
+    // Both arcs are still centred on the horizontal axis and still drain the
+    // same way (the fill starts at the arc's own start point and grows along the
+    // path); only the sweep and the two centres changed.
     const halfArc = arcs.arcDeg / 2;
-    const left = arcPath(centre, centre, arcs.radiusPx, 180 - halfArc, 180 + halfArc, true);
-    const right = arcPath(centre, centre, arcs.radiusPx, halfArc, -halfArc, false);
+    const halfGap = arcs.gapPx / 2;
+    const left = arcPath(midX - halfGap, midY, arcs.radiusPx, 180 - halfArc, 180 + halfArc, true);
+    const right = arcPath(midX + halfGap, midY, arcs.radiusPx, halfArc, -halfArc, false);
     this.hull.halo.setAttribute("d", left);
     this.hull.track.setAttribute("d", left);
     this.hull.fill.setAttribute("d", left);

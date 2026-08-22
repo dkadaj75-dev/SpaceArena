@@ -72,7 +72,8 @@
       "enabled": true,
       "radiusPx": 118,
       "strokePx": 5,
-      "arcDeg": 126,
+      "arcDeg": 100,
+      "gapPx": 48,
       "offsetYPx": 8,
       "opacity": 0.78,
       "trackOpacity": 0.3
@@ -247,6 +248,7 @@
       "vitalArcs": {
         "radiusPx": 145,
         "strokePx": 4,
+        "gapPx": 72,
         "offsetYPx": 4
       },
       "flight": {

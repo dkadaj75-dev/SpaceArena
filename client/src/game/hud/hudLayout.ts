@@ -69,6 +69,13 @@ export interface VitalArcsLayout {
   radiusPx: number;
   strokePx: number;
   arcDeg: number;
+  /**
+   * Horizontal separation added between the two arcs — each slides half of this
+   * away from the viewport centre, so the curvature stays whatever `radiusPx`
+   * authored. See `vitalArcsSchema.gapPx` for why this is not folded into the
+   * radius.
+   */
+  gapPx: number;
   offsetYPx: number;
   opacity: number;
   trackOpacity: number;
@@ -113,7 +120,12 @@ export const HUD_DEFAULTS = {
     enabled: false,
     radiusPx: 142,
     strokePx: 6,
-    arcDeg: 126,
+    // A quarter-ish of a circle each, held well apart (owner 2026-08-22). The
+    // pair used to be near-semicircles almost touching at the top and bottom of
+    // the screen, which read as one closed ring around the ship rather than two
+    // separate readouts flanking it.
+    arcDeg: 100,
+    gapPx: 48,
     offsetYPx: 10,
     opacity: 0.68,
     trackOpacity: 0.16,
@@ -219,7 +231,10 @@ export function resolveHudLayout(theme: ThemeConfig | undefined, viewport: Viewp
       enabled: rawVitalArcs.enabled ?? HUD_DEFAULTS.vitalArcs.enabled,
       radiusPx: (rawVitalArcs.radiusPx ?? HUD_DEFAULTS.vitalArcs.radiusPx) * scale,
       strokePx: (rawVitalArcs.strokePx ?? HUD_DEFAULTS.vitalArcs.strokePx) * scale,
+      // An angle, so it is NOT scaled — the arcs keep their shape at every HUD
+      // scale, only their size changes.
       arcDeg: rawVitalArcs.arcDeg ?? HUD_DEFAULTS.vitalArcs.arcDeg,
+      gapPx: (rawVitalArcs.gapPx ?? HUD_DEFAULTS.vitalArcs.gapPx) * scale,
       offsetYPx: (rawVitalArcs.offsetYPx ?? HUD_DEFAULTS.vitalArcs.offsetYPx) * scale,
       opacity: rawVitalArcs.opacity ?? HUD_DEFAULTS.vitalArcs.opacity,
       trackOpacity: rawVitalArcs.trackOpacity ?? HUD_DEFAULTS.vitalArcs.trackOpacity,
