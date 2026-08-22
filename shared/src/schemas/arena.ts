@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { baseShape } from "./base.js";
-import { vec2, vec3 } from "./common.js";
+import { vec3 } from "./common.js";
 
 /** Largest positive coordinate representable by the signed int16 deci wire. */
 export const WIRE_POSITION_LIMIT = 3276.7;
@@ -166,16 +166,6 @@ const flagBase = z.object({
   radius: z.number().positive(),
 });
 
-/** Trigger-zone stub (fleshed out by Map Editor + Event Editor later). */
-const zone = z.object({
-  id: z.string(),
-  shape: z.enum(["circle", "rect"]),
-  position: vec2,
-  radius: z.number().positive().optional(),
-  width: z.number().positive().optional(),
-  height: z.number().positive().optional(),
-});
-
 /**
  * Tolerance on `sun.dir`'s length. The field is documented as a UNIT vector
  * because the renderer negates it into a `DirectionalLight` direction, and an
@@ -310,7 +300,11 @@ export const arenaSchema = z
       })
       .optional(),
     render: arenaRender.optional(),
-    zones: z.array(zone).optional(),
+    // REMOVED: `zones` — a trigger-zone stub that shipped for months with no
+    // runtime reader; every arena authored an empty `[]`. Old packs that still
+    // carry the key keep parsing (zod objects strip unknown keys — pinned by
+    // `tolerates the retired zones stub in an old pack`); the future event system
+    // should design its own shape rather than inherit a guess.
   })
   .superRefine((arena, ctx) => {
     // The standalone schema owns only the intrinsic arena-coordinate limit.

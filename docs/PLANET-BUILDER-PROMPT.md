@@ -31,7 +31,7 @@ breaks one does not ship.
   "bounds": { "shape": "sphere", "radius": R },
   "asteroidPlacements": [...], "spawnPoints": [...],
   "flagBases": [...],           // only for CTF maps
-  "lighting": {...}, "render": {...}, "zones": []
+  "lighting": {...}, "render": {...}
 }
 
 ## Rock palette (the only solid geometry; collision is always a sphere)

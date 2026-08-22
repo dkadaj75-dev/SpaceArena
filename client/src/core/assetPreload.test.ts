@@ -78,7 +78,6 @@ function arena(asteroidIds: readonly string[]): Record<string, unknown> {
     })),
     propPlacements: [],
     spawnPoints: [{ id: "sp-a", team: 0, position: { x: -20, z: 0 }, heading: 0 }],
-    zones: [],
   };
 }
 

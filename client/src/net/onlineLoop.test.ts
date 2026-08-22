@@ -420,7 +420,6 @@ describe("online prediction through sustained canyon static contacts", () => {
         { id: "a", team: 0, position: { x: 0, y: 0, z: -20 }, heading: 0 },
         { id: "b", team: 1, position: { x: 0, y: 0, z: 20 }, heading: Math.PI },
       ],
-      zones: [],
     };
     expect(configs.replace(arena).ok).toBe(true);
     const source = configs.get<GamemodeConfig>("gamemode", "gamemode.practice-bots-1v1")!;

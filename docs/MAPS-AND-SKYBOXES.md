@@ -57,8 +57,7 @@ otherwise positions silently clamp and remote clients see ships pinned to an inv
   "spawnPoints":        [ /* see §4 */ ],
 
   "lighting": { /* optional, see §5 */ },
-  "render":   { /* optional but strongly recommended, see §6 */ },
-  "zones":    [ /* optional, reserved */ ]
+  "render":   { /* optional but strongly recommended, see §6 */ }
 }
 ```
 

@@ -887,20 +887,26 @@ describe("arena schema", () => {
     ).toBe(false);
   });
 
-  it("accepts an empty asteroid list, lighting, arena render knobs and zones (edge)", () => {
+  it("accepts an empty asteroid list, lighting and arena render knobs (edge)", () => {
     expect(mutated("arena", (d) => (d["asteroidPlacements"] = []))).toBe(true);
     expect(
       mutated("arena", (d) => {
         d["lighting"] = { ambientColor: "#101820", ambientIntensity: 0.4, directionalIntensity: 1.2 };
         d["render"] = clone(arena.render);
+      }),
+    ).toBe(true);
+  });
+
+  // `zones` was a trigger-zone stub with no runtime reader; every shipped arena
+  // authored an empty `[]`. The field is gone from the schema (owner 2026-08-22:
+  // "if dead code, remove"), but an OLD pack that still carries it must keep
+  // loading — zod objects strip unknown keys rather than rejecting.
+  it("tolerates the retired zones stub in an old pack (edge)", () => {
+    expect(
+      mutated("arena", (d) => {
         d["zones"] = [{ id: "z0", shape: "circle", position: { x: 0, z: 0 }, radius: 12 }];
       }),
     ).toBe(true);
-    expect(
-      mutated("arena", (d) => {
-        d["zones"] = [{ id: "z0", shape: "circle", position: { x: 0, z: 0 }, radius: 0 }];
-      }),
-    ).toBe(false);
   });
 
   it("rejects a placement with a non-positive scale", () => {

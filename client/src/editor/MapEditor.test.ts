@@ -24,7 +24,7 @@ const arena = {
   spawnPoints: [{ id: "spawn-a", team: 0, position: { x: -10, y: 0, z: 0 }, heading: 0 }, { id: "spawn-b", team: 1, position: { x: 10, y: 0, z: 0 }, heading: Math.PI }],
   flagBases: [{ id: "flag-a", team: 0, position: { x: -20, y: 0, z: 0 }, radius: 5 }, { id: "flag-b", team: 1, position: { x: 20, y: 0, z: 0 }, radius: 5 }],
   lighting: { ambientColor: "#111111", ambientIntensity: .4, directionalIntensity: .8 },
-  render: { skybox: { texture: "sky.webp", intensity: 1, tint: "#ffffff" }, boundaryShield: { baseOpacity: .2, glowStartDistance: 10, redTransitionDistance: 5, warnDistance: 8, blueColor: "#00aaff", redColor: "#ff0000", hexDensity: 20, hexLineWidth: .01, warningNotification: "notification.boundary-warning" } }, zones: [],
+  render: { skybox: { texture: "sky.webp", intensity: 1, tint: "#ffffff" }, boundaryShield: { baseOpacity: .2, glowStartDistance: 10, redTransitionDistance: 5, warnDistance: 8, blueColor: "#00aaff", redColor: "#ff0000", hexDensity: 20, hexLineWidth: .01, warningNotification: "notification.boundary-warning" } },
 } satisfies ArenaConfig;
 
 interface MapEditorTestDriver {

@@ -53,7 +53,6 @@ const ARENA = {
       warningNotification: "notification.boundary-warning",
     },
   },
-  zones: [],
 } satisfies Record<string, unknown>;
 
 function quality(overrides: Partial<SceneQuality> = {}): SceneQuality {

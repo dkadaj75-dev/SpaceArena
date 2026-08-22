@@ -624,6 +624,5 @@
       "hexLineWidth": 0.012,
       "warningNotification": "notification.boundary-warning"
     }
-  },
-  "zones": []
+  }
 }
