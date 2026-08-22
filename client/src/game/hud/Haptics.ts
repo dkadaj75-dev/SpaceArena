@@ -1,4 +1,6 @@
-import type { ConfigService, EntityId, SimEvent, ThemeConfig } from "@space-arena/shared";
+import { createLogger, type ConfigService, type EntityId, type SimEvent, type ThemeConfig } from "@space-arena/shared";
+
+const log = createLogger("Haptics");
 
 /** The theme's `haptics` block, already defaulted. */
 export interface HapticsSettings {
@@ -59,9 +61,18 @@ export function hapticPatternFor(
 export function defaultVibrate(): ((pattern: number[]) => void) | null {
   const nav = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { vibrate?: unknown });
   if (!nav || typeof nav.vibrate !== "function") return null;
+  let reportedDrop = false;
   return (pattern) => {
     try {
-      nav.vibrate?.(pattern);
+      // Chrome on Android returns false and stays SILENT when it refuses a
+      // call — notably before the first tap of a navigation (user-activation
+      // gate). Without this line a phone that "just doesn't vibrate" is
+      // undiagnosable from chrome://inspect.
+      const ok = nav.vibrate?.(pattern);
+      if (ok === false && !reportedDrop) {
+        reportedDrop = true;
+        log.warn("navigator.vibrate() refused a pattern (no user activation yet?)", pattern);
+      }
     } catch {
       // Some engines throw when the document is not user-activated — never let
       // a haptics failure kill the frame's event drain.

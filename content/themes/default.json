@@ -290,19 +290,19 @@
   "haptics": {
     "enabled": true,
     "killPattern": [
-      25,
-      40,
-      25
+      60,
+      50,
+      70
     ],
     "lockPattern": [
-      18,
-      45,
-      18
+      40,
+      60,
+      40
     ],
     "fireBlockedPattern": [
-      35,
-      35,
-      90
+      45,
+      40,
+      110
     ]
   },
   "audio": {

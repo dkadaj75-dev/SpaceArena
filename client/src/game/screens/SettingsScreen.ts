@@ -24,6 +24,7 @@ import {
   onFullscreenChange,
   toggleFullscreen,
 } from "../../core/fullscreen.js";
+import { defaultVibrate, hapticsSettingsOf } from "../hud/Haptics.js";
 import { applyMenuTheme, createMenuBackdrop, injectScreenStyle } from "./screenStyle.js";
 
 const log = createLogger("Settings");
@@ -317,13 +318,24 @@ export class SettingsScreen {
   private feedbackGroup(): HTMLElement {
     const group = settingsGroup("Feedback");
     const themeEnabled = this.host.configs.get<ThemeConfig>("theme", THEME_ID)?.haptics?.enabled ?? false;
-    const toggle = toggleButton("Vibration (kill / lock)", (next) => this.host.settings.set({ haptics: next }));
+    const vibrate = defaultVibrate();
+    const toggle = toggleButton("Vibration (kill / lock)", (next) => {
+      this.host.settings.set({ haptics: next });
+      // Feel-test pulse on switch-on, deliberately inside the tap handler:
+      // Android Chrome refuses vibrate calls until a navigation's first tap,
+      // and without this the only way to know the motor works is a mid-match
+      // kill. Uses the authored lock pattern so it demos the real feel.
+      if (next && themeEnabled && vibrate) {
+        const lock = hapticsSettingsOf(this.host.configs.get<ThemeConfig>("theme", THEME_ID)).lockPattern;
+        vibrate(lock.length > 0 ? lock : [40]);
+      }
+    });
     toggle.el.dataset["setting"] = "haptics";
     toggle.el.disabled = !themeEnabled;
     this.refreshers.push((values) => toggle.set(themeEnabled && values.haptics));
     group.append(toggle.el);
     if (!themeEnabled) group.append(note("The current theme disables haptics for everyone (theme.haptics.enabled)."));
-    else group.append(note("Devices without a vibration motor (desktop, iOS Safari) ignore this."));
+    else group.append(note("Switching on plays one test buzz. Devices without a vibration motor (desktop, iOS Safari) ignore this."));
     return group;
   }
 

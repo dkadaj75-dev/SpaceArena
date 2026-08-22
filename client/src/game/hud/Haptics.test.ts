@@ -1,15 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ConfigService, SimEvent, ThemeConfig } from "@space-arena/shared";
-import { Haptics, hapticPatternFor, hapticsSettingsOf } from "./Haptics.js";
+import { defaultVibrate, Haptics, hapticPatternFor, hapticsSettingsOf } from "./Haptics.js";
 
 const PLAYER = 1;
 const ENEMY = 2;
 
+// Mirrors content/themes/default.json. Pulses stay ≥40 ms: shorter ones are
+// below the spin-up time of many Android vibration motors — the call succeeds
+// and the player feels nothing (the original 18/25 ms patterns' failure mode).
 const SETTINGS = {
   enabled: true,
-  killPattern: [25, 40, 25],
-  lockPattern: [18, 45, 18],
-  fireBlockedPattern: [35, 35, 90],
+  killPattern: [60, 50, 70],
+  lockPattern: [40, 60, 40],
+  fireBlockedPattern: [45, 40, 110],
 };
 
 const destroyed = (entityId: number, killerId: number | null, isAsteroid = false): SimEvent => ({
@@ -21,7 +24,7 @@ const destroyed = (entityId: number, killerId: number | null, isAsteroid = false
 
 describe("hapticPatternFor", () => {
   it("buzzes when the player scores a kill", () => {
-    expect(hapticPatternFor(destroyed(ENEMY, PLAYER), PLAYER, SETTINGS)).toEqual([25, 40, 25]);
+    expect(hapticPatternFor(destroyed(ENEMY, PLAYER), PLAYER, SETTINGS)).toEqual([60, 50, 70]);
   });
 
   it("stays silent for asteroid kills, other players' kills, and the player's own death", () => {
@@ -34,7 +37,7 @@ describe("hapticPatternFor", () => {
   // own buzz — but only for the local player, and only on acquire (a `lockLost`
   // buzz would rattle constantly in a dogfight).
   it("buzzes when the player's own sensors complete a lock", () => {
-    expect(hapticPatternFor({ type: "lockAcquired", entityId: PLAYER, targetId: ENEMY }, PLAYER, SETTINGS)).toEqual([18, 45, 18]);
+    expect(hapticPatternFor({ type: "lockAcquired", entityId: PLAYER, targetId: ENEMY }, PLAYER, SETTINGS)).toEqual([40, 60, 40]);
     expect(hapticPatternFor({ type: "lockAcquired", entityId: ENEMY, targetId: PLAYER }, PLAYER, SETTINGS)).toBeNull();
     expect(hapticPatternFor({ type: "lockLost", entityId: PLAYER }, PLAYER, SETTINGS)).toBeNull();
   });
@@ -113,5 +116,36 @@ describe("Haptics", () => {
     const haptics = new Haptics(configsWith(blockedTheme), PLAYER, vibrate);
     haptics.fireBlocked();
     expect(vibrate).toHaveBeenCalledWith([35, 35, 90]);
+  });
+});
+
+describe("defaultVibrate", () => {
+  it("returns null when the API is missing (iOS Safari, desktop)", () => {
+    vi.stubGlobal("navigator", {});
+    try {
+      expect(defaultVibrate()).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // Android Chrome signals a refused call (user-activation gate) by returning
+  // false instead of throwing — the wrapper must survive it and keep calling,
+  // because activation arrives with the player's first tap.
+  it("keeps calling through refused (false-returning) vibrations", () => {
+    const vibrateFn = vi.fn().mockReturnValue(false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("navigator", { vibrate: vibrateFn });
+    try {
+      const vibrate = defaultVibrate();
+      expect(vibrate).not.toBeNull();
+      vibrate!([40, 60, 40]);
+      vibrate!([60, 50, 70]);
+      expect(vibrateFn).toHaveBeenCalledTimes(2);
+      expect(vibrateFn).toHaveBeenLastCalledWith([60, 50, 70]);
+    } finally {
+      vi.unstubAllGlobals();
+      warn.mockRestore();
+    }
   });
 });
