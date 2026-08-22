@@ -40,10 +40,47 @@ export interface HangarBayOptions {
 
 const DEFAULT_ACCENT = new Color3(0.94, 0.48, 0.02);
 
+/**
+ * The bay's light rig, in one place (owner 2026-08-22: "more light in the
+ * hangar 3D view — the hull has to read").
+ *
+ * Every value below was raised from the first pass, which was lit for MOOD and
+ * left a dark hull sitting in a dark room: the pilot could see the bay but not
+ * the thing they came to look at. The rule for raising them was that the ROOM
+ * must not get brighter with the ship — the structural surfaces are
+ * `StandardMaterial` with a black specular, so they take the punctual lights
+ * flatly, while the hulls are PBR and take both the lights and the IBL. That is
+ * why the biggest lift here is the environment intensity: it is the one knob
+ * that reaches the hull and skips the bay entirely.
+ *
+ * Four lights, and deliberately not five: `StandardMaterial`/`PBRMaterial`
+ * default to `maxSimultaneousLights = 4`, so a fifth would not add light — it
+ * would silently evict one of these from some materials.
+ */
+const RIG = {
+  /** Warm front-left key. Doubled: this is the light that shapes the hull. */
+  keyIntensity: 1.3,
+  /** Cool back-right rim, kept well under the key so the silhouette still reads. */
+  rimIntensity: 0.75,
+  /** Overhead work light — the room's own practical, and the shadow caster. */
+  overheadIntensity: 3,
+  /** Deck bounce, so the underside is shaded rather than solid black. */
+  bounceIntensity: 0.45,
+  /**
+   * Ambient/IBL gain for the visit. **Restored on dispose**, because it is a
+   * SCENE property and the menu diorama sets its own (0.35 for a night sky) and
+   * never puts it back — so a hangar opened straight from the menu used to
+   * inherit a third of the ambient it was authored for. Owning the value for the
+   * duration of the visit is what makes the bay's brightness its own.
+   */
+  environmentIntensity: 1.3,
+} as const;
+
 export class HangarBay {
   readonly root: TransformNode;
   private readonly disposables: { dispose(): void }[] = [];
   private readonly previousEnvironment: BaseTexture | null;
+  private readonly previousEnvironmentIntensity: number;
   private readonly environment: RawCubeTexture | null;
   private readonly shadows: ShadowGenerator;
 
@@ -59,6 +96,10 @@ export class HangarBay {
     this.previousEnvironment = scene.environmentTexture;
     this.environment = this.createEnvironment(scene);
     if (this.environment) scene.environmentTexture = this.environment;
+    // Taken unconditionally, IBL cube or not: the intensity is what the menu
+    // diorama leaves behind, and restoring it is the bay's job either way.
+    this.previousEnvironmentIntensity = scene.environmentIntensity;
+    scene.environmentIntensity = RIG.environmentIntensity;
 
     const deck = this.plated(scene, "hangarBay.deck", new Color3(0.075, 0.08, 0.09));
     const trim = this.plated(scene, "hangarBay.trim", new Color3(0.14, 0.15, 0.165), 0.45);
@@ -269,18 +310,21 @@ export class HangarBay {
       }
     }
 
-    // Key and rim: warm from the front-left, cool from behind-right. Range is
-    // clamped to the bay so nothing here can reach the arena.
+    // Key and rim: warm from the front-left, cool from behind-right. Both are
+    // parented to the bay root and RANGE-CLAMPED to it, which is what keeps this
+    // a stage rig rather than a scene one — the arena lives ~200 units away in
+    // the same scene, well outside any of these ranges, so a match is lit by
+    // `SceneBuilder`'s rig exactly as it was before this screen existed.
     const key = new PointLight("hangarBay.key", new Vector3(-padRadius, padRadius * 1.4, padRadius * 1.6), scene);
     key.diffuse = new Color3(1, 0.72, 0.47);
-    key.intensity = 0.7;
+    key.intensity = RIG.keyIntensity;
     key.range = padRadius * 9;
     key.parent = this.root;
     this.disposables.push(key);
 
     const rim = new PointLight("hangarBay.rim", new Vector3(padRadius * 1.3, padRadius * 0.6, -padRadius * 1.8), scene);
     rim.diffuse = new Color3(0.45, 0.66, 1);
-    rim.intensity = 0.42;
+    rim.intensity = RIG.rimIntensity;
     rim.range = padRadius * 9;
     rim.parent = this.root;
     this.disposables.push(rim);
@@ -297,7 +341,7 @@ export class HangarBay {
       scene,
     );
     overhead.diffuse = new Color3(1, 0.78, 0.52);
-    overhead.intensity = 2.1;
+    overhead.intensity = RIG.overheadIntensity;
     overhead.range = padRadius * 8;
     overhead.parent = this.root;
     this.disposables.push(overhead);
@@ -314,7 +358,7 @@ export class HangarBay {
     // Low bounce off the deck, so the hull's underside is not a silhouette.
     const bounce = new PointLight("hangarBay.bounce", new Vector3(0, deckY + 0.8, padRadius * 0.4), scene);
     bounce.diffuse = new Color3(0.28, 0.42, 0.62);
-    bounce.intensity = 0.22;
+    bounce.intensity = RIG.bounceIntensity;
     bounce.range = padRadius * 4;
     bounce.parent = this.root;
     this.disposables.push(bounce);
@@ -459,7 +503,12 @@ export class HangarBay {
   dispose(): void {
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
-    if (this.environment && this.root.getScene().environmentTexture === this.environment) this.root.getScene().environmentTexture = this.previousEnvironment;
+    const scene = this.root.getScene();
+    if (this.environment && scene.environmentTexture === this.environment) scene.environmentTexture = this.previousEnvironment;
+    // Hand the ambient gain back too — leaving the bay's brighter value behind
+    // would light the next arena with the hangar's rig (the exact bug this took
+    // over from the menu diorama).
+    scene.environmentIntensity = this.previousEnvironmentIntensity;
     this.environment?.dispose();
     this.root.dispose();
   }
