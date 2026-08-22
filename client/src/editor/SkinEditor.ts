@@ -532,11 +532,17 @@ export class SkinEditor implements EditorPanel {
     this.renderUi();
   }
 
+  /**
+   * Copy the selected cosmetic, KEEPING ITS KIND. Duplicating a legacy paint
+   * has to stay possible — it is the only way to author one now that "New skin"
+   * makes a texture pack — and the fresh id has to carry the source's kind or
+   * the pack would hold a `skin-…` file full of colours.
+   */
   private duplicateSkin(): void {
     const ship = this.ship();
     const source = this.cosmetic();
     if (!ship || !source) return;
-    const skin = newSkinFor(ship, allCosmetics(this.host.configService).map((cosmetic) => cosmetic.id));
+    const skin = newSkinFor(ship, allCosmetics(this.host.configService).map((cosmetic) => cosmetic.id), source.kind);
     this.replace({ ...structuredClone(source), id: skin.id, name: `${cosmeticDisplayName(source)} copy` });
     this.renderUi();
   }

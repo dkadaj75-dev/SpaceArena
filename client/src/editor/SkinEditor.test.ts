@@ -288,6 +288,20 @@ describe("SkinEditor panel", () => {
     panel.dispose();
   });
 
+  it("duplicates a cosmetic into its OWN kind, not into the default one", () => {
+    // "New skin" makes a texture pack now, so duplicating is the only way to
+    // author another legacy paint — and the copy's id has to say so.
+    const paints = [skin()];
+    const panel = new SkinEditor(host(paints).host, vi.fn());
+    [...panel.element.querySelectorAll("button")].find((b) => b.textContent === "Duplicate")!.click();
+
+    const copy = paints.find((c) => c.id !== "cosmetic.paint-interceptor-tiger")!;
+    expect(copy.kind).toBe("paint");
+    expect(copy.id).toBe("cosmetic.paint-interceptor-custom-1");
+    expect(copy.elements.body).toMatchObject({ color: "#f07800" });
+    panel.dispose();
+  });
+
   it("keeps the legacy paint editor for a kind:\"paint\" cosmetic", () => {
     const panel = new SkinEditor(host([skin()]).host, vi.fn());
     const body = panel.element.querySelector('[data-section="body"]')!;
