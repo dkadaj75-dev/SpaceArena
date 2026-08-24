@@ -324,6 +324,17 @@ export class ResultsOverlay {
     this.lastXp = -1;
     this.subEl.textContent = "";
 
+    // A mode that grants nothing says so, rather than animating a count-up to
+    // zero. Every `gamemode.practice-*` authors `win/loss/perKill: 0`, so an
+    // ONLINE practice match legitimately ends with a 0/0 grant — the server
+    // still sends the message (ArenaRoom.persistAndReward), which is why this
+    // never took the offline branch and read "+0 credits · +0 xp" instead.
+    if (rewards.credits === 0 && rewards.xp === 0 && !rewards.leveledUp) {
+      this.rewardsEl.textContent = this.options.offline ? "Practice — no rewards" : "No rewards from this match";
+      this.rewardFinished = true;
+      return;
+    }
+
     this.rewardsEl.replaceChildren(this.rewardLine);
     this.paintRewards(0, 0);
 

@@ -11,6 +11,7 @@ import { createTelemetryRouter } from "./api/telemetry.js";
 import { createAdminContentRouter } from "./api/adminContent.js";
 import { createRateLimiter } from "./api/rateLimit.js";
 import { getPackStore } from "./content/packStore.js";
+import { notePresence, onlineCount } from "./presence.js";
 import { getEnv } from "./env.js";
 import { mountClient, mountContent } from "./staticSite.js";
 import { createMatchmakingRouter } from "./matchmaking/routes.js";
@@ -67,15 +68,21 @@ export function createHttpApp(options: HttpAppOptions = {}): Express {
 
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
-  app.get("/health", (_req, res) => {
+  app.get("/health", (req, res) => {
+    // The client's probe doubles as a presence heartbeat: an anonymous
+    // self-issued id in this header keeps the menu's player count honest even
+    // for pilots who are browsing, not fighting (see presence.ts).
+    const clientId = req.get("x-sa-client");
+    if (clientId) notePresence(clientId);
+    const online = onlineCount();
     // The live pack's identity rides along so an operator can verify a
     // deploy-free content update landed (§11 6.7) with a single unauthenticated
     // GET. Best-effort: health must stay up even if the pack directory is unreadable.
     void getPackStore()
       .packInfo()
       .then(
-        (pack) => res.json({ status: "ok", protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE, contentPack: pack }),
-        () => res.json({ status: "ok", protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE, contentPack: null }),
+        (pack) => res.json({ status: "ok", protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE, online, contentPack: pack }),
+        () => res.json({ status: "ok", protocolVersion: PROTOCOL_VERSION, tickRate: SIM_TICK_RATE, online, contentPack: null }),
       );
   });
 

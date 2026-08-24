@@ -115,6 +115,24 @@ function isButtonableFamily(family: ModuleFamily | undefined): boolean {
   return family !== "boost" && !isInternalFamily(family);
 }
 
+/**
+ * Whether this fitted module is the one the BOOST control speaks for.
+ *
+ * The BLOCK, not the family (fixed 2026-08-23). Every shipped afterburner is an
+ * `engine` carrying a `boost` block — the module schema says so outright ("a
+ * boost block belongs to the engine that provides it"), and no content authors
+ * `family: "boost"` at all. The counts here used to ask for the family while
+ * {@link import("./FlightControls.js").firstBoostModuleIndex} asked for the
+ * block, so on every real hull the BOOST button was RENDERED (block found) but
+ * given no slot (family missing) and stayed on its constructor default — slot 01
+ * of the left cluster, the very slot JETTISON had just been handed. Two controls
+ * on one circle read as one button whose glyph, caption and action disagreed.
+ * One predicate, used by both, is what keeps them describing the same module.
+ */
+export function isBoostModule(cfg: Pick<ModuleConfig, "family" | "boost"> | undefined): boolean {
+  return cfg?.boost !== undefined || cfg?.family === "boost";
+}
+
 /** Resolve {@link HudSlotCounts} for one ship's fitting. Pure over the configs. */
 export function resolveHudSlotCounts(
   configs: ConfigService,
@@ -126,7 +144,7 @@ export function resolveHudSlotCounts(
   let hasJettison = false;
   for (const m of modules) {
     const cfg = configs.get<ModuleConfig>("module", m.moduleId);
-    if (cfg?.family === "boost") hasBoost = true;
+    if (isBoostModule(cfg)) hasBoost = true;
     if (cfg?.jettison) hasJettison = true;
     if (!isButtonableFamily(cfg?.family)) continue;
     if (cfg?.fire !== undefined) weapons++;

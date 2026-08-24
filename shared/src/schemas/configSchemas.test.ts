@@ -1280,17 +1280,30 @@ describe("theme schema — 5.7/5.8 blocks", () => {
 
   it("accepts a full juice block and rejects out-of-range shaping", () => {
     const juice = {
-      hitFlash: { enabled: true, durationMs: 140, color: "#ffffff", scale: 1.2, intensity: 0.8, maxConcurrent: 8 },
-      shieldRipple: { enabled: true, color: "#57d8ff", periodMs: 1200, radiusScale: 1.4, scaleWobble: 0.1, minAlpha: 0.1, maxAlpha: 0.5 },
+      energyCharge: { enabled: true, durationMs: 240, color: "#8fe6ff", intensity: 0.6, flickerHz: 20, scale: 1.04 },
+      shieldRipple: {
+        enabled: true, color: "#57d8ff", periodMs: 1200, radiusScale: 1.4, scaleWobble: 0.1, minAlpha: 0.1, maxAlpha: 0.5,
+        panelCount: 120, panelOverlap: 1.2, assembleMs: 300, assembleStagger: 0.5,
+        shatterMs: 600, shatterSpeed: 1.5, hitBounce: 0.15, hitFocus: 3, reflectivity: 0.5,
+      },
       deploy: { extendDistance: 0.25, overshoot: 1.2, spinDegrees: 180 },
       explosions: { default: "fx.explosion-medium", asteroid: "fx.explosion-rock", byShipClass: { light: "fx.explosion-light" }, burstCount: 60, poolPerEffect: 3 },
     };
     expect(mutated("theme", (d) => (d["juice"] = juice))).toBe(true);
     expect(mutated("theme", (d) => (d["juice"] = {}))).toBe(true);
-    expect(mutated("theme", (d) => (d["juice"] = { ...juice, hitFlash: { ...juice.hitFlash, intensity: 1.2 } }))).toBe(false);
-    expect(mutated("theme", (d) => (d["juice"] = { ...juice, hitFlash: { ...juice.hitFlash, durationMs: 0 } }))).toBe(false);
-    expect(mutated("theme", (d) => (d["juice"] = { ...juice, hitFlash: { ...juice.hitFlash, maxConcurrent: 1.5 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, energyCharge: { ...juice.energyCharge, intensity: 1.2 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, energyCharge: { ...juice.energyCharge, durationMs: 0 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, energyCharge: { ...juice.energyCharge, flickerHz: 0 } }))).toBe(false);
     expect(mutated("theme", (d) => (d["juice"] = { ...juice, shieldRipple: { ...juice.shieldRipple, scaleWobble: 1.5 } }))).toBe(false);
+    // Hex-panel shell bounds: a pack cannot ask for a thousand panels, and a
+    // fractional count is a typo rather than a style.
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, shieldRipple: { ...juice.shieldRipple, panelCount: 1000 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, shieldRipple: { ...juice.shieldRipple, panelCount: 60.5 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, shieldRipple: { ...juice.shieldRipple, hitBounce: 1.4 } }))).toBe(false);
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, shieldRipple: { ...juice.shieldRipple, assembleMs: 0 } }))).toBe(false);
+    // A theme still carrying the retired red-bubble block parses: zod strips
+    // the unknown key rather than rejecting a pack authored before 2026-08-23.
+    expect(mutated("theme", (d) => (d["juice"] = { ...juice, hitFlash: { enabled: true, durationMs: 160 } }))).toBe(true);
     expect(mutated("theme", (d) => (d["juice"] = { ...juice, deploy: { ...juice.deploy, overshoot: 3.5 } }))).toBe(false);
     expect(mutated("theme", (d) => (d["juice"] = { ...juice, deploy: { extendDistance: -1 } }))).toBe(false);
     expect(mutated("theme", (d) => (d["juice"] = { ...juice, explosions: { ...juice.explosions, burstCount: 0 } }))).toBe(false);

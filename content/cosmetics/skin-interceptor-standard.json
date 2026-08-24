@@ -6,9 +6,5 @@
   "kind": "skin",
   "price": 0,
   "target": "ship.interceptor",
-  "textures": {
-    "body": "ships/textures/interceptor/standard/body.png",
-    "canopy": "ships/textures/interceptor/standard/canopy.png",
-    "emissive": "ships/textures/interceptor/standard/emissive.png"
-  }
+  "textures": {}
 }

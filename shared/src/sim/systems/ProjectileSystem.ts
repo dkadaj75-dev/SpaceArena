@@ -85,11 +85,37 @@ export function projectileSystem(world: World, dt: number): void {
       } else if (hit.isAsteroid) {
         applyDamageToAsteroid(world, hit.id, proj.ownerId, proj.damage, proj.damageType);
       } else {
-        applyDamageToShip(world, hit.id, proj.ownerId, proj.damage, proj.damageType);
+        // `hit.along` is the ENTRY distance, so this is the point on the hull's
+        // skin the round went into — the honest place to spark or detonate, and
+        // it saves the client guessing which of several recently-hit hulls a
+        // despawned track belonged to.
+        applyDamageToShip(world, hit.id, proj.ownerId, proj.damage, proj.damageType, undefined, {
+          weapon: proj.kind,
+          pos: pointAlong(from, to, hit.along),
+        });
       }
       world.destroyEntity(id);
     }
   }
+}
+
+/**
+ * The point `along` metres down the segment `from`→`to`. Used for the impact
+ * point on the damage event: presentation only, so it allocates the one small
+ * object per LANDED round (not per round in flight) and nothing reads it back.
+ */
+function pointAlong(
+  from: { x: number; y: number; z: number },
+  to: { x: number; y: number; z: number },
+  along: number,
+): { x: number; y: number; z: number } {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dz = to.z - from.z;
+  const len = len3(dx, dy, dz);
+  if (len <= 1e-6) return { x: to.x, y: to.y, z: to.z };
+  const t = Math.min(1, Math.max(0, along / len));
+  return { x: from.x + dx * t, y: from.y + dy * t, z: from.z + dz * t };
 }
 
 /**

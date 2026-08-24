@@ -1,0 +1,19 @@
+[2026-08-24T01:56:23.378Z] debug: [vite] connecting...
+[2026-08-24T01:56:23.467Z] debug: [vite] connected.
+[2026-08-24T01:56:24.758Z] info: [Client] content loaded {ship: 4, module: 58, effect: 11, upgrade: 3, arena: 3}
+[2026-08-24T01:56:24.758Z] info: [HotReload] content hot-reload wired
+[2026-08-24T01:56:24.794Z] log: BJS - [21:56:24]: Babylon.js v8.56.2 - WebGL2 - Parallel shader compilation
+[2026-08-24T01:56:24.795Z] info: [Client] engine created {build: 7745ef2-mt6edo69, requestedRenderer: webgl, renderer: webgl, cls: ThinEngine}
+[2026-08-24T01:56:24.796Z] info: [Context] graphics context audit {className: ThinEngine, webGLVersion: 2, gpu: ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11), maxFragmentUniformVectors: 1024, maxVaryingVectors: 30}
+[2026-08-24T01:56:24.797Z] info: [Quality] quality tier selected {tier: low, fromOverride: false, probe: Object}
+[2026-08-24T01:56:25.076Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T01:56:25.076Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T01:56:26.257Z] info: [Audio] audio context created {master: 0.8, sfx: 0.8, music: 0.5}
+[2026-08-24T01:56:30.878Z] error: [Client] black-canvas verdict before the policy was ready: stalled (render loop never ticked — 0 frames in 6.1s)
+[2026-08-24T01:56:33.971Z] error: Failed to load resource: the server responded with a status of 409 (Conflict)
+[2026-08-24T01:56:33.972Z] warning: [AuthScreen] auth action failed ApiRequestError: this nickname is already taken
+    at AuthService.buildError (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:246:12)
+    at async AuthService.request (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:231:13)
+    at async AuthService.register (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:90:18)
+    at async AuthScreen.run (http://localhost:5173/src/game/screens/AuthScreen.ts?t=1787530805880:167:7)
+[2026-08-24T01:56:34.258Z] info: [BlackGuard] stood down after 3 clean probes (brightest sample 255)

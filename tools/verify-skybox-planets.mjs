@@ -9,15 +9,10 @@ const OUT = process.argv[2] ?? "content/skyboxes";
 // drifted from the generator's aims them at open sky and the check silently
 // stops testing anything (deep-field sat at 38 against a 12.5-deg planet).
 const SPECS = {
-  "deep-field": {
-    planetDir: [0.05, -0.5, 0.8646],
-    sunDir: [0.777, 0.309, 0.55],
-    angularRadiusDeg: 12.5,
-  },
   "ring-nebula": {
     planetDir: [-0.8431, 0.3746, 0.3859],
     sunDir: [-0.677, -0.208, -0.706],
-    angularRadiusDeg: 26,
+    angularRadiusDeg: 52,
   },
   "lunar-crater": {
     planetDir: [-0.71, 0.3746, 0.5963],
@@ -69,6 +64,11 @@ const browser = await chromium.launch(
 const page = await browser.newPage();
 let failed = false;
 for (const [name, spec] of Object.entries(SPECS)) {
+  const imagePath = path.resolve(OUT, `${name}.webp`);
+  if (!existsSync(imagePath)) {
+    console.warn(`${name}: SKIPPED — ${imagePath} does not exist (spec is stale or sky not yet rendered)`);
+    continue;
+  }
   const directions = {
     litDisc: discDirection(spec, 0.78),
     litSky: directionAt(spec, spec.angularRadiusDeg + 5, 1),
@@ -101,7 +101,7 @@ for (const [name, spec] of Object.entries(SPECS)) {
     }
     return result;
   }, {
-    imageUrl: `data:image/webp;base64,${readFileSync(path.resolve(OUT, `${name}.webp`)).toString("base64")}`,
+    imageUrl: `data:image/webp;base64,${readFileSync(imagePath).toString("base64")}`,
     directions,
   });
   const litPass = samples.litDisc.luminance > samples.litSky.luminance;

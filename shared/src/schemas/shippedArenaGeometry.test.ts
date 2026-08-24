@@ -305,6 +305,55 @@ describe("shipped canyon arena geometry", () => {
     }
   });
 
+  /**
+   * The He-3 plant is the crater centrepiece, and `nav-crater-mid` — the hub
+   * every lane, mouth and tunnel route funnels through — is parked directly
+   * above it. Its placement scale is therefore load-bearing geometry, not
+   * decoration: the plant was authored at 1.5 (roof ~y 20, hub at y 26), and a
+   * map-editor gizmo drag silently shipped it at 3, which lifted the collider
+   * roof to y ~49 and swallowed the hub. Bots routed into the structure and
+   * wedged nose-first at 0 m/s, taking the prop's 12 impact damage until
+   * "Environment" killed them (38 of 47 stalls in a four-seed CTF bot match
+   * landed on this prop; at 1.5 it is 1).
+   *
+   * The invariant is derived, not pinned: whatever scale the plant carries, its
+   * collider must leave the hub — and every other nav node — a ship's width of
+   * air. That fails on any silent rescale in either direction.
+   */
+  it("keeps the He-3 plant centrepiece clear of the crater nav hub", () => {
+    const placement = propPlacements.find((candidate) => candidate.propId === "prop.lunar-rift-he3-plant");
+    expect(placement, "lunar-rift must keep its He-3 plant centrepiece").toBeDefined();
+    if (!placement) return;
+    const bounds = props.get(placement.propId)?.collision?.bounds;
+    expect(bounds, "the He-3 plant must ship baked collision").toBeDefined();
+    if (!bounds) return;
+
+    // Prop collision is authored in world units and transformed by placement
+    // scale only (shared/src/collision/staticWorld.ts), so the world AABB is the
+    // local one scaled about the placement origin. The plant is yaw-0, so no
+    // rotation term is needed.
+    const scale = placement.scale ?? 1;
+    const origin = positionOf(placement.position);
+    const min = { x: origin.x + bounds.min.x * scale, y: origin.y + bounds.min.y * scale, z: origin.z + bounds.min.z * scale };
+    const max = { x: origin.x + bounds.max.x * scale, y: origin.y + bounds.max.y * scale, z: origin.z + bounds.max.z * scale };
+
+    const hub = (arena.navGraph?.nodes ?? []).find((node) => node.id === "nav-crater-mid");
+    expect(hub, "lunar-rift must keep its crater hub node").toBeDefined();
+    if (!hub) return;
+    expect(
+      positionOf(hub.position).y - max.y,
+      `nav-crater-mid must clear the He-3 plant roof (plant scale ${scale}, roof y ${max.y.toFixed(2)})`,
+    ).toBeGreaterThanOrEqual(maxShipDiameter);
+
+    for (const node of arena.navGraph?.nodes ?? []) {
+      const point = positionOf(node.position);
+      const inside = point.x >= min.x && point.x <= max.x
+        && point.y >= min.y && point.y <= max.y
+        && point.z >= min.z && point.z <= max.z;
+      expect(inside, `${node.id} must not sit inside the He-3 plant collider`).toBe(false);
+    }
+  });
+
   it("connects the flag-base nearest nav nodes", () => {
     const graph = arena.navGraph;
     const flags = arena.flagBases;

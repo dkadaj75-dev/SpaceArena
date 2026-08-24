@@ -4,6 +4,23 @@ import "@fontsource/orbitron/700.css";
 import "@fontsource/rajdhani/400.css";
 import "@fontsource/rajdhani/500.css";
 import "@fontsource/rajdhani/600.css";
+// The loadout deck's type system (owner 2026-08-22): Titillium Web for headings
+// and buttons, IBM Plex Mono for codes, labels and numbers. Bundled through
+// @fontsource like the two above rather than fetched from Google — this game
+// makes no webfont request at runtime, and a hangar that waited on one would
+// draw its whole panel in the fallback stack first.
+// LATIN subsets only for the mono: IBM Plex Mono ships Cyrillic, Greek and
+// Vietnamese cuts too, and the PWA PRECACHES every asset the build emits — so
+// the full family would put ~1MB of faces nothing on this screen can render
+// into the offline bundle. Titillium Web ships latin + latin-ext and is taken
+// whole.
+import "@fontsource/titillium-web/400.css";
+import "@fontsource/titillium-web/600.css";
+import "@fontsource/titillium-web/700.css";
+import "@fontsource/ibm-plex-mono/latin-400.css";
+import "@fontsource/ibm-plex-mono/latin-ext-400.css";
+import "@fontsource/ibm-plex-mono/latin-500.css";
+import "@fontsource/ibm-plex-mono/latin-600.css";
 import { Engine, EngineFactory, Scene, Color4, Matrix, TransformNode, Vector3, Viewport } from "@babylonjs/core";
 import {
   arenaChoicesOf,
@@ -37,7 +54,23 @@ import { createBootAssetRegistry } from "./core/bootAssets.js";
 import { MenuDiorama } from "./game/screens/MenuDiorama.js";
 import { ModelLoadQueue } from "./core/modelLoadQueue.js";
 import { QualityManager, readWebglRenderer } from "./core/QualityManager.js";
-import { engineAntialiasForProbe, probeDevice } from "./core/qualityTier.js";
+import { engineAntialiasForProbe, probeDevice, QUALITY_STORAGE_KEY } from "./core/qualityTier.js";
+import {
+  armBlackCanvasGuard,
+  armRenderHeartbeat,
+  AUTO_FALLBACK_KEY,
+  AUTO_SAFE_QUALITY_KEY,
+  type BlackKind,
+} from "./core/webgpuBlackGuard.js";
+import { buildId, composeDiagLine, diagEnabled, mountDiagStrip, type DiagStrip } from "./core/diagStrip.js";
+import {
+  auditContext,
+  setContextAudit,
+  watchContext,
+  webgpuAdapterUsable,
+  type ContextAudit,
+} from "./core/contextAudit.js";
+import { nukeToKnownGood, NUKED_KEY } from "./core/knownGoodReset.js";
 import { SceneBuilder } from "./core/SceneBuilder.js";
 import { AuthService } from "./core/AuthService.js";
 import {
@@ -245,30 +278,103 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   const webglAntialias = engineAntialiasForProbe(startupProbe);
   let actualRenderer = rendererPref;
   let engine: Engine;
+  // `adaptToDeviceRatio` has to be a CONSTRUCTOR argument: Babylon seeds
+  // `_hardwareScalingLevel` in the constructor, so assigning the flag afterwards
+  // (as this did) never re-seeds it, and `resize()` then mutates the level
+  // QualityManager believes it owns.
+  const newWebglEngine = (): Engine => new Engine(canvas, webglAntialias, undefined, true);
   if (rendererPref === "webgpu") {
-    if (!("gpu" in navigator)) {
-      log.warn("WebGPU requested but unavailable; falling back to WebGL");
+    // `CreateAsync(canvas, {})` resolved happily on a FALLBACK or software
+    // adapter, so the catch below never fired and `actualRenderer` stayed
+    // "webgpu" on a device with no GPU behind it. Ask first, and refuse.
+    const adapter = await webgpuAdapterUsable();
+    if (!adapter.usable) {
+      log.warn("WebGPU refused; falling back to WebGL", { why: adapter.why });
       actualRenderer = "webgl";
-      engine = new Engine(canvas, webglAntialias);
+      engine = newWebglEngine();
     } else {
       try {
-        engine = (await EngineFactory.CreateAsync(canvas, {})) as Engine;
+        engine = (await EngineFactory.CreateAsync(canvas, {
+          antialias: webglAntialias,
+          adaptToDeviceRatio: true,
+        })) as Engine;
       } catch (error) {
         log.warn("WebGPU engine creation failed; falling back to WebGL", { error });
         actualRenderer = "webgl";
-        engine = new Engine(canvas, webglAntialias);
+        engine = newWebglEngine();
       }
     }
   } else {
-    engine = new Engine(canvas, webglAntialias);
+    engine = newWebglEngine();
   }
-  log.info("engine created", { requestedRenderer: rendererPref, renderer: actualRenderer, cls: engine.getClassName() });
+  log.info("engine created", {
+    build: buildId(),
+    requestedRenderer: rendererPref,
+    renderer: actualRenderer,
+    cls: engine.getClassName(),
+  });
+
+  // ---- self-diagnosis, armed HERE and not later ------------------------------
+  // Roughly 1,400 lines of awaited boot work — a network health probe, a
+  // user-dismissable fullscreen prompt, diorama warm-up, boot-screen dismissal —
+  // sit between this line and the render loop. Nothing that fails inside that
+  // window could report anything at all before today.
+  const contextAudit: ContextAudit = auditContext(engine, startupWebglRenderer);
+  // Published so the scene builders can degrade themselves without every screen
+  // in between having to thread it through.
+  setContextAudit(contextAudit);
+  // Named `let` so the escalation closure below can reach it before it exists.
+  let diag: DiagStrip | null = null;
+  let onBlackVerdict: (reason: string, kind: BlackKind) => void = (reason, kind) => {
+    log.error(`black-canvas verdict before the policy was ready: ${kind} (${reason})`);
+  };
+  const heartbeat = armRenderHeartbeat((reason, kind) => onBlackVerdict(reason, kind));
+  const contextWatch = watchContext(engine, (reason) => onBlackVerdict(reason, "stalled"));
+
+  // Both are populated hundreds of lines below; the strip and the guard status
+  // read them through closures, so they only have to exist by the time a probe
+  // actually runs.
+  let sceneForDiag: Scene | null = null;
+  let blackGuard: { status: () => string; rearm: () => void } | null = null;
+
+  // Built unconditionally: the strip itself is opt-in (`?diag=1`), but the
+  // escalation banner quotes this exact line on a black verdict either way.
+  const diagSources = {
+    engine,
+    canvas,
+    requestedRenderer: rendererPref,
+    actualRenderer,
+    gpu: startupWebglRenderer,
+    frames: () => heartbeat.frames(),
+    scene: () => (sceneForDiag ? { meshes: sceneForDiag.meshes.length, active: sceneForDiag.getActiveMeshes().length } : null),
+    guard: () => blackGuard?.status() ?? "pre-scene",
+    extra: () =>
+      `fx-err ${contextWatch.effectErrors()}${contextWatch.contextLost() ? " CONTEXT-LOST" : ""}` +
+      (contextAudit.degraded ? ` DEGRADED(${contextAudit.reasons.join(",")})` : ""),
+  };
+  if (diagEnabled()) diag = mountDiagStrip(diagSources);
+  (window as Window & { __SA_BUILD__?: string }).__SA_BUILD__ = buildId();
 
   // Render quality (§10 5.6). The tier owns the DPR cap and the hardware
   // scaling level that used to be hardcoded here: device probe picks the
   // starting tier, `sa.quality` in localStorage overrides it, and measured FPS
   // may adjust it once in the first seconds of a match.
-  engine.adaptToDeviceRatio = true;
+  // (`adaptToDeviceRatio` is a constructor argument now — see the engine
+  // construction above. Assigning it here never re-seeded the scaling level.)
+  //
+  // A degraded context does not get a warning, it gets a configuration it can
+  // actually draw: the low tier drops the GlowLayer, and `contextAudit` also
+  // tells HangarBay to skip the shadow generator and clamp its light rig.
+  if (contextAudit.degraded) {
+    try {
+      if (localStorage.getItem(QUALITY_STORAGE_KEY) === null) {
+        localStorage.setItem(QUALITY_STORAGE_KEY, "low");
+        log.warn("degraded graphics context — forcing the low quality tier", { reasons: contextAudit.reasons });
+      }
+    } catch (error) {
+      log.warn("could not persist the degraded-context quality tier", { error });
+    }
+  }
   const quality = new QualityManager(configService, engine, {
     bus,
     navigator: window.navigator,
@@ -283,6 +389,11 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
 
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
+  // The heartbeat was armed back at engine creation with no scene to watch;
+  // this is where it gets its clock. The diagnostic strip picks the scene up
+  // through the same reference.
+  sceneForDiag = scene;
+  heartbeat.attach(scene);
 
   // Audio (§10 5.7). One manager for the whole app: it stays silent (and never
   // even constructs an AudioContext) until the first user gesture, and does no
@@ -317,6 +428,15 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // hardcoding an id in either split the client's view of the arena from the sim's.
   const sceneBuilder = new SceneBuilder(scene, configService, bus, quality.current);
   let currentArenaId: string | null = null;
+  /**
+   * Arena the SceneBuilder currently shows — lets stale-only rebuilds no-op.
+   * Declared HERE, beside `currentArenaId` and above `setArena` which writes
+   * it: it used to live ~1,500 lines down with the editor state, and the
+   * hoisted `setArena` running before that `let` executed was a temporal-dead-
+   * zone ReferenceError that hung the tutorial on its loading screen forever
+   * (playtest 2026-08-24).
+   */
+  let stagedArenaId: string | null = null;
   bus.on("config:changed", (evt) => {
     // Authoring a rock model in the dev editor should not need a page reload.
     if (evt.type === "arena" || evt.type === "asteroid") {
@@ -596,6 +716,45 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // its old bundle, so reload as soon as it is safe; `runtime` is the one
   // authoritative signal that a live match exists.
   const updateGate = createUpdateGate({ isMatchLive: () => runtime !== null });
+  // The dev server never INSTALLS a worker (vite.config: `disable: command !==
+  // "build"`) — but it never REMOVES one either, and a registration left at
+  // scope "/" by a past `dist` build keeps serving that old shell on the same
+  // origin. A hard reload bypasses the HTTP cache but NOT a controlling worker,
+  // which is why "I hard-reloaded and the fix is not there" is a real symptom
+  // and a genuinely confusing one. One shot per tab, so it cannot loop.
+  if (import.meta.env.DEV && "serviceWorker" in navigator && navigator.serviceWorker.controller) {
+    const EVICTED = "sa.devSwEvicted";
+    // Every storage touch is wrapped, and the eviction itself cannot be allowed
+    // to throw: this branch `return`s out of boot, so anything that escapes
+    // before `reload()` leaves the page permanently blank — the exact failure
+    // mode this whole file is here to stop. Blocked storage means we simply do
+    // not get the one-shot guarantee, so we do not attempt the eviction at all.
+    let evictedBefore: string | null = "1";
+    try {
+      evictedBefore = sessionStorage.getItem(EVICTED);
+      if (evictedBefore === null) sessionStorage.setItem(EVICTED, "1");
+    } catch {
+      evictedBefore = "1"; // cannot mark it, so cannot promise one shot: skip
+    }
+    if (evictedBefore === null) {
+      log.warn("dev build is under a service worker from a past production build — evicting and reloading", {
+        scriptURL: navigator.serviceWorker.controller.scriptURL,
+      });
+      void (async () => {
+        try {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((r) => r.unregister()));
+          if (typeof caches !== "undefined") {
+            await Promise.all((await caches.keys()).map((k) => caches.delete(k)));
+          }
+        } catch (error) {
+          log.error("service worker eviction failed; reloading anyway", { error });
+        }
+        window.location.reload();
+      })();
+      return;
+    }
+  }
   if ("serviceWorker" in navigator) {
     let hadController = navigator.serviceWorker.controller !== null;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -1645,6 +1804,13 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
       runtime.hud.consumeEvents(events);
       tutorial?.consumeEvents(events);
       runtime.audioFeedback.consumeEvents(events);
+      // Channelling weapons have no per-shot event to react to, so their looping
+      // sound is driven off the same replicated `channeling` flag the beam mesh
+      // is drawn from — see AudioFeedback.syncChannels. Paused, the flag is
+      // frozen mid-beam, so the loops are ended rather than left droning behind
+      // the settings overlay.
+      if (simPaused) runtime.audioFeedback.stopChannels();
+      else runtime.audioFeedback.syncChannels(cur.ships);
       runtime.screenShake.consumeEvents(events);
       runtime.session.clearFrameEvents();
 
@@ -1672,18 +1838,155 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // A single throwing frame must never silently kill the render loop (the
   // canvas would stay black-cleared while the DOM HUD looks alive). Log,
   // surface once, and keep rendering.
+  //
+  // But "keep rendering" was not what happened: `scene.render()` is the LAST
+  // statement of `renderFrame`, so anything throwing above it — a view, the
+  // HUD, an overlay, the tutorial, the camera — skipped the render entirely and
+  // the 3D froze on its last frame forever while the page stayed alive. The
+  // only signal was `runtime?.hud.showToast`, and `runtime` is null on the menu
+  // AND in the hangar, i.e. on exactly the two screens reported black. So:
+  // re-attempt the render itself, and escalate if it keeps happening.
   let frameErrorShown = false;
+  let consecutiveFrameErrors = 0;
   engine.runRenderLoop(() => {
     try {
       renderFrame();
+      consecutiveFrameErrors = 0;
     } catch (err) {
+      consecutiveFrameErrors += 1;
       log.error("render frame failed", err);
+      // The frame's per-frame updates are lost either way; the PICTURE need not
+      // be. A bare render still draws the scene as it last stood.
+      try {
+        scene.render();
+      } catch (renderErr) {
+        log.error("bare scene.render() also failed", renderErr);
+      }
       if (!frameErrorShown) {
         frameErrorShown = true;
         runtime?.hud.showToast("Render error — see console (F12)");
       }
+      if (consecutiveFrameErrors === 30) {
+        onBlackVerdict(
+          `renderFrame threw on ${consecutiveFrameErrors} consecutive frames: ${String(err)}`,
+          "stalled",
+        );
+      }
     }
   });
+  // The heartbeat's short "never ticked" window opens NOW — measured from
+  // scene-attach it fired a false stall error on essentially every boot,
+  // because the awaited boot work above legitimately holds the loop back.
+  heartbeat.loopStarted();
+
+  // A renderer can come up healthy and still show the player nothing but black
+  // (owner reports 2026-08-23). Every `localStorage` touch below is wrapped:
+  // `setItem` throws in private mode, over quota, and under blocked storage —
+  // and the throw used to happen AFTER the guard had already disarmed, then
+  // propagated through `scene.render()` into the frame catch and was reduced to
+  // a toast. Verdict lost, guard already off, nothing on screen.
+  const store = (key: string, value: string): boolean => {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (error) {
+      log.error("could not persist the black-canvas remedy", { key, error });
+      return false;
+    }
+  };
+  const stored = (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+  /** Reload WITHOUT the query string: `?renderer=webgpu` outranks localStorage
+   *  at boot, so `location.reload()` would restore the very thing being fixed
+   *  and loop forever, leaving the later rungs unreachable. */
+  const reloadClean = (): void => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("renderer");
+    window.location.replace(url.toString());
+  };
+
+  const banner = (headline: string, detail: string): void => {
+    const el = document.createElement("div");
+    el.style.cssText =
+      "position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:99999;" +
+      "max-width:92vw;padding:10px 16px;background:#2a0f12;border:1px solid #8a3a3a;" +
+      "color:#e58f8f;font:12px/1.5 monospace;pointer-events:none;white-space:pre-wrap;";
+    // The build id makes a stale shell announce itself: "I reloaded and nothing
+    // changed" and "the fix does not work" are otherwise indistinguishable.
+    el.textContent = `${headline}\nbuild ${buildId()} — ${detail}\n${diag?.line() ?? composeDiagLine(diagSources)}`;
+    // `document.body` can legitimately be null this early.
+    (document.body ?? document.documentElement).append(el);
+  };
+
+  /**
+   * Escalation. Routed on the verdict's KIND, because the remedies are not
+   * interchangeable: swapping renderers cannot fix a CSS stacking bug, and
+   * lowering the quality tier cannot fix a render loop that is not running.
+   *
+   *   present (frames are a bare clear) → webgl → low tier → known-good reset
+   *   occluded / stalled / unsamplable / no-active-meshes → say so, precisely
+   */
+  onBlackVerdict = (reason, kind) => {
+    const gpu = startupWebglRenderer ?? "unknown GPU";
+    log.error(`black canvas verdict [${kind}]: renderer=${actualRenderer} gpu=${gpu} (${reason})`);
+    diag?.refresh();
+
+    if (kind !== "present") {
+      // None of these are renderer problems, so none of them get a renderer
+      // remedy. Naming the actual mechanism is the whole value here.
+      banner(`3D DISPLAY FAILED — ${kind}`, `${reason}. GPU: ${gpu}.`);
+      return;
+    }
+
+    // Rung 1: the WebGPU present path. GATED on its own key — the original
+    // wrote AUTO_FALLBACK_KEY but never read it, so with `?renderer=webgpu` in
+    // the URL this rung reloaded forever and rungs 2 and 3 were unreachable.
+    if (actualRenderer === "webgpu" && stored(AUTO_FALLBACK_KEY) !== "armed-and-fired") {
+      if (store("spacearena.renderer", "webgl") && store(AUTO_FALLBACK_KEY, "armed-and-fired")) {
+        reloadClean();
+        return;
+      }
+    }
+    // Rung 2: the expensive shader permutations.
+    if (stored(AUTO_SAFE_QUALITY_KEY) !== "armed-and-fired") {
+      if (store(AUTO_SAFE_QUALITY_KEY, "armed-and-fired") && store(QUALITY_STORAGE_KEY, "low")) {
+        reloadClean();
+        return;
+      }
+    }
+    // Rung 3: a stale service worker, a sticky URL param, or display state the
+    // earlier rungs themselves wrote and nothing ever clears. One shot ever.
+    //
+    // The one-shot marker CANNOT live in storage alone: under blocked/private
+    // storage `store()` fails, so rungs 1 and 2 fall straight through, the
+    // marker never persists, `stored(NUKED_KEY)` reads null on every boot and
+    // this rung reloads forever. `nukeToKnownGood` stamps `?nuked=` on the URL
+    // it reloads to, and `reloadClean` preserves it — so the URL is the marker
+    // that survives exactly the case storage does not.
+    const nukedBefore =
+      stored(NUKED_KEY) !== null || new URLSearchParams(window.location.search).has("nuked");
+    if (!nukedBefore) {
+      void nukeToKnownGood().then((fired) => {
+        if (!fired) banner("3D DISPLAY FAILED", `${reason} GPU: ${gpu}.`);
+      });
+      return;
+    }
+    // Rung 4: own up ON SCREEN. A player staring at a void has no way to
+    // connect it to a setting, and a screenshot of this banner — which now
+    // carries the build id and the whole diagnostic line — is a complete bug
+    // report.
+    banner(
+      "3D DISPLAY FAILED",
+      `renderer ${actualRenderer}, quality already lowered, settings already reset. GPU: ${gpu}. ${reason}`,
+    );
+  };
+
+  blackGuard = armBlackCanvasGuard(scene, canvas, (reason, kind) => onBlackVerdict(reason, kind));
 
   // Editor host capabilities. Built unconditionally (not DEV-gated) because the
   // designer shell uses these scene/camera hooks for its 3D viewport in every
@@ -1701,8 +2004,6 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   let editorShell: import("./editor/EditorShell.js").EditorShell | null = null;
   /** Arena the editor last staged via `rebuildArena(id)`, if it differs from the game's. */
   let editorArenaId: string | null = null;
-  /** Arena the SceneBuilder currently shows — lets stale-only rebuilds no-op. */
-  let stagedArenaId: string | null = null;
   const editorHost = {
     scene,
     configService,
@@ -1857,11 +2158,45 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
   // window resize (late CSS, devtools/pane layout, mobile URL bar), and an
   // engine created before layout settles would otherwise keep its 300×150
   // default buffer forever.
-  const resizeObserver = new ResizeObserver(() => {
+  /**
+   * Hardware scaling has EXACTLY ONE owner: `QualityManager`. `engine.resize()`
+   * multiplies the level behind its back, so applying the DPR correction and
+   * then resizing applied it twice — and `setSize` truncates with `width | 0`,
+   * so a level that drifts high enough produces a 0×0 backing store, which is
+   * both an invisible canvas and an unsamplable one.
+   *
+   * The invariant afterwards is the load-bearing part: the driver silently
+   * CLAMPS an over-large buffer (measured on this machine: an 11250×4387
+   * request clamped to 9223 wide presented pure RGB(0,0,0), while 9000×3510
+   * presented fine). Nothing noticed. Now a clamp is detected and backed off.
+   */
+  const resizeToLayout = (): void => {
     // A move between displays changes devicePixelRatio; the tier's DPR cap and
     // scaling multiplier have to be re-applied against the new value.
     quality.refreshDevicePixelRatio(window.devicePixelRatio || 1);
-    engine.resize();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      engine.resize();
+      const rw = engine.getRenderWidth();
+      const rh = engine.getRenderHeight();
+      if (rw >= 1 && rh >= 1 && rw === canvas.width && rh === canvas.height) return;
+      const level = engine.getHardwareScalingLevel();
+      log.warn("drawing buffer does not match the canvas — backing off hardware scaling", {
+        renderSize: `${rw}x${rh}`,
+        canvas: `${canvas.width}x${canvas.height}`,
+        client: `${canvas.clientWidth}x${canvas.clientHeight}`,
+        level,
+      });
+      // Fewer pixels: too large gets clamped, too small truncates to zero.
+      engine.setHardwareScalingLevel(rw < 1 || rh < 1 ? Math.max(0.25, level / 2) : level * 1.5);
+    }
+    log.error("could not reconcile the drawing buffer with the canvas size", {
+      renderSize: `${engine.getRenderWidth()}x${engine.getRenderHeight()}`,
+      canvas: `${canvas.width}x${canvas.height}`,
+    });
+  };
+
+  const resizeObserver = new ResizeObserver(() => {
+    resizeToLayout();
     // This callback is the ONLY thing that can invalidate the HUD's cached CSS
     // size, so it is also the only place that re-reads it.
     refreshCanvasCssSize();
@@ -1871,7 +2206,7 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
     if (mvpStaged) applyMvpStageOffset();
   });
   resizeObserver.observe(canvas);
-  engine.resize();
+  resizeToLayout();
   // SEED, and it is load-bearing: the render loop is already running by this
   // line, and the ResizeObserver's first callback does not arrive until after
   // the current task yields. A cache left at 0 until then makes `project()`

@@ -16,6 +16,10 @@ import {
   type Mesh,
   type Scene,
 } from "@babylonjs/core";
+import { createLogger } from "@space-arena/shared";
+import { currentContextAudit } from "../../core/contextAudit.js";
+
+const log = createLogger("HangarBay");
 
 /**
  * The physical hangar the ship is parked in (owner 2026-07-31).
@@ -36,6 +40,18 @@ export interface HangarBayOptions {
   padRadius?: number;
   /** Accent colour of the guide strips and lamps. */
   accent?: Color3;
+  /**
+   * Build a rig this context can actually draw (see `core/contextAudit.ts`).
+   * On a WebGL1/software/low-uniform context the full rig — four punctual
+   * lights at the `maxSimultaneousLights` ceiling, PBR+IBL, and an ESM shadow
+   * map that needs a float-renderable target — is the permutation most likely
+   * to blow `MAX_FRAGMENT_UNIFORM_VECTORS` and fail to link, and Babylon's
+   * answer to a failed link is to skip the draw in silence. A dimmer hangar
+   * that draws beats a correctly-lit one that does not.
+   */
+  degraded?: boolean;
+  /** Float/half-float render targets exist; the shadow map needs one. */
+  floatRenderTargets?: boolean;
 }
 
 const DEFAULT_ACCENT = new Color3(0.94, 0.48, 0.02);
@@ -82,11 +98,15 @@ export class HangarBay {
   private readonly previousEnvironment: BaseTexture | null;
   private readonly previousEnvironmentIntensity: number;
   private readonly environment: RawCubeTexture | null;
-  private readonly shadows: ShadowGenerator;
+  private readonly shadows: ShadowGenerator | null;
 
   constructor(scene: Scene, parent: TransformNode, opts: HangarBayOptions = {}) {
     const padRadius = opts.padRadius ?? 9;
     const accent = opts.accent ?? DEFAULT_ACCENT;
+    // Boot publishes the audit; the option is the test/caller override.
+    const audit = currentContextAudit();
+    const degraded = opts.degraded ?? audit.degraded;
+    if (degraded) log.warn("degraded graphics context — building the reduced bay rig", { reasons: audit.reasons });
     this.root = new TransformNode("hangarBay", scene);
     this.root.parent = parent;
 
@@ -322,12 +342,17 @@ export class HangarBay {
     key.parent = this.root;
     this.disposables.push(key);
 
-    const rim = new PointLight("hangarBay.rim", new Vector3(padRadius * 1.3, padRadius * 0.6, -padRadius * 1.8), scene);
-    rim.diffuse = new Color3(0.45, 0.66, 1);
-    rim.intensity = RIG.rimIntensity;
-    rim.range = padRadius * 9;
-    rim.parent = this.root;
-    this.disposables.push(rim);
+    // Third of the four punctual lights, and dropped with the bounce on a
+    // degraded context: the clamp is to TWO (key + overhead), which is the
+    // count that reliably links where four do not.
+    if (!degraded) {
+      const rim = new PointLight("hangarBay.rim", new Vector3(padRadius * 1.3, padRadius * 0.6, -padRadius * 1.8), scene);
+      rim.diffuse = new Color3(0.45, 0.66, 1);
+      rim.intensity = RIG.rimIntensity;
+      rim.range = padRadius * 9;
+      rim.parent = this.root;
+      this.disposables.push(rim);
+    }
 
     // Overhead work light: what actually makes the hull read as lit FROM the
     // room rather than floodlit from nowhere, and what puts the ship's shadow
@@ -349,19 +374,34 @@ export class HangarBay {
     // One 512px blurred map is enough to ground the displayed ship. It is
     // deliberately attached only to the work light: extra maps are costly and
     // make the stage unstable on integrated/mobile GPUs.
-    this.shadows = new ShadowGenerator(512, overhead);
-    this.shadows.useBlurExponentialShadowMap = true;
-    this.shadows.blurKernel = 8;
-    // Release the render target before its casters/receivers go away.
-    this.disposables.unshift(this.shadows);
+    //
+    // Skipped outright on a degraded context, and also when no float/half-float
+    // render target exists — an exponential shadow map REQUIRES one, and asking
+    // for it anyway is how a whole material permutation stops linking.
+    const canShadow = !degraded && (opts.floatRenderTargets ?? audit.floatRenderTargets);
+    if (canShadow) {
+      const shadows = new ShadowGenerator(512, overhead);
+      shadows.useBlurExponentialShadowMap = true;
+      shadows.blurKernel = 8;
+      this.shadows = shadows;
+      // Release the render target before its casters/receivers go away.
+      this.disposables.unshift(shadows);
+    } else {
+      this.shadows = null;
+    }
 
     // Low bounce off the deck, so the hull's underside is not a silhouette.
-    const bounce = new PointLight("hangarBay.bounce", new Vector3(0, deckY + 0.8, padRadius * 0.4), scene);
-    bounce.diffuse = new Color3(0.28, 0.42, 0.62);
-    bounce.intensity = RIG.bounceIntensity;
-    bounce.range = padRadius * 4;
-    bounce.parent = this.root;
-    this.disposables.push(bounce);
+    // Fourth of four punctual lights, and therefore the first thing to go when
+    // the context cannot be trusted with the full rig: two lights link where
+    // four do not, and a lit hull with a flat underside still reads.
+    if (!degraded) {
+      const bounce = new PointLight("hangarBay.bounce", new Vector3(0, deckY + 0.8, padRadius * 0.4), scene);
+      bounce.diffuse = new Color3(0.28, 0.42, 0.62);
+      bounce.intensity = RIG.bounceIntensity;
+      bounce.range = padRadius * 4;
+      bounce.parent = this.root;
+      this.disposables.push(bounce);
+    }
   }
 
   private add(mesh: Mesh): void {
@@ -487,7 +527,7 @@ export class HangarBay {
 
   /** Register the current hull after it exists; keeps the shadow map scoped to the bay. */
   addShadowCaster(mesh: AbstractMesh): void {
-    this.shadows.addShadowCaster(mesh, true);
+    this.shadows?.addShadowCaster(mesh, true);
   }
 
   /** Unlit strip light: emissive only, so it reads the same at every angle. */

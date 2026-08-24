@@ -18,7 +18,8 @@
         "energy": 2.2
       },
       "rateOfFire": {
-        "energy": 4,
+        "kinetic": 0.7,
+        "energy": 1.35,
         "hybrid": 0.8
       },
       "shieldEfficiency": 0.6
@@ -380,8 +381,7 @@
     },
     "model": "ships/talon_light_lod0.glb",
     "modelScale": 4.11,
-    "modelRotationY": 0,
-    "pursuitZoom": 0.7
+    "modelRotationY": 0
   },
   "skin": {
     "body": [

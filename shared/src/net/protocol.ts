@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { FlagState, ModuleState } from "../sim/components.js";
 import type { EntityId } from "../sim/components.js";
+import type { HitWeapon } from "../sim/events.js";
 import type { Order } from "../sim/orders.js";
 import type { MatchStatDelta, MatchStatLine } from "../sim/MatchStats.js";
 
@@ -140,7 +141,23 @@ export interface FireEventMessage {
  * entities; beams and kinetics travel via {@link FireEventMessage}.
  */
 export type SimEventMessage =
-  | { type: "damage"; targetId: EntityId; sourceId: EntityId | null; amount: number; damageType: string; isAsteroid: boolean }
+  | {
+      type: "damage";
+      targetId: EntityId;
+      sourceId: EntityId | null;
+      amount: number;
+      damageType: string;
+      isAsteroid: boolean;
+      /**
+       * How the hit ARRIVED, and where — see `SimEvent`'s `HitWeapon`. Both are
+       * presentation-only and both are optional: they travel so a client can
+       * spark a cannon round or detonate a warhead on the exact hull point the
+       * sim hit, rather than re-deriving it from projectile despawn guesswork
+       * that a lossy 20 Hz patch stream makes unreliable in the first place.
+       */
+      weapon?: HitWeapon;
+      pos?: { x: number; y: number; z: number };
+    }
   /**
    * Sensor lock completed / broke. `PlayerState.locked` replicates the STATE, but
    * the audio cue and the haptic buzz are edges, and an edge recovered by diffing
@@ -165,6 +182,9 @@ export type SimEventMessage =
        */
       hullAvoided: number;
       damageType: string;
+      /** How the hit arrived, and where — as on `damage` above. */
+      weapon?: HitWeapon;
+      pos?: { x: number; y: number; z: number };
     }
   | {
       type: "entityDestroyed";

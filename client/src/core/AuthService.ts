@@ -158,17 +158,24 @@ export class AuthService {
   }
 
   /**
-   * Registers a new account. If currently authed as a guest, the guest's
-   * access token rides along (attached automatically by `request()`) and the
-   * server upgrades that identity in place instead of creating a new one.
+   * Registers a new account. The NICKNAME is required and the email is
+   * optional (owner 2026-08-22) — hence the argument order, which is the one
+   * the form asks for. Omitting the email creates an account with none: it
+   * plays and logs in exactly like any other, it simply has no address to
+   * recover through.
+   *
+   * If currently authed as a guest, the guest's access token rides along
+   * (attached automatically by `request()`) and the server upgrades that
+   * identity in place instead of creating a new one.
    */
-  async register(email: string, password: string, displayName?: string): Promise<void> {
-    const pair = await this.request<TokenPair>("POST", "/api/auth/register", { email, password, displayName });
+  async register(displayName: string, password: string, email?: string): Promise<void> {
+    const pair = await this.request<TokenPair>("POST", "/api/auth/register", { displayName, password, email });
     this.setSession(pair);
   }
 
-  async login(email: string, password: string): Promise<void> {
-    const pair = await this.request<TokenPair>("POST", "/api/auth/login", { email, password });
+  /** `identifier` is the pilot's nickname or, for accounts that have one, their email. */
+  async login(identifier: string, password: string): Promise<void> {
+    const pair = await this.request<TokenPair>("POST", "/api/auth/login", { identifier, password });
     this.setSession(pair);
   }
 

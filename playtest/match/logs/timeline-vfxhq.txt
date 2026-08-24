@@ -1,0 +1,32 @@
++39.4s auto-picked tier before anything: low
++71.7s pinned tier via settings: high
++79.0s   hp0 -> module.kinetic-mk1
++82.1s   hp1 -> module.shield-mk1
++99.1s tier in match: high
++99.1s fps: 15.1
++100.0s shield -> deploying
++103.5s   shield  -> retracted  hull=67 dist=6 fps=12
++110.7s   shield retracted -> n/a  hull=undefined dist=undefined fps=18
++115.0s   shield n/a -> retracted  hull=120 dist=67 fps=37
++122.1s   shield retracted -> active  hull=42 dist=21 fps=18
++124.8s   shield active -> n/a  hull=undefined dist=undefined fps=89
++127.6s   shield n/a -> retracted  hull=120 dist=32 fps=78
++137.0s   shield retracted -> active  hull=120 dist=51 fps=21
++141.2s   shield active -> retracted  hull=42 dist=15 fps=22
++143.7s   shield retracted -> n/a  hull=undefined dist=undefined fps=60
++147.0s   shield n/a -> retracted  hull=120 dist=59 fps=26
++153.2s   shield retracted -> active  hull=42 dist=49 fps=17
++164.1s   shield active -> retracted  hull=42 dist=24 fps=21
++169.2s   shield retracted -> n/a  hull=undefined dist=undefined fps=27
++172.8s   shield n/a -> retracted  hull=120 dist=47 fps=61
++180.4s   shield retracted -> n/a  hull=42 dist=17 fps=19
++184.3s   shield n/a -> retracted  hull=120 dist=34 fps=69
++191.4s   shield retracted -> n/a  hull=undefined dist=undefined fps=117
++194.2s   shield n/a -> retracted  hull=120 dist=74 fps=38
++201.6s   shield retracted -> active  hull=120 dist=14 fps=19
++204.6s   shield active -> retracted  hull=101 dist=10 fps=23
++212.1s   shield retracted -> active  hull=101 dist=27 fps=24
++215.4s   shield active -> retracted  hull=77 dist=42 fps=25
++228.5s   shield retracted -> active  hull=67 dist=46 fps=25
++233.8s   shield active -> retracted  hull=38 dist=20 fps=17
++284.0s console: {"error":33,"warning":2,"log":1,"pageerror":0,"debug":2,"info":13,"verbose":2}

@@ -1,0 +1,8 @@
+{
+  "id": "action.play-sound-beam",
+  "type": "action",
+  "version": 1,
+  "name": "Play Beam Sound",
+  "kind": "play_sound",
+  "params": { "sound": "[SOUND: beam_fire]", "volume": 0.8 }
+}

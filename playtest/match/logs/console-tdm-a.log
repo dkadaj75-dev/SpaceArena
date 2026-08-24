@@ -1,0 +1,103 @@
+[2026-08-24T00:55:23.545Z] debug: [vite] connecting...
+[2026-08-24T00:55:23.747Z] debug: [vite] connected.
+[2026-08-24T00:55:26.095Z] info: [Client] content loaded {ship: 4, module: 58, effect: 11, upgrade: 3, arena: 3}
+[2026-08-24T00:55:26.095Z] info: [HotReload] content hot-reload wired
+[2026-08-24T00:55:26.134Z] log: BJS - [20:55:26]: Babylon.js v8.56.2 - WebGL2 - Parallel shader compilation
+[2026-08-24T00:55:26.134Z] info: [Client] engine created {build: 7745ef2-mt6edo69, requestedRenderer: webgl, renderer: webgl, cls: ThinEngine}
+[2026-08-24T00:55:26.135Z] info: [Context] graphics context audit {className: ThinEngine, webGLVersion: 2, gpu: ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11), maxFragmentUniformVectors: 1024, maxVaryingVectors: 30}
+[2026-08-24T00:55:26.136Z] info: [Quality] quality tier selected {tier: low, fromOverride: false, probe: Object}
+[2026-08-24T00:55:26.521Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T00:55:26.522Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T00:55:29.967Z] error: [Client] black-canvas verdict before the policy was ready: stalled (render loop never ticked — 0 frames in 3.5s)
+[2026-08-24T00:55:36.138Z] info: [Audio] audio context created {master: 0.8, sfx: 0.8, music: 0.5}
+[2026-08-24T00:55:46.784Z] info: [BlackGuard] stood down after 3 clean probes (brightest sample 255)
+[2026-08-24T00:55:47.131Z] error: Failed to load resource: the server responded with a status of 409 (Conflict)
+[2026-08-24T00:55:47.135Z] warning: [AuthScreen] auth action failed ApiRequestError: this nickname is already taken
+    at AuthService.buildError (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:246:12)
+    at async AuthService.request (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:231:13)
+    at async AuthService.register (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:90:18)
+    at async AuthScreen.run (http://localhost:5173/src/game/screens/AuthScreen.ts?t=1787530805880:167:7)
+[2026-08-24T00:56:41.952Z] warning: [ServerHealth] health probe failed: no answer in 3500 ms
+[2026-08-24T00:57:17.184Z] info: [Lobby] choice {kind: online, gamemode: gamemode.practice-bots}
+[2026-08-24T00:57:17.584Z] info: [GameSession] practice session ready {arena: arena.ring-nebula, gamemode: gamemode.practice-bots, playerId: 47, botIds: Array(0)}
+[2026-08-24T00:57:51.349Z] warning: BJS - [20:57:51]: Max number of touches exceeded.  Ignoring touches in excess of 1
+[2026-08-24T00:57:51.590Z] warning: BJS - [20:57:51]: Max number of touches exceeded.  Ignoring touches in excess of 1
+[2026-08-24T00:58:00.078Z] warning: BJS - [20:58:00]: Max number of touches exceeded.  Ignoring touches in excess of 1
+[2026-08-24T00:58:00.167Z] warning: BJS - [20:58:00]: Max number of touches exceeded.  Ignoring touches in excess of 1
+[2026-08-24T00:58:08.362Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T00:58:48.628Z] info: [Telemetry] match telemetry (dev — not sent; set VITE_SPACE_ARENA_TELEMETRY=1 to send) {sessionHash: fc4b4dfe8cef9c00e618093303fd1e6b, fpsBucket: <20, deviceClass: mobile, qualityTier: low, averageFps: 15}
+[2026-08-24T00:59:35.343Z] info: [Client] match over — returning to lobby
+[2026-08-24T00:59:35.375Z] error: WebSocket is already in CLOSING or CLOSED state.
+[2026-08-24T00:59:56.871Z] warning: [ServerHealth] health probe failed: no answer in 3500 ms
+[2026-08-24T00:59:56.871Z] warning: [AuthService] profile refresh failed AbortError: The user aborted a request.
+[2026-08-24T01:09:09.186Z] debug: [vite] connecting...
+[2026-08-24T01:09:09.348Z] debug: [vite] connected.
+[2026-08-24T01:09:15.382Z] info: [Client] content loaded {ship: 4, module: 58, effect: 11, upgrade: 3, arena: 3}
+[2026-08-24T01:09:15.385Z] info: [HotReload] content hot-reload wired
+[2026-08-24T01:09:15.503Z] log: BJS - [21:09:15]: Babylon.js v8.56.2 - WebGL2 - Parallel shader compilation
+[2026-08-24T01:09:15.533Z] info: [Client] engine created {build: 7745ef2-mt6edo69, requestedRenderer: webgl, renderer: webgl, cls: ThinEngine}
+[2026-08-24T01:09:15.533Z] info: [Context] graphics context audit {className: ThinEngine, webGLVersion: 2, gpu: ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11), maxFragmentUniformVectors: 1024, maxVaryingVectors: 30}
+[2026-08-24T01:09:15.533Z] info: [Quality] quality tier selected {tier: low, fromOverride: false, probe: Object}
+[2026-08-24T01:09:16.032Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T01:09:16.032Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T01:09:19.011Z] error: [Client] black-canvas verdict before the policy was ready: stalled (render loop never ticked — 0 frames in 3.5s)
+[2026-08-24T01:09:26.051Z] info: [Audio] audio context created {master: 0.8, sfx: 0.8, music: 0.5}
+[2026-08-24T01:09:46.637Z] info: [BlackGuard] stood down after 3 clean probes (brightest sample 255)
+[2026-08-24T01:09:48.164Z] error: Failed to load resource: the server responded with a status of 409 (Conflict)
+[2026-08-24T01:09:48.172Z] warning: [AuthScreen] auth action failed ApiRequestError: this nickname is already taken
+    at AuthService.buildError (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:246:12)
+    at async AuthService.request (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:231:13)
+    at async AuthService.register (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:90:18)
+    at async AuthScreen.run (http://localhost:5173/src/game/screens/AuthScreen.ts?t=1787530805880:167:7)
+[2026-08-24T01:10:45.482Z] warning: [ServerHealth] health probe failed: no answer in 3500 ms
+[2026-08-24T01:11:12.823Z] info: [Lobby] choice {kind: online, gamemode: gamemode.practice-bots}
+[2026-08-24T01:11:12.976Z] info: [GameSession] practice session ready {arena: arena.ring-nebula, gamemode: gamemode.practice-bots, playerId: 47, botIds: Array(0)}
+[2026-08-24T01:11:44.327Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:11:49.982Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:12:50.768Z] info: [Telemetry] match telemetry (dev — not sent; set VITE_SPACE_ARENA_TELEMETRY=1 to send) {sessionHash: d5ddf097f146087134b6b4260464502e, fpsBucket: <20, deviceClass: mobile, qualityTier: low, averageFps: 13}
+[2026-08-24T01:13:05.724Z] info: [Client] match over — returning to lobby
+[2026-08-24T01:13:05.724Z] error: WebSocket is already in CLOSING or CLOSED state.
+[2026-08-24T01:13:10.735Z] warning: [ServerHealth] health probe failed: no answer in 3500 ms
+[2026-08-24T01:19:48.378Z] debug: [vite] connecting...
+[2026-08-24T01:19:48.462Z] debug: [vite] connected.
+[2026-08-24T01:19:49.663Z] info: [Client] content loaded {ship: 4, module: 58, effect: 11, upgrade: 3, arena: 3}
+[2026-08-24T01:19:49.663Z] info: [HotReload] content hot-reload wired
+[2026-08-24T01:19:49.696Z] log: BJS - [21:19:49]: Babylon.js v8.56.2 - WebGL2 - Parallel shader compilation
+[2026-08-24T01:19:49.696Z] info: [Client] engine created {build: 7745ef2-mt6edo69, requestedRenderer: webgl, renderer: webgl, cls: ThinEngine}
+[2026-08-24T01:19:49.696Z] info: [Context] graphics context audit {className: ThinEngine, webGLVersion: 2, gpu: ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11), maxFragmentUniformVectors: 1024, maxVaryingVectors: 30}
+[2026-08-24T01:19:49.697Z] info: [Quality] quality tier selected {tier: low, fromOverride: false, probe: Object}
+[2026-08-24T01:19:49.967Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T01:19:49.967Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T01:19:52.705Z] error: [Client] black-canvas verdict before the policy was ready: stalled (render loop never ticked — 0 frames in 3s)
+[2026-08-24T01:19:54.342Z] info: [Audio] audio context created {master: 0.8, sfx: 0.8, music: 0.5}
+[2026-08-24T01:20:02.238Z] error: Failed to load resource: the server responded with a status of 409 (Conflict)
+[2026-08-24T01:20:02.239Z] warning: [AuthScreen] auth action failed ApiRequestError: this nickname is already taken
+    at AuthService.buildError (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:246:12)
+    at async AuthService.request (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:231:13)
+    at async AuthService.register (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:90:18)
+    at async AuthScreen.run (http://localhost:5173/src/game/screens/AuthScreen.ts?t=1787530805880:167:7)
+[2026-08-24T01:20:02.282Z] info: [BlackGuard] stood down after 3 clean probes (brightest sample 255)
+[2026-08-24T01:20:43.006Z] warning: [ServerHealth] health probe failed: no answer in 3500 ms
+[2026-08-24T01:21:04.690Z] info: [Lobby] choice {kind: online, gamemode: gamemode.practice-bots}
+[2026-08-24T01:21:04.809Z] info: [GameSession] practice session ready {arena: arena.ring-nebula, gamemode: gamemode.practice-bots, playerId: 47, botIds: Array(0)}
+[2026-08-24T01:21:22.046Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:24.977Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:29.236Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:31.143Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:31.256Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:35.431Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:35.534Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:39.116Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:39.266Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:57.346Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:21:57.454Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:22:02.392Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:22:02.452Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:22:03.426Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:22:03.485Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:22:05.628Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:22:05.700Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:22:32.956Z] info: [Telemetry] match telemetry (dev — not sent; set VITE_SPACE_ARENA_TELEMETRY=1 to send) {sessionHash: 412ece9b4b95d8e5d36524b8ba44d4e0, fpsBucket: 20-30, deviceClass: mobile, qualityTier: low, averageFps: 22}
+[2026-08-24T01:22:44.313Z] info: [Client] match over — returning to lobby
+[2026-08-24T01:22:44.313Z] error: WebSocket is already in CLOSING or CLOSED state.
+[2026-08-24T01:22:48.772Z] warning: [ServerHealth] health probe failed: no answer in 3500 ms

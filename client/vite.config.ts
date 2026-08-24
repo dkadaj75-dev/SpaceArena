@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -282,8 +283,28 @@ function siteBase(): string {
   return raw.endsWith("/") ? raw : `${raw}/`;
 }
 
+/**
+ * Build stamp, baked in at compile time and printed by the diagnostic strip and
+ * the black-canvas banner. It exists because a stale service worker serving a
+ * pre-fix shell is indistinguishable from a fix that did not work: both look
+ * like "I reloaded and nothing changed". A screenshot that carries the build id
+ * settles that in one glance, and a bug report that carries it is complete.
+ */
+function buildId(): string {
+  let sha = "nogit";
+  try {
+    sha = execSync("git rev-parse --short HEAD", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    /* not a checkout, or git is unavailable — the timestamp still identifies it */
+  }
+  return `${sha}-${Date.now().toString(36)}`;
+}
+
 export default defineConfig(({ command }) => ({
   base: siteBase(),
+  define: {
+    __BUILD_ID__: JSON.stringify(buildId()),
+  },
   build: {
     rollupOptions: {
       output: { manualChunks },

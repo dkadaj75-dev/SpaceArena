@@ -1,0 +1,30 @@
++80.0s  both accounts in the lobby
++83.3s  >> queue Duel 1v1 on both clients
++100.7s  A launch card:
+      PREPARING ARENAThe Ring0:05TEAM 11/1playtest-match-aTEAM 21/1playtest-match-bLoading combat systemsCancel
++100.7s  >> wait for the HUD on both
++104.4s  roster: 2 ships, arena=arena.ring-nebula, me=47 team=0
++104.4s  A fit: module.laser-mk1, module.missile-mk1, module.engine-earth-eng1, module.generator-earth-eng1, module.alloy-earth-p1, module.countermeasure-flare, module.sensors-common-mk1
++104.4s  B fit: module.laser-mk1, module.missile-mk1, module.engine-earth-eng1, module.generator-earth-eng1, module.alloy-earth-p1, module.countermeasure-flare, module.sensors-common-mk1
++104.4s  >> countdown / first seconds
++114.1s  >> close on the enemy and open fire (both weapons)
++115.6s     dist=27 hull=43.890499114990234 locked=true fps=9
++140.1s  ~~ VFX burst: point blank, rapid frames skipped — the match is already over
++140.1s  ~~ boost skipped — the match is already over
++140.1s  ~~ jettison skipped — the match is already over
++140.1s  ~~ boundary run — find the shield wall skipped — the match is already over
++140.1s  ~~ HUD chrome: scoreboard, settings skipped — the match is already over
++140.1s  ~~ take hits and die skipped — the match is already over
++140.1s  ~~ respawn / fight on skipped — the match is already over
++140.1s  >> kill feed / match status
++140.1s     kill feed: "playtest-match-b ⚔ playtest-match-a"
++140.1s     match status: "0MATCH OVER1"
++142.0s  >> play out or leave
++142.0s     match ended on its own
++172.1s  console counts A: {"error":7,"warning":3,"log":1,"pageerror":0,"debug":2,"info":11,"verbose":2}
++172.1s  console counts B: {"error":6,"warning":1,"log":1,"pageerror":0,"debug":2,"info":10,"verbose":2}
+
+--- pilot A events ---
+[00:48:48] duel-a: steer origin 300,210 on renderCanvas
+[00:48:59] duel-a: holding trigger 01
+[00:48:59] duel-a: holding trigger 02

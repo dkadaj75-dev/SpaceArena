@@ -6,6 +6,7 @@
  *
  * Exits 1 with readable errors (file, JSON path, message) on any failure.
  */
+import type { Dirent } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -17,6 +18,7 @@ import {
   shipEmissiveGap,
   type AnyConfig,
   type ConfigError,
+  type CosmeticConfig,
   type ShipConfig,
   type ThemeConfig,
 } from "@space-arena/shared";
@@ -402,6 +404,139 @@ function printEmissiveGaps(service: ConfigService): void {
   console.log("");
 }
 
+// ---------------------------------------------------------------------------
+// DECLARED SKIN-TEXTURE PATHS — a HARD gate, unlike everything above it.
+//
+// The rule is about the WRITING DOWN, not the painting. An element no config
+// mentions is fine — that is the roll-call's job, and it stays a warning
+// because the owner paints these images at his own pace. But a path someone
+// COMMITTED must name a real file. That split keeps "scaffold the pack, paint
+// it over days" working (declare only the elements whose images exist) while
+// making a dangling reference impossible to ship.
+//
+// It exists because exactly that shipped unnoticed: skin-interceptor-standard
+// declared body, canopy and emissive under ships/textures/interceptor/standard/
+// — a folder nobody ever painted — so every match wearing the Interceptor's
+// standard pack logged three 404s and silently fell back to the GLB's own look.
+// Nothing checked, so nothing said anything.
+// ---------------------------------------------------------------------------
+
+/** What {@link resolveExactCase} found for one declared path. */
+type PathCheck =
+  | { readonly kind: "ok" }
+  | { readonly kind: "missing" }
+  | { readonly kind: "case"; readonly onDisk: string };
+
+/** readdir memo — the pack's texture paths share their leading directories. */
+const dirEntryCache = new Map<string, Dirent[]>();
+
+async function dirEntries(absDir: string): Promise<Dirent[]> {
+  const cached = dirEntryCache.get(absDir);
+  if (cached) return cached;
+  let entries: Dirent[];
+  try {
+    entries = await readdir(absDir, { withFileTypes: true });
+  } catch {
+    entries = [];
+  }
+  dirEntryCache.set(absDir, entries);
+  return entries;
+}
+
+/**
+ * Resolve a content-relative path one segment at a time, comparing each
+ * segment's name against the parent directory's listing EXACTLY.
+ *
+ * A `stat`/`access` would be simpler and wrong: development is Windows, whose
+ * filesystem is case-insensitive, but the pack is served from Linux (GitHub
+ * Pages), which matches a request byte for byte. `.../Body.png` against a
+ * `body.png` on disk therefore passes every local check and 404s only in
+ * production — the one place nobody is watching the console. Reading the
+ * directory and doing the comparison ourselves is the only way to see that
+ * difference from a dev machine.
+ */
+async function resolveExactCase(relPath: string): Promise<PathCheck> {
+  const segments = relPath.split("/").filter((segment) => segment.length > 0);
+  if (segments.length === 0) return { kind: "missing" };
+
+  let absDir = CONTENT_DIR;
+  const onDisk: string[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const wanted = segments[i]!;
+    const isLast = i === segments.length - 1;
+    const entries = await dirEntries(absDir);
+    // Exact match first, so a directory that really does hold both `Body.png`
+    // and `body.png` resolves to the one that was written down.
+    const match =
+      entries.find((entry) => entry.name === wanted) ??
+      entries.find((entry) => entry.name.toLowerCase() === wanted.toLowerCase());
+    if (!match || (isLast ? !match.isFile() : !match.isDirectory())) return { kind: "missing" };
+    onDisk.push(match.name);
+    absDir = path.join(absDir, match.name);
+  }
+
+  const actual = onDisk.join("/");
+  return actual === segments.join("/") ? { kind: "ok" } : { kind: "case", onDisk: actual };
+}
+
+/** One content-relative image path a config writes down, and where it wrote it. */
+interface DeclaredTexturePath {
+  /** The config that declares it. */
+  readonly configId: string;
+  /** JSON path within that config, e.g. `textures.body`. */
+  readonly jsonPath: string;
+  readonly relPath: string;
+}
+
+/**
+ * Every skin-texture path the pack declares: a cosmetic's `textures` record
+ * (element → albedo) and its `emissive` light-map override, plus a hull's own
+ * `ship.skin.emissiveTexture`. All three are `contentImagePath` — relative to
+ * content/, never prefixed — so one resolver serves all of them.
+ */
+function declaredSkinTexturePaths(service: ConfigService): DeclaredTexturePath[] {
+  const declared: DeclaredTexturePath[] = [];
+  for (const cosmetic of service.getAll<CosmeticConfig>("cosmetic")) {
+    for (const [element, relPath] of Object.entries(cosmetic.textures ?? {})) {
+      if (typeof relPath === "string" && relPath.length > 0) {
+        declared.push({ configId: cosmetic.id, jsonPath: `textures.${element}`, relPath });
+      }
+    }
+    if (cosmetic.emissive) declared.push({ configId: cosmetic.id, jsonPath: "emissive", relPath: cosmetic.emissive });
+  }
+  for (const ship of service.getAll<ShipConfig>("ship")) {
+    const emissive = ship.skin?.emissiveTexture;
+    if (emissive) declared.push({ configId: ship.id, jsonPath: "skin.emissiveTexture", relPath: emissive });
+  }
+  return declared;
+}
+
+/**
+ * The declared paths that do not resolve, shaped for {@link printErrors}.
+ *
+ * `file` carries the config ID rather than the manifest-relative filename:
+ * ConfigService indexes configs by id and never exposes which file each one
+ * came from. The id is the honest answer, and it is one grep from the file.
+ */
+async function skinTextureErrors(service: ConfigService): Promise<ConfigError[]> {
+  const errors: ConfigError[] = [];
+  for (const { configId, jsonPath, relPath } of declaredSkinTexturePaths(service)) {
+    const check = await resolveExactCase(relPath);
+    if (check.kind === "ok") continue;
+    errors.push({
+      file: configId,
+      path: jsonPath,
+      message:
+        check.kind === "case"
+          ? `case mismatch: declares "${relPath}", but the file on disk is "${check.onDisk}". ` +
+            `Windows resolves both; the deployed pack is served from Linux and resolves only the second.`
+          : `missing file: content/${relPath} does not exist. Paint the image, or drop this entry ` +
+            `until it does — an element no config declares simply keeps the look the GLB shipped with.`,
+    });
+  }
+  return errors;
+}
+
 async function main(): Promise<void> {
   const service = new ConfigService(fsLoader);
   const result = await service.load(MANIFEST);
@@ -424,6 +559,16 @@ async function main(): Promise<void> {
       `\n✖ content problem:\n      the pack declares ${tuningCount} tuning configs; exactly 1 is required ` +
         `(ConfigService.tuning() resolves the single one, and the sim, netcode and HUD all read it).\n`,
     );
+    console.error("validate:content FAILED");
+    process.exit(1);
+  }
+
+  // Every skin-texture path a config WRITES DOWN has to name a real file, with
+  // exact case. Hard, for the same reason the tuning count is: a dangling path
+  // is not authoring traffic, it is a 404 in every match that equips the skin.
+  const textureErrors = await skinTextureErrors(service);
+  if (textureErrors.length > 0) {
+    printErrors(textureErrors);
     console.error("validate:content FAILED");
     process.exit(1);
   }

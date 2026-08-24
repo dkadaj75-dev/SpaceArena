@@ -89,6 +89,15 @@ const CSS = `
 }
 .sa-fullscreen-prompt-skip:hover { color: var(--sa-menu-text, #dbe7f5); }
 .sa-fullscreen-prompt :focus-visible { outline: 2px solid var(--sa-menu-primary, #4fc3f7); outline-offset: 2px; }
+/* The iOS share glyph, drawn inline so the instruction points at the exact
+   button the player has to find in Safari's toolbar. */
+.sa-fullscreen-prompt-share {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  color: var(--sa-menu-primary, #4fc3f7);
+}
 `;
 
 /** Injected seams so the prompt is unit-testable without a real Fullscreen API. */
@@ -105,6 +114,53 @@ const browserDeps: FullscreenPromptDeps = {
   request: () => toggleFullscreen(),
   onChange: onFullscreenChange,
 };
+
+/**
+ * The iPhone escape hatch (owner request 2026-08-23). iPhone Safari has no
+ * element fullscreen at all, so where every other browser gets the offer, an
+ * iPhone gets a one-time hint pointing at the platform's ONLY route to a
+ * chrome-free game: install it (Share → Add to Home Screen; the PWA manifest
+ * already launches standalone). Injected as its own seam because the four
+ * answers come from four different browser surfaces.
+ */
+export interface IosHintDeps {
+  /** iPhone/iPod specifically — iPad HAS the Fullscreen API and gets the offer. */
+  isIphone(): boolean;
+  /** Already launched from the Home Screen: the hint would be noise. */
+  installed(): boolean;
+  hintShown(): boolean;
+  markHintShown(): void;
+}
+
+const HINT_STORAGE_KEY = "sa.iosFullscreenHint";
+
+const browserIosDeps: IosHintDeps = {
+  isIphone: () => /iPhone|iPod/.test(navigator.userAgent),
+  installed: () =>
+    window.matchMedia?.("(display-mode: standalone)").matches === true ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true,
+  hintShown: () => {
+    try {
+      return localStorage.getItem(HINT_STORAGE_KEY) === "1";
+    } catch {
+      return true; // storage blocked: err on silence rather than nag every load
+    }
+  },
+  markHintShown: () => {
+    try {
+      localStorage.setItem(HINT_STORAGE_KEY, "1");
+    } catch {
+      /* not remembering is survivable */
+    }
+  },
+};
+
+/** Safari's share glyph (square, arrow up), the button the hint points at. */
+const SHARE_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M8 8h-2a1 1 0 0 0 -1 1v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-11a1 1 0 0 0 -1-1h-2"/>' +
+  '<path d="M12 14v-11m-4 4l4-4 4 4"/></svg>';
 
 /**
  * One-shot launch dialog offering fullscreen (owner request 2026-07-31). The
@@ -128,7 +184,7 @@ export class FullscreenPrompt {
   private readonly root: HTMLDivElement;
   private readonly offChange: () => void;
 
-  private constructor(parent: HTMLElement, deps: FullscreenPromptDeps) {
+  private constructor(parent: HTMLElement, deps: FullscreenPromptDeps, mode: "offer" | "ios-hint") {
     this.closed = new Promise<void>((resolve) => {
       this.resolveClosed = resolve;
     });
@@ -151,10 +207,35 @@ export class FullscreenPrompt {
 
     const title = document.createElement("h2");
     title.className = "sa-fullscreen-prompt-title";
-    title.textContent = "Go fullscreen?";
 
     const text = document.createElement("p");
     text.className = "sa-fullscreen-prompt-text";
+
+    if (mode === "ios-hint") {
+      // No action button CAN work here: a web page cannot open the share sheet,
+      // so the honest shape is an instruction and one acknowledgement.
+      title.textContent = "Play fullscreen";
+      text.innerHTML =
+        "iPhone Safari can't fullscreen a web game. Install it instead: tap " +
+        `<span class="sa-fullscreen-prompt-share">${SHARE_SVG}</span> ` +
+        "Share, then “Add to Home Screen” — launched from there, " +
+        "Orion's Arm runs fullscreen.";
+
+      const ok = document.createElement("button");
+      ok.type = "button";
+      ok.className = "sa-fullscreen-prompt-go";
+      ok.textContent = "Got it";
+      ok.addEventListener("click", () => this.dismiss());
+
+      panel.append(title, text, ok);
+      this.root.appendChild(panel);
+      parent.appendChild(this.root);
+      // Nothing external can answer this one — there is no fullscreen to enter.
+      this.offChange = () => {};
+      return;
+    }
+
+    title.textContent = "Go fullscreen?";
     text.textContent = "Orion's Arm plays best without the browser chrome.";
 
     const go = document.createElement("button");
@@ -182,10 +263,22 @@ export class FullscreenPrompt {
     });
   }
 
-  /** Show the prompt if fullscreen is possible and not already engaged. */
-  static maybeShow(parent: HTMLElement = document.body, deps: FullscreenPromptDeps = browserDeps): FullscreenPrompt | null {
-    if (!deps.supported() || deps.active()) return null;
-    return new FullscreenPrompt(parent, deps);
+  /**
+   * Show the prompt if fullscreen is possible and not already engaged — or, on
+   * an iPhone (where it never is), the one-time Add-to-Home-Screen hint that
+   * stands in for it. Marked shown at SHOW time, so a mid-dialog reload does
+   * not turn "once" into "every launch".
+   */
+  static maybeShow(
+    parent: HTMLElement = document.body,
+    deps: FullscreenPromptDeps = browserDeps,
+    ios: IosHintDeps = browserIosDeps,
+  ): FullscreenPrompt | null {
+    if (deps.active()) return null;
+    if (deps.supported()) return new FullscreenPrompt(parent, deps, "offer");
+    if (!ios.isIphone() || ios.installed() || ios.hintShown()) return null;
+    ios.markHintShown();
+    return new FullscreenPrompt(parent, deps, "ios-hint");
   }
 
   /** Whether the dialog is still in the DOM (tests / dev probe). */

@@ -254,11 +254,13 @@ export class MapEditor implements EditorPanel {
   }
 
   /**
-   * `scale` lives in `mesh.scaling`, NEVER baked into the geometry: both the
-   * gizmo commit (`p.scale = uniformScale(mesh.scaling)`) and the context
-   * panel's per-frame sync read `mesh.scaling` back as the authored placement
-   * scale. Baking it into `radius` left scaling at 1, so merely MOVING a
-   * scaled asteroid silently reset its authored scale to 1 on commit.
+   * `scale` lives in `mesh.scaling`, NEVER baked into the geometry — the marker
+   * is built at its base radius and scaled, so the context panel's per-frame
+   * sync can stream `mesh.scaling` back as the authored placement scale.
+   * (Baking it into `radius` left scaling at 1 and made the marker lie.)
+   * The config value is authoritative: only a SCALE-gizmo drag commit writes
+   * `p.scale` back (see `commitTransform`), so a move/rotate commit preserves
+   * the authored scale by simply not touching it.
    */
   private marker(kind: Selection["kind"], index: number, position: Vector3, radius: number, color: Color3, rotationY = 0, scale = 1): Mesh {
     const mesh = kind === "spawn" || kind === "flag" ? MeshBuilder.CreateCylinder(`editor.${kind}.${index}`, { diameter: radius * 2, height: kind === "flag" ? 4 : .3 }, this.host.scene) : MeshBuilder.CreateIcoSphere(`editor.${kind}.${index}`, { radius, subdivisions: 1 }, this.host.scene);
@@ -293,21 +295,33 @@ export class MapEditor implements EditorPanel {
     this.gizmos.attachToNode(target);
     const allowScale = kind === "asteroid" || kind === "prop";
     if (this.gizmos.gizmos.scaleGizmo) { const scale = this.gizmos.gizmos.scaleGizmo; scale.uniformScaleGizmo.isEnabled = allowScale; scale.xGizmo.isEnabled = false; scale.yGizmo.isEnabled = false; scale.zGizmo.isEnabled = false; }
-    this.gizmos.gizmos.positionGizmo?.onDragEndObservable.addOnce(() => this.commitTransform());
-    this.gizmos.gizmos.rotationGizmo?.onDragEndObservable.addOnce(() => this.commitTransform());
-    this.gizmos.gizmos.scaleGizmo?.onDragEndObservable.addOnce(() => this.commitTransform());
+    this.gizmos.gizmos.positionGizmo?.onDragEndObservable.addOnce(() => this.commitTransform("position"));
+    this.gizmos.gizmos.rotationGizmo?.onDragEndObservable.addOnce(() => this.commitTransform("rotation"));
+    this.gizmos.gizmos.scaleGizmo?.onDragEndObservable.addOnce(() => this.commitTransform("scale"));
     this.ctx.show(this.contextView());
   }
 
-  private commitTransform(): void {
+  /**
+   * `source` is the gizmo whose drag just ended. Only a SCALE drag may write
+   * `p.scale` — an accidental scale-gizmo nudge riding along with a move/rotate
+   * commit once silently rescaled a shipped placement. Position and rotation
+   * still commit together (one handle rarely moves without the other reading
+   * back identically, and splitting them buys nothing).
+   */
+  private commitTransform(source: "position" | "rotation" | "scale"): void {
     if (!this.selected) return;
+    const { kind, index, mesh } = this.selected;
+    if (!this.canSelect(kind, index)) return; // Locked/hidden layer: no drag may land, however the handles got there.
     const arena = structuredClone(this.arena()); if (!arena) return;
-    const { kind, index, mesh } = this.selected; const position = snapPosition(mesh.position, this.translateSnap);
-    if (kind === "asteroid") { const p = arena.asteroidPlacements[index]!; p.position = position; p.rotation = snapRotation(mesh.rotation.y, this.rotateSnap); p.scale = uniformScale(mesh.scaling); }
-    else if (kind === "prop") { const p = arena.propPlacements![index]!; p.position = position; p.rotation = { y: snapRotation(mesh.rotation.y, this.rotateSnap), x: snapRotation(mesh.rotation.x, this.rotateSnap), z: snapRotation(mesh.rotation.z, this.rotateSnap) }; p.scale = uniformScale(mesh.scaling); }
-    else if (kind === "spawn") { arena.spawnPoints[index]!.position = position; arena.spawnPoints[index]!.heading = snapRotation(mesh.rotation.y, this.rotateSnap); }
-    else if (kind === "flag") arena.flagBases![index]!.position = position;
-    else arena.navGraph!.nodes[index]!.position = position;
+    if (source === "scale") { const p = kind === "asteroid" || kind === "prop" ? listFor(arena, kind)?.[index] : undefined; if (!p) return; p.scale = uniformScale(mesh.scaling); }
+    else {
+      const position = snapPosition(mesh.position, this.translateSnap);
+      if (kind === "asteroid") { const p = arena.asteroidPlacements[index]!; p.position = position; p.rotation = snapRotation(mesh.rotation.y, this.rotateSnap); }
+      else if (kind === "prop") { const p = arena.propPlacements![index]!; p.position = position; p.rotation = { y: snapRotation(mesh.rotation.y, this.rotateSnap), x: snapRotation(mesh.rotation.x, this.rotateSnap), z: snapRotation(mesh.rotation.z, this.rotateSnap) }; }
+      else if (kind === "spawn") { arena.spawnPoints[index]!.position = position; arena.spawnPoints[index]!.heading = snapRotation(mesh.rotation.y, this.rotateSnap); }
+      else if (kind === "flag") arena.flagBases![index]!.position = position;
+      else arena.navGraph!.nodes[index]!.position = position;
+    }
     this.maintainTwin(arena, kind, index); this.replace(arena);
   }
 

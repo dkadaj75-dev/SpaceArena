@@ -148,6 +148,15 @@ export function resolveStartTier(
 ): { tier: QualityTier; fromOverride: boolean } {
   const override = parseStoredTier(stored);
   if (override && tierConfig(tiers, override)) return { tier: override, fromOverride: true };
+  // A software rasterizer is not a GPU, whatever else the probe says about the
+  // machine. `isDesktopClassRenderer` matches none of these strings, so a
+  // SwiftShader/llvmpipe box scored as a healthy desktop and was handed the mid
+  // tier — four punctual lights, PBR+IBL, an ESM shadow map and a GlowLayer,
+  // the permutation most likely to fail to link. Babylon skips a draw whose
+  // effect never became ready, silently, and the frame comes out clear-coloured.
+  if (isSoftwareRenderer(probe.renderer ?? null) && tierConfig(tiers, "low")) {
+    return { tier: "low", fromOverride: false };
+  }
   // Safari is deliberately presentation-first when the player has no saved
   // choice. Its WebGPU-capable Macs and modern iPads are the target platform
   // for Ultra; the normal FPS sampler can still step it down in-match.
@@ -256,6 +265,18 @@ export function sampleAutoTier(
 /** Preserve desktop MSAA; mobile-class probes use the cheaper non-MSAA engine path. */
 export function engineAntialiasForProbe(probe: Pick<DeviceProbe, "mobile">): boolean {
   return !probe.mobile;
+}
+
+/**
+ * No GPU is involved at all: Chrome's SwiftShader, Mesa's llvmpipe/softpipe,
+ * Microsoft's Basic Render Driver, and the generic strings a paravirtualised or
+ * headless machine reports. These must never reach a shader-heavy tier.
+ */
+export function isSoftwareRenderer(renderer: string | null): boolean {
+  return (
+    renderer !== null &&
+    /swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic|generic renderer|paravirtual/i.test(renderer)
+  );
 }
 
 export function isDesktopClassRenderer(renderer: string | null): boolean {

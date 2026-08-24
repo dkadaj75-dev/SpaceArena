@@ -5,6 +5,8 @@ import {
   DEFAULT_JUICE_SETTINGS,
   MISSILE_IMPACT_SCALE,
   explosionEffectIdFor,
+  hullChargeLevel,
+  impactFeedbackFor,
   juiceSettingsOf,
   missileImpactEffectIdsFor,
   shieldBubbleColorOf,
@@ -23,13 +25,13 @@ describe("juiceSettingsOf", () => {
   it("merges a partial juice block field by field", () => {
     const theme = {
       juice: {
-        hitFlash: { durationMs: 400 },
+        energyCharge: { durationMs: 400 },
         explosions: { asteroid: "fx.explosion-rock", byShipClass: { heavy: "fx.explosion-heavy" } },
       },
     } as unknown as ThemeConfig;
     const s = juiceSettingsOf(theme);
-    expect(s.hitFlash.durationMs).toBe(400);
-    expect(s.hitFlash.color).toBe(DEFAULT_JUICE_SETTINGS.hitFlash.color);
+    expect(s.energyCharge.durationMs).toBe(400);
+    expect(s.energyCharge.color).toBe(DEFAULT_JUICE_SETTINGS.energyCharge.color);
     expect(s.explosions.asteroidEffect).toBe("fx.explosion-rock");
     expect(s.explosions.byShipClass["heavy"]).toBe("fx.explosion-heavy");
     expect(s.explosions.burstCount).toBe(DEFAULT_JUICE_SETTINGS.explosions.burstCount);
@@ -212,35 +214,38 @@ describe("shieldRipplePose", () => {
     expect(Number.isFinite(pose.scale)).toBe(true);
   });
 
-  it("keeps the idle band barely visible, well under the impact peak", () => {
-    // The point of the rebalance: an unhit shield is nearly transparent, and a
-    // hit one is unmistakable. Pinned as a ratio so retuning the numbers cannot
-    // quietly bring the permanent bubble back.
-    expect(ripple.maxAlpha).toBeLessThan(0.06);
-    expect(ripple.impactAlpha).toBeGreaterThan(ripple.maxAlpha * 5);
+  it("keeps a raised shield VISIBLE at rest, with the flare still clearly above it", () => {
+    // The 2026-08-14 doctrine ("an unhit shield is nearly transparent") was
+    // written for the flat-sphere ripple and is SUPERSEDED: the hex bubble
+    // must read while it is up (owner 2026-08-23, "the shield does not stay
+    // up, visually"). Pinned as a band: visible enough to hold on screen,
+    // transparent enough that the rim fresnel keeps the hull legible, and the
+    // hit flare still unmistakably brighter than the idle peak.
+    expect(ripple.minAlpha).toBeGreaterThan(0.05);
+    expect(ripple.maxAlpha).toBeLessThan(0.15);
+    expect(ripple.impactAlpha).toBeGreaterThan(ripple.maxAlpha * 1.5);
   });
 
-  it("ships the whole bubble at HALF the opacity it once had (owner 2026-08-14)", () => {
-    // Halved coherently — idle band and flare together — so "more like glass"
-    // did not cost the on-hit read its punch. The pre-halving values were
-    // 0.012 / 0.032 / 0.5.
-    expect(ripple.minAlpha).toBeCloseTo(0.006, 6);
-    expect(ripple.maxAlpha).toBeCloseTo(0.016, 6);
-    expect(ripple.impactAlpha).toBeCloseTo(0.25, 6);
+  it("ships the owner's 2026-08-23 band: the visible baseline cut by 20% extra transparency", () => {
+    // 0.10 / 0.14 / 0.25 × 0.8 — the persistent-bubble baseline with the "20%
+    // more transparent" of the same request already applied.
+    expect(ripple.minAlpha).toBeCloseTo(0.08, 6);
+    expect(ripple.maxAlpha).toBeCloseTo(0.112, 6);
+    expect(ripple.impactAlpha).toBeCloseTo(0.2, 6);
     // Both sides of the fight read from the same band; only the tint differs.
     expect(shieldBubbleColorOf("friendly", ripple)).not.toBe(shieldBubbleColorOf("hostile", ripple));
   });
 
-  it("halves the SHIPPED theme's authored band too, not just the built-in default", () => {
+  it("ships the same band in the SHIPPED theme, not just the built-in default", () => {
     const shipped = JSON.parse(
       readFileSync("content/themes/default.json", "utf8"),
     ) as ThemeConfig;
     const authored = juiceSettingsOf(shipped).shieldRipple;
-    expect(authored.minAlpha).toBeCloseTo(0.006, 6);
-    expect(authored.maxAlpha).toBeCloseTo(0.015, 6);
-    expect(authored.impactAlpha).toBeCloseTo(0.25, 6);
-    // Still a flare you cannot miss: an order of magnitude over the idle peak.
-    expect(authored.impactAlpha).toBeGreaterThan(authored.maxAlpha * 10);
+    expect(authored.minAlpha).toBeCloseTo(0.08, 6);
+    expect(authored.maxAlpha).toBeCloseTo(0.112, 6);
+    expect(authored.impactAlpha).toBeCloseTo(0.2, 6);
+    // The flare still reads over the now-visible idle band.
+    expect(authored.impactAlpha).toBeGreaterThan(authored.maxAlpha * 1.5);
   });
 
   it("jumps to the impact alpha on a fresh hit and decays back to idle", () => {
@@ -248,7 +253,7 @@ describe("shieldRipplePose", () => {
     const hit = shieldRipplePose(0, ripple, 0);
     const settled = shieldRipplePose(0, ripple, ripple.impactDecayMs);
     expect(hit.alpha).toBeCloseTo(ripple.impactAlpha);
-    expect(hit.alpha).toBeGreaterThan(idle.alpha * 5);
+    expect(hit.alpha).toBeGreaterThan(idle.alpha * 1.5);
     expect(hit.scale).toBeGreaterThan(idle.scale);
     expect(settled.alpha).toBeCloseTo(idle.alpha);
     expect(settled.scale).toBeCloseTo(idle.scale);
@@ -291,5 +296,86 @@ describe("shieldImpactFlare", () => {
     expect(shieldImpactFlare(Number.POSITIVE_INFINITY, 400)).toBe(0);
     expect(shieldImpactFlare(Number.NaN, 400)).toBe(0);
     expect(shieldImpactFlare(0, 0)).toBe(0);
+  });
+});
+
+describe("impactFeedbackFor", () => {
+  it("blows a MISSILE up, whatever channel its damage went through", () => {
+    // A warhead is authored `hybrid`, so the weapon is the only honest signal.
+    expect(impactFeedbackFor("hybrid", "missile")).toBe("blast");
+    expect(impactFeedbackFor("kinetic", "missile")).toBe("blast");
+    expect(impactFeedbackFor("energy", "missile")).toBe("blast");
+  });
+
+  it("sparks a KINETIC round even if a pack gave it an odd damage type", () => {
+    expect(impactFeedbackFor("kinetic", "kinetic")).toBe("spark");
+    expect(impactFeedbackFor("hybrid", "kinetic")).toBe("spark");
+  });
+
+  it("electrifies the hull for an ENERGY weapon", () => {
+    expect(impactFeedbackFor("energy", "beam")).toBe("charge");
+    expect(impactFeedbackFor("energy", undefined)).toBe("charge");
+  });
+
+  it("reads a weaponless hybrid hit as a blast \u2014 that is the warhead's channel", () => {
+    expect(impactFeedbackFor("hybrid", undefined)).toBe("blast");
+    // ...but only when nothing contradicts it: a `hybrid` BEAM must not detonate.
+    expect(impactFeedbackFor("hybrid", "beam")).toBe("spark");
+  });
+
+  it("falls back to sparks for anything it has never heard of", () => {
+    // A hull scraping an asteroid, an old peer, a pack's invented type: all of
+    // them are "something physical struck this", which is what a spark says.
+    expect(impactFeedbackFor(undefined, undefined)).toBe("spark");
+    expect(impactFeedbackFor(null, null)).toBe("spark");
+    expect(impactFeedbackFor("plasma", undefined)).toBe("spark");
+  });
+});
+
+describe("hullChargeLevel", () => {
+  const charge = DEFAULT_JUICE_SETTINGS.energyCharge;
+
+  it("is dark with no hit on record", () => {
+    expect(hullChargeLevel(Number.POSITIVE_INFINITY, charge)).toBe(0);
+    expect(hullChargeLevel(Number.NaN, charge)).toBe(0);
+    expect(hullChargeLevel(-5, charge)).toBe(0);
+  });
+
+  it("peaks at the hit and is out by the end of the window", () => {
+    expect(hullChargeLevel(0, charge)).toBeCloseTo(charge.intensity, 6);
+    expect(hullChargeLevel(charge.durationMs, charge)).toBe(0);
+    expect(hullChargeLevel(charge.durationMs * 2, charge)).toBe(0);
+  });
+
+  it("actually FLICKERS \u2014 the level is not monotonic across the window", () => {
+    let rises = 0;
+    let previous = hullChargeLevel(0, charge);
+    for (let t = 1; t < charge.durationMs; t += 2) {
+      const level = hullChargeLevel(t, charge);
+      if (level > previous + 1e-9) rises++;
+      previous = level;
+    }
+    expect(rises).toBeGreaterThan(2);
+  });
+
+  it("never blinks fully dark mid-flicker \u2014 that reads as a dropped frame", () => {
+    for (let t = 0; t < charge.durationMs * 0.9; t += 1) {
+      expect(hullChargeLevel(t, charge)).toBeGreaterThan(0);
+    }
+  });
+
+  it("runs out overall even though it flickers", () => {
+    expect(hullChargeLevel(charge.durationMs * 0.9, charge)).toBeLessThan(hullChargeLevel(0, charge));
+  });
+
+  it("draws nothing when the theme turns it off", () => {
+    expect(hullChargeLevel(0, { ...charge, enabled: false })).toBe(0);
+    expect(hullChargeLevel(0, { ...charge, durationMs: 0 })).toBe(0);
+  });
+
+  it("holds a steady level when the theme asks for no flicker", () => {
+    const steady = { ...charge, flickerHz: 0 };
+    expect(hullChargeLevel(0, steady)).toBeCloseTo(charge.intensity, 6);
+    expect(hullChargeLevel(charge.durationMs / 2, steady)).toBeCloseTo(charge.intensity / 2, 6);
   });
 });

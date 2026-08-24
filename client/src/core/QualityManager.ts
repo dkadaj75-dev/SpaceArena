@@ -231,8 +231,15 @@ export class QualityManager {
    */
   hardwareScalingLevel(): number {
     const cfg = this.current;
-    const dpr = Math.min(Math.max(this.devicePixelRatio, 0.5), cfg.render.maxDevicePixelRatio);
-    return (1 / dpr) * cfg.render.hardwareScalingMultiplier;
+    // Every bound here is a guard against a 0×0 backing store, which is both an
+    // invisible canvas and one `drawImage` cannot even sample. A config that
+    // ships `maxDevicePixelRatio <= 0` used to drive `dpr` to 0, hence a scaling
+    // level of Infinity, which `setSize`'s `width | 0` truncates to zero.
+    const cap = Math.max(0.5, cfg.render.maxDevicePixelRatio || 0.5);
+    const dpr = Math.min(Math.max(this.devicePixelRatio || 1, 0.5), cap);
+    const multiplier = cfg.render.hardwareScalingMultiplier || 1;
+    const level = (1 / dpr) * multiplier;
+    return Number.isFinite(level) ? Math.min(Math.max(level, 0.25), 4) : 1;
   }
 
   private applyEngine(): void {
@@ -268,12 +275,27 @@ function deviceBucket(renderer: string): string {
   return renderer.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 96);
 }
 
+/**
+ * The GPU's own name, for tier selection and for every diagnostic that has to
+ * say which machine it is talking about. WebGL2 first: this used to request a
+ * WebGL1 context, which reports a WebGL1 renderer string on a machine that
+ * would happily have given WebGL2 — and it never released the context either,
+ * so every call leaked one against the browser's per-page context limit, and
+ * running out of contexts is itself a way to get a black canvas.
+ */
 export function readWebglRenderer(): string | null {
   try {
     const canvas = document.createElement("canvas");
-    const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
-    const info = gl?.getExtension("WEBGL_debug_renderer_info");
-    return info && gl ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : null;
+    const gl = (canvas.getContext("webgl2") ||
+      canvas.getContext("webgl") ||
+      canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+    if (!gl) return null;
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : null;
+    // Hand the context straight back rather than waiting for a GC that may
+    // never come before the next probe.
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return name;
   } catch { return null; }
 }
 

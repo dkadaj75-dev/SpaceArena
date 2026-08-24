@@ -61,18 +61,45 @@ describe("AuthService.register (guest upgrade)", () => {
     const auth = new AuthService(BASE);
     await auth.guest(); // establishes a guest session first
 
-    await auth.register("player@example.com", "hunter22", "PlayerOne");
+    await auth.register("PlayerOne", "hunter22", "player@example.com");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [url, init] = fetchMock.mock.calls[1]!;
     expect(url).toBe(`${BASE}/api/auth/register`);
     expect((init!.headers as Record<string, string>).Authorization).toBe("Bearer access-1");
     expect(JSON.parse(init!.body as string)).toEqual({
-      email: "player@example.com",
-      password: "hunter22",
       displayName: "PlayerOne",
+      password: "hunter22",
+      email: "player@example.com",
     });
     expect(auth.getState()).toEqual({ status: "authed", profile: { ...profile, isGuest: false } });
+  });
+
+  it("registers with no email at all — the nickname is the only required field", async () => {
+    const fetchMock = fetchSequence(jsonResponse({ ...pair, profile: { ...profile, isGuest: false } }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = new AuthService(BASE);
+    await auth.register("PlayerOne", "hunter22");
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`${BASE}/api/auth/register`);
+    // `email: undefined` is dropped by JSON.stringify → the server sees no email.
+    expect(JSON.parse(init!.body as string)).toEqual({ displayName: "PlayerOne", password: "hunter22" });
+  });
+});
+
+describe("AuthService.login", () => {
+  it("posts the nickname-or-email as `identifier`", async () => {
+    const fetchMock = fetchSequence(jsonResponse({ ...pair, profile: { ...profile, isGuest: false } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = new AuthService(BASE);
+    await auth.login("PlayerOne", "hunter22");
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`${BASE}/api/auth/login`);
+    expect(JSON.parse(init!.body as string)).toEqual({ identifier: "PlayerOne", password: "hunter22" });
   });
 });
 
@@ -179,7 +206,7 @@ describe("Finding 6 — stale guest credential cleanup", () => {
     await auth.guest();
     expect(localStorage.getItem("guestToken")).toBe("gt-1");
 
-    await auth.register("player@example.com", "hunter22");
+    await auth.register("PlayerOne", "hunter22", "player@example.com");
     expect(localStorage.getItem("guestToken")).toBeNull();
   });
 

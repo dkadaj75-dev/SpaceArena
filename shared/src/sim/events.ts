@@ -8,6 +8,21 @@ import type { ModuleState } from "./components.js";
  * (or the netcode) can react. Action-id hooks (`onFire`, `onActivate`, ...) are
  * surfaced here as `actions` arrays — interpretation lives outside the sim.
  */
+/**
+ * What LANDED the hit, as opposed to what kind of damage it did (owner
+ * 2026-08-23). The two are genuinely different questions: `damageType` is the
+ * mitigation channel (`kinetic` / `energy` / `hybrid`), while this is the thing
+ * the player watched arrive — and a renderer that wants to blow a warhead up on
+ * the hull needs the second one, since a missile's authored type is `hybrid`
+ * and nothing else about the event says "missile". Same union as
+ * `projectileFired.kind`, deliberately, so the two beats of one shot agree.
+ *
+ * Optional on the events that carry it: a producer with nothing to say (a hull
+ * scraping an asteroid, an old peer that predates the field) simply omits it,
+ * and the renderer falls back to its damage-type reading.
+ */
+export type HitWeapon = "beam" | "kinetic" | "missile";
+
 export type SimEvent =
   /** Auto-targeting picked (or dropped) a lock candidate — `targetId: null` means dropped. */
   | { type: "targetSet"; entityId: EntityId; targetId: EntityId | null }
@@ -73,12 +88,25 @@ export type SimEvent =
       amount: number;
       damageType: DamageType;
       isAsteroid: boolean;
+      /** What landed the hit ({@link HitWeapon}), when the producer knew. */
+      weapon?: HitWeapon;
+      /**
+       * World-space point the hit landed on, when the producer knew one — a
+       * projectile reports where it was standing on the tick it connected.
+       * Hitscan weapons omit it: a beam has no travelling body, and the client
+       * already draws its strike where the drawn beam meets the target.
+       */
+      pos?: { x: number; y: number; z: number };
     }
   | {
       type: "shieldAbsorb";
       targetId: EntityId;
       sourceId: EntityId | null;
       hardpointIndex: number;
+      /** What landed the hit ({@link HitWeapon}) — a warhead stopped by a shield still detonates. */
+      weapon?: HitWeapon;
+      /** World-space point the hit landed on, when the producer knew one. */
+      pos?: { x: number; y: number; z: number };
       /** Shield CHARGE spent soaking the hit — the module's own accounting. */
       amount: number;
       /**

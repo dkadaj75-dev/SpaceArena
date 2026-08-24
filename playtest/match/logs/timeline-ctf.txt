@@ -1,0 +1,128 @@
++41.9s  both accounts in the lobby
++41.9s  >> fit A
++47.3s    ctf-a hardpoint 0 -> module.kinetic-mk1
++50.3s    ctf-a hardpoint 1 -> module.shield-mk1
++56.8s  >> fit B
++62.6s    ctf-b hardpoint 0 -> module.beamlaser-mk1
++65.6s    ctf-b hardpoint 1 -> module.missile-mk1
++75.7s  >> queue 5v5 Capture the Flag — B follows A inside the 10 s backfill window
++77.0s  A search card while alone: FINDING PLAYERS | Lunar Rift | 0:00 | TEAM 1 | 0/5 | · · · | · · · | · · · | · · · | · · · | TEAM 2 | 0/5 | · · · | · · · | · · · | · · · | · · · | Looking for a worthy opponent... | Loading arena assets — 5% | Cancel
++79.9s     B queued 79.9s in
++81.4s  >> wait for the HUD on both
++93.8s  roster: 10 ships, arena=arena.lunar-rift, A=3 team=0
++93.8s  A fit: module.kinetic-mk1, module.shield-mk1, module.engine-earth-eng1, module.generator-earth-eng1, module.alloy-earth-p1, module.countermeasure-flare, module.sensors-common-mk1
++93.9s  B=3 team=0
++93.9s  B fit: module.beamlaser-mk1, module.missile-mk1, module.engine-earth-eng1, module.generator-earth-eng1, module.alloy-earth-p1, module.countermeasure-flare, module.sensors-common-mk1
++93.9s  teams: ["3:t0","4:t0","5:t0","6:t0","7:t0","8:t1","9:t1","10:t1","11:t1","12:t1"]
++93.9s  >> module inventory on the HUD
++93.9s     A buttons: [{"side":"weapons","slot":"01","control":"module","type":"CANNON","label":"Cannon Mk1","cls":"hud-module-btn hud-slot-btn hex-action family-kinetic trigger state-active armed"},{"side":"utilities","slot":"01","control":"module","type":"SHIELD","label":"Shield Mk1","cls":"hud-module-btn hud-slot-btn hex-action family-shield state-retracted ring-energy"},{"side":"utilities","slot":"02","control":"boost","type":"BOOST","label":"BOOST","cls":"hud-boost-btn hud-module-btn hud-slot-btn hex-action ring-energy"},{"side":"utilities","slot":"03","control":"jettison","type":"JETT","label":"JETTISON","cls":"hud-jettison-btn hud-module-btn hud-slot-btn hex-action"}]
++93.9s     B buttons: [{"side":"weapons","slot":"01","control":"module","type":"BEAM","label":"Beam Mk1","cls":"hud-module-btn hud-slot-btn hex-action family-laser trigger state-active armed"},{"side":"weapons","slot":"02","control":"module","type":"MISSILE","label":"Missile Mk1","cls":"hud-module-btn hud-slot-btn hex-action family-missile trigger state-active armed unarmable"},{"side":"utilities","slot":"01","control":"boost","type":"BOOST","label":"BOOST","cls":"hud-boost-btn hud-module-btn hud-slot-btn hex-action ring-energy"},{"side":"utilities","slot":"02","control":"jettison","type":"JETT","label":"JETTISON","cls":"hud-jettison-btn hud-module-btn hud-slot-btn hex-action"}]
++93.9s  >> countdown / first seconds
++101.5s     speed readout "20 m/s" throttle "100%"
++101.5s  >> engage: close and hold both triggers
++101.7s     dist=272 hull=96 locked=false spd=20 m/s thr=100% fps=14 steer=true
++106.4s     dist=173 hull=116 locked=true spd=1 m/s thr=100% fps=15 steer=true
++111.0s     dist=147 hull=116 locked=true spd=54 m/s thr=100% fps=15 steer=true
++115.6s     dist=12 hull=100 locked=true spd=8 m/s thr=15% fps=16 steer=true
++120.7s     dist=39 hull=100 locked=false spd=40 m/s thr=75% fps=16 steer=true
++125.3s     dist=22 hull=100 locked=true spd=4 m/s thr=15% fps=14 steer=true
++129.9s     dist=31 hull=76 locked=true spd=8 m/s thr=15% fps=16 steer=true
++131.8s  >> shield up — hex bubble assemble / absorb / shatter
++132.7s     shield toggle: {"before":"hud-module-btn hud-slot-btn hex-action family-shield state-retracted ring-energy","after":"hud-module-btn hud-slot-btn hex-action family-shield state-retracted ring-energy"}
++155.3s  >> VFX burst: point blank, rapid frames
++174.6s  >> take hits and die
++224.9s     hull now 110, phase live, launchHold 0
++226.2s  >> respawn and fight on
++250.5s  >> boost
++257.6s     boost tapped=true class="hud-boost-btn hud-module-btn hud-slot-btn hex-action ring-energy pressed"
++257.6s     speed ? -> ?
++258.9s  >> jettison
++262.4s     jettison tapped=true class before="hud-jettison-btn hud-module-btn hud-slot-btn hex-action" after="hud-jettison-btn hud-module-btn hud-slot-btn hex-action"
++262.4s  >> HUD chrome: in-match scoreboard and pause/settings
++264.5s     scoreboard opened: false
++269.5s     quit-to-menu offered in pause: 0
++270.4s     settings still open after close: false
++271.6s  >> boundary run — the shield wall and its warning
++272.5s     radius 321 hull=120 spd=0 m/s thr=0%
++274.8s     radius 350 hull=120 spd=54 m/s thr=100%
++302.8s     furthest radius 350, hull 110 (was undefined at the warning)
++302.8s  >> kill feed / match status / toasts
++302.8s     kill feed: "Zen1thHD took the red flag"
++302.8s     match status: "0 FIRST TO 3 · 6:54 0"
++302.8s     notifications: ""
++304.1s  >> play out or leave
++397.6s     still live — leaving through the pause menu
++408.2s     back at the lobby: true
++411.5s  pilot A: flew 266 m from spawn, steer re-taken 39x, 1088 ticks
++411.5s  pilot B: flew 302 m from spawn, steer re-taken 82x, 939 ticks
++411.5s  console counts A: {"error":55,"warning":3,"log":1,"pageerror":0,"debug":2,"info":11,"verbose":2}
++411.5s  console counts B: {"error":159,"warning":2,"log":1,"pageerror":0,"debug":2,"info":9,"verbose":2}
+
+--- pilot A events ---
+[01:26:17] ctf-a: steer origin 300,210 on renderCanvas
+[01:26:27] ctf-a: holding trigger 01
+[01:26:27] ctf-a: weapon slot 02 not on the HUD
+[01:26:27] ctf-a: weapon slot 02 not on the HUD
+[01:26:28] ctf-a: weapon slot 02 not on the HUD
+[01:26:28] ctf-a: weapon slot 02 not on the HUD
+[01:26:28] ctf-a: weapon slot 02 not on the HUD
+[01:26:28] ctf-a: weapon slot 02 not on the HUD
+[01:26:29] ctf-a: weapon slot 02 not on the HUD
+[01:26:29] ctf-a: weapon slot 02 not on the HUD
+[01:26:29] ctf-a: weapon slot 02 not on the HUD
+[01:26:29] ctf-a: weapon slot 02 not on the HUD
+[01:26:32] ctf-a: weapon slot 02 not on the HUD
+[01:26:33] ctf-a: weapon slot 02 not on the HUD
+[01:26:33] ctf-a: weapon slot 02 not on the HUD
+[01:26:33] ctf-a: weapon slot 02 not on the HUD
+[01:26:33] ctf-a: weapon slot 02 not on the HUD
+[01:26:33] ctf-a: weapon slot 02 not on the HUD
+[01:26:34] ctf-a: weapon slot 02 not on the HUD
+[01:26:34] ctf-a: weapon slot 02 not on the HUD
+[01:26:36] ctf-a: weapon slot 02 not on the HUD
+[01:26:37] ctf-a: weapon slot 02 not on the HUD
+[01:26:37] ctf-a: weapon slot 02 not on the HUD
+[01:26:38] ctf-a: weapon slot 02 not on the HUD
+[01:26:38] ctf-a: weapon slot 02 not on the HUD
+[01:26:38] ctf-a: weapon slot 02 not on the HUD
+[01:26:41] ctf-a: weapon slot 02 not on the HUD
+[01:26:41] ctf-a: weapon slot 02 not on the HUD
+[01:26:42] ctf-a: weapon slot 02 not on the HUD
+[01:26:42] ctf-a: weapon slot 02 not on the HUD
+[01:26:42] ctf-a: weapon slot 02 not on the HUD
+[01:26:42] ctf-a: weapon slot 02 not on the HUD
+[01:26:43] ctf-a: weapon slot 02 not on the HUD
+[01:26:43] ctf-a: weapon slot 02 not on the HUD
+[01:26:43] ctf-a: weapon slot 02 not on the HUD
+[01:26:44] ctf-a: weapon slot 02 not on the HUD
+[01:26:46] ctf-a: weapon slot 02 not on the HUD
+[01:26:46] ctf-a: weapon slot 02 not on the HUD
+[01:26:46] ctf-a: weapon slot 02 not on the HUD
+[01:26:46] ctf-a: weapon slot 02 not on the HUD
+[01:26:47] ctf-a: weapon slot 02 not on the HUD
+[01:26:47] ctf-a: weapon slot 02 not on the HUD
+[01:26:47] ctf-a: weapon slot 02 not on the HUD
+[01:26:47] ctf-a: weapon slot 02 not on the HUD
+[01:26:48] ctf-a: weapon slot 02 not on the HUD
+[01:26:48] ctf-a: weapon slot 02 not on the HUD
+[01:26:48] ctf-a: weapon slot 02 not on the HUD
+[01:26:48] ctf-a: weapon slot 02 not on the HUD
+[01:26:50] ctf-a: weapon slot 02 not on the HUD
+[01:26:50] ctf-a: weapon slot 02 not on the HUD
+[01:26:50] ctf-a: weapon slot 02 not on the HUD
+[01:26:51] ctf-a: weapon slot 02 not on the HUD
+[01:26:51] ctf-a: weapon slot 02 not on the HUD
+[01:26:51] ctf-a: weapon slot 02 not on the HUD
+[01:26:51] ctf-a: weapon slot 02 not on the HUD
+[01:26:51] ctf-a: weapon slot 02 not on the HUD
+[01:26:52] ctf-a: weapon slot 02 not on the HUD
+[01:26:52] ctf-a: weapon slot 02 not on the HUD
+[01:26:52] ctf-a: weapon slot 02 not on the HUD
+[01:26:52] ctf-a: weapon slot 02 not on the HUD
+[01:26:52] ctf-a: weapon slot 02 not on the HUD
+[01:26:53] ctf-a: weapon slot 02 not on the HUD
+[01:26:53] ctf-a: weapon slot 02 not on the HUD
+[01:26:56] ctf-a: SHIELD: "hud-module-btn hud-slot-btn hex-action family-shield state-retracted ring-energy" -> "hud-module-btn hud-slot-btn hex-action family-shield state-retracted ring-energy"
+[01:27:18] ctf-a: weapon slot 02 not on the HUD
+[01:28:29] ctf-a: holding trigger 01
+[01:28:29] ctf-a: weapon slot 02 not on the HUD

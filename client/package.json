@@ -13,8 +13,10 @@
   "dependencies": {
     "@babylonjs/core": "^8.0.0",
     "@babylonjs/loaders": "^8.56.2",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/orbitron": "^5.3.0",
     "@fontsource/rajdhani": "^5.3.0",
+    "@fontsource/titillium-web": "^5.3.0",
     "@space-arena/shared": "*",
     "colyseus.js": "^0.16.16"
   },

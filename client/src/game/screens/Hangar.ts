@@ -35,10 +35,10 @@ import {
   type HangarSlot,
 } from "../hangarFitting.js";
 import { computeStatPanel, type HangarStatPanel } from "../hangarStats.js";
-import { buildOverlayModel, type HangarGauge } from "../hangarOverlayModel.js";
+import { deckCompareRows, deckPower, slotLabel, type DeckCompareRow } from "../hangarDeck.js";
+import { moduleIconId, moduleIconSvg } from "../hud/moduleIcons.js";
 import { loadLocalLoadout, saveLocalLoadout } from "../offlineFittings.js";
-import { moduleStats } from "../moduleSummary.js";
-import { buyModuleLocal, buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
+import { buyShipLocal, ownsModule, ownsShip, STARTER_SHIP_ID } from "../offlineOwnership.js";
 import type { OwnershipStore } from "../ownershipStore.js";
 import { hullOwned, moduleOwned } from "../hangarGating.js";
 import { priceLabel } from "../shopModel.js";
@@ -49,8 +49,7 @@ import { SwipeWatcher, wrapIndex } from "../hangarSwipe.js";
 import { HangarBay } from "./HangarBay.js";
 import { swapFrame, SWAP_DISTANCE_RADII, SWAP_DURATION_SEC } from "../shipSwap.js";
 import { juiceSettingsOf } from "../juice/juiceSettings.js";
-import { moduleIconId, moduleIconSvg } from "../hud/moduleIcons.js";
-import { framingRadius, stageAspect, stageViewport, STAGE_FRACTION } from "../hangarLayout.js";
+import { framingRadius, isLandscape, stageAspect, stageViewport, STAGE_FRACTION } from "../hangarLayout.js";
 import { ShipSocketRig, type ParticleQuality } from "../ShipSocketRig.js";
 import { pinInstanceLod0 } from "../../core/modelLod.js";
 import type { TacticalCamera } from "../TacticalCamera.js";
@@ -85,20 +84,41 @@ const LS_UPGRADES = "hangar.upgrades";
  */
 const LS_MODULES = "hangar.moduleIds";
 const THEME_ID = "theme.default";
+/**
+ * Grace on top of {@link SWAP_DURATION_SEC} before the wall-clock guard lands a
+ * ship swap the render loop never finished. Long enough that a healthy screen
+ * always beats it to the punch, short enough that a stalled one is not stuck.
+ */
+const SWAP_GUARD_SLACK_MS = 120;
+
+/**
+ * Share of a LANDSCAPE screen the viewer takes on the loadout deck: 545 of the
+ * design's 960px frame. Portrait keeps the even {@link STAGE_FRACTION} split —
+ * the deck stacks under the ship there, and a 57/43 vertical split would leave
+ * the tiles too short to press. The CSS below must agree with this or the hull
+ * renders behind the panel.
+ */
+const DECK_STAGE_FRACTION = 545 / 960;
+
+/** How long a finger has to rest on a module card before it previews (touch). */
+const PRESS_HOLD_MS = 260;
+
+/**
+ * How far a pointer may travel during a press on the card row before the click
+ * that ends it is treated as a PAN rather than as a pick (spec). Five pixels is
+ * the design's own threshold, and it is small enough that a deliberate tap on a
+ * 96px card never trips it.
+ */
+const ROW_DRAG_SLOP_PX = 5;
+
+/** Monotonic where available; a plain clock is still better than a frame delta. */
+function swapNowMs(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
 const STAGE_POS = new Vector3(0, 5, 300); // far from the arena (radius 90) — nothing else renders out here
 const UPGRADE_TRACKS: readonly UpgradeTrackName[] = ["hull", "engine", "energy"];
 const UPGRADE_LABELS: Record<UpgradeTrackName, string> = { hull: "Hull", engine: "Engine", energy: "Capacitor" };
-
-/**
- * Which outfitting bay the panel is showing (owner 2026-07-31).
- *
- * There is no SHIP bay (owner 2026-08-08): choosing a hull is something you do
- * ON the 3D stage — arrows and swipe walk the bay, and the one decision that
- * changes what you fly (set as main, or buy the hull first) is a single overlay
- * slot in the viewer's top-right corner. The rail is purely about outfitting
- * the hull already on the stage.
- */
-type HangarCategory = "skins" | "hardpoints" | "internals";
 
 export interface HangarSelection {
   shipId: string | null;
@@ -241,8 +261,31 @@ export class Hangar {
    */
   private serverLoadouts = new Map<string, HardpointMap>();
   private slots: HangarSlot[] = [];
-  private pickerHardpoint: number | null = null;
-  private category: HangarCategory = "hardpoints";
+  /**
+   * The slot whose card SHEET is open over the bottom of the viewer, by
+   * hardpoint index — the one piece of screen state the deck adds. Null when the
+   * ship is unobstructed.
+   */
+  private sheetSlot: number | null = null;
+  /**
+   * The fit as it stood when the sheet OPENED, in hardpoint order — the BEFORE
+   * side of the compare box (spec). Fitting from a card keeps the sheet open and
+   * leaves this alone, so a pilot who tries three guns in a row still reads them
+   * all against the fit they walked in with; closing the sheet drops it, which
+   * is what "closing commits" means on this screen. Null when no sheet is open.
+   */
+  private baseFits: (string | null)[] | null = null;
+  /**
+   * Where the card row was scrolled to, carried across the `render()` a fit
+   * triggers — the sheet stays open when a card is picked, and a row that
+   * snapped back to its first card every time would lose the pilot's place.
+   */
+  private cardScrollLeft = 0;
+  /**
+   * True when the press currently on the card row has moved further than
+   * {@link ROW_DRAG_SLOP_PX}: the release is a pan finishing, not a pick.
+   */
+  private rowDragged = false;
   private busy = false;
   private error = "";
 
@@ -260,18 +303,41 @@ export class Hangar {
    * moving the bay it is parked in.
    */
   private readonly shipPivot: TransformNode;
-  /** In-flight ship-swap transition, or null when the bay is at rest. */
-  private swap: { direction: -1 | 1; elapsed: number; distance: number; applied: boolean } | null = null;
+  /**
+   * In-flight ship-swap transition, or null when the bay is at rest.
+   *
+   * `startedAtMs` is a WALL clock, not an accumulated render delta (owner
+   * 2026-08-22). The transition is what commits the hull change, and it used to
+   * advance on `engine.getDeltaTime()` from inside a scene render observer: a
+   * frame clock that reads 0 — a backgrounded/throttled tab, a paused loop, the
+   * frame after a context restore — left `swap` latched forever, which disabled
+   * both arrows (see {@link stepShip}'s guard) and stranded the panel on the old
+   * hull. A clock the renderer cannot stall is the fix; {@link swapGuard} is the
+   * belt to its braces for the case where no frame arrives at all.
+   */
+  private swap: { direction: -1 | 1; startedAtMs: number; distance: number; applied: boolean } | null = null;
+  /** Wall-clock fallback that lands a swap no render frame ever finished. */
+  private swapGuard: ReturnType<typeof setTimeout> | null = null;
   /** Stage-overlay arrows, kept so they can be disabled mid-transition. */
   private stageArrows: HTMLButtonElement[] = [];
-  /** Band height the camera viewport was last fitted around (see `syncStageBand`). */
-  private stageBandPx = 0;
   /**
-   * The characteristics block over the 3D stage. Built once and refreshed in
-   * place: `render()` wipes the info panel wholesale, and this lives in the
-   * other half of the split.
+   * The BEFORE / AFTER compare box inside the deck. Held so a hovered or
+   * press-held module card can rewrite the four readings WITHOUT a `render()`,
+   * which would destroy the very card the pointer is on.
    */
-  private readonly gauges: HTMLDivElement;
+  private compare: HTMLDivElement | null = null;
+  /**
+   * The module-picker layer over the viewer — the dim and the card sheet that
+   * slides up from its foot. Built once and refilled by {@link renderSheet},
+   * because it belongs to the stage half and `render()` owns the panel.
+   */
+  private readonly sheet: HTMLDivElement;
+  /** Hull name / class, bottom-left of the viewer (spec). */
+  private readonly shipReadout: HTMLDivElement;
+  /** Bay position dots, bottom-centre of the viewer (spec). */
+  private readonly shipDots: HTMLDivElement;
+  /** The stage TITLE — "HANGAR", top-left of the viewer (spec). */
+  private readonly stageTitle: HTMLDivElement;
   /**
    * The single ACTION slot over the 3D stage, top-right (owner 2026-08-08).
    * Ownership decides what it holds: buy the hull, make it your main, or the
@@ -294,6 +360,13 @@ export class Hangar {
    * ghost on screen long enough to read it.
    */
   private previewPinned = false;
+  /**
+   * Press-hold timer for the card sheet (touch). A finger has no hover to give,
+   * so resting on a card is what raises the before/after preview; the release that
+   * follows must then NOT fit the module the pilot was only weighing up.
+   */
+  private holdTimer: ReturnType<typeof setTimeout> | null = null;
+  private holdFired = false;
   /** Blacked-out stand-in shown in place of a hull the player does not own. */
   private lockedPreview: AbstractMesh | null = null;
   private lockedMaterial: StandardMaterial | null = null;
@@ -375,27 +448,33 @@ export class Hangar {
     // half (which is otherwise click-through) and re-enable themselves when a
     // transition finishes.
     this.stageArrows = [this.buildStageArrow(-1), this.buildStageArrow(1)];
-    // The characteristics block sits in the same click-through half, anchored to
-    // a corner so it never covers the hull. `pointer-events: none` (CSS) is what
-    // keeps orbit/zoom drags reaching the canvas through it — unlike the arrows,
-    // it has nothing to click.
-    // The characteristics band. It used to float over the stage as a corner
-    // card, which put opaque gauges on top of the hull they describe; it now
-    // DOCKS along the bottom of the stage half and the viewer above it gives up
-    // exactly the height it takes (owner 2026-08-14).
-    this.gauges = el("div", "hangar-gauges");
-    // …and its counterpart in the opposite corner: the one thing on this screen
-    // that changes what the player flies. Only the control inside it takes
-    // pointer events; the corner around it stays click-through.
+    // The stage's own furniture (owner 2026-08-22, loadout deck). All of it is
+    // anchored INSIDE the viewer and all of it is click-through except the
+    // controls themselves, so an orbit/zoom drag between them still reaches the
+    // canvas underneath.
+    this.stageTitle = el("div", "hangar-title", "HANGAR");
+    this.shipReadout = el("div", "hangar-ship-readout");
+    this.shipDots = el("div", "hangar-ship-dots");
+    // The one thing on this screen that changes what the player flies. Only the
+    // control inside it takes pointer events; the corner around it stays
+    // click-through.
     this.stageAction = el("div", "hangar-stage-action");
     this.previewLoader = el("div", "hangar-preview-loading", "LOADING HULL");
     this.previewLoader.setAttribute("role", "status");
     this.previewLoader.style.display = "none";
-    // Over-the-hull furniture goes in the VIEWER; the band is the stage's own
-    // second row, so it is the one thing that shortens the viewer rather than
-    // covering it.
-    this.stageView.append(this.stageAction, this.previewLoader, ...this.stageArrows);
-    this.stage.append(this.gauges);
+    // The card sheet dims and covers the viewer, so it is the stage's last
+    // child — above the hull and above every other overlay.
+    this.sheet = el("div", "hangar-sheet-layer");
+    this.sheet.style.display = "none";
+    this.stageView.append(
+      this.stageTitle,
+      this.stageAction,
+      this.previewLoader,
+      ...this.stageArrows,
+      this.shipReadout,
+      this.shipDots,
+      this.sheet,
+    );
     parent.append(this.root);
 
     this.ships = [...this.configs.getAll<ShipConfig>("ship")].sort((a, b) => a.id.localeCompare(b.id));
@@ -428,11 +507,8 @@ export class Hangar {
     btn.className = `hangar-stage-arrow ${delta < 0 ? "prev" : "next"}`;
     btn.type = "button";
     btn.setAttribute("aria-label", delta < 0 ? "Previous ship" : "Next ship");
-    btn.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
-      'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
-      (delta < 0 ? '<path d="M15 4 L7 12 L15 20" />' : '<path d="M9 4 L17 12 L9 20" />') +
-      "</svg>";
+    // A single guillemet, not an SVG: the deck's arrows are typographic (spec).
+    btn.textContent = delta < 0 ? "‹" : "›";
     btn.addEventListener("click", () => this.stepShip(delta));
     return btn;
   }
@@ -513,6 +589,12 @@ export class Hangar {
     // the Lobby, so a second `show()` without an intervening `hide()` must not
     // stack a second render observer / swipe watcher on the same screen.
     this.releaseVisitBindings();
+    // A transition the last visit left in flight (the player pressed an arrow
+    // and went straight to the Shop) would otherwise survive as a latch that
+    // keeps both arrows disabled for the rest of the session — the reported
+    // "the hangar never noticed my purchase", which was really "the hangar
+    // never let go of a swap".
+    this.abandonSwap();
     this.refreshScope.invalidate();
     const visitToken = ++this.visitToken;
     this.resetIdlePreview();
@@ -527,8 +609,7 @@ export class Hangar {
     const idx = browseId ? this.ships.findIndex((s) => s.id === browseId) : -1;
     this.shipIndex = idx >= 0 ? idx : 0;
     const fittingContextToken = ++this.fittingContextToken;
-    this.pickerHardpoint = null;
-    this.category = "hardpoints";
+    this.closeSheet();
     this.error = "";
 
     const ship = this.currentShip();
@@ -603,6 +684,7 @@ export class Hangar {
 
   hide(): void {
     this.refreshScope.invalidate();
+    this.abandonSwap();
     this.visitToken++;
     this.root.style.display = "none";
     this.loadingOverlay?.remove();
@@ -654,7 +736,7 @@ export class Hangar {
       this.loadingOverlay?.remove();
       this.loadingOverlay = null;
       this.rebuildPreview();
-      this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+      this.frameShip(this.stageAspectNow());
       this.render();
       for (const job of allHangarShipJobs(this.configs)) void this.modelQueue.enqueue(job);
     } catch (error) {
@@ -742,7 +824,7 @@ export class Hangar {
         if (this.root.style.display === "none") return;
         this.previewLoader.style.display = "none";
         this.rebuildPreview();
-        this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+        this.frameShip(this.stageAspectNow());
       });
     } else if (this.modelQueue.hasLoaded(loadingFor)) {
       this.previewLoader.style.display = "none";
@@ -843,34 +925,23 @@ export class Hangar {
   private applyStageViewport(): void {
     const w = window.innerWidth || 1;
     const h = window.innerHeight || 1;
-    const band = this.statsBandPx();
-    this.stageBandPx = band;
-    this.camera.setStageViewport(stageViewport(w, h, STAGE_FRACTION, band));
-    this.frameShip(stageAspect(w, h, STAGE_FRACTION, band));
+    // No docked band any more (owner 2026-08-22): the characteristics moved into
+    // the deck's BEFORE / AFTER box, so the viewer is the whole stage half again
+    // and only the split ratio differs between the two orientations.
+    this.camera.setStageViewport(stageViewport(w, h, this.stageFraction(w, h)));
+    this.frameShip(stageAspect(w, h, this.stageFraction(w, h)));
   }
 
-  /**
-   * Height the docked characteristics band is currently taking out of the stage
-   * half. Measured rather than assumed: the band's height is whatever its rows
-   * and the current font come to, and the camera has to agree with the CSS or
-   * the hull ends up behind it.
-   */
-  private statsBandPx(): number {
-    if (this.gauges.style.display === "none") return 0;
-    return this.gauges.getBoundingClientRect?.().height ?? 0;
+  /** The viewer's share of the screen — see {@link DECK_STAGE_FRACTION}. */
+  private stageFraction(width: number, height: number): number {
+    return isLandscape(width, height) ? DECK_STAGE_FRACTION : STAGE_FRACTION;
   }
 
-  /**
-   * Re-fit the viewer if the band's height moved (a gauge row gained a warning,
-   * a longer hull name wrapped). Guarded on an actual change because re-framing
-   * resets the orbit distance, and a player who has zoomed in must not be pulled
-   * back out every time they touch a module.
-   */
-  private syncStageBand(): void {
-    if (!this.isVisible) return;
-    const band = this.statsBandPx();
-    if (Math.abs(band - this.stageBandPx) < 0.5) return;
-    this.applyStageViewport();
+  /** Aspect of the rectangle the hull is framed in, for the current viewport. */
+  private stageAspectNow(): number {
+    const w = window.innerWidth || 1;
+    const h = window.innerHeight || 1;
+    return stageAspect(w, h, this.stageFraction(w, h));
   }
 
   /**
@@ -901,7 +972,7 @@ export class Hangar {
     // it every frame so a stray pan gesture cannot drift the ship off its own
     // pivot. Orbit angle and zoom stay entirely the player's.
     this.camera.camera.target.copyFrom(this.focus);
-    this.tickSwap(this.scene.getEngine().getDeltaTime() / 1000);
+    this.tickSwap();
 
     if (!this.previewRig) return;
     const dtMs = this.scene.getEngine().getDeltaTime();
@@ -957,7 +1028,10 @@ export class Hangar {
   private selectShip(index: number): void {
     this.shipIndex = index;
     this.fittingContextToken++;
-    this.pickerHardpoint = null;
+    // A sheet belongs to a socket on the hull that opened it; the next hull may
+    // not even have that socket, so switching ships always closes it — and
+    // closing is what commits the before/after baseline (spec).
+    this.closeSheet();
     const ship = this.currentShip();
     this.slots = ship ? this.slotsForShip(ship) : [];
     // Browsing is NOT choosing (2026-07-31): remember where the carousel is,
@@ -966,7 +1040,7 @@ export class Hangar {
     this.rebuildPreview();
     // A different hull is a different size: re-frame it. (Swapping a MODULE
     // deliberately does not, so an edit never yanks the player's zoom back.)
-    this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+    this.frameShip(this.stageAspectNow());
     this.render();
   }
 
@@ -982,16 +1056,53 @@ export class Hangar {
     if (this.ships.length < 2 || this.busy || this.swap) return;
     const bounds = this.previewInstance?.getBoundingInfo().boundingSphere;
     const distance = Math.max(4, (bounds?.radiusWorld ?? 3) * SWAP_DISTANCE_RADII);
-    this.swap = { direction: delta, elapsed: 0, distance, applied: false };
+    this.swap = { direction: delta, startedAtMs: swapNowMs(), distance, applied: false };
     this.setArrowsEnabled(false);
+    // The slide is DECORATION; the hull change is not. A screen that stops
+    // receiving render frames must still end up on the ship the player asked
+    // for, so the commit has a timer of its own rather than living or dying
+    // with the animation.
+    this.clearSwapGuard();
+    this.swapGuard = setTimeout(() => this.settleSwap(), SWAP_DURATION_SEC * 1000 + SWAP_GUARD_SLACK_MS);
+  }
+
+  private clearSwapGuard(): void {
+    if (this.swapGuard === null) return;
+    clearTimeout(this.swapGuard);
+    this.swapGuard = null;
+  }
+
+  /**
+   * End the transition wherever it got to: commit the hull if the midpoint was
+   * never reached, park the pivot, and hand the arrows back. Reached from the
+   * animation's own last frame and from the wall-clock guard, so "the swap is
+   * over" has exactly one meaning however it finished.
+   */
+  private settleSwap(): void {
+    const swap = this.swap;
+    if (!swap) return;
+    this.clearSwapGuard();
+    this.swap = null;
+    if (!swap.applied) this.selectShip(wrapIndex(this.shipIndex, swap.direction, this.ships.length));
+    this.shipPivot.position.setAll(0);
+    this.setPreviewVisibility(1);
+    this.setArrowsEnabled(true);
+  }
+
+  /** Drop a transition without committing it (leaving the screen, disposal). */
+  private abandonSwap(): void {
+    this.clearSwapGuard();
+    this.swap = null;
+    this.shipPivot.position.setAll(0);
+    this.setPreviewVisibility(1);
   }
 
   /** Advance an in-flight swap; called from the per-frame preview tick. */
-  private tickSwap(dtSec: number): void {
+  private tickSwap(): void {
     const swap = this.swap;
     if (!swap) return;
-    swap.elapsed += dtSec;
-    const frame = swapFrame(swap.elapsed, swap.direction, swap.distance, SWAP_DURATION_SEC);
+    const elapsed = Math.max(0, (swapNowMs() - swap.startedAtMs) / 1000);
+    const frame = swapFrame(elapsed, swap.direction, swap.distance, SWAP_DURATION_SEC);
 
     // Slide along the CAMERA's right axis, so "out to the left" means left on
     // screen whatever angle the player has orbited to.
@@ -1010,12 +1121,7 @@ export class Hangar {
       // second half of the slide brings it in.
       this.setPreviewVisibility(frame.visibility);
     }
-    if (frame.done) {
-      this.swap = null;
-      this.shipPivot.position.setAll(0);
-      this.setPreviewVisibility(1);
-      this.setArrowsEnabled(true);
-    }
+    if (frame.done) this.settleSwap();
   }
 
   private setPreviewVisibility(v: number): void {
@@ -1023,8 +1129,15 @@ export class Hangar {
     if (this.lockedPreview) this.lockedPreview.visibility = v;
   }
 
-  private setArrowsEnabled(enabled: boolean): void {
-    for (const btn of this.stageArrows) btn.disabled = !enabled || this.busy || this.ships.length < 2;
+  /**
+   * Enabled unless a step is genuinely impossible right now. Called from
+   * `render()` as well as from the transition, so no path can leave the bay
+   * unwalkable: the arrows are a function of the screen's state, never a latch
+   * something has to remember to release.
+   */
+  private setArrowsEnabled(enabled = true): void {
+    const blocked = !enabled || this.busy || this.swap !== null || this.ships.length < 2;
+    for (const btn of this.stageArrows) btn.disabled = blocked;
   }
 
   /**
@@ -1064,17 +1177,45 @@ export class Hangar {
   /** An unlocked hull stops being a silhouette, so the stage is rebuilt around it. */
   private afterHullUnlock(): void {
     this.rebuildPreview();
-    this.frameShip(stageAspect(window.innerWidth || 1, window.innerHeight || 1));
+    this.frameShip(this.stageAspectNow());
     this.render();
   }
 
+  /**
+   * Tap a slot tile: slide its card sheet up over the foot of the viewer, or
+   * close the one already open for it (spec — the tile toggles).
+   *
+   * Opening is where the BEFORE side of the compare box is captured: everything
+   * the pilot does while the sheet is up reads against the fit they opened it
+   * on, however many modules they try in between.
+   */
   private selectSlot(hardpointIndex: number): void {
-    // A callout on the hull can address a bay the rail is not currently showing;
-    // follow it, or the module list would open under the wrong heading.
-    const kind = this.slots[hardpointIndex]?.kind;
-    if (kind) this.category = kind === "internal" ? "internals" : "hardpoints";
-    this.pickerHardpoint = this.pickerHardpoint === hardpointIndex ? null : hardpointIndex;
+    if (!this.slots[hardpointIndex]) return;
+    const open = this.sheetSlot === hardpointIndex;
+    this.closeSheet();
+    if (!open) {
+      this.sheetSlot = hardpointIndex;
+      this.baseFits = fittedModuleIdsOf(this.slots);
+      // A fresh sheet starts at its first card, whatever the last one showed.
+      this.cardScrollLeft = 0;
+    }
     this.render();
+  }
+
+  /**
+   * Close the sheet and COMMIT: dropping {@link baseFits} is what collapses the
+   * before/after box back to a single column of current readings, which the
+   * next sheet then becomes the new baseline for. Reached from DONE, from the
+   * dim, and from every path that changes hull — the fit itself was already
+   * saved by each {@link equip}, so there is nothing else to write.
+   */
+  private closeSheet(): void {
+    this.cancelHold();
+    this.sheetSlot = null;
+    this.baseFits = null;
+    this.rowDragged = false;
+    this.preview = null;
+    this.previewPinned = false;
   }
 
   private equip(hardpointIndex: number, moduleId: string | null): void {
@@ -1085,7 +1226,12 @@ export class Hangar {
     // tutorial's coach mark) sees the fit it is reacting to.
     this.onLoadoutChanged?.();
     this.fittingContextToken++;
-    this.pickerHardpoint = null;
+    // Picking a card fits it and KEEPS THE SHEET OPEN (spec): the point of the
+    // sheet is to try modules against each other, so only DONE / the dim / a
+    // hull change close it. The ghost goes, though — the AFTER column is now
+    // the real fit rather than a projection of it.
+    this.preview = null;
+    this.previewPinned = false;
     // Fitting IS saving (owner 2026-08-22). There is no submenu to confirm in,
     // so the write happens here or nowhere.
     this.persistLoadout();
@@ -1094,39 +1240,14 @@ export class Hangar {
     this.render();
   }
 
-  private async buyModule(moduleId: string): Promise<void> {
-    if (this.ownership) {
-      this.busy = true;
-      this.render();
-      try {
-        await this.ownership.buyModule(moduleId);
-      } catch (err) {
-        this.error = errorMessage(err, "Purchase failed");
-      }
-      this.busy = false;
-      if (this.isVisible) this.render();
-      return;
-    }
-    // Offline: the unlock is local and free, but it IS an unlock — a module has
-    // to be bought before it can be fitted (owner 2026-07-31).
-    if (this.offlineFitting) {
-      buyModuleLocal(moduleId);
-      this.render();
-      return;
-    }
-    this.busy = true;
-    this.render();
-    try {
-      await this.api.buyModule(moduleId);
-      await this.auth.refreshProfile();
-      await this.refreshFromServer();
-    } catch (err) {
-      if (!this.isVisible) return;
-      this.error = errorMessage(err, "Purchase failed");
-      this.busy = false;
-      this.render();
-    }
-  }
+  /*
+   * There is no BUY here any more (owner 2026-08-22). The sheet is a menu of
+   * modules, not a shopfront: an unowned one shows greyed out at the third of
+   * opacity the spec asks for and does nothing when pressed, and the Shop —
+   * which is the screen that spends credits — is where it is bought. The
+   * Hangar's own unlock path survives only for HULLS, whose purchase still lives
+   * in the stage's action corner because there is nowhere else to put it.
+   */
 
   private async upgradeTrack(track: UpgradeTrackName): Promise<void> {
     const ship = this.currentShip();
@@ -1240,7 +1361,7 @@ export class Hangar {
     if (same && nextPinned === this.previewPinned) return;
     this.preview = { hardpointIndex, moduleId };
     this.previewPinned = nextPinned;
-    this.renderGauges();
+    this.renderCompare();
     this.syncPreviewHighlight();
   }
 
@@ -1260,7 +1381,7 @@ export class Hangar {
     if (!this.preview && !this.previewPinned) return;
     this.preview = null;
     this.previewPinned = false;
-    this.renderGauges();
+    this.renderCompare();
     this.syncPreviewHighlight();
   }
 
@@ -1312,7 +1433,7 @@ export class Hangar {
    */
   private syncPreviewHighlight(): void {
     const wanted: string | null | undefined = this.preview ? this.preview.moduleId : undefined;
-    for (const node of this.panel.querySelectorAll<HTMLElement>("[data-preview-module]")) {
+    for (const node of this.root.querySelectorAll<HTMLElement>("[data-preview-module]")) {
       const raw = node.dataset["previewModule"] ?? "";
       const id: string | null = raw === "" ? null : raw;
       node.classList.toggle("considering", wanted !== undefined && id === wanted);
@@ -1342,57 +1463,98 @@ export class Hangar {
   }
 
   /**
-   * The characteristics block over the 3D stage (owner 2026-08-01) — the
-   * PRIMARY power/fit signal, in the half of the screen the player is looking at
-   * while they judge a hull. Gauges read the current fit; while a module is
-   * being considered they grow a ghost segment out to the projected value, so
-   * "what does this cost me" is answered before the module is equipped.
-   *
-   * It also NAMES the hull it is describing (owner 2026-08-08). That line used
-   * to head the rail's SHIP page; with the page gone this is the panel already
-   * on screen whenever a hull is staged, so the identity folds in here rather
-   * than earning a box of its own — and it sits directly under the caption a
-   * gauge block needs anyway.
+   * Press-and-hold on a module card (owner 2026-08-22). A finger has no hover to
+   * give, and the designer's intent for the compare box is explicit — "see the
+   * delta before committing" — so resting on an item for {@link PRESS_HOLD_MS}
+   * raises the same preview a mouse gets for free. The release that follows is
+   * then swallowed by {@link consumeHold}, because a pilot who held an item to
+   * read its numbers has not asked to fit it.
    */
-  private renderGauges(): void {
-    const ship = this.currentShip();
-    const base = this.statPanelFor(fittedModuleIdsOf(this.slots));
-    this.gauges.innerHTML = "";
-    if (!base || !ship) {
-      this.gauges.style.display = "none";
-      this.syncStageBand();
+  private startHold(hardpointIndex: number, moduleId: string | null): void {
+    this.cancelHold();
+    this.holdTimer = setTimeout(() => {
+      this.holdTimer = null;
+      this.holdFired = true;
+      this.considerModule(hardpointIndex, moduleId, true);
+    }, PRESS_HOLD_MS);
+  }
+
+  private cancelHold(): void {
+    if (this.holdTimer !== null) clearTimeout(this.holdTimer);
+    this.holdTimer = null;
+  }
+
+  /** True when the click that just arrived was the end of a preview hold. */
+  private consumeHold(): boolean {
+    const held = this.holdFired;
+    this.holdFired = false;
+    this.cancelHold();
+    return held;
+  }
+
+  // --- the loadout deck ----------------------------------------------------
+
+  /**
+   * The BEFORE / AFTER compare box (spec: "SHIP SPECS — BEFORE / AFTER").
+   *
+   * Four readings — INTEGRITY, SPEED, DPS and POWER — and what the two columns
+   * mean depends on whether a sheet is open:
+   *
+   *  - CLOSED: one column, the fit as it stands. There is nothing to compare it
+   *    against, because closing the sheet is what made it the baseline.
+   *  - OPEN: BEFORE is the snapshot {@link selectSlot} took, AFTER is the fit
+   *    NOW — or, while a card is hovered or press-held, the fit that card would
+   *    produce. So a pilot who fits three guns in a row still reads the running
+   *    total against what they walked in with.
+   *
+   * Rewritten in place rather than through `render()`, because a rebuild would
+   * destroy the card the pointer is resting on.
+   */
+  private renderCompare(): void {
+    const box = this.compare;
+    if (!box) return;
+    const open = this.sheetSlot !== null;
+    const current = fittedModuleIdsOf(this.slots);
+    const base = this.statPanelFor(open && this.baseFits ? this.baseFits : current);
+    box.innerHTML = "";
+    if (!base) {
+      box.style.display = "none";
       return;
     }
-    this.gauges.style.display = "";
-    const previewIds = this.previewModuleIds();
-    const model = buildOverlayModel(base, previewIds ? this.statPanelFor(previewIds) : null);
-    this.gauges.classList.toggle("previewing", model.previewing);
+    box.style.display = "";
+    // `previewModuleIds` is null when nothing is being weighed up OR when the
+    // candidate is already in its slot; with the sheet open both mean "AFTER is
+    // simply the fit as it stands", which is exactly what the box should read.
+    const targetIds = this.previewModuleIds() ?? (open ? current : null);
+    const ghost = targetIds ? this.statPanelFor(targetIds) : null;
+    box.classList.toggle("previewing", this.preview !== null);
+    box.append(el("span", "hangar-compare-title", "SHIP SPECS — BEFORE / AFTER"));
+    for (const row of deckCompareRows(base, ghost)) box.append(compareRow(row));
+  }
 
-    const head = el("div", "hangar-gauges-head");
-    head.append(el("span", "hangar-gauges-title hangar-ship-name", ship.name));
-    if (model.previewing) head.append(el("span", "hangar-gauges-preview", "Preview"));
-    this.gauges.append(head);
-    this.gauges.append(
-      el("div", "hangar-ship-class", `${ship.class} hull · swipe to change`),
-    );
-
-    for (const gauge of model.gauges) this.gauges.append(gaugeRow(gauge));
-
-    // The rail is the one gauge a fit can outright break, so it gets words as
-    // well as a colour — for the fit on the ship, or for the one being weighed.
-    const over = model.previewing ? model.projectedPowerOverBy : model.powerOverBy;
-    if (over > 0) {
-      this.gauges.append(
-        el(
-          "div",
-          "hangar-gauges-warn",
-          `${model.previewing ? "Would be over" : "Over"} power by ${over.toFixed(0)} — modules will shut each other down.`,
-        ),
+  /**
+   * Everything drawn OVER the 3D viewer that is not the sheet: the title, the
+   * hull's name and class, the bay dots and the one action that changes what the
+   * player flies. Refreshed together because they all describe the staged hull.
+   */
+  private renderStageChrome(): void {
+    const ship = this.currentShip();
+    this.shipReadout.innerHTML = "";
+    this.shipDots.innerHTML = "";
+    if (ship) {
+      this.shipReadout.append(
+        el("span", "hangar-ship-name", (ship.name ?? ship.id).toUpperCase()),
+        el("span", "hangar-ship-class", `${ship.class} hull`.toUpperCase()),
       );
     }
-    // The warning line (and a wrapped hull name) change the band's height, and
-    // the viewer above it has to give back exactly that much.
-    this.syncStageBand();
+    // One dot per hull in the bay — the carousel's position, and the twin of the
+    // ‹ › arrows either side of it.
+    for (let i = 0; i < this.ships.length; i++) {
+      const dot = el("span", "hangar-ship-dot" + (i === this.shipIndex ? " active" : ""));
+      this.shipDots.append(dot);
+    }
+    this.shipDots.style.display = this.ships.length > 1 ? "" : "none";
+    this.renderStageAction();
   }
 
   /**
@@ -1405,10 +1567,8 @@ export class Hangar {
    *    browsing the bay turns into a decision;
    *  - already your main → the badge saying so, and nothing to press.
    *
-   * It sits in the viewer rather than the panel so the decision is where the
-   * ship is: you look at the hull, then you take it. The corner it is anchored
-   * to is the one the stage arrows (vertically centred) and the panel's Back
-   * button (in the other half, whichever way the split is turned) leave free.
+   * It sits in the viewer rather than the deck so the decision is where the ship
+   * is: you look at the hull, then you take it.
    */
   private renderStageAction(): void {
     this.stageAction.innerHTML = "";
@@ -1449,138 +1609,380 @@ export class Hangar {
     this.stageAction.append(main);
   }
 
-  // --- rendering ---------------------------------------------------------
-
-  private render(): void {
-    const ship = this.currentShip();
-    // A full render rebuilds the picker, so whatever module the pointer was over
-    // no longer exists: the ghost goes with it (equipping, changing bay, ship or
-    // fitting all land here, and all of them mean "that consideration is over").
-    this.preview = null;
-    this.previewPinned = false;
-    this.panel.innerHTML = "";
-    this.renderGauges();
-    this.renderStageAction();
-    if (!ship) return;
-
-    // Fitting is always available (offline test mode); only the parts that
-    // spend real credits stay gated on a real account.
-    const storeLocked = !this.isAuthed();
-    const profile = this.auth.getState();
-    const credits = profile.status === "authed" ? profile.profile.credits : 0;
-    const level = profile.status === "authed" ? profile.profile.level : 1;
-
-    this.panel.append(this.buildHeader());
-
-    const owned = this.canFly(ship.id);
-    const body = el("div", "hangar-body");
-    body.append(this.buildCategoryRail(owned));
-
-    const content = el("div", "hangar-content");
-    if (storeLocked) {
-      content.append(
-        el(
-          "div",
-          "hangar-hint",
-          "Offline: fitting, unlocking and saving work locally, and everything is free while we test. Log in to spend real credits and upgrade.",
-        ),
-      );
+  /**
+   * The MODULE SHEET: the modules one socket accepts, as a row of cards that
+   * slides up over the foot of the viewer (spec, replacing the earlier radial).
+   *
+   * A FLAT list, one card per module the socket takes — the tier ladders are
+   * being reworked, and a picker that grouped them would only have to be
+   * ungrouped again. Unowned candidates are still SEEN, at the third of opacity
+   * the spec gives "unavailable", rather than hidden until they are bought: the
+   * Shop is where they are bought, and a menu that hides what you are missing
+   * cannot tell you what to go and buy.
+   *
+   * Built into {@link sheet} rather than by `render()`, because the whole thing
+   * is anchored to the VIEWER half — the dim covers the ship, not the deck.
+   */
+  private renderSheet(): void {
+    this.sheet.innerHTML = "";
+    const index = this.sheetSlot;
+    const slot = index === null ? undefined : this.slots[index];
+    if (index === null || !slot) {
+      this.sheet.style.display = "none";
+      return;
     }
-    if (this.error) content.append(el("div", "hangar-error", this.error));
+    this.sheet.style.display = "";
 
-    // A hull you have not bought shows its stats and nothing else: there is
-    // nothing to fit until it is yours. The unlock
-    // itself lives on the stage, in the corner slot the main badge occupies for
-    // a hull you do own.
-    if (!owned) {
-      content.append(el("div", "hangar-hint", "You do not own this hull yet — buy it on the stage to fit and fly it."));
-      content.append(this.buildStatPanel(ship));
-    } else if (this.category === "skins") {
-      content.append(this.buildSkins(ship));
-    } else {
-      content.append(this.buildSlotGrid(this.category === "internals" ? "internal" : "hardpoint"));
-      if (this.pickerHardpoint !== null) {
-        content.append(this.buildModulePicker(ship, this.pickerHardpoint, credits, level));
-      }
-      // The upgrade tracks ARE the hull's internal systems — hull plating,
-      // engine, capacitor, countermeasure — so they moved into the internals bay
-      // with the SHIP page (owner 2026-08-08) rather than being dropped.
-      if (this.category === "internals") content.append(this.buildUpgrades(ship, storeLocked, credits));
+    // Tapping the dim closes the picker and COMMITS, exactly as DONE does —
+    // there is nothing to cancel, because every pick was already saved.
+    const dim = el("div", "hangar-sheet-dim");
+    dim.addEventListener("click", () => {
+      this.closeSheet();
+      this.render();
+    });
+
+    const panel = el("div", "hangar-sheet");
+    panel.setAttribute("role", "menu");
+    panel.setAttribute("aria-label", `Fit ${slotLabel(slot.socketId)}`);
+    panel.append(this.buildSheetHead(slot, index), this.buildCardRow(slot, index));
+    this.sheet.append(dim, panel);
+  }
+
+  /** The sheet's title, and its two buttons: CLEAR SLOT and DONE ✓ (spec). */
+  private buildSheetHead(slot: HangarSlot, index: number): HTMLDivElement {
+    const head = el("div", "hangar-sheet-head");
+    head.append(el("span", "hangar-sheet-title", `FIT — ${slotLabel(slot.socketId)}`));
+
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "hangar-sheet-clear";
+    clear.textContent = "CLEAR SLOT";
+    clear.disabled = this.busy;
+    clear.dataset["previewModule"] = "";
+    // Emptying the slot previews like any other change: the AFTER column ghosts
+    // DOWN by exactly what the fitted module was giving.
+    this.bindPreviewSignals(clear, index, null, { pinOnClick: false });
+    clear.addEventListener("pointerdown", () => this.startHold(index, null));
+    for (const end of ["pointerup", "pointerleave", "pointercancel"] as const) {
+      clear.addEventListener(end, () => this.cancelHold());
     }
-    body.append(content);
-    this.panel.append(body);
-    this.panel.append(this.buildStatusBar(ship));
+    clear.addEventListener("click", () => {
+      // A hold was a question, not an answer.
+      if (this.consumeHold()) return;
+      // CLEAR keeps the sheet open (spec), so on an empty slot it does nothing
+      // at all rather than doubling as a second way out.
+      if (slot.moduleId === null) return;
+      this.equip(index, null);
+    });
+
+    const done = document.createElement("button");
+    done.type = "button";
+    done.className = "hangar-sheet-done";
+    done.textContent = "DONE ✓";
+    done.disabled = this.busy;
+    done.addEventListener("click", () => {
+      this.closeSheet();
+      this.render();
+    });
+
+    const actions = el("div", "hangar-sheet-actions");
+    actions.append(clear, done);
+    head.append(actions);
+    return head;
   }
 
   /**
-   * The outfitting rail (owner 2026-07-31) — the screen's spine, in the shape
-   * every space sim's outfitting screen has: a column of BAYS on the left, the
-   * ship filling the view, and the numbers that decide a fit along the bottom.
-   * Picking a bay changes what the panel shows; it never changes the ship.
+   * The scrolling card row. A finger swipes it natively; a mouse gets the two
+   * affordances the spec asks for, because a desktop has neither:
+   *
+   *  - the WHEEL maps `deltaY` (plus whatever `deltaX` a trackpad sends) onto
+   *    `scrollLeft`, so a vertical wheel walks the row;
+   *  - a click-DRAG pans it, and a press that travelled further than
+   *    {@link ROW_DRAG_SLOP_PX} suppresses the click that ends it — a drag must
+   *    never fit whatever card happened to be under the pointer when it stopped.
    */
-  private buildCategoryRail(owned: boolean): HTMLDivElement {
-    const rail = el("div", "hangar-rail");
-    const entries: { key: HangarCategory; label: string; hint: string }[] = [
-      { key: "skins", label: "Skins", hint: "Hull paint and finish" },
-      { key: "hardpoints", label: "Hardpoints", hint: "Weapons and shields" },
-      { key: "internals", label: "Core internal", hint: "Engine, reactor, sink · upgrades" },
-      // There is no FITTING bay (owner 2026-08-22). Saving, loading, naming and
-      // deleting loadouts were the only things it did, and a hull now simply
-      // keeps whatever is in its slots — so the rail is the bays and nothing
-      // else, which is what the owner meant by "it will simplify the menu".
-    ];
-    for (const entry of entries) {
+  private buildCardRow(slot: HangarSlot, index: number): HTMLDivElement {
+    const row = el("div", "hangar-card-row");
+    for (const mod of this.slotCandidates(slot)) row.append(this.buildModuleCard(slot, index, mod));
+
+    row.addEventListener(
+      "wheel",
+      (ev) => {
+        row.scrollLeft += ev.deltaY + ev.deltaX;
+        this.cardScrollLeft = row.scrollLeft;
+        // Claim the gesture: an unclaimed wheel over a full-bleed overlay
+        // scrolls whatever is behind it instead.
+        ev.preventDefault();
+      },
+      { passive: false },
+    );
+    row.addEventListener("mousedown", (ev) => this.beginRowDrag(row, ev));
+    row.addEventListener("scroll", () => {
+      this.cardScrollLeft = row.scrollLeft;
+    });
+    // Back to where the row was before the fit that rebuilt it: the sheet stays
+    // open when a card is picked, and one that snapped to its first card every
+    // time would lose the pilot's place on every try.
+    row.scrollLeft = this.cardScrollLeft;
+    return row;
+  }
+
+  /** Pan the card row with the mouse, remembering whether it actually moved. */
+  private beginRowDrag(row: HTMLDivElement, ev: MouseEvent): void {
+    this.rowDragged = false;
+    const startX = ev.clientX;
+    const startScroll = row.scrollLeft;
+    const move = (moveEv: MouseEvent): void => {
+      const dx = moveEv.clientX - startX;
+      if (Math.abs(dx) > ROW_DRAG_SLOP_PX) this.rowDragged = true;
+      row.scrollLeft = startScroll - dx;
+      this.cardScrollLeft = row.scrollLeft;
+    };
+    const up = (): void => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      // The click lands AFTER mouseup, so the flag has to outlive this handler
+      // by exactly one task — long enough for the card to read it, no longer.
+      setTimeout(() => {
+        this.rowDragged = false;
+      }, 0);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+
+  /**
+   * Every module this socket accepts, lowest tier first — a FLAT list (owner
+   * 2026-08-22 amendment). The radial grouped a socket's candidates into lines
+   * because a fan of twenty buttons is unreadable; a row that scrolls has no
+   * such limit, and the tier ladders themselves are being reworked, so the
+   * picker offers the catalogue rather than a shape of it that will not survive.
+   */
+  private slotCandidates(slot: HangarSlot): ModuleConfig[] {
+    return this.configs
+      .getAll<ModuleConfig>("module")
+      .filter((m) => slotAccepts(slot, m.family))
+      .sort((a, b) => a.level - b.level || (a.name ?? a.id).localeCompare(b.name ?? b.id));
+  }
+
+  /**
+   * One module card: its ICON (never a letter acronym — spec), its name, and
+   * the line of what it buys, pinned to the card's foot.
+   *
+   * There is no `×N` count badge. The spec draws one, but ownership in this
+   * game is BINARY — `OwnershipStore` holds a set of unlocked ids and no
+   * quantities anywhere — so a count could only be invented, and one unlocked
+   * module may legally sit in two sockets at once (the brawler's stock fit
+   * carries the same generator twice). "Unavailable" here means UNLOCKED-NO.
+   */
+  private buildModuleCard(slot: HangarSlot, index: number, mod: ModuleConfig): HTMLButtonElement {
+    const fitted = slot.moduleId === mod.id;
+    // Unlocked, or already in this socket — a module can outlive the licence
+    // that bought it, and the honest thing is to keep showing what is fitted.
+    const usable = this.canEquip(mod.id) || fitted;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `hangar-card${fitted ? " fitted" : ""}${usable ? "" : " unavailable"}`;
+    btn.dataset["module"] = mod.id;
+    btn.disabled = this.busy || !usable;
+
+    const icon = el("span", "hangar-card-icon");
+    icon.innerHTML = moduleIconSvg(moduleIconId(mod));
+    btn.append(icon);
+    btn.append(el("span", "hangar-card-name", mod.name ?? mod.id));
+    btn.append(el("span", "hangar-card-stat", moduleStatLine(mod)));
+    if (!usable) return btn;
+
+    btn.dataset["previewModule"] = mod.id;
+    this.bindPreviewSignals(btn, index, mod.id, { pinOnClick: false });
+    btn.addEventListener("pointerdown", () => this.startHold(index, mod.id));
+    for (const end of ["pointerup", "pointerleave", "pointercancel"] as const) {
+      btn.addEventListener(end, () => this.cancelHold());
+    }
+    btn.addEventListener("click", () => {
+      // A pan that happened to finish over a card is not a pick (spec).
+      if (this.rowDragged) return;
+      // …and neither is a press-hold, which has already put the delta on screen
+      // and must not fit the module the pilot was only weighing up.
+      if (this.consumeHold()) return;
+      this.equip(index, mod.id);
+    });
+    return btn;
+  }
+
+  // --- rendering ---------------------------------------------------------
+
+  /**
+   * The LOADOUT DECK (owner 2026-08-22) — the right half of the screen, top to
+   * bottom: the HARDPOINTS heading and BACK, a grid of hardpoint tiles, the
+   * CORE / INTERNAL heading and its tiles, the before/after compare box, the
+   * upgrade tracks, and — pinned to the foot — the power pips and the skin
+   * swatches.
+   *
+   * There is no rail and no picker in the deck itself: a slot tile IS the
+   * control, and what it opens is the card sheet over the ship rather than a
+   * list under itself.
+   */
+  private render(): void {
+    const ship = this.currentShip();
+    // A full render rebuilds the sheet, so whatever card the pointer was over no
+    // longer exists: the ghost goes with it. The sheet itself STAYS open — only
+    // {@link closeSheet} closes it — so `sheetSlot` and `baseFits` survive.
+    this.preview = null;
+    this.previewPinned = false;
+    this.cancelHold();
+    this.holdFired = false;
+    this.panel.innerHTML = "";
+    this.compare = null;
+    this.renderStageChrome();
+    this.setArrowsEnabled();
+    if (!ship) {
+      this.renderSheet();
+      return;
+    }
+
+    const owned = this.canFly(ship.id);
+    // A hull you have not bought has nothing to outfit, so its sheet can never
+    // be open — and the one thing you CAN do with it lives on the stage.
+    if (!owned) this.closeSheet();
+
+    this.panel.append(this.buildDeckHead(owned));
+
+    const body = el("div", "hangar-deck-body");
+    if (this.error) body.append(el("div", "hangar-error", this.error));
+    if (!owned) {
+      body.append(el("div", "hangar-hint", "You do not own this hull yet — buy it on the stage to fit and fly it."));
+    } else {
+      body.append(this.buildTileGrid("hardpoint"));
+      body.append(el("span", "hangar-section-title", "CORE / INTERNAL"));
+      body.append(this.buildTileGrid("internal"));
+    }
+    this.panel.append(body);
+
+    // The compare box, the upgrades, the pips and the skins are PINNED under
+    // the scroller. The design stacks them after the tiles, and on a 440px-tall
+    // landscape phone the tiles alone fill the deck — a before/after box you
+    // have to scroll to is not a before/after box, so the tiles are what
+    // scrolls.
+    const foot = el("div", "hangar-deck-foot");
+    this.compare = el("div", "hangar-compare");
+    foot.append(this.compare);
+    // The upgrade tracks (owner 2026-08-08) are the hull's own internals and
+    // this screen is still the only place they can be bought — the Shop sells
+    // hulls, modules and paints. The spec does not draw them, so they take the
+    // one seam it leaves: between the specs box and the power row, where they
+    // read as more of the same hull's numbers rather than as a second picker.
+    if (owned) foot.append(this.buildUpgrades(ship, !this.isAuthed()));
+    foot.append(this.buildPowerRow());
+    if (owned) foot.append(this.buildSkinRow(ship));
+    this.panel.append(foot);
+
+    this.renderCompare();
+    this.renderSheet();
+  }
+
+  /** The deck's first row: the HARDPOINTS heading, and the way out (spec). */
+  private buildDeckHead(owned: boolean): HTMLDivElement {
+    const head = el("div", "hangar-deck-head");
+    head.append(el("span", "hangar-section-title", owned ? "HARDPOINTS" : "HULL"));
+    const close = document.createElement("button");
+    close.className = "hangar-close";
+    close.type = "button";
+    close.textContent = "✕ BACK";
+    close.disabled = this.busy;
+    close.addEventListener("click", () => this.onClose());
+    head.append(close);
+    return head;
+  }
+
+  /**
+   * One bay's tiles. A tile carries the fitted module's ICON, its name (or
+   * EMPTY) and the socket's label, and pressing it toggles that socket's card
+   * sheet over the ship.
+   *
+   * The icon, not a two-letter code (owner 2026-08-22 amendment). The codes were
+   * derived initials — `moduleCode` says so itself — and a grid of eight tiles
+   * reading PL / AC / MR / HS is a grid of eight things you have to have learnt.
+   * An empty socket keeps the `+` it has always shown, because there is no
+   * module there to draw.
+   */
+  private buildTileGrid(kind: "hardpoint" | "internal"): HTMLDivElement {
+    const grid = el("div", "hangar-slot-grid");
+    for (const slot of this.slots) {
+      if (slot.kind !== kind) continue;
+      const mod = slot.moduleId ? this.configs.get<ModuleConfig>("module", slot.moduleId) : undefined;
       const btn = document.createElement("button");
-      btn.className = "hangar-rail-btn" + (this.category === entry.key ? " active" : "");
-      btn.dataset["category"] = entry.key;
-      // An unowned hull has no bays to open at all: the only thing you can do
-      // with it is buy it, and that lives on the stage.
-      btn.disabled = this.busy || !owned;
-      btn.append(el("span", "hangar-rail-label", entry.label), el("span", "hangar-rail-hint", entry.hint));
-      btn.addEventListener("click", () => this.selectCategory(entry.key));
-      rail.append(btn);
+      btn.type = "button";
+      btn.className =
+        "hangar-slot" + (mod ? " filled" : "") + (this.sheetSlot === slot.hardpointIndex ? " open" : "");
+      btn.dataset["kind"] = slot.kind;
+      btn.dataset["socket"] = slot.socketId;
+      // What is actually in the socket, for anything that has to ask without
+      // reading a picture — the tutorial's coach marks, and this file's tests.
+      btn.dataset["module"] = slot.moduleId ?? "";
+      btn.disabled = this.busy;
+      const icon = el("span", "hangar-slot-icon");
+      if (mod) icon.innerHTML = moduleIconSvg(moduleIconId(mod));
+      else icon.textContent = "+";
+      btn.append(icon);
+      btn.append(el("span", "hangar-slot-label", mod?.name ?? "EMPTY"));
+      btn.append(el("span", "hangar-slot-socket", slotLabel(slot.socketId)));
+      btn.addEventListener("click", () => this.selectSlot(slot.hardpointIndex));
+      grid.append(btn);
     }
-    const back = document.createElement("button");
-    back.className = "hangar-rail-btn back";
-    back.disabled = this.busy;
-    back.append(el("span", "hangar-rail-label", "Back"));
-    back.addEventListener("click", () => this.onClose());
-    rail.append(back);
-    return rail;
+    // The deck must NEVER scroll (owner 2026-08-23): the reference frame is two
+    // tile rows tall, so a section that would wrap — five internals on a
+    // four-column grid — widens to one column per socket instead of taking a
+    // second row. Capped at 6 so a future many-socketed hull degrades to
+    // wrapping rather than to unreadably thin tiles.
+    const count = grid.childElementCount;
+    if (count >= 5) grid.style.gridTemplateColumns = `repeat(${Math.min(count, 6)}, minmax(0, 1fr))`;
+    return grid;
   }
 
-  private selectCategory(category: HangarCategory): void {
-    this.category = category;
-    // A picker belongs to the bay it was opened from; carrying it across would
-    // show a hardpoint's module list under the internals heading.
-    this.pickerHardpoint = null;
-    this.render();
+  /**
+   * The power budget as PIPS (spec): one per point of rail capacity, filled to
+   * what the fit draws, and every filled pip turning red the moment the fit asks
+   * for more than the rail can give. The pips read the CURRENT fit — the
+   * projected draw is the compare box's POWER row.
+   */
+  private buildPowerRow(): HTMLDivElement {
+    const row = el("div", "hangar-powerrow");
+    row.append(el("span", "hangar-foot-label", "POWER"));
+    const panel = this.statPanelFor(fittedModuleIdsOf(this.slots));
+    const power = panel ? deckPower(panel) : null;
+    const pips = el("div", "hangar-pips");
+    for (const state of power?.pips ?? []) pips.append(el("span", `hangar-pip ${state}`));
+    row.append(pips);
+    row.append(el("span", "hangar-power-text" + (power?.over ? " over" : ""), power?.text ?? "—"));
+    return row;
   }
 
-  private buildSkins(ship: ShipConfig): HTMLDivElement {
-    const list = el("div", "hangar-skins");
-    list.append(el("div", "hangar-section-title", `${ship.name ?? ship.id} skins`));
-    if (!this.ownership) return list;
+  /**
+   * The skin swatches (spec): the paints this account owns for this hull, the
+   * equipped one ringed. A paint it does not own yet is shown dimmed and buys
+   * itself on the way to being equipped — the Shop is where they are browsed,
+   * this is where the one you fly is chosen.
+   */
+  private buildSkinRow(ship: ShipConfig): HTMLDivElement {
+    const row = el("div", "hangar-skinrow");
+    row.append(el("span", "hangar-foot-label", "SKIN"));
+    if (!this.ownership) return row;
     for (const cosmetic of hangarSkinEntries(this.configs, this.ownership, ship.id)) {
-      const isOwned = cosmetic.owned;
-      const equipped = cosmetic.equipped;
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = `hangar-skin${equipped ? " equipped" : ""}`;
-      row.dataset["cosmetic"] = cosmetic.id;
-      row.disabled = this.busy || !this.ownership || equipped;
-      const swatch = el("span", "hangar-skin-swatch");
-      swatch.style.setProperty("--skin-primary", cosmetic.primary);
-      swatch.style.setProperty("--skin-accent", cosmetic.accent);
-      row.append(
-        swatch,
-        el("span", "hangar-skin-name", cosmetic.name),
-        el("span", "hangar-skin-state", equipped ? "EQUIPPED" : isOwned ? "EQUIP" : `Buy · ${priceLabel(cosmetic.price)}`),
-      );
-      row.addEventListener("click", () => void this.chooseSkin(ship, cosmetic, isOwned));
-      list.append(row);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `hangar-skin${cosmetic.equipped ? " equipped" : ""}${cosmetic.owned ? "" : " unowned"}`;
+      btn.dataset["cosmetic"] = cosmetic.id;
+      btn.title = cosmetic.owned ? cosmetic.name : `${cosmetic.name} · ${priceLabel(cosmetic.price)}`;
+      btn.setAttribute("aria-label", btn.title);
+      btn.disabled = this.busy || cosmetic.equipped;
+      btn.style.setProperty("--skin-primary", cosmetic.primary);
+      btn.style.setProperty("--skin-accent", cosmetic.accent);
+      btn.addEventListener("click", () => void this.chooseSkin(ship, cosmetic, cosmetic.owned));
+      row.append(btn);
     }
-    return list;
+    return row;
   }
 
   private async chooseSkin(ship: ShipConfig, cosmetic: HangarSkinEntry, owned: boolean): Promise<void> {
@@ -1599,242 +2001,11 @@ export class Hangar {
     }
   }
 
-  /**
-   * The bottom instrument strip: the handful of numbers a pilot judges a fit on,
-   * and the POWER RAIL as two bars — what the hull draws with only its guns up,
-   * and what it would draw with everything up. The gap between them is exactly
-   * the choice the rail forces (see `powerRail.ts`).
-   */
-  private buildStatusBar(ship: ShipConfig): HTMLDivElement {
-    const panel = computeStatPanel(ship, this.configs, {
-      upgradeLevels: this.currentUpgradeLevels(),
-      fittedModuleIds: fittedModuleIdsOf(this.slots),
-    });
-    const bar = el("div", "hangar-statusbar");
-
-    const specs = el("div", "hangar-specs");
-    specs.append(el("div", "hangar-specs-title", "Ship specs"));
-    specs.append(specRow("Integrity", panel.hullMax.toFixed(0)));
-    specs.append(specRow("Top speed", `${panel.nominalSpeed.toFixed(0)} m/s`));
-    specs.append(specRow("Sustained DPS", panel.sustainedDps.toFixed(1)));
-    specs.append(specRow("DPS (est.)", panel.dps.toFixed(1)));
-    bar.append(specs);
-
-    const power = el("div", "hangar-power");
-    const head = el("div", "hangar-power-head");
-    head.append(el("span", "hangar-specs-title", "Total power"));
-    head.append(el("span", "hangar-power-max", `MAX ${panel.powerCapacity.toFixed(0)}`));
-    power.append(head);
-    power.append(powerBar("Retracted", panel.powerDrawRetracted, panel.powerCapacity));
-    power.append(powerBar("Deployed", panel.powerDrawTotal, panel.powerCapacity));
-    if (panel.powerOverSubscribed) {
-      power.append(
-        el(
-          "div",
-          "hangar-power-warn",
-          `Over-subscribed by ${(panel.powerDrawTotal - panel.powerCapacity).toFixed(0)} — activating one module shuts another down.`,
-        ),
-      );
-    }
-    bar.append(power);
-    return bar;
-  }
-
-  private buildHeader(): HTMLDivElement {
-    const header = el("div", "hangar-header");
-    header.append(el("span", "hangar-title", "HANGAR"));
-    const close = document.createElement("button");
-    close.className = "hangar-close";
-    close.textContent = "✕ Back";
-    close.disabled = this.busy;
-    close.addEventListener("click", () => this.onClose());
-    header.append(close);
-    return header;
-  }
-
-  private buildStatPanel(ship: ShipConfig): HTMLDivElement {
-    const panel = computeStatPanel(ship, this.configs, {
-      upgradeLevels: this.currentUpgradeLevels(),
-      fittedModuleIds: fittedModuleIdsOf(this.slots),
-    });
-    const wrap = el("div", "hangar-stats");
-    wrap.append(el("div", "hangar-section-title", "Stats"));
-    wrap.append(statRow("Hull", panel.hullMax.toFixed(0)));
-    wrap.append(statRow("Speed", panel.nominalSpeed.toFixed(1)));
-    wrap.append(statRow("Tanks", `${panel.energyReserve.toFixed(0)} (×${panel.rechargeMult.toFixed(2)} refill)`));
-    wrap.append(statRow("DPS (est.)", panel.dps.toFixed(1)));
-    wrap.append(statRow("Sustained (est.)", panel.sustainedDps.toFixed(1)));
-    wrap.append(statRow("EHP (est.)", panel.ehpApprox.toFixed(0)));
-    wrap.append(statRow("Power rail", `${panel.powerDrawTotal.toFixed(0)} / ${panel.powerCapacity.toFixed(0)}`));
-    wrap.append(this.buildPowerWarn(panel));
-    return wrap;
-  }
-
-  /**
-   * The over-subscription notice (owner 2026-07-31). Deliberately a WARNING and
-   * not a block: fitting more than the rail can feed is a legitimate choice —
-   * carry the heavy shield, run it only when you need it — so this states the
-   * consequence rather than refusing the save.
-   *
-   * Kept SHORT since 2026-08-01: the stage gauges are the primary power signal
-   * now (they colour the rail and ghost a candidate's draw before it is fitted),
-   * so this is the footnote rather than the announcement.
-   */
-  private buildPowerWarn(panel: HangarStatPanel): HTMLDivElement {
-    const row = el("div", "hangar-bar-row");
-    if (!panel.powerOverSubscribed) return row;
-    const over = panel.powerDrawTotal - panel.powerCapacity;
-    row.append(
-      el(
-        "span",
-        "hangar-bar-label warn-text",
-        `Power rail over-subscribed by ${over.toFixed(0)} — activating one module shuts another down.`,
-      ),
-    );
-    return row;
-  }
-
-  private buildBudgetBar(label: string, budget: number, draw: number, regen: number): HTMLDivElement {
-    const row = el("div", "hangar-bar-row");
-    row.append(el("span", "hangar-bar-label", `${label}: ${budget >= 0 ? "+" : ""}${budget.toFixed(1)}/s`));
-    const track = el("div", "hangar-bar-track");
-    const denom = Math.max(1, draw, regen);
-    const fill = el("div", "hangar-bar-fill" + (budget < 0 ? " warn" : ""));
-    fill.style.width = `${Math.min(100, (Math.min(draw, regen) / denom) * 100)}%`;
-    track.append(fill);
-    row.append(track);
-    return row;
-  }
-
-  private buildSlotGrid(kind: "hardpoint" | "internal"): HTMLDivElement {
-    const wrap = el("div", "hangar-slots");
-    wrap.append(
-      el("div", "hangar-section-title", kind === "internal" ? "Core internal bays" : "Hardpoints"),
-    );
-    const grid = el("div", "hangar-slot-grid");
-    for (const slot of this.slots) {
-      if (slot.kind !== kind) continue;
-      const mod = slot.moduleId ? this.configs.get<ModuleConfig>("module", slot.moduleId) : undefined;
-      const btn = document.createElement("button");
-      btn.className = "hangar-slot" + (slot.moduleId ? " filled" : "") + (this.pickerHardpoint === slot.hardpointIndex ? " open" : "");
-      btn.dataset["kind"] = slot.kind;
-      btn.disabled = this.busy;
-      // The real glyph set, not the content's `[ICON: laser]` placeholder text.
-      const icon = el("span", "hangar-slot-icon");
-      icon.innerHTML = mod ? moduleIconSvg(moduleIconId(mod)) : "";
-      if (!mod) icon.textContent = "+";
-      btn.append(icon);
-      btn.append(el("span", "hangar-slot-label", mod?.ui.label ?? "Empty"));
-      btn.append(el("span", "hangar-slot-socket", `${slot.socketId} · ${slot.accepts.join("/")}`));
-      btn.addEventListener("click", () => this.selectSlot(slot.hardpointIndex));
-      grid.append(btn);
-    }
-    wrap.append(grid);
-    return wrap;
-  }
-
-  /**
-   * The CONTEXTUAL module list for one slot (owner 2026-07-31): only what this
-   * socket accepts, as a rolling list that shows a few entries at a time and
-   * scrolls for the rest. Each row carries the numbers that decide the choice
-   * (see {@link moduleStats}) and is DRAGGABLE — dropping it on the ship's
-   * callout is the primary way to fit it, with the Equip button as the
-   * keyboard/tap-friendly equivalent.
-   */
-  private buildModulePicker(ship: ShipConfig, hardpointIndex: number, credits: number, level: number): HTMLDivElement {
-    const slot = this.slots[hardpointIndex];
-    const wrap = el("div", "hangar-picker");
-    const heading = el("div", "hangar-section-title", `Fit ${slot?.socketId ?? ""}`);
-    if (slot) heading.append(el("span", "hangar-picker-kind", slot.kind === "internal" ? "systems bay" : "hardpoint"));
-    wrap.append(heading);
-
-    if (slot?.moduleId) {
-      const removeBtn = document.createElement("button");
-      removeBtn.className = "hangar-btn sa-button sa-button--secondary";
-      removeBtn.textContent = "Remove module";
-      removeBtn.disabled = this.busy;
-      // Emptying the slot is a fit change like any other, so it previews like
-      // one: hovering it ghosts the gauges DOWN by what the module was giving.
-      removeBtn.dataset["previewModule"] = "";
-      this.bindPreviewSignals(removeBtn, hardpointIndex, null, { pinOnClick: false });
-      removeBtn.addEventListener("click", () => this.equip(hardpointIndex, null));
-      wrap.append(removeBtn);
-    }
-
-    const candidates = this.configs
-      .getAll<ModuleConfig>("module")
-      .filter((m) => slot && slotAccepts(slot, m.family))
-      .sort((a, b) => a.level - b.level || (a.name ?? a.id).localeCompare(b.name ?? b.id));
-
-    // The rolling list itself: a fixed-height scroller so a long candidate list
-    // never pushes the rest of the panel off screen.
-    const list = el("div", "hangar-picker-list");
-    for (const mod of candidates) {
-      const owned = this.canEquip(mod.id);
-      // Level gates are a progression rule, not an ownership one — offline test
-      // mode ignores them too, or half the catalogue would stay unreachable.
-      const locked = !this.offlineFitting && mod.requiresLevel > level;
-      const fitted = slot?.moduleId === mod.id;
-
-      const row = el("div", `hangar-picker-item${fitted ? " fitted" : ""}`);
-      row.dataset["module"] = mod.id;
-      // "The player is considering this one": hover, keyboard focus (it bubbles
-      // from the row's own Equip/Buy button) and a tap all raise the ghost.
-      row.dataset["previewModule"] = mod.id;
-      this.bindPreviewSignals(row, hardpointIndex, mod.id, { pinOnClick: true });
-
-      const head = el("div", "hangar-picker-head");
-      head.append(el("span", "hangar-picker-name", mod.name ?? mod.id));
-      head.append(
-        el(
-          "span",
-          "hangar-picker-meta",
-          locked ? `Lv ${mod.requiresLevel}` : owned ? "Owned" : this.offlineFitting ? "Locked" : `${mod.price} cr`,
-        ),
-      );
-      row.append(head);
-
-      const stats = el("div", "hangar-picker-stats");
-      for (const stat of moduleStats(mod)) {
-        const chip = el("span", "hangar-stat-chip");
-        chip.append(el("span", "k", stat.label), el("span", "v", stat.value));
-        stats.append(chip);
-      }
-      row.append(stats);
-
-      const actions = el("div", "hangar-picker-actions");
-      if (fitted) {
-        actions.append(el("span", "hangar-picker-meta", "Fitted"));
-      } else if (owned) {
-        const equipBtn = document.createElement("button");
-        equipBtn.className = "hangar-btn hangar-btn-primary sa-button sa-button--primary";
-        equipBtn.textContent = "Equip";
-        equipBtn.disabled = this.busy;
-        equipBtn.addEventListener("click", () => this.equip(hardpointIndex, mod.id));
-        actions.append(equipBtn);
-      } else if (!locked) {
-        const buyBtn = document.createElement("button");
-        buyBtn.className = "hangar-btn sa-button sa-button--secondary";
-        // Offline every module is free — but still bought, so the unlock flow
-        // is the shipped one and only the price is provisional.
-        buyBtn.textContent = `Buy · ${priceLabel(this.offlineFitting ? 0 : mod.price)}`;
-        buyBtn.disabled = this.busy || (!this.offlineFitting && !this.ownership && credits < mod.price);
-        buyBtn.addEventListener("click", () => void this.buyModule(mod.id));
-        actions.append(buyBtn);
-      }
-      row.append(actions);
-      list.append(row);
-    }
-    wrap.append(list);
-    if (candidates.length === 0) {
-      wrap.append(el("div", "hangar-hint", `No modules fit this ${slot?.kind === "internal" ? "bay" : "hardpoint"}.`));
-    }
-    return wrap;
-  }
-
-  private buildUpgrades(ship: ShipConfig, readOnly: boolean, credits: number): HTMLDivElement {
+  private buildUpgrades(ship: ShipConfig, readOnly: boolean): HTMLDivElement {
     const wrap = el("div", "hangar-upgrades");
-    wrap.append(el("div", "hangar-section-title", "Upgrades"));
+    wrap.append(el("span", "hangar-section-title", "UPGRADES"));
+    const profile = this.auth.getState();
+    const credits = profile.status === "authed" ? profile.profile.credits : 0;
     const levels = this.currentUpgradeLevels();
     for (const track of UPGRADE_TRACKS) {
       const upgradeId = ship.upgradeTracks[track];
@@ -1846,16 +2017,17 @@ export class Hangar {
       const row = el("div", "hangar-upgrade-row");
       row.append(el("span", "hangar-upgrade-label", UPGRADE_LABELS[track]));
       const pips = el("span", "hangar-pips");
-      for (let i = 0; i < maxLevel; i++) pips.append(el("span", "pip" + (i < current ? " filled" : "")));
+      for (let i = 0; i < maxLevel; i++) pips.append(el("span", "hangar-pip " + (i < current ? "filled" : "empty")));
       row.append(pips);
 
       const btn = document.createElement("button");
+      btn.type = "button";
       btn.className = "hangar-btn sa-button sa-button--secondary";
       if (!nextConfig) {
-        btn.textContent = "Max";
+        btn.textContent = "MAX";
         btn.disabled = true;
       } else {
-        btn.textContent = `Upgrade (${nextConfig.price} cr)`;
+        btn.textContent = `${nextConfig.price} cr`;
         btn.disabled = readOnly || this.busy || credits < nextConfig.price;
         btn.addEventListener("click", () => void this.upgradeTrack(track));
       }
@@ -1868,6 +2040,7 @@ export class Hangar {
   dispose(): void {
     this.disposed = true;
     this.hide();
+    this.clearSwapGuard();
     this.unsubscribeAuth();
     this.previewRig?.dispose();
     this.previewInstance?.dispose();
@@ -1918,82 +2091,56 @@ function el(tag: string, className?: string, text?: string): HTMLDivElement {
   return node;
 }
 
-/** One label/value line in the bottom instrument strip. */
-function specRow(label: string, value: string): HTMLDivElement {
-  const row = el("div", "hangar-spec-row");
-  row.append(el("span", "hangar-spec-label", label), el("span", "hangar-spec-value", value));
-  return row;
-}
-
 /**
- * One power-rail bar. Fills against CAPACITY, so the empty remainder is the
- * headroom the pilot still has — and a bar that runs past its track is a fit
- * that cannot be online all at once.
+ * One row of the BEFORE / AFTER box: caption, current reading, and — while a
+ * candidate is being weighed — the projected one behind an arrow that says
+ * which way it moves.
  */
-function powerBar(label: string, draw: number, capacity: number): HTMLDivElement {
-  const row = el("div", "hangar-power-row");
-  row.append(el("span", "hangar-power-label", label));
-  const track = el("div", "hangar-power-track");
-  const over = capacity > 0 && draw > capacity;
-  const fill = el("div", "hangar-power-fill" + (over ? " over" : ""));
-  fill.style.width = `${capacity > 0 ? Math.min(100, (draw / capacity) * 100) : 0}%`;
-  track.append(fill);
-  row.append(track);
-  row.append(el("span", "hangar-power-value", draw.toFixed(0)));
-  return row;
-}
-
-/**
- * One gauge line on the STAGE overlay: caption, track, reading. The ghost is a
- * SEGMENT covering the ground between the current fill and the projected one —
- * hatched where a candidate would add, dimmed where it would take away — so the
- * direction of a change reads before its number does.
- */
-function gaugeRow(gauge: HangarGauge): HTMLDivElement {
-  const row = el("div", "hangar-gauge");
-  row.dataset["key"] = gauge.key;
-  row.append(el("span", "hangar-gauge-label", gauge.label));
-
-  const track = el("div", "hangar-gauge-track");
-  const fill = el("div", "hangar-gauge-fill" + (gauge.warn ? " warn" : ""));
-  fill.style.width = pct(gauge.fraction);
-  track.append(fill);
-  if (gauge.ghostFraction !== null) {
-    const rising = gauge.ghostFraction > gauge.fraction;
-    const lo = Math.min(gauge.fraction, gauge.ghostFraction);
-    const hi = Math.max(gauge.fraction, gauge.ghostFraction);
-    const ghost = el("div", `hangar-gauge-ghost ${rising ? "up" : "down"}${gauge.ghostWarn ? " warn" : ""}`);
-    ghost.style.left = pct(lo);
-    ghost.style.width = pct(hi - lo);
-    track.append(ghost);
-  }
-  // Power's reference line: where the rail runs out. Nothing else has one.
-  if (gauge.limitFraction !== null) {
-    const limit = el("div", "hangar-gauge-limit");
-    limit.style.left = pct(gauge.limitFraction);
-    track.append(limit);
-  }
-  row.append(track);
-
-  const read = el("div", "hangar-gauge-read");
-  read.append(el("span", "hangar-gauge-value" + (gauge.warn ? " warn" : ""), gauge.valueText));
-  if (gauge.deltaText !== null) {
+function compareRow(row: DeckCompareRow): HTMLDivElement {
+  const node = el("div", "hangar-compare-row");
+  node.dataset["key"] = row.key;
+  node.append(el("span", "hangar-compare-label", row.label));
+  const read = el("div", "hangar-compare-read");
+  read.append(el("span", "hangar-compare-value", row.value));
+  if (row.projected !== null) {
     read.append(
-      el("span", `hangar-gauge-delta ${gauge.trend}${gauge.ghostWarn ? " warn" : ""}`, gauge.deltaText),
+      el(
+        "span",
+        `hangar-compare-delta ${row.trend}${row.warn ? " warn" : ""}`,
+        `${row.arrow ?? ""} ${row.projected}`.trim(),
+      ),
     );
   }
-  row.append(read);
-  return row;
+  node.append(read);
+  return node;
 }
 
-function pct(fraction: number): string {
-  return `${(fraction * 100).toFixed(2)}%`;
-}
-
-function statRow(label: string, value: string): HTMLDivElement {
-  const row = el("div", "hangar-stat-row");
-  row.append(el("span", "hangar-stat-label", label), el("span", "hangar-stat-value", value));
-  return row;
+/**
+ * The line pinned to the foot of a module card — what this module buys, e.g.
+ * `DPS+18 ⌁2` (spec).
+ *
+ * Read off the module's OWN authored numbers rather than resolved against the
+ * hull, because it is a label on a catalogue entry, not a projection: the
+ * projection is the before/after box, which the same card raises on hover or a
+ * press-hold and which does go through `computeStatPanel`. Costing twenty cards
+ * through the resolver to print a headline would also mean forty stat-panel
+ * resolves every time the sheet opens.
+ *
+ * A module with no `fire` block (an alloy, a reactor, an engine) has no damage
+ * to quote, so its line is just the rail current it holds — which for most
+ * internals is the only number the pilot is trading anyway.
+ */
+function moduleStatLine(mod: ModuleConfig): string {
+  const parts: string[] = [];
+  const fire = mod.fire;
+  if (fire) {
+    // Nominal, un-resolved DPS: damage per shot over the authored cycle. A
+    // channelled weapon deals its damage per second by definition.
+    const dps = fire.mode === "continuous" ? fire.damage : fire.damage / Math.max(0.01, fire.cycleTime);
+    parts.push(`DPS+${Math.round(dps)}`);
+  }
+  parts.push(`⌁${Math.round(mod.power?.draw ?? 0)}`);
+  return parts.join(" ");
 }
 
 const STYLE_ID = "hangar-style";
@@ -2007,414 +2154,530 @@ function injectHangarStyle(): void {
 
 const HANGAR_CSS = `
 /*
- * OUTFITTING (owner 2026-07-31) — restyled after the space-sim outfitting
- * screens the game is aiming at: flat charcoal panels, square corners, hairline
- * rules, condensed uppercase labels, and the shared information-blue accent that means
- * "this is the thing you have selected". No rounded chrome, no glass, no second
- * accent competing for attention.
+ * LOADOUT DECK (owner 2026-08-22) — the hangar redesign.
  *
- * The split itself is unchanged: the ship's 3D stage gets one half — STACKED in
- * portrait, SIDE BY SIDE in landscape — and \`hangarLayout.stageViewport()\`
- * confines the camera to exactly the same rectangle, so the two must always be
- * changed together.
+ * Left: the live 3D viewer, full bleed, with the hull's identity, the bay
+ * arrows and the module card sheet drawn over it. Right: a DECK of slot tiles,
+ * the before/after compare box, and — pinned to its foot — the upgrade tracks,
+ * the power pips and the skin swatches. Tapping a tile slides a row of the
+ * modules that socket accepts up over the foot of the viewer; picking one fits
+ * it and leaves the sheet up, so the next pick reads against the same baseline.
+ *
+ * The palette, the chamfer geometry and the sizes are the design's, published
+ * as --hg-* custom properties on the overlay root the way this sheet has
+ * always carried its own — the shared --sa-* tokens are the arena's
+ * design system and this screen is a themed surface on top of it, not a second
+ * copy of it. The split ratio is the one thing that must agree with code:
+ * DECK_STAGE_FRACTION confines the camera to exactly the width the stage
+ * takes here, or the hull renders behind the deck.
+ *
+ * Fonts: the design's own — Titillium Web for headings and buttons, IBM Plex
+ * Mono for codes, labels and numbers, both bundled through @fontsource in
+ * main.ts beside Orbitron and Rajdhani (this game makes no webfont request at
+ * runtime). Each keeps a fallback stack, so a build that ever drops the package
+ * degrades to the shipped sans and the platform mono rather than to serif.
  */
 .hangar-overlay {
   position: fixed;
   inset: 0;
   z-index: 15;
   pointer-events: none;
-  font: var(--sa-type-body);
-  color: var(--sa-white);
   display: flex;
-  flex-direction: column; /* portrait: stage above, panel below */
-  --hg-accent: var(--sa-blue-500);
-  --hg-accent-dim: color-mix(in srgb, var(--sa-blue-500) 18%, transparent);
-  --hg-panel: color-mix(in srgb, var(--sa-n-900) 95%, transparent);
-  --hg-panel-2: color-mix(in srgb, var(--sa-n-800) 95%, transparent);
-  --hg-line: var(--sa-n-500);
-  --hg-dim: var(--sa-n-400);
-  --hg-danger: var(--sa-red-500);
+  flex-direction: column; /* portrait: viewer above, deck below */
+  color: var(--hg-text);
+  font-family: var(--hg-sans);
+  -webkit-font-smoothing: antialiased;
+
+  --hg-sans: 'Titillium Web', 'Rajdhani', system-ui, sans-serif;
+  --hg-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', 'SF Mono', Consolas, 'Liberation Mono', monospace;
+
+  --hg-bg: #05080f;
+  --hg-bg-2: #070c16;
+  --hg-panel: #0a1220;
+  --hg-panel-2: #0a1424;
+  --hg-panel-3: #0d1830;
+  --hg-raised: #0f1f3a;
+  --hg-active: #16305c;
+  --hg-active-2: #2059b8;
+  --hg-line: #14243c;
+  --hg-line-2: #1d3252;
+  --hg-line-3: #24405f;
+  --hg-line-4: #2a3f5c;
+  --hg-line-5: #2f4f7a;
+  --hg-line-hi: #7fb0ff;
+  --hg-accent: #4f8df9;
+  --hg-text: #dfe9f7;
+  --hg-text-blue: #9cc0ff;
+  --hg-muted: #7d93b4;
+  --hg-muted-2: #9fb6d6;
+  --hg-faint: #587499;
+  --hg-good: #39d98a;
+  --hg-bad: #e07a6a;
+  --hg-over: #c0564a;
+  --hg-clear-bg: #1a0f14;
+  --hg-clear-line: #8a3a3a;
+  --hg-clear-text: #e58f8f;
+  --hg-pip-empty: #182b47;
+  /* Bottom-right corner cut — the deck's one shape, at the spec's four sizes. */
+  --hg-chamfer-xs: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+  --hg-chamfer-sm: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+  --hg-chamfer-card: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
+  --hg-chamfer: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
 }
+/* The sheet's entrance (spec): 220ms, a 24px rise and a fade. */
+@keyframes hangar-sheet-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes hangar-load-spin { to { transform: rotate(360deg); } }
+
+/* ---- loading ---- */
 .hangar-loading-overlay {
-  position: absolute; inset: 0; z-index: 20; display: grid; place-items: center;
+  position: absolute; inset: 0; z-index: 40; display: grid; place-items: center;
   background: radial-gradient(circle at 50% 42%, rgba(24, 64, 86, .3), rgba(3, 7, 17, .96) 66%);
   pointer-events: auto;
 }
-.hangar-loading-panel { display: flex; flex-direction: column; align-items: center; gap: 9px; color: var(--sa-white); letter-spacing: .13em; text-align: center; }
+.hangar-loading-panel { display: flex; flex-direction: column; align-items: center; gap: 9px; letter-spacing: .13em; text-align: center; }
 .hangar-loading-panel i, .hangar-preview-loading::before { width: 24px; height: 24px; border: 2px solid var(--hg-accent); border-right-color: transparent; border-radius: 50%; animation: hangar-load-spin .8s linear infinite; }
 .hangar-loading-panel strong { color: var(--hg-accent); font-size: 13px; letter-spacing: .22em; }
-.hangar-loading-panel span { color: var(--hg-dim); font-size: 10px; }
-.hangar-preview-loading { position: absolute; inset: 0; z-index: 5; align-items: center; justify-content: center; gap: 9px; color: var(--hg-accent); font-size: 10px; letter-spacing: .16em; pointer-events: none; }
+.hangar-loading-panel span { color: var(--hg-muted); font-size: 10px; }
+.hangar-preview-loading { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--hg-accent); font-family: var(--hg-mono); font-size: 10px; letter-spacing: .16em; pointer-events: none; }
 .hangar-preview-loading::before { content: ""; width: 16px; height: 16px; }
-@keyframes hangar-load-spin { to { transform: rotate(360deg); } }
-/* The stage takes its half of the flex box but never any pointer events —
-   orbit and zoom drags belong to the canvas underneath it. */
+
+/* ---- the viewer half ---- */
 .hangar-stage {
   position: relative;
   flex: 1 1 50%;
   min-height: 0;
   min-width: 0;
-  pointer-events: none;
-  /* Two rows: the viewer, then the characteristics band under it. */
+  pointer-events: none; /* orbit/zoom drags belong to the canvas underneath */
   display: flex;
-  flex-direction: column;
+  /* TRANSPARENT, and it has to stay that way: this is the window the 3D stage
+     renders THROUGH (see the stage field's doc comment). It shipped as
+     var(--hg-bg) — an opaque #05080f rectangle over exactly the half the hull
+     draws into, inside an overlay at z-index 15, above an unpositioned canvas —
+     which presented as a pure-black viewer with a completely healthy renderer
+     behind it. The deck half keeps the solid background; the viewer half must
+     not have one. */
+  background: transparent;
 }
-/* The viewer WINDOW — the rectangle the camera's stage viewport is matched to
-   (see hangarLayout.stageViewport). Nothing opaque may live in here: this is
-   the hull's own space, and everything anchored inside it is either an edge
-   control or click-through. */
-.hangar-stage-view {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  min-width: 0;
+.hangar-stage-view { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; }
+/* The scrim that lets the deck's edge read against the 3D scene (spec). It
+   follows the split: down the viewer's foot in portrait, across its right edge
+   in landscape, where the deck is the thing it has to separate from. */
+.hangar-stage-view::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(7, 12, 22, 0) 62%, rgba(7, 12, 22, .9) 100%);
 }
-/* Stage arrows: the only thing in the stage half that takes pointer events, so
-   orbit and zoom drags still reach the canvas between them. */
+.hangar-overlay .hangar-title {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  left: calc(env(safe-area-inset-left, 0px) + 16px);
+  z-index: 10;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: .45em;
+  color: var(--hg-accent);
+  text-shadow: 0 1px 4px #000;
+  pointer-events: none;
+}
+/* ‹ › — the bay walk, and the visible twin of the swipe gesture. */
 .hangar-stage-arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 44px;
-  height: 68px;
+  z-index: 15;
+  width: 38px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  background: linear-gradient(90deg, rgba(14, 16, 19, 0) 0%, rgba(14, 16, 19, .72) 100%);
-  color: var(--hg-accent);
-  border: 0;
+  font-family: var(--hg-sans);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--hg-line-hi);
+  background: rgba(9, 16, 32, .55);
+  border: 1px solid var(--hg-line-5);
+  clip-path: var(--hg-chamfer);
   cursor: pointer;
   pointer-events: auto;
   touch-action: manipulation;
-  opacity: .78;
-  transition: opacity .12s linear, color .12s linear;
+  transition: background .12s ease, opacity .12s ease;
 }
-.hangar-stage-arrow.prev { left: 0; background: linear-gradient(270deg, rgba(14, 16, 19, 0) 0%, rgba(14, 16, 19, .72) 100%); }
-.hangar-stage-arrow.next { right: 0; }
-.hangar-stage-arrow svg { width: 26px; height: 26px; display: block; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sa-blue-500) 45%, transparent)); }
-.hangar-stage-arrow:hover:not(:disabled) { opacity: 1; color: var(--sa-white); }
-.hangar-stage-arrow:disabled { opacity: .22; cursor: default; }
-/*
- * ---- ship characteristics, over the 3D stage (owner 2026-08-01) ----
- *
- * The primary read on a fit, put where the player is already looking. Anchored
- * to the stage's top-left CORNER (the hull frames itself in the middle) and,
- * like the rest of the stage half, click-through: an orbit drag that starts on
- * these gauges must still reach the canvas underneath.
- */
-.hangar-gauges {
-  /* DOCKED, not floating: the band is the stage's second row, so the gauges sit
-     UNDER the hull instead of on top of it. The freed width is spent on columns
-     rather than a taller card — a short band is stage the viewer keeps. */
-  flex: 0 0 auto;
-  box-sizing: border-box;
+.hangar-stage-arrow.prev { left: 10px; }
+.hangar-stage-arrow.next { right: 10px; }
+.hangar-stage-arrow:hover:not(:disabled) { background: var(--hg-active); }
+.hangar-stage-arrow:disabled { opacity: .25; cursor: default; }
+.hangar-ship-readout {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  left: calc(env(safe-area-inset-left, 0px) + 16px);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   pointer-events: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
-  align-content: end;
-  gap: 3px 16px;
-  padding:
-    6px
-    calc(env(safe-area-inset-right, 0px) + 10px)
-    calc(env(safe-area-inset-bottom, 0px) + 7px)
-    calc(env(safe-area-inset-left, 0px) + 10px);
-  background: linear-gradient(180deg, rgba(10, 12, 15, .55) 0%, rgba(10, 12, 15, .88) 42%);
-  border-top: 2px solid var(--hg-accent);
-  backdrop-filter: blur(2px);
 }
-/* The caption rows span the full band; only the gauges themselves column up. */
-.hangar-gauges-head,
-.hangar-ship-class,
-.hangar-gauges-warn { grid-column: 1 / -1; }
-.hangar-ship-class { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--hg-dim); }
-.hangar-gauges.previewing { border-top-color: var(--sa-white); }
-.hangar-gauges-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.hangar-gauges-title { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--hg-accent); }
-.hangar-gauges-preview {
-  font-size: 8.5px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: var(--sa-white);
-  background: var(--hg-accent-dim);
-  padding: 1px 5px;
+.hangar-ship-name { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .2em; color: var(--hg-text); text-shadow: 0 1px 3px #000; }
+.hangar-ship-class { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .2em; color: var(--hg-muted); }
+.hangar-ship-dots {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
 }
-.hangar-gauge { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; column-gap: 6px; }
-.hangar-gauge-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--hg-dim); }
-.hangar-gauge-track { position: relative; height: 7px; background: rgba(255, 255, 255, .08); overflow: hidden; }
-.hangar-gauge-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--hg-accent); }
-.hangar-gauge-fill.warn { background: var(--hg-danger); }
-/*
- * The GHOST: the ground between the current value and the projected one. Going
- * UP it is a translucent hatch drawn past the fill (what the module would add);
- * coming DOWN it dims the part of the fill that would be given back.
- */
-.hangar-gauge-ghost { position: absolute; top: 0; bottom: 0; }
-.hangar-gauge-ghost.up {
-  background:
-    repeating-linear-gradient(135deg, color-mix(in srgb, var(--sa-blue-500) 85%, transparent) 0 3px, color-mix(in srgb, var(--sa-blue-500) 30%, transparent) 3px 6px);
+.hangar-ship-dot {
+  width: 22px;
+  height: 4px;
+  background: var(--hg-line-4);
+  clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%);
+  transition: background .18s ease;
 }
-.hangar-gauge-ghost.down {
-  background:
-    repeating-linear-gradient(135deg, color-mix(in srgb, var(--sa-white) 50%, transparent) 0 3px, rgba(10, 12, 15, .65) 3px 6px);
-}
-.hangar-gauge-ghost.up.warn {
-  background:
-    repeating-linear-gradient(135deg, color-mix(in srgb, var(--sa-red-500) 90%, transparent) 0 3px, color-mix(in srgb, var(--sa-red-500) 35%, transparent) 3px 6px);
-}
-.hangar-gauge-ghost.down.warn {
-  background:
-    repeating-linear-gradient(135deg, color-mix(in srgb, var(--sa-red-500) 60%, transparent) 0 3px, rgba(10, 12, 15, .65) 3px 6px);
-}
-/* Where the power rail runs out — the one line a fit must not cross. */
-.hangar-gauge-limit { position: absolute; top: -1px; bottom: -1px; width: 1px; background: var(--sa-white); opacity: .7; }
-.hangar-gauge-read { display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; min-width: 74px; }
-.hangar-gauge-value { font-size: 10px; font-variant-numeric: tabular-nums; }
-.hangar-gauge-value.warn { color: var(--hg-danger); font-weight: 700; }
-.hangar-gauge-delta { font-size: 9.5px; font-variant-numeric: tabular-nums; font-weight: 700; }
-.hangar-gauge-delta.better { color: var(--sa-blue-500); }
-.hangar-gauge-delta.worse { color: var(--sa-white); }
-.hangar-gauge-delta.warn { color: var(--hg-danger); }
-.hangar-gauges-warn { font-size: 9.5px; line-height: 1.2; color: var(--hg-danger); }
-/* Phones: the stage half is small, so the band gives the hull more room —
-   tighter rows and narrower columns, which on a phone-width stage means the
-   gauges pair up two-across instead of stacking into a tall wall. */
-@media (max-width: 520px), (orientation: landscape) and (max-height: 480px) {
-  .hangar-gauges { grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); padding: 4px 7px 6px; gap: 2px 10px; }
-  .hangar-gauge { grid-template-columns: 54px 1fr auto; column-gap: 5px; }
-  .hangar-gauge-read { min-width: 60px; }
-}
-/*
- * ---- the hull action, over the 3D stage (owner 2026-08-08) ----
- *
- * The opposite corner to the gauges, and the only DECISION on this half of the
- * screen: buy this hull, or make it the one you fly. Anchored top-right so it
- * clears the vertically-centred stage arrows in both orientations and never
- * shares a corner with the panel's Back button (which lives in the other half
- * of the split, whichever way round that is).
- *
- * The corner itself is click-through like the rest of the stage; only the
- * control inside it takes pointer events.
- */
+.hangar-ship-dot.active { background: var(--hg-accent); }
 .hangar-stage-action {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 8px);
   right: calc(env(safe-area-inset-right, 0px) + 8px);
+  z-index: 12;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
-  max-width: 42%;
+  max-width: 46%;
   pointer-events: none;
 }
 .hangar-stage-action > * { pointer-events: auto; }
-/*
- * 44px minimum touch target — this is a phone-first screen. Written with the
- * container in the selector so it beats the 34px on ".hangar-btn", which is
- * declared further down the sheet.
- */
-.hangar-stage-action .hangar-stage-btn {
-  min-height: 44px;
-  padding: 10px 14px;
-  box-shadow: 0 0 0 1px rgba(10, 12, 15, .55), 0 2px 10px rgba(0, 0, 0, .45);
-}
-/* Badges here sit on the 3D scene, so both states get their own plate. */
-.hangar-stage-action .hangar-badge { line-height: 1.7; backdrop-filter: blur(2px); }
+/* 44px minimum touch target — this is a phone-first screen. */
+.hangar-stage-action .hangar-stage-btn { min-height: 44px; padding: 10px 14px; box-shadow: 0 2px 10px rgba(0, 0, 0, .45); }
 .hangar-stage-action .hangar-badge.main { border: 1px solid var(--hg-accent); }
 .hangar-stage-action .hangar-badge.locked { background: rgba(10, 12, 15, .72); }
+
+/* ---- the module card sheet ---- */
+.hangar-sheet-layer { position: absolute; inset: 0; z-index: 20; pointer-events: auto; }
+/* The dim covers the VIEWER only (spec) — the deck stays live behind it, so the
+   pilot can read the compare box change while the sheet is up. */
+.hangar-sheet-dim { position: absolute; inset: 0; background: rgba(4, 6, 12, .35); }
+.hangar-sheet {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 30;
+  padding: 24px 0 0;
+  background: linear-gradient(180deg, rgba(5, 9, 17, 0) 0%, rgba(5, 9, 17, .96) 22%);
+  animation: hangar-sheet-up .22s ease both;
+}
+.hangar-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 14px 7px; }
+.hangar-sheet-title { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .3em; color: var(--hg-line-hi); }
+.hangar-sheet-actions { display: flex; gap: 8px; }
+.hangar-sheet-clear,
+.hangar-sheet-done {
+  padding: 5px 12px;
+  min-height: 32px;
+  font-family: var(--hg-mono);
+  font-size: 9px;
+  letter-spacing: .15em;
+  cursor: pointer;
+  touch-action: manipulation;
+  clip-path: var(--hg-chamfer-xs);
+  transition: background .12s ease, border-color .12s ease;
+}
+.hangar-sheet-clear { background: var(--hg-clear-bg); border: 1px solid var(--hg-clear-line); color: var(--hg-clear-text); }
+.hangar-sheet-clear:hover:not(:disabled) { background: #2c1418; }
+.hangar-sheet-clear.considering { border-color: #fff; }
+.hangar-sheet-done { background: var(--hg-panel-3); border: 1px solid var(--hg-line-5); color: var(--hg-muted-2); }
+.hangar-sheet-done:hover:not(:disabled) { background: var(--hg-active); color: var(--hg-text); }
+.hangar-sheet-clear:disabled, .hangar-sheet-done:disabled { opacity: .45; cursor: default; }
+/* One horizontal row, scrollbar hidden: a finger swipes it natively, and the
+   mouse affordances (wheel → scrollLeft, click-drag pan) live in the screen. */
+.hangar-card-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 14px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  cursor: grab;
+}
+.hangar-card-row::-webkit-scrollbar { display: none; }
+.hangar-card-row:active { cursor: grabbing; }
+.hangar-card {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 7px 9px;
+  text-align: left;
+  background: var(--hg-panel-3);
+  border: 1px solid var(--hg-line-5);
+  color: #c7d8f2;
+  clip-path: var(--hg-chamfer-card);
+  cursor: pointer;
+  touch-action: pan-x;
+  transition: filter .12s ease, background .12s ease, border-color .12s ease;
+}
+.hangar-card.fitted { background: var(--hg-active-2); border-color: var(--hg-line-hi); color: #fff; }
+.hangar-card.unavailable { opacity: .35; cursor: default; pointer-events: none; }
+.hangar-card:hover:not(:disabled) { filter: brightness(1.25); }
+.hangar-card.considering { border-color: #fff; filter: brightness(1.25); }
+.hangar-card-icon { display: flex; color: var(--hg-text-blue); }
+.hangar-card.fitted .hangar-card-icon { color: #fff; }
+.hangar-card-icon svg { width: 20px; height: 20px; stroke-width: 1.8; }
+.hangar-card-name {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--hg-text);
+  /* Two lines, then it stops — the card is a fixed 96×84 (spec). */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.hangar-card.fitted .hangar-card-name { color: #fff; }
+/* Pinned to the foot, whatever height the name took. */
+.hangar-card-stat { margin-top: auto; font-family: var(--hg-mono); font-size: 8px; letter-spacing: .06em; color: var(--hg-line-hi); }
+.hangar-card.fitted .hangar-card-stat { color: #dbe8ff; }
+
+/* ---- the deck ---- */
 .hangar-panel {
   pointer-events: auto;
   flex: 1 1 50%;
   min-height: 0;
   min-width: 0;
   box-sizing: border-box;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
-  background: var(--hg-panel);
-  border-top: 1px solid var(--hg-line);
-  padding:
-    10px
-    calc(env(safe-area-inset-right, 0px) + 12px)
-    calc(env(safe-area-inset-bottom, 0px) + 10px)
-    calc(env(safe-area-inset-left, 0px) + 12px);
   display: flex;
   flex-direction: column;
   gap: 10px;
+  background: var(--hg-bg-2);
+  border-top: 1px solid var(--hg-line);
+  padding:
+    14px
+    calc(env(safe-area-inset-right, 0px) + 16px)
+    calc(env(safe-area-inset-bottom, 0px) + 14px)
+    calc(env(safe-area-inset-left, 0px) + 16px);
 }
-/*
- * Rail + content, with the instrument strip under both.
- *
- * Every direct child of the scrolling panel is \`flex-shrink: 0\`. Without it a
- * flex column SHRINKS its children below their content instead of scrolling,
- * and the overflow paints straight over the next section — which is exactly how
- * the ship specs ended up printed across the rail (owner report 2026-07-31).
- */
-.hangar-header, .hangar-body, .hangar-statusbar { flex: 0 0 auto; }
-.hangar-body { display: flex; gap: 10px; align-items: flex-start; }
-.hangar-content { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.hangar-rail { flex: 0 0 132px; }
-
-/* ---- the outfitting rail ---- */
-.hangar-rail { flex: 0 0 132px; display: flex; flex-direction: column; gap: 2px; }
-.hangar-rail-btn {
+.hangar-deck-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* The scrolling middle. The foot below it is PINNED, which is what "pushed to
+   the bottom with an auto margin" means once the deck is taller than a phone. */
+.hangar-deck-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* The deck fits, it does not scroll (owner 2026-08-23): tiles compress and a
+     five-socket section widens to five columns instead of wrapping. hidden
+     rather than visible so a pathologically short window clips instead of
+     bleeding into the pinned foot. */
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  text-align: left;
-  padding: 7px 9px;
-  min-height: 42px;
+  gap: 8px;
+}
+.hangar-deck-foot { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; }
+.hangar-section-title { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .3em; color: var(--hg-muted); }
+.hangar-close {
+  background: var(--hg-panel-3);
+  color: var(--hg-text);
+  border: 1px solid var(--hg-line-5);
+  font-family: var(--hg-sans);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: .2em;
+  padding: 6px 14px;
+  min-height: 34px;
+  cursor: pointer;
+  touch-action: manipulation;
+  clip-path: var(--hg-chamfer-sm);
+}
+.hangar-close:hover:not(:disabled) { background: var(--hg-active); }
+.hangar-close:disabled { opacity: .45; cursor: default; }
+.hangar-hint { font-size: 12px; color: var(--hg-muted-2); border-left: 2px solid var(--hg-line-2); padding: 4px 8px; }
+.hangar-error { font-family: var(--hg-mono); font-size: 11px; color: var(--hg-bad); border-left: 2px solid var(--hg-bad); padding: 4px 8px; }
+
+/* ---- slot tiles ---- */
+.hangar-slot-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.hangar-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  /* 76px at the design's 440-tall reference, compressing on shorter windows so
+     the deck never grows a scrollbar. The floor still seats icon + two labels. */
+  height: clamp(54px, 12vh, 76px);
+  padding: 2px;
+  background: var(--hg-panel);
+  border: 1px dashed var(--hg-line-4);
+  color: var(--hg-faint);
+  clip-path: var(--hg-chamfer);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: filter .12s ease, background .16s ease, border-color .16s ease;
+}
+.hangar-slot.filled { background: var(--hg-raised); border: 1px solid var(--hg-line-5); color: var(--hg-text-blue); }
+.hangar-slot.open { background: var(--hg-active); border: 1px solid var(--hg-line-hi); color: var(--hg-text-blue); }
+.hangar-slot:hover:not(:disabled) { filter: brightness(1.25); }
+.hangar-slot:disabled { opacity: .45; cursor: default; }
+/* The fitted module's glyph, 22px (spec); an empty socket's `+` is text, so the
+   box is sized here rather than by whichever of the two is inside it. */
+.hangar-slot-icon { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; font-size: 18px; line-height: 1; }
+.hangar-slot-icon svg { width: 22px; height: 22px; stroke-width: 1.8; }
+.hangar-slot-label { font-size: 9px; line-height: 1.1; letter-spacing: .08em; color: var(--hg-muted-2); text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hangar-slot-socket { font-family: var(--hg-mono); font-size: 8px; letter-spacing: .18em; color: var(--hg-faint); }
+
+/* ---- before / after ---- */
+.hangar-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
   background: var(--hg-panel-2);
-  color: var(--sa-white);
-  border: 0;
-  border-left: 3px solid transparent;
+  border: 1px solid var(--hg-line-2);
+  transition: border-color .16s ease;
+}
+.hangar-compare.previewing { border-color: var(--hg-line-hi); }
+.hangar-compare-title { font-family: var(--hg-mono); font-size: 9px; letter-spacing: .3em; color: var(--hg-faint); }
+.hangar-compare-row { display: flex; justify-content: space-between; gap: 16px; font-family: var(--hg-mono); font-size: 11px; }
+.hangar-compare-label { color: var(--hg-muted); }
+.hangar-compare-read { display: flex; gap: 8px; }
+.hangar-compare-value { color: var(--hg-text); font-variant-numeric: tabular-nums; }
+.hangar-compare-delta { font-variant-numeric: tabular-nums; }
+.hangar-compare-delta.better { color: var(--hg-good); }
+.hangar-compare-delta.worse { color: var(--hg-bad); }
+.hangar-compare-delta.none { color: var(--hg-muted-2); }
+.hangar-compare-delta.warn { color: var(--hg-over); }
+
+/* ---- power pips + skins ---- */
+.hangar-powerrow, .hangar-skinrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hangar-foot-label { font-family: var(--hg-mono); font-size: 9px; letter-spacing: .25em; color: var(--hg-muted); }
+.hangar-pips { display: flex; flex-wrap: wrap; gap: 3px; }
+.hangar-pip {
+  width: 14px;
+  height: 7px;
+  background: var(--hg-pip-empty);
+  clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+  transition: background .16s ease;
+}
+.hangar-pip.filled { background: var(--hg-accent); }
+.hangar-pip.over { background: var(--hg-over); }
+.hangar-power-text { font-family: var(--hg-mono); font-size: 10px; color: var(--hg-text); font-variant-numeric: tabular-nums; }
+.hangar-power-text.over { color: var(--hg-over); font-weight: 700; }
+.hangar-skin {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--skin-primary) 0 52%, var(--skin-accent) 52% 100%);
+  border: 3px solid rgba(0, 0, 0, .4);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: box-shadow .16s ease, border-color .16s ease;
+}
+.hangar-skin.equipped { border-color: var(--hg-accent); box-shadow: 0 0 12px rgba(79, 141, 249, .6); }
+.hangar-skin.unowned { opacity: .45; }
+.hangar-skin:hover:not(:disabled) { filter: brightness(1.2); }
+
+/* ---- upgrades (the one block the spec does not draw — see render()) ---- */
+.hangar-upgrades { display: flex; flex-direction: column; gap: 5px; }
+.hangar-upgrade-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.hangar-upgrade-label { flex: 0 0 66px; font-family: var(--hg-mono); font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--hg-muted); }
+.hangar-upgrade-row .hangar-btn { margin-left: auto; }
+
+/* ---- shared controls ---- */
+.hangar-btn {
+  padding: 6px 12px;
+  min-height: 34px;
+  font-family: var(--hg-sans);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  background: var(--hg-panel-3);
+  color: var(--hg-text);
+  border: 1px solid var(--hg-line-5);
+  clip-path: var(--hg-chamfer-sm);
   cursor: pointer;
   touch-action: manipulation;
 }
-.hangar-rail-btn:hover:not(:disabled) { background: var(--sa-n-700); }
-.hangar-rail-btn.active { background: var(--hg-accent); color: var(--sa-n-900); border-left-color: var(--sa-white); }
-.hangar-rail-btn.active .hangar-rail-hint { color: rgba(20, 11, 2, .72); }
-.hangar-rail-btn:disabled { opacity: .35; cursor: default; }
-.hangar-rail-btn.back { margin-top: 8px; background: transparent; border: 1px solid var(--hg-line); }
-.hangar-rail-label { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
-.hangar-rail-hint { font-size: 9.5px; color: var(--hg-dim); line-height: 1.15; }
-.hangar-skins { display: flex; flex-direction: column; gap: 5px; max-height: 320px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.hangar-skin { display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 9px; min-height: 48px; padding: 6px 9px; color: var(--sa-white); background: var(--hg-panel-2); border: 1px solid var(--hg-line); text-align: left; touch-action: manipulation; }
-.hangar-skin:not(:disabled) { cursor: pointer; }
-.hangar-skin.equipped { border-color: var(--hg-accent); }
-.hangar-skin:disabled { opacity: .8; }
-.hangar-skin-swatch { width: 40px; height: 30px; background: linear-gradient(135deg, var(--skin-primary) 0 52%, var(--skin-accent) 52% 100%); border: 1px solid rgba(255,255,255,.25); }
-.hangar-skin-name { font-size: 11px; font-weight: 700; letter-spacing: .05em; }
-.hangar-skin-state { font-size: 9.5px; font-weight: 700; letter-spacing: .08em; color: var(--hg-accent); text-transform: uppercase; }
+.hangar-btn:hover:not(:disabled) { background: var(--hg-active); }
+.hangar-btn:disabled { opacity: .45; cursor: default; }
+.hangar-btn-primary { background: var(--hg-active-2); border-color: var(--hg-accent); color: #fff; }
+.hangar-badge { font-family: var(--hg-mono); font-size: 9px; font-weight: 600; letter-spacing: .16em; padding: 3px 7px; }
+.hangar-badge.main { background: var(--hg-accent); color: var(--hg-bg); }
+.hangar-badge.locked { color: var(--hg-bad); border: 1px solid var(--hg-bad); }
 
-/* Landscape: the same halves, laid out left (stage) / right (panel). */
+/* Landscape — the design's own orientation: viewer left, deck right, split at
+   the 545/960 the frame was drawn on (see DECK_STAGE_FRACTION). */
 @media (orientation: landscape) {
   .hangar-overlay { flex-direction: row; }
+  .hangar-stage { flex: 0 0 56.77%; }
+  .hangar-stage-view::after { background: linear-gradient(90deg, rgba(7, 12, 22, 0) 60%, rgba(7, 12, 22, .9) 100%); }
   .hangar-panel {
+    flex: 1 1 auto;
     border-top: none;
     border-left: 1px solid var(--hg-line);
-    padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+    padding-top: calc(env(safe-area-inset-top, 0px) + 14px);
   }
 }
-.hangar-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--hg-line); padding-bottom: 6px; }
-.hangar-title { letter-spacing: .3em; font-weight: 700; color: var(--hg-accent); font-size: 14px; text-transform: uppercase; }
-.hangar-close { background: transparent; color: var(--sa-white); border: 1px solid var(--hg-line); padding: 6px 12px; min-height: 34px; cursor: pointer; touch-action: manipulation; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
-.hangar-hint { font-size: 11px; color: var(--hg-dim); border-left: 2px solid var(--hg-line); padding: 4px 8px; }
-.hangar-error { font-size: 11px; color: var(--hg-danger); border-left: 2px solid var(--hg-danger); padding: 4px 8px; }
-.hangar-section-title { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--hg-dim); margin-bottom: 4px; }
-.hangar-badge { font-size: 9.5px; font-weight: 700; letter-spacing: .1em; padding: 2px 6px; }
-.hangar-badge.main { background: var(--hg-accent); color: var(--sa-n-900); }
-.hangar-badge.locked { background: transparent; color: var(--hg-danger); border: 1px solid var(--hg-danger); }
-/* The staged hull's identity, folded into the characteristics block's head. */
-.hangar-ship-name { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; }
-.hangar-ship-class { font-size: 9px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .1em; line-height: 1.25; }
-.hangar-stats { display: flex; flex-direction: column; gap: 2px; }
-.hangar-stat-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; border-bottom: 1px solid rgba(58, 63, 69, .5); padding: 2px 0; }
-.hangar-stat-label { color: var(--hg-dim); text-transform: uppercase; letter-spacing: .06em; }
-.hangar-stat-value { font-variant-numeric: tabular-nums; }
-.hangar-bar-row { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
-.hangar-bar-label { font-size: 10.5px; color: var(--hg-dim); }
-.hangar-bar-label.warn-text { color: var(--hg-danger); }
-.hangar-bar-track { height: 5px; background: rgba(255,255,255,.07); overflow: hidden; }
-.hangar-bar-fill { height: 100%; background: var(--hg-accent); }
-.hangar-bar-fill.warn { background: var(--hg-danger); }
-
-/* ---- bottom instrument strip ---- */
-.hangar-statusbar { display: flex; gap: 16px; flex-wrap: wrap; border-top: 1px solid var(--hg-line); padding-top: 8px; }
-.hangar-specs { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.hangar-specs-title { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--hg-accent); margin-bottom: 3px; }
-.hangar-spec-row { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
-.hangar-spec-label { color: var(--hg-dim); text-transform: uppercase; letter-spacing: .06em; }
-.hangar-spec-value { font-variant-numeric: tabular-nums; }
-.hangar-power { flex: 2 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.hangar-power-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.hangar-power-max { font-size: 10px; letter-spacing: .1em; color: var(--hg-dim); font-variant-numeric: tabular-nums; }
-.hangar-power-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
-.hangar-power-label { flex: 0 0 68px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .08em; }
-.hangar-power-track { flex: 1 1 auto; height: 8px; background: rgba(255,255,255,.07); overflow: hidden; }
-.hangar-power-fill { height: 100%; background: var(--hg-accent); }
-.hangar-power-fill.over { background: var(--hg-danger); }
-.hangar-power-value { flex: 0 0 28px; text-align: right; font-variant-numeric: tabular-nums; }
-.hangar-power-warn { font-size: 10.5px; color: var(--hg-danger); }
-
-.hangar-slot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 4px; }
-.hangar-slot { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 8px; min-height: 56px; touch-action: manipulation; background: var(--hg-panel-2); color: var(--sa-white); border: 1px solid var(--hg-line); border-left: 3px solid var(--hg-line); cursor: pointer; text-align: left; }
-.hangar-slot.filled { border-left-color: var(--hg-accent); }
-.hangar-slot.open { background: var(--hg-accent); color: var(--sa-n-900); }
-.hangar-slot.open .hangar-slot-socket { color: rgba(20, 11, 2, .72); }
-.hangar-slot:disabled { opacity: .45; cursor: default; }
-/* The slot's glyph is an inline SVG from the shared module icon set; an empty
-   slot falls back to a "+" character, so size both paths the same. */
-.hangar-slot-icon { font-size: 14px; line-height: 1; color: var(--hg-accent); }
-.hangar-slot-icon .hud-icon-svg { width: 16px; height: 16px; display: block; }
-.hangar-slot.open .hangar-slot-icon { color: var(--sa-n-900); }
-.hangar-slot-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.hangar-slot-socket { font-size: 9px; color: var(--hg-dim); letter-spacing: .04em; }
-/* Systems-bay slots read cool, so a bay never looks like a hardpoint. */
-.hangar-slot[data-kind="internal"].filled { border-left-color: var(--sa-blue-500); }
-.hangar-picker { display: flex; flex-direction: column; gap: 6px; background: var(--hg-panel-2); border: 1px solid var(--hg-line); padding: 8px; }
-.hangar-picker-kind { margin-left: 8px; color: var(--hg-dim); letter-spacing: .06em; }
-/*
- * Rolling list: a fixed-height scroller showing ~3-4 rows at a time, so a long
- * candidate list scrolls INSIDE the picker instead of pushing the instrument
- * strip off the screen.
- */
-.hangar-picker-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 224px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  padding-right: 2px;
-}
-.hangar-picker-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  font-size: 11.5px;
-  background: rgba(0, 0, 0, .25);
-  border: 1px solid var(--hg-line);
-  border-left: 3px solid transparent;
-}
-.hangar-picker-item[draggable="true"] { cursor: grab; }
-.hangar-picker-item[draggable="true"]:active { cursor: grabbing; }
-.hangar-picker-item.fitted { border-left-color: var(--hg-accent); }
-/* The candidate whose ghost is on the stage gauges right now. */
-.hangar-picker-item.considering { border-left-color: var(--sa-white); background: color-mix(in srgb, var(--sa-blue-500) 12%, transparent); }
-.hangar-btn.considering { border-color: var(--sa-white); }
-.hangar-picker-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.hangar-picker-name { font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.hangar-picker-meta { color: var(--hg-dim); font-size: 10.5px; white-space: nowrap; text-transform: uppercase; letter-spacing: .06em; }
-.hangar-picker-stats { display: flex; flex-wrap: wrap; gap: 3px; }
-.hangar-stat-chip {
-  display: inline-flex;
-  gap: 4px;
-  padding: 1px 5px;
-  font-size: 10px;
-  background: color-mix(in srgb, var(--sa-blue-500) 10%, transparent);
-  border-left: 2px solid var(--hg-accent-dim);
-}
-.hangar-stat-chip .k { color: var(--hg-dim); text-transform: uppercase; letter-spacing: .05em; }
-.hangar-stat-chip .v { color: var(--sa-white); font-variant-numeric: tabular-nums; }
-.hangar-picker-actions { display: flex; justify-content: flex-end; }
-.hangar-picker-actions:empty { display: none; }
-/* Landscape phones have little height: show fewer rows before scrolling. */
+/* Short landscape (a phone on its side) — the frame this was designed at.
+   Tighter rows, and the tiles give up a little height to the compare box. */
 @media (orientation: landscape) and (max-height: 520px) {
-  .hangar-picker-list { max-height: 152px; }
-  .hangar-rail { flex-basis: 116px; }
+  .hangar-panel { gap: 8px; padding-top: calc(env(safe-area-inset-top, 0px) + 10px); }
+  .hangar-slot { height: clamp(50px, 12vh, 64px); }
+  .hangar-compare { padding: 8px 10px; gap: 3px; }
+  /* The foot carries four blocks here (specs, upgrades, power, skins), so the
+     one the spec does not draw is the one that gives ground. */
+  .hangar-deck-foot { gap: 6px; }
+  .hangar-upgrades { gap: 3px; }
+  .hangar-upgrades .hangar-section-title { display: none; }
+  .hangar-upgrade-row .hangar-btn { min-height: 28px; padding: 4px 10px; }
 }
-.hangar-upgrades { display: flex; flex-direction: column; gap: 5px; }
-.hangar-upgrade-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11.5px; }
-.hangar-upgrade-label { width: 72px; color: var(--hg-dim); text-transform: uppercase; letter-spacing: .06em; }
-.hangar-pips { display: flex; flex-wrap: wrap; gap: 3px; flex: 1 1 60px; }
-.pip { width: 9px; height: 5px; background: rgba(255,255,255,.12); }
-.pip.filled { background: var(--hg-accent); }
-/* The fit-controls block (a select, a name field and Save/Delete) went with the
-   fitting submenu — owner 2026-08-22. Nothing in the screen types text now. */
-.hangar-btn { padding: 7px 12px; min-height: 34px; touch-action: manipulation; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; background: var(--hg-panel-2); color: var(--sa-white); border: 1px solid var(--hg-line); cursor: pointer; }
-.hangar-btn:disabled { opacity: .45; cursor: default; }
-.hangar-btn-primary { background: var(--hg-accent); color: var(--sa-n-900); font-weight: 700; border-color: var(--hg-accent); }
+/* Phone-height landscape. The tiles are the POINT of this screen, so it is
+   the foot that gives ground: the compare box folds to one wrapped line of
+   stat pairs, the upgrade buys drop their pips and share a row, and every
+   control loses a size step. Budgeted to fit a 350px-tall viewport with no
+   scrolling and nothing clipped. */
+@media (orientation: landscape) and (max-height: 420px) {
+  .hangar-panel { gap: 6px; padding-top: calc(env(safe-area-inset-top, 0px) + 8px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
+  .hangar-deck-body { gap: 6px; }
+  .hangar-deck-foot { gap: 5px; }
+  .hangar-close { min-height: 28px; padding: 4px 10px; }
+  .hangar-slot { height: clamp(40px, 15vh, 56px); gap: 2px; }
+  .hangar-slot-icon { width: 18px; height: 18px; font-size: 15px; }
+  .hangar-slot-icon svg { width: 18px; height: 18px; }
+  .hangar-compare { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 2px; padding: 6px 10px; }
+  .hangar-compare-title { flex: 1 1 100%; }
+  .hangar-compare-row { gap: 6px; font-size: 10px; }
+  .hangar-upgrades { flex-direction: row; align-items: center; gap: 6px; }
+  .hangar-upgrade-row { flex: 1 1 0; flex-wrap: nowrap; gap: 4px; }
+  .hangar-upgrade-label { flex: 0 0 auto; }
+  .hangar-upgrade-row .hangar-pips { display: none; }
+  .hangar-upgrade-row .hangar-btn { min-height: 24px; padding: 3px 8px; font-size: 10px; }
+  .hangar-pip { width: 12px; height: 6px; }
+  .hangar-skin { width: 18px; height: 18px; border-width: 2px; }
+}
+/* Shorter still: the tiles keep icon + socket, the labels go, and — only
+   here, where even a compacted deck cannot fit — the body may scroll rather
+   than clip modules out of existence. */
+@media (orientation: landscape) and (max-height: 350px) {
+  .hangar-slot-label { display: none; }
+  .hangar-slot { height: clamp(32px, 13vh, 44px); }
+  .hangar-compare-title { display: none; }
+  .hangar-deck-body { overflow-y: auto; }
+}
+/* Narrow screens: four tiles across stop being pressable, so the grid relaxes. */
+@media (max-width: 420px) {
+  .hangar-slot-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 `;

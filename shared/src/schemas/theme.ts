@@ -658,24 +658,35 @@ export const audioSchema = z.object({
 export type AudioConfig = z.infer<typeof audioSchema>;
 
 /**
- * Combat "juice" knobs (5.7): hit flashes, the shield bubble ripple, hardpoint
+ * Combat "juice" knobs (5.7): impact feedback, the shield bubble, hardpoint
  * deploy/retract animation shaping, and explosion variant selection. Camera
  * micro-shake is NOT here — it is a camera-rig knob and lives in `camera.json`.
+ *
+ * The old `hitFlash` block (a red bubble popped around any damaged hull) was
+ * retired on 2026-08-23 in favour of per-damage-type feedback: kinetic rounds
+ * spark where they land, warheads detonate, and an energy hit electrifies the
+ * HULL itself — `energyCharge` below. A theme still carrying `hitFlash` parses
+ * fine; the key is simply ignored.
  */
 export const juiceSchema = z.object({
-  /** Emissive shell popped on a ship view when it takes damage. */
-  hitFlash: z
+  /**
+   * ENERGY weapon feedback (owner 2026-08-23): the struck hull flickers with an
+   * emissive charge for a couple of hundred milliseconds — the ship's own
+   * silhouette lighting up, not a shell around it.
+   */
+  energyCharge: z
     .object({
       enabled: z.boolean().optional(),
+      /** How long one hit's flicker lasts. */
       durationMs: z.number().positive().optional(),
-      /** Hex tint of the flash shell. */
+      /** Hex tint of the charge. */
       color: z.string().optional(),
-      /** Shell radius as a multiple of the ship's collider radius. */
-      scale: z.number().positive().optional(),
-      /** Peak alpha at the instant of the hit. */
+      /** Peak strength at the instant of the hit. */
       intensity: z.number().min(0).max(1).optional(),
-      /** Pool size — flashes beyond this in one window are dropped, never allocated. */
-      maxConcurrent: z.number().int().positive().optional(),
+      /** Flicker rate in Hz — what makes it read as arcing rather than as a fade. */
+      flickerHz: z.number().positive().optional(),
+      /** Shell size as a multiple of the hull, just clear of z-fighting. */
+      scale: z.number().positive().optional(),
     })
     .optional(),
   /** Pulsing bubble drawn around a ship while any shield module holds a reservoir. */
@@ -708,6 +719,29 @@ export const juiceSchema = z.object({
       impactAlpha: z.number().min(0).max(1).optional(),
       /** How long that flare takes to fall back into the idle band. */
       impactDecayMs: z.number().nonnegative().optional(),
+      // --- Hex-panel shell (owner 2026-08-23). The bubble is no longer one
+      // sphere: it is a shell of hexagonal panels that fly out of the hull to
+      // assemble, fly back to stand down, and blow apart when the reservoir is
+      // shot flat. Every knob below shapes that; the colours and alphas above
+      // are unchanged and still decide how the shell READS. ---
+      /** Panels in the shell. Kept modest — ten shields at once share one budget. */
+      panelCount: z.number().int().min(8).max(320).optional(),
+      /** Panel radius as a multiple of the natural spacing (>1 overlaps into a solid shell). */
+      panelOverlap: z.number().min(0.2).max(3).optional(),
+      /** Assemble (and, reversed, stand-down) sweep duration. */
+      assembleMs: z.number().positive().optional(),
+      /** Fraction of the sweep spent STAGGERING panel starts, 0 = all at once. */
+      assembleStagger: z.number().min(0).max(1).optional(),
+      /** How long the panels tumble outward after the shell breaks. */
+      shatterMs: z.number().positive().optional(),
+      /** Peak outward speed of a shattered panel, in bubble radii per second. */
+      shatterSpeed: z.number().nonnegative().optional(),
+      /** Peak extra radius (fraction) of the elastic wobble an absorb kicks off. */
+      hitBounce: z.number().min(0).max(1).optional(),
+      /** How sharply the bounce concentrates around the impact point (0 = whole shell). */
+      hitFocus: z.number().min(0).max(16).optional(),
+      /** Specular strength of the panels, 0 = the old flat shell. */
+      reflectivity: z.number().min(0).max(1).optional(),
     })
     .optional(),
   /**

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TURN_SIGN_FOR_SCREEN_RIGHT } from "../chaseCamera.js";
 import type { ConfigService, ModuleSnapshot } from "@space-arena/shared";
 import { carriesFlag, firstBoostModuleIndex, isTextEntry } from "./FlightControls.js";
+import { resolveHudSlotCounts } from "./ModuleButtons.js";
 import {
   flightKeyOf,
   keyAxesFrom,
@@ -215,6 +216,23 @@ describe("Shift boost-module lookup", () => {
       module(5, "module.boost-mk2"),
     ])).toBe(1);
     expect(firstBoostModuleIndex(configs, [module(0, "module.laser-mk1")])).toBe(-1);
+  });
+
+  /**
+   * The shipped afterburner is an `engine` carrying a `boost` block, never a
+   * `boost` family. This lookup and `resolveHudSlotCounts` must agree on that or
+   * the control is drawn without a slot — the Talon mix-up (2026-08-23).
+   */
+  it("agrees with the slot counts about which fitted module is the afterburner", () => {
+    const engineConfigs = {
+      get: (_type: string, id: string) =>
+        id.startsWith("module.engine")
+          ? { family: "engine", boost: { speedMult: 1.7 } }
+          : { family: "laser", fire: { cycleTime: 1 } },
+    } as unknown as ConfigService;
+    const fitting = [module(0, "module.laser-mk1"), module(2, "module.engine-earth-eng1")];
+    expect(firstBoostModuleIndex(engineConfigs, fitting)).toBe(1);
+    expect(resolveHudSlotCounts(engineConfigs, fitting).boostSlot).toBe(0);
   });
 });
 

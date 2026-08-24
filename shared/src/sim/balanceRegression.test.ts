@@ -287,50 +287,62 @@ const DISCIPLINED: ScriptStep[] = [
 ];
 
 describe("scripted 60 s engagements — per-module energy regression bands", () => {
-  // Anchors recorded 2026-08-07, re-recorded 2026-08-20 when heat was deleted.
-  // Under the current model a held trigger costs NOTHING at all — no pool, no
-  // capacitor, no hull — and a weapon is limited only by its own cycle time.
-  // The energy curve is the emptiest module tank, which on the light hull is
-  // `1` throughout (it carries no tank at all).
+  // Anchors recorded 2026-08-07, re-recorded 2026-08-20 when heat was deleted,
+  // and again 2026-08-22 for the owner's per-hull combat-profile pass (each
+  // hull's `core.combat` damage/rate multipliers, shipped intentionally hot for
+  // testing) landing together with the module-bay rework that gave the engine
+  // module its own 55-point boost tank. A held trigger still costs nothing —
+  // the curve is the emptiest module tank, and what spends tanks now is BOOST
+  // (the engine reserve) and a raised shield.
   it("interceptor, sustained brawl (both racks held, boost pulses)", () => {
     const t = runEngagement("ship.interceptor", SUSTAINED);
-    // The light hull carries no energy-bearing module at all, so its tank curve
-    // is flat at 1 — "no ring of that kind" all the way down the fitting.
-    expectWithinBand("interceptor sustained energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
-    expectNear("interceptor sustained energy floor", t.energyFloor, 1);
+    // Since the engine module carries a boost tank, the light hull's curve is
+    // no longer flat: the script's three boost pulses (6–21 s) empty the
+    // reserve — the 10 s checkpoint catches it at 0.17 mid-pulse — and it is
+    // refilled by 20 s and never touched again.
+    expectWithinBand("interceptor sustained energy", t.energy, [1, 0.17, 1, 1, 1, 1, 1]);
+    expectNear("interceptor sustained energy floor", t.energyFloor, 0);
     expect(t.hullLost).toBe(0);
   });
 
   it("interceptor, disciplined skirmish (one weapon at a time)", () => {
     const t = runEngagement("ship.interceptor", DISCIPLINED);
+    // No boost anywhere in this script, so the boost tank never drains and the
+    // light hull's curve stays flat at 1 — weapons alone still cost nothing.
     expectWithinBand("interceptor disciplined energy", t.energy, [1, 1, 1, 1, 1, 1, 1]);
     expect(t.hullLost).toBe(0);
   });
 
   it("brawler, sustained brawl — three racks and a shield on one hull", () => {
     const t = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    // The shield tank is the curve: raised at t=3 it drains on upkeep alone,
-    // flames out, refills while down, and is raised again by the script.
-    expectWithinBand("brawler sustained energy", t.energy, [0.852, 1, 1, 0.488, 0.621, 1, 1]);
+    // Two tanks trade the minimum now: the shield (raised at t=3, drains on
+    // upkeep, refills while down, raised again at t=24) and the engine's boost
+    // reserve during the pulse window.
+    expectWithinBand("brawler sustained energy", t.energy, [1, 0.579, 0.311, 1, 0.124, 0.743, 1]);
     expectNear("brawler sustained energy floor", t.energyFloor, 0);
     expect(t.hullLost).toBe(0);
   });
 
   it("support, sustained brawl (cool hull, deep tanks)", () => {
     const t = runEngagement("ship.support", SUSTAINED, "ship.interceptor");
-    expectWithinBand("support sustained energy", t.energy, [1, 0.629, 0.302, 1, 0.229, 1, 1]);
+    expectWithinBand("support sustained energy", t.energy, [1, 0.744, 0.193, 0.598, 1, 0.579, 0.027]);
     expectNear("support sustained energy floor", t.energyFloor, 0);
     expect(t.hullLost).toBe(0);
   });
 
-  it("keeps the design contract: a raised shield is the only thing a minute of fire costs", () => {
-    // What the deleted heat model used to prove here was that holding
-    // everything on cost MORE than cycling. Since 2026-08-20 firing is free, so
-    // the surviving contract is narrower and sharper: the only tank a scripted
-    // minute can empty is a shield's, and only on a hull that carries one.
+  it("keeps the design contract: boost and shields are the only things a minute of fire costs", () => {
+    // The 2026-08-20 form of this contract ("only a shield's tank can empty,
+    // and only on a hull that carries one") died with the engine module's boost
+    // tank: every stock hull now carries a spendable reserve, including the
+    // light. The surviving contract is one step narrower again: holding every
+    // trigger for a minute still costs nothing by itself — only BOOSTING or
+    // raising a shield spends a tank. The disciplined script (no boost, and the
+    // light hull ships no shield) is the boost-free control that proves it.
     const light = runEngagement("ship.interceptor", SUSTAINED);
+    const lightNoBoost = runEngagement("ship.interceptor", DISCIPLINED);
     const heavy = runEngagement("ship.brawler", SUSTAINED, "ship.interceptor");
-    expect(light.energyFloor, "the light hull carries no tank to spend").toBe(1);
+    expect(lightNoBoost.energyFloor, "a boost-free minute of fire costs the light hull nothing").toBe(1);
+    expect(light.energyFloor, "the light hull's boost reserve is spendable").toBeLessThan(1);
     expect(heavy.energyFloor, "the heavy's shield reserve is spendable").toBeLessThan(1);
   });
 
@@ -574,17 +586,30 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   // signal that the retune is still owed. The autocannon's `fire.cycleTime` (or
   // its clip) is the knob: it is the one weapon whose authored cadence was
   // written assuming a lockout would swallow most of it.
+  //
+  // RE-RECORDED 2026-08-22, for the owner's per-hull combat profiles
+  // (`core.combat.damageOutput` / `core.combat.rateOfFire` multipliers on all
+  // four hulls, shipped INTENTIONALLY overpowered for testing — this record is
+  // deliberate, not an endorsement of the tuning as final). The interceptor's
+  // energy rate ×2.4 collapses its whole row (−38% to −41%); the support's
+  // milder profile moves its row −10% to −11% with its vs-light cell landing on
+  // the same tick; the brawler's hybrid-heavy profile actually SLOWS its row
+  // (+18% to +25%), pulling its two floor-debt cells upward — still under the
+  // floor, so {@link BELOW_FLOOR} is unchanged. The interceptor mirror at
+  // 2.833 s now sits only 1.06× above the floor, the thinnest legal margin the
+  // matrix has ever recorded: if any hull's profile heats up further, that is
+  // the first cell that will trip.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    // ×2 all weapons → laser ×2 / missile ×3@¼ rate → cannon ×0.8 / laser ×1.3 → heat deleted
-    ["ship.interceptor", "ship.interceptor", 22, 4.833], //   8.333 → 4.833 → 4.833
-    ["ship.interceptor", "ship.brawler", 22, 10.133], //     16.1   → 11     → 10.133
-    ["ship.interceptor", "ship.support", 22, 8.033], //      10.133 →  9.933 →  8.033
-    ["ship.brawler", "ship.interceptor", 22, 1.533], //       3.367 →  3.233 →  1.533  ⚠ under floor
-    ["ship.brawler", "ship.brawler", 22, 3.167], //           9.467 →  9.333 →  3.167
-    ["ship.brawler", "ship.support", 22, 2], //               4.833 →  4.833 →  2      ⚠ under floor
-    ["ship.support", "ship.interceptor", 22, 4.833], //       6.433 →  4.833 →  4.833
-    ["ship.support", "ship.brawler", 22, 10.133], //         14.2   → 11     → 10.133
-    ["ship.support", "ship.support", 22, 8.033], //          10.133 →  8.033 →  8.033
+    // laser ×2 / missile ×3@¼ rate → cannon ×0.8 / laser ×1.3 → heat deleted → hull combat profiles
+    ["ship.interceptor", "ship.interceptor", 22, 2.833], //   8.333 → 4.833 → 4.833 → 2.833
+    ["ship.interceptor", "ship.brawler", 22, 6.333], //      16.1   → 11     → 10.133 → 6.333
+    ["ship.interceptor", "ship.support", 22, 4.7], //        10.133 →  9.933 →  8.033 → 4.7
+    ["ship.brawler", "ship.interceptor", 22, 1.867], //       3.367 →  3.233 →  1.533 → 1.867  ⚠ under floor
+    ["ship.brawler", "ship.brawler", 22, 3.5], //             9.467 →  9.333 →  3.167 → 3.5
+    ["ship.brawler", "ship.support", 22, 2.5], //             4.833 →  4.833 →  2     → 2.5    ⚠ under floor
+    ["ship.support", "ship.interceptor", 22, 4.833], //       6.433 →  4.833 →  4.833 → 4.833
+    ["ship.support", "ship.brawler", 22, 9.1], //            14.2   → 11     → 10.133 → 9.1
+    ["ship.support", "ship.support", 22, 7.133], //          10.133 →  8.033 →  8.033 → 7.133
   ];
 
   /**

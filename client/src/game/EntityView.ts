@@ -46,10 +46,11 @@ import { resolveSoundId } from "../audio/soundIds.js";
 import { ExplosionFx } from "./juice/ExplosionFx.js";
 import { SparkFx } from "./juice/SparkFx.js";
 import { GeometryProbe } from "./juice/geometryImpact.js";
-import { HitFlashPool } from "./juice/HitFlash.js";
+import { HullChargeShell } from "./juice/HullCharge.js";
 import {
   MISSILE_IMPACT_SCALE,
   explosionEffectIdFor,
+  impactFeedbackFor,
   juiceSettingsOf,
   missileImpactEffectIdsFor,
   sparkEffectIdFor,
@@ -153,6 +154,14 @@ interface ShipView {
   cosmeticId: string | null;
   /** Signal driving the hull's emissive light (render.emissiveGlow); null = none. */
   glowSource: SignalId | null;
+  /**
+   * The hull's energy-charge shell (§10 5.7). Built on this ship's FIRST energy
+   * hit and kept for the life of the view — most ships in most matches never
+   * allocate one.
+   */
+  charge: HullChargeShell | null;
+  /** The master this instance came from, so a charge shell can clone the right hull. */
+  master: Mesh;
 }
 
 interface AsteroidView {
@@ -243,6 +252,14 @@ interface HitWindow {
   /** Milliseconds left on {@link MISSILE_HIT_WINDOW_MS}. */
   ms: number;
   damageType: string;
+  /**
+   * Whether the sim already told us exactly where this hit landed and the
+   * impact was drawn from THAT (`damage.pos`, 2026-08-23). A claimed window
+   * takes itself out of the despawn matcher below: the shot that vanished into
+   * this hull has already been drawn landing on it, and matching it a second
+   * time would double the sparks or set the warhead off twice.
+   */
+  claimed: boolean;
 }
 
 /** Everything ViewManager reads off the active quality tier (§10 5.6). */
@@ -300,6 +317,17 @@ export class ViewManager {
   private heroSettleMs = 1050;
 
   private readonly ships = new Map<EntityId, ShipView>();
+  /**
+   * The paint each ship was last seen wearing, kept for the WHOLE match rather
+   * than for as long as the ship view lives (owner 2026-08-22). The MVP beauty
+   * shot is staged after `phase: "ended"`, by which point the winner may well
+   * have been destroyed and their view removed — reading the cosmetic off the
+   * live view would then silently fall back to the authored GLB, which is
+   * exactly the "MVP ship shows the wrong look" report. `cosmeticId` is
+   * replicated per player (`wireFields.PlayerState`), so this is the same
+   * answer the in-match hull was instanced from.
+   */
+  private readonly cosmeticSeen = new Map<EntityId, string | null>();
   private readonly asteroids = new Map<EntityId, AsteroidView>();
   /** Visible burning countermeasure pods. The sim already replicates their full lifetime. */
   private readonly decoys = new Map<EntityId, DecoyView>();
@@ -363,7 +391,6 @@ export class ViewManager {
 
   // --- juice (§10 5.7) ---
   private juice: JuiceSettings;
-  private readonly hitFlash: HitFlashPool;
   private readonly explosions: ExplosionFx;
   /** Weapon impact sprays — its own small ring, see {@link SparkFx}. */
   private readonly sparks: SparkFx;
@@ -414,7 +441,6 @@ export class ViewManager {
     this.juice = options.juice ?? juiceSettingsOf(configs.get<ThemeConfig>("theme", THEME_ID));
     this.playSound = options.playSound ?? null;
     this.localPlayerId = options.playerId ?? null;
-    this.hitFlash = new HitFlashPool(scene, this.root, this.juice.hitFlash);
     this.explosions = new ExplosionFx(scene, this.juice.explosions, quality.particles, this.root);
     this.sparks = new SparkFx(scene, quality.particles);
     this.geometry = new GeometryProbe(scene);
@@ -434,9 +460,11 @@ export class ViewManager {
    */
   refreshJuice(): void {
     this.juice = juiceSettingsOf(this.configs.get<ThemeConfig>("theme", THEME_ID));
-    this.hitFlash.setSettings(this.juice.hitFlash);
     this.explosions.setSettings(this.juice.explosions);
-    for (const view of this.ships.values()) view.rig?.setJuice(this.juice);
+    for (const view of this.ships.values()) {
+      view.rig?.setJuice(this.juice);
+      view.charge?.setSettings(this.juice.energyCharge);
+    }
   }
 
   /**
@@ -485,7 +513,18 @@ export class ViewManager {
     if (!config) return false;
     this.root.setEnabled(false);
     this.heroShip?.dispose();
-    this.heroShip = this.assets.getShipMaster(config.render).createInstance("mvp.hero");
+    // The hero wears the paint that pilot actually flew (contract §5): the same
+    // bank, keyed by the same (hull, cosmetic), that the in-match hull was
+    // instanced from. Instancing the RAW master here is what showed a default
+    // hull on the results screen. A cosmetic whose texture is missing still
+    // resolves to the authored look — that fallback is documented in
+    // docs/SKINS.md and is not what this is about.
+    const heroMaster = this.paint.masterFor(
+      this.assets.getShipMaster(config.render),
+      config,
+      this.cosmeticSeen.get(entityId) ?? null,
+    );
+    this.heroShip = heroMaster.createInstance("mvp.hero");
     this.heroShip.parent = this.heroRoot;
     this.heroShip.position.set(0, -0.65, 2.8);
     this.heroShip.rotation.set(0.08, Math.PI, 0);
@@ -621,17 +660,22 @@ export class ViewManager {
       if (ev.type === "projectileFired" && ev.kind === "beam") {
         this.spawnBeam(ev.ownerId, ev.targetId, ev.moduleId, cur);
       } else if (ev.type === "damage") {
-        this.flashHit(ev.targetId, ev.isAsteroid);
-        this.markHit(ev.targetId, ev.damageType);
+        const drawn = this.drawHitFeedback(ev.targetId, ev.isAsteroid, ev.sourceId, ev.damageType, ev.weapon, ev.pos, cur);
+        this.markHit(ev.targetId, ev.damageType, drawn);
       } else if (ev.type === "shieldAbsorb") {
         // The absorb is the ONLY thing that lights a shield bubble: its idle
         // pose is near-transparent, so a shell only becomes legible while it is
-        // actually stopping fire (§10 5.7, owner note 2026-08-14).
-        this.ships.get(ev.targetId)?.rig?.shieldImpact();
+        // actually stopping fire (§10 5.7, owner note 2026-08-14). The point
+        // the hit came in on rides along when the sim knew one, so the bubble
+        // bounces hardest where the shot actually struck it.
+        this.ships.get(ev.targetId)?.rig?.shieldImpact(ev.pos?.x, ev.pos?.y, ev.pos?.z);
         // A missile stopped by a shield still detonated: the warhead going off
         // on the bubble is exactly what tells the pilot the shield earned its
-        // energy, so an absorb arms the detonation window like raw damage does.
-        this.markHit(ev.targetId, ev.damageType);
+        // energy — so an absorb draws the same impact raw damage does. A hull
+        // that takes both in one tick gets one event of each, and the second is
+        // suppressed by the claim below.
+        const drawn = this.drawHitFeedback(ev.targetId, false, ev.sourceId, ev.damageType, ev.weapon, ev.pos, cur);
+        this.markHit(ev.targetId, ev.damageType, drawn);
       } else if (ev.type === "entityDestroyed") {
         if (ev.isAsteroid) {
           const v = this.asteroids.get(ev.entityId);
@@ -645,14 +689,79 @@ export class ViewManager {
     }
   }
 
-  /** Pop a hit flash on the damaged entity's view (§10 5.7). */
-  private flashHit(targetId: EntityId, isAsteroid: boolean): void {
-    if (isAsteroid) return; // asteroid hits already read through the death puff
+  /**
+   * WHAT A HIT LOOKS LIKE (owner rework 2026-08-23). One routing decision
+   * ({@link impactFeedbackFor}) and three answers, none of them the red bubble
+   * that used to pop around every damaged hull:
+   *
+   *   - a KINETIC round throws sparks off the plating where it struck;
+   *   - a MISSILE detonates there;
+   *   - an ENERGY weapon electrifies the HULL ITSELF, which is a property of
+   *     the ship rather than of a point in space and so needs no position.
+   *
+   * Only the CHARGE is drawn from the event alone; a spark or a blast needs a
+   * point, and one is drawn here ONLY when the sim sent one (`ev.pos`, which a
+   * travelling round always carries since 2026-08-23). Without it this draws
+   * nothing and leaves the shot to the despawn matcher below, which is where
+   * hitscan strikes and pre-2026-08-23 peers have always been handled.
+   *
+   * Returns whether a positioned impact WAS drawn — i.e. whether the despawn
+   * matcher should keep its hands off this target, see {@link HitWindow.claimed}.
+   * Asteroid hits draw nothing here: a rock reads through its own puff, and the
+   * rounds that hit it still spark from the despawn path.
+   */
+  private drawHitFeedback(
+    targetId: EntityId,
+    isAsteroid: boolean,
+    sourceId: EntityId | null,
+    damageType: string,
+    weapon: string | undefined,
+    pos: { x: number; y: number; z: number } | undefined,
+    cur: Snapshot,
+  ): boolean {
+    if (isAsteroid) return false;
     const view = this.ships.get(targetId);
-    if (!view) return;
-    const radius = this.shipConfigFor(targetId)?.collider.radius ?? FALLBACK_SHIP_RADIUS;
-    // The live view node already carries the ship's altitude (BUBBLE.md §C).
-    this.hitFlash.flash(view.node.position.x, view.node.position.y, view.node.position.z, radius);
+    if (!view) return false;
+    const feedback = impactFeedbackFor(damageType, weapon);
+    if (feedback === "charge") {
+      // An energy weapon throws no material: the SHIP is the effect, and it
+      // needs no impact point, so this never claims the window — the beam that
+      // did the damage still sparks where it visibly touched the hull.
+      this.chargeHull(view, targetId);
+      return false;
+    }
+    if (!pos) return false;
+    if (!this.withinEffectRange(pos.x, pos.y, pos.z)) {
+      // Claimed anyway: too far away to be worth drawing is still an answer,
+      // and letting the despawn matcher have a second go would only draw the
+      // same out-of-range strike a different way.
+      return true;
+    }
+    // Spray direction: back the way the shot came, i.e. out of the hull toward
+    // whoever fired. A hit with no known shooter sprays straight up, which is
+    // what `sparkAt` already does with a zero axis.
+    const from = sourceId !== null ? findShip(cur, sourceId) : undefined;
+    const ax = from ? from.pos.x - pos.x : 0;
+    const ay = from ? from.pos.y - pos.y : 0;
+    const az = from ? from.pos.z - pos.z : 0;
+    if (feedback === "blast") this.detonateAt(pos.x, pos.y, pos.z);
+    else this.sparkAt(pos.x, pos.y, pos.z, ax, ay, az, damageType);
+    return true;
+  }
+
+  /** Light this hull's energy-charge shell, building it on first use. */
+  private chargeHull(view: ShipView, targetId: EntityId): void {
+    if (!this.juice.energyCharge.enabled) return;
+    if (!view.charge) {
+      view.charge = new HullChargeShell(
+        this.scene,
+        view.master,
+        view.node,
+        this.juice.energyCharge,
+        String(targetId),
+      );
+    }
+    view.charge.hit();
   }
 
   /**
@@ -660,14 +769,18 @@ export class ViewManager {
    * existing window is MUTATED when there is one, so a target under sustained
    * fire allocates once and not once per landing round.
    */
-  private markHit(targetId: EntityId, damageType: string): void {
+  private markHit(targetId: EntityId, damageType: string, claimed = false): void {
     const open = this.recentHits.get(targetId);
     if (open) {
       open.ms = MISSILE_HIT_WINDOW_MS;
       open.damageType = damageType;
+      // Latched, not assigned: a hull taking a claimed missile and an unclaimed
+      // collision inside one window must stay claimed, or the vanished warhead
+      // would be drawn a second time by the despawn matcher.
+      open.claimed = open.claimed || claimed;
       return;
     }
-    this.recentHits.set(targetId, { ms: MISSILE_HIT_WINDOW_MS, damageType });
+    this.recentHits.set(targetId, { ms: MISSILE_HIT_WINDOW_MS, damageType, claimed });
   }
 
   /**
@@ -829,7 +942,6 @@ export class ViewManager {
     // and so never reaches the fade path below.
     this.syncChannelBeams(cur, frameDtMs);
     this.updateBeams(frameDtMs);
-    this.hitFlash.update(frameDtMs);
     this.explosions.update(frameDtMs);
     this.sparks.update(frameDtMs);
   }
@@ -845,6 +957,7 @@ export class ViewManager {
     // closure per live view per frame.
     for (const [id, view] of this.ships) {
       if (findShip(cur, id) === undefined) {
+        view.charge?.dispose();
         view.rig?.dispose();
         view.node.dispose();
         this.ships.delete(id);
@@ -860,8 +973,10 @@ export class ViewManager {
     }
     for (let i = 0; i < cur.ships.length; i++) {
       const s = cur.ships[i]!;
+      this.cosmeticSeen.set(s.id, cosmeticIdOf(s));
       let view = this.ships.get(s.id);
       if (view && view.cosmeticId !== cosmeticIdOf(s)) {
+        view.charge?.dispose();
         view.rig?.dispose();
         view.node.dispose();
         this.ships.delete(s.id);
@@ -930,6 +1045,9 @@ export class ViewManager {
       // is already wearing, so this costs a comparison and no Babylon writes.
       view.rig?.setShieldRelation(viewRelationOf(s.id, s.team, this.localPlayerId, this.playerTeam));
       view.rig?.updateShield(s, frameDtMs);
+      // Cheap while dark: a hull with no charge on record returns on its first
+      // line, which is every hull on nearly every frame.
+      view.charge?.update(frameDtMs);
     }
   }
 
@@ -973,7 +1091,18 @@ export class ViewManager {
     );
 
     const glowSource: SignalId | null = ship.render.emissiveGlow ? (ship.render.emissiveGlow.source ?? "throttle") : null;
-    return { node, rig, roll: 0, rollTarget: 0, quat, velocity: new Vector3(), cosmeticId, glowSource };
+    return {
+      node,
+      rig,
+      roll: 0,
+      rollTarget: 0,
+      quat,
+      velocity: new Vector3(),
+      cosmeticId,
+      glowSource,
+      charge: null,
+      master,
+    };
   }
 
   private syncAsteroids(cur: Snapshot, frameDtMs: number): void {
@@ -1450,7 +1579,10 @@ export class ViewManager {
     for (let i = 0; i < cur.ships.length; i++) {
       const ship = cur.ships[i]!;
       const window = this.recentHits.get(ship.id);
-      if (!window) continue;
+      // A claimed window already had its impact drawn from the sim's own point
+      // (see {@link HitWindow.claimed}); matching the vanished shot to it again
+      // is how you get two warheads out of one missile.
+      if (!window || window.claimed) continue;
       const radius = this.shipConfigFor(ship.id)?.collider.radius ?? FALLBACK_SHIP_RADIUS;
       const closer = closerImpact(best, track, ship.pos, radius);
       if (closer !== best) hit = window;
@@ -1459,7 +1591,7 @@ export class ViewManager {
     for (let i = 0; i < cur.asteroids.length; i++) {
       const rock = cur.asteroids[i]!;
       const window = this.recentHits.get(rock.id);
-      if (!window) continue;
+      if (!window || window.claimed) continue;
       const closer = closerImpact(best, track, rock.pos, rock.radius);
       if (closer !== best) hit = window;
       best = closer;
@@ -1592,11 +1724,15 @@ export class ViewManager {
   }
 
   /** Live juice state for `window.__debug.viewManager` (dev verification). */
-  get juiceDebug(): { hitFlashActive: number; explosionParticles: boolean; shieldsUp: number } {
+  get juiceDebug(): { chargedHulls: number; explosionParticles: boolean; shieldsUp: number } {
     let shieldsUp = 0;
-    for (const view of this.ships.values()) if (view.rig?.shieldVisible) shieldsUp++;
+    let chargedHulls = 0;
+    for (const view of this.ships.values()) {
+      if (view.rig?.shieldVisible) shieldsUp++;
+      if (view.charge?.isCharged) chargedHulls++;
+    }
     return {
-      hitFlashActive: this.hitFlash.activeCount,
+      chargedHulls,
       explosionParticles: this.explosions.particlesEnabled,
       shieldsUp,
     };
@@ -1612,6 +1748,7 @@ export class ViewManager {
 
   dispose(): void {
     for (const v of this.ships.values()) {
+      v.charge?.dispose();
       v.rig?.dispose();
       v.node.dispose();
     }
@@ -1643,7 +1780,6 @@ export class ViewManager {
       master.dispose();
     }
     this.poolMasters.length = 0;
-    this.hitFlash.dispose();
     this.explosions.dispose();
     this.sparks.dispose();
     this.heroShip?.dispose();

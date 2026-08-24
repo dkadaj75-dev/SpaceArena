@@ -1,0 +1,13 @@
+[2026-08-24T00:38:40.039Z] debug: [vite] connecting...
+[2026-08-24T00:38:40.115Z] debug: [vite] connected.
+[2026-08-24T00:38:41.247Z] info: [Client] content loaded {ship: 4, module: 58, effect: 11, upgrade: 3, arena: 3}
+[2026-08-24T00:38:41.247Z] info: [HotReload] content hot-reload wired
+[2026-08-24T00:38:41.278Z] log: BJS - [20:38:41]: Babylon.js v8.56.2 - WebGL2 - Parallel shader compilation
+[2026-08-24T00:38:41.279Z] info: [Client] engine created {build: 7745ef2-mt6edo69, requestedRenderer: webgl, renderer: webgl, cls: ThinEngine}
+[2026-08-24T00:38:41.279Z] info: [Context] graphics context audit {className: ThinEngine, webGLVersion: 2, gpu: ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11), maxFragmentUniformVectors: 1024, maxVaryingVectors: 30}
+[2026-08-24T00:38:41.280Z] info: [Quality] quality tier selected {tier: low, fromOverride: false, probe: Object}
+[2026-08-24T00:38:41.557Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T00:38:41.558Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T00:38:42.758Z] info: [Audio] audio context created {master: 0.8, sfx: 0.8, music: 0.5}
+[2026-08-24T00:38:47.943Z] error: [Client] black-canvas verdict before the policy was ready: stalled (render loop never ticked — 0 frames in 6.7s)
+[2026-08-24T00:38:51.289Z] info: [BlackGuard] stood down after 3 clean probes (brightest sample 255)

@@ -395,6 +395,18 @@ const CSS = `
 .sa-menu-subtitle:empty { display: none; }
 /* Thin accent rule under the wordmark — cyan → orange, the project reference,
    with a bracket tick at each end so the wordmark reads as a framed plate. */
+/* The player count: present, legible, and easy to ignore — it must never
+   compete with the title block it sits under. Empty (and collapsed) whenever
+   the server is unreachable or not counting. */
+.sa-menu-online-count {
+  font-family: var(--sa-menu-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--sa-menu-muted, #8ea3bd);
+  opacity: .75;
+}
+.sa-menu-online-count:empty { display: none; }
 .sa-menu-rule {
   position: relative;
   width: min(320px, 70%);

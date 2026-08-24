@@ -1,0 +1,3287 @@
+[
+ {
+  "d": 0,
+  "tag": "button",
+  "cls": "hud-settings-btn hud-icon-button",
+  "data": {
+   "hudControl": "",
+   "hudSettings": ""
+  },
+  "text": "⚙",
+  "box": [
+   861,
+   10,
+   44,
+   44
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-minimap hud-radar",
+  "data": {},
+  "text": "R 140",
+  "box": [
+   10,
+   10,
+   119,
+   119
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "canvas",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   10,
+   10,
+   119,
+   119
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-minimap-scale",
+  "data": {},
+  "text": "R 140",
+  "box": [
+   10,
+   120,
+   119,
+   7
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-vital-arcs",
+  "data": {},
+  "text": "HULL100%SHIELD0%",
+  "box": [
+   296,
+   78,
+   324,
+   263
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "svg",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   296,
+   78,
+   324,
+   263
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "path",
+  "cls": "hud-vital-arc halo hull",
+  "data": {},
+  "text": "",
+  "box": [
+   304,
+   115,
+   44,
+   189
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "path",
+  "cls": "hud-vital-arc track hull",
+  "data": {},
+  "text": "",
+  "box": [
+   304,
+   115,
+   44,
+   189
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "path",
+  "cls": "hud-vital-arc fill hull",
+  "data": {},
+  "text": "",
+  "box": [
+   304,
+   115,
+   44,
+   189
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "path",
+  "cls": "hud-vital-arc halo shield",
+  "data": {},
+  "text": "",
+  "box": [
+   567,
+   115,
+   44,
+   189
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "path",
+  "cls": "hud-vital-arc track shield",
+  "data": {},
+  "text": "",
+  "box": [
+   567,
+   115,
+   44,
+   189
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "path",
+  "cls": "hud-vital-arc fill shield",
+  "data": {},
+  "text": "",
+  "box": [
+   567,
+   115,
+   44,
+   189
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-vital-label hull",
+  "data": {},
+  "text": "HULL100%",
+  "box": [
+   318,
+   200,
+   26,
+   18
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "span",
+  "cls": "",
+  "data": {},
+  "text": "HULL",
+  "box": [
+   318,
+   200,
+   26,
+   7
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "span",
+  "cls": "value",
+  "data": {},
+  "text": "100%",
+  "box": [
+   318,
+   210,
+   26,
+   8
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-vital-label shield",
+  "data": {},
+  "text": "SHIELD0%",
+  "box": [
+   562,
+   200,
+   35,
+   18
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "span",
+  "cls": "",
+  "data": {},
+  "text": "SHIELD",
+  "box": [
+   562,
+   200,
+   35,
+   7
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "span",
+  "cls": "value",
+  "data": {},
+  "text": "0%",
+  "box": [
+   581,
+   210,
+   15,
+   8
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-modules",
+  "data": {},
+  "text": "01LASERLaser Mk102MISSILEMissile Mk1",
+  "box": [
+   0,
+   0,
+   915,
+   412
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-slot-cluster",
+  "data": {
+   "side": "weapons",
+   "anchor": "bottom-right"
+  },
+  "text": "01LASERLaser Mk102MISSILEMissile Mk1",
+  "box": [
+   905,
+   402,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-module-btn hud-slot-btn hex-action family-laser trigger state-active armed",
+  "data": {
+   "hudControl": "module",
+   "side": "weapons",
+   "slot": "01"
+  },
+  "text": "01LASERLaser Mk1",
+  "box": [
+   825,
+   322,
+   70,
+   70
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "ring",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "slot-num",
+  "data": {},
+  "text": "01",
+  "box": [
+   853,
+   333,
+   14,
+   12
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "icon",
+  "data": {},
+  "text": "",
+  "box": [
+   846,
+   344,
+   28,
+   28
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "svg",
+  "cls": "hud-icon-svg",
+  "data": {},
+  "text": "",
+  "box": [
+   846,
+   344,
+   28,
+   28
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "slot-type",
+  "data": {},
+  "text": "LASER",
+  "box": [
+   842,
+   375,
+   36,
+   8
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "rounds",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "cooldown-secs",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "label sr-only",
+  "data": {},
+  "text": "Laser Mk1",
+  "box": [
+   859,
+   356,
+   1,
+   1
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-module-btn hud-slot-btn hex-action family-missile trigger state-active armed",
+  "data": {
+   "hudControl": "module",
+   "side": "weapons",
+   "slot": "02"
+  },
+  "text": "02MISSILEMissile Mk1",
+  "box": [
+   801,
+   250,
+   70,
+   70
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "ring",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "slot-num",
+  "data": {},
+  "text": "02",
+  "box": [
+   829,
+   260,
+   14,
+   12
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "icon",
+  "data": {},
+  "text": "",
+  "box": [
+   822,
+   272,
+   28,
+   28
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "svg",
+  "cls": "hud-icon-svg",
+  "data": {},
+  "text": "",
+  "box": [
+   822,
+   272,
+   28,
+   28
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "slot-type",
+  "data": {},
+  "text": "MISSILE",
+  "box": [
+   815,
+   303,
+   42,
+   8
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "rounds",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "cooldown-secs",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "label sr-only",
+  "data": {},
+  "text": "Missile Mk1",
+  "box": [
+   836,
+   284,
+   1,
+   1
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-slot-cluster",
+  "data": {
+   "side": "utilities",
+   "anchor": "bottom-left"
+  },
+  "text": "",
+  "box": [
+   10,
+   402,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-notifications",
+  "data": {},
+  "text": "",
+  "box": [
+   458,
+   10,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-vignette",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   915,
+   412
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-hitmarker",
+  "data": {},
+  "text": "",
+  "box": [
+   451,
+   199,
+   13,
+   13
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-floating-damage",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   915,
+   412
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-damage-number",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-match-status",
+  "data": {},
+  "text": "0FIRST TO 50",
+  "box": [
+   394,
+   50,
+   127,
+   19
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "span",
+  "cls": "hud-team-score blue",
+  "data": {},
+  "text": "0",
+  "box": [
+   406,
+   53,
+   15,
+   13
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "span",
+  "cls": "hud-match-meta",
+  "data": {},
+  "text": "FIRST TO 5",
+  "box": [
+   431,
+   53,
+   52,
+   12
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "span",
+  "cls": "hud-team-score red",
+  "data": {},
+  "text": "0",
+  "box": [
+   494,
+   53,
+   15,
+   13
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-countdown",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-lobby-waiting",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-lobby-waiting-panel hud-frame",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-lobby-waiting-title",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-lobby-waiting-flavor",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-kill-announce",
+  "data": {},
+  "text": "",
+  "box": [
+   458,
+   124,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-kill-feed",
+  "data": {},
+  "text": "",
+  "box": [
+   545,
+   10,
+   360,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-kill-feed-line",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-kill-feed-line",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-kill-feed-line",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-kill-feed-line",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-kill-feed-line",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-scoreboard",
+  "data": {},
+  "text": "SCOREBOARDTEAM 1PILOTKDAplaytest-match-b",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-scoreboard-panel hud-frame",
+  "data": {},
+  "text": "SCOREBOARDTEAM 1PILOTKDAplaytest-match-b",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "h2",
+  "cls": "",
+  "data": {},
+  "text": "SCOREBOARD",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-scoreboard-rows",
+  "data": {},
+  "text": "TEAM 1PILOTKDAplaytest-match-b000TEAM 2P",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "table",
+  "cls": "hud-scoreboard-team--enemy",
+  "data": {
+   "team": "0"
+  },
+  "text": "TEAM 1PILOTKDAplaytest-match-b000",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "caption",
+  "cls": "",
+  "data": {},
+  "text": "TEAM 1",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "thead",
+  "cls": "",
+  "data": {},
+  "text": "PILOTKDA",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "tbody",
+  "cls": "",
+  "data": {},
+  "text": "playtest-match-b000",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "table",
+  "cls": "hud-scoreboard-team--ally",
+  "data": {
+   "team": "1"
+  },
+  "text": "TEAM 2PILOTKDAplaytest-match-a000",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "caption",
+  "cls": "",
+  "data": {},
+  "text": "TEAM 2",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "thead",
+  "cls": "",
+  "data": {},
+  "text": "PILOTKDA",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "tbody",
+  "cls": "",
+  "data": {},
+  "text": "playtest-match-a000",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-scoreboard-actions",
+  "data": {},
+  "text": "Play a New GameQuit to Menu",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "button",
+  "cls": "hud-results-btn",
+  "data": {
+   "resultsAction": "playAgain"
+  },
+  "text": "Play a New Game",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "button",
+  "cls": "hud-results-btn",
+  "data": {
+   "resultsAction": "menu"
+  },
+  "text": "Quit to Menu",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "button",
+  "cls": "hud-scoreboard-btn hud-button hud-button--secondary",
+  "data": {
+   "hudControl": ""
+  },
+  "text": "SCORE",
+  "box": [
+   851,
+   52,
+   54,
+   32
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-results",
+  "data": {},
+  "text": "MVP0KILLS0ASSISTS0CAPTURESNextPlay a New",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-results-backdrop",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-motes",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "i",
+  "cls": "",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-results-panel",
+  "data": {},
+  "text": "MVP0KILLS0ASSISTS0CAPTURESNextPlay a New",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-outcome-tag",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-mvp-badge",
+  "data": {},
+  "text": "MVP",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-participants",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-title",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-team-accent",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-rule",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-stats",
+  "data": {},
+  "text": "0KILLS0ASSISTS0CAPTURES",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-results-stat",
+  "data": {},
+  "text": "0KILLS",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-results-stat-value",
+  "data": {},
+  "text": "0",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-results-stat-label",
+  "data": {},
+  "text": "KILLS",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-results-stat",
+  "data": {},
+  "text": "0ASSISTS",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-results-stat-value",
+  "data": {},
+  "text": "0",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-results-stat-label",
+  "data": {},
+  "text": "ASSISTS",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-results-stat",
+  "data": {},
+  "text": "0CAPTURES",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-results-stat-value",
+  "data": {},
+  "text": "0",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-results-stat-label",
+  "data": {},
+  "text": "CAPTURES",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-sub",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-rewards",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-results-actions",
+  "data": {},
+  "text": "NextPlay a New GameQuit to Menu",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "button",
+  "cls": "hud-results-btn hud-button hud-button--primary hud-results-btn--primary",
+  "data": {
+   "resultsAction": "next"
+  },
+  "text": "Next",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "button",
+  "cls": "hud-results-btn hud-button hud-button--secondary",
+  "data": {
+   "resultsAction": "playAgain"
+  },
+  "text": "Play a New Game",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "button",
+  "cls": "hud-results-btn hud-button hud-button--secondary",
+  "data": {
+   "resultsAction": "menu"
+  },
+  "text": "Quit to Menu",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 0,
+  "tag": "div",
+  "cls": "hud-flight",
+  "data": {},
+  "text": "0%01BOOSTBOOST02JETTJETTISON\n      .hud-",
+  "box": [
+   0,
+   0,
+   915,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-joystick disabled",
+  "data": {
+   "anchor": "bottom-left"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-joystick-base",
+  "data": {
+   "hudControl": "joystick"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-joystick-thumb",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-relative-steer",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-relative-steer-vector",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-relative-steer-origin",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-relative-steer-current",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-throttle",
+  "data": {
+   "anchor": "bottom-right"
+  },
+  "text": "0%",
+  "box": [
+   905,
+   402,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-throttle-track",
+  "data": {
+   "hudControl": "throttle"
+  },
+  "text": "",
+  "box": [
+   863,
+   113,
+   37,
+   128
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-throttle-fill",
+  "data": {},
+  "text": "",
+  "box": [
+   864,
+   240,
+   35,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-throttle-ticks",
+  "data": {},
+  "text": "",
+  "box": [
+   864,
+   113,
+   13,
+   128
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-throttle-thumb",
+  "data": {},
+  "text": "",
+  "box": [
+   863,
+   218,
+   37,
+   22
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-throttle-readout",
+  "data": {},
+  "text": "0%",
+  "box": [
+   868,
+   91,
+   26,
+   15
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-boost",
+  "data": {
+   "anchor": "bottom-left"
+  },
+  "text": "01BOOSTBOOST",
+  "box": [
+   10,
+   402,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-boost-btn hud-module-btn hud-slot-btn hex-action ring-energy",
+  "data": {
+   "hudControl": "boost",
+   "side": "utilities",
+   "slot": "01"
+  },
+  "text": "01BOOSTBOOST",
+  "box": [
+   20,
+   322,
+   70,
+   70
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "ring",
+  "data": {},
+  "text": "",
+  "box": [
+   22,
+   324,
+   67,
+   67
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "slot-num",
+  "data": {},
+  "text": "01",
+  "box": [
+   48,
+   333,
+   14,
+   12
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "icon",
+  "data": {},
+  "text": "",
+  "box": [
+   41,
+   344,
+   28,
+   28
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "svg",
+  "cls": "hud-icon-svg",
+  "data": {},
+  "text": "",
+  "box": [
+   41,
+   344,
+   28,
+   28
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "slot-type",
+  "data": {},
+  "text": "BOOST",
+  "box": [
+   37,
+   375,
+   37,
+   8
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "label sr-only",
+  "data": {},
+  "text": "BOOST",
+  "box": [
+   55,
+   356,
+   1,
+   1
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-jettison",
+  "data": {
+   "anchor": "bottom-left"
+  },
+  "text": "02JETTJETTISON",
+  "box": [
+   10,
+   402,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-jettison-btn hud-module-btn hud-slot-btn hex-action",
+  "data": {
+   "hudControl": "jettison",
+   "side": "utilities",
+   "slot": "02"
+  },
+  "text": "02JETTJETTISON",
+  "box": [
+   44,
+   250,
+   70,
+   70
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "ring",
+  "data": {},
+  "text": "",
+  "box": [
+   45,
+   251,
+   67,
+   67
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "slot-num",
+  "data": {},
+  "text": "02",
+  "box": [
+   72,
+   260,
+   14,
+   12
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "icon",
+  "data": {},
+  "text": "",
+  "box": [
+   65,
+   272,
+   28,
+   28
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "svg",
+  "cls": "hud-icon-svg",
+  "data": {},
+  "text": "",
+  "box": [
+   65,
+   272,
+   28,
+   28
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "slot-type",
+  "data": {},
+  "text": "JETT",
+  "box": [
+   65,
+   303,
+   28,
+   8
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "label sr-only",
+  "data": {},
+  "text": "JETTISON",
+  "box": [
+   78,
+   284,
+   1,
+   1
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-reticle",
+  "data": {},
+  "text": ".hud-reticle-readout {\n        position:",
+  "box": [
+   0,
+   0,
+   915,
+   412
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "style",
+  "cls": "",
+  "data": {},
+  "text": ".hud-reticle-readout {\n        position:",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-reticle-zone clamped",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-reticle-bracket visible locked",
+  "data": {},
+  "text": "LOCKED328mPLAYTEST-MATCH-B",
+  "box": [
+   434,
+   103,
+   46,
+   46
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "corners",
+  "data": {},
+  "text": "",
+  "box": [
+   434,
+   103,
+   46,
+   46
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "ring",
+  "data": {},
+  "text": "",
+  "box": [
+   429,
+   98,
+   56,
+   56
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-reticle-readout",
+  "data": {},
+  "text": "LOCKED328mPLAYTEST-MATCH-B",
+  "box": [
+   490,
+   113,
+   74,
+   26
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-reticle-status",
+  "data": {},
+  "text": "LOCKED",
+  "box": [
+   490,
+   117,
+   33,
+   11
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-reticle-distance",
+  "data": {},
+  "text": "328m",
+  "box": [
+   523,
+   117,
+   29,
+   11
+  ],
+  "hidden": false
+ },
+ {
+  "d": 4,
+  "tag": "span",
+  "cls": "hud-reticle-target-name",
+  "data": {},
+  "text": "PLAYTEST-MATCH-B",
+  "box": [
+   490,
+   130,
+   74,
+   9
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-reticle-blocked",
+  "data": {},
+  "text": "NO LOCK",
+  "box": [
+   427,
+   243,
+   60,
+   10
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-enemy-arrows",
+  "data": {},
+  "text": ".hud-enemy-arrow {\n        overflow: vis",
+  "box": [
+   0,
+   0,
+   915,
+   412
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "style",
+  "cls": "",
+  "data": {},
+  "text": ".hud-enemy-arrow {\n        overflow: vis",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow flag",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow flag",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow base",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "div",
+  "cls": "hud-enemy-arrow base",
+  "data": {
+   "hudControl": "enemy-arrow"
+  },
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-arrow-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 3,
+  "tag": "div",
+  "cls": "hud-enemy-marker-glyph",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 3,
+  "tag": "span",
+  "cls": "hud-enemy-arrow-distance",
+  "data": {},
+  "text": "",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 1,
+  "tag": "div",
+  "cls": "hud-speed",
+  "data": {
+   "anchor": "bottom-right"
+  },
+  "text": ".hud-speed {\n        position: absolute;",
+  "box": [
+   905,
+   402,
+   0,
+   0
+  ],
+  "hidden": false
+ },
+ {
+  "d": 2,
+  "tag": "style",
+  "cls": "",
+  "data": {},
+  "text": ".hud-speed {\n        position: absolute;",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "hidden": true
+ },
+ {
+  "d": 2,
+  "tag": "span",
+  "cls": "hud-speed-value",
+  "data": {},
+  "text": "0 m/s",
+  "box": [
+   862,
+   242,
+   38,
+   15
+  ],
+  "hidden": false
+ }
+]

@@ -151,8 +151,25 @@ export const usersRepo = {
   byGuestToken(token: string): UserRow | undefined {
     return getDb().prepare("SELECT * FROM users WHERE guest_token = ?").get(token) as UserRow | undefined;
   },
-  /** Promote a guest to a full account in place, keeping the same id + progress. */
-  upgradeGuest(id: string, email: string, passHash: string): void {
+  /**
+   * Resolve a user by their pilot nickname. The nickname lives on `profiles`, so
+   * this joins — but it belongs here because it is a LOGIN lookup: since email
+   * became optional (2026-08-22) the nickname is the identifier an account
+   * without an email signs in with, and `profiles.display_name` carries a UNIQUE
+   * index (migration 007) precisely so this can return at most one row.
+   */
+  byDisplayName(displayName: string): UserRow | undefined {
+    return getDb()
+      .prepare("SELECT u.* FROM users u JOIN profiles p ON p.user_id = u.id WHERE p.display_name = ?")
+      .get(displayName) as UserRow | undefined;
+  },
+  /**
+   * Promote a guest to a full account in place, keeping the same id + progress.
+   * `email` is nullable: registration no longer requires one, and NULL (never
+   * "") is what "this account has no email" looks like in the schema — the
+   * column is UNIQUE, and SQLite lets NULLs repeat while empty strings collide.
+   */
+  upgradeGuest(id: string, email: string | null, passHash: string): void {
     getDb()
       .prepare("UPDATE users SET email = ?, pass_hash = ?, guest_token = NULL WHERE id = ?")
       .run(email, passHash, id);

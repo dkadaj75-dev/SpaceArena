@@ -86,6 +86,7 @@ export class Lobby {
   /** Persistent "the game server did not answer" banner on the Online section. */
   private readonly offlineBadge: HTMLDivElement;
   private readonly offlineDetail: HTMLSpanElement;
+  private readonly onlineCount: HTMLDivElement;
   private healthRefreshTimer: ReturnType<typeof setInterval> | null = null;
   /** Root view: the category buttons. */
   private readonly play: HTMLDivElement;
@@ -111,8 +112,24 @@ export class Lobby {
     this.root.style.zIndex = "20";
     // The CSS nebula is the FALLBACK backdrop. When the pack stages a 3D scene
     // it renders behind this overlay instead, so the flat backdrop would simply
-    // hide it.
-    if ((this.configs.get<ThemeConfig>("theme", THEME_ID)?.menu?.scene?.kind ?? "none") === "none") {
+    // hide it — `.sa-menu-bg` is opaque and covers the whole screen.
+    //
+    // Which is why "the pack says no scene" and "there is no pack" must not be
+    // the same branch. Boot continues past a content-pack failure (main.ts), so
+    // a failed fetch used to land here as `?? "none"` and hang an opaque sheet
+    // over a diorama that was rendering fine underneath. On a missing pack we
+    // now say so loudly and leave the 3D window UNCOVERED: an unstyled menu
+    // over a live scene is a far better failure than a black rectangle that
+    // looks deliberate and reports nothing.
+    const theme = this.configs.get<ThemeConfig>("theme", THEME_ID);
+    const sceneKind = theme?.menu?.scene?.kind;
+    if (!theme?.menu) {
+      log.error(
+        "theme pack missing or failed to load — menu backdrop suppressed so the 3D window stays visible",
+        { themeId: THEME_ID, haveTheme: theme !== undefined && theme !== null },
+      );
+      this.root.dataset["diorama"] = "unknown";
+    } else if ((sceneKind ?? "none") === "none") {
       this.root.append(createMenuBackdrop());
     } else {
       this.root.dataset["diorama"] = "on";
@@ -130,7 +147,11 @@ export class Lobby {
     this.subtitleEl.className = "sa-menu-subtitle";
     const rule = document.createElement("div");
     rule.className = "sa-menu-rule";
-    titleWrap.append(this.titleEl, this.subtitleEl, rule);
+    // Deliberately discreet (owner 2026-08-23): a small muted line under the
+    // title rule, present only while the server is reachable and counting.
+    this.onlineCount = document.createElement("div");
+    this.onlineCount.className = "sa-menu-online-count";
+    titleWrap.append(this.titleEl, this.subtitleEl, rule, this.onlineCount);
     this.root.append(titleWrap);
 
     // Built before buildSections() so the Online section can adopt it as its
@@ -163,7 +184,9 @@ export class Lobby {
     }
 
     this.unsubscribeAuth = this.auth.onChange((state) => this.renderHeader(state));
-    this.unsubscribeHealth = this.serverHealth.subscribe((health) => this.renderServerHealth(health.online, health.detail));
+    this.unsubscribeHealth = this.serverHealth.subscribe((health) =>
+      this.renderServerHealth(health.online, health.detail, health.playersOnline),
+    );
     this.renderHeader(this.auth.getState());
   }
 
@@ -444,11 +467,18 @@ export class Lobby {
     this.serverHealth.set({ online, detail });
   }
 
-  private renderServerHealth(online: boolean, detail = ""): void {
+  private renderServerHealth(online: boolean, detail = "", playersOnline?: number): void {
     this.offlineBadge.classList.toggle("visible", !online);
     // Parenthesised so the probe's own words read as an aside next to the
     // headline rather than running into it.
     this.offlineDetail.textContent = online || !detail ? "" : `(${detail})`;
+    // The count includes this client (its own probe registers it), so a live
+    // server never legitimately reports 0 — an absent or zero count means the
+    // server is not counting, and the line simply stays empty.
+    this.onlineCount.textContent =
+      online && playersOnline !== undefined && playersOnline > 0
+        ? `${playersOnline} pilot${playersOnline === 1 ? "" : "s"} online`
+        : "";
     this.applyOnlineButtonState(this.auth.getState().status === "authed");
     this.syncHealthRefreshTimer();
   }

@@ -97,6 +97,35 @@ const ICON_PATHS: Readonly<Record<string, string>> = {
     '<path d="M13.4 6.2 3.6 16"/>' +
     '<path d="M20.4 7.2 9.8 17.8"/>' +
     '<path d="M20.4 13.2 15.8 17.8"/>',
+  /**
+   * Reactor / generator: a containment ring around its core.
+   *
+   * One of the three INTERNAL glyphs added with the 2026-08-22 loadout deck.
+   * The shipped content has authored `[ICON: generator]`, `[ICON: engine]` and
+   * `[ICON: sensors]` since those bays existed — all three resolved to the
+   * generic hex, which is what put three identical pictures in a row on the
+   * deck's CORE / INTERNAL tiles. The shapes are the hangar design's own
+   * (its `ICONS` map: reactor orbit, engine bell with a thrust plume, sensor
+   * crosshair), redrawn on this file's 24-grid so the HUD and the hangar
+   * cannot drift apart into two icon sets for one module.
+   */
+  generator:
+    '<path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z"/>' +
+    '<path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" fill="currentColor" stroke="none"/>',
+  /** Ion engine: the bell, and the plume it throws. */
+  engine:
+    '<path d="M8 3.4h8l2 8H6z"/>' +
+    '<path d="M9 14v4"/>' +
+    '<path d="M12 14v6"/>' +
+    '<path d="M15 14v4"/>',
+  /** Targeting suite: a crosshair ringing the mark it holds. */
+  sensors:
+    '<path d="M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14z"/>' +
+    '<path d="M12 2v3"/>' +
+    '<path d="M12 19v3"/>' +
+    '<path d="M2 12h3"/>' +
+    '<path d="M19 12h3"/>' +
+    '<path d="M12 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" fill="currentColor" stroke="none"/>',
   /** Repair field: a cross inside the bubble the pulse fills. */
   repair:
     '<path d="M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6z"/>' +
@@ -118,11 +147,18 @@ const FAMILY_ICONS: Readonly<Record<string, string>> = {
   repair: "repair",
   boost: "boost",
   countermeasure: "countermeasure",
-  // The alloy bay (2026-08-22). The other three internals — engine, generator,
-  // sensors — deliberately keep the generic glyph they have always resolved to;
-  // only the new family gets a distinct one, so the hangar's systems column
-  // gains a shape rather than being redrawn wholesale.
   hull: "hull",
+  // The three INTERNAL bays (2026-08-22, loadout deck). They used to share the
+  // generic hex, which reads as "unclassified" rather than as a reactor, an
+  // engine and a sensor suite — and the deck's tiles print the glyph INSTEAD of
+  // a letter code, so three identical pictures would have been three
+  // indistinguishable tiles.
+  generator: "generator",
+  engine: "engine",
+  sensors: "sensors",
+  // `utility` stays generic on purpose: it is the family for anything that has
+  // not earned a shape of its own, and the two modules in it that HAVE one
+  // (`capacitor`, `countermeasure`) reach it through their authored `ui.icon`.
   utility: FALLBACK_ICON_ID,
 };
 
@@ -135,6 +171,12 @@ const ICON_ALIASES: Readonly<Record<string, string>> = {
   afterburner: "boost",
   thruster: "boost",
   battery: "capacitor",
+  reactor: "generator",
+  powerplant: "generator",
+  ion: "engine",
+  drive: "engine",
+  radar: "sensors",
+  targeting: "sensors",
   alloy: "hull",
   plating: "hull",
   armour: "hull",

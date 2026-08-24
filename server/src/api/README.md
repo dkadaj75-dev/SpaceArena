@@ -39,11 +39,17 @@ All auth responses (except `/me`) return a **token pair + profile**:
 
 | Method & path | Auth | Body | Notes |
 |---|---|---|---|
-| `POST /register` | optional | `{ email, password, displayName? }` | 201 new account. If a **valid guest** Bearer token is sent, the guest is upgraded **in place** (same id, progress kept, all prior sessions revoked) → 200. A present-but-invalid/expired token → `401 invalid-token` (never a silent new account). A full-account token → `409 already-registered`. `409 email-taken` on dup. |
-| `POST /login` | — | `{ email, password }` | 200 + pair. `401 invalid-credentials` otherwise. |
+| `POST /register` | optional | `{ displayName, password, email? }` | 201 new account. **`displayName` (the nickname) is required; `email` is optional** — an account may have none. If a **valid guest** Bearer token is sent, the guest is upgraded **in place** (same id, progress kept, all prior sessions revoked) → 200. A present-but-invalid/expired token → `401 invalid-token` (never a silent new account). A full-account token → `409 already-registered`. `409 email-taken` / `409 nickname-taken` on a dup (an upgrading guest may keep its own nickname). |
+| `POST /login` | — | `{ identifier, password }` | `identifier` is the **nickname or the email** (resolved email-first). The legacy `{ email, password }` body is still accepted and folded into `identifier`. 200 + pair. `401 invalid-credentials` otherwise. |
 | `POST /guest` | — | `{ displayName?, guestToken? }` | 201 creates a guest (returns `guestToken`). A known `guestToken` restores that guest → 200. A supplied-but-**unknown** `guestToken` → `401 invalid-guest-token` (does not mint a new guest). |
 | `POST /refresh` | — | `{ refreshToken }` | 200 + a fresh pair (old refresh token is invalidated). `401 invalid-refresh`. |
 | `GET /me` | **required** | — | `{ profile, inventory }`. `inventory` is `{ ships, modules, cosmetics, selections }` — the WHOLE inventory in one read (the Shop and the Hangar need all four together). Ownership is **derived**: the starter hull, every `price: 0` module, and each owned hull's target-scoped base skin are computed from content on every read, never seeded rows. `selections` maps each owned ship id to its equipped cosmetic id, defaulting to that hull's base skin. |
+
+Nicknames: 1–40 chars (trimmed), **unique** across accounts — that uniqueness is
+what lets an email-less account log in (`profiles.display_name` carries a UNIQUE
+index since migration 007). There is no password-reset/recovery route in the
+API at all, so an account with no email loses nothing that an account with one
+has today.
 
 Passwords: 8–200 chars, hashed with **argon2id**. `JWT_SECRET` is **required** in
 production — a missing secret when `NODE_ENV=production` is a hard startup failure

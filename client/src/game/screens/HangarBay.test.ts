@@ -72,3 +72,62 @@ describe("HangarBay lifecycle", () => {
     parent.dispose();
   });
 });
+
+/**
+ * Degraded-context self-heal (2026-08-23). A WebGL1/software/low-uniform
+ * context cannot be trusted with the full rig — four punctual lights at the
+ * `maxSimultaneousLights` ceiling, PBR+IBL, an ESM shadow map needing a
+ * float-renderable target, and a GlowLayer is the permutation most likely to
+ * blow `MAX_FRAGMENT_UNIFORM_VECTORS`. Babylon does not complain when a shader
+ * fails to link: `Effect.isReady()` stays false and the draw is skipped, so the
+ * frame comes out clear-coloured — indistinguishable from a dead renderer.
+ *
+ * The deliverable is a rig that DRAWS, not a warning.
+ */
+describe("HangarBay on a degraded context", () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+
+  afterEach(() => {
+    scene.dispose();
+  });
+
+  it("clamps the light rig to two and skips the shadow map", () => {
+    const parent = new TransformNode("stage", scene);
+    const bayLights = () => scene.lights.filter((l) => l.name.startsWith("hangarBay."));
+
+    const full = new HangarBay(scene, parent, { degraded: false });
+    expect(bayLights()).toHaveLength(4);
+    expect(scene.lights.some((l) => l.getShadowGenerator() !== null)).toBe(true);
+    full.dispose();
+
+    const reduced = new HangarBay(scene, parent, { degraded: true });
+    expect(bayLights()).toHaveLength(2);
+    // Key + overhead: the two that make the hull read at all.
+    expect(bayLights().map((l) => l.name).sort()).toEqual(["hangarBay.key", "hangarBay.overhead"]);
+    expect(scene.lights.every((l) => l.getShadowGenerator() === null)).toBe(true);
+    reduced.dispose();
+    parent.dispose();
+  });
+
+  it("skips the shadow map when no float render target exists, rig intact", () => {
+    // An exponential shadow map REQUIRES a float/half-float renderable target.
+    // Asking for one anyway is how a whole material permutation stops linking.
+    const parent = new TransformNode("stage", scene);
+    const bay = new HangarBay(scene, parent, { floatRenderTargets: false });
+    expect(scene.lights.filter((l) => l.name.startsWith("hangarBay."))).toHaveLength(4);
+    expect(scene.lights.every((l) => l.getShadowGenerator() === null)).toBe(true);
+    bay.dispose();
+    parent.dispose();
+  });
+
+  it("still disposes cleanly when it never built a shadow generator", () => {
+    const parent = new TransformNode("stage", scene);
+    const baseline = { materials: scene.materials.length, lights: scene.lights.length };
+    const bay = new HangarBay(scene, parent, { degraded: true });
+    expect(() => bay.dispose()).not.toThrow();
+    expect(scene.materials).toHaveLength(baseline.materials);
+    expect(scene.lights).toHaveLength(baseline.lights);
+    parent.dispose();
+  });
+});

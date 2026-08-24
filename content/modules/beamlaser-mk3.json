@@ -22,7 +22,7 @@
     "projectile": null
   },
   "onFire": [
-    "action.play-sound-laser"
+    "action.play-sound-beam"
   ],
   "ui": {
     "icon": "[ICON: laser]",

@@ -15,6 +15,10 @@ const ONLY = process.argv[3];
 // run is ~100 s. Q is the lever if that ever has to be trimmed: ring-nebula
 // measures 94 kB at 0.82 and 196 kB at 0.94. 0.88 is unchanged from the 2k
 // panoramas — the budget gave no reason to move it.
+// A palette may override this with its own `size: { w, h }`. ring-nebula does:
+// its giant is 104 deg across, so the same texel budget spreads a quarter as
+// thick over the one feature the sky is built around, and the ring line is
+// sub-degree regardless of how big the planet gets.
 const W = 4096, H = 2048;
 const WEBP_QUALITY = 0.88;
 
@@ -48,6 +52,11 @@ const PALETTES = {
     sun: { dir: [0.777, 0.309, 0.55], color: [255, 248, 230], discDeg: 0.72, glowDeg: 3.2, minimalGlow: true },
   },
   "ring-nebula": {
+    // 8192x4096 for this sky only (owner request 2026-08-23, "higher
+    // resolution"). One texel is 0.044 deg, which is what a 104-deg-wide
+    // crescent's banding and a 1.7-deg ring line want now that the giant fills
+    // this much sky. Only this palette pays for it; the others stay at 4k.
+    size: { w: 8192, h: 4096 },
     base: [6, 6, 14],
     dustA: { col: [38, 25, 57], hot: [79, 49, 104], lo: 0.72, hi: 1.0 },
     dustB: { col: [19, 31, 57], hot: [48, 72, 111], lo: 0.76, hi: 1.02 },
@@ -70,9 +79,23 @@ const PALETTES = {
       dir: [-0.8431, 0.3746, 0.3859],
       // Slightly tighter banding than deep-field's giant, so the two worlds do
       // not read as the same planet twice. See the note there on scale/tones.
-      angularRadiusDeg: 26, kind: "gas", turbulence: 4.0, bandScale: 29,
+      // 26 -> 52 deg (owner request 2026-08-23, "2X bigger"): 104 deg of sky,
+      // ~20% of the sphere. bandScale is NOT touched — phase runs on the
+      // normalised disc coordinate, so the zone COUNT is a property of the
+      // planet, not of how close we are standing. Everything measured in
+      // degrees FROM the planet does scale: the atmosphere skirt below, and
+      // the ring geometry (see rings.normal / widthDeg and ringScale in the
+      // page script).
+      angularRadiusDeg: 52, kind: "gas", turbulence: 4.0, bandScale: 29,
       bandOffset: -0.25, bandContrast: 0.46, detailed: true,
       shadingGamma: 0.75, terminatorSoftness: 0.1,
+      // "A bit more emissivity" (same request). This multiplies the disc's own
+      // illumination — surface AND its limb haze — and nothing else, so the
+      // ring glow, the atmosphere skirt and the nebula behind it all hold
+      // still and the planet alone comes up. +25% is the most that fits before
+      // the pale `detail` tone (236, 222, 190) starts clipping to flat white
+      // in the brightest cloud tops.
+      luminance: 1.25,
       // Tones pushed APART (see deep-field's note) and split by HUE as well
       // as value: the old olive pair differed by 23% in luminance, which read
       // as banding on a 10-deg ball and as one flat wash of yellow across a
@@ -80,30 +103,36 @@ const PALETTES = {
       // photoreal reference and a 50% luminance split.
       surface: { base: [186, 168, 122], band: [112, 84, 48], detail: [236, 222, 190] },
       // A 26-deg disc needs a proportionally deeper limb: the halo is a fixed
-      // ANGULAR skirt outside the disc, not a fraction of it.
-      atmosphere: [198, 186, 138], atmosphereDeg: 1.6, limbHaze: 0.42,
+      // ANGULAR skirt outside the disc, not a fraction of it. So at 52 deg it
+      // doubles too (1.6 -> 3.2), or the skirt thins to a hairline against a
+      // disc twice as wide.
+      atmosphere: [198, 186, 138], atmosphereDeg: 3.2, limbHaze: 0.42,
       // Moved into the lit crescent. At the old spot (-0.38, +0.16) the storm
       // sat squarely on the night side and simply vanished; this is the middle
       // of the crescent, which runs along disc-space (-0.947, -0.321).
       storm: { x: -0.52, y: -0.18, rx: 0.24, ry: 0.12, color: [198, 132, 104] },
       rings: {
         // The observer is IN the ring plane, so the sheet projects to a great
-        // circle. Its normal is 2 deg off perpendicular to dir, which slides
+        // circle. Its normal is 4 deg off perpendicular to dir, which slides
         // the line just off the planet's centre — dead-on edge-on reads as a
-        // drawn line, 2 deg lets a sliver of the lit face show. The plane is
+        // drawn line, and the offset has to be read as a FRACTION of the disc:
+        // it was 2 deg against a 26-deg radius, so a 52-deg radius needs 4 to
+        // cross at the same place and leave the same sliver. The plane is
         // tilted 28 deg from horizontal so it cuts the sky diagonally. It
         // also passes close to the star, which is not a coincidence to design
         // away: a ring sits in the planet's equatorial plane and the star sits
         // near its orbital plane, so a low-obliquity giant genuinely shows its
         // brightest forward-scattering arc right beside the sun.
-        normal: [0.1444, 0.8815, -0.4496],
+        normal: [0.1147, 0.8929, -0.4353],
         // Kept dim and SOFT-edged on purpose. The skybox sphere is 32
         // segments, so a razor-thin great circle would visibly kink at the
         // quad boundaries, and a bright band across the play space would
         // fight ship silhouettes. widthDeg is the 1-sigma half-width away
         // from the planet; it swells near the planet, where the line of sight
-        // runs the long way through the sheet.
-        color: [196, 183, 161], gain: 0.42, frontGain: 0.5, widthDeg: 0.85,
+        // runs the long way through the sheet. It is an apparent width, so it
+        // doubles with the planet (0.85 -> 1.7): the sheet did not get thicker,
+        // we are twice as close to it.
+        color: [196, 183, 161], gain: 0.42, frontGain: 0.5, widthDeg: 1.7,
       },
     },
     sun: { dir: [-0.677, -0.208, -0.706], color: [244, 248, 255], discDeg: 0.68, glowDeg: 3.0, minimalGlow: true },
@@ -346,18 +375,26 @@ function makeNebula(W, H, P) {
           const rn = rings.normal;
           const offPlane = dx * rn[0] + dy * rn[1] + dz * rn[2];
           const angRad = ang * (Math.PI / 180);
+          // Every angular constant in this block was tuned against a 26-deg
+          // giant, and all of them are radial positions IN THE SHEET measured
+          // out from the planet. They therefore belong to the planet's scale,
+          // not to the sky's: leave them fixed while the disc grows and the
+          // divisions end up buried inside it. ringScale is 1 at the original
+          // tuning, so the numbers below still read as what was chosen.
+          const ringScale = radiusDeg / 26;
           // Toward the planet the sight line runs the long way through the
-          // sheet, so the band swells and brightens; 0.62 rad (~35 deg) is
-          // where that thickening has effectively died away.
-          const swell = Math.exp(-(angRad * angRad) / (0.62 * 0.62));
+          // sheet, so the band swells and brightens; 0.62 rad (~35 deg, i.e.
+          // 1.4 planet radii) is where that thickening has effectively died
+          // away.
+          const swell = Math.exp(-(angRad * angRad) / Math.pow(0.62 * ringScale, 2));
           const halfWidth = rings.widthDeg * (Math.PI / 180) * (1 + swell * 1.9);
           const across = Math.exp(-(offPlane * offPlane) / (halfWidth * halfWidth));
           // Divisions. Radial position maps to angle from the planet, so soft
           // gaps parked at fixed angles read as concentric gaps in the sheet.
           const gaps = 1
-            - 0.34 * Math.exp(-Math.pow((angRad - 0.3) / 0.045, 2))
-            - 0.26 * Math.exp(-Math.pow((angRad - 0.52) / 0.06, 2))
-            - 0.2 * Math.exp(-Math.pow((angRad - 0.95) / 0.1, 2));
+            - 0.34 * Math.exp(-Math.pow((angRad - 0.3 * ringScale) / (0.045 * ringScale), 2))
+            - 0.26 * Math.exp(-Math.pow((angRad - 0.52 * ringScale) / (0.06 * ringScale), 2))
+            - 0.2 * Math.exp(-Math.pow((angRad - 0.95 * ringScale) / (0.1 * ringScale), 2));
           const grain = 0.72 + 0.56 * fbm(dx * 7 + 877, dy * 7, dz * 7, 4, 0.55);
           // Ring particles forward-scatter hard, and at this phase the star is
           // BEHIND the planet — the half of the sheet toward it glows, which is
@@ -367,7 +404,7 @@ function makeNebula(W, H, P) {
           const forward = 0.62 + 0.75 * Math.max(0, toSun);
           // The far side of the sheet keeps going all the way round the sky,
           // but as a thread, not a feature: 0.16 is its floor.
-          const reach = 0.16 + 0.84 * Math.exp(-Math.pow(angRad / 1.05, 2));
+          const reach = 0.16 + 0.84 * Math.exp(-Math.pow(angRad / (1.05 * ringScale), 2));
           ringAmount = Math.max(0, across * gaps * grain * forward * reach * rings.gain);
           for (let ch = 0; ch < 3; ch++) out[ch] += rings.color[ch] * ringAmount;
         }
@@ -430,6 +467,13 @@ function makeNebula(W, H, P) {
           illumination = 0.03 + smoothRange(-0.12, 0.2, ndotl) * 0.97;
           limb = 0.28 + 0.72 * Math.pow(surfaceZ, 0.38);
         }
+        // Per-planet emissivity trim. It scales the disc's own lit response —
+        // surface tones and the limb haze that blends into them — and deliberately
+        // nothing else: the ring glow, the atmosphere skirt outside the disc
+        // and the nebula behind it are all computed from other terms, so a
+        // planet can be brought up without the sky coming with it. Default 1
+        // leaves every existing sky bit-identical.
+        illumination *= planet.luminance ?? 1;
         // Detailed planets sample noise in the DISC frame (localX, localY,
         // surfaceZ is a point on the unit sphere) instead of world space. That
         // is what makes anisotropic sampling possible: dividing the localY
@@ -683,6 +727,7 @@ const page = await browser.newPage();
 await page.addScriptTag({ content: PAGE_SCRIPT });
 for (const [name, palette] of Object.entries(PALETTES)) {
   if (ONLY && name !== ONLY) continue;
+  const w = palette.size?.w ?? W, h = palette.size?.h ?? H;
   const dataUrl = await page.evaluate(
     ([W, H, P, quality]) => {
       const img = makeNebula(W, H, P);
@@ -691,11 +736,11 @@ for (const [name, palette] of Object.entries(PALETTES)) {
       cv.getContext("2d").putImageData(new ImageData(img, W, H), 0, 0);
       return cv.toDataURL("image/webp", quality);
     },
-    [W, H, palette, WEBP_QUALITY],
+    [w, h, palette, WEBP_QUALITY],
   );
   const buf = Buffer.from(dataUrl.split(",")[1], "base64");
   const file = path.join(OUT, `${name}.webp`);
   fs.writeFileSync(file, buf);
-  console.log(`${file}: ${(buf.length / 1024).toFixed(0)} KB`);
+  console.log(`${file}: ${w}x${h}, ${(buf.length / 1024).toFixed(0)} KB`);
 }
 await browser.close();

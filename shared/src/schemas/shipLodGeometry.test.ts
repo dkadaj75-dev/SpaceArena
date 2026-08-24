@@ -24,6 +24,13 @@ describe("shipped ship LOD geometry budget", () => {
     for (const file of files) {
       const ship = shipSchema.parse(JSON.parse(await readFile(resolve(CONTENT, "ships", file), "utf8")));
       const lods = ship.render.lods ?? [];
+      if (lods.length === 0) {
+        // A hull may ship without a ladder (the Starpiercer, 2026-08-23) — but
+        // then its BASE model carries the combat-distance budget alone, at the
+        // same ten-hull ceiling the ladder hulls meet with their lod1.
+        expect(await triangles(ship.render.model!) * 10).toBeLessThanOrEqual(110_000);
+        continue;
+      }
       expect(lods.length).toBeGreaterThanOrEqual(2);
       for (let i = 1; i < lods.length; i++) expect(lods[i]!.distance).toBeGreaterThan(lods[i - 1]!.distance);
       expect(await triangles(lods[1]!.model) * 10).toBeLessThanOrEqual(110_000);

@@ -56,7 +56,18 @@
         -webkit-touch-callout: default;
       }
 
+      /* Position and z-index are LOAD-BEARING, not tidiness. Unpositioned, the
+         canvas sits in the static layer, so every positioned overlay in the app
+         paints above it BY DEFAULT rather than by intent — which is how an
+         opaque `.hangar-stage` backdrop came to cover the 3D viewer while the
+         renderer underneath was perfectly healthy (2026-08-23). Pinning it at
+         z-index 0 makes "what is allowed to cover the 3D window" an explicit
+         decision each overlay has to make, and it is the only element in the
+         app at that level. */
       #renderCanvas {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
         width: 100%;
         height: 100%;
         display: block;

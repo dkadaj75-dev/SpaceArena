@@ -14,7 +14,7 @@ import type { GameSession } from "../GameSession.js";
 import { VirtualJoystick } from "./VirtualJoystick.js";
 import { ThrottleStrip } from "./ThrottleStrip.js";
 import { BoostButton, type BoostButtonState } from "./BoostButton.js";
-import { resolveHudSlotCounts } from "./ModuleButtons.js";
+import { isBoostModule, resolveHudSlotCounts } from "./ModuleButtons.js";
 import { JettisonButton, type JettisonButtonState } from "./JettisonButton.js";
 import { CanvasFireInput } from "./CanvasFireInput.js";
 import { LockReticle } from "./LockReticle.js";
@@ -50,13 +50,20 @@ const NO_BOOST_FITTED: BoostButtonState = {
 };
 const NO_JETTISON_FITTED: JettisonButtonState = { fitted: false, cooldownSec: 0, cooldownTotalSec: 0 };
 
-/** Array index of the first fitted boost module, or -1 when this fitting has none. */
+/**
+ * Array index of the first fitted boost module, or -1 when this fitting has none.
+ *
+ * Shares {@link isBoostModule} with the slot counts on purpose: "is this the
+ * afterburner" is asked once here, to decide whether the control exists, and
+ * again there, to decide which slot it takes. Two different answers put BOOST on
+ * top of JETTISON (see the note on that predicate).
+ */
 export function firstBoostModuleIndex(
   configs: Pick<ConfigService, "get">,
   modules: readonly ModuleSnapshot[],
 ): number {
   for (let i = 0; i < modules.length; i++) {
-    if (configs.get<ModuleConfig>("module", modules[i]!.moduleId)?.boost) return i;
+    if (isBoostModule(configs.get<ModuleConfig>("module", modules[i]!.moduleId))) return i;
   }
   return -1;
 }
@@ -126,8 +133,14 @@ export class FlightControls {
 
   private layout: FlightHudLayout;
   private enabled = true;
-  /** Left-cluster slot count the BOOST/JETTISON placement was last resolved for. */
-  private utilitySlotCount = -1;
+  /**
+   * The left-cluster ASSIGNMENT the BOOST/JETTISON placement was last resolved
+   * for — count plus both slot indices, not the count alone. A refit can keep
+   * the total while moving which control owns which circle, and a cache that
+   * only watched the total would leave one of them on a stale (or its default)
+   * slot. `""` means "not resolved yet".
+   */
+  private utilitySlotKey = "";
   /** Keys currently held, normalized by {@link flightKeyOf}. */
   private readonly heldKeys = new Set<string>();
   /**
@@ -241,7 +254,7 @@ export class FlightControls {
   /** Adopt a freshly resolved layout (theme hot-reload, rotation, resize). */
   applyLayout(layout: FlightHudLayout): void {
     this.layout = layout;
-    this.utilitySlotCount = -1;
+    this.utilitySlotKey = "";
     this.joystick.applyLayout(layout);
     this.relativeSteer.applyLayout(layout);
     this.throttleStrip.applyLayout(layout);
@@ -599,8 +612,9 @@ export class FlightControls {
    */
   private refreshActionArc(ship: ShipSnapshot): void {
     const counts = resolveHudSlotCounts(this.configs, ship.modules);
-    if (counts.utilities === this.utilitySlotCount) return;
-    this.utilitySlotCount = counts.utilities;
+    const key = `${counts.utilities}:${counts.boostSlot ?? "-"}:${counts.jettisonSlot ?? "-"}`;
+    if (key === this.utilitySlotKey) return;
+    this.utilitySlotKey = key;
     if (counts.boostSlot !== null) {
       this.boostButton.applySlotLayout(this.layout, counts.utilities, counts.boostSlot);
     }

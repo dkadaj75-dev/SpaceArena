@@ -108,28 +108,40 @@ export class AuthScreen {
   private buildLoginForm(): HTMLDivElement {
     const panel = document.createElement("div");
     panel.className = "sa-screen-panel";
-    const email = this.textInput("email", "Email");
+    // Type "text", not "email": accounts registered without an email log in by
+    // nickname, and the browser's email validation would reject one.
+    const identifier = this.textInput("text", "Nickname or email");
     const password = this.textInput("password", "Password");
     const submit = this.formButton("Log In");
-    submit.addEventListener("click", () =>
-      void this.run(() => this.auth.login(email.value.trim(), password.value)),
-    );
-    panel.append(email, password, submit);
+    submit.addEventListener("click", () => {
+      const id = identifier.value.trim();
+      if (!id) {
+        this.errorEl.textContent = "Enter your nickname (or email)";
+        return;
+      }
+      void this.run(() => this.auth.login(id, password.value));
+    });
+    panel.append(identifier, password, submit);
     return panel;
   }
 
   private buildRegisterForm(): HTMLDivElement {
     const panel = document.createElement("div");
     panel.className = "sa-screen-panel";
-    const displayName = this.textInput("text", "Display name (optional)");
-    const email = this.textInput("email", "Email");
+    const displayName = this.textInput("text", "Nickname");
+    const email = this.textInput("email", "Email (optional)");
     const password = this.textInput("password", "Password (min 8 chars)");
     const submit = this.formButton("Register");
-    submit.addEventListener("click", () =>
-      void this.run(() =>
-        this.auth.register(email.value.trim(), password.value, displayName.value.trim() || undefined),
-      ),
-    );
+    submit.addEventListener("click", () => {
+      const nickname = displayName.value.trim();
+      // The one field the server cannot invent for us — caught here so the
+      // player is told which box is empty instead of reading a 400.
+      if (!nickname) {
+        this.errorEl.textContent = "Choose a nickname";
+        return;
+      }
+      void this.run(() => this.auth.register(nickname, password.value, email.value.trim() || undefined));
+    });
     panel.append(displayName, email, password, submit);
     return panel;
   }

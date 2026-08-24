@@ -392,37 +392,31 @@
       "primary": "#b8542f",
       "accent": "#ffb257"
     },
-    "model": "ships/human_heavy_lod0.glb",
-    "modelScale": 4.6,
+    "model": "ships/human_medium_lod0.glb",
+    "modelScale": 0.3,
     "modelRotationY": 0,
     "lods": [
       {
-        "model": "ships/human_heavy_lod1.glb",
+        "model": "ships/human_medium_lod1.glb",
         "distance": 40
       },
       {
-        "model": "ships/human_heavy_lod2.glb",
+        "model": "ships/human_medium_lod2.glb",
         "distance": 90
       }
     ],
     "emissiveGlow": {
-      "material": "SS_Nozzles",
+      "material": "ENGINE_GLOW",
       "source": "throttle"
     },
-    "pursuitZoom": 0.65
+    "pursuitZoom": 1.25
   },
   "skin": {
     "body": [
-      "SS_Body"
-    ],
-    "canopy": [
-      "SS_Canopy"
-    ],
-    "wings": [
-      "SS_Wings"
+      "HULL_BODY"
     ],
     "emissive": [
-      "SS_Nozzles"
+      "ENGINE_GLOW"
     ],
     "propulsion": [
       "eng-l",

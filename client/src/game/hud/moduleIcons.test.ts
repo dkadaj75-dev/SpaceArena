@@ -47,13 +47,16 @@ describe("moduleIconId", () => {
     // authored icon tag — which is why step 2 exists at all.
     expect(moduleIconId(cfg("utility", "[ICON: capacitor]"))).toBe("capacitor");
     expect(moduleIconId(cfg("utility", "[ICON: countermeasure]"))).toBe("countermeasure");
-    // The alloy bay (owner 2026-08-22) is the one internal family with a glyph
-    // of its own — engine, generator and sensors deliberately keep the generic
-    // hex they have always resolved to, so the hangar's systems column gains a
-    // shape rather than being redrawn wholesale.
+    // Every INTERNAL bay carries a glyph of its own since the loadout deck
+    // (2026-08-22): its tiles print the picture INSTEAD of a letter code, so
+    // three families sharing the generic hex meant three tiles nobody could
+    // tell apart. `utility` is the one family still left generic on purpose.
     expect(moduleIconId(cfg("hull", "[ICON: hull]"))).toBe("hull");
     expect(moduleIconId(cfg("hull", "[ICON: alloy]"))).toBe("hull");
-    expect(moduleIconId(cfg("engine", "[ICON: engine]"))).toBe(FALLBACK_ICON_ID);
+    expect(moduleIconId(cfg("engine", "[ICON: engine]"))).toBe("engine");
+    expect(moduleIconId(cfg("generator", "[ICON: generator]"))).toBe("generator");
+    expect(moduleIconId(cfg("sensors", "[ICON: sensors]"))).toBe("sensors");
+    expect(moduleIconId(cfg("utility", "[ICON: utility]"))).toBe(FALLBACK_ICON_ID);
   });
 
   it("prefers an explicit ui.iconId over the family and the authored tag", () => {

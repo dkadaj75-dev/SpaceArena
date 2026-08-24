@@ -19,6 +19,13 @@ import { transition } from "./ModuleSystem.js";
 export const CHANNEL_EVENT_INTERVAL_SEC = 0.25;
 
 /**
+ * Impact stamp every hitscan hit in this file carries. Shared frozen object
+ * rather than a literal per shot: it is the same three-word statement every
+ * time, and the sim allocates nothing per round anywhere else either.
+ */
+const BEAM_HIT = Object.freeze({ weapon: "beam" as const });
+
+/**
  * CombatSystem (1.7) — active discrete weapon modules repeat on their authored
  * cycle while the trigger is held.
  * WITH a lock (FLIGHT.md §2) shots are aimed at the locked target: range, LoS
@@ -106,7 +113,10 @@ export function combatSystem(world: World, dt: number): void {
             if (hit.isStatic) {
               // Props block beams but are not damageable entities.
             } else if (hit.isAsteroid) applyDamageToAsteroid(world, hit.id, id, cfg.fire.damage, cfg.fire.damageType);
-            else applyDamageToShip(world, hit.id, id, cfg.fire.damage, cfg.fire.damageType);
+            // `weapon: "beam"` and no point: a hitscan shot has no body the
+            // client watched arrive, and it already draws the strike where the
+            // beam it drew meets the hull.
+            else applyDamageToShip(world, hit.id, id, cfg.fire.damage, cfg.fire.damageType, undefined, BEAM_HIT);
           }
           world.emit({
             type: "projectileFired",
@@ -163,7 +173,7 @@ export function combatSystem(world: World, dt: number): void {
       const launchPitch = pitchOf(dx, dy, dz);
 
       if (cfg.fire.projectile === null) {
-        applyDamageToShip(world, targetId, id, cfg.fire.damage, cfg.fire.damageType);
+        applyDamageToShip(world, targetId, id, cfg.fire.damage, cfg.fire.damageType, undefined, BEAM_HIT);
         world.emit({
           type: "projectileFired",
           ownerId: id,
@@ -364,7 +374,7 @@ function channelStep(world: World, ctx: ChannelCtx): void {
     // first, then deal the killing damage unbanked, so the event ledger reads
     // damage-then-destroyed rather than the reverse.
     flushChannel(world, id, m);
-    applyDamageToShip(world, targetId, id, amount, fire.damageType);
+    applyDamageToShip(world, targetId, id, amount, fire.damageType, undefined, BEAM_HIT);
     return;
   }
 
@@ -435,6 +445,7 @@ function emitChannelEvents(
         amount,
         hullAvoided: channel.avoided.get(hardpointIndex) ?? 0,
         damageType: cfg?.fire?.damageType ?? "energy",
+        weapon: "beam",
       });
     }
   }
@@ -449,6 +460,7 @@ function emitChannelEvents(
       amount: channel.hull,
       damageType: cfg?.fire?.damageType ?? "energy",
       isAsteroid: false,
+      weapon: "beam",
     });
     channel.hull = 0;
   }

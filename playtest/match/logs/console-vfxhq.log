@@ -1,0 +1,57 @@
+[2026-08-24T01:43:33.767Z] debug: [vite] connecting...
+[2026-08-24T01:43:33.846Z] debug: [vite] connected.
+[2026-08-24T01:43:35.120Z] info: [Client] content loaded {ship: 4, module: 58, effect: 11, upgrade: 3, arena: 3}
+[2026-08-24T01:43:35.121Z] info: [HotReload] content hot-reload wired
+[2026-08-24T01:43:35.158Z] log: BJS - [21:43:35]: Babylon.js v8.56.2 - WebGL2 - Parallel shader compilation
+[2026-08-24T01:43:35.159Z] info: [Client] engine created {build: 7745ef2-mt6edo69, requestedRenderer: webgl, renderer: webgl, cls: ThinEngine}
+[2026-08-24T01:43:35.159Z] info: [Context] graphics context audit {className: ThinEngine, webGLVersion: 2, gpu: ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11), maxFragmentUniformVectors: 1024, maxVaryingVectors: 30}
+[2026-08-24T01:43:35.161Z] info: [Quality] quality tier selected {tier: low, fromOverride: false, probe: Object}
+[2026-08-24T01:43:35.496Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T01:43:35.496Z] verbose: [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-08-24T01:43:36.609Z] info: [Audio] audio context created {master: 0.8, sfx: 0.8, music: 0.5}
+[2026-08-24T01:43:41.327Z] error: [Client] black-canvas verdict before the policy was ready: stalled (render loop never ticked — 0 frames in 6.2s)
+[2026-08-24T01:43:44.395Z] error: Failed to load resource: the server responded with a status of 409 (Conflict)
+[2026-08-24T01:43:44.396Z] warning: [AuthScreen] auth action failed ApiRequestError: this nickname is already taken
+    at AuthService.buildError (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:246:12)
+    at async AuthService.request (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:231:13)
+    at async AuthService.register (http://localhost:5173/src/core/AuthService.ts?t=1787526094147:90:18)
+    at async AuthScreen.run (http://localhost:5173/src/game/screens/AuthScreen.ts?t=1787530805880:167:7)
+[2026-08-24T01:43:44.538Z] info: [BlackGuard] stood down after 3 clean probes (brightest sample 255)
+[2026-08-24T01:44:41.799Z] info: [Settings] settings opened {context: menu}
+[2026-08-24T01:44:43.150Z] info: [Settings] settings changed {quality: high}
+[2026-08-24T01:44:43.150Z] info: [Quality] quality tier changed {tier: high, persisted: false}
+[2026-08-24T01:44:59.221Z] warning: [ServerHealth] health probe failed: no answer in 3500 ms
+[2026-08-24T01:45:01.599Z] info: [Lobby] choice {kind: online, gamemode: gamemode.practice-bots-5v5}
+[2026-08-24T01:45:02.238Z] info: [GameSession] practice session ready {arena: arena.parker-point, gamemode: gamemode.practice-bots-5v5, playerId: 47, botIds: Array(9)}
+[2026-08-24T01:45:15.730Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:27.229Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:39.780Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:39.897Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:44.430Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:44.538Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:46.129Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:46.238Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:53.423Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:59.140Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:45:59.261Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:09.851Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:11.000Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:11.083Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:14.067Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:14.158Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:16.239Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:16.334Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:36.466Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:36.540Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:40.048Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:40.123Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:46:46.479Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:00.766Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:00.877Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:12.633Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:13.928Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:14.012Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:26.073Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:29.881Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:29.969Z] error: Ignored attempt to cancel a touchmove event with cancelable=false, for example because scrolling is in progress and cannot be interrupted.
+[2026-08-24T01:47:30.655Z] info: [Telemetry] match telemetry (dev — not sent; set VITE_SPACE_ARENA_TELEMETRY=1 to send) {sessionHash: b88b4e3f324444d71bceed5a4f4d24f9, fpsBucket: 20-30, deviceClass: mobile, qualityTier: high, averageFps: 27}

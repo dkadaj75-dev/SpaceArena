@@ -66,7 +66,9 @@ let playerAuth: string;
 
 /** Register a user and return its bearer header + id. */
 async function newUser(email: string): Promise<{ auth: string; userId: string }> {
-  const res = await request(app).post("/api/auth/register").send({ email, password: "password123", displayName: "T" });
+  const res = await request(app)
+    .post("/api/auth/register")
+    .send({ email, password: "password123", displayName: `T-${email.split("@")[0]}` });
   return { auth: `Bearer ${res.body.accessToken}`, userId: res.body.profile.userId };
 }
 

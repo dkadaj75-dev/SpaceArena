@@ -619,3 +619,68 @@ describe("damage types — tuning resolution", () => {
     expect(absorbed(world)).toBeCloseTo(10, 6);
   });
 });
+
+/**
+ * The IMPACT stamp (owner 2026-08-23): `weapon` and `pos`, carried on the two
+ * hit events so a renderer can spark a cannon round, detonate a warhead or
+ * electrify a hull at the right place. Presentation only — which is exactly
+ * what the last case here pins.
+ */
+describe("damage events — the impact stamp", () => {
+  const stamp = { weapon: "missile" as const, pos: { x: 3, y: -1.5, z: 12 } };
+
+  it("copies the weapon and the point onto the damage event", () => {
+    const { world, id } = unshielded();
+    applyDamageToShip(world, id, null, HIT, "kinetic", undefined, stamp);
+    const ev = world.events.find((e) => e.type === "damage") as { weapon?: string; pos?: { x: number } };
+    expect(ev.weapon).toBe("missile");
+    expect(ev.pos).toEqual({ x: 3, y: -1.5, z: 12 });
+  });
+
+  it("copies it onto the shieldAbsorb too — a warhead a shield stopped still went off", () => {
+    const { world, id } = shielded();
+    applyDamageToShip(world, id, null, HIT, "energy", undefined, stamp);
+    const ev = world.events.find((e) => e.type === "shieldAbsorb") as { weapon?: string; pos?: { x: number } };
+    expect(ev.weapon).toBe("missile");
+    expect(ev.pos).toEqual({ x: 3, y: -1.5, z: 12 });
+  });
+
+  it("omits the keys entirely for a producer with nothing to say", () => {
+    // Absent, not `undefined`: sim events are compared structurally across the
+    // suite and travel on a wire, and a collision hit knows no weapon at all.
+    const { world, id } = unshielded();
+    applyDamageToShip(world, id, null, HIT, "kinetic");
+    const ev = world.events.find((e) => e.type === "damage")!;
+    expect("weapon" in ev).toBe(false);
+    expect("pos" in ev).toBe(false);
+  });
+
+  it("takes a partial stamp — a hitscan weapon has no travelling body to place", () => {
+    const { world, id } = unshielded();
+    applyDamageToShip(world, id, null, HIT, "energy", undefined, { weapon: "beam" });
+    const ev = world.events.find((e) => e.type === "damage")!;
+    expect((ev as { weapon?: string }).weapon).toBe("beam");
+    expect("pos" in ev).toBe(false);
+  });
+
+  it("copies the point rather than aliasing the caller's vector", () => {
+    // The projectile system hands over a live position object; a renderer must
+    // not read back a point that moved after the event was emitted.
+    const { world, id } = unshielded();
+    const pos = { x: 1, y: 2, z: 3 };
+    applyDamageToShip(world, id, null, HIT, "kinetic", undefined, { pos });
+    pos.x = 99;
+    expect((world.events.find((e) => e.type === "damage") as { pos: { x: number } }).pos.x).toBe(1);
+  });
+
+  it("changes NOTHING about the hit itself", () => {
+    const plain = unshielded();
+    const stamped = unshielded();
+    expect(hullLoss(stamped.world, stamped.id, HIT, "kinetic")).toBe(
+      hullLoss(plain.world, plain.id, HIT, "kinetic"),
+    );
+    const withStamp = unshielded();
+    applyDamageToShip(withStamp.world, withStamp.id, null, HIT, "kinetic", undefined, stamp);
+    expect(damageEvent(withStamp.world)).toBe(damageEvent(plain.world));
+  });
+});

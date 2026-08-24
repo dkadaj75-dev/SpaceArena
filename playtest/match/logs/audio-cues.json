@@ -1,0 +1,509 @@
+[
+ {
+  "label": "SUSTAINED BEAM (beamlaser-mk1, slot 01)",
+  "byId": {
+   "play(laser_fire,0.8)": 25,
+   "play(lock_lost,1)": 3,
+   "play(kinetic_fire,0.75)": 40,
+   "play(explosion_light,undefined)": 4,
+   "play(lock_acquired,1)": 3,
+   "play(hit_thud,1)": 8,
+   "play(missile_fire,0.8)": 1
+  },
+  "sample": [
+   {
+    "t": 120,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 313,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 579,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 619,
+    "m": "play",
+    "args": [
+     "lock_lost",
+     "1"
+    ]
+   },
+   {
+    "t": 619,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 701,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 794,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 794,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 1043,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 1086,
+    "m": "play",
+    "args": [
+     "explosion_light",
+     "undefined"
+    ]
+   },
+   {
+    "t": 1087,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1134,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1178,
+    "m": "play",
+    "args": [
+     "explosion_light",
+     "undefined"
+    ]
+   },
+   {
+    "t": 1178,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1268,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1268,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 1313,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1404,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1450,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1493,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 1537,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1585,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1684,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1734,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1734,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 1784,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1880,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1880,
+    "m": "play",
+    "args": [
+     "lock_acquired",
+     "1"
+    ]
+   },
+   {
+    "t": 1925,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 1970,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "label": "AUTOCANNON (kinetic-mk1, slot 02)",
+  "byId": {
+   "play(kinetic_fire,0.75)": 25,
+   "play(laser_fire,0.8)": 11,
+   "play(explosion_light,undefined)": 3,
+   "play(hit_thud,1)": 3,
+   "play(missile_fire,0.8)": 2,
+   "play(explosion_heavy,1)": 1
+  },
+  "sample": [
+   {
+    "t": 8387,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8446,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 8446,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8512,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8598,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8658,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8729,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8793,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8856,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8923,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 8990,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9059,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9128,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9254,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9348,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9395,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9447,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9550,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9607,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9664,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9725,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9781,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9865,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 9950,
+    "m": "play",
+    "args": [
+     "kinetic_fire",
+     "0.75"
+    ]
+   },
+   {
+    "t": 10084,
+    "m": "play",
+    "args": [
+     "explosion_light",
+     "undefined"
+    ]
+   },
+   {
+    "t": 10084,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 12119,
+    "m": "play",
+    "args": [
+     "hit_thud",
+     "1"
+    ]
+   },
+   {
+    "t": 12119,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   },
+   {
+    "t": 12364,
+    "m": "play",
+    "args": [
+     "hit_thud",
+     "1"
+    ]
+   },
+   {
+    "t": 12364,
+    "m": "play",
+    "args": [
+     "laser_fire",
+     "0.8"
+    ]
+   }
+  ]
+ }
+]

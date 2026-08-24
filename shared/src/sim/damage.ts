@@ -1,6 +1,7 @@
 import type { DamageType } from "../schemas/common.js";
 import type { ModuleConfig } from "../schemas/index.js";
 import type { EntityId, ShipCore } from "./components.js";
+import type { HitWeapon } from "./events.js";
 import { damageComponentsOf, type ResolvedDamageTypeProfile } from "./tuningDefaults.js";
 import type { World } from "./World.js";
 
@@ -24,6 +25,35 @@ export interface DamageTally {
    * internal accounting.
    */
   avoided: Map<number, number>;
+}
+
+/**
+ * PRESENTATION-only detail about how a hit arrived (owner 2026-08-23), carried
+ * on the `damage` / `shieldAbsorb` events so a renderer can spark a cannon
+ * round, detonate a warhead or electrify a hull at the right place without
+ * re-deriving any of it from projectile bookkeeping it does not own.
+ *
+ * Nothing in the pipeline reads it: it is copied onto the events and dropped.
+ * That is deliberate — mechanics must not change because a caller happened to
+ * know where its bullet was standing.
+ */
+export interface HitImpact {
+  weapon?: HitWeapon;
+  pos?: { x: number; y: number; z: number };
+}
+
+/**
+ * The impact fields to spread onto an event. Absent keys rather than `undefined`
+ * ones: sim events are compared structurally all over the test suite, and a
+ * `pos: undefined` on every collision hit would be a wire and diff change for
+ * producers that have nothing to say.
+ */
+function impactFields(impact: HitImpact | undefined): HitImpact {
+  if (!impact) return {};
+  const out: HitImpact = {};
+  if (impact.weapon !== undefined) out.weapon = impact.weapon;
+  if (impact.pos !== undefined) out.pos = { x: impact.pos.x, y: impact.pos.y, z: impact.pos.z };
+  return out;
 }
 
 /**
@@ -88,6 +118,7 @@ export function applyDamageToShip(
   baseAmount: number,
   type: DamageType,
   tally?: DamageTally,
+  impact?: HitImpact,
 ): void {
   const core = world.shipCores.get(targetId);
   if (!core || core.hull <= 0) return;
@@ -122,10 +153,19 @@ export function applyDamageToShip(
         amount,
         hullAvoided: sink.avoided.get(hardpointIndex) ?? 0,
         damageType: type,
+        ...impactFields(impact),
       });
     }
     if (sink.hull > 0) {
-      world.emit({ type: "damage", targetId, sourceId, amount: sink.hull, damageType: type, isAsteroid: false });
+      world.emit({
+        type: "damage",
+        targetId,
+        sourceId,
+        amount: sink.hull,
+        damageType: type,
+        isAsteroid: false,
+        ...impactFields(impact),
+      });
     }
   }
 

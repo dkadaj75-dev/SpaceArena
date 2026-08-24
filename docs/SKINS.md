@@ -124,31 +124,54 @@ light map existed. The gap is instead made **loud** in two places:
 * F10 → Ships → Skins logic shows a warning row on the hull itself, and
   F10 → Skins shows one on the emissive element.
 
+Only the ABSENCE is a warning, though. A light map that is *declared* and does
+not resolve fails `npm run validate:content` outright, like any other committed
+texture path — see [Missing files](#missing-files).
+
 **As of 2026-08-22 no shipped GLB carries an emissive map.** All four hulls need
 one painted:
 
 | Hull          | Emissive element wired to | Light map |
 | ------------- | ------------------------- | --------- |
 | `interceptor` | `HUM_LGT_Emissive_Blue`   | missing   |
-| `brawler`     | `SS_Nozzles`              | missing   |
-| `support`     | `ENGINE_GLOW`             | missing   |
+| `brawler`     | `ENGINE_GLOW`             | missing   |
+| `support`     | — (nothing wired yet)     | missing   |
 | `talon`       | — (single material hull)  | missing   |
 
 ---
 
 ## Missing files
 
-A texture path that does not resolve is **normal**, not an error: a pack is
-scaffolded and painted over days. The material keeps exactly what the GLB
-shipped with, one line is logged per missing path (per session, not per ship),
-and nothing else changes. A hull is never black and never invisible — the image
-is applied only once it has loaded, precisely so a failed request cannot blank a
-ship for its duration.
+**At runtime, a path that fails to load is survivable, and always will be.** The
+material keeps exactly what the GLB shipped with, one line is logged per missing
+path (per session, not per ship), and nothing else changes. A hull is never
+black and never invisible — the image is applied only once it has loaded,
+precisely so a failed request cannot blank a ship for its duration. F10 live
+editing depends on that: a designer types a path before the file exists, and the
+preview has to keep showing a ship while he does.
 
-That is also why `content/cosmetics/skin-interceptor-standard.json` points at
-three files that do not exist: the Interceptor's GLB carries no maps at all (its
-look is material factors), so its standard pack is an invitation showing where
-the images go.
+**A path that is committed is a different thing, and it is now checked.**
+`npm run validate:content` fails on any *declared* skin-texture path that does
+not resolve to a file — a cosmetic's `textures.*`, a cosmetic's `emissive`, a
+hull's `ship.skin.emissiveTexture` — and it compares with **exact case**:
+development is Windows, whose filesystem does not care, while the deployed pack
+is served from Linux, which does. `Body.png` over a `body.png` on disk works on
+every dev machine and 404s only in production.
+
+The rule is about the writing down, not the painting. Scaffold a pack by
+declaring **only the elements whose images exist**, and add the path and the
+image in the same commit. [Making a variation](#making-a-variation) already
+works that way — step 1 copies the whole standard folder before anything is
+repainted, so every path step 3 writes already has a file behind it.
+
+The Interceptor is why the check exists. Its GLB carries no albedo maps at all
+(its look is per-material base-colour factors), so
+`content/cosmetics/skin-interceptor-standard.json` declares **no textures yet** —
+an empty pack renders the hull exactly as it shipped and requests nothing. It
+used to declare `body`, `canopy` and `emissive` into a folder nobody had ever
+painted, which is how three 404s per match shipped unnoticed. Elements get
+declared as the owner paints them: `body`, `canopy`, and the emissive light map
+per the table above.
 
 ---
 

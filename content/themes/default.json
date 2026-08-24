@@ -460,13 +460,13 @@
     }
   },
   "juice": {
-    "hitFlash": {
+    "energyCharge": {
       "enabled": true,
-      "durationMs": 160,
-      "color": "#EF4444",
-      "scale": 1.25,
-      "intensity": 0.5,
-      "maxConcurrent": 8
+      "durationMs": 260,
+      "color": "#8FE6FF",
+      "intensity": 0.55,
+      "flickerHz": 22,
+      "scale": 1.035
     },
     "shieldRipple": {
       "enabled": true,
@@ -475,10 +475,19 @@
       "periodMs": 1400,
       "radiusScale": 1.18,
       "scaleWobble": 0.02,
-      "minAlpha": 0.006,
-      "maxAlpha": 0.015,
-      "impactAlpha": 0.25,
-      "impactDecayMs": 420
+      "minAlpha": 0.08,
+      "maxAlpha": 0.112,
+      "impactAlpha": 0.2,
+      "impactDecayMs": 420,
+      "panelCount": 122,
+      "panelOverlap": 1.18,
+      "assembleMs": 320,
+      "assembleStagger": 0.55,
+      "shatterMs": 620,
+      "shatterSpeed": 1.6,
+      "hitBounce": 0.14,
+      "hitFocus": 3,
+      "reflectivity": 0.55
     },
     "deploy": {
       "extendDistance": 0.18,

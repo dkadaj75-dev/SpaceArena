@@ -124,6 +124,20 @@ export const SOUND_SYNTHS: Record<string, SynthFn> = {
       noise(t, { duration: 0.09, peak: 0.32, filter: { type: "lowpass", from: 1600, to: 320 } }),
       tone(t, { type: "triangle", from: 190, to: 70, duration: 0.12, peak: 0.24, attack: 0.01 }),
     ),
+  /**
+   * Sustained Beam channel (2026-08-23): a steady low hum with a detuned upper
+   * partial, held for the length of one channel announcement. Deliberately the
+   * opposite shape to `laser_fire` — no transient, no pitch drop — because the
+   * two are the same weapon family and a pilot must hear which one is running.
+   * This is the fallback voice; the authored `SustainedBeam.mp3` replaces it as
+   * soon as it decodes (see `samples.ts`).
+   */
+  beam_fire: (t) =>
+    longest(
+      tone(t, { type: "sawtooth", from: 320, to: 320, duration: 1.1, peak: 0.16, attack: 0.12 }),
+      tone(t, { type: "sine", from: 646, to: 646, duration: 1.1, peak: 0.09, attack: 0.18 }),
+      noise(t, { duration: 1.05, peak: 0.05, filter: { type: "bandpass", from: 900, to: 900, q: 2.4 } }),
+    ),
   /** Missile: filtered noise whoosh sweeping up and away. */
   missile_fire: (t) =>
     longest(

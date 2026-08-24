@@ -3,6 +3,7 @@ import type {
   ConfigService,
   EntityId,
   ModuleConfig,
+  ShipSnapshot,
   SimEvent,
   ThemeConfig,
 } from "@space-arena/shared";
@@ -70,6 +71,10 @@ export class AudioFeedback {
   private settings: AudioSettings;
   /** This frame's sound id → loudest volume requested for it (closest source). */
   private readonly frameVolumes = new Map<string, number>();
+  /** Loop keys started by {@link syncChannels} and not yet stopped. */
+  private readonly channelLoops = new Set<string>();
+  /** Scratch set for the current frame's channels; reused to avoid per-frame allocation. */
+  private readonly liveChannelLoops = new Set<string>();
   /** Set by {@link dispose}; every further event is dropped. */
   private disposed = false;
 
@@ -104,6 +109,7 @@ export class AudioFeedback {
   dispose(): void {
     this.disposed = true;
     this.frameVolumes.clear();
+    this.stopAllChannels();
   }
 
   consumeEvents(events: readonly SimEvent[]): void {
@@ -136,12 +142,91 @@ export class AudioFeedback {
   }
 
   /**
+   * Per-frame: keep one looping voice alive per weapon that is CHANNELLING, and
+   * stop the ones that no longer are. Called with this frame's snapshot right
+   * after {@link consumeEvents} (main.ts render loop).
+   *
+   * Why the snapshot and not the event stream: a `fire.mode: "continuous"`
+   * weapon emits ONE `projectileFired` when the channel opens and nothing
+   * afterwards (`CombatSystem.channelStep`), and emits nothing at all when it
+   * closes — so events can say when a beam started but never when it stopped.
+   * What the sim does replicate is `ModuleSnapshot.channeling`, set for exactly
+   * the ticks the beam is burning and cleared instantly on release, lock loss,
+   * target death or retract. It is already what the view layer draws the beam
+   * from ({@link import("../game/EntityView.js").EntityView} `syncChannelBeams`), so
+   * driving the sound from the same flag means the beam you SEE and the beam
+   * you HEAR can never disagree — including on a remote ship, whose channel
+   * arrives over the wire as that same flag.
+   *
+   * The loop key is per firing source — ship + hardpoint + sound — so two ships
+   * beaming, or one ship beaming from two hardpoints, are two loops, while the
+   * same weapon re-acquiring a new target is one continuous loop and never a
+   * restart. A source whose distance has faded it to silence is stopped rather
+   * than left running inaudibly.
+   */
+  syncChannels(ships: readonly ShipSnapshot[]): void {
+    if (this.disposed) return;
+    if (this.audio.effectiveVolume <= 0) {
+      this.stopAllChannels();
+      return;
+    }
+    this.liveChannelLoops.clear();
+    const listener = this.options.listenerPosition?.() ?? null;
+    for (let s = 0; s < ships.length; s++) {
+      const ship = ships[s]!;
+      for (let i = 0; i < ship.modules.length; i++) {
+        const m = ship.modules[i]!;
+        if (!m.channeling) continue;
+        const module = this.configs.get<ModuleConfig>("module", m.moduleId);
+        const actionIds = module?.onFire;
+        if (!actionIds || actionIds.length === 0) continue;
+        const gain = this.gainForEntity(ship.id, listener);
+        if (gain <= 0) continue;
+        for (let a = 0; a < actionIds.length; a++) {
+          const request = soundRequestFromAction(this.configs.get<ActionConfig>("action", actionIds[a]!));
+          if (!request) continue;
+          const key = `${ship.id}:${m.hardpointIndex}:${request.id}`;
+          // False = this id is not a looping sample (or its file has not
+          // decoded yet); the fire event's one-shot covers that case, so the
+          // key is not tracked and there is nothing to stop later.
+          if (this.audio.playLoop(key, request.id, request.volume * gain)) this.liveChannelLoops.add(key);
+        }
+      }
+    }
+    for (const key of this.channelLoops) {
+      if (!this.liveChannelLoops.has(key)) this.audio.stopLoop(key);
+    }
+    this.channelLoops.clear();
+    for (const key of this.liveChannelLoops) this.channelLoops.add(key);
+  }
+
+  /**
+   * End every channel loop this layer owns. Called on teardown and by the
+   * render loop while the sim is PAUSED: the frozen snapshot still says the
+   * beam is channelling (the beam mesh stays drawn behind the settings
+   * overlay), and unlike a one-shot tail a loop would drone there forever.
+   */
+  stopChannels(): void {
+    this.stopAllChannels();
+  }
+
+  /** End every channel loop this layer owns (teardown, mute, match end). */
+  private stopAllChannels(): void {
+    for (const key of this.channelLoops) this.audio.stopLoop(key);
+    this.channelLoops.clear();
+  }
+
+  /**
    * Distance gain for one event's sounds. Always 1 for the local player's own
    * ship, for match-wide events that name no ship, and whenever either end of
    * the measurement is unplaceable this frame.
    */
   private gainFor(event: SimEvent, listener: AudioPoint | null): number {
-    const sourceId = soundSourceEntity(event);
+    return this.gainForEntity(soundSourceEntity(event), listener);
+  }
+
+  /** The same measurement for a source named directly (a channelling ship). */
+  private gainForEntity(sourceId: EntityId | null, listener: AudioPoint | null): number {
     if (sourceId === null || sourceId === this.playerId || !listener) return 1;
     const source = this.options.entityPosition?.(sourceId);
     if (!source) return 1;

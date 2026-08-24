@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FullscreenPrompt, type FullscreenPromptDeps } from "./FullscreenPrompt.js";
+import { FullscreenPrompt, type FullscreenPromptDeps, type IosHintDeps } from "./FullscreenPrompt.js";
 
 function makeDeps(overrides: Partial<FullscreenPromptDeps> = {}): FullscreenPromptDeps & {
   request: ReturnType<typeof vi.fn>;
@@ -64,6 +64,59 @@ describe("FullscreenPrompt", () => {
     active = true;
     deps.fireChange();
     expect(prompt.visible).toBe(false);
+  });
+});
+
+describe("iOS Add-to-Home-Screen hint", () => {
+  function makeIos(overrides: Partial<IosHintDeps> = {}): IosHintDeps & { marked: ReturnType<typeof vi.fn> } {
+    const marked = vi.fn();
+    return {
+      isIphone: () => true,
+      installed: () => false,
+      hintShown: () => false,
+      markHintShown: marked,
+      marked,
+      ...overrides,
+    };
+  }
+  const unsupported = () => makeDeps({ supported: () => false });
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("stands in for the offer on an iPhone, where fullscreen is impossible", () => {
+    const ios = makeIos();
+    const prompt = FullscreenPrompt.maybeShow(document.body, unsupported(), ios);
+    expect(prompt).not.toBeNull();
+    const text = document.querySelector(".sa-fullscreen-prompt-text")!.textContent!;
+    expect(text).toContain("Add to Home Screen");
+    // The instruction points at the exact toolbar button: the share glyph.
+    expect(document.querySelector(".sa-fullscreen-prompt-share svg")).not.toBeNull();
+    prompt!.dismiss();
+  });
+
+  it("is one-time, marked at SHOW so a mid-dialog reload cannot re-nag", () => {
+    const ios = makeIos();
+    FullscreenPrompt.maybeShow(document.body, unsupported(), ios)!.dismiss();
+    expect(ios.marked).toHaveBeenCalledTimes(1);
+    expect(FullscreenPrompt.maybeShow(document.body, unsupported(), makeIos({ hintShown: () => true }))).toBeNull();
+  });
+
+  it("never shows off-iPhone, when already installed, or where fullscreen works", () => {
+    expect(FullscreenPrompt.maybeShow(document.body, unsupported(), makeIos({ isIphone: () => false }))).toBeNull();
+    expect(FullscreenPrompt.maybeShow(document.body, unsupported(), makeIos({ installed: () => true }))).toBeNull();
+    // Supported browsers get the real offer, not the hint.
+    const prompt = FullscreenPrompt.maybeShow(document.body, makeDeps(), makeIos())!;
+    expect(document.querySelector(".sa-fullscreen-prompt-share")).toBeNull();
+    prompt.dismiss();
+  });
+
+  it("'Got it' closes it and settles the launch sequence's promise", async () => {
+    const prompt = FullscreenPrompt.maybeShow(document.body, unsupported(), makeIos())!;
+    (document.querySelector(".sa-fullscreen-prompt-go") as HTMLButtonElement).click();
+    expect(prompt.visible).toBe(false);
+    await expect(prompt.closed).resolves.toBeUndefined();
   });
 });
 

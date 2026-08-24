@@ -2,7 +2,7 @@
   "id": "ship.support",
   "type": "ship",
   "version": 7,
-  "name": "Support",
+  "name": "Starpiercer",
   "class": "medium",
   "core": {
     "hull": {
@@ -411,31 +411,14 @@
       "primary": "#2fb87a",
       "accent": "#7affd0"
     },
-    "model": "ships/human_medium_lod0.glb",
-    "modelScale": 0.33,
+    "model": "ships/starpiercer_lod0.glb",
+    "modelScale": 2.5,
     "modelRotationY": 0,
-    "lods": [
-      {
-        "model": "ships/human_medium_lod1.glb",
-        "distance": 40
-      },
-      {
-        "model": "ships/human_medium_lod2.glb",
-        "distance": 90
-      }
-    ],
-    "emissiveGlow": {
-      "material": "ENGINE_GLOW",
-      "source": "throttle"
-    },
-    "pursuitZoom": 1.15
+    "pursuitZoom": 1.25
   },
   "skin": {
     "body": [
-      "HULL_BODY"
-    ],
-    "emissive": [
-      "ENGINE_GLOW"
+      "STARPIERCER_BODY"
     ],
     "propulsion": [
       "eng-l",

@@ -54,6 +54,17 @@ export interface HangarGauge {
   ghostFraction: number | null;
   /** Projected value, or null when there is no preview. */
   ghostValue: number | null;
+  /**
+   * The projected reading, formatted like {@link HangarGauge.valueText} — null
+   * when there is no preview, or when the candidate changes nothing on this row.
+   *
+   * A second field rather than "format `ghostValue` at the call site" because
+   * some readings are not one number: POWER prints `draw / capacity`, and a
+   * reactor moves the capacity half of it. The loadout deck's BEFORE / AFTER box
+   * quotes the projected reading whole, so the composition has to happen where
+   * the spec that owns it lives.
+   */
+  ghostValueText: string | null;
   /** `ghostValue - value`, or null when there is no preview / no change. */
   delta: number | null;
   /** The delta with a sign and this gauge's precision, e.g. `"+1.4"`. */
@@ -260,6 +271,7 @@ function gaugeOf(spec: GaugeSpec, base: HangarStatPanel, ghost: HangarStatPanel 
     fraction: clamp01(value / scale),
     ghostFraction: changed ? clamp01(ghostValue! / scale) : null,
     ghostValue,
+    ghostValueText: changed && ghost ? spec.valueText(ghost) : null,
     delta,
     deltaText: delta === null ? null : signed(delta, spec.decimals),
     trend: delta === null ? "none" : delta > 0 === spec.higherIsBetter ? "better" : "worse",

@@ -33,6 +33,7 @@ import { getParticleTexture } from "./particleTexture.js";
 import { deployProgressFor, hardpointPose } from "./juice/deployAnim.js";
 import { DEFAULT_JUICE_SETTINGS, type JuiceSettings, type ViewRelation } from "./juice/juiceSettings.js";
 import { ShieldBubble } from "./juice/ShieldBubble.js";
+import { shieldBrokenBy } from "./juice/shieldAnim.js";
 
 const log = createLogger("ShipSocketRig");
 
@@ -167,6 +168,9 @@ export class ShipSocketRig {
       ship.collider.radius,
       juice.shieldRipple,
       ship.id,
+      // The shell's panel count rides the tier's particle budget — one dial for
+      // how much decoration this machine is willing to draw.
+      this.particleQuality.budgetMultiplier,
     );
   }
 
@@ -345,7 +349,14 @@ export class ShipSocketRig {
    * pool alone put a bubble around every hull that merely *carried* a shield.
    */
   updateShield(ship: ShipSnapshot, dtMs: number): void {
-    this.shieldBubble.update(shieldShellUp(ship) && this.effectsVisible, dtMs);
+    // `broken` is only ever READ on the frame the shell goes down, and it is
+    // what tells a flameout from a stand-down: a reservoir shot flat leaves the
+    // module deployed, a pilot retracting it does not. See `shieldBrokenBy`.
+    this.shieldBubble.update(
+      shieldShellUp(ship) && this.effectsVisible,
+      dtMs,
+      shieldBrokenBy(ship.modules),
+    );
   }
 
   /**
@@ -358,9 +369,13 @@ export class ShipSocketRig {
     this.shieldBubble.setRelation(relation);
   }
 
-  /** A shield absorb landed on this ship — flare its bubble (§10 5.7). */
-  shieldImpact(): void {
-    this.shieldBubble.impact();
+  /**
+   * A shield absorb landed on this ship — flash and bounce its bubble (§10 5.7).
+   * The world point rides along when the event carried one, so the wobble is
+   * strongest where the shot came in.
+   */
+  shieldImpact(worldX?: number, worldY?: number, worldZ?: number): void {
+    this.shieldBubble.impact(worldX, worldY, worldZ);
   }
 
   /** Whether this ship's shield bubble is currently drawn (dev probe / tests). */

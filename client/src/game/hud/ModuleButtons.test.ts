@@ -12,6 +12,8 @@ import {
   resolveModuleFamilyColor,
 } from "./ModuleButtons.js";
 import { resolveFlightHudLayout } from "./flightHudLayout.js";
+import { BoostButton, BOOST_LABEL, BOOST_SLOT_TYPE } from "./BoostButton.js";
+import { JettisonButton, JETTISON_LABEL, JETTISON_SLOT_TYPE } from "./JettisonButton.js";
 
 function fakeConfigs(): ConfigService {
   const tuning = tuningSchema.parse({
@@ -44,6 +46,25 @@ function fakeConfigs(): ConfigService {
       activation: { deployTime: 0.25, retractTime: 0.25 },
       energy: { capacity: 60, rechargePerSec: 8, drawPerSec: 20, rearmAbove: 0.25 },
       boost: { speedMult: 1.8 },
+    },
+    // How every SHIPPED hull actually carries its afterburner: an `engine`
+    // internal with a `boost` block. The module schema requires exactly this
+    // ("a boost block belongs to the engine that provides it"), and no content
+    // authors `family: "boost"` at all — see the Talon fitting below.
+    "module.engine-earth-eng1": {
+      name: "Earth Engine Engineered I",
+      family: "engine",
+      ui: { icon: "[ICON: engine]", label: "Engine", shortName: "E-Engine I" },
+      activation: { deployTime: 0, retractTime: 0 },
+      energy: { capacity: 55, rechargePerSec: 7.4, drawPerSec: 20, rearmAbove: 0.25 },
+      boost: { speedMult: 1.7 },
+    },
+    "module.countermeasure-flare": {
+      name: "Flare Pod",
+      family: "countermeasure",
+      ui: { icon: "[ICON: countermeasure]", label: "Countermeasure", shortName: "Flares" },
+      activation: { deployTime: 0, retractTime: 0 },
+      jettison: { cooldownSec: 30, decoyLifetimeSec: 6, decoyRadius: 1.2 },
     },
     "module.shield-mk1": { name: "Deflector Shield Mk I", family: "shield", ui: { icon: "S", label: "Shield" }, activation: { deployTime: 1, retractTime: 1 }, energy: { capacity: 40, rechargePerSec: 4, drawPerSec: 4, rearmAbove: 0.25 }, mitigation: { damageReduction: 0.5, collapseCooldownSec: 8 } },
     "module.missile-mk1": {
@@ -621,6 +642,104 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       expect(counts.weapons).toBe(2);
       expect(counts.utilities).toBe(0);
       expect(counts.boostSlot).toBeNull();
+    });
+
+    /**
+     * The owner's Talon report (2026-08-23): "when using Jettison, the button
+     * mixes up Jettison / Boost" — one bottom-left circle showing the BOOST
+     * caption over the jettison glyph, numbered 01.
+     *
+     * The cause was two questions with two different answers. The BOOST control
+     * is rendered when a fitted module has a `boost` BLOCK, but the slot counts
+     * asked for `family === "boost"` — a family no shipped module uses, because
+     * the afterburner rides the engine. So BOOST appeared, got no slot, kept its
+     * constructor default (slot 01 of a one-slot cluster) and landed exactly on
+     * top of JETTISON, which the same counts had just put there.
+     */
+    it("finds the Talon's BOOST on its engine's boost block, not on a family nothing authors", () => {
+      const counts = resolveHudSlotCounts(fakeConfigs(), [
+        { moduleId: "module.laser-mk1" },
+        { moduleId: "module.missile-mk1" },
+        { moduleId: "module.engine-earth-eng1" },
+        { moduleId: "module.countermeasure-flare" },
+      ] as never);
+      // Both internals: neither gets a module button, but each owns a left slot.
+      expect(counts).toEqual({
+        weapons: 2,
+        utilityModules: 0,
+        boostSlot: 0,
+        jettisonSlot: 1,
+        utilities: 2,
+      });
+    });
+  });
+
+  /**
+   * The two dedicated left-cluster controls are separate components fed from one
+   * {@link resolveHudSlotCounts}, exactly as `FlightControls.refreshActionArc`
+   * does it. These pin the invariant the Talon bug broke: each button's number,
+   * glyph and caption describe ONE control, and they never share a circle.
+   */
+  describe("BOOST and JETTISON identity on the shared left cluster", () => {
+    const TALON = [
+      { moduleId: "module.laser-mk1" },
+      { moduleId: "module.missile-mk1" },
+      { moduleId: "module.engine-earth-eng1" },
+      { moduleId: "module.countermeasure-flare" },
+    ] as never;
+
+    function place(): { boost: BoostButton; jettison: JettisonButton; root: HTMLElement } {
+      const root = document.createElement("div");
+      const layout = resolveFlightHudLayout(undefined, { width: 390, height: 740 });
+      const boost = new BoostButton(root, layout, () => {});
+      const jettison = new JettisonButton(root, layout, () => {});
+      const counts = resolveHudSlotCounts(fakeConfigs(), TALON);
+      boost.applySlotLayout(layout, counts.utilities, counts.boostSlot!);
+      jettison.applySlotLayout(layout, counts.utilities, counts.jettisonSlot!);
+      return { boost, jettison, root };
+    }
+
+    function identityOf(button: HTMLElement): Record<string, string> {
+      return {
+        slot: button.dataset["slot"] ?? "",
+        number: button.querySelector(".slot-num")!.textContent ?? "",
+        type: button.querySelector(".slot-type")!.textContent ?? "",
+        label: button.querySelector(".label")!.textContent ?? "",
+        left: button.style.left,
+        top: button.style.top,
+      };
+    }
+
+    it("gives each control its own numbered circle instead of stacking them on slot 01", () => {
+      const { boost, jettison, root } = place();
+      const boostBtn = root.querySelector<HTMLElement>(".hud-boost-btn")!;
+      const jettisonBtn = root.querySelector<HTMLElement>(".hud-jettison-btn")!;
+      expect(identityOf(boostBtn)).toMatchObject({ slot: "01", number: "01", type: BOOST_SLOT_TYPE, label: BOOST_LABEL });
+      expect(identityOf(jettisonBtn)).toMatchObject({ slot: "02", number: "02", type: JETTISON_SLOT_TYPE, label: JETTISON_LABEL });
+      // The regression itself: two controls, one circle.
+      expect(boostBtn.style.top).not.toBe(jettisonBtn.style.top);
+      boost.dispose();
+      jettison.dispose();
+    });
+
+    it("holds both identities while the jettison pod is used and cools down", () => {
+      const { boost, jettison, root } = place();
+      const boostBtn = root.querySelector<HTMLElement>(".hud-boost-btn")!;
+      const jettisonBtn = root.querySelector<HTMLElement>(".hud-jettison-btn")!;
+      const before = [identityOf(boostBtn), identityOf(jettisonBtn)];
+      boost.update({ hardpointIndex: 2, active: false, energy: 30, energyCapacity: 55, blocked: false });
+      jettison.update({ fitted: true, cooldownSec: 0, cooldownTotalSec: 30 });
+      // Pod away: the jettison button spends the next 30 s on cooldown, which is
+      // the state change the owner saw the two controls swap identity across.
+      jettisonBtn.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+      jettison.update({ fitted: true, cooldownSec: 15, cooldownTotalSec: 30 });
+      expect(jettisonBtn.classList).toContain("disabled");
+      // BOOST is untouched by any of it, and neither button has borrowed the
+      // other's number, glyph slot or position.
+      expect(boostBtn.classList).not.toContain("disabled");
+      expect([identityOf(boostBtn), identityOf(jettisonBtn)]).toEqual(before);
+      boost.dispose();
+      jettison.dispose();
     });
   });
 

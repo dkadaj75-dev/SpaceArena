@@ -1105,6 +1105,11 @@ function toSimEventMessage(ev: SimEvent): SimEventMessage | null {
         amount: ev.amount,
         damageType: ev.damageType,
         isAsteroid: ev.isAsteroid,
+        // Presentation detail (owner 2026-08-23): what landed the hit and where.
+        // Forwarded verbatim so an online client draws the same impact the
+        // offline sim draws from the identical event.
+        weapon: ev.weapon,
+        pos: ev.pos,
       };
     case "shieldAbsorb":
       return {
@@ -1115,6 +1120,8 @@ function toSimEventMessage(ev: SimEvent): SimEventMessage | null {
         amount: ev.amount,
         hullAvoided: ev.hullAvoided,
         damageType: ev.damageType,
+        weapon: ev.weapon,
+        pos: ev.pos,
       };
     // Lock flips: one message per acquire/break, which is the rate a lock can
     // physically change at. Without them the online client never plays the

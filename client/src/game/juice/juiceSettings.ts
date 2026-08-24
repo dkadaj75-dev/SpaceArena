@@ -5,23 +5,37 @@ import type { JuiceConfig, ThemeConfig } from "@space-arena/shared";
  * defaulted settings, plus the pure math the ripple animation runs on.
  *
  * Pure and Babylon-free on purpose: the renderer classes
- * ({@link import("./HitFlash.js").HitFlashPool},
+ * ({@link import("./HullCharge.js").HullChargeShell},
  * {@link import("./ShieldBubble.js").ShieldBubble},
  * {@link import("./ExplosionFx.js").ExplosionFx}) own meshes and particle
  * systems, this owns the numbers — so every feel knob is data and every
  * mapping is testable without a scene.
+ *
+ * The panel LAYOUT and the shield's animation state machine grew big enough to
+ * want their own files — see `shieldPanels.ts` and `shieldAnim.ts` — but they
+ * follow the same rule: numbers here, meshes there.
  */
 
-export interface HitFlashSettings {
+/**
+ * ENERGY-weapon feedback (owner 2026-08-23), replacing the red bubble that used
+ * to pop around any damaged hull. A laser landing does not throw material, so
+ * there is nothing to spark: what it does is dump charge into the plating, and
+ * that is what the hull now shows — a short emissive FLICKER over the ship's own
+ * silhouette. The renderer is
+ * {@link import("./HullCharge.js").HullChargeShell}; the shape of the flicker
+ * is {@link hullChargeLevel} and lives here, with the rest of the feel numbers.
+ */
+export interface EnergyChargeSettings {
   enabled: boolean;
+  /** How long one hit's flicker lasts. */
   durationMs: number;
   color: string;
-  /** Shell radius as a multiple of the ship's collider radius. */
-  scale: number;
-  /** Peak alpha at the moment of the hit. */
+  /** Peak strength at the instant of the hit, 0..1. */
   intensity: number;
-  /** Pool size; flashes beyond it in one window are dropped, never allocated. */
-  maxConcurrent: number;
+  /** Flicker rate — what makes it read as arcing rather than as a plain fade. */
+  flickerHz: number;
+  /** Shell size as a multiple of the hull, just clear of z-fighting. */
+  scale: number;
 }
 
 /**
@@ -62,6 +76,30 @@ export interface ShieldRippleSettings {
   impactAlpha: number;
   /** Time an impact flare takes to fall back into the idle band. */
   impactDecayMs: number;
+  // --- Hex-panel shell (owner 2026-08-23) ---
+  /**
+   * Panels in the shell, before the quality tier scales it. ~120 is the point
+   * where the tiling reads as hexagons rather than as scales, while still
+   * costing one thin-instance buffer write per animating shield and no draw
+   * call of its own beyond the first.
+   */
+  panelCount: number;
+  /** Panel radius as a multiple of the natural spacing; >1 overlaps into a closed shell. */
+  panelOverlap: number;
+  /** Assemble sweep duration; the stand-down runs the same sweep backwards. */
+  assembleMs: number;
+  /** Fraction of the sweep spent staggering panel starts (0 = every panel at once). */
+  assembleStagger: number;
+  /** How long shattered panels tumble before they are gone. */
+  shatterMs: number;
+  /** Peak outward speed of a shattered panel, in bubble radii per second. */
+  shatterSpeed: number;
+  /** Peak extra radius of the elastic wobble an absorb kicks off, as a fraction. */
+  hitBounce: number;
+  /** How sharply that wobble concentrates around the impact point (0 = whole shell). */
+  hitFocus: number;
+  /** Specular strength of the panels — the "glass, not paint" read. */
+  reflectivity: number;
 }
 
 export interface DeploySettings {
@@ -146,7 +184,7 @@ export interface BankSettings {
 }
 
 export interface JuiceSettings {
-  hitFlash: HitFlashSettings;
+  energyCharge: EnergyChargeSettings;
   shieldRipple: ShieldRippleSettings;
   deploy: DeploySettings;
   explosions: ExplosionSettings;
@@ -155,13 +193,13 @@ export interface JuiceSettings {
 }
 
 export const DEFAULT_JUICE_SETTINGS: JuiceSettings = {
-  hitFlash: {
+  energyCharge: {
     enabled: true,
-    durationMs: 160,
-    color: "#ffd9a0",
-    scale: 1.25,
-    intensity: 0.5,
-    maxConcurrent: 8,
+    durationMs: 260,
+    color: "#8fe6ff",
+    intensity: 0.55,
+    flickerHz: 22,
+    scale: 1.035,
   },
   shieldRipple: {
     enabled: true,
@@ -170,11 +208,26 @@ export const DEFAULT_JUICE_SETTINGS: JuiceSettings = {
     periodMs: 1400,
     radiusScale: 1.5,
     scaleWobble: 0.06,
-    // Half of the pre-2026-08-14 band (0.012 / 0.032 / 0.5) — see ShieldRippleSettings.
-    minAlpha: 0.006,
-    maxAlpha: 0.016,
-    impactAlpha: 0.25,
+    // The near-invisible pre-hex band (0.006/0.016) was tuned for the old flat
+    // sphere, whose whole job was to flare on impact. The hex shell must READ
+    // while it is up (owner 2026-08-23: "the shield does not stay up,
+    // visually"), so the idle band holds a clearly visible bubble — these are
+    // that visible baseline already cut by the 20% extra transparency the same
+    // request asked for (0.10/0.14/0.25 × 0.8). The rim fresnel keeps even
+    // this band from washing out the ship behind it.
+    minAlpha: 0.08,
+    maxAlpha: 0.112,
+    impactAlpha: 0.2,
     impactDecayMs: 420,
+    panelCount: 122,
+    panelOverlap: 1.18,
+    assembleMs: 320,
+    assembleStagger: 0.55,
+    shatterMs: 620,
+    shatterSpeed: 1.6,
+    hitBounce: 0.14,
+    hitFocus: 3,
+    reflectivity: 0.55,
   },
   deploy: { showMeshes: true, extendDistance: 0.18, overshoot: 0.9, spinDegrees: 45 },
   // ~26° at a 1.5 rad/s turn: readable as a lean, well short of the barrel roll
@@ -209,13 +262,13 @@ export function juiceSettingsOf(theme: ThemeConfig | undefined): JuiceSettings {
   const j: JuiceConfig | undefined = theme?.juice;
   const d = DEFAULT_JUICE_SETTINGS;
   return {
-    hitFlash: {
-      enabled: j?.hitFlash?.enabled ?? d.hitFlash.enabled,
-      durationMs: j?.hitFlash?.durationMs ?? d.hitFlash.durationMs,
-      color: j?.hitFlash?.color ?? d.hitFlash.color,
-      scale: j?.hitFlash?.scale ?? d.hitFlash.scale,
-      intensity: j?.hitFlash?.intensity ?? d.hitFlash.intensity,
-      maxConcurrent: j?.hitFlash?.maxConcurrent ?? d.hitFlash.maxConcurrent,
+    energyCharge: {
+      enabled: j?.energyCharge?.enabled ?? d.energyCharge.enabled,
+      durationMs: j?.energyCharge?.durationMs ?? d.energyCharge.durationMs,
+      color: j?.energyCharge?.color ?? d.energyCharge.color,
+      intensity: j?.energyCharge?.intensity ?? d.energyCharge.intensity,
+      flickerHz: j?.energyCharge?.flickerHz ?? d.energyCharge.flickerHz,
+      scale: j?.energyCharge?.scale ?? d.energyCharge.scale,
     },
     shieldRipple: {
       enabled: j?.shieldRipple?.enabled ?? d.shieldRipple.enabled,
@@ -234,6 +287,15 @@ export function juiceSettingsOf(theme: ThemeConfig | undefined): JuiceSettings {
       maxAlpha: j?.shieldRipple?.maxAlpha ?? d.shieldRipple.maxAlpha,
       impactAlpha: j?.shieldRipple?.impactAlpha ?? d.shieldRipple.impactAlpha,
       impactDecayMs: j?.shieldRipple?.impactDecayMs ?? d.shieldRipple.impactDecayMs,
+      panelCount: j?.shieldRipple?.panelCount ?? d.shieldRipple.panelCount,
+      panelOverlap: j?.shieldRipple?.panelOverlap ?? d.shieldRipple.panelOverlap,
+      assembleMs: j?.shieldRipple?.assembleMs ?? d.shieldRipple.assembleMs,
+      assembleStagger: j?.shieldRipple?.assembleStagger ?? d.shieldRipple.assembleStagger,
+      shatterMs: j?.shieldRipple?.shatterMs ?? d.shieldRipple.shatterMs,
+      shatterSpeed: j?.shieldRipple?.shatterSpeed ?? d.shieldRipple.shatterSpeed,
+      hitBounce: j?.shieldRipple?.hitBounce ?? d.shieldRipple.hitBounce,
+      hitFocus: j?.shieldRipple?.hitFocus ?? d.shieldRipple.hitFocus,
+      reflectivity: j?.shieldRipple?.reflectivity ?? d.shieldRipple.reflectivity,
     },
     deploy: {
       showMeshes: j?.deploy?.showMeshes ?? d.deploy.showMeshes,
@@ -260,6 +322,65 @@ export function juiceSettingsOf(theme: ThemeConfig | undefined): JuiceSettings {
     // are the only source until the juice schema carries them.
     sparks: { ...d.sparks },
   };
+}
+
+/**
+ * WHAT A LANDING HIT LOOKS LIKE (owner 2026-08-23). The one routing decision
+ * behind the whole impact-feedback rework, kept pure so the mapping can be
+ * pinned by a test rather than read out of a renderer:
+ *
+ *   - `blast` — a MISSILE. The warhead goes off on the hull: fireball, flash,
+ *     debris. Decided by the weapon that arrived, never by the damage type,
+ *     because a missile's authored type is `hybrid` and a `hybrid` beam (if a
+ *     pack ever authored one) must not detonate.
+ *   - `charge` — an ENERGY weapon. Nothing is thrown; the hull itself
+ *     electrifies ({@link EnergyChargeSettings}).
+ *   - `spark` — everything else, kinetic first among them: a shower of hot
+ *     material off the plating. It is also the honest fallback for a hit whose
+ *     producer told us nothing (a hull scraping a rock), because "something
+ *     physical struck this" is exactly what those are.
+ *
+ * `weapon` is optional on the events (an old peer, a collision) — so the damage
+ * type alone still gives a sensible answer and nothing ever falls through.
+ */
+export type ImpactFeedback = "spark" | "charge" | "blast";
+
+export function impactFeedbackFor(
+  damageType: string | null | undefined,
+  weapon: string | null | undefined,
+): ImpactFeedback {
+  if (weapon === "missile") return "blast";
+  if (weapon === "kinetic") return "spark";
+  if (damageType === "energy") return "charge";
+  // Type-only fallback for a producer that named no weapon: `hybrid` is the
+  // missile warhead's channel, so it reads as a blast when nothing contradicts.
+  if (weapon === undefined || weapon === null) {
+    if (damageType === "hybrid") return "blast";
+  }
+  return "spark";
+}
+
+/**
+ * Strength (0..1) of the energy CHARGE flicker `ageMs` after the hit that lit
+ * it. Two things multiplied: a linear envelope that runs the charge out over
+ * `durationMs`, and a square flicker at `flickerHz` that never drops the shell
+ * fully dark (0.45 floor) — an arc that blinked to nothing would read as a
+ * dropped frame rather than as electricity.
+ *
+ * A non-finite age means "no hit on record", which is flatly zero — the state a
+ * hull sits in for all but a few frames of a match.
+ */
+export function hullChargeLevel(ageMs: number, settings: EnergyChargeSettings): number {
+  if (!settings.enabled || settings.durationMs <= 0) return 0;
+  if (!Number.isFinite(ageMs) || ageMs < 0) return 0;
+  if (ageMs >= settings.durationMs) return 0;
+  const envelope = 1 - ageMs / settings.durationMs;
+  const hz = settings.flickerHz > 0 ? settings.flickerHz : 0;
+  // Half-cycle parity rather than a sine: a hard alternation is what an arc
+  // looks like, and it is exact at any frame rate instead of sampling a curve.
+  const bright = hz > 0 ? Math.floor((ageMs / 1000) * hz * 2) % 2 === 0 : true;
+  const flicker = bright ? 1 : 0.45;
+  return settings.intensity * envelope * flicker;
 }
 
 /**

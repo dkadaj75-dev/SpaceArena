@@ -1,0 +1,102 @@
++42.7s  both accounts in the lobby
++42.7s  >> fit A
++48.3s    tdm-a hardpoint 0 -> module.kinetic-mk1
++51.3s    tdm-a hardpoint 1 -> module.shield-mk1
++57.7s  >> fit B
++63.1s    tdm-b hardpoint 0 -> module.beamlaser-mk1
++66.0s    tdm-b hardpoint 1 -> module.missile-mk1
++77.1s  >> queue 2v2 Team Deathmatch — B follows A inside the 10 s backfill window
++77.9s  A search card while alone: FINDING PLAYERS | The Ring | 0:00 | TEAM 1 | 0/2 | · · · | · · · | TEAM 2 | 0/2 | · · · | · · · | Looking for a worthy opponent... | Loading arena assets — 20% | Cancel
++79.9s     B queued 79.9s in
++82.9s  >> wait for the HUD on both
++91.7s  roster: 4 ships, arena=arena.ring-nebula, A=47 team=0
++91.7s  A fit: module.kinetic-mk1, module.shield-mk1, module.engine-earth-eng1, module.generator-earth-eng1, module.alloy-earth-p1, module.countermeasure-flare, module.sensors-common-mk1
++91.7s  B=48 team=1
++91.7s  B fit: module.beamlaser-mk1, module.missile-mk1, module.engine-earth-eng1, module.generator-earth-eng1, module.alloy-earth-p1, module.countermeasure-flare, module.sensors-common-mk1
++91.7s  teams: ["47:t0","48:t1","49:t0","50:t1"]
++91.7s  >> countdown / first seconds
++99.2s     speed readout "8 m/s" throttle "15%"
++99.2s  >> engage: close and hold both triggers
++99.7s     dist=10 hull=59 locked=false spd=8 m/s thr=15% fps=15 steer=false
++104.4s     dist=36 hull=9 locked=false spd=41 m/s thr=75% fps=24 steer=true
++109.2s     dist=111 hull=120 locked=false spd=11 m/s thr=75% fps=26 steer=false
++116.3s     dist=18 hull=120 locked=false spd=0 m/s thr=0% fps=18 steer=false
++121.0s     dist=7 hull=23 locked=false spd=0 m/s thr=0% fps=19 steer=true
++125.6s     dist=39 hull=120 locked=false spd=0 m/s thr=0% fps=34 steer=false
++129.3s  >> VFX burst: point blank, rapid frames
++143.7s  >> take hits and die
++166.3s     hull now undefined, phase ended, launchHold undefined
++167.2s  ~~ respawn and fight on skipped — the match is already over
++167.2s  ~~ boost skipped — the match is already over
++167.2s  ~~ jettison skipped — the match is already over
++167.2s  ~~ HUD chrome: in-match scoreboard and pause/settings skipped — the match is already over
++167.2s  ~~ boundary run — the shield wall and its warning skipped — the match is already over
++167.2s  >> kill feed / match status / toasts
++167.2s     kill feed: "DrLumenshot ⚔ playtest-match-aplaytest-match-b ⚔ NeoVectorRunner7NeoVectorRunner7 ⚔ playtest-match-bNeoVectorRunner7 ⚔ DrLumenshotplaytest-match-b ⚔ playtest-match-a"
++167.2s     match status: "5MATCH OVER10"
++167.2s     notifications: ""
++167.9s  >> play out or leave
++167.9s     match ended on its own
++169.9s     outcome tag: defeat
++175.1s     results panel: "DEFEAT | MVP | MOST VALUABLE PILOT | PLAYTEST-MATCH-B | 8 | KILLS | 1 | ASSISTS | 0 | CAPTURES | No rewards from this match | NEXT | PLAY A NEW GAME | QUIT TO MENU"
++176.8s     NEXT taps needed to reach the scoreboard: 1 (reached=true)
++185.1s  pilot A: flew 90 m from spawn, steer re-taken 17x, 338 ticks
++185.1s  pilot B: flew 145 m from spawn, steer re-taken 22x, 377 ticks
++185.1s  console counts A: {"error":20,"warning":3,"log":1,"pageerror":0,"debug":2,"info":11,"verbose":2}
++185.1s  console counts B: {"error":47,"warning":2,"log":1,"pageerror":0,"debug":2,"info":10,"verbose":2}
+
+--- pilot A events ---
+[01:21:18] tdm-a: steer origin 300,210 on renderCanvas
+[01:21:26] tdm-a: holding trigger 01
+[01:21:26] tdm-a: weapon slot 02 not on the HUD
+[01:21:28] tdm-a: weapon slot 02 not on the HUD
+[01:21:28] tdm-a: weapon slot 02 not on the HUD
+[01:21:29] tdm-a: weapon slot 02 not on the HUD
+[01:21:29] tdm-a: weapon slot 02 not on the HUD
+[01:21:29] tdm-a: weapon slot 02 not on the HUD
+[01:21:30] tdm-a: weapon slot 02 not on the HUD
+[01:21:30] tdm-a: weapon slot 02 not on the HUD
+[01:21:30] tdm-a: weapon slot 02 not on the HUD
+[01:21:30] tdm-a: weapon slot 02 not on the HUD
+[01:21:31] tdm-a: weapon slot 02 not on the HUD
+[01:21:35] tdm-a: weapon slot 02 not on the HUD
+[01:21:36] tdm-a: weapon slot 02 not on the HUD
+[01:21:37] tdm-a: weapon slot 02 not on the HUD
+[01:21:37] tdm-a: weapon slot 02 not on the HUD
+[01:21:37] tdm-a: weapon slot 02 not on the HUD
+[01:21:38] tdm-a: weapon slot 02 not on the HUD
+[01:21:38] tdm-a: weapon slot 02 not on the HUD
+[01:21:38] tdm-a: weapon slot 02 not on the HUD
+[01:21:38] tdm-a: weapon slot 02 not on the HUD
+[01:21:39] tdm-a: weapon slot 02 not on the HUD
+[01:21:43] tdm-a: weapon slot 02 not on the HUD
+[01:21:44] tdm-a: weapon slot 02 not on the HUD
+[01:21:44] tdm-a: weapon slot 02 not on the HUD
+[01:21:44] tdm-a: weapon slot 02 not on the HUD
+[01:21:45] tdm-a: weapon slot 02 not on the HUD
+[01:21:45] tdm-a: weapon slot 02 not on the HUD
+[01:21:45] tdm-a: weapon slot 02 not on the HUD
+[01:21:45] tdm-a: weapon slot 02 not on the HUD
+[01:21:45] tdm-a: weapon slot 02 not on the HUD
+[01:21:45] tdm-a: weapon slot 02 not on the HUD
+[01:21:45] tdm-a: weapon slot 02 not on the HUD
+[01:21:45] tdm-a: weapon slot 02 not on the HUD
+[01:21:46] tdm-a: weapon slot 02 not on the HUD
+[01:21:46] tdm-a: weapon slot 02 not on the HUD
+[01:21:46] tdm-a: weapon slot 02 not on the HUD
+[01:21:46] tdm-a: weapon slot 02 not on the HUD
+[01:21:46] tdm-a: weapon slot 02 not on the HUD
+[01:21:46] tdm-a: weapon slot 02 not on the HUD
+[01:21:46] tdm-a: weapon slot 02 not on the HUD
+[01:21:47] tdm-a: weapon slot 02 not on the HUD
+[01:21:47] tdm-a: weapon slot 02 not on the HUD
+[01:21:47] tdm-a: weapon slot 02 not on the HUD
+[01:21:47] tdm-a: weapon slot 02 not on the HUD
+[01:21:52] tdm-a: weapon slot 02 not on the HUD
+[01:21:52] tdm-a: weapon slot 02 not on the HUD
+[01:21:54] tdm-a: weapon slot 02 not on the HUD
+[01:21:54] tdm-a: weapon slot 02 not on the HUD
+[01:21:55] tdm-a: weapon slot 02 not on the HUD
+[01:21:55] tdm-a: weapon slot 02 not on the HUD
+[01:21:56] tdm-a: weapon slot 02 not on the HUD
+[01:21:56] tdm-a: weapon slot 02 not on the HUD

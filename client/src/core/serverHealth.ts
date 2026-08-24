@@ -34,13 +34,35 @@ export interface ServerHealth {
   tickRate?: number;
   /** Live content-pack hash, when the server could read its pack. */
   contentPackHash?: string | null;
+  /** Pilots with the game open right now, when the server counts them. */
+  playersOnline?: number;
 }
 
 interface HealthBody {
   status?: unknown;
   protocolVersion?: unknown;
   tickRate?: unknown;
+  online?: unknown;
   contentPack?: { sourceHash?: unknown } | null;
+}
+
+/**
+ * The anonymous id this client identifies itself with on the probe, so the
+ * server's player count can tell two pilots behind one NAT apart. Self-issued,
+ * meaningless, and persisted so one player stays ONE player across reloads;
+ * storage being blocked just means a fresh id per page load.
+ */
+const CLIENT_ID_KEY = "sa.clientId";
+export function presenceClientId(): string {
+  try {
+    const existing = localStorage.getItem(CLIENT_ID_KEY);
+    if (existing) return existing;
+    const fresh = crypto.randomUUID();
+    localStorage.setItem(CLIENT_ID_KEY, fresh);
+    return fresh;
+  } catch {
+    return crypto.randomUUID();
+  }
 }
 
 export interface HealthProbeOptions {
@@ -117,6 +139,9 @@ export async function checkServerHealth(options: HealthProbeOptions = {}): Promi
     const res = await doFetch(url, {
       method: "GET",
       cache: "no-store",
+      // The probe doubles as the presence heartbeat behind the menu's player
+      // count (server/src/presence.ts).
+      headers: { "x-sa-client": presenceClientId() },
       ...(controller ? { signal: controller.signal } : {}),
     });
     if (!res.ok) {
@@ -129,6 +154,7 @@ export async function checkServerHealth(options: HealthProbeOptions = {}): Promi
       detail: online ? "" : "server reported an unhealthy state",
       ...(typeof body.protocolVersion === "number" ? { protocolVersion: body.protocolVersion } : {}),
       ...(typeof body.tickRate === "number" ? { tickRate: body.tickRate } : {}),
+      ...(typeof body.online === "number" && body.online >= 0 ? { playersOnline: body.online } : {}),
       ...(body.contentPack && typeof body.contentPack.sourceHash === "string"
         ? { contentPackHash: body.contentPack.sourceHash }
         : {}),

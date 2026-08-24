@@ -25,6 +25,7 @@ import {
   toggleFullscreen,
 } from "../../core/fullscreen.js";
 import { applyMenuTheme, createMenuBackdrop, injectScreenStyle } from "./screenStyle.js";
+import { displayOverridesInEffect, nukeToKnownGood, NUKED_KEY } from "../../core/knownGoodReset.js";
 
 const log = createLogger("Settings");
 
@@ -486,7 +487,15 @@ export class SettingsScreen {
       { value: "webgpu", label: "WebGPU" },
     ];
     const buttons = options.map(({ value, label }) => {
-      const b = segButton(label, () => this.host.settings.set({ renderer: value }));
+      // Reload IMMEDIATELY. Persisting the preference and leaving the reload to
+      // a separate button the player has to notice means a stray tap on
+      // "WebGPU" writes a setting that then activates silently on some future
+      // boot — and WebGPU presents a black canvas on some GPUs, which is a
+      // failure with no visible connection to the tap that caused it.
+      const b = segButton(label, () => {
+        this.host.settings.set({ renderer: value });
+        (this.host.reload ?? (() => window.location.reload()))();
+      });
       b.dataset["renderer"] = value;
       seg.append(b);
       return { b, value };
@@ -501,10 +510,40 @@ export class SettingsScreen {
     reload.textContent = "Reload now";
     reload.addEventListener("click", () => (this.host.reload ?? (() => window.location.reload()))());
 
+    // The display state the black-canvas guard writes and NOTHING ever cleared:
+    // `spacearena.rendererAutoFallback`, `spacearena.qualityAutoSafe` and
+    // `sa.quality="low"`. A browser that once saw a black frame stayed pinned to
+    // the low tier forever with no UI anywhere that said so — this is that UI,
+    // and it runs the same known-good reset as the guard's final rung.
+    const reset = document.createElement("button");
+    reset.className = "sa-screen-btn sa-button sa-button--secondary";
+    reset.dataset["settingsResetDisplay"] = "";
+    reset.textContent = "Reset display settings";
+    const refreshResetLabel = (): void => {
+      const overrides = displayOverridesInEffect();
+      reset.hidden = false;
+      reset.title = overrides.length
+        ? `Clears: ${overrides.join(", ")}, plus any service worker and cache`
+        : "Clears saved renderer/quality overrides, service workers and caches, then reloads";
+    };
+    refreshResetLabel();
+    reset.addEventListener("click", () => {
+      // One shot per browser normally; the player asking for it explicitly
+      // outranks that, so clear the one-shot flag first.
+      try {
+        localStorage.removeItem(NUKED_KEY);
+      } catch {
+        /* storage unavailable — the reset still does everything else */
+      }
+      void nukeToKnownGood();
+    });
+
     group.append(
       seg,
-      note("Requires a reload. WebGPU is experimental — it can present a black canvas on some GPUs; WebGL2 is the safe default."),
+      note("Applies on reload. WebGPU is experimental — it can present a black canvas on some GPUs; WebGL2 is the safe default."),
       reload,
+      reset,
+      note("Reset clears saved renderer and quality overrides (including ones the black-canvas guard set automatically), unregisters service workers, empties caches and reloads. Your account and your loadout are untouched."),
     );
     return group;
   }

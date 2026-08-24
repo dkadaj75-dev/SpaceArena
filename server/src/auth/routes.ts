@@ -52,15 +52,16 @@ export function createAuthRouter(): Router {
     asyncHandler(async (req: AuthedRequest, res) => {
       const body = parseBody(res, registerBodySchema, req.body);
       if (!body) return;
-
-      if (usersRepo.byEmail(body.email)) {
-        sendError(res, 409, "email-taken", "an account with this email already exists");
-        return;
-      }
-      const passHash = await hashPassword(body.password);
+      // Absent email = an account with NO address on file. NULL, never "": the
+      // column is UNIQUE, so empty strings would collide on the second such
+      // account while NULLs stay distinct.
+      const email = body.email ?? null;
 
       // If a bearer token is present it MUST be a valid guest to upgrade in place.
+      // Resolved BEFORE the uniqueness checks so an upgrading guest is allowed to
+      // keep the nickname it already owns.
       const token = bearerToken(req);
+      let guest: ReturnType<typeof usersRepo.byId>;
       if (token) {
         const bearerUserId = verifyAccessToken(token);
         if (!bearerUserId) {
@@ -69,26 +70,44 @@ export function createAuthRouter(): Router {
           sendError(res, 401, "invalid-token", "authorization token is invalid or expired");
           return;
         }
-        const guest = usersRepo.byId(bearerUserId);
+        guest = usersRepo.byId(bearerUserId);
         if (!guest || guest.guest_token === null) {
           sendError(res, 409, "already-registered", "this account is already registered");
           return;
         }
+      }
+
+      if (email && usersRepo.byEmail(email)) {
+        sendError(res, 409, "email-taken", "an account with this email already exists");
+        return;
+      }
+      // The nickname is the login identifier now, so it has to be unique. The
+      // guest doing the upgrade may of course re-claim its own current name.
+      const nicknameOwner = usersRepo.byDisplayName(body.displayName);
+      if (nicknameOwner && nicknameOwner.id !== guest?.id) {
+        sendError(res, 409, "nickname-taken", "this nickname is already taken");
+        return;
+      }
+
+      const passHash = await hashPassword(body.password);
+
+      if (guest) {
+        const guestId = guest.id;
         // Upgrade + revoke ALL existing sessions atomically, then issue fresh pair.
         withTransaction(() => {
-          usersRepo.upgradeGuest(guest.id, body.email, passHash);
-          if (body.displayName) profilesRepo.setDisplayName(guest.id, body.displayName);
-          sessionsRepo.deleteForUser(guest.id);
+          usersRepo.upgradeGuest(guestId, email, passHash);
+          profilesRepo.setDisplayName(guestId, body.displayName);
+          sessionsRepo.deleteForUser(guestId);
         });
-        const pair = issueTokenPair(guest.id);
-        res.status(200).json({ ...pair, profile: profilePayload(guest.id) });
+        const pair = issueTokenPair(guestId);
+        res.status(200).json({ ...pair, profile: profilePayload(guestId) });
         return;
       }
 
       // Fresh account.
       const userId = randomUUID();
-      usersRepo.create({ id: userId, email: body.email, pass_hash: passHash, guest_token: null });
-      seedNewUser(getConfigService(), userId, body.displayName ?? emailLocalPart(body.email));
+      usersRepo.create({ id: userId, email, pass_hash: passHash, guest_token: null });
+      seedNewUser(getConfigService(), userId, body.displayName);
       const pair = issueTokenPair(userId);
       res.status(201).json({ ...pair, profile: profilePayload(userId) });
     }),
@@ -126,15 +145,20 @@ export function createAuthRouter(): Router {
     );
   }
 
-  // POST /login — email + password.
+  // POST /login — nickname (or email) + password.
   router.post(
     "/login",
     asyncHandler(async (req, res) => {
       const body = parseBody(res, loginBodySchema, req.body);
       if (!body) return;
-      const user = usersRepo.byEmail(body.email);
+      // Email first, nickname second: an address can never be a nickname (the
+      // nickname is capped at 40 chars and pilots do not name themselves
+      // "a@b.com"), so the order only decides which lookup runs first, and the
+      // email column is the indexed one. Accounts without an email — the ones
+      // this change exists for — resolve on the second lookup.
+      const user = usersRepo.byEmail(body.identifier) ?? usersRepo.byDisplayName(body.identifier);
       if (!user || !user.pass_hash || !(await verifyPassword(user.pass_hash, body.password))) {
-        sendError(res, 401, "invalid-credentials", "email or password is incorrect");
+        sendError(res, 401, "invalid-credentials", "nickname/email or password is incorrect");
         return;
       }
       const pair = issueTokenPair(user.id);
@@ -210,9 +234,4 @@ export function createAuthRouter(): Router {
   );
 
   return router;
-}
-
-function emailLocalPart(email: string): string {
-  const at = email.indexOf("@");
-  return at > 0 ? email.slice(0, at) : email;
 }

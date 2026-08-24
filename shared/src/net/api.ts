@@ -17,19 +17,52 @@ import { z } from "zod";
 /** Password policy: keep it simple but non-trivial for the MVP. */
 export const passwordSchema = z.string().min(8).max(200);
 export const emailSchema = z.string().email().max(200);
-export const displayNameSchema = z.string().min(1).max(40);
+/**
+ * The pilot's nickname. Trimmed before the length checks so " " can never become
+ * an account's name — it is the login identifier now (see {@link loginBodySchema}),
+ * not just a label.
+ */
+export const displayNameSchema = z.string().trim().min(1).max(40);
 
+/**
+ * Registration takes a NICKNAME and a password; the email is OPTIONAL
+ * (owner 2026-08-22 — "nickname required, email optional"). An account without
+ * an email is a first-class account: it just has no address to recover through.
+ * When an email IS given it is validated and must still be unique.
+ */
 export const registerBodySchema = z.object({
-  email: emailSchema,
+  displayName: displayNameSchema,
   password: passwordSchema,
-  displayName: displayNameSchema.optional(),
+  /** Absent (or explicitly null) = an account with no email on file. */
+  email: emailSchema.nullish(),
 });
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 
-export const loginBodySchema = z.object({
-  email: emailSchema,
+/**
+ * What you type in the "Nickname or email" box. Kept as a loose string (not
+ * `emailSchema`) because it may be either; the server resolves it against the
+ * email column first and the nickname second.
+ */
+export const loginIdentifierSchema = z.string().trim().min(1).max(200);
+
+/**
+ * Login body. `identifier` is the nickname OR the email. A body carrying the
+ * legacy `email` field is still accepted — old clients and `tools/pack-proof.ts`
+ * post `{ email, password }` — by folding it into `identifier` before validation.
+ */
+export const loginBodySchema = z.preprocess((raw) => {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (obj.identifier === undefined && obj.email !== undefined) {
+      const { email, ...rest } = obj;
+      return { ...rest, identifier: email };
+    }
+  }
+  return raw;
+}, z.object({
+  identifier: loginIdentifierSchema,
   password: passwordSchema,
-});
+}));
 export type LoginBody = z.infer<typeof loginBodySchema>;
 
 export const guestBodySchema = z.object({

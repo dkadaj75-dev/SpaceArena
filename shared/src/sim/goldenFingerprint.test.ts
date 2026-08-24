@@ -114,6 +114,27 @@ import { loadTestConfigs } from "./testutil.js";
  *    ticks); bot 300 → 259 (fights resolve faster, so fewer exchanges fit the
  *    900-tick window). Both moves are the intended consequence of the content
  *    edit and nothing else in the sim was touched in this pass.
+ *  - 2026-08-22: BOTH vectors re-recorded for two deliberate content changes
+ *    landing together. (1) The owner's per-hull combat profiles
+ *    (`core.combat.damageOutput` / `rateOfFire` on all four hulls, shipped
+ *    intentionally hot for testing): the interceptor — the only hull either
+ *    vector flies — fires its energy weapons at ×2.4 rate, so the scripted
+ *    vector more than doubles its event stream (311 → 668) and the bot vector
+ *    rises 259 → 310. (2) The lunar-rift He3-plant placement scale fix
+ *    (3 → 1.5), which shrinks a prop the bot vector's ships route around and so
+ *    moves the lunar vector on its own; the scripted vector plays ring-nebula
+ *    and is blind to it. `structure` moves on both because shot cadence changes
+ *    which ticks carry events — a real behaviour change, not a reordering.
+ *  - 2026-08-23 (impact-feedback payload): BOTH vectors re-recorded on
+ *    `structure` ONLY — `numeric` (b5e69888 / e230d911) and the event counts
+ *    (668 / 310) are byte-identical on both. That is the whole signature of the
+ *    change: `damage` and `shieldAbsorb` now carry an optional `weapon`
+ *    ("beam" / "kinetic" / "missile") and `pos`, so a renderer can spark,
+ *    detonate or electrify at the right place (see `sim/events.ts`). `weapon`
+ *    is a STRING field, so `structureOf` folds it into its digest; `pos` is an
+ *    object and is filtered out of both. Nothing in the sim READS either field
+ *    — no tick, no amount, no ordering and no event count moved — which is
+ *    exactly why the two float/count corroborations sit where they were.
  */
 
 const DT = 1 / 30;
@@ -328,9 +349,9 @@ describe("golden sim fingerprint", () => {
   it("pins the scripted asteroid-field vector", () => {
     const fp = scriptedVector(600);
     expect(fp).toEqual({
-      structure: "b6690ef0",
-      numeric: "e02a4ff7",
-      events: 311,
+      structure: "a1723d07",
+      numeric: "b5e69888",
+      events: 668,
       ticks: 600,
     });
   });
@@ -371,9 +392,9 @@ describe("golden sim fingerprint", () => {
   it("pins the ten-bot lunar-rift vector", () => {
     const fp = botVector(900);
     expect(fp).toEqual({
-      structure: "f328f41b",
-      numeric: "799f7168",
-      events: 259,
+      structure: "23bc265c",
+      numeric: "e230d911",
+      events: 310,
       ticks: 900,
     });
   }, 120_000);

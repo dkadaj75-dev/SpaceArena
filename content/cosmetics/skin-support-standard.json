@@ -7,7 +7,6 @@
   "price": 0,
   "target": "ship.support",
   "textures": {
-    "body": "ships/textures/support/standard/body.jpg",
-    "emissive": "ships/textures/support/standard/emissive.jpg"
+    "body": "ships/textures/support/standard/body.jpg"
   }
 }

@@ -13,7 +13,11 @@ let app: ReturnType<typeof createHttpApp>;
 
 /** Register a fresh user and return its auth header + userId. */
 async function newUser(email: string): Promise<{ auth: string; userId: string }> {
-  const res = await request(app).post("/api/auth/register").send({ email, password: "password123", displayName: "Tester" });
+  // The nickname is unique (it is the login identifier now), so it is derived
+  // from the email rather than being the same literal for every test user.
+  const res = await request(app)
+    .post("/api/auth/register")
+    .send({ email, password: "password123", displayName: `Tester-${email.split("@")[0]}` });
   return { auth: `Bearer ${res.body.accessToken}`, userId: res.body.profile.userId };
 }
 
