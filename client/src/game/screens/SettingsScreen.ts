@@ -171,12 +171,12 @@ export class SettingsScreen {
     back.dataset["settingsClose"] = "";
     back.textContent = context === "match" ? "Resume match" : "Back";
     back.addEventListener("click", () => this.close());
-    this.groups.append(back);
 
     // Mid-match escape hatch (owner 2026-07-31): abandon the match and return
     // to the main menu, without hunting for the results screen.
+    let quit: HTMLButtonElement | null = null;
     if (context === "match" && this.onQuitToMenu) {
-      const quit = document.createElement("button");
+      quit = document.createElement("button");
       quit.className = "sa-screen-btn sa-button sa-button--secondary";
       quit.dataset["settingsQuit"] = "";
       quit.textContent = "Quit to main menu";
@@ -187,7 +187,22 @@ export class SettingsScreen {
         this.onClose = null;
         cb?.();
       });
-      this.groups.append(quit);
+    }
+
+    if (context === "match") {
+      // In a match this screen is the PAUSE menu, and its two exits are the
+      // reason it was opened at all — but they were the LAST things in a
+      // 1900 px scroll, so at 412 px they sat below the fold behind a scroll
+      // nothing advertised (match finding 4). They lead here instead, and stay
+      // stuck to the top edge while the settings underneath scroll past.
+      const actions = document.createElement("div");
+      actions.className = "sa-settings-actions";
+      actions.dataset["settingsActions"] = "";
+      actions.append(back);
+      if (quit) actions.append(quit);
+      this.groups.prepend(actions);
+    } else {
+      this.groups.append(back);
     }
 
     // TEMPORARY(designer-access): remove with the settings-screen designer

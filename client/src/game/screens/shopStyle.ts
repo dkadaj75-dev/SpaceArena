@@ -42,12 +42,38 @@ const CSS = `
 }
 .shop-tabs .sa-tab {
   flex: 1 1 0;
-  min-height: 40px;
+  /* 44px, not 40: these are the screen's PRIMARY navigation and they were the
+     one control under the touch minimum (finding 48). */
+  min-height: 44px;
   font: var(--sa-type-caption);
   letter-spacing: .16em;
   text-transform: uppercase;
   cursor: pointer;
   touch-action: manipulation;
+}
+@media (pointer: coarse) {
+  .shop-tabs .sa-tab { min-height: 48px; }
+}
+
+/* Text filter over the current list. 58 module cards across ~12 screens, with
+   group headings as the only navigation, is not a list you browse (46). */
+.shop-filter { width: min(420px, 100%); }
+.shop-filter[hidden] { display: none; }
+.shop-filter-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  font: var(--sa-type-body);
+  font-size: 16px; /* < 16px makes iOS Safari zoom the page on focus */
+  color: var(--sa-menu-text, var(--sa-white));
+  background: color-mix(in srgb, var(--sa-menu-base, var(--sa-n-800)) 78%, transparent);
+  border: var(--sa-line-hairline) solid var(--sa-menu-border, var(--sa-n-600));
+  clip-path: var(--sa-clip-btn-sm);
+}
+.shop-filter-input:focus { outline: none; border-color: var(--sa-menu-primary, var(--sa-blue-500)); }
+@media (pointer: coarse) {
+  .shop-filter-input { min-height: 44px; }
 }
 .shop-tabs .sa-tab[aria-selected="true"] {
   color: var(--sa-n-900);
@@ -160,6 +186,17 @@ const CSS = `
   text-transform: uppercase;
   color: var(--sa-menu-muted, var(--sa-n-400));
 }
+/* Why this card's Buy is off, in the open. The refusal used to arrive only
+   after the tap, as a 403 rendered into the notice bar at the top of a
+   12-screen list (findings 43, 45) — and a title a phone cannot show is not
+   an answer either. */
+.shop-card-blocked {
+  font: var(--sa-type-caption);
+  line-height: 1.35;
+  color: var(--sa-red-500);
+}
+.shop-card[data-blocked] .shop-card-name,
+.shop-card[data-blocked] .shop-chips { opacity: .7; }
 
 .shop-price {
   flex: 0 0 auto;
@@ -173,6 +210,13 @@ const CSS = `
   clip-path: var(--sa-clip-btn-sm);
 }
 .shop-price[data-free="true"] { color: var(--sa-white); }
+/* A price the balance in the header cannot meet. The two numbers are the ones
+   the pilot is comparing, so the bad one says so in the palette's bad colour
+   (finding 45 — there was no affordability state at all). */
+.shop-price[data-afford="false"] {
+  color: var(--sa-red-500);
+  border-color: color-mix(in srgb, var(--sa-red-500) 60%, transparent);
+}
 
 .shop-chips { display: flex; flex-wrap: wrap; gap: 3px; }
 .shop-chip {

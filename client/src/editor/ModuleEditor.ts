@@ -7,6 +7,7 @@ import { applicationNotice } from "./applicationScope.js";
 import { moduleIconId, moduleIconSvg } from "../game/hud/moduleIcons.js";
 import { AssetRegistry, moduleRenderRecipe } from "../core/AssetRegistry.js";
 import { EditorStage } from "./EditorStage.js";
+import { FieldFilter, filterTree } from "./fieldFilter.js";
 import "./ModuleEditor.css";
 
 /** First free `module.custom-N` id shared by New and Duplicate. */
@@ -32,6 +33,16 @@ export class ModuleEditor implements EditorPanel {
   private previewRevision = 0;
   private pendingModelApply: Promise<void> | null = null;
   private readonly previewStatus = document.createElement("div");
+  /**
+   * The tallest panel in the suite — 21 sections and 82 inputs, 1826px of form
+   * in a 276px window, with a 58-entry dropdown as the only way through it.
+   * Built once and re-appended by render(), so the query survives a module
+   * switch and the box does not lose focus mid-word.
+   */
+  private readonly search = new FieldFilter({
+    placeholder: "e.g. damage, cooldownMs",
+    onQuery: (query) => { if (this.form) filterTree(this.form.element, query, { openGroups: true }); },
+  });
 
   constructor(
     private readonly host: EditorHost,
@@ -69,7 +80,7 @@ export class ModuleEditor implements EditorPanel {
     const add = this.button("New module", () => this.cloneSelected(configs, false));
     const duplicate = this.button("Duplicate", () => this.cloneSelected(configs, true));
     const save = this.button("Save to disk", () => void this.save(), "ed-btn--primary");
-    toolbar.append(title, select, add, duplicate, save);
+    toolbar.append(title, select, add, duplicate, save, this.search.element);
     this.element.append(toolbar, applicationNotice("module"));
 
     const selected = configs.find((config) => config.id === this.selectedId);
@@ -93,6 +104,7 @@ export class ModuleEditor implements EditorPanel {
     });
     this.updateIconPreview(selected);
     this.element.append(this.previewStatus, this.form.element);
+    this.search.watch(this.form.element);
     this.mountIconPreview();
     this.applyPreview(selected);
   }
@@ -216,6 +228,7 @@ export class ModuleEditor implements EditorPanel {
   }
 
   dispose(): void {
+    this.search.dispose();
     this.previewRevision++;
     this.previewMesh?.dispose();
     this.previewMesh = null;

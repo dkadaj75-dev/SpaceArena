@@ -65,8 +65,21 @@ const log = createLogger("Hangar");
  * that already is one.
  */
 const LS_SHIP = "hangar.shipId";
-/** Where the carousel was left last time. Presentation only — never flown. */
-const LS_BROWSE = "hangar.browseShipId";
+/**
+ * Where the carousel was left, for THIS SESSION only (playtest 2026-08-23 §26).
+ * Presentation, never flown — and deliberately in `sessionStorage`: the hangar
+ * opens on the hull you FLY, and a browse position that outlived the tab was
+ * how a pilot whose main was the Brawler kept arriving at an Interceptor three
+ * arrow-taps away. Stepping out to the Shop and back inside one sitting still
+ * lands where you left off, which is the only case the memory was ever for.
+ */
+const SS_BROWSE = "hangar.browseShipId";
+/**
+ * Whether the press-and-hold preview has ever been advertised (§37). A finger
+ * gets no hover, so the compare box only fills in after a 260ms hold and
+ * nothing said so; the sheet now says it once, and remembers that it did.
+ */
+const LS_PREVIEW_HINT = "hangar.previewHintSeen";
 /**
  * The selected ship's upgrade levels as `/api/ships` last reported them. Cached
  * here because a MATCH needs them (client prediction resolves the same engine
@@ -102,6 +115,24 @@ const DECK_STAGE_FRACTION = 545 / 960;
 
 /** How long a finger has to rest on a module card before it previews (touch). */
 const PRESS_HOLD_MS = 260;
+
+/** How long the one-time "hold a card" hint stays up before it bows out. */
+const PREVIEW_HINT_MS = 5000;
+
+/**
+ * Whole cards the sheet's row is sized to show (see the `.hangar-card` width in
+ * the sheet below). The half card that follows is the point: a row cut off at a
+ * card boundary reads as a row that ENDS, which is how twenty-one modules came
+ * to look like five (playtest match §2).
+ */
+const CARDS_IN_VIEW = 4;
+
+/**
+ * How far the chevron walks the card row when the viewport cannot be measured —
+ * roughly two cards, so a press always moves the row by something the eye can
+ * follow rather than by nothing at all.
+ */
+const CARD_STEP_PX = 220;
 
 /**
  * How far a pointer may travel during a press on the card row before the click
@@ -367,6 +398,13 @@ export class Hangar {
    */
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   private holdFired = false;
+  /**
+   * Whether the one-time press-and-hold hint is up in the open sheet (§37). It
+   * is raised by the FIRST sheet this browser ever opens and taken down by the
+   * first hold or {@link PREVIEW_HINT_MS}, whichever comes first.
+   */
+  private previewHintVisible = false;
+  private hintTimer: ReturnType<typeof setTimeout> | null = null;
   /** Blacked-out stand-in shown in place of a hull the player does not own. */
   private lockedPreview: AbstractMesh | null = null;
   private lockedMaterial: StandardMaterial | null = null;
@@ -573,6 +611,31 @@ export class Hangar {
     return this.mainShipId() === shipId;
   }
 
+  /**
+   * The hull a visit OPENS on (playtest 2026-08-23 §26). The rule is your MAIN
+   * — the ship you actually fly is the one the bay should have on the pad — and
+   * the only thing allowed to beat it is a carousel position from this same
+   * session, so stepping out to the Shop and back does not throw away where you
+   * were.
+   *
+   * That session position is ownership-checked, which is the other half of the
+   * report: browsing onto a hull you have not bought and coming back later used
+   * to open the screen on a silhouette with an empty fitting panel. A hull the
+   * pilot cannot fly is never the ANSWER here, only ever somewhere they walked
+   * to on purpose.
+   */
+  private openingShipIndex(): number {
+    const mainId = this.mainShipId();
+    const browsed = sessionStorage.getItem(SS_BROWSE);
+    const openId = browsed && browsed !== mainId && this.canFly(browsed) ? browsed : mainId;
+    const idx = openId ? this.ships.findIndex((s) => s.id === openId) : -1;
+    if (idx >= 0) return idx;
+    // No main, or a main this build no longer ships: the first hull that can be
+    // flown, and only then the first hull at all.
+    const owned = this.ships.findIndex((s) => this.canFly(s.id));
+    return owned >= 0 ? owned : 0;
+  }
+
   private currentShip(): ShipConfig | undefined {
     return this.ships[this.shipIndex];
   }
@@ -604,10 +667,7 @@ export class Hangar {
       const starter = this.ships.find((s) => s.id === STARTER_SHIP_ID) ?? this.ships[0];
       if (starter) localStorage.setItem(LS_SHIP, starter.id);
     }
-    // Open where the player left the carousel; the main hull is the fallback.
-    const browseId = localStorage.getItem(LS_BROWSE) ?? loadHangarSelection().shipId;
-    const idx = browseId ? this.ships.findIndex((s) => s.id === browseId) : -1;
-    this.shipIndex = idx >= 0 ? idx : 0;
+    this.shipIndex = this.openingShipIndex();
     const fittingContextToken = ++this.fittingContextToken;
     this.closeSheet();
     this.error = "";
@@ -684,6 +744,7 @@ export class Hangar {
 
   hide(): void {
     this.refreshScope.invalidate();
+    this.clearHintTimer();
     this.abandonSwap();
     this.visitToken++;
     this.root.style.display = "none";
@@ -908,10 +969,15 @@ export class Hangar {
   private lockedShipMaterial(): StandardMaterial {
     if (this.lockedMaterial) return this.lockedMaterial;
     const mat = new StandardMaterial("hangarLockedShip", this.scene);
-    mat.diffuseColor = Color3.Black();
-    mat.specularColor = Color3.Black();
-    mat.emissiveColor = new Color3(0.02, 0.03, 0.05); // just enough not to be a hole
-    mat.alpha = 0.45;
+    // Dark, but no longer a HOLE (playtest §30: "the model renders almost black
+    // so you cannot see what you'd be buying"). The diffuse stays near-black so
+    // the bay's lamps only ever graze it — the hull's detail is still the thing
+    // being sold — while the emissive floor lifts the whole silhouette off the
+    // black bay floor it was disappearing into.
+    mat.diffuseColor = new Color3(0.06, 0.07, 0.1);
+    mat.specularColor = new Color3(0.05, 0.06, 0.08);
+    mat.emissiveColor = new Color3(0.1, 0.13, 0.19);
+    mat.alpha = 0.6;
     mat.backFaceCulling = false; // a translucent hull reads better with its far side
     this.lockedMaterial = mat;
     return mat;
@@ -1066,6 +1132,18 @@ export class Hangar {
     this.swapGuard = setTimeout(() => this.settleSwap(), SWAP_DURATION_SEC * 1000 + SWAP_GUARD_SLACK_MS);
   }
 
+  /**
+   * Go straight to one hull, from its dot (playtest §27). No slide: the arrows
+   * animate one step because the motion IS the "next ship along", and a jump of
+   * four bays has no such story to tell — it is a direct pick, so it lands the
+   * way pressing a tab does.
+   */
+  private jumpToShip(index: number): void {
+    if (this.busy || this.swap || index === this.shipIndex) return;
+    if (index < 0 || index >= this.ships.length) return;
+    this.selectShip(index);
+  }
+
   private clearSwapGuard(): void {
     if (this.swapGuard === null) return;
     clearTimeout(this.swapGuard);
@@ -1134,10 +1212,16 @@ export class Hangar {
    * `render()` as well as from the transition, so no path can leave the bay
    * unwalkable: the arrows are a function of the screen's state, never a latch
    * something has to remember to release.
+   *
+   * The DOTS walk the same bay under exactly the same conditions, so they are
+   * decided here too rather than where they are built — a transition that ends
+   * without a re-render (the common case: the midpoint renders, the last frame
+   * does not) would otherwise leave them latched off.
    */
   private setArrowsEnabled(enabled = true): void {
     const blocked = !enabled || this.busy || this.swap !== null || this.ships.length < 2;
     for (const btn of this.stageArrows) btn.disabled = blocked;
+    for (const dot of this.shipDots.querySelectorAll<HTMLButtonElement>("button")) dot.disabled = blocked;
   }
 
   /**
@@ -1198,6 +1282,7 @@ export class Hangar {
       this.baseFits = fittedModuleIdsOf(this.slots);
       // A fresh sheet starts at its first card, whatever the last one showed.
       this.cardScrollLeft = 0;
+      this.raisePreviewHint();
     }
     this.render();
   }
@@ -1211,6 +1296,7 @@ export class Hangar {
    */
   private closeSheet(): void {
     this.cancelHold();
+    this.dismissPreviewHint();
     this.sheetSlot = null;
     this.baseFits = null;
     this.rowDragged = false;
@@ -1296,11 +1382,17 @@ export class Hangar {
     });
   }
 
-  /** Remember where the carousel is. Presentation only — never flown. */
+  /**
+   * Remember where the carousel is, for this session only. Presentation — never
+   * flown, and never carried into the next launch (see {@link SS_BROWSE}).
+   */
   private persistBrowse(): void {
     const shipId = this.currentShip()?.id;
-    if (shipId) localStorage.setItem(LS_BROWSE, shipId);
-    else localStorage.removeItem(LS_BROWSE);
+    if (shipId) sessionStorage.setItem(SS_BROWSE, shipId);
+    else sessionStorage.removeItem(SS_BROWSE);
+    // The key this used to live under, from before it was session-scoped. Left
+    // behind it would be nothing but a stale answer to a question nobody asks.
+    localStorage.removeItem(SS_BROWSE);
   }
 
   /**
@@ -1476,6 +1568,9 @@ export class Hangar {
       this.holdTimer = null;
       this.holdFired = true;
       this.considerModule(hardpointIndex, moduleId, true);
+      // The pilot has just done the thing the hint describes: it has said all
+      // it has to say, and it goes without disturbing the card under the finger.
+      this.dismissPreviewHint();
     }, PRESS_HOLD_MS);
   }
 
@@ -1548,9 +1643,22 @@ export class Hangar {
       );
     }
     // One dot per hull in the bay — the carousel's position, and the twin of the
-    // ‹ › arrows either side of it.
+    // ‹ › arrows either side of it. Each one is a real CONTROL (playtest §27):
+    // the row shipped `pointer-events: none` over 22×4px marks, so every tap
+    // aimed at a dot fell through to the 3D canvas and stepping the bay was
+    // arrows-only. The bar stays 22×4; the button around it is the touch target.
     for (let i = 0; i < this.ships.length; i++) {
-      const dot = el("span", "hangar-ship-dot" + (i === this.shipIndex ? " active" : ""));
+      const hull = this.ships[i]!;
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "hangar-ship-dot" + (i === this.shipIndex ? " active" : "");
+      dot.dataset["ship"] = hull.id;
+      dot.setAttribute("aria-label", `Show ${hull.name ?? hull.id}`);
+      if (i === this.shipIndex) dot.setAttribute("aria-current", "true");
+      // Enabled by `setArrowsEnabled`, which render() calls immediately after
+      // this — see there for why that is the only place either control's state
+      // is decided.
+      dot.addEventListener("click", () => this.jumpToShip(i));
       this.shipDots.append(dot);
     }
     this.shipDots.style.display = this.ships.length > 1 ? "" : "none";
@@ -1644,8 +1752,55 @@ export class Hangar {
     const panel = el("div", "hangar-sheet");
     panel.setAttribute("role", "menu");
     panel.setAttribute("aria-label", `Fit ${slotLabel(slot.socketId)}`);
-    panel.append(this.buildSheetHead(slot, index), this.buildCardRow(slot, index));
+    panel.append(this.buildSheetHead(slot, index));
+    // Above the cards, and only ever once: the row is the thing it is talking
+    // about, and the sheet is anchored to the viewer's foot, so a hint that
+    // leaves takes its own space with it without moving a single card.
+    if (this.previewHintVisible) panel.append(buildPreviewHint());
+    panel.append(this.buildCardDeck(slot, index));
     this.sheet.append(dim, panel);
+  }
+
+  /**
+   * Raise the one-time press-and-hold hint (playtest §37). "The preview
+   * interaction is undiscoverable on a phone": there is no hover on touch, so
+   * the compare box only answers a 260ms hold, and a pilot who taps normally
+   * commits the fit and never sees the comparison the panel exists for.
+   *
+   * Marked SEEN the moment it goes up rather than when it comes down — it is an
+   * introduction, and one that reappeared because the last sheet was closed
+   * quickly would stop being one.
+   */
+  private raisePreviewHint(): void {
+    if (this.previewHintVisible || localStorage.getItem(LS_PREVIEW_HINT) === "1") return;
+    this.previewHintVisible = true;
+    localStorage.setItem(LS_PREVIEW_HINT, "1");
+    this.clearHintTimer();
+    this.hintTimer = setTimeout(() => {
+      this.hintTimer = null;
+      this.dismissPreviewHint();
+    }, PREVIEW_HINT_MS);
+  }
+
+  /**
+   * Take the hint down — its few seconds are up, the pilot has just done the
+   * thing it describes, or the sheet is closing.
+   *
+   * Removed from the DOM in place rather than through {@link renderSheet},
+   * because the first hold is one of the ways this is reached and rebuilding
+   * the row would destroy the very card the finger is resting on.
+   */
+  private dismissPreviewHint(): void {
+    this.clearHintTimer();
+    if (!this.previewHintVisible) return;
+    this.previewHintVisible = false;
+    this.sheet.querySelector(".hangar-sheet-hint")?.remove();
+  }
+
+  private clearHintTimer(): void {
+    if (this.hintTimer === null) return;
+    clearTimeout(this.hintTimer);
+    this.hintTimer = null;
   }
 
   /** The sheet's title, and its two buttons: CLEAR SLOT and DONE ✓ (spec). */
@@ -1689,6 +1844,43 @@ export class Hangar {
     actions.append(clear, done);
     head.append(actions);
     return head;
+  }
+
+  /**
+   * The card row and the three things that say it SCROLLS (playtest match §2).
+   *
+   * A sheet 519px wide showed five of twenty-one modules, cut off flush at a
+   * card boundary with no arrow, no peeking card and no scrollbar — so the row
+   * read as a row that ends, and a tap aimed at the sixth card (which still
+   * reports an on-screen bounding box) silently did nothing. All three are back:
+   * the cards are sized so a half one always shows past the fold, a gradient
+   * fades the row out into it, and a chevron walks it for anyone who would
+   * rather press than swipe. Every one of them is hidden the moment the row
+   * genuinely fits, and the chevron goes when there is no more row to walk.
+   */
+  private buildCardDeck(slot: HangarSlot, index: number): HTMLDivElement {
+    const deck = el("div", "hangar-card-deck");
+    const row = this.buildCardRow(slot, index);
+    const fade = el("div", "hangar-card-fade");
+    fade.setAttribute("aria-hidden", "true");
+
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "hangar-card-more";
+    more.setAttribute("aria-label", "Scroll to more modules");
+    // A guillemet, matching the bay arrows either side of the ship (spec).
+    more.textContent = "›";
+    more.addEventListener("click", () => {
+      const page = row.clientWidth > 0 ? row.clientWidth * 0.8 : CARD_STEP_PX;
+      row.scrollLeft += page;
+      this.cardScrollLeft = row.scrollLeft;
+      syncCardAffordance(deck, row);
+    });
+
+    row.addEventListener("scroll", () => syncCardAffordance(deck, row));
+    deck.append(row, fade, more);
+    syncCardAffordance(deck, row);
+    return deck;
   }
 
   /**
@@ -1792,7 +1984,17 @@ export class Hangar {
     btn.append(icon);
     btn.append(el("span", "hangar-card-name", mod.name ?? mod.id));
     btn.append(el("span", "hangar-card-stat", moduleStatLine(mod)));
-    if (!usable) return btn;
+    if (!usable) {
+      // WHY it cannot be fitted (playtest §38: an unavailable card was greyed
+      // and otherwise silent — no badge, no price, no "requires level N", and a
+      // `title` a phone never shows). The level gate is the reason worth naming
+      // when content authors one, because it is the one the pilot cannot fix by
+      // spending credits; everything else is "you have not bought this yet".
+      const tag = el("span", "hangar-card-tag", this.moduleGateTag(mod));
+      btn.append(tag);
+      btn.setAttribute("aria-label", `${mod.name ?? mod.id} — ${tag.textContent ?? ""}`);
+      return btn;
+    }
 
     btn.dataset["previewModule"] = mod.id;
     this.bindPreviewSignals(btn, index, mod.id, { pinOnClick: false });
@@ -1809,6 +2011,20 @@ export class Hangar {
       this.equip(index, mod.id);
     });
     return btn;
+  }
+
+  /**
+   * WHY an unavailable card cannot be fitted, short enough for a 96px card
+   * (playtest §38). `LV 3` while a level gate is genuinely shut — that number is
+   * the one the Shop's own refusal quotes, and it is the reason credits cannot
+   * fix — and the plain lock for every "you have not bought this yet", which is
+   * the only reason there is in offline fitting, where gates do not apply.
+   */
+  private moduleGateTag(mod: ModuleConfig): string {
+    const requires = mod.requiresLevel ?? 0;
+    const state = this.auth.getState();
+    const gated = state.status === "authed" && requires > state.profile.level;
+    return gated ? `LV ${requires}` : "LOCKED";
   }
 
   // --- rendering ---------------------------------------------------------
@@ -1852,6 +2068,7 @@ export class Hangar {
     const body = el("div", "hangar-deck-body");
     if (this.error) body.append(el("div", "hangar-error", this.error));
     if (!owned) {
+      body.append(this.buildLockedBrief(ship));
       body.append(el("div", "hangar-hint", "You do not own this hull yet — buy it on the stage to fit and fly it."));
     } else {
       body.append(this.buildTileGrid("hardpoint"));
@@ -1880,6 +2097,30 @@ export class Hangar {
 
     this.renderCompare();
     this.renderSheet();
+  }
+
+  /**
+   * What a hull you have NOT bought says about itself (playtest §30). The deck
+   * has nothing to outfit, so it used to be one sentence in an empty half —
+   * beside a silhouette dark enough to hide the shape it was selling. This is
+   * the smallest honest answer to "what am I being offered": the class, what it
+   * carries, and the two numbers that separate a light hull from a heavy one.
+   */
+  private buildLockedBrief(ship: ShipConfig): HTMLDivElement {
+    const brief = el("div", "hangar-locked-brief");
+    brief.append(el("span", "hangar-locked-class", `${ship.class} hull`.toUpperCase()));
+    const hardpoints = this.slots.filter((s) => s.kind === "hardpoint").length;
+    const internals = this.slots.length - hardpoints;
+    const panel = this.statPanelFor(fittedModuleIdsOf(this.slots));
+    const parts = [
+      `${hardpoints} HARDPOINT${hardpoints === 1 ? "" : "S"}`,
+      `${internals} INTERNAL${internals === 1 ? "" : "S"}`,
+    ];
+    if (panel) {
+      parts.push(`${Math.round(panel.hullMax)} INTEGRITY`, `${Math.round(panel.nominalSpeed)} SPEED`);
+    }
+    brief.append(el("span", "hangar-locked-stats", parts.join(" · ")));
+    return brief;
   }
 
   /** The deck's first row: the HARDPOINTS heading, and the way out (spec). */
@@ -1928,6 +2169,13 @@ export class Hangar {
       btn.append(icon);
       btn.append(el("span", "hangar-slot-label", mod?.name ?? "EMPTY"));
       btn.append(el("span", "hangar-slot-socket", slotLabel(slot.socketId)));
+      // Both lines are clipped to the tile with an ellipsis (playtest §29:
+      // COUNTERMEASURE rendered as "UNTERMEASU", overflowing a 66px tile on
+      // both sides and over its neighbours). What no longer fits is still on
+      // the control itself, for everything that can ask rather than look.
+      const socketName = slotLabel(slot.socketId);
+      btn.title = `${socketName} — ${mod?.name ?? "Empty"}`;
+      btn.setAttribute("aria-label", btn.title);
       btn.addEventListener("click", () => this.selectSlot(slot.hardpointIndex));
       grid.append(btn);
     }
@@ -2027,8 +2275,12 @@ export class Hangar {
         btn.textContent = "MAX";
         btn.disabled = true;
       } else {
-        btn.textContent = `${nextConfig.price} cr`;
+        // FREE, not "0 cr" (playtest §35): three buttons all reading "0 cr" is
+        // read as broken data, not as a tier that costs nothing. Same label the
+        // Shop and the hull buy already use.
+        btn.textContent = priceLabel(nextConfig.price);
         btn.disabled = readOnly || this.busy || credits < nextConfig.price;
+        btn.setAttribute("aria-label", `Upgrade ${UPGRADE_LABELS[track]} to level ${current + 1} — ${btn.textContent}`);
         btn.addEventListener("click", () => void this.upgradeTrack(track));
       }
       row.append(btn);
@@ -2084,6 +2336,34 @@ function errorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/**
+ * The one-time press-and-hold hint (playtest §37), as its own node so
+ * {@link Hangar.dismissPreviewHint} can lift it back out without touching a
+ * card. `role="status"` rather than an alert: it is an aside, not an
+ * interruption, and it must not steal the sheet's focus.
+ */
+function buildPreviewHint(): HTMLDivElement {
+  const hint = el("div", "hangar-sheet-hint", "Hold a card to preview what it changes");
+  hint.setAttribute("role", "status");
+  return hint;
+}
+
+/**
+ * Show the row's scroll affordances only while there is row left to scroll.
+ *
+ * Measured where it can be: `scrollWidth` against `clientWidth`. Where it
+ * cannot — the first pass before layout, and a headless DOM — the CARD COUNT
+ * stands in, because "we could not measure" must fall towards showing the
+ * affordance. The bug being fixed here is a row that looked finished when it
+ * was not; a fade over a row that happens to fit is a much cheaper mistake.
+ */
+function syncCardAffordance(deck: HTMLElement, row: HTMLElement): void {
+  const measurable = row.clientWidth > 0;
+  const scrollable = measurable ? row.scrollWidth - row.clientWidth > 1 : row.childElementCount > CARDS_IN_VIEW;
+  deck.classList.toggle("scrollable", scrollable);
+  deck.classList.toggle("at-end", measurable && row.scrollLeft >= row.scrollWidth - row.clientWidth - 1);
+}
+
 function el(tag: string, className?: string, text?: string): HTMLDivElement {
   const node = document.createElement(tag) as HTMLDivElement;
   if (className) node.className = className;
@@ -2092,10 +2372,18 @@ function el(tag: string, className?: string, text?: string): HTMLDivElement {
 }
 
 /**
- * One row of the BEFORE / AFTER box: caption, current reading, and — while a
- * candidate is being weighed — the projected one behind an arrow that says
- * which way it moves.
+ * One row of the BEFORE / AFTER box: caption, the current reading, and — while
+ * a candidate is being weighed — where that reading LANDS.
+ *
+ * `DPS 3.2 → 117.2`, not `DPS 3.2 ▲ 117.2` (playtest §36). The box is a
+ * before/after, never a delta, but a ▲ in front of a number is read as a signed
+ * one: "3.2 now, +117.2 more". A plain arrow between the two readings cannot be
+ * read that way, and with `POWER 5 / 10 ▼ 2 / 10` — where the "delta" was a
+ * fraction — it was worse still. The colour keeps saying which way it moved;
+ * `data-trend` says the same thing to anything that cannot see colour.
  */
+const COMPARE_ARROW = "→";
+
 function compareRow(row: DeckCompareRow): HTMLDivElement {
   const node = el("div", "hangar-compare-row");
   node.dataset["key"] = row.key;
@@ -2103,13 +2391,11 @@ function compareRow(row: DeckCompareRow): HTMLDivElement {
   const read = el("div", "hangar-compare-read");
   read.append(el("span", "hangar-compare-value", row.value));
   if (row.projected !== null) {
-    read.append(
-      el(
-        "span",
-        `hangar-compare-delta ${row.trend}${row.warn ? " warn" : ""}`,
-        `${row.arrow ?? ""} ${row.projected}`.trim(),
-      ),
-    );
+    const delta = el("span", `hangar-compare-delta ${row.trend}${row.warn ? " warn" : ""}`, `${COMPARE_ARROW} ${row.projected}`);
+    // The trend as DATA as well as as colour — the row reads "DPS 3.2 → 117.2"
+    // aloud without help, but nothing in that sentence says which way is good.
+    delta.dataset["trend"] = row.trend;
+    read.append(delta);
   }
   node.append(read);
   return node;
@@ -2312,36 +2598,64 @@ const HANGAR_CSS = `
 .hangar-stage-arrow.next { right: 10px; }
 .hangar-stage-arrow:hover:not(:disabled) { background: var(--hg-active); }
 .hangar-stage-arrow:disabled { opacity: .25; cursor: default; }
+/* The hull's identity sits ABOVE the dot row, not beside it (playtest §28): at
+   915×412 the readout ended at x≈206 and the dots began at x≈207, sharing one
+   13px band over the darkest part of the bay floor. Two bands, and the dot row
+   can grow a real touch target into the space that frees up. */
 .hangar-ship-readout {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 44px);
   left: calc(env(safe-area-inset-left, 0px) + 16px);
   z-index: 10;
   display: flex;
   align-items: center;
   gap: 10px;
+  max-width: calc(100% - 32px);
   pointer-events: none;
 }
-.hangar-ship-name { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .2em; color: var(--hg-text); text-shadow: 0 1px 3px #000; }
-.hangar-ship-class { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .2em; color: var(--hg-muted); }
+.hangar-ship-name { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .2em; color: var(--hg-text); text-shadow: 0 1px 3px #000; white-space: nowrap; }
+.hangar-ship-class { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .2em; color: var(--hg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hangar-ship-dots {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
   display: flex;
-  gap: 6px;
+  gap: 0;
+  max-width: 100%;
+  /* Click-through between the dots, like every other overlay in the viewer —
+     the dots THEMSELVES take their events back below. */
   pointer-events: none;
 }
+/* A real control (playtest §27): the mark stays the design's 22×4 bar, drawn by
+   ::before, and the button around it is a 30×28 touch target with the padding
+   doing the work. It shipped as a 22×4 span under pointer-events: none, so
+   every tap fell through to the render canvas behind it. */
 .hangar-ship-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 12px 4px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.hangar-ship-dot::before {
+  content: "";
+  display: block;
   width: 22px;
   height: 4px;
   background: var(--hg-line-4);
   clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%);
-  transition: background .18s ease;
+  transition: background .18s ease, height .18s ease;
 }
-.hangar-ship-dot.active { background: var(--hg-accent); }
+.hangar-ship-dot:hover:not(:disabled)::before { background: var(--hg-line-hi); }
+.hangar-ship-dot.active::before { background: var(--hg-accent); height: 5px; }
+.hangar-ship-dot:disabled { cursor: default; }
 .hangar-stage-action {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 8px);
@@ -2350,15 +2664,18 @@ const HANGAR_CSS = `
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  /* LOCKED sat on the buy button's top-right corner (playtest §31). A badge and
+     the control it qualifies are two things, and they now read as two. */
+  gap: 10px;
   max-width: 46%;
   pointer-events: none;
 }
 .hangar-stage-action > * { pointer-events: auto; }
 /* 44px minimum touch target — this is a phone-first screen. */
-.hangar-stage-action .hangar-stage-btn { min-height: 44px; padding: 10px 14px; box-shadow: 0 2px 10px rgba(0, 0, 0, .45); }
+.hangar-stage-action .hangar-stage-btn { min-height: 44px; margin: 0; padding: 10px 14px; box-shadow: 0 2px 10px rgba(0, 0, 0, .45); }
+.hangar-stage-action .hangar-badge { flex: 0 0 auto; margin: 0; }
 .hangar-stage-action .hangar-badge.main { border: 1px solid var(--hg-accent); }
-.hangar-stage-action .hangar-badge.locked { background: rgba(10, 12, 15, .72); }
+.hangar-stage-action .hangar-badge.locked { background: rgba(10, 12, 15, .82); }
 
 /* ---- the module card sheet ---- */
 .hangar-sheet-layer { position: absolute; inset: 0; z-index: 20; pointer-events: auto; }
@@ -2394,24 +2711,85 @@ const HANGAR_CSS = `
 .hangar-sheet-done { background: var(--hg-panel-3); border: 1px solid var(--hg-line-5); color: var(--hg-muted-2); }
 .hangar-sheet-done:hover:not(:disabled) { background: var(--hg-active); color: var(--hg-text); }
 .hangar-sheet-clear:disabled, .hangar-sheet-done:disabled { opacity: .45; cursor: default; }
-/* One horizontal row, scrollbar hidden: a finger swipes it natively, and the
-   mouse affordances (wheel → scrollLeft, click-drag pan) live in the screen. */
+/* The once-ever "there is a preview under a long press" line (playtest §37). */
+.hangar-sheet-hint {
+  margin: 0 14px 6px;
+  padding: 5px 9px;
+  border-left: 2px solid var(--hg-accent);
+  background: rgba(12, 24, 46, .82);
+  font-family: var(--hg-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  color: var(--hg-text-blue);
+  animation: hangar-sheet-up .22s ease both;
+}
+/* The row and its scroll affordances (playtest match §2 — see buildCardDeck). */
+.hangar-card-deck { position: relative; }
+/* One horizontal row: a finger swipes it natively, and the mouse affordances
+   (wheel → scrollLeft, click-drag pan) live in the screen. The scrollbar is
+   drawn now rather than hidden — thin, and in the deck's own palette. */
 .hangar-card-row {
   display: flex;
   gap: 8px;
-  padding: 2px 14px 12px;
+  padding: 2px 14px 10px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hg-line-5) transparent;
   cursor: grab;
 }
-.hangar-card-row::-webkit-scrollbar { display: none; }
+.hangar-card-row::-webkit-scrollbar { height: 4px; }
+.hangar-card-row::-webkit-scrollbar-track { background: rgba(20, 36, 60, .5); }
+.hangar-card-row::-webkit-scrollbar-thumb { background: var(--hg-line-5); }
 .hangar-card-row:active { cursor: grabbing; }
+/* The fade the row runs out into, and the chevron that walks it. Both are for
+   the case where there IS more row — a fold with nothing past it needs neither. */
+.hangar-card-fade {
+  position: absolute;
+  top: 0; right: 0; bottom: 10px;
+  width: 54px;
+  background: linear-gradient(90deg, rgba(5, 9, 17, 0) 0%, rgba(5, 9, 17, .92) 78%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s ease;
+}
+.hangar-card-more {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: var(--hg-sans);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--hg-line-hi);
+  background: rgba(9, 16, 32, .72);
+  border: 1px solid var(--hg-line-5);
+  clip-path: var(--hg-chamfer-xs);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  touch-action: manipulation;
+  transition: opacity .16s ease, background .12s ease;
+}
+.hangar-card-more:hover { background: var(--hg-active); }
+.hangar-card-deck.scrollable:not(.at-end) .hangar-card-fade { opacity: 1; }
+.hangar-card-deck.scrollable:not(.at-end) .hangar-card-more { opacity: 1; pointer-events: auto; }
 .hangar-card {
+  position: relative;
   flex: 0 0 auto;
-  width: 96px;
+  /* Sized so FOUR whole cards and a HALF one fit the row (playtest match §2):
+     the peek is the affordance, and a fixed 96px happened to land flush with
+     the sheet's edge, which is what made a 21-card row look like a 5-card one.
+     Clamped so the card never becomes unreadable or absurd on other widths. */
+  width: clamp(88px, calc(100% / 4.5 - 8px), 112px);
   height: 84px;
   display: flex;
   flex-direction: column;
@@ -2428,7 +2806,26 @@ const HANGAR_CSS = `
   transition: filter .12s ease, background .12s ease, border-color .12s ease;
 }
 .hangar-card.fitted { background: var(--hg-active-2); border-color: var(--hg-line-hi); color: #fff; }
-.hangar-card.unavailable { opacity: .35; cursor: default; pointer-events: none; }
+/* Unavailable is still the spec's "dimmed to a third" — but the dimming is on
+   the card's CONTENTS, so the reason tag stays readable (playtest §38). A card
+   whose explanation is as faint as the thing it explains explains nothing. */
+.hangar-card.unavailable { background: var(--hg-panel); border-color: var(--hg-line-2); cursor: default; pointer-events: none; }
+.hangar-card.unavailable .hangar-card-icon,
+.hangar-card.unavailable .hangar-card-name,
+.hangar-card.unavailable .hangar-card-stat { opacity: .38; }
+.hangar-card-tag {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  padding: 1px 4px;
+  font-family: var(--hg-mono);
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  color: var(--hg-bad);
+  border: 1px solid var(--hg-bad);
+  background: rgba(10, 12, 15, .6);
+}
 .hangar-card:hover:not(:disabled) { filter: brightness(1.25); }
 .hangar-card.considering { border-color: #fff; filter: brightness(1.25); }
 .hangar-card-icon { display: flex; color: var(--hg-text-blue); }
@@ -2502,6 +2899,10 @@ const HANGAR_CSS = `
 .hangar-close:hover:not(:disabled) { background: var(--hg-active); }
 .hangar-close:disabled { opacity: .45; cursor: default; }
 .hangar-hint { font-size: 12px; color: var(--hg-muted-2); border-left: 2px solid var(--hg-line-2); padding: 4px 8px; }
+/* What a hull you have not bought says about itself (playtest §30). */
+.hangar-locked-brief { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; background: var(--hg-panel-2); border: 1px solid var(--hg-line-2); }
+.hangar-locked-class { font-family: var(--hg-mono); font-size: 11px; letter-spacing: .28em; color: var(--hg-text-blue); }
+.hangar-locked-stats { font-family: var(--hg-mono); font-size: 10px; letter-spacing: .08em; color: var(--hg-muted); font-variant-numeric: tabular-nums; }
 .hangar-error { font-family: var(--hg-mono); font-size: 11px; color: var(--hg-bad); border-left: 2px solid var(--hg-bad); padding: 4px 8px; }
 
 /* ---- slot tiles ---- */
@@ -2529,12 +2930,31 @@ const HANGAR_CSS = `
 .hangar-slot.open { background: var(--hg-active); border: 1px solid var(--hg-line-hi); color: var(--hg-text-blue); }
 .hangar-slot:hover:not(:disabled) { filter: brightness(1.25); }
 .hangar-slot:disabled { opacity: .45; cursor: default; }
-/* The fitted module's glyph, 22px (spec); an empty socket's `+` is text, so the
-   box is sized here rather than by whichever of the two is inside it. */
+/* The fitted module's glyph, 22px (spec); an empty socket's "+" is text, so the
+   box is sized here rather than by whichever of the two is inside it. (No
+   backticks anywhere below this line: the whole sheet is one template literal,
+   and an unescaped pair silently splits it into two concatenated strings.) */
 .hangar-slot-icon { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; font-size: 18px; line-height: 1; }
 .hangar-slot-icon svg { width: 22px; height: 22px; stroke-width: 1.8; }
-.hangar-slot-label { font-size: 9px; line-height: 1.1; letter-spacing: .08em; color: var(--hg-muted-2); text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hangar-slot-socket { font-family: var(--hg-mono); font-size: 8px; letter-spacing: .18em; color: var(--hg-faint); }
+/* Both lines are CLIPPED TO THE TILE (playtest §29). The socket sub-label had
+   no overflow rule and .18em of tracking, so COUNTERMEASURE rendered 87px
+   wide in a 66px tile — centred, so it bled out of both sides at once and
+   arrived as "UNTERMEASU". Tighter tracking buys back roughly three characters;
+   the ellipsis is what guarantees the rest. The full text is on the tile's
+   title/aria-label, which is where the part that no longer fits now lives. */
+.hangar-slot-label,
+.hangar-slot-socket {
+  width: 100%;
+  min-width: 0;
+  padding: 0 2px;
+  box-sizing: border-box;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hangar-slot-label { font-size: 9px; line-height: 1.1; letter-spacing: .03em; color: var(--hg-muted-2); }
+.hangar-slot-socket { font-family: var(--hg-mono); font-size: 8px; letter-spacing: .06em; color: var(--hg-faint); }
 
 /* ---- before / after ---- */
 .hangar-compare {
@@ -2560,6 +2980,11 @@ const HANGAR_CSS = `
 
 /* ---- power pips + skins ---- */
 .hangar-powerrow, .hangar-skinrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* The swatches were 18×18 pinned to the very bottom edge (playtest §33): under
+   half a touch target, in the last 18px of the screen. The row keeps its own
+   air now, and every swatch is a 40px target around a 28px mark. */
+.hangar-skinrow { gap: 4px; padding-bottom: 2px; }
+.hangar-skinrow .hangar-foot-label { margin-right: 4px; }
 .hangar-foot-label { font-family: var(--hg-mono); font-size: 9px; letter-spacing: .25em; color: var(--hg-muted); }
 .hangar-pips { display: flex; flex-wrap: wrap; gap: 3px; }
 .hangar-pip {
@@ -2573,20 +2998,34 @@ const HANGAR_CSS = `
 .hangar-pip.over { background: var(--hg-over); }
 .hangar-power-text { font-family: var(--hg-mono); font-size: 10px; color: var(--hg-text); font-variant-numeric: tabular-nums; }
 .hangar-power-text.over { color: var(--hg-over); font-weight: 700; }
+/* The BUTTON is the touch target, the ::before is the paint chip: 40px of hit
+   area around a 28px mark, which is the smallest either can be (playtest §33). */
 .hangar-skin {
-  width: 22px;
-  height: 22px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--skin-primary) 0 52%, var(--skin-accent) 52% 100%);
-  border: 3px solid rgba(0, 0, 0, .4);
+  background: none;
+  border: 0;
   cursor: pointer;
   touch-action: manipulation;
-  transition: box-shadow .16s ease, border-color .16s ease;
 }
-.hangar-skin.equipped { border-color: var(--hg-accent); box-shadow: 0 0 12px rgba(79, 141, 249, .6); }
-.hangar-skin.unowned { opacity: .45; }
-.hangar-skin:hover:not(:disabled) { filter: brightness(1.2); }
+.hangar-skin::before {
+  content: "";
+  display: block;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--skin-primary) 0 52%, var(--skin-accent) 52% 100%);
+  border: 2px solid rgba(0, 0, 0, .4);
+  transition: box-shadow .16s ease, border-color .16s ease, transform .16s ease;
+}
+.hangar-skin.equipped::before { border-color: var(--hg-accent); box-shadow: 0 0 12px rgba(79, 141, 249, .6); }
+.hangar-skin.unowned::before { opacity: .45; }
+.hangar-skin:hover:not(:disabled)::before { filter: brightness(1.2); transform: scale(1.08); }
 
 /* ---- upgrades (the one block the spec does not draw — see render()) ---- */
 .hangar-upgrades { display: flex; flex-direction: column; gap: 5px; }
@@ -2613,7 +3052,7 @@ const HANGAR_CSS = `
 .hangar-btn:hover:not(:disabled) { background: var(--hg-active); }
 .hangar-btn:disabled { opacity: .45; cursor: default; }
 .hangar-btn-primary { background: var(--hg-active-2); border-color: var(--hg-accent); color: #fff; }
-.hangar-badge { font-family: var(--hg-mono); font-size: 9px; font-weight: 600; letter-spacing: .16em; padding: 3px 7px; }
+.hangar-badge { display: inline-flex; align-items: center; font-family: var(--hg-mono); font-size: 9px; font-weight: 600; line-height: 1.5; letter-spacing: .16em; padding: 3px 7px; }
 .hangar-badge.main { background: var(--hg-accent); color: var(--hg-bg); }
 .hangar-badge.locked { color: var(--hg-bad); border: 1px solid var(--hg-bad); }
 
@@ -2641,7 +3080,9 @@ const HANGAR_CSS = `
   .hangar-deck-foot { gap: 6px; }
   .hangar-upgrades { gap: 3px; }
   .hangar-upgrades .hangar-section-title { display: none; }
-  .hangar-upgrade-row .hangar-btn { min-height: 28px; padding: 4px 10px; }
+  /* 32px is this screen's floor for a control at phone scale (playtest §34):
+     the upgrade buys measured 45×24, the smallest pressable thing in the deck. */
+  .hangar-upgrade-row .hangar-btn { min-height: 32px; min-width: 58px; padding: 4px 10px; }
 }
 /* Phone-height landscape. The tiles are the POINT of this screen, so it is
    the foot that gives ground: the compare box folds to one wrapped line of
@@ -2663,9 +3104,15 @@ const HANGAR_CSS = `
   .hangar-upgrade-row { flex: 1 1 0; flex-wrap: nowrap; gap: 4px; }
   .hangar-upgrade-label { flex: 0 0 auto; }
   .hangar-upgrade-row .hangar-pips { display: none; }
-  .hangar-upgrade-row .hangar-btn { min-height: 24px; padding: 3px 8px; font-size: 10px; }
+  /* Never below 32px, however short the window gets — the deck gives its ground
+     up elsewhere (playtest §34). */
+  .hangar-upgrade-row .hangar-btn { min-height: 32px; min-width: 56px; padding: 3px 8px; font-size: 10px; }
   .hangar-pip { width: 12px; height: 6px; }
-  .hangar-skin { width: 18px; height: 18px; border-width: 2px; }
+  /* The mark shrinks a step; the 40px target does not (playtest §33). */
+  .hangar-skin { width: 40px; height: 36px; }
+  .hangar-skin::before { width: 28px; height: 28px; }
+  .hangar-ship-readout { bottom: calc(env(safe-area-inset-bottom, 0px) + 40px); }
+  .hangar-ship-dot { padding: 10px 4px; }
 }
 /* Shorter still: the tiles keep icon + socket, the labels go, and — only
    here, where even a compacted deck cannot fit — the body may scroll rather

@@ -825,3 +825,57 @@ describe("AssetRegistry shipped glTF face orientation", () => {
     ).toBe(true);
   }, 30_000);
 });
+
+/**
+ * `moduleRenderRecipe` mints `procedural.module.<family>` for every module that
+ * ships no `render` block, across the WHOLE family vocabulary — including the
+ * five with no bespoke silhouette yet. Those are a known placeholder, and the
+ * log said so five times on every re-sync, which is how a real mistyped recipe
+ * id gets skipped over.
+ */
+describe("AssetRegistry module recipe fallback", () => {
+  let engine: NullEngine;
+  let scene: Scene;
+
+  beforeEach(() => {
+    engine = new NullEngine();
+    scene = new Scene(engine);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("gives an unmodelled module family the generic module box, silently", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const assets = new AssetRegistry(scene);
+
+    for (const family of ["engine", "generator", "hull", "countermeasure", "sensors"]) {
+      expect(assets.getMesh(`procedural.module.${family}`).name).toBe(`master.procedural.module.${family}`);
+    }
+    expect(warn).not.toHaveBeenCalled();
+
+    assets.dispose();
+  });
+
+  it("still warns for a recipe id outside any authored fallback", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const assets = new AssetRegistry(scene);
+
+    expect(assets.getMesh("procedural.nonsense").name).toBe("master.placeholder.procedural.nonsense");
+    expect(warn).toHaveBeenCalledWith("[AssetRegistry]", expect.stringContaining('unknown render recipe "procedural.nonsense"'));
+
+    assets.dispose();
+  });
+
+  it("keeps a family that HAS a silhouette on its own builder", () => {
+    const assets = new AssetRegistry(scene);
+    // The laser barrel is a cylinder, not the utility box the tail would build.
+    expect(assets.getMesh("procedural.module.laser").getTotalVertices()).not.toBe(
+      assets.getMesh("procedural.module.engine").getTotalVertices(),
+    );
+    assets.dispose();
+  });
+});

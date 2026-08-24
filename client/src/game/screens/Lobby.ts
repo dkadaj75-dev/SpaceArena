@@ -59,6 +59,18 @@ export interface LobbyCallbacks {
 const TUTORIAL_LABEL = "Tutorial";
 
 /**
+ * Why a drawer full of mode cards refuses to open a match.
+ *
+ * "Skip (offline practice)" against a REACHABLE server leaves you unauthed, so
+ * every mode card comes back disabled — and the only explanation used to be a
+ * `title` tooltip, which a phone cannot show at all (finding 12). This line
+ * says it in the open, and names the two places that ARE playable without an
+ * account, since the link that got you here promised offline practice.
+ */
+const ONLINE_LOCKED_NOTE =
+  "Log in to play online — offline practice is in the Tutorial and the Hangar.";
+
+/**
  * Main menu (ROADMAP §7 2.8 client, restyled by §10 5.8).
  *
  * Structure is deliberately data-first: the *sections* are fixed (Practice /
@@ -94,8 +106,16 @@ export class Lobby {
   private readonly destinations: HTMLDivElement;
   /** One built-and-hidden panel of mode cards per authored group, by title. */
   private readonly groupPanels = new Map<string, HTMLDivElement>();
+  /** One "log in to play online" line per drawer, raised with the gate itself. */
+  private readonly lockedNotes: HTMLDivElement[] = [];
   /** Which group's modes are open, or null for the root menu. */
   private openGroup: string | null = null;
+  /**
+   * The server's last player count. Held because the line it feeds is gated on
+   * BEING able to play online, which changes on auth events the health probe
+   * knows nothing about.
+   */
+  private playersOnline: number | undefined;
 
   constructor(
     parent: HTMLElement,
@@ -255,6 +275,17 @@ export class Lobby {
         cards.append(this.modeCard(mode.id, mode.label, mode.blurb, mode.icon, mode.teams));
       }
       box.append(cards);
+
+      // Under the cards it explains, not above them: the reason a card is dead
+      // belongs where the finger already is.
+      const lockedNote = document.createElement("div");
+      lockedNote.className = "sa-menu-locked-note";
+      lockedNote.dataset["lobbyLocked"] = "";
+      lockedNote.textContent = ONLINE_LOCKED_NOTE;
+      lockedNote.hidden = true;
+      box.append(lockedNote);
+      this.lockedNotes.push(lockedNote);
+
       box.append(
         this.destination("Back", "", "back", () => this.openModes(null), "sa-menu-back"),
       );
@@ -472,15 +503,34 @@ export class Lobby {
     // Parenthesised so the probe's own words read as an aside next to the
     // headline rather than running into it.
     this.offlineDetail.textContent = online || !detail ? "" : `(${detail})`;
-    // The count includes this client (its own probe registers it), so a live
-    // server never legitimately reports 0 — an absent or zero count means the
-    // server is not counting, and the line simply stays empty.
-    this.onlineCount.textContent =
-      online && playersOnline !== undefined && playersOnline > 0
-        ? `${playersOnline} pilot${playersOnline === 1 ? "" : "s"} online`
-        : "";
+    this.playersOnline = playersOnline;
+    // applyOnlineButtonState re-renders the count: the same two facts (server
+    // reachable, identity present) decide both, and splitting them is how they
+    // got to disagree in the first place.
     this.applyOnlineButtonState(this.auth.getState().status === "authed");
     this.syncHealthRefreshTimer();
+  }
+
+  /**
+   * "N PILOTS ONLINE", but only when this client is one of them.
+   *
+   * The header chip and this line are two claims about the same thing, and they
+   * used to be able to disagree in one screenshot: "Playing offline" over
+   * "3 PILOTS ONLINE" (finding 13). The count is a fact about a lobby the
+   * player cannot enter without an identity, so it is gated on having one.
+   *
+   * The count includes this client (its own probe registers it), so a live
+   * server never legitimately reports 0 — an absent or zero count means the
+   * server is not counting, and the line simply stays empty.
+   */
+  private renderOnlineCount(): void {
+    const health = this.serverHealth.current;
+    const canPlayOnline = health.online && this.auth.getState().status === "authed";
+    const count = this.playersOnline;
+    this.onlineCount.textContent =
+      canPlayOnline && count !== undefined && count > 0
+        ? `${count} pilot${count === 1 ? "" : "s"} online`
+        : "";
   }
 
   /** Whether the lobby currently believes the game server is reachable. */
@@ -499,15 +549,19 @@ export class Lobby {
   }
 
   private applyOnlineButtonState(authed: boolean): void {
+    const serverUp = this.serverHealth.current.online;
+    // The server is there but we have no identity for it: online play is off,
+    // and — unlike the busy state — it stays off until the player does
+    // something about it. That is the state the cards have to LOOK like.
+    const locked = serverUp && !authed;
     for (const { el, online } of this.buttons) {
       if (!online) continue;
-      el.disabled = this.serverHealth.current.online && !authed;
-      el.title = !this.serverHealth.current.online
-        ? SERVER_OFFLINE_HINT
-        : authed
-          ? ""
-          : "Log in or play as a guest to play online";
+      el.disabled = locked;
+      el.classList.toggle("locked", locked);
+      el.title = !serverUp ? SERVER_OFFLINE_HINT : authed ? "" : ONLINE_LOCKED_NOTE;
     }
+    for (const note of this.lockedNotes) note.hidden = !locked;
+    this.renderOnlineCount();
   }
 
   private choose(choice: LobbyChoice): void {

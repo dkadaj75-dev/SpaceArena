@@ -14,7 +14,7 @@ import type { GameSession } from "../GameSession.js";
 import { VirtualJoystick } from "./VirtualJoystick.js";
 import { ThrottleStrip } from "./ThrottleStrip.js";
 import { BoostButton, type BoostButtonState } from "./BoostButton.js";
-import { isBoostModule, resolveHudSlotCounts } from "./ModuleButtons.js";
+import { isBoostModule, resolveHudSlotCounts, type HudSlotCounts } from "./ModuleButtons.js";
 import { JettisonButton, type JettisonButtonState } from "./JettisonButton.js";
 import { CanvasFireInput } from "./CanvasFireInput.js";
 import { LockReticle } from "./LockReticle.js";
@@ -141,6 +141,18 @@ export class FlightControls {
    * slot. `""` means "not resolved yet".
    */
   private utilitySlotKey = "";
+  /**
+   * The last resolved left-cluster assignment, replayed by {@link applyLayout}.
+   *
+   * A re-layout (rotation, URL-bar resize, theme hot-reload) used to hand BOOST
+   * and JETTISON their CONSTRUCTOR default — slot 01 of a one-slot cluster,
+   * which on any hull carrying a deployable is the shield's circle — and rely on
+   * the next live frame to put them back. Between those two moments both
+   * controls sat on top of the shield, and while the match was not live (dead,
+   * results, paused) there was no next live frame to correct it. Re-applying
+   * what the fitting already resolved keeps every circle stable across a resize.
+   */
+  private utilitySlots: HudSlotCounts | null = null;
   /** Keys currently held, normalized by {@link flightKeyOf}. */
   private readonly heldKeys = new Set<string>();
   /**
@@ -258,8 +270,7 @@ export class FlightControls {
     this.joystick.applyLayout(layout);
     this.relativeSteer.applyLayout(layout);
     this.throttleStrip.applyLayout(layout);
-    this.boostButton.applyLayout(layout);
-    this.jettisonButton.applyLayout(layout);
+    this.applyUtilitySlots(this.utilitySlots);
     this.reticle.applyLayout(layout);
     this.enemyArrows.applyLayout(layout);
     this.speedReadout.applyLayout(layout);
@@ -615,6 +626,21 @@ export class FlightControls {
     const key = `${counts.utilities}:${counts.boostSlot ?? "-"}:${counts.jettisonSlot ?? "-"}`;
     if (key === this.utilitySlotKey) return;
     this.utilitySlotKey = key;
+    this.applyUtilitySlots(counts);
+  }
+
+  /**
+   * Place BOOST and JETTISON on the circles `resolveHudSlotCounts` gave them.
+   * `null` (no fitting resolved yet) falls back to the lone-slot default the
+   * constructors use — a control nothing is fitted to is hidden anyway.
+   */
+  private applyUtilitySlots(counts: HudSlotCounts | null): void {
+    this.utilitySlots = counts;
+    if (!counts) {
+      this.boostButton.applyLayout(this.layout);
+      this.jettisonButton.applyLayout(this.layout);
+      return;
+    }
     if (counts.boostSlot !== null) {
       this.boostButton.applySlotLayout(this.layout, counts.utilities, counts.boostSlot);
     }

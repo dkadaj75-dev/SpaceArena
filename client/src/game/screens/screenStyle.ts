@@ -252,6 +252,18 @@ const CSS = `
 .sa-screen-forms.open { display: flex; }
 .sa-screen-tabs { display: flex; gap: 8px; width: 100%; }
 .sa-screen-panel { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+/* An input and the line that reports what is wrong with IT. The single error
+   line above the form was up to a whole form away from the box it named. */
+.sa-screen-field { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.sa-screen-fielderror {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--sa-red-500);
+  padding-left: 2px;
+}
+.sa-screen-fielderror:empty { display: none; }
+/* The field that failed says so twice: in words, and in its own rim. */
+.sa-screen-field:has(.sa-screen-fielderror:not(:empty)) .sa-screen-input { border-color: var(--sa-red-500); }
 .sa-screen-input {
   width: 100%;
   min-height: 44px;
@@ -315,6 +327,54 @@ const CSS = `
   touch-action: manipulation;
 }
 .sa-screen-chip:hover { border-color: var(--sa-menu-primary, var(--sa-blue-500)); }
+
+/* ---- The account gate ----------------------------------------------------
+   The gate is a scroll container like every other .sa-screen, and on a
+   landscape phone with a form open it scrolls — silently, because a touch
+   device draws no scrollbar: the LOG IN button was cut by the bottom edge and
+   "Skip (offline practice)" was off screen entirely (menus 4, match 5). Two
+   answers, both needed. This is the affordance; the rhythm block below is what
+   makes the whole gate fit in the first place. */
+.sa-screen-scrollhint {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px 0 calc(env(safe-area-inset-bottom, 0px) + 5px);
+  font-size: 10px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--sa-menu-primary, var(--sa-blue-500));
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--sa-menu-base, var(--sa-n-900)) 88%, transparent) 55%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+.sa-screen-scrollhint[data-visible="true"] { opacity: 1; }
+
+/* Landscape phone heights: at 915x412 the register form needed 532 px, so the
+   submit sat below the fold. The gate has no absolutely-positioned header to
+   clear, which makes the shared 64 px top pad pure loss here; the rest is
+   rhythm, taken in small amounts from every row rather than in one lump from
+   any single one. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .auth-overlay {
+    gap: 6px;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 14px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  }
+  .auth-overlay .sa-screen-title { font-size: clamp(18px, 4.4vw, 25px); margin: 0; }
+  .auth-overlay .sa-menu-rule { margin: 4px 0 0; }
+  .auth-overlay .sa-screen-btn { min-height: 42px; padding: 9px 18px; }
+  .auth-overlay .sa-screen-error:empty { min-height: 0; }
+  .auth-overlay .sa-screen-forms { gap: 6px; }
+  .auth-overlay .sa-screen-panel { gap: 6px; }
+  .auth-overlay .sa-screen-field { gap: 2px; }
+  .auth-overlay .sa-screen-input { min-height: 40px; padding: 8px 12px; }
+  .auth-overlay .sa-screen-tab { min-height: 38px; }
+  .auth-overlay .sa-screen-formbtn { min-height: 42px; }
+}
 
 /* ============================================================
    5.8 — dark nebula backdrop, menu sections, settings controls
@@ -456,6 +516,49 @@ const CSS = `
   align-items: flex-start;
   margin: 0;
   text-align: left;
+  isolation: isolate;
+}
+/* --- Legibility over the diorama (finding 9) -------------------------------
+   The bottom scrim carries the mode grid, but the title block and the drawer
+   headings sit ABOVE it, over whatever the 3D scene happens to be showing —
+   and against a blown-out orange sunburst the blue title, the grey subtitle
+   and the group heading all went to nearly nothing. A scrim under each of
+   those blocks plus a hard shadow on the type: enough to read on any backdrop,
+   light enough that the scene is still the thing you are looking at. */
+.sa-menu[data-diorama="on"] .sa-menu-titlewrap::before {
+  content: "";
+  position: absolute;
+  inset: -16px -30px -20px -28px;
+  z-index: -1;
+  background: radial-gradient(120% 150% at 6% 10%,
+    rgba(3, 6, 11, .74) 0%, rgba(3, 6, 11, .44) 48%, rgba(3, 6, 11, 0) 80%);
+  pointer-events: none;
+}
+.sa-menu[data-diorama="on"] .sa-menu-titlewrap .sa-screen-title,
+.sa-menu[data-diorama="on"] .sa-menu-subtitle,
+.sa-menu[data-diorama="on"] .sa-menu-online-count {
+  /* Two shadows, not one: the tight pass draws the letterform's own edge, the
+     wide pass darkens whatever it is standing on. */
+  text-shadow:
+    0 1px 2px rgba(3, 6, 11, .95),
+    0 0 14px rgba(3, 6, 11, .85),
+    0 0 calc(18px * var(--sa-menu-title-glow, .5)) var(--sa-menu-primary, var(--sa-blue-500));
+}
+.sa-menu[data-diorama="on"] .sa-menu-online-count { opacity: .9; }
+.sa-menu[data-diorama="on"] .sa-menu-group-title {
+  position: relative;
+  isolation: isolate;
+  /* Muted grey over a sunburst is not a heading, it is a rumour. */
+  color: var(--sa-menu-text, var(--sa-white));
+  text-shadow: 0 1px 2px rgba(3, 6, 11, .95), 0 0 12px rgba(3, 6, 11, .8);
+}
+.sa-menu[data-diorama="on"] .sa-menu-group-title::before {
+  content: "";
+  position: absolute;
+  inset: -5px -14px -6px -10px;
+  z-index: -1;
+  background: linear-gradient(90deg, rgba(3, 6, 11, .82) 0%, rgba(3, 6, 11, .5) 62%, rgba(3, 6, 11, 0) 100%);
+  pointer-events: none;
 }
 .sa-menu[data-diorama="on"] .sa-menu-titlewrap .sa-menu-rule { align-self: stretch; }
 /* The account chip and gear pin to the top RIGHT, opposite the wordmark.
@@ -558,6 +661,24 @@ const CSS = `
 }
 .sa-menu-btn:active:not(:disabled) { transform: translateY(0); }
 .sa-menu-btn:disabled { opacity: .45; cursor: default; }
+/* A mode you cannot start because you are not signed in (finding 12). The
+   generic :disabled dimming was not enough on its own — against the diorama a
+   45%-opacity card still read as a live control, and the only explanation was
+   a title tooltip, which a touch device never shows. Desaturating is what
+   makes it read as OFF rather than merely far away; the line under the group
+   carries the reason. */
+.sa-menu-btn.locked { opacity: .32; filter: grayscale(.85); cursor: not-allowed; }
+.sa-menu-btn.locked .sa-menu-icon { color: var(--sa-menu-muted, var(--sa-n-400)); }
+.sa-menu-locked-note {
+  max-width: min(360px, 100%);
+  padding: 4px 2px 0;
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: .03em;
+  color: var(--sa-menu-accent, var(--sa-white));
+  text-shadow: 0 1px 2px rgba(3, 6, 11, .92);
+}
+.sa-menu-locked-note[hidden] { display: none; }
 
 .sa-menu-icon { display: flex; flex: 0 0 auto; color: var(--sa-menu-primary, var(--sa-blue-400)); }
 .sa-menu-icon svg { width: 26px; height: 26px; display: block; }
@@ -690,15 +811,24 @@ const CSS = `
   display: none;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 7px 12px;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--sa-menu-accent, var(--sa-white));
-  background: color-mix(in srgb, var(--sa-menu-accent, var(--sa-white)) 12%, transparent);
+  /* An own dark plate under the tint: at 12% accent over a blown-out sunburst
+     the badge and its aside both washed out (finding 14). */
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--sa-menu-accent, var(--sa-white)) 16%, transparent), transparent),
+    color-mix(in srgb, var(--sa-n-900) 82%, transparent);
   box-shadow: inset 3px 0 0 0 var(--sa-menu-accent, var(--sa-white));
-  clip-path: polygon(7px 0%, 100% 0%, calc(100% - 7px) 100%, 0% 100%);
+  /* The LEFT edge is square on purpose. It used to be chamfered too, and the
+     3px inset accent bar — which is a box-shadow, drawn before the clip — was
+     sliced diagonally by it, leaving a sliver hanging off the panel that read
+     as a stray notch. Only the trailing edge is cut now, so the bar sits flush
+     inside its own plate. */
+  clip-path: polygon(0% 0%, 100% 0%, calc(100% - 7px) 100%, 0% 100%);
 }
 .sa-menu-offline-badge.visible { display: flex; }
 /* Its own line above the grid, and never wider than the grid it explains. */
@@ -711,11 +841,17 @@ const CSS = `
   background: var(--sa-menu-accent, var(--sa-white));
   animation: sa-offline-pulse 1.6s ease-in-out infinite;
 }
+/* The probe's own words. Muted grey over the diorama made "(could not be
+   reached)" the least readable half of the least readable badge — it is an
+   aside, so it stays quieter than the headline, but by weight now, not by
+   fading out of legibility. */
 .sa-menu-offline-badge .detail {
   font-weight: 500;
   letter-spacing: .04em;
   text-transform: none;
-  color: var(--sa-menu-muted, var(--sa-n-400));
+  color: var(--sa-menu-text, var(--sa-white));
+  opacity: .88;
+  text-shadow: 0 1px 2px rgba(3, 6, 11, .9);
 }
 @keyframes sa-offline-pulse {
   0%, 100% { opacity: 1; }
@@ -790,6 +926,24 @@ const CSS = `
 
 /* --- Settings screen --- */
 .sa-settings-groups { display: flex; flex-direction: column; gap: 12px; width: min(380px, 100%); }
+/* The in-match pause actions, pinned to the head of the sheet. Sticky rather
+   than merely first: 1900 px of settings scroll under them, and the whole
+   point is that "Resume match" is never more than a glance away. Its own plate
+   so the groups do not smear through it as they pass. */
+.sa-settings-actions {
+  position: sticky;
+  top: -2px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0 10px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--sa-menu-base, var(--sa-n-900)) 96%, transparent) 0%,
+    color-mix(in srgb, var(--sa-menu-base, var(--sa-n-900)) 92%, transparent) 74%,
+    transparent 100%);
+}
+.sa-settings-actions .sa-screen-btn { width: 100%; }
 .sa-settings-group {
   position: relative;
   display: flex;

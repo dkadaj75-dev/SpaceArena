@@ -532,6 +532,30 @@ function buildRockRecipe(scene: Scene, palette: Palette, recipeId: string, subdi
   return buildRock(scene, palette, recipeId, subdivisions ?? rock.subdivisions, rock.displacement, rock.seed);
 }
 
+/** Namespace every module without an authored `render` block falls back into. */
+const MODULE_RECIPE_PREFIX = "procedural.module.";
+
+/**
+ * The authored fallback for `procedural.module.<family>`.
+ *
+ * {@link moduleRenderRecipe} mints this id for EVERY module that ships no
+ * `render` block, over the whole `family` vocabulary — including the families
+ * with no bespoke silhouette yet (engine, generator, hull, countermeasure,
+ * sensors). Those are a known placeholder, not a content error, and
+ * {@link buildModuleFamily}'s `default` case is the box they are *supposed* to
+ * get, so resolving them here keeps the log honest: five "unknown render
+ * recipe" warnings on every re-sync trained the eye to skip the one that would
+ * mean a genuinely mistyped recipe id.
+ *
+ * Families WITH a silhouette stay listed in {@link RECIPES} above this — the
+ * table is the authority, this is only its tail.
+ */
+function moduleFamilyRecipe(recipeId: string): RecipeBuilder | undefined {
+  if (!recipeId.startsWith(MODULE_RECIPE_PREFIX)) return undefined;
+  const family = recipeId.slice(MODULE_RECIPE_PREFIX.length);
+  return family ? (scene, palette) => buildModuleFamily(scene, palette, family) : undefined;
+}
+
 const RECIPES: Record<string, RecipeBuilder> = {
   "procedural.arrowhead": buildArrowhead,
   "procedural.brawler": buildBrawler,
@@ -1148,7 +1172,7 @@ export class AssetRegistry {
     const cached = this.cache.get(key);
     if (cached) return cached;
 
-    const builder = RECIPES[recipeId];
+    const builder = RECIPES[recipeId] ?? moduleFamilyRecipe(recipeId);
     if (!builder) {
       log.warn(`unknown render recipe "${recipeId}", falling back to a placeholder box`);
       const fallback = MeshBuilder.CreateBox(`master.placeholder.${recipeId}`, { size: 1 }, this.scene);

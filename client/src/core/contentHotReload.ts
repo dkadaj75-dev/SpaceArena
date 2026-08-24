@@ -9,6 +9,13 @@ interface ContentChanged {
 interface ContentError {
   file: string;
   message: string;
+  /**
+   * The watcher's FIRST read of this file failed and it is about to retry.
+   * Almost always a torn read of a save still in flight rather than a broken
+   * config — see the retry in client/vite.config.ts. Absent (or false) means
+   * the retry failed too, and the file really is bad.
+   */
+  transient?: boolean;
 }
 
 /**
@@ -45,7 +52,11 @@ export function wireContentHotReload(configService: ConfigService): void {
   });
 
   import.meta.hot.on("content:error", (data: ContentError) => {
-    log.error(`✖ invalid JSON in ${data.file}: ${data.message}`);
+    // Crying wolf costs more than the missed line: a red "invalid JSON" on
+    // every save of a healthy file teaches you to skip the one save where the
+    // file really was broken.
+    if (data.transient) log.debug(`could not parse ${data.file} yet (${data.message}) — retrying`);
+    else log.error(`✖ invalid JSON in ${data.file}: ${data.message}`);
   });
 
   log.info("content hot-reload wired");

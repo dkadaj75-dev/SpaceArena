@@ -123,7 +123,11 @@ export class RelativeSteerInput {
     this.lastY = ev.clientY;
     this.updateAxes();
     this.render();
-    ev.preventDefault();
+    // Only when the UA will actually accept it: a touch-derived move the
+    // compositor already owns is uncancelable, and asking anyway logs a console
+    // error on every steering frame (playtest finding 13). The canvas carries
+    // `touch-action: none`, which is what really stops the page moving.
+    if (ev.cancelable) ev.preventDefault();
   };
 
   private readonly onPointerUp = (ev: PointerEvent): void => {

@@ -100,12 +100,29 @@ const CSS = `
 }
 `;
 
+/**
+ * How long "Not now" is honoured, in milliseconds.
+ *
+ * The offer used to be a boot ritual — asked on every single launch, 7+
+ * relaunches deep (playtest finding 2) — because the answer only lived for the
+ * page load. Remembering it FOREVER is the other failure: a player who declined
+ * once on a laptop never gets offered fullscreen again on the phone where it
+ * actually matters. A week makes the offer rare without making it extinct.
+ */
+export const DECLINE_REMEMBER_MS = 7 * 24 * 60 * 60 * 1000;
+
+const DECLINE_STORAGE_KEY = "sa.fullscreenDeclinedAt";
+
 /** Injected seams so the prompt is unit-testable without a real Fullscreen API. */
 export interface FullscreenPromptDeps {
   supported(): boolean;
   active(): boolean;
   request(): Promise<unknown> | void;
   onChange(handler: () => void): () => void;
+  /** Epoch ms of the last "Not now", or null if it was never declined. */
+  declinedAt(): number | null;
+  /** Remember a decline for {@link DECLINE_REMEMBER_MS}. */
+  rememberDecline(): void;
 }
 
 const browserDeps: FullscreenPromptDeps = {
@@ -113,6 +130,25 @@ const browserDeps: FullscreenPromptDeps = {
   active: isFullscreen,
   request: () => toggleFullscreen(),
   onChange: onFullscreenChange,
+  declinedAt: () => {
+    try {
+      const raw = localStorage.getItem(DECLINE_STORAGE_KEY);
+      if (raw === null) return null;
+      const at = Number(raw);
+      return Number.isFinite(at) ? at : null;
+    } catch {
+      // Storage blocked: forget the decline rather than suppress the offer —
+      // an offer with an obvious "Not now" is the cheaper of the two mistakes.
+      return null;
+    }
+  },
+  rememberDecline: () => {
+    try {
+      localStorage.setItem(DECLINE_STORAGE_KEY, String(Date.now()));
+    } catch {
+      /* not remembering is survivable */
+    }
+  },
 };
 
 /**
@@ -251,7 +287,14 @@ export class FullscreenPrompt {
     skip.type = "button";
     skip.className = "sa-fullscreen-prompt-skip";
     skip.textContent = "Not now";
-    skip.addEventListener("click", () => this.dismiss());
+    skip.addEventListener("click", () => {
+      // Only the explicit NO is remembered. Accepting settles nothing durable —
+      // fullscreen is browser state that Esc drops, so the next launch is
+      // entitled to ask again — and neither is a dismissal that came from the
+      // player reaching fullscreen some other way.
+      deps.rememberDecline();
+      this.dismiss();
+    });
 
     panel.append(title, text, go, skip);
     this.root.appendChild(panel);
@@ -264,10 +307,11 @@ export class FullscreenPrompt {
   }
 
   /**
-   * Show the prompt if fullscreen is possible and not already engaged — or, on
-   * an iPhone (where it never is), the one-time Add-to-Home-Screen hint that
-   * stands in for it. Marked shown at SHOW time, so a mid-dialog reload does
-   * not turn "once" into "every launch".
+   * Show the prompt if fullscreen is possible, not already engaged, and not
+   * declined within the last {@link DECLINE_REMEMBER_MS} — or, on an iPhone
+   * (where fullscreen never is possible), the one-time Add-to-Home-Screen hint
+   * that stands in for it. The hint is marked shown at SHOW time, so a
+   * mid-dialog reload does not turn "once" into "every launch".
    */
   static maybeShow(
     parent: HTMLElement = document.body,
@@ -275,7 +319,7 @@ export class FullscreenPrompt {
     ios: IosHintDeps = browserIosDeps,
   ): FullscreenPrompt | null {
     if (deps.active()) return null;
-    if (deps.supported()) return new FullscreenPrompt(parent, deps, "offer");
+    if (deps.supported()) return declinedRecently(deps) ? null : new FullscreenPrompt(parent, deps, "offer");
     if (!ios.isIphone() || ios.installed() || ios.hintShown()) return null;
     ios.markHintShown();
     return new FullscreenPrompt(parent, deps, "ios-hint");
@@ -291,4 +335,19 @@ export class FullscreenPrompt {
     this.root.remove();
     this.resolveClosed();
   }
+}
+
+/**
+ * Is a stored "Not now" still standing?
+ *
+ * A stamp from the FUTURE means the clock moved backwards since it was written
+ * (a device that had the wrong date, a timezone-naive system clock), and a
+ * decline we could not have recorded yet is not one to honour — asking again is
+ * the recoverable direction.
+ */
+function declinedRecently(deps: FullscreenPromptDeps): boolean {
+  const declinedAt = deps.declinedAt();
+  if (declinedAt === null) return false;
+  const age = Date.now() - declinedAt;
+  return age >= 0 && age < DECLINE_REMEMBER_MS;
 }

@@ -1,6 +1,6 @@
 import { NullEngine, Scene } from "@babylonjs/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EditorShell, viewportRectFor, type EditorHost } from "./EditorShell.js";
+import { EditorShell, viewportRectFor, type EditorHost, type EditorPanelFactory } from "./EditorShell.js";
 
 /** Desktop: 1280×720 window, 44px top bar + 34px tool row, 400px inspector. */
 const DESKTOP_SPACER = { left: 0, top: 78, width: 880, height: 642 };
@@ -124,6 +124,71 @@ describe("EditorShell chrome", () => {
         });
     expect(groupOf("Widgets")).toBe("World");
     expect(groupOf("Modules")).toBe("Ships");
+    shell.close();
+  });
+});
+
+describe("EditorShell problem list", () => {
+  /** Register extra System tools on an open shell and reopen so the tool row shows them. */
+  function withTools(shell: EditorShell, tools: Record<string, EditorPanelFactory>): HTMLElement {
+    for (const [name, factory] of Object.entries(tools)) shell.registerPanel(name, factory, "System");
+    shell.close();
+    shell.toggle();
+    return document.getElementById("space-arena-editor")!;
+  }
+
+  /**
+   * One invalid field reaches the list twice: the open panel's SchemaFormGen
+   * `onProblem` report, and validateAll()'s own sweep over the same config —
+   * both phrasing it as `<config id> <field>: <message>`, so a single
+   * `durationMs: -99999` lit the badge "2" and printed the identical sentence
+   * twice in Problems.
+   */
+  it("keeps one entry per (config, field, message) however many validators report it", () => {
+    const { shell, dispose } = openShell();
+    shells.push(dispose);
+    const problem = "notification.fire-blocked durationMs: Too small: expected number to be >0";
+    const root = withTools(shell, {
+      Twice: (_host, report) => { report(problem); report(problem); return dummyPanel(); },
+    });
+
+    root.querySelector<HTMLElement>('.ed-tab[data-tab="Twice"]')!.click();
+    expect(root.querySelector(".ed-status-count")?.textContent).toBe("1");
+
+    root.querySelector<HTMLElement>('.ed-tab[data-tab="Problems"]')!.click();
+    expect([...root.querySelectorAll(".ed-problem")].map((p) => p.textContent)).toEqual([problem]);
+    shell.close();
+  });
+
+  it("still lists two genuinely different problems", () => {
+    const { shell, dispose } = openShell();
+    shells.push(dispose);
+    const root = withTools(shell, {
+      Pair: (_host, report) => {
+        report("notification.fire-blocked durationMs: Too small: expected number to be >0");
+        report("notification.fire-blocked text: Too small: expected string to have >0 characters");
+        return dummyPanel();
+      },
+    });
+
+    root.querySelector<HTMLElement>('.ed-tab[data-tab="Pair"]')!.click();
+    expect(root.querySelector(".ed-status-count")?.textContent).toBe("2");
+    shell.close();
+  });
+
+  /**
+   * One scroller serves every tool, and it used to carry its offset across:
+   * leaving Map 600px down dropped you 600px into Inspector's unrelated form.
+   */
+  it("opens each tool at its own top rather than inheriting the last tool's scroll", () => {
+    const { shell, dispose } = openShell();
+    shells.push(dispose);
+    const root = withTools(shell, { Second: dummyPanel });
+    const body = root.querySelector<HTMLElement>(".ed-inspector-body")!;
+
+    body.scrollTop = 600;
+    root.querySelector<HTMLElement>('.ed-tab[data-tab="Second"]')!.click();
+    expect(body.scrollTop).toBe(0);
     shell.close();
   });
 });

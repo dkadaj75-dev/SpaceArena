@@ -1,7 +1,7 @@
 import { NullEngine, ParticleSystem, Scene, TransformNode } from "@babylonjs/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EffectConfig } from "@space-arena/shared";
-import { ExplosionFx } from "./ExplosionFx.js";
+import { ExplosionFx, closeRangeFlashScale } from "./ExplosionFx.js";
 import { DEFAULT_JUICE_SETTINGS } from "./juiceSettings.js";
 
 const engines: NullEngine[] = [];
@@ -64,6 +64,43 @@ describe("ExplosionFx lifecycle pool", () => {
     // Slots are recycled: an unscaled burst must clear the previous caller's scale.
     for (let i = 0; i < POOL_SIZE + 1; i++) fx.burst(effect, i, 0);
     expect(slot.scaling.x).toBeCloseTo(1, 5);
+    fx.dispose();
+  });
+
+  /**
+   * Playtest finding 8: "death explosions white out the screen; a full-screen
+   * orange fireball that swamps the HUD". The flash is a world-space sphere
+   * ~3.6 units across at 0.95 alpha — from chase distance a bright ball, at
+   * contact range something the camera is INSIDE.
+   */
+  it("fades a burst the camera is inside, and leaves a distant one alone", () => {
+    // Well clear: the authored effect, untouched.
+    expect(closeRangeFlashScale(30, 1.8)).toBe(1);
+    expect(closeRangeFlashScale(12, 1.8)).toBe(1);
+    // On the sphere's surface, and inside it: nothing to see.
+    expect(closeRangeFlashScale(1.8, 1.8)).toBe(0);
+    expect(closeRangeFlashScale(0, 1.8)).toBe(0);
+    // Between the two it ramps rather than popping.
+    const near = closeRangeFlashScale(3, 1.8);
+    expect(near).toBeGreaterThan(0);
+    expect(near).toBeLessThan(1);
+    expect(closeRangeFlashScale(4.5, 1.8)).toBeGreaterThan(near);
+    // A missing camera (headless, teardown) reads as "far away" — never as a
+    // reason to gate an effect off.
+    expect(closeRangeFlashScale(Number.POSITIVE_INFINITY, 1.8)).toBe(1);
+    expect(closeRangeFlashScale(10, 0)).toBe(1);
+  });
+
+  it("keeps the flash under full opacity even at its peak", () => {
+    const fx = makeFx();
+    fx.burst(effect, 0, 0, 0);
+    fx.update(1);
+    const scene = (fx as unknown as { scene: Scene }).scene;
+    const flash = scene.getMeshByName("fx.explosion.flash.0");
+    // No camera in a NullEngine scene, so the proximity ramp is 1 here and this
+    // is the peak the effect is authored to reach.
+    expect(flash?.material?.alpha).toBeGreaterThan(0.4);
+    expect(flash?.material?.alpha).toBeLessThan(0.8);
     fx.dispose();
   });
 

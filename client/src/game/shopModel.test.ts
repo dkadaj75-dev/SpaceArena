@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { ConfigService, ConfigType, ModuleConfig } from "@space-arena/shared";
 import { FakeOwnershipStore } from "./__fixtures__/ownershipStoreFake.js";
 import { shopConfigs } from "./__fixtures__/shopContent.js";
 import {
+  matchesShopFilter,
   moduleGroups,
   paintEntries,
   priceLabel,
@@ -11,6 +13,21 @@ import {
 } from "./shopModel.js";
 
 const configs = shopConfigs();
+
+/**
+ * The shipped fixture gives every module `requiresLevel: 1`, which is the one
+ * case that proves nothing about a level gate. This re-levels them in place —
+ * locally, because the fixture is shared with the Hangar's suites.
+ */
+function configsRequiring(levels: Record<string, number>): ConfigService {
+  return {
+    get: () => undefined,
+    getAll: (type: ConfigType) =>
+      type === "module"
+        ? configs.getAll<ModuleConfig>("module").map((mod) => ({ ...mod, requiresLevel: levels[mod.id] ?? mod.requiresLevel }))
+        : configs.getAll(type),
+  } as unknown as ConfigService;
+}
 
 describe("shop price chips", () => {
   it("renders the authored value and says FREE only at zero", () => {
@@ -54,6 +71,20 @@ describe("shop modules tab", () => {
     ]);
     // Chips come from moduleSummary so the shop and the Hangar picker agree.
     expect(laser.entries[0]!.chips[0]).toEqual({ label: "DPS", value: "5" });
+  });
+
+  it("carries the requirement the SERVER enforces, not the family ladder position", () => {
+    // Finding 44: the card printed `module.level` — a Mk I/Mk II/Mk III rung —
+    // as "LV 2", and the purchase was refused with "requires level 3".
+    const configs = configsRequiring({ "module.laser-mk2": 3 });
+    const groups = moduleGroups(configs, new FakeOwnershipStore());
+    const laser = groups.find((g) => g.title === "laser")!;
+    const [mk1, mk2] = laser.entries;
+    expect(mk2!.requiresLevel).toBe(3);
+    expect(mk2!.sub).toBe("laser · Requires Lv 3");
+    // A gate of 1 is no gate: it neither shows nor blocks.
+    expect(mk1!.requiresLevel).toBeUndefined();
+    expect(mk1!.sub).toBe("laser");
   });
 
   it("ignores ownership of modules the pack no longer ships (2026-08-22)", () => {
@@ -116,5 +147,23 @@ describe("shop paints tab", () => {
   it("a pack with no cosmetics yields an empty tab rather than throwing", () => {
     const store = new FakeOwnershipStore({ ships: ["ship.interceptor"] });
     expect(paintEntries(shopConfigs([]), store)).toEqual([]);
+  });
+});
+
+describe("shop filter", () => {
+  const entries = moduleGroups(configs, new FakeOwnershipStore()).flatMap((g) => g.entries);
+  const matching = (query: string): string[] =>
+    entries.filter((e) => matchesShopFilter(e, query)).map((e) => e.name);
+
+  it("matches the name and the family line, case- and space-insensitively", () => {
+    expect(matching("autocannon")).toEqual(["Autocannon Mk I"]);
+    // "kinetic" is as likely a search as the weapon's own name.
+    expect(matching("KINETIC")).toEqual(["Autocannon Mk I"]);
+    expect(matching("  laser ")).toEqual(["Pulse Laser Mk I", "Pulse Laser Mk II"]);
+  });
+
+  it("shows everything for an empty query and nothing for a miss", () => {
+    expect(matching("")).toHaveLength(entries.length);
+    expect(matching("torpedo")).toEqual([]);
   });
 });

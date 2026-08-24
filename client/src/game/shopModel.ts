@@ -45,6 +45,16 @@ export interface ShopEntry {
   price: number;
   state: ShopState;
   chips: ShopChip[];
+  /**
+   * The pilot level the SERVER enforces on this purchase, when it enforces one
+   * (`server/src/api/modules.ts`: 403 `level-locked`). Absent means no gate.
+   *
+   * This is `module.requiresLevel` and nothing else. The card used to print
+   * `module.level` — the ladder position inside a family, Mk I before Mk III —
+   * next to the family name, which read as a requirement and was not one: a
+   * card saying "LV 2" was refused with "requires level 3" (finding 44).
+   */
+  requiresLevel?: number;
 }
 
 export interface ShopGroup {
@@ -123,12 +133,13 @@ export function moduleGroups(configs: Pick<ConfigService, "getAll">, owned: Shop
     const entry: ShopEntry = {
       id: mod.id,
       name: mod.name ?? mod.id,
-      sub: `${mod.family} · Lv ${mod.level}`,
+      sub: moduleSubLine(mod),
       price: mod.price,
       state: ownedModules.has(mod.id) ? "owned" : "buy",
       // Four chips is what one row fits; moduleSummary already orders them by
       // what matters for the family.
       chips: moduleStats(mod).slice(0, 4),
+      ...(mod.requiresLevel > 1 ? { requiresLevel: mod.requiresLevel } : {}),
     };
     const list = byFamily.get(mod.family);
     if (list) list.push(entry);
@@ -137,6 +148,33 @@ export function moduleGroups(configs: Pick<ConfigService, "getAll">, owned: Shop
   return [...byFamily.entries()]
     .map(([family, entries]) => ({ title: family, entries }))
     .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+/**
+ * The line under a module's name: its family, and the ONLY number on the card
+ * that a purchase is actually judged against.
+ *
+ * `module.level` is a ladder position, not a permission, and printing it as
+ * "Lv 2" beside the family made it read as one — the card said LV 2 and the
+ * server refused with "requires level 3" (finding 44). A gate of 1 is no gate,
+ * so it says nothing rather than "Lv 1 required".
+ */
+function moduleSubLine(mod: ModuleConfig): string {
+  return mod.requiresLevel > 1 ? `${mod.family} · Requires Lv ${mod.requiresLevel}` : mod.family;
+}
+
+/**
+ * Does this row survive the shop's text filter?
+ *
+ * The catalogue is 58 module cards over ~12 screens with group headings as its
+ * only navigation (finding 46). Name AND family line, because "kinetic" is as
+ * likely a search as "Autocannon"; the sub carries the family (and, where there
+ * is one, the level requirement).
+ */
+export function matchesShopFilter(entry: ShopEntry, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return `${entry.name} ${entry.sub}`.toLowerCase().includes(needle);
 }
 
 /**

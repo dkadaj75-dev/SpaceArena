@@ -398,6 +398,42 @@ describe("Lobby server health", () => {
     expect(duel.disabled).toBe(false);
   });
 
+  it("never claims pilots are online while the header says you are not", async () => {
+    // Finding 13: the chip read "Playing offline" and the line under the title
+    // read "3 PILOTS ONLINE", in one screenshot. The count is a fact about a
+    // lobby you cannot enter without an identity, so it is gated on having one.
+    vi.useFakeTimers();
+    const health = new ServerHealthState(vi.fn().mockResolvedValue({ online: true, detail: "", playersOnline: 3 }));
+    const anonymous = new Lobby(document.body, configs(), auth({ status: "anonymous" } as AuthState), health, {
+      onChoose: vi.fn(),
+      onLogout: vi.fn(),
+      onAccountRequested: vi.fn(),
+      onHangarRequested: vi.fn(),
+      onShopRequested: vi.fn(),
+      onSettingsRequested: vi.fn(),
+    });
+    health.set({ online: true, detail: "", playersOnline: 3 });
+    const count = (): string => document.querySelector<HTMLElement>(".sa-menu-online-count")!.textContent!;
+    expect(document.querySelector(".sa-menu-account")!.textContent).toContain("Playing offline");
+    expect(count()).toBe("");
+    anonymous.dispose();
+    document.body.replaceChildren();
+
+    const signedIn = new Lobby(document.body, configs(), auth(), health, {
+      onChoose: vi.fn(),
+      onLogout: vi.fn(),
+      onAccountRequested: vi.fn(),
+      onHangarRequested: vi.fn(),
+      onShopRequested: vi.fn(),
+      onSettingsRequested: vi.fn(),
+    });
+    expect(count()).toBe("3 pilots online");
+    // …and it goes away with the server, not just with the account.
+    health.set({ online: false, detail: "could not be reached", playersOnline: 3 });
+    expect(count()).toBe("");
+    signedIn.dispose();
+  });
+
   it("lets an anonymous pilot launch a mode when no server is available", () => {
     const health = new ServerHealthState(vi.fn());
     health.set({ online: false, detail: "static host" });
@@ -422,5 +458,54 @@ describe("Lobby server health", () => {
     expect(duel.disabled).toBe(false);
     duel.click();
     expect(onChoose).toHaveBeenCalledWith({ kind: "online", gamemode: "gamemode.duel-1v1" });
+  });
+});
+
+/**
+ * Finding 12: "Skip (offline practice)" against a REACHABLE server leaves the
+ * pilot unauthed, and every mode card came back disabled while rendering
+ * identically to a live one — the only explanation a `title` tooltip, which a
+ * phone cannot show at all.
+ */
+describe("Lobby online gate", () => {
+  function mount(state: AuthState): Lobby {
+    const health = new ServerHealthState(vi.fn());
+    health.set({ online: true, detail: "" });
+    return new Lobby(document.body, practiceConfigs(), auth(state), health, {
+      onChoose: vi.fn(),
+      onLogout: vi.fn(),
+      onAccountRequested: vi.fn(),
+      onHangarRequested: vi.fn(),
+      onShopRequested: vi.fn(),
+      onSettingsRequested: vi.fn(),
+    });
+  }
+  const notes = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>("[data-lobby-locked]")];
+
+  it("makes an unplayable card LOOK unplayable, and says why in the open", () => {
+    const lobby = mount({ status: "anonymous" } as AuthState);
+    expect(cards().every((c) => c.disabled && c.classList.contains("locked"))).toBe(true);
+    // One line per drawer, so the reason is under whichever group is open.
+    expect(notes()).toHaveLength(2);
+    expect(notes().every((n) => !n.hidden)).toBe(true);
+    expect(notes()[0]!.textContent).toContain("Log in to play online");
+    // The tooltip stays for a mouse — it is just no longer the only channel.
+    expect(cards()[0]!.title).toContain("Log in to play online");
+    lobby.dispose();
+  });
+
+  it("leaves signed-in cards alone", () => {
+    const lobby = mount(authed);
+    expect(cards().some((c) => c.classList.contains("locked"))).toBe(false);
+    expect(notes().every((n) => n.hidden)).toBe(true);
+    lobby.dispose();
+  });
+
+  it("does not dress a busy card as locked — busy is a moment, this is a state", () => {
+    const lobby = mount(authed);
+    lobby.setBusy(true, "Connecting…");
+    expect(cards().every((c) => c.disabled)).toBe(true);
+    expect(cards().some((c) => c.classList.contains("locked"))).toBe(false);
+    lobby.dispose();
   });
 });

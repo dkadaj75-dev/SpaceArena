@@ -50,16 +50,24 @@ export function installTouchGuards(target: Document = document): () => void {
 
   const preventBrowserGesture = (event: Event): void => {
     // Canvas owns its own pinch controls; every other surface is page UI.
+    if (!event.cancelable) return;
     if (!isCanvasTarget(event.target)) event.preventDefault();
   };
   const preventPageScroll = (event: TouchEvent): void => {
+    // `cancelable` first (2026-08-23). Once a touch gesture has been handed to
+    // the compositor the browser sends UNCANCELABLE `touchmove`s, and calling
+    // preventDefault on one is refused with a console ERROR — 414 of them in a
+    // single playtest, one per steering frame, burying every real message
+    // (playtest finding 13). Nothing is lost by declining: a move the browser
+    // will not let us cancel is one we could not have cancelled anyway.
+    if (!event.cancelable) return;
     if (!isCanvasTarget(event.target) && !isScrollableTarget(event.target)) event.preventDefault();
   };
   let lastTouchEnd = -Infinity;
   const preventDoubleTapZoom = (event: TouchEvent): void => {
     if (isInteractiveTarget(event.target)) return;
     const elapsed = event.timeStamp - lastTouchEnd;
-    if (elapsed > 0 && elapsed < DOUBLE_TAP_WINDOW_MS) event.preventDefault();
+    if (elapsed > 0 && elapsed < DOUBLE_TAP_WINDOW_MS && event.cancelable) event.preventDefault();
     lastTouchEnd = event.timeStamp;
   };
 

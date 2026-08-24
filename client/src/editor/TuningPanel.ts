@@ -3,36 +3,7 @@ import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
 import { applicationNotice } from "./applicationScope.js";
-
-/**
- * Node label used for substring filtering: a field's own text, or null for
- * plain containers.
- *
- * Read from `firstElementChild` rather than a `:scope >` selector. Both shapes
- * put their caption FIRST — the field's title span, the group's summary — so
- * this is the same answer without depending on a selector happy-dom does not
- * resolve, which left the filter matching nothing at all under test.
- */
-function nodeLabel(el: HTMLElement): string | null {
-  const first = el.firstElementChild;
-  if (el.classList.contains("editor-field")) return first?.tagName === "SPAN" ? first.textContent ?? "" : "";
-  if (el.tagName === "DETAILS") return first?.tagName === "SUMMARY" ? first.textContent ?? "" : "";
-  return null;
-}
-
-/** Hides child elements (and their subtrees) whose label doesn't contain `query`. Returns whether anything stayed visible. */
-function filterTree(el: HTMLElement, query: string): boolean {
-  let anyVisible = false;
-  for (const child of Array.from(el.children)) {
-    if (!(child instanceof HTMLElement) || child.tagName === "SUMMARY") continue;
-    const label = nodeLabel(child);
-    const childrenVisible = filterTree(child, query);
-    const visible = query === "" || (label !== null && label.toLowerCase().includes(query)) || childrenVisible;
-    child.style.display = visible ? "" : "none";
-    anyVisible = anyVisible || visible;
-  }
-  return anyVisible;
-}
+import { FieldFilter, filterTree } from "./fieldFilter.js";
 
 /** One collapsible config section: form + save button, refiltered on demand. */
 class ConfigSection<T extends TuningConfig | CameraConfig> {
@@ -112,19 +83,13 @@ class ConfigSection<T extends TuningConfig | CameraConfig> {
 export class TuningPanel implements EditorPanel {
   readonly element = document.createElement("div");
   private readonly sections: ConfigSection<TuningConfig | CameraConfig>[] = [];
+  private readonly search: FieldFilter;
 
   constructor(host: EditorHost, report: (message: string | null) => void) {
     const toolbar = document.createElement("div");
     toolbar.className = "ed-toolbar";
-    const search = document.createElement("input");
-    search.type = "search";
-    search.className = "ed-input";
-    search.placeholder = "e.g. damage, netRenderDelayMs";
-    search.addEventListener("input", () => this.filter(search.value));
-    const searchLabel = document.createElement("span");
-    searchLabel.className = "ed-label";
-    searchLabel.textContent = "Find field";
-    toolbar.append(searchLabel, search);
+    this.search = new FieldFilter({ placeholder: "e.g. damage, netRenderDelayMs", onQuery: (query) => this.filter(query) });
+    toolbar.append(this.search.element);
     this.element.append(toolbar);
 
     for (const tuning of host.configService.getAll<TuningConfig>("tuning")) {
@@ -165,6 +130,7 @@ export class TuningPanel implements EditorPanel {
   }
 
   dispose(): void {
+    this.search.dispose();
     for (const section of this.sections) section.dispose();
     this.element.replaceChildren();
   }

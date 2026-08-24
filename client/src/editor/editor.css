@@ -520,7 +520,9 @@
   flex: 1 1 auto;
 }
 
-@media (max-width: 720px) {
+/* Phone shape — see the bottom-sheet block near the end of this file for why
+   this is not a width test alone. */
+@media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
   /* Phone: full-width strip pinned to the top of the viewport, above the sheet. */
   .sa-editor .ed-ctx {
     left: 8px;
@@ -607,6 +609,24 @@
   padding: 10px 14px;
   background: var(--ed-panel-solid);
   border-bottom: 1px solid var(--ed-border);
+}
+
+/*
+ * Content passing UNDER the sticky toolbar was guillotined mid-glyph — a
+ * half-height "ENGAGE — WEIGHT 1" row, a colour swatch sliced through its hex.
+ * The header is opaque, so the cut is clean rather than overlapping, which is
+ * exactly what makes it read as a rendering fault instead of as scrolling.
+ * A short fade below the header dissolves the row instead of severing it.
+ */
+.sa-editor .ed-inspector-body > .ed-panel-root > .ed-toolbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 14px;
+  background: linear-gradient(var(--ed-panel-solid), rgba(13, 21, 36, 0));
+  pointer-events: none;
 }
 
 /* Drag handle: desktop hides it, mobile bottom-sheet uses it. */
@@ -1255,9 +1275,42 @@
   text-align: right;
 }
 
+/*
+ * Comparison tables are wider than the inspector column by construction (8 stat
+ * columns, or one column per ship in the TTK matrix) and every cell is
+ * `white-space: nowrap`. Before this they simply overflowed: half of each table
+ * sat off-screen with no scrollbar, shadow or chevron, so a clipped `ENERG…`
+ * read as the end of the table rather than the middle of it.
+ *
+ * The affordance is the classic pure-CSS scroll shadow: two `local` gradients
+ * sit at the content's own edges and scroll away with it, uncovering two
+ * `scroll` shadows pinned to the box — so a shadow appears on precisely the
+ * side that still has hidden columns, and neither is drawn when the table fits.
+ */
 .sa-editor .ed-table-scroll {
   overflow-x: auto;
   margin: 4px 0;
+  scrollbar-width: thin;
+  background:
+    linear-gradient(to right, var(--ed-panel-solid), rgba(13, 21, 36, 0)) left center / 20px 100% no-repeat local,
+    linear-gradient(to left, var(--ed-panel-solid), rgba(13, 21, 36, 0)) right center / 20px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0)) left center / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0)) right center / 14px 100% no-repeat scroll;
+}
+
+/*
+ * Freeze the row label. Scrolled right, the stat table used to show five rows
+ * of bare numbers with nothing saying which hull each belonged to — the one
+ * thing a comparison table cannot afford to lose. Opaque because the rest of
+ * the row slides beneath it.
+ */
+.sa-editor .ed-table-scroll .ed-table th:first-child,
+.sa-editor .ed-table-scroll .ed-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--ed-panel-solid);
+  border-right: 1px solid var(--ed-border-soft);
 }
 
 /* ----------------------------------------------------------------- console */
@@ -1418,7 +1471,24 @@
 
 /* --------------------------------------------------- mobile bottom sheet */
 
-@media (max-width: 720px) {
+/*
+ * "A phone", not "a narrow window".
+ *
+ * This block was gated on `max-width: 720px` alone, which is true of a phone in
+ * PORTRAIT and false of the same phone rotated: a Samsung in landscape is
+ * 915x412. The designer this suite exists for authors from a phone held
+ * sideways, and got the desktop layout — a 400px docked column on a 412px-tall
+ * screen, the brand eating 133px of top bar, `.ed-sheet-handle` computing
+ * `display: none`, and all three `[data-sheet]` heights inert because they live
+ * in here. EditorShell.cycleSheet() cycled a dataset attribute nothing read.
+ *
+ * The second condition is what "phone in landscape" actually means: a touch
+ * pointer with almost no vertical room. A desktop window dragged short keeps
+ * the docked column (fine pointer), and a tablet in landscape (768px+ tall)
+ * keeps it too — both have the height for it. Kept as a comma list rather than
+ * one nested condition so the syntax needs no Media Queries 4 support.
+ */
+@media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
   .sa-editor {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -1532,19 +1602,71 @@ body.sa-editor-open .game-screen {
   flex: 1 0 100%;
 }
 
+/*
+ * Layer Eye/Lock, Mirror mode, Translate/Rotate snap. The glyph a browser draws
+ * for a bare checkbox is 13px — a third of the 44px every other control in this
+ * shell offers, and the Map panel is where a designer taps them most. The LABEL
+ * is the hit target (the input sits inside it), so the target grows through
+ * padding while the glyph stays small enough to keep the row compact.
+ */
 .sa-editor .ed-check {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 28px;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 8px 0 4px;
   color: var(--ed-text-dim);
   font-size: 11px;
+  cursor: pointer;
+}
+
+.sa-editor .ed-check > input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--ed-accent);
 }
 
 .sa-editor .ed-btn.is-active {
   border-color: var(--ed-accent);
   color: var(--ed-accent);
   box-shadow: inset 0 0 12px rgba(87, 216, 255, .12);
+}
+
+/*
+ * Touch equivalents for the Map tool's keyboard-only edit ops (Ctrl+D / Delete /
+ * F / L). A phone has no keyboard, and the tool exists to be authored from one.
+ */
+.sa-editor .ed-map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 0 100%;
+}
+
+.sa-editor .ed-map-actions .ed-btn {
+  flex: 1 1 auto;
+  min-height: 40px;
+}
+
+.sa-editor .ed-map-actions .ed-btn:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+/* "Find field" search: caption + box behaving as one toolbar item. */
+.sa-editor .ed-field-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.sa-editor .ed-field-filter input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .sa-editor .ed-apply-scope {

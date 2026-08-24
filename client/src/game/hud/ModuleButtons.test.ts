@@ -10,10 +10,13 @@ import {
   moduleSlotTypeLabel,
   resolveHudSlotCounts,
   resolveModuleFamilyColor,
+  utilitySlotAssignments,
 } from "./ModuleButtons.js";
 import { resolveFlightHudLayout } from "./flightHudLayout.js";
+import { resolveHudLayout } from "./hudLayout.js";
 import { BoostButton, BOOST_LABEL, BOOST_SLOT_TYPE } from "./BoostButton.js";
 import { JettisonButton, JETTISON_LABEL, JETTISON_SLOT_TYPE } from "./JettisonButton.js";
+import { FlightControls } from "./FlightControls.js";
 
 function fakeConfigs(): ConfigService {
   const tuning = tuningSchema.parse({
@@ -454,6 +457,54 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       buttons.dispose();
     });
 
+    /**
+     * Playtest finding 1: with a steering thumb held, a second touch on a
+     * `click`-bound control synthesizes NO click, so the shield toggle was dead
+     * for the whole of normal flight — confirmed live, the shield never left
+     * `state-retracted` across an entire match. The rail's utility buttons are
+     * bound to pointer events now, exactly like the weapon triggers beside them.
+     */
+    it("toggles the shield from a POINTER tap, with a steering finger already down", () => {
+      const root = document.createElement("div");
+      const order = vi.fn();
+      const buttons = new ModuleButtons(
+        root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order } as unknown as GameSession, 1,
+      );
+      buttons.update(snapshotWithModules([
+        { hardpointIndex: 2, moduleId: "module.shield-mk1", state: "retracted" },
+      ]));
+      const shield = root.querySelector<HTMLElement>(".hud-module-btn")!;
+
+      // Pointer 1 is the steering thumb, already down somewhere else entirely.
+      document.dispatchEvent(pointer("pointerdown", 1));
+      // Pointer 2 taps the shield. No `click` is dispatched at all — which is
+      // precisely what the browser does for a second touch point.
+      shield.dispatchEvent(pointer("pointerdown", 2));
+      shield.dispatchEvent(pointer("pointerup", 2));
+      expect(order).toHaveBeenCalledWith({ kind: "moduleToggle", hardpointIndex: 2 });
+      buttons.dispose();
+    });
+
+    it("does not fire the shield when the finger DRAGS off across the button", () => {
+      const root = document.createElement("div");
+      const order = vi.fn();
+      const buttons = new ModuleButtons(
+        root, fakeConfigs(), {} as EventBus<ConfigEvents>, { order } as unknown as GameSession, 1,
+      );
+      buttons.update(snapshotWithModules([
+        { hardpointIndex: 0, moduleId: "module.shield-mk1", state: "retracted" },
+      ]));
+      const shield = root.querySelector<HTMLElement>(".hud-module-btn")!;
+      shield.dispatchEvent(Object.assign(pointer("pointerdown", 3), { clientX: 40, clientY: 300 }));
+      shield.dispatchEvent(Object.assign(pointer("pointerup", 3), { clientX: 140, clientY: 300 }));
+      expect(order).not.toHaveBeenCalled();
+      // …and a tap that stays put still works.
+      shield.dispatchEvent(Object.assign(pointer("pointerdown", 4), { clientX: 40, clientY: 300 }));
+      shield.dispatchEvent(Object.assign(pointer("pointerup", 4), { clientX: 42, clientY: 302 }));
+      expect(order).toHaveBeenCalledWith({ kind: "moduleToggle", hardpointIndex: 0 });
+      buttons.dispose();
+    });
+
     it("refuses a utility TOGGLE while the rail is disabled, like the triggers", () => {
       const root = document.createElement("div");
       const orderSpy = vi.fn();
@@ -621,17 +672,20 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
     it("puts BOOST then JETTISON behind the fitted deployables", () => {
       const configs = fakeConfigs();
       const counts = resolveHudSlotCounts(configs, [
-        { moduleId: "module.laser-mk1" },
-        { moduleId: "module.shield-mk1" },
-        { moduleId: "module.boost-mk1" },
+        { hardpointIndex: 0, moduleId: "module.laser-mk1" },
+        { hardpointIndex: 1, moduleId: "module.shield-mk1" },
+        { hardpointIndex: 2, moduleId: "module.boost-mk1" },
       ] as never);
-      expect(counts).toEqual({
+      expect(counts).toMatchObject({
         weapons: 1,
         utilityModules: 1,
         boostSlot: 1,
         jettisonSlot: null,
         utilities: 2,
       });
+      // The shield's circle comes from the same resolution BOOST's does.
+      expect([...counts.utilitySlots]).toEqual([[1, 0]]);
+      expect([...counts.weaponSlots]).toEqual([[0, 0]]);
     });
 
     it("counts no left slot for a fitting with neither action", () => {
@@ -658,19 +712,90 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
      */
     it("finds the Talon's BOOST on its engine's boost block, not on a family nothing authors", () => {
       const counts = resolveHudSlotCounts(fakeConfigs(), [
-        { moduleId: "module.laser-mk1" },
-        { moduleId: "module.missile-mk1" },
-        { moduleId: "module.engine-earth-eng1" },
-        { moduleId: "module.countermeasure-flare" },
+        { hardpointIndex: 0, moduleId: "module.laser-mk1" },
+        { hardpointIndex: 1, moduleId: "module.missile-mk1" },
+        { hardpointIndex: 2, moduleId: "module.engine-earth-eng1" },
+        { hardpointIndex: 3, moduleId: "module.countermeasure-flare" },
       ] as never);
       // Both internals: neither gets a module button, but each owns a left slot.
-      expect(counts).toEqual({
+      expect(counts).toMatchObject({
         weapons: 2,
         utilityModules: 0,
         boostSlot: 0,
         jettisonSlot: 1,
         utilities: 2,
       });
+      expect([...counts.utilitySlots]).toEqual([]);
+    });
+
+    /**
+     * The OWNER'S report (2026-08-23), one fitting on from the Talon's: "the
+     * SHIELD button is hidden behind the BOOST or JETTISON button". Same
+     * disease — two consumers deciding the same circle independently — with the
+     * shield as the casualty, because on any hull carrying a deployable the
+     * shield owns left slot 01, which is exactly where a control that failed to
+     * get an assignment falls back to.
+     *
+     * The invariant, stated once: for ANY fitting, the left cluster hands out
+     * as many DISTINCT circles as it has controls.
+     */
+    it("never gives two left-cluster controls the same circle, whatever the fitting", () => {
+      const configs = fakeConfigs();
+      const fittings: { name: string; modules: { hardpointIndex: number; moduleId: string }[] }[] = [
+        {
+          name: "shield + boost + jettison",
+          modules: [
+            { hardpointIndex: 0, moduleId: "module.laser-mk1" },
+            { hardpointIndex: 1, moduleId: "module.shield-mk1" },
+            { hardpointIndex: 2, moduleId: "module.engine-earth-eng1" },
+            { hardpointIndex: 3, moduleId: "module.countermeasure-flare" },
+          ],
+        },
+        {
+          name: "shield + boost only",
+          modules: [
+            { hardpointIndex: 0, moduleId: "module.laser-mk1" },
+            { hardpointIndex: 1, moduleId: "module.shield-mk1" },
+            { hardpointIndex: 2, moduleId: "module.engine-earth-eng1" },
+          ],
+        },
+        {
+          name: "shield + jettison only",
+          modules: [
+            { hardpointIndex: 0, moduleId: "module.shield-mk1" },
+            { hardpointIndex: 1, moduleId: "module.countermeasure-flare" },
+          ],
+        },
+        {
+          name: "two deployables + boost + jettison, sparse and out of order",
+          modules: [
+            { hardpointIndex: 4, moduleId: "module.countermeasure-flare" },
+            { hardpointIndex: 2, moduleId: "module.ray-slow-mk1" },
+            { hardpointIndex: 3, moduleId: "module.engine-earth-eng1" },
+            { hardpointIndex: 0, moduleId: "module.shield-mk1" },
+            { hardpointIndex: 1, moduleId: "module.kinetic-mk1" },
+          ],
+        },
+      ];
+      for (const fitting of fittings) {
+        const assignments = utilitySlotAssignments(resolveHudSlotCounts(configs, fitting.modules as never));
+        const circles = [...assignments.values()];
+        expect(new Set(circles).size, `${fitting.name} stacked two controls`).toBe(circles.length);
+      }
+    });
+
+    it("numbers the sparse, out-of-order fitting by HARDPOINT, deployables before the two actions", () => {
+      const counts = resolveHudSlotCounts(fakeConfigs(), [
+        { hardpointIndex: 4, moduleId: "module.countermeasure-flare" },
+        { hardpointIndex: 2, moduleId: "module.ray-slow-mk1" },
+        { hardpointIndex: 3, moduleId: "module.engine-earth-eng1" },
+        { hardpointIndex: 0, moduleId: "module.shield-mk1" },
+      ] as never);
+      // Shield at hardpoint 0 keeps circle 01 and the tether ray takes 02,
+      // whatever order the snapshot replicated them in.
+      expect([...counts.utilitySlots].sort()).toEqual([[0, 0], [2, 1]]);
+      expect(counts.boostSlot).toBe(2);
+      expect(counts.jettisonSlot).toBe(3);
     });
   });
 
@@ -720,6 +845,105 @@ describe("ModuleButtons (sparse fitting, keyed by hardpointIndex)", () => {
       expect(boostBtn.style.top).not.toBe(jettisonBtn.style.top);
       boost.dispose();
       jettison.dispose();
+    });
+
+    /**
+     * The owner's report of 2026-08-23, as the DOM: a Brawler-shaped fitting
+     * that carries a shield AND an afterburner AND a pod, all three drawn by
+     * three different components onto one cluster. Every one of them must own a
+     * numbered circle of its own.
+     */
+    it("gives SHIELD, BOOST and JETTISON three distinct circles on one left cluster", () => {
+      const configs = fakeConfigs();
+      const viewport = { width: 915, height: 412 };
+      const root = document.createElement("div");
+      const layout = resolveFlightHudLayout(undefined, viewport);
+      const rail = new ModuleButtons(
+        root, configs, {} as EventBus<ConfigEvents>, { order: vi.fn() } as unknown as GameSession, 1,
+      );
+      rail.applyLayout(resolveHudLayout(undefined, viewport));
+      const boost = new BoostButton(root, layout, () => {});
+      const jettison = new JettisonButton(root, layout, () => {});
+
+      const fitting = [
+        { hardpointIndex: 0, moduleId: "module.kinetic-mk1", state: "active" as const },
+        { hardpointIndex: 1, moduleId: "module.laser-mk1", state: "active" as const },
+        { hardpointIndex: 2, moduleId: "module.shield-mk1", state: "retracted" as const },
+        { hardpointIndex: 3, moduleId: "module.engine-earth-eng1", state: "retracted" as const },
+        { hardpointIndex: 4, moduleId: "module.countermeasure-flare", state: "active" as const },
+      ];
+      rail.update(snapshotWithModules(fitting));
+      const counts = resolveHudSlotCounts(configs, snapshotWithModules(fitting).ships[0]!.modules);
+      boost.applySlotLayout(layout, counts.utilities, counts.boostSlot!);
+      jettison.applySlotLayout(layout, counts.utilities, counts.jettisonSlot!);
+
+      const shieldBtn = root.querySelector<HTMLElement>(
+        '.hud-slot-cluster[data-side="utilities"] .hud-module-btn',
+      )!;
+      const boostBtn = root.querySelector<HTMLElement>(".hud-boost-btn")!;
+      const jettisonBtn = root.querySelector<HTMLElement>(".hud-jettison-btn")!;
+
+      // Three controls, three numbers, in the documented running order:
+      // deployables first, then BOOST, then JETTISON.
+      expect(shieldBtn.querySelector(".slot-type")!.textContent).toBe("SHIELD");
+      expect([shieldBtn, boostBtn, jettisonBtn].map((b) => b.dataset["slot"])).toEqual(["01", "02", "03"]);
+      expect([shieldBtn, boostBtn, jettisonBtn].map((b) => b.querySelector(".slot-num")!.textContent))
+        .toEqual(["01", "02", "03"]);
+
+      // …and three boxes. The bug was three controls on ONE circle, so the
+      // positions are what actually has to differ, not only the captions.
+      const boxes = [shieldBtn, boostBtn, jettisonBtn].map((b) => `${b.style.left}|${b.style.top}`);
+      expect(new Set(boxes).size).toBe(3);
+      // All one cluster: same diameter, sized for three mounts, not for one.
+      expect(new Set([shieldBtn, boostBtn, jettisonBtn].map((b) => b.style.width)).size).toBe(1);
+
+      rail.dispose();
+      boost.dispose();
+      jettison.dispose();
+    });
+
+    /**
+     * The path the owner actually walked into it on a phone. A rotation, a
+     * collapsing URL bar or a theme hot-reload re-lays the flight HUD out — and
+     * `applyLayout` used to hand BOOST and JETTISON their CONSTRUCTOR default,
+     * slot 01 of a ONE-slot cluster, trusting the next live frame to put them
+     * back. Slot 01 of the left cluster is the shield's circle, and there is no
+     * next live frame while the pilot is dead, paused, or reading the results.
+     */
+    it("keeps BOOST and JETTISON off the shield's circle across a re-layout", () => {
+      const configs = fakeConfigs();
+      const root = document.createElement("div");
+      const surface = document.createElement("div");
+      const flight = new FlightControls(
+        root,
+        configs,
+        { order: vi.fn(), displayNameFor: () => "x", shipConfigIdFor: () => undefined } as unknown as GameSession,
+        1,
+        {
+          inputSurface: surface,
+          project: () => false,
+          cameraView: (out) => { out.fovRad = 0.8; out.betaRad = Math.PI / 2; },
+        },
+        resolveFlightHudLayout(undefined, { width: 915, height: 412 }),
+      );
+      const shot = snapshotWithModules([
+        { hardpointIndex: 0, moduleId: "module.laser-mk1", state: "active" },
+        { hardpointIndex: 1, moduleId: "module.shield-mk1", state: "retracted" },
+        { hardpointIndex: 2, moduleId: "module.engine-earth-eng1", state: "retracted" },
+        { hardpointIndex: 3, moduleId: "module.countermeasure-flare", state: "active" },
+      ]);
+      flight.update(shot, shot, 1, 16, 0);
+      const boostBtn = root.querySelector<HTMLElement>(".hud-boost-btn")!;
+      const jettisonBtn = root.querySelector<HTMLElement>(".hud-jettison-btn")!;
+      expect([boostBtn.dataset["slot"], jettisonBtn.dataset["slot"]]).toEqual(["02", "03"]);
+
+      // The phone rotates. Nothing calls `update` before the next paint.
+      flight.applyLayout(resolveFlightHudLayout(undefined, { width: 412, height: 915 }));
+      expect([boostBtn.dataset["slot"], jettisonBtn.dataset["slot"]]).toEqual(["02", "03"]);
+      // Portrait is a different geometry, so the boxes move — but never onto
+      // each other, and never onto the shield's slot-01 box.
+      expect(boostBtn.style.top).not.toBe(jettisonBtn.style.top);
+      flight.dispose();
     });
 
     it("holds both identities while the jettison pod is used and cools down", () => {

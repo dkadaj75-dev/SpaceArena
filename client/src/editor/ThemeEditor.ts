@@ -2,6 +2,7 @@ import { themeSchema, type ThemeConfig } from "@space-arena/shared";
 import type { EditorHost, EditorPanel } from "./EditorShell.js";
 import { SchemaFormGen, type FieldRenderContext } from "./SchemaFormGen.js";
 import { saveConfig } from "./saveConfig.js";
+import { FieldFilter, filterTree } from "./fieldFilter.js";
 
 /** The free-form `colors` record of a theme (CSS custom property → value). */
 export type ColorRecord = ThemeConfig["colors"];
@@ -53,6 +54,16 @@ export class ThemeEditor implements EditorPanel {
    * shut the instant a designer changed one swatch.
    */
   private colorsOpen = false;
+  /**
+   * The heaviest panel in the suite by control count — 1401 controls across 90
+   * sections, including the entire HUD three times (base / portrait / landscape
+   * overrides), in one flat scroll. Built once and re-appended by render(), so
+   * the query survives the rebuild each commit causes.
+   */
+  private readonly search = new FieldFilter({
+    placeholder: "e.g. moduleCluster, --hud-glow",
+    onQuery: (query) => { if (this.form) filterTree(this.form.element, query, { openGroups: true }); },
+  });
 
   constructor(
     private readonly host: EditorHost,
@@ -89,7 +100,7 @@ export class ThemeEditor implements EditorPanel {
     save.className = "ed-btn ed-btn--primary";
     save.textContent = "Save to disk";
     save.addEventListener("click", () => void this.save());
-    toolbar.append(label("Theme"), select, add, save);
+    toolbar.append(label("Theme"), select, add, save, this.search.element);
     this.element.append(toolbar, hint());
 
     const selected = configs.find((c) => c.id === this.selectedId);
@@ -109,6 +120,7 @@ export class ThemeEditor implements EditorPanel {
       fields: { colors: (ctx) => colorsField(ctx, this.colorsOpen, (open) => { this.colorsOpen = open; }) },
     });
     this.element.append(this.form.element);
+    this.search.watch(this.form.element);
   }
 
   private createFrom(configs: ThemeConfig[]): void {
@@ -135,6 +147,7 @@ export class ThemeEditor implements EditorPanel {
   }
 
   dispose(): void {
+    this.search.dispose();
     this.element.replaceChildren();
   }
 }

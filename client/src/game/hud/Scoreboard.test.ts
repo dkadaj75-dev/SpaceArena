@@ -32,6 +32,33 @@ describe("Scoreboard", () => {
     board.dispose();
   });
 
+  /**
+   * Playtest finding 1: with a steering thumb held, the SCORE button was dead —
+   * a second touch point synthesizes no `click`, and the timeline recorded
+   * `scoreboard opened: false` for a whole match. It is a pointer tap now.
+   */
+  it("opens from a POINTER tap, with a steering finger already on the screen", () => {
+    const board = new Scoreboard(document.body, session(), { onPlayAgain: vi.fn(), onMenu: vi.fn() });
+    board.update({ ships: [{ id: 1, team: 0 }] } as never);
+    const button = document.querySelector<HTMLButtonElement>(".hud-scoreboard-btn")!;
+    const root = document.querySelector(".hud-scoreboard")!;
+    expect(root.classList.contains("visible")).toBe(false);
+
+    // Pointer 1 steers; pointer 2 taps SCORE. No click event is dispatched.
+    document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1 }));
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 2 }));
+    button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 2 }));
+    expect(root.classList.contains("visible")).toBe(true);
+    expect(button.textContent).toBe("CLOSE");
+
+    // …and the same tap closes it, exactly once per tap.
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 3 }));
+    button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 3 }));
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(root.classList.contains("visible")).toBe(false);
+    board.dispose();
+  });
+
   it("discloses bots beside their replicated player-like name", () => {
     const board = new Scoreboard(document.body, session(), { onPlayAgain: vi.fn(), onMenu: vi.fn() });
     board.update({ ships: [{ id: 1, team: 0 }, { id: 2, team: 1 }] } as never);

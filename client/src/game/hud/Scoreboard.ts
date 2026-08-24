@@ -2,6 +2,7 @@ import type { EntityId, MatchStatLine, Snapshot } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { HUD_CONTROL_ATTR } from "../inputGuards.js";
 import { compareMatchStats, teamPerspective, viewerTeam } from "./matchPresentation.js";
+import { bindTap } from "./tapControl.js";
 
 interface Row { tr: HTMLTableRowElement; cells: HTMLTableCellElement[]; signature: string }
 
@@ -16,6 +17,7 @@ export class Scoreboard {
   private visible = false;
   private mode: "play" | "locked" | "final" = "play";
   private readonly ctf: boolean;
+  private unbindButton: () => void = () => {};
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== "Tab" || this.mode !== "play") return;
     event.preventDefault();
@@ -49,7 +51,10 @@ export class Scoreboard {
     this.button.textContent = "SCORE";
     this.button.setAttribute("aria-label", "SCORE");
     this.button.setAttribute(HUD_CONTROL_ATTR, "");
-    this.button.addEventListener("click", () => { if (this.mode === "play") this.setVisible(!this.visible); });
+    // A tap, not a `click`: with a steering thumb already on the screen the
+    // browser synthesizes no click for a second touch, and SCORE was unreachable
+    // for the whole of normal flight (playtest finding 1). See `tapControl.ts`.
+    this.unbindButton = bindTap(this.button, () => { if (this.mode === "play") this.setVisible(!this.visible); });
     parent.appendChild(this.button);
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
@@ -131,7 +136,7 @@ export class Scoreboard {
     this.button.setAttribute("aria-label", visible ? "CLOSE" : "SCORE");
     this.button.setAttribute("aria-pressed", String(visible));
   }
-  dispose(): void { window.removeEventListener("keydown", this.onKeyDown); window.removeEventListener("keyup", this.onKeyUp); this.root.remove(); this.button.remove(); }
+  dispose(): void { window.removeEventListener("keydown", this.onKeyDown); window.removeEventListener("keyup", this.onKeyUp); this.unbindButton(); this.root.remove(); this.button.remove(); }
 }
 
 function actionButton(label: string, key: string, callback: () => void): HTMLButtonElement {

@@ -1,6 +1,34 @@
-import type { Snapshot } from "@space-arena/shared";
+import type { GamemodeConfig, Snapshot } from "@space-arena/shared";
 import type { GameSession } from "../GameSession.js";
 import { viewerTeam } from "./matchPresentation.js";
+
+/** What the banner calls a match that ends the moment a team is wiped out. */
+export const ELIMINATION_OBJECTIVE = "ELIMINATION";
+
+/**
+ * The objective half of the score banner, read off the gamemode rather than off
+ * the win condition alone.
+ *
+ * A DUEL authors `fragLimit: 5` *and* `eliminationEndsMatch: true` with
+ * `respawn.enabled: false` — so the first kill ends it, and the banner promising
+ * "FIRST TO 5" was promising a race that cannot happen (playtest finding 21).
+ * The elimination rule OUTRANKS the frag target whenever nobody comes back:
+ * with no respawn a wipe is reachable before any count is, so the count is not
+ * what the match is about. In a respawn mode the rule is off (or harmless, since
+ * a team is only momentarily wiped) and the target is the honest objective.
+ *
+ * Both fields carry schema defaults, so this reads a fully resolved config;
+ * `undefined` means "an objective this banner does not name" (destroyTargets,
+ * plain timeLimit — the clock beside it already says everything).
+ */
+export function matchObjectiveLabel(
+  gamemode: Pick<GamemodeConfig, "winCondition" | "eliminationEndsMatch" | "respawn">,
+): string | undefined {
+  if (gamemode.eliminationEndsMatch && gamemode.respawn?.enabled === false) return ELIMINATION_OBJECTIVE;
+  const wc = gamemode.winCondition;
+  if (wc.type === "fragLimit" || wc.type === "captureLimit") return `FIRST TO ${wc.count}`;
+  return undefined;
+}
 
 /**
  * Top-center match status (owner 2026-07-31): a TEAM SCOREBOARD, Overwatch
@@ -67,7 +95,8 @@ export class MatchStatus {
       meta = "STANDBY";
     } else {
       const parts: string[] = [];
-      if (wc.type === "fragLimit" || wc.type === "captureLimit") parts.push(`FIRST TO ${wc.count}`);
+      const objective = matchObjectiveLabel(gamemode);
+      if (objective) parts.push(objective);
       const capSec = gamemode.timeLimitCapSec ?? (wc.type === "timeLimit" ? wc.seconds : undefined);
       if (capSec !== undefined) parts.push(formatClock(Math.max(0, capSec - cur.elapsed)));
       // The player's own ship missing while live means one thing: waiting out

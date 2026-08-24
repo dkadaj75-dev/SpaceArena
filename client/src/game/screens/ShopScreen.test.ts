@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ConfigService, ConfigType, ModuleConfig } from "@space-arena/shared";
 import { FakeOwnershipStore } from "../__fixtures__/ownershipStoreFake.js";
 import { shopConfigs } from "../__fixtures__/shopContent.js";
-import { ShopScreen } from "./ShopScreen.js";
+import { ShopScreen, type ShopPilot } from "./ShopScreen.js";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -15,9 +16,35 @@ function mount(store: FakeOwnershipStore, onClose = vi.fn()): ShopScreen {
   return shop;
 }
 
+/**
+ * A shop that knows who is buying. The shipped fixture levels every module at
+ * 1, so the gate needs one that does not — re-levelled locally, because the
+ * fixture is shared with the Hangar's suites.
+ */
+function mountGated(store: FakeOwnershipStore, pilot: ShopPilot | null, requires: Record<string, number> = {}): ShopScreen {
+  const base = shopConfigs();
+  const configs = {
+    get: () => undefined,
+    getAll: (type: ConfigType) =>
+      type === "module"
+        ? base.getAll<ModuleConfig>("module").map((m) => ({ ...m, requiresLevel: requires[m.id] ?? m.requiresLevel }))
+        : base.getAll(type),
+  } as unknown as ConfigService;
+  const shop = new ShopScreen(document.body, configs, store, { onClose: vi.fn(), pilot: () => pilot });
+  shop.show();
+  shop.selectTab("modules");
+  return shop;
+}
+
 const cards = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>(".shop-card")];
 const card = (id: string): HTMLElement => document.querySelector<HTMLElement>(`.shop-card[data-entry="${id}"]`)!;
 const buyButton = (id: string): HTMLButtonElement => card(id).querySelector<HTMLButtonElement>(".shop-buy")!;
+const filterBox = (): HTMLInputElement => document.querySelector<HTMLInputElement>("[data-shop-filter]")!;
+
+function type(text: string): void {
+  filterBox().value = text;
+  filterBox().dispatchEvent(new Event("input", { bubbles: true }));
+}
 
 describe("shop tabs", () => {
   it("opens on SHIPS and swaps the grid per tab", () => {
@@ -160,6 +187,100 @@ describe("shop equip flow", () => {
     shop.selectTab("paints");
     expect(card("cosmetic.paint-interceptor-crimson").dataset["state"]).toBe("buy");
     expect(card("cosmetic.paint-interceptor-crimson").querySelectorAll(".shop-equip-btn")).toHaveLength(0);
+    shop.dispose();
+  });
+});
+
+/**
+ * Findings 43/44/45: with 250 cr I could tap "Buy · 1500 cr" on a module the
+ * server gates at level 3, and the only feedback was the 403 that came back.
+ * There were zero disabled buy buttons among 58 cards. The server stays the
+ * backstop; none of this replaces it.
+ */
+describe("shop refuses before the server has to", () => {
+  it("disables a level-locked buy and prints the level that is actually enforced", () => {
+    const shop = mountGated(new FakeOwnershipStore({ credits: 9999 }), { level: 1 }, { "module.laser-mk2": 3 });
+    const btn = buyButton("module.laser-mk2");
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toBe("Requires Lv 3");
+    expect(card("module.laser-mk2").dataset["blocked"]).toBe("level");
+    expect(card("module.laser-mk2").querySelector(".shop-card-sub")!.textContent).toBe("laser · Requires Lv 3");
+    expect(card("module.laser-mk2").querySelector(".shop-card-blocked")!.textContent).toBe("Unlocks at level 3.");
+    shop.dispose();
+  });
+
+  it("opens the same card once the pilot has the level", () => {
+    const shop = mountGated(new FakeOwnershipStore({ credits: 9999 }), { level: 3 }, { "module.laser-mk2": 3 });
+    expect(buyButton("module.laser-mk2").disabled).toBe(false);
+    expect(buyButton("module.laser-mk2").textContent).toBe("Buy · 250 cr");
+    shop.dispose();
+  });
+
+  it("disables an unaffordable buy and turns its price bad", () => {
+    const shop = mountGated(new FakeOwnershipStore({ credits: 40 }), { level: 9 });
+    const priced = card("module.laser-mk2");
+    expect(buyButton("module.laser-mk2").disabled).toBe(true);
+    expect(priced.querySelector<HTMLElement>(".shop-price")!.dataset["afford"]).toBe("false");
+    expect(priced.querySelector(".shop-card-blocked")!.textContent).toBe("Costs 250 cr — you have 40 cr.");
+    // A free module is affordable at any balance.
+    expect(buyButton("module.laser-mk1").disabled).toBe(false);
+    expect(card("module.laser-mk1").querySelector<HTMLElement>(".shop-price")!.dataset["afford"]).toBe("true");
+    shop.dispose();
+  });
+
+  it("gates nothing without an account — the offline ledger has no level and no wallet", () => {
+    // Its credits are permanently 0 by construction (ownershipStore.ts), so a
+    // naive affordability check would lock a shop where every buy is free.
+    const shop = mountGated(new FakeOwnershipStore({ credits: 0 }), null, { "module.laser-mk2": 3 });
+    expect(cards().every((c) => c.dataset["blocked"] === undefined)).toBe(true);
+    expect(buyButton("module.laser-mk2").disabled).toBe(false);
+    shop.dispose();
+  });
+
+  it("stays silent for a caller that never passed a pilot", () => {
+    const shop = mount(new FakeOwnershipStore({ credits: 0 }));
+    shop.selectTab("modules");
+    expect(buyButton("module.laser-mk2").disabled).toBe(false);
+    shop.dispose();
+  });
+});
+
+/** Finding 46: 58 modules over ~12 screens, group headings the only navigation. */
+describe("shop filter", () => {
+  it("narrows the list by name or family, and drops the headings it emptied", () => {
+    const shop = mount(new FakeOwnershipStore());
+    shop.selectTab("modules");
+    expect(cards()).toHaveLength(3);
+
+    type("kinetic");
+    expect(cards().map((c) => c.dataset["entry"])).toEqual(["module.kinetic-mk1"]);
+    expect([...document.querySelectorAll(".shop-group-title")].map((h) => h.textContent)).toEqual(["kinetic"]);
+
+    type("");
+    expect(cards()).toHaveLength(3);
+    shop.dispose();
+  });
+
+  it("says so when nothing matches, instead of showing an empty grid", () => {
+    const shop = mount(new FakeOwnershipStore());
+    shop.selectTab("paints");
+    type("torpedo");
+    expect(cards()).toHaveLength(0);
+    expect(document.querySelector(".shop-empty")!.textContent).toContain("No paints match");
+    shop.dispose();
+  });
+
+  it("is not offered on the two-hull ships tab, and never survives a tab change", () => {
+    const shop = mount(new FakeOwnershipStore());
+    expect(document.querySelector<HTMLElement>(".shop-filter")!.hidden).toBe(true);
+
+    shop.selectTab("modules");
+    expect(document.querySelector<HTMLElement>(".shop-filter")!.hidden).toBe(false);
+    type("kinetic");
+    // A query typed against modules would silently hide most of the paints.
+    shop.selectTab("paints");
+    expect(filterBox().value).toBe("");
+    expect(cards().length).toBeGreaterThan(1);
     shop.dispose();
   });
 });

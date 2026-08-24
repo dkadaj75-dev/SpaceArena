@@ -26,6 +26,7 @@ import {
   type ConfigEvents,
 } from "@space-arena/shared";
 import { BOUNDARY_FRAGMENT, SceneBuilder, type SceneQuality } from "./SceneBuilder.js";
+import { BOUNDARY_SHIELD_FLAT_MAX_OPACITY } from "./boundaryProximity.js";
 
 const ARENA = {
   id: "arena.test",
@@ -544,7 +545,11 @@ describe("SceneBuilder static freezing (§10 5.6)", () => {
     expect(lowBuilder.updatePlayerPosition(0, 0, 0)).toBe(90);
     expect(material.alpha).toBe(0);
     expect(lowBuilder.updatePlayerPosition(89, 0, 0)).toBe(1);
-    expect(material.alpha).toBeGreaterThan(0.9);
+    // Visible at contact, but CAPPED (2026-08-23): the low tier draws the shell
+    // as one unmasked surface, so this alpha is literally how much of the
+    // screen it tints. At the authored 1.0 it painted the whole viewport flat
+    // pink with the HUD unreadable through it — playtest finding 6.
+    expect(material.alpha).toBe(BOUNDARY_SHIELD_FLAT_MAX_OPACITY);
     expect(material.emissiveColor.r).toBeGreaterThan(material.emissiveColor.b);
 
     // Exact operator report: at distance 10 with an 18-unit transition the

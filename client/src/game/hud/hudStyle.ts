@@ -1323,6 +1323,7 @@ const CSS = `
 .hud-results--outcome .hud-results-rule,
 .hud-results--outcome .hud-results-participants,
 .hud-results--outcome .hud-results-sub,
+.hud-results--outcome .hud-results-rewards-heading,
 .hud-results--outcome .hud-results-rewards,
 .hud-results--outcome .hud-results-actions { display: none; }
 .hud-results--outcome .hud-results-outcome-tag,
@@ -1503,8 +1504,7 @@ const CSS = `
          what one tracked Orbitron capital measures (0.94 for ordinary names,
          and the wide-glyph tail wraps rather than spilling).
      --mvp-name-chars is published by ResultsOverlay.showMvp(); the 0.95rem
-     floor means a pathological name wraps (see overflow-wrap) rather than
-     shrinking to nothing. Nothing here truncates, so no name loses letters. */
+     floor is where the fit stops shrinking and the ellipsis below takes over. */
   font-size:max(
     0.95rem,
     min(
@@ -1516,7 +1516,17 @@ const CSS = `
   /* 1.05 put the line box under the glyph box: ascenders and descenders were
      shaved even where the name fitted across. */
   line-height:1.22;
-  overflow-wrap:anywhere;
+  /* NEVER mid-word (2026-08-23). An "anywhere" wrap broke a name at
+     whatever character ran out of room — "VortexFall_99" rendered as
+     "VORTEXFALL_9" with a lone "9" on a second line, which reads as a different
+     pilot (playtest finding 18). A nickname is one word: it is fitted by the
+     size ramp above, and the pathological remainder is elided rather than
+     chopped into a second line. */
+  overflow-wrap:normal;
+  word-break:normal;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
   text-shadow:0 0 22px color-mix(in srgb, var(--mvp-team) 55%, transparent);
   animation:hud-mvp-name .48s cubic-bezier(.16, 1, .3, 1) var(--hud-mvp-name-delay-ms, 430ms) both;
 }
@@ -1580,6 +1590,21 @@ const CSS = `
 .hud-results-stat-value { color:var(--hud-text, var(--sa-white)); font:800 1.45em/1 var(--hud-font-display, system-ui, sans-serif); font-variant-numeric:tabular-nums; }
 .hud-results-stat-label { margin-top:4px; color:var(--hud-neutral, var(--sa-n-400)); font-size:.56em; letter-spacing:.12em; }
 @keyframes hud-mvp-chip { from { opacity:0; transform:translateY(10px) scale(.94); } to { opacity:1; transform:none; } }
+/* The line that says the numbers below belong to YOU, not to the MVP whose
+   name and stat tiles are above them. A quiet rule-and-label, deliberately
+   lighter than the stat labels: it is a boundary, not a third headline. */
+.hud-results-rewards-heading {
+  align-self: stretch;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--hud-neutral, var(--sa-n-400)) 34%, transparent);
+  color: var(--hud-neutral, var(--sa-n-400));
+  font: 600 0.6em/1.3 var(--hud-font-display, system-ui, sans-serif);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-align: center;
+}
+.hud-results-rewards-heading[hidden] { display: none; }
 .hud-results-rewards {
   display: flex;
   flex-direction: column;

@@ -173,7 +173,20 @@ const CANVAS_STYLE_KEYS = ["position", "left", "top", "right", "bottom", "width"
  */
 export class EditorShell {
   private readonly panels = new Map<string, { factory: EditorPanelFactory; group: string }>();
-  private readonly problems: string[] = [];
+  /**
+   * Validation problems, keyed by their rendered `<config id> <field>: <message>`
+   * line — which IS the (config id, field, message) tuple, since that is the
+   * shape every producer formats.
+   *
+   * A Set, not an array, because one bad field reaches this list from two
+   * directions at once: the open panel's SchemaFormGen `onProblem` report, and
+   * {@link validateAll}'s sweep over every config in the service. A single
+   * `durationMs: -99999` therefore lit the badge "2" and printed the identical
+   * sentence twice in Problems. Deduping here rather than at either producer
+   * keeps both honest — a panel should report what it sees without knowing who
+   * else is looking.
+   */
+  private readonly problems = new Set<string>();
   private root: HTMLDivElement | null = null;
   private active: EditorPanel | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -525,10 +538,16 @@ export class EditorShell {
     if (this.sheet === "collapsed") { this.sheet = "half"; this.root.dataset.sheet = "half"; }
 
     this.active = entry.factory(this.host, (message) => {
-      if (message) { this.problems.push(message); this.updateStatus(); }
+      if (message) { this.problems.add(message); this.updateStatus(); }
     });
     this.active.element.classList.add("editor-panel", "ed-panel-root");
     body.append(this.active.element);
+    // One scroller serves every tool, so leaving Map 600px down dropped the
+    // designer 600px into Inspector's unrelated form — halfway through a
+    // different set of fields, with no cue that anything was above. Each tool
+    // opens at its own top.
+    body.scrollTop = 0;
+    body.scrollLeft = 0;
     // The top-bar Save follows the active tool (enabled only when it can save).
     this.updateStatus();
   }
@@ -537,14 +556,14 @@ export class EditorShell {
     const element = document.createElement("div");
     element.className = "ed-problems";
     const render = (): void => {
-      if (!this.problems.length) {
+      if (!this.problems.size) {
         const empty = document.createElement("div");
         empty.className = "ed-empty";
         empty.textContent = "No current validation problems.";
         element.replaceChildren(empty);
         return;
       }
-      element.replaceChildren(...this.problems.map((p) => {
+      element.replaceChildren(...[...this.problems].map((p) => {
         const row = document.createElement("p");
         row.className = "ed-problem";
         row.textContent = p;
@@ -557,18 +576,18 @@ export class EditorShell {
   }
 
   private validateAll(): void {
-    this.problems.length = 0;
+    this.problems.clear();
     for (const [type, schema] of Object.entries(CONFIG_SCHEMAS)) {
       for (const config of this.host.configService.getAll(type as keyof typeof CONFIG_SCHEMAS)) {
         const result = schema.safeParse(config);
-        if (!result.success) for (const issue of result.error.issues) this.problems.push(`${config.id} ${issue.path.join(".")}: ${issue.message}`);
+        if (!result.success) for (const issue of result.error.issues) this.problems.add(`${config.id} ${issue.path.join(".")}: ${issue.message}`);
       }
     }
     this.updateStatus();
   }
 
   private updateStatus(): void {
-    const count = this.problems.length;
+    const count = this.problems.size;
     this.statusButton?.classList.toggle("is-bad", count > 0);
     if (this.statusCount) this.statusCount.textContent = count > 0 ? String(count) : "OK";
     if (this.statusButton) this.statusButton.title = count > 0 ? `${count} validation problem(s) — click to open Problems` : "No validation problems";

@@ -180,6 +180,51 @@ describe("MapEditor placement session", () => {
     expect((document.querySelector(".ed-ctx") as HTMLElement).style.display).not.toBe("none");
   });
 
+  /**
+   * Duplicate, remove, frame and nav-link were reachable only through Ctrl+D,
+   * Delete, F and L. On the phone this tool exists to be authored from, that
+   * left Map a viewer with dropdowns — so the bar has to drive the SAME methods
+   * the shortcuts do, and has to say when an op cannot apply.
+   */
+  it("exposes the keyboard edit ops as buttons, enabled per selection", () => {
+    const subject = driver(editor);
+    const action = (name: string): HTMLButtonElement => editor.element.querySelector<HTMLButtonElement>(`[data-map-action="${name}"]`)!;
+
+    for (const name of ["duplicate", "frame", "link", "remove"]) expect(action(name).disabled).toBe(true);
+
+    subject.armed = { kind: "prop", id: "prop.block" }; subject.place(new Vector3(0, 0, 10)); subject.armed = null;
+    subject.select("prop", 0, scene.getMeshByName("editor.prop.0")!);
+    expect(action("duplicate").disabled).toBe(false);
+    expect(action("remove").disabled).toBe(false);
+    // A placement is not two nav nodes: Link stays off, and says so.
+    expect(action("link").disabled).toBe(true);
+    expect(action("link").title).toContain("two nav nodes");
+
+    action("duplicate").click();
+    expect(configs.get<ArenaConfig>("arena", arena.id)!.propPlacements).toHaveLength(4);
+
+    subject.select("prop", 0, scene.getMeshByName("editor.prop.0")!);
+    action("remove").click();
+    expect(configs.get<ArenaConfig>("arena", arena.id)!.propPlacements).toHaveLength(2);
+  });
+
+  it("turns the nav-link button on once two nav nodes are selected, and links them", () => {
+    const subject = driver(editor);
+    const link = (): HTMLButtonElement => editor.element.querySelector<HTMLButtonElement>('[data-map-action="link"]')!;
+
+    subject.armed = "nav"; subject.place(new Vector3(0, 0, 0)); subject.place(new Vector3(10, 0, 0)); subject.armed = null;
+    expect(link().disabled).toBe(true);
+
+    subject.select("nav", 0, scene.getMeshByName("editor.nav.0")!);
+    expect(link().disabled).toBe(true);
+    subject.select("nav", 2, scene.getMeshByName("editor.nav.2")!);
+    expect(link().disabled).toBe(false);
+
+    link().click();
+    // Mirror mode is on, so the twin pair is linked alongside the chosen one.
+    expect(configs.get<ArenaConfig>("arena", arena.id)!.navGraph!.links).toHaveLength(2);
+  });
+
   it("keeps the selection and context panel alive across a commit", () => {
     const subject = driver(editor);
     subject.armed = { kind: "asteroid", id: "asteroid.rock" }; subject.place(new Vector3(3, 0, 5)); subject.armed = null;

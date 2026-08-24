@@ -1119,6 +1119,15 @@ async function bootstrap(boot: BootScreen | null): Promise<void> {
         music.setScreen("menu");
         lobby.show();
       },
+      // The two numbers `/api/modules/buy` judges a purchase against. Without
+      // them the shop could only learn a refusal by making it: a level-locked
+      // module offered a fully enabled Buy and answered with a 403. Anonymous
+      // (offline ledger) is deliberately null, not level 0 — nothing is being
+      // enforced there, and its wallet is permanently 0.
+      pilot: () => {
+        const state = authService.getState();
+        return state.status === "authed" ? { level: state.profile.level } : null;
+      },
     },
     bus,
   );

@@ -74,13 +74,19 @@ const SHIPS: ShipConfig[] = [
   ], [null, null]),
 ];
 
+/**
+ * One tier per track, and the HULL one costs nothing — the tier that reads as
+ * broken data when it is priced rather than named (playtest §35).
+ */
 const UPGRADES: UpgradeConfig[] = (["hull", "engine", "energy"] as const).map((track) => ({
   id: `upgrade.${track}`,
   type: "upgrade",
   version: 1,
   name: `${track} track`,
   track,
-  levels: [{ level: 1, price: 100, mul: { [`${track === "energy" ? "recharge" : track}.multiplier`]: 1.1 } }],
+  levels: [
+    { level: 1, price: track === "hull" ? 0 : 100, mul: { [`${track === "energy" ? "recharge" : track}.multiplier`]: 1.1 } },
+  ],
 }) as unknown as UpgradeConfig);
 
 function configs(): ConfigService {
@@ -144,7 +150,11 @@ function store(seed: ConstructorParameters<typeof FakeOwnershipStore>[0] = {}): 
 
 interface MountOptions {
   ownership?: FakeOwnershipStore;
-  /** Where the carousel was left — the hull the stage opens on. */
+  /**
+   * Where the carousel was left EARLIER IN THIS SESSION — `sessionStorage`, not
+   * `localStorage`, since 2026-08-23: the bay opens on the hull you fly, and a
+   * browse position only outranks it while the same sitting is still going.
+   */
   browse?: string;
   /** The hull already set as main, if the test needs one other than the default. */
   main?: string;
@@ -153,7 +163,7 @@ interface MountOptions {
 
 async function mount(opts: MountOptions = {}): Promise<Hangar> {
   if (opts.main) localStorage.setItem("hangar.shipId", opts.main);
-  if (opts.browse) localStorage.setItem("hangar.browseShipId", opts.browse);
+  if (opts.browse) sessionStorage.setItem("hangar.browseShipId", opts.browse);
   const hangar = new Hangar(
     document.body,
     scene,
@@ -177,6 +187,7 @@ async function mount(opts: MountOptions = {}): Promise<Hangar> {
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   engine = new NullEngine();
   scene = new Scene(engine);
   assets = new AssetRegistry(scene);
@@ -190,6 +201,7 @@ afterEach(() => {
   document.body.replaceChildren();
   document.head.replaceChildren();
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 // --- DOM probes ------------------------------------------------------------
@@ -211,7 +223,14 @@ const socketLabels = (): (string | null)[] => slots().map((s) => s.querySelector
 
 const sheet = (): HTMLElement | null => document.querySelector<HTMLElement>(".hangar-sheet");
 const sheetTitle = (): string | null | undefined => document.querySelector(".hangar-sheet-title")?.textContent;
+/** The once-ever "hold a card to preview" line, when the sheet is showing it. */
+const hint = (): HTMLElement | null => document.querySelector<HTMLElement>(".hangar-sheet-hint");
 const cardRow = (): HTMLElement => document.querySelector<HTMLElement>(".hangar-card-row")!;
+const cardDeck = (): HTMLElement => document.querySelector<HTMLElement>(".hangar-card-deck")!;
+const moreButton = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>(".hangar-card-more")!;
+/** Why an unavailable card cannot be fitted, as its own badge. */
+const cardTag = (moduleId: string): string | null | undefined =>
+  card(moduleId).querySelector(".hangar-card-tag")?.textContent;
 const cardIds = (): (string | undefined)[] =>
   [...document.querySelectorAll<HTMLElement>(".hangar-card")].map((n) => n.dataset["module"]);
 const card = (moduleId: string): HTMLButtonElement =>
@@ -242,7 +261,12 @@ const arrow = (which: "prev" | "next"): HTMLButtonElement =>
 const shipName = (): string | null | undefined => document.querySelector(".hangar-ship-name")?.textContent;
 const shipDots = (): boolean[] =>
   [...document.querySelectorAll<HTMLElement>(".hangar-ship-dot")].map((d) => d.classList.contains("active"));
+/** One bay position, as the control it became in 2026-08-23. */
+const shipDot = (shipId: string): HTMLButtonElement =>
+  document.querySelector<HTMLButtonElement>(`.hangar-ship-dot[data-ship="${shipId}"]`)!;
 const skins = (): HTMLButtonElement[] => [...document.querySelectorAll<HTMLButtonElement>(".hangar-skin")];
+const upgradeButtons = (): (string | null)[] =>
+  [...document.querySelectorAll<HTMLButtonElement>(".hangar-upgrade-row .hangar-btn")].map((b) => b.textContent);
 
 const workingFit = (): { shipId?: string; moduleIds?: (string | null)[] } | null =>
   JSON.parse(localStorage.getItem("hangar.moduleIds") ?? "null") as { shipId?: string; moduleIds?: (string | null)[] } | null;
@@ -266,7 +290,7 @@ function unhover(node: HTMLElement): void {
  */
 async function reopen(hangar: Hangar, browse?: string): Promise<void> {
   hangar.hide();
-  if (browse) localStorage.setItem("hangar.browseShipId", browse);
+  if (browse) sessionStorage.setItem("hangar.browseShipId", browse);
   hangar.show();
   await vi.waitFor(() => expect(document.querySelector(".hangar-loading-overlay")).toBeNull());
 }
@@ -298,10 +322,18 @@ describe("the loadout deck", () => {
 
   it("offers nothing to fit on a hull you have not bought, until you buy it", async () => {
     const ownership = store({ ships: ["ship.interceptor"] });
-    await mount({ ownership, browse: "ship.brawler" });
+    // The bay never OPENS on a hull you cannot fly (§26), so the locked one is
+    // reached the way a player reaches it: by walking there.
+    await mount({ ownership });
+    shipDot("ship.brawler").click();
 
     expect(stageAction().querySelector(".hangar-badge.locked")).not.toBeNull();
     expect(document.querySelector(".hangar-slot-grid")).toBeNull();
+    // …and it says what it is, rather than leaving the half screen empty (§30).
+    expect(document.querySelector(".hangar-locked-class")!.textContent).toBe("HEAVY HULL");
+    expect(document.querySelector(".hangar-locked-stats")!.textContent).toBe(
+      "1 HARDPOINT · 1 INTERNAL · 120 INTEGRITY · 27 SPEED",
+    );
 
     stageAction().querySelector<HTMLButtonElement>("button")!.click();
     await vi.waitFor(() => expect(document.querySelector(".hangar-slot-grid")).not.toBeNull());
@@ -480,6 +512,78 @@ describe("the module sheet", () => {
     row.dispatchEvent(new WheelEvent("wheel", { deltaY: 120, deltaX: 0, bubbles: true, cancelable: true }));
     expect(row.scrollLeft).toBe(120);
   });
+
+  /**
+   * The playtest's match agent found a 519px sheet showing 5 of 21 modules with
+   * no arrow, no peeking card and no scrollbar — and taps on the clipped ones
+   * doing nothing at all, because they were behind the sheet's own edge. The row
+   * now SAYS it continues, and can be walked without a swipe.
+   */
+  it("says the row keeps going, and walks it from the chevron", async () => {
+    await mount();
+    slot("hp-nose").click(); // laser + kinetic: more cards than the row shows
+    expect(cardDeck().classList.contains("scrollable")).toBe(true);
+    expect(cardDeck().classList.contains("at-end")).toBe(false);
+
+    moreButton().click();
+    expect(cardRow().scrollLeft).toBeGreaterThan(0);
+
+    // A socket with one candidate has nothing to say about scrolling.
+    doneButton().click();
+    slot("in-core").click();
+    expect(cardIds()).toEqual(["module.reactor-mk1"]);
+    expect(cardDeck().classList.contains("scrollable")).toBe(false);
+  });
+
+  it("says WHY an unavailable card cannot be fitted, not just that it is", async () => {
+    await mount();
+    slot("hp-nose").click();
+    // Signed out there is no level to be short of, so the reason is the only
+    // other one there is: it has not been bought. (A signed-in pilot under a
+    // module's `requiresLevel` gets `LV N` instead — see moduleGateTag.)
+    expect(cardTag("module.laser-burst")).toBe("LOCKED");
+    expect(cardTag("module.laser-mk2")).toBe("LOCKED");
+    // Nothing to explain about one you can fit.
+    expect(cardTag("module.kinetic-mk1")).toBeUndefined();
+  });
+});
+
+/**
+ * Playtest §37: "the preview interaction is undiscoverable on a phone" — no
+ * hover on touch, so the compare box only answers a 260ms press-and-hold and
+ * nothing said so. The sheet says it once, and remembers that it did.
+ */
+describe("the press-and-hold hint", () => {
+  it("advertises the preview on the first sheet ever opened, and never again", async () => {
+    await mount();
+    slot("hp-wing").click();
+    expect(hint()!.textContent).toContain("Hold a card");
+    expect(localStorage.getItem("hangar.previewHintSeen")).toBe("1");
+
+    doneButton().click();
+    slot("hp-nose").click();
+    expect(hint()).toBeNull();
+  });
+
+  it("stands down as soon as the pilot holds a card, without disturbing it", async () => {
+    await mount();
+    slot("hp-wing").click();
+    const item = card("module.kinetic-mk1");
+
+    item.dispatchEvent(new Event("pointerdown"));
+    await vi.waitFor(() => expect(hint()).toBeNull());
+    // The card the finger is on is the one thing that must NOT be rebuilt: the
+    // hold's own preview is still up on it.
+    expect(card("module.kinetic-mk1")).toBe(item);
+    expect(compareDelta("DPS")).not.toBeNull();
+  });
+
+  it("says nothing to a pilot who has already been told", async () => {
+    localStorage.setItem("hangar.previewHintSeen", "1");
+    await mount();
+    slot("hp-wing").click();
+    expect(hint()).toBeNull();
+  });
 });
 
 describe("before / after preview", () => {
@@ -496,7 +600,10 @@ describe("before / after preview", () => {
     // column is left exactly where it was — nothing is fitted yet.
     expect(compareValue("DPS")).toBe(before);
     expect(compareDelta("DPS")!.className).toContain("better");
-    expect(compareDelta("DPS")!.textContent).toMatch(/^▲ /);
+    // A BEFORE → AFTER read, never a signed delta (§36): `3.2 → 8.2` says what
+    // the number becomes, where `▲ 8.2` was read as "+8.2 on top of 3.2".
+    expect(compareDelta("DPS")!.textContent).toMatch(/^→ /);
+    expect(compareDelta("DPS")!.dataset["trend"]).toBe("better");
     expect(item.classList.contains("considering")).toBe(true);
 
     unhover(item);
@@ -516,7 +623,7 @@ describe("before / after preview", () => {
     card("module.kinetic-mk1").click();
     // Fitted, sheet still up: BEFORE is still the snapshot, AFTER has moved.
     expect(compareValue("DPS")).toBe(openedDps);
-    expect(compareDelta("DPS")!.textContent).toMatch(/^▲ /);
+    expect(compareDelta("DPS")!.textContent).toMatch(/^→ /);
     expect(compareValue("POWER")).toBe(openedPower);
     expect(compareDelta("POWER")!.textContent).toContain("5 / 12");
 
@@ -542,7 +649,9 @@ describe("before / after preview", () => {
     // Emptying the nose gives back the laser it holds: DPS falls.
     hover(clearButton());
     expect(compareDelta("DPS")!.className).toContain("worse");
-    expect(compareDelta("DPS")!.textContent).toMatch(/^▼ /);
+    // Still a projection, not a subtraction: the colour is what says "down".
+    expect(compareDelta("DPS")!.textContent).toMatch(/^→ /);
+    expect(compareDelta("DPS")!.dataset["trend"]).toBe("worse");
     expect(compareDelta("INTEGRITY")).toBeNull(); // a laser does not move the hull
   });
 
@@ -705,6 +814,82 @@ describe("hangar main loadout", () => {
   });
 });
 
+/**
+ * Playtest §26: "the hangar does not open on your main hull". BRAWLER carried
+ * ★ MAIN and the bay opened on an INTERCEPTOR three arrow-taps away — and once
+ * on a hull the pilot did not own at all, so the fitting panel was empty on
+ * arrival. The rule is now the hull you FLY; a carousel position only outranks
+ * it while the same session is still going.
+ */
+describe("where the bay opens", () => {
+  it("opens on the MAIN hull, not on where an earlier run left the carousel", async () => {
+    // What the pre-2026-08-23 build wrote, and then obeyed for the rest of time.
+    localStorage.setItem("hangar.browseShipId", "ship.interceptor");
+    await mount({ main: "ship.brawler" });
+    expect(shipName()).toBe("BRAWLER");
+    expect(shipDots()).toEqual([true, false]);
+  });
+
+  it("still comes back to where you were within one session", async () => {
+    const hangar = await mount({ main: "ship.interceptor" });
+    shipDot("ship.brawler").click();
+    expect(shipName()).toBe("BRAWLER");
+
+    // Out to the Shop and back: the same sitting, so the same place in the bay.
+    await reopen(hangar);
+    expect(shipName()).toBe("BRAWLER");
+    // …and it is presentation only. What launches is untouched.
+    expect(localStorage.getItem("hangar.shipId")).toBe("ship.interceptor");
+  });
+
+  it("never opens on a hull that cannot be flown", async () => {
+    const ownership = store({ ships: ["ship.interceptor"] });
+    sessionStorage.setItem("hangar.browseShipId", "ship.brawler");
+    await mount({ ownership, main: "ship.interceptor" });
+    expect(shipName()).toBe("INTERCEPTOR");
+    expect(document.querySelector(".hangar-slot-grid")).not.toBeNull();
+  });
+});
+
+/**
+ * Playtest §27: the dots computed `pointer-events: none` over 22×4px marks, so
+ * `elementFromPoint` at a dot's centre returned the render canvas and stepping
+ * the bay was arrows-only.
+ */
+describe("the hull dots", () => {
+  it("jumps the bay to the hull pressed", async () => {
+    await mount({ main: "ship.interceptor" });
+    expect(shipDots()).toEqual([false, true]);
+
+    const dot = shipDot("ship.brawler");
+    expect(dot.tagName).toBe("BUTTON");
+    expect(dot.getAttribute("aria-label")).toBe("Show Brawler");
+    dot.click();
+
+    // A jump, not a slide: a dot is a direct pick, so it lands at once.
+    expect(shipName()).toBe("BRAWLER");
+    expect(shipDots()).toEqual([true, false]);
+    expect(socketLabels()).toEqual(["HP-TURRET", "CORE"]);
+    // Browsing is still not choosing.
+    expect(localStorage.getItem("hangar.shipId")).toBe("ship.interceptor");
+  });
+
+  it("does nothing when pressed on the hull already staged", async () => {
+    await mount({ main: "ship.interceptor" });
+    shipDot("ship.interceptor").click();
+    expect(shipName()).toBe("INTERCEPTOR");
+    expect(shipDots()).toEqual([false, true]);
+  });
+});
+
+describe("the upgrade tracks", () => {
+  it("names a tier that costs nothing FREE, rather than pricing it at 0 cr", async () => {
+    await mount();
+    // Playtest §35: three tracks all reading "0 cr" read as broken data.
+    expect(upgradeButtons()).toEqual(["FREE", "100 cr", "100 cr"]);
+  });
+});
+
 describe("hangar visit lifecycle", () => {
   it("never stacks a second visit's per-frame observer, and releases it on hide", async () => {
     // Babylon's `Observable.remove` defers the actual splice to a macrotask, so
@@ -744,9 +929,11 @@ describe("hangar visit lifecycle", () => {
     // back, the deck describes the new hull, and the carousel position is
     // written where the next visit (and `loadHangarSelection`) will read it.
     expect(arrows().map((b) => b.disabled)).toEqual([false, false]);
+    // …and so do the dots, which walk the same bay under the same conditions.
+    expect(shipDot("ship.interceptor").disabled).toBe(false);
     expect(document.querySelector(".hangar-ship-class")!.textContent).toBe("HEAVY HULL");
     expect(shipDots()).toEqual([true, false]);
-    expect(localStorage.getItem("hangar.browseShipId")).toBe("ship.brawler");
+    expect(sessionStorage.getItem("hangar.browseShipId")).toBe("ship.brawler");
     // Every hull opens on ITS OWN fit, so the tiles moved with the ship: the
     // light's two hardpoints are gone, the heavy's single turret is there.
     expect(socketLabels()).toEqual(["HP-TURRET", "CORE"]);

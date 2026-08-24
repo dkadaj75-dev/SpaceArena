@@ -39,8 +39,41 @@ export function boundaryProximityFactor(distanceToBoundary: number, glowStartDis
 }
 
 /**
+ * Ceiling on the shell's alpha, whatever the arena authors (2026-08-23).
+ *
+ * The shell is a SPHERE the pilot flies inside, so at contact it is not a wall
+ * ahead — it is the whole field of view. Ring Nebula authors `baseOpacity: 1`,
+ * and at zero distance that painted the entire viewport flat pink: no wall
+ * geometry visible, the HUD unreadable through it, hull draining with nothing
+ * on screen to explain why (playtest finding 6). Capped here rather than in
+ * content because it is a legibility floor for the HUD, not a look: an arena may
+ * still choose to be fainter, never to be opaque. The hex pattern and the
+ * blue→red shift carry the warning; the flood only hid it.
+ */
+export const BOUNDARY_SHIELD_MAX_OPACITY = 0.42;
+
+/**
+ * The same ceiling for the LOW tier, which has no hex shader.
+ *
+ * On the shader tier this alpha is multiplied by the wireframe mask, so it
+ * lands on thin lines and the view between them stays clear. The fallback is a
+ * plain emissive surface with no mask at all — every pixel gets the full alpha —
+ * so it needs a tighter cap to read as the same warning rather than as a filter
+ * over the whole screen. LOW is what AUTO picks on a mid phone, which is why the
+ * flood is what most players actually saw.
+ */
+export const BOUNDARY_SHIELD_FLAT_MAX_OPACITY = 0.2;
+
+/** The alpha the plain (no-shader) boundary surface may reach. */
+export function boundaryShellFlatAlpha(shellOpacity: number): number {
+  return Math.min(BOUNDARY_SHIELD_FLAT_MAX_OPACITY, clamp01(shellOpacity));
+}
+
+/**
  * The shell must disappear completely outside its authored proximity range.
- * `baseOpacity` controls its contact intensity, never a far-field floor.
+ * `baseOpacity` controls its contact intensity, never a far-field floor — and
+ * never more than {@link BOUNDARY_SHIELD_MAX_OPACITY}, so the HUD stays
+ * readable right up against the wall.
  */
 export function boundaryShieldOpacity(
   distanceToBoundary: number,
@@ -48,7 +81,7 @@ export function boundaryShieldOpacity(
   baseOpacity: number,
 ): number {
   const proximity = boundaryProximityFactor(distanceToBoundary, glowStartDistance);
-  return baseOpacity * proximity;
+  return Math.min(BOUNDARY_SHIELD_MAX_OPACITY, baseOpacity * proximity);
 }
 
 /** Blue-to-red blend, beginning only inside the authored red threshold. */

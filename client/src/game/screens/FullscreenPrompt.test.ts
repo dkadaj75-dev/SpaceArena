@@ -1,9 +1,15 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FullscreenPrompt, type FullscreenPromptDeps, type IosHintDeps } from "./FullscreenPrompt.js";
+import {
+  DECLINE_REMEMBER_MS,
+  FullscreenPrompt,
+  type FullscreenPromptDeps,
+  type IosHintDeps,
+} from "./FullscreenPrompt.js";
 
 function makeDeps(overrides: Partial<FullscreenPromptDeps> = {}): FullscreenPromptDeps & {
   request: ReturnType<typeof vi.fn>;
+  rememberDecline: ReturnType<typeof vi.fn>;
   fireChange: () => void;
 } {
   let changeHandler: () => void = () => {};
@@ -17,6 +23,8 @@ function makeDeps(overrides: Partial<FullscreenPromptDeps> = {}): FullscreenProm
         changeHandler = () => {};
       };
     },
+    declinedAt: () => null,
+    rememberDecline: vi.fn(),
     ...overrides,
   };
   return { ...deps, fireChange: () => changeHandler() } as never;
@@ -64,6 +72,65 @@ describe("FullscreenPrompt", () => {
     active = true;
     deps.fireChange();
     expect(prompt.visible).toBe(false);
+  });
+});
+
+/**
+ * Finding 2: the offer was asked on EVERY boot (7+ relaunches deep) because the
+ * answer only lived for the page load. It is now remembered — for a week, not
+ * forever, so the offer stays rare rather than becoming extinct.
+ */
+describe("FullscreenPrompt remembers 'Not now'", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("records the decline, and only the decline", () => {
+    const declined = makeDeps();
+    FullscreenPrompt.maybeShow(document.body, declined)!;
+    (document.querySelector(".sa-fullscreen-prompt-skip") as HTMLButtonElement).click();
+    expect(declined.rememberDecline).toHaveBeenCalledTimes(1);
+
+    // Accepting settles nothing durable: fullscreen is browser state that Esc
+    // drops, so the next launch is entitled to ask again.
+    document.body.innerHTML = "";
+    const accepted = makeDeps();
+    FullscreenPrompt.maybeShow(document.body, accepted)!;
+    (document.querySelector(".sa-fullscreen-prompt-go") as HTMLButtonElement).click();
+    expect(accepted.rememberDecline).not.toHaveBeenCalled();
+  });
+
+  it("stays away for a week, then offers again", () => {
+    const yesterday = makeDeps({ declinedAt: () => Date.now() - 24 * 60 * 60 * 1000 });
+    expect(FullscreenPrompt.maybeShow(document.body, yesterday)).toBeNull();
+    expect(document.querySelector(".sa-fullscreen-prompt")).toBeNull();
+
+    const lastMonth = makeDeps({ declinedAt: () => Date.now() - DECLINE_REMEMBER_MS - 1000 });
+    const prompt = FullscreenPrompt.maybeShow(document.body, lastMonth);
+    expect(prompt).not.toBeNull();
+    prompt!.dismiss();
+  });
+
+  it("ignores a stamp from the future — that clock cannot have written it", () => {
+    // A device whose date was wrong when the decline was stored would otherwise
+    // suppress the offer for as long as the skew lasts.
+    const skewed = makeDeps({ declinedAt: () => Date.now() + DECLINE_REMEMBER_MS });
+    const prompt = FullscreenPrompt.maybeShow(document.body, skewed);
+    expect(prompt).not.toBeNull();
+    prompt!.dismiss();
+  });
+
+  it("does not gate the iPhone hint, which has its own one-time memory", () => {
+    const deps = makeDeps({ supported: () => false, declinedAt: () => Date.now() });
+    const ios = {
+      isIphone: () => true,
+      installed: () => false,
+      hintShown: () => false,
+      markHintShown: vi.fn(),
+    } satisfies IosHintDeps;
+    const prompt = FullscreenPrompt.maybeShow(document.body, deps, ios);
+    expect(prompt).not.toBeNull();
+    prompt!.dismiss();
   });
 });
 

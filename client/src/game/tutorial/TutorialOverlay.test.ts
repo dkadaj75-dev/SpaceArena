@@ -151,6 +151,60 @@ describe("TutorialOverlay", () => {
     overlay.dispose();
   });
 
+  it("holds back a pointing hint until the control it points at exists", () => {
+    // Finding 55: step 1 said "Drag the throttle on the right" during the
+    // countdown, when the throttle strip is still a 0x0 box.
+    vi.useFakeTimers();
+    const overlay = new TutorialOverlay(document.body, { onSkip: vi.fn(), onConfirm: vi.fn() });
+    const hint = () => document.querySelector<HTMLElement>(".sa-tutorial-hint")!;
+    overlay.present(view({ hint: "Drag the throttle on the right.", highlight: "throttle" }));
+    expect(hint().style.display).toBe("none");
+    // The words are already written — only their moment is being waited for.
+    expect(hint().textContent).toBe("Drag the throttle on the right.");
+
+    const control = document.createElement("div");
+    control.className = "hud-throttle-track";
+    control.getBoundingClientRect = () => ({ left: 100, top: 50, width: 40, height: 200 }) as DOMRect;
+    document.body.append(control);
+    // The poll that moves the ring is the same clock that raises the hint.
+    vi.advanceTimersByTime(400);
+    expect(hint().style.display).not.toBe("none");
+    overlay.dispose();
+  });
+
+  it("shows a hint that points at nothing straight away — that is general advice", () => {
+    const overlay = new TutorialOverlay(document.body, { onSkip: vi.fn(), onConfirm: vi.fn() });
+    overlay.present(view({ hint: "Watch your energy.", highlight: undefined }));
+    expect(document.querySelector<HTMLElement>(".sa-tutorial-hint")!.style.display).not.toBe("none");
+    overlay.dispose();
+  });
+
+  it("sits below the loading panel and the settings sheet, and above the shop", () => {
+    // Findings 52/53: at z-index 45 the card was read THROUGH — "PREPARING
+    // ARENA" and "Resume match" both ended up behind it.
+    const overlay = new TutorialOverlay(document.body, { onSkip: vi.fn(), onConfirm: vi.fn() });
+    const css = document.getElementById("sa-tutorial-style")!.textContent!;
+    const base = /\.sa-tutorial\s*\{[^}]*z-index:\s*(\d+)/.exec(css);
+    const shop = /\.sa-tutorial\[data-stage="shop"\]\s*\{\s*z-index:\s*(\d+)/.exec(css);
+    // MatchLoadingScreen is 26, SettingsScreen 40, ShopScreen 30, the HUD 10.
+    expect(Number(base![1])).toBeLessThan(26);
+    expect(Number(base![1])).toBeGreaterThan(10);
+    expect(Number(shop![1])).toBeGreaterThan(30);
+    expect(Number(shop![1])).toBeLessThan(40);
+    overlay.dispose();
+  });
+
+  it("anchors the card to a corner instead of the middle of the screen", () => {
+    // Finding 54: 520x178 dead-centre in 915x412 — over the player's own ship.
+    const overlay = new TutorialOverlay(document.body, { onSkip: vi.fn(), onConfirm: vi.fn() });
+    const css = document.getElementById("sa-tutorial-style")!.textContent!;
+    const card = /\.sa-tutorial-card\s*\{([^}]*)\}/.exec(css)![1]!;
+    expect(card).toMatch(/top:/);
+    expect(card).not.toMatch(/left:\s*50%/);
+    expect(card).not.toMatch(/translateX\(-50%\)/);
+    overlay.dispose();
+  });
+
   it("clears itself when presented nothing", () => {
     const overlay = new TutorialOverlay(document.body, { onSkip: vi.fn(), onConfirm: vi.fn() });
     overlay.present(view());

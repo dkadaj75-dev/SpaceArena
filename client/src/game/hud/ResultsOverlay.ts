@@ -7,6 +7,7 @@ import {
   selectMvp,
   type MvpPresentationSettings,
 } from "./matchPresentation.js";
+import { bindTap } from "./tapControl.js";
 
 /** Per-player progression summary (matches the net `matchRewards` message). */
 export interface MatchRewards {
@@ -47,6 +48,12 @@ interface StatChip {
 /** The banner shown for a finished match. */
 export type MatchOutcome = "VICTORY" | "DEFEAT" | "DRAW" | "TARGETS CLEARED";
 
+/** Separates YOUR credits/xp from the MVP's name and stat tiles above them. */
+export const REWARDS_HEADING = "YOUR REWARDS";
+
+/** The primary action: it opens the scoreboard, so it says so. */
+export const SCOREBOARD_ACTION_LABEL = "Scoreboard";
+
 /**
  * Results screen (§6 1.9, restyled by §10 5.8): outcome banner, animated
  * reward count-up, and MVP-phase navigation.
@@ -74,6 +81,7 @@ export class ResultsOverlay {
   private readonly actionsEl: HTMLDivElement;
   private readonly subEl: HTMLDivElement;
   private readonly participantsEl: HTMLDivElement;
+  private readonly rewardsHeadingEl: HTMLDivElement;
   private readonly rewardsEl: HTMLDivElement;
   private readonly creditsEl: HTMLSpanElement;
   private readonly xpEl: HTMLSpanElement;
@@ -102,7 +110,17 @@ export class ResultsOverlay {
     this.root = document.createElement("div");
     this.root.className = "hud-results";
     this.mvpSettings = options.mvp ?? MVP_PRESENTATION_DEFAULTS;
-    this.root.addEventListener("pointerdown", () => this.skipMvpPresentation());
+    // "Tap anywhere to skip" means anywhere that is NOT a button (2026-08-23).
+    // One tap on NEXT used to be two events racing on the same overlay — the
+    // root's `pointerdown` skipping the count-up and the button's `click`
+    // arriving after — and the skip's class/layout change intermittently ate
+    // the click, so NEXT did nothing on roughly half the taps (playtest
+    // finding 3). The skip now declines any press that landed on a control, and
+    // the controls themselves fire on pointerup, so a tap has exactly one owner.
+    this.root.addEventListener("pointerdown", (ev) => {
+      if (isOverlayControl(ev.target)) return;
+      this.skipMvpPresentation();
+    });
 
     const backdrop = document.createElement("div");
     backdrop.className = "hud-results-backdrop";
@@ -154,6 +172,17 @@ export class ResultsOverlay {
       this.makeStatChip("CAPTURES"),
     ];
 
+    // WHOSE numbers are these (2026-08-23). The card shows the MVP's name and
+    // the MVP's stat tiles and then, in the same column with nothing between
+    // them, YOUR credits and xp — two subjects, one column, no separator
+    // (playtest findings 17 / menus 61). The heading is that separator: it
+    // appears only once the reward block has something in it, so a card with no
+    // rewards does not grow an empty label.
+    this.rewardsHeadingEl = document.createElement("div");
+    this.rewardsHeadingEl.className = "hud-results-rewards-heading";
+    this.rewardsHeadingEl.textContent = REWARDS_HEADING;
+    this.rewardsHeadingEl.hidden = true;
+
     this.rewardsEl = document.createElement("div");
     this.rewardsEl.className = "hud-results-rewards";
 
@@ -179,7 +208,11 @@ export class ResultsOverlay {
     this.actionsEl = document.createElement("div");
     this.actionsEl.className = "hud-results-actions";
     this.actionsEl.append(
-      button("Next", "primary", () => this.showScoreboard(), "next"),
+      // Named for where it GOES (2026-08-23). "Next" was the primary button and
+      // said nothing, while the two that describe real outcomes were demoted
+      // beside it (menus finding 62) — a pilot had to press it to learn it opens
+      // the scoreboard.
+      button(SCOREBOARD_ACTION_LABEL, "primary", () => this.showScoreboard(), "next"),
       button("Play a New Game", "", callbacks.onPlayAgain, "playAgain"),
       button("Quit to Menu", "", callbacks.onMenu, "menu"),
     );
@@ -193,6 +226,7 @@ export class ResultsOverlay {
       rule,
       this.statsEl,
       this.subEl,
+      this.rewardsHeadingEl,
       this.rewardsEl,
       this.actionsEl,
     );
@@ -262,7 +296,7 @@ export class ResultsOverlay {
     this.setStatTargets(mvpLine?.kills ?? 0, mvpLine?.assists ?? 0, mvpLine?.flagsCaptured ?? 0);
     this.mvpElapsedMs = 0;
     this.mvpSkipped = false;
-    if (this.options.offline) this.rewardsEl.textContent = "Practice — no rewards";
+    if (this.options.offline) this.setRewardsText("Practice — no rewards");
     if (mvp !== null) this.callbacks.onMvp?.(mvp);
   }
 
@@ -330,11 +364,12 @@ export class ResultsOverlay {
     // still sends the message (ArenaRoom.persistAndReward), which is why this
     // never took the offline branch and read "+0 credits · +0 xp" instead.
     if (rewards.credits === 0 && rewards.xp === 0 && !rewards.leveledUp) {
-      this.rewardsEl.textContent = this.options.offline ? "Practice — no rewards" : "No rewards from this match";
+      this.setRewardsText(this.options.offline ? "Practice — no rewards" : "No rewards from this match");
       this.rewardFinished = true;
       return;
     }
 
+    this.rewardsHeadingEl.hidden = false;
     this.rewardsEl.replaceChildren(this.rewardLine);
     this.paintRewards(0, 0);
 
@@ -344,6 +379,12 @@ export class ResultsOverlay {
       levelUp.textContent = `Level Up! → Level ${rewards.newLevel}`;
       this.rewardsEl.appendChild(levelUp);
     }
+  }
+
+  /** One line of reward copy, with the heading that says whose it is. */
+  private setRewardsText(text: string): void {
+    this.rewardsEl.textContent = text;
+    this.rewardsHeadingEl.hidden = false;
   }
 
   private advanceRewards(dtMs: number): void {
@@ -382,6 +423,15 @@ export class ResultsOverlay {
   }
 }
 
+/**
+ * Whether a press landed on something that ACTS, rather than on the card.
+ * Anything the overlay makes tappable carries `data-results-action`, so this
+ * needs no list of tag names to stay correct as the card gains controls.
+ */
+function isOverlayControl(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-results-action],button") !== null;
+}
+
 function button(
   label: string,
   variant: string,
@@ -392,6 +442,9 @@ function button(
   b.className = `hud-results-btn hud-button hud-button--${variant === "primary" ? "primary" : "secondary"}${variant ? ` hud-results-btn--${variant}` : ""}`;
   b.textContent = label;
   b.dataset["resultsAction"] = key;
-  b.addEventListener("click", onClick);
+  // Pointer-driven, like every other control the pilot can reach mid-flight —
+  // and here it is also what takes the button out of the race with the root's
+  // skip handler. Keyboard activation still arrives through `bindTap`'s click.
+  bindTap(b, onClick);
   return b;
 }

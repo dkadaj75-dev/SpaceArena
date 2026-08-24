@@ -213,7 +213,10 @@ describe("the Hangar loadout reaches an offline match (owner 2026-07-31)", () =>
 });
 
 describe("loadHangarSelection working fitting", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
 
   it("returns the stored module list for the stored ship", () => {
     localStorage.setItem("hangar.shipId", "ship.brawler");
@@ -260,7 +263,8 @@ describe("loadHangarSelection working fitting", () => {
 
   it("reads the MAIN hull, not wherever the carousel was left", () => {
     localStorage.setItem("hangar.shipId", "ship.brawler");
-    localStorage.setItem("hangar.browseShipId", "ship.support");
+    // Session-scoped since 2026-08-23, and never read here either way.
+    sessionStorage.setItem("hangar.browseShipId", "ship.support");
     expect(loadHangarSelection().shipId).toBe("ship.brawler");
   });
 });

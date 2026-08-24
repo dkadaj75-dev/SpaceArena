@@ -135,4 +135,32 @@ describe("ThemeEditor colors accordion", () => {
     expect(panel.element.querySelector<HTMLDetailsElement>("details.ed-record")!.open).toBe(true);
     panel.dispose();
   });
+
+  /**
+   * The heaviest panel in the suite — 1401 controls, 90 sections, one flat
+   * scroll — got Tuning's FIND FIELD box, which was the only place it existed.
+   */
+  it("filters to the matching fields and opens the group holding them", () => {
+    const panel = new ThemeEditor(themeHost([theme()]), vi.fn());
+    const search = panel.element.querySelector<HTMLInputElement>('input[type="search"]')!;
+    const row = (key: string): HTMLElement => panel.element.querySelector(`[name="colors.${key}"]`)!.closest(".editor-field")!;
+    const colors = (): HTMLDetailsElement => panel.element.querySelector<HTMLDetailsElement>("details.ed-record")!;
+
+    expect(colors().open).toBe(false);
+
+    search.value = "--hud-warn";
+    search.dispatchEvent(new Event("input"));
+    // Searching a wall of shut accordions and being shown shut accordions is
+    // not a search: a hit opens its own group.
+    expect(colors().open).toBe(true);
+    expect(row("--hud-warn").style.display).toBe("");
+    expect(row("--hud-primary").style.display).toBe("none");
+
+    search.value = "";
+    search.dispatchEvent(new Event("input"));
+    expect(row("--hud-primary").style.display).toBe("");
+    // Clearing puts the group back the way the designer left it.
+    expect(colors().open).toBe(false);
+    panel.dispose();
+  });
 });

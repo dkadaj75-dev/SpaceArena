@@ -183,3 +183,52 @@ describe("ModuleEditor", () => {
     panel.dispose();
   });
 });
+
+/**
+ * The tallest panel in the suite — 1826px of form in a 276px window, 21
+ * sections and 82 inputs behind a 58-entry dropdown. Tuning's FIND FIELD box is
+ * the pattern that answers that, and this is where it was needed most.
+ */
+describe("ModuleEditor field search", () => {
+  it("filters to the matching fields and opens the group holding them", () => {
+    const { host } = fakeHost([moduleConfig()]);
+    const panel = new ModuleEditor(host, vi.fn());
+    const search = panel.element.querySelector<HTMLInputElement>('input[type="search"]')!;
+    const field = (name: string): HTMLElement => panel.element.querySelector(`[name="${name}"]`)!.closest(".editor-field")!;
+    const group = (name: string): HTMLDetailsElement => field(name).closest("details")!;
+
+    expect(group("fire.cycleTime").open).toBe(false);
+
+    search.value = "cycleTime";
+    search.dispatchEvent(new Event("input"));
+    expect(group("fire.cycleTime").open).toBe(true);
+    expect(field("fire.cycleTime").style.display).toBe("");
+    expect(field("fire.range").style.display).toBe("none");
+
+    search.value = "";
+    search.dispatchEvent(new Event("input"));
+    expect(field("fire.range").style.display).toBe("");
+    expect(group("fire.cycleTime").open).toBe(false);
+    panel.dispose();
+  });
+
+  it("keeps the query alive across the rebuild a committed edit causes", async () => {
+    const { host } = fakeHost([moduleConfig()]);
+    const panel = new ModuleEditor(host, vi.fn());
+    const search = panel.element.querySelector<HTMLInputElement>('input[type="search"]')!;
+
+    search.value = "cycleTime";
+    search.dispatchEvent(new Event("input"));
+    const cycle = panel.element.querySelector<HTMLInputElement>('[name="fire.cycleTime"]')!;
+    cycle.value = "0.6";
+    cycle.dispatchEvent(new Event("change"));
+
+    // SchemaFormGen replaces its whole field tree on every commit; without the
+    // rebuild watch the filter would silently drop until the next keystroke.
+    // (The watch is a MutationObserver, so the re-filter lands a tick later.)
+    await vi.waitFor(() =>
+      expect(panel.element.querySelector('[name="fire.range"]')!.closest<HTMLElement>(".editor-field")!.style.display).toBe("none"),
+    );
+    panel.dispose();
+  });
+});

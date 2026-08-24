@@ -22,6 +22,42 @@ const FADE_MS = 3_000;
 const TOTAL_LIFE_MS = FULL_VISIBILITY_MS + FADE_MS;
 const MAX_CHUNKS = 8;
 
+/**
+ * Peak alpha of the flash sphere, down from 0.95 (2026-08-23).
+ *
+ * At 0.95 an emissive sphere blown up to ~3.6 units across is very nearly
+ * opaque white-orange for its whole first frame; the playtest called it "a
+ * full-screen orange fireball that swamps the HUD" (finding 8). This still
+ * reads as a hard flash at any normal engagement distance — it is the CLOSE
+ * case the ramp below exists for.
+ */
+const FLASH_PEAK_ALPHA = 0.72;
+
+/**
+ * How many flash radii of clearance the camera needs for the flash to be drawn
+ * at full strength. Inside that the flash fades toward nothing, reaching zero
+ * when the camera is on the sphere's surface.
+ */
+const FLASH_CLEARANCE_RADII = 2.5;
+
+/**
+ * Fade a burst's screen-filling elements as the camera gets inside them.
+ *
+ * The flash and the shockwave are world-space meshes, so their SCREEN coverage
+ * is a function of how close the camera is: at chase distance the flash is a
+ * bright ball, and at contact range the camera is inside a nearly opaque sphere,
+ * which is a white-out rather than an explosion. Returns 1 — the authored
+ * effect, untouched — from `FLASH_CLEARANCE_RADII` radii outward, and ramps to
+ * 0 at the surface. Pure so the ramp is testable without a scene.
+ */
+export function closeRangeFlashScale(cameraDistance: number, radius: number): number {
+  if (!Number.isFinite(cameraDistance) || !Number.isFinite(radius) || radius <= 0) return 1;
+  const clearance = radius * FLASH_CLEARANCE_RADII;
+  if (clearance <= 0) return 1;
+  const t = (cameraDistance - radius) / clearance;
+  return t <= 0 ? 0 : t >= 1 ? 1 : t;
+}
+
 interface Chunk {
   mesh: Mesh;
   velocity: Vector3;
@@ -139,12 +175,21 @@ export class ExplosionFx {
         continue;
       }
       const fade = slot.ageMs <= FULL_VISIBILITY_MS ? 1 : 1 - (slot.ageMs - FULL_VISIBILITY_MS) / FADE_MS;
+      // How far the camera is from this burst, so a kill made at knife range
+      // cannot white the screen out — see `closeRangeFlashScale`.
+      const cameraDistance = this.cameraDistanceTo(slot);
       const flashT = Math.min(1, slot.ageMs / 150);
-      slot.flashMaterial.alpha = Math.max(0, (1 - flashT) * 0.95);
-      slot.flash.scaling.setAll(0.45 + flashT * 3.2);
+      const flashScale = 0.45 + flashT * 3.2;
+      slot.flashMaterial.alpha =
+        Math.max(0, (1 - flashT) * FLASH_PEAK_ALPHA) *
+        closeRangeFlashScale(cameraDistance, flashScale * slotScale(slot) * 0.5);
+      slot.flash.scaling.setAll(flashScale);
       const waveT = Math.min(1, slot.ageMs / 600);
-      slot.shockwaveMaterial.alpha = Math.max(0, (1 - waveT) * 0.32);
-      slot.shockwave.scaling.setAll(0.6 + waveT * 7);
+      const waveScale = 0.6 + waveT * 7;
+      slot.shockwaveMaterial.alpha =
+        Math.max(0, (1 - waveT) * 0.32) *
+        closeRangeFlashScale(cameraDistance, waveScale * slotScale(slot) * 0.5);
+      slot.shockwave.scaling.setAll(waveScale);
       for (let i = 0; i < slot.chunkCount; i++) {
         const chunk = slot.chunks[i]!;
         chunk.mesh.position.x += chunk.velocity.x * seconds;
@@ -159,6 +204,17 @@ export class ExplosionFx {
         chunk.mesh.visibility = fade;
       }
     }
+  }
+
+  /**
+   * Distance from the active camera to a burst, or Infinity when the scene has
+   * no camera (headless tests, teardown) — which reads as "far away", so a
+   * missing camera never gates an effect off.
+   */
+  private cameraDistanceTo(slot: ExplosionSlot): number {
+    const camera = this.scene.activeCamera;
+    if (!camera) return Number.POSITIVE_INFINITY;
+    return Vector3.Distance(camera.globalPosition, slot.root.absolutePosition ?? slot.root.position);
   }
 
   get activeCount(): number {
@@ -325,6 +381,12 @@ function chunkCountFor(quality: ParticleQuality): number {
 }
 function randomSigned(): number { return Math.random() * 2 - 1; }
 function sameQuality(a: ParticleQuality, b: ParticleQuality): boolean { return a.enabled === b.enabled && a.budgetMultiplier === b.budgetMultiplier && a.maxEmitterCapacity === b.maxEmitterCapacity; }
+/** The burst's own scale (a missile warhead is a fraction of a hull death). */
+function slotScale(slot: ExplosionSlot): number {
+  const scale = slot.root.scaling.x;
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
 function emissiveMaterial(name: string, scene: Scene, color: Color3): StandardMaterial { const m = new StandardMaterial(name, scene); m.diffuseColor = Color3.Black(); m.specularColor = Color3.Black(); m.emissiveColor = color; m.disableLighting = true; m.backFaceCulling = false; return m; }
 function color3(hex: string, fallback: Color3): Color3 { try { return Color3.FromHexString(hex); } catch { return fallback; } }
 function color4(hex: string, fallback: Color4): Color4 { const c = color3(hex, new Color3(fallback.r, fallback.g, fallback.b)); return new Color4(c.r, c.g, c.b, 1); }

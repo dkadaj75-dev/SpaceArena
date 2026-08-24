@@ -148,7 +148,13 @@ export interface DeckCompareRow {
   value: string;
   /** The reading the candidate would produce, or null when nothing is previewed. */
   projected: string | null;
-  /** `▲` / `▼`, or null when there is no change to point at. */
+  /**
+   * `▲` / `▼`, or null when there is no change to point at — the DIRECTION of
+   * the move, for a reader that wants to draw it as one. The deck's own box no
+   * longer prints it: `DPS 3.2 ▲ 117.2` was read as a signed delta rather than
+   * as a projection (playtest 2026-08-23 §36), so the screen writes
+   * `3.2 → 117.2` and leaves the direction to the trend colour.
+   */
   arrow: string | null;
   trend: HangarGaugeTrend;
   /** The projected fit is in the danger band (power past the rail). */

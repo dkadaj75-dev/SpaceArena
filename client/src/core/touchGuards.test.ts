@@ -66,4 +66,36 @@ describe("installTouchGuards", () => {
     expect(touchMove(canvas).defaultPrevented).toBe(false);
     expect(touchMove(scrollChild).defaultPrevented).toBe(false);
   });
+
+  /**
+   * Playtest finding 13: 414 console ERRORS in a single session — "Ignored
+   * attempt to cancel a touchmove event with cancelable=false" — one per
+   * steering frame, because once a touch gesture is handed to the compositor
+   * the browser stops making its moves cancelable and refuses (loudly) to
+   * cancel them. Steering worked throughout; the log did not.
+   */
+  it("does not argue with an uncancelable move", () => {
+    dispose = installTouchGuards();
+    const page = document.createElement("div");
+    document.body.append(page);
+
+    const uncancelable = new Event("touchmove", { bubbles: true, cancelable: false }) as TouchEvent;
+    let attempted = false;
+    uncancelable.preventDefault = () => { attempted = true; };
+    page.dispatchEvent(uncancelable);
+    expect(attempted).toBe(false);
+  });
+
+  it("does not argue with an uncancelable second tap either", () => {
+    dispose = installTouchGuards();
+    const page = document.createElement("div");
+    document.body.append(page);
+    touchEnd(page, 100);
+    const uncancelable = new Event("touchend", { bubbles: true, cancelable: false }) as TouchEvent;
+    Object.defineProperty(uncancelable, "timeStamp", { value: 250 });
+    let attempted = false;
+    uncancelable.preventDefault = () => { attempted = true; };
+    page.dispatchEvent(uncancelable);
+    expect(attempted).toBe(false);
+  });
 });

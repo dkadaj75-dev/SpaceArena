@@ -70,6 +70,8 @@ export class TutorialOverlay {
   private readonly ring: HTMLDivElement;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private highlight: TutorialHighlight | undefined;
+  /** The current step's hint, held so the ring poll can decide whether to show it. */
+  private hint = "";
 
   constructor(parent: HTMLElement, callbacks: TutorialOverlayCallbacks) {
     injectTutorialStyle();
@@ -137,8 +139,8 @@ export class TutorialOverlay {
     this.counter.textContent = `Step ${view.index} / ${view.total}`;
     this.titleEl.textContent = view.title;
     this.textEl.textContent = view.text;
-    this.hintEl.textContent = view.hint ?? "";
-    this.hintEl.style.display = view.hint ? "" : "none";
+    this.hint = view.hint ?? "";
+    this.hintEl.textContent = this.hint;
     this.confirmBtn.style.display = view.confirmable ? "" : "none";
     // Re-triggered per step so the card punches in again rather than silently
     // swapping its words: the instruction changing IS the event.
@@ -151,12 +153,20 @@ export class TutorialOverlay {
   }
 
   /**
-   * Re-measure the highlighted control and move the ring onto it. Public so a
-   * caller with a better clock than the poll (a resize handler, a test) can
-   * force it.
+   * Re-measure the highlighted control, move the ring onto it, and decide
+   * whether the step's hint is currently TRUE. Public so a caller with a better
+   * clock than the poll (a resize handler, a test) can force it.
    */
   syncRing(): void {
     const rect = this.highlight ? highlightRect(HIGHLIGHT_SELECTORS[this.highlight]) : null;
+    // A hint that points ("Drag the throttle on the right") is a lie while the
+    // thing it points at is not on screen — step 1 said exactly that during the
+    // countdown, when the throttle strip is still a 0x0 box (finding 55). Held
+    // back until the control exists; the poll raises it the moment it does. A
+    // hint on a step that points at NOTHING is general advice, and always shows.
+    const pointing = this.highlight !== undefined;
+    const showHint = this.hint !== "" && (!pointing || rect !== null);
+    this.hintEl.style.display = showHint ? "" : "none";
     if (!rect) {
       this.ring.style.display = "none";
       return;
@@ -247,15 +257,23 @@ export function injectTutorialStyle(): void {
  * of the game and never carries a hex of its own.
  */
 const CSS = `
+/* Z-ORDER. The coach mark is the least important thing on screen: it is a
+   caption over whatever the player is doing, and it sat at 45 — above the
+   match-loading panel (26) and above the settings sheet (40), so "PREPARING
+   ARENA" and "Resume match" were both read through it (findings 52, 53).
+   25 puts it over the HUD (10) and the lobby (20) and under both of those.
+   The SHOP is the one screen it must out-rank, because its steps point at that
+   screen's own controls, and that screen is a full-page overlay at 30. */
 .sa-tutorial {
   position: fixed;
   inset: 0;
-  z-index: 45;
+  z-index: 25;
   /* The mark sits ON the controls it is teaching — it must never eat a tap. */
   pointer-events: none;
   font: var(--sa-type-body);
   color: var(--sa-white);
 }
+.sa-tutorial[data-stage="shop"] { z-index: 35; }
 .sa-tutorial-ring {
   position: fixed;
   border: var(--sa-line-thin) solid var(--sa-blue-500);
@@ -269,12 +287,18 @@ const CSS = `
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
+/* Anchored to the TOP-LEFT corner, not floated in the middle. Centred and
+   lifted off the bottom edge, the card landed at 520x178 in the dead centre of
+   a 915x412 viewport — directly over the player's own ship, so every
+   instruction hid the thing it was instructing (finding 54). A corner is the
+   one place a caption can live without covering the subject: narrower, out of
+   the way of the stick (bottom-left) and the module hexes (right), and always
+   in the same place from step to step. */
 .sa-tutorial-card {
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
-  width: min(520px, calc(100vw - 32px));
+  left: max(env(safe-area-inset-left, 0px), 12px);
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  width: min(340px, calc(100vw - 24px));
   box-sizing: border-box;
   padding: 12px 16px 14px;
   background: color-mix(in srgb, var(--sa-n-800) 92%, transparent);
@@ -283,14 +307,14 @@ const CSS = `
   border-radius: var(--sa-radius-medium);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--sa-n-900) 80%, transparent);
 }
-/* In flight the bottom edge belongs to the stick and the trigger: lift clear. */
+/* In flight the top-left corner carries the HUD's own readouts: clear them. */
 .sa-tutorial[data-stage="flight"] .sa-tutorial-card {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+  top: calc(env(safe-area-inset-top, 0px) + 56px);
 }
 .sa-tutorial-card.enter { animation: sa-tutorial-in 220ms ease-out both; }
 @keyframes sa-tutorial-in {
-  from { opacity: 0; transform: translate(-50%, 10px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
 }
 .sa-tutorial-head {
   display: flex;

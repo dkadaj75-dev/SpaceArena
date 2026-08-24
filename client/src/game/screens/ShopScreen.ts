@@ -8,6 +8,7 @@ import {
 import type { OwnershipStore } from "../ownershipStore.js";
 import {
   equipHint,
+  matchesShopFilter,
   moduleGroups,
   paintEntries,
   priceLabel,
@@ -25,9 +26,27 @@ const log = createLogger("Shop");
 
 const THEME_ID = "theme.default";
 
+/** What the server would judge a purchase against: the pilot's own numbers. */
+export interface ShopPilot {
+  level: number;
+}
+
 export interface ShopCallbacks {
   onClose: () => void;
+  /**
+   * The signed-in pilot, or null when there is no account.
+   *
+   * Null is not "level 0" — it is "nobody is enforcing anything here". The
+   * offline ledger has no level and a permanently-zero wallet (see
+   * `ownershipStore.ts`), and gating against that would lock a shop where
+   * every purchase is free. Absent entirely for callers that predate the gate,
+   * which behave exactly as they did.
+   */
+  pilot?: () => ShopPilot | null;
 }
+
+/** Why a Buy button is off, or "" when it is not. */
+type BuyBlock = "" | "level" | "credits";
 
 /**
  * The shop (contract §5) — hulls, modules and paints, bought through the
@@ -46,6 +65,8 @@ export class ShopScreen {
   private readonly header: HTMLDivElement;
   private readonly creditsEl: HTMLSpanElement;
   private readonly tabsEl: HTMLDivElement;
+  private readonly filterEl: HTMLDivElement;
+  private readonly filterInput: HTMLInputElement;
   private readonly noticeEl: HTMLDivElement;
   private readonly bodyEl: HTMLDivElement;
   private readonly unsubscribeStore: () => void;
@@ -54,6 +75,8 @@ export class ShopScreen {
   /** The action in flight, as `kind:id` — non-null disables every action. */
   private pending: string | null = null;
   private notice = "";
+  /** Live text filter over the current tab's list; "" shows everything. */
+  private filter = "";
 
   constructor(
     parent: HTMLElement,
@@ -105,6 +128,23 @@ export class ShopScreen {
     this.tabsEl.setAttribute("role", "tablist");
     this.root.append(this.tabsEl);
 
+    // Above the list, outside the re-rendered body: the grid is rebuilt on
+    // every keystroke, and a box that was rebuilt with it would lose focus and
+    // the caret mid-word.
+    this.filterEl = document.createElement("div");
+    this.filterEl.className = "shop-filter";
+    this.filterInput = document.createElement("input");
+    this.filterInput.type = "search";
+    this.filterInput.className = "shop-filter-input";
+    this.filterInput.dataset["shopFilter"] = "";
+    this.filterInput.setAttribute("aria-label", "Filter this list");
+    this.filterInput.addEventListener("input", () => {
+      this.filter = this.filterInput.value;
+      this.render();
+    });
+    this.filterEl.append(this.filterInput);
+    this.root.append(this.filterEl);
+
     this.noticeEl = document.createElement("div");
     this.noticeEl.className = "shop-notice";
     this.noticeEl.setAttribute("role", "status");
@@ -148,6 +188,7 @@ export class ShopScreen {
   show(): void {
     this.notice = "";
     this.pending = null;
+    this.setFilter("");
     this.root.style.display = "flex";
     this.root.scrollTop = 0;
     this.render();
@@ -173,12 +214,22 @@ export class ShopScreen {
   selectTab(tab: ShopTab): void {
     this.tab = tab;
     this.notice = "";
+    // A filter typed against modules would silently hide most of the paints.
+    this.setFilter("");
     this.render();
+  }
+
+  private setFilter(value: string): void {
+    this.filter = value;
+    this.filterInput.value = value;
   }
 
   private render(): void {
     this.creditsEl.textContent = `${this.store.credits()} cr`;
     this.renderTabs();
+    // Two hulls need no search box; 58 modules and 36 paints do (finding 46).
+    this.filterEl.hidden = this.tab === "ships";
+    this.filterInput.placeholder = this.tab === "modules" ? "Filter modules…" : "Filter paints…";
     this.noticeEl.textContent = this.notice;
     this.noticeEl.classList.toggle("visible", this.notice.length > 0);
 
@@ -189,6 +240,23 @@ export class ShopScreen {
     else if (this.tab === "modules") this.renderModules(grid);
     else this.renderPaints(grid);
     this.bodyEl.replaceChildren(grid);
+  }
+
+  /**
+   * What the server would say about this purchase, decided BEFORE the tap.
+   *
+   * Both refusals were invisible until the request came back: a level-locked
+   * module offered a fully enabled "Buy · 1500 cr" and answered with a 403
+   * (finding 43), and there was no affordability state at all — zero disabled
+   * buy buttons among 58 cards on a 250 cr balance (finding 45). The server
+   * stays the backstop; this is only the part the player can see.
+   */
+  private blockFor(entry: ShopEntry): BuyBlock {
+    if (entry.state !== "buy") return "";
+    const pilot = this.callbacks.pilot?.() ?? null;
+    if (!pilot) return "";
+    if (entry.requiresLevel !== undefined && entry.requiresLevel > pilot.level) return "level";
+    return entry.price > this.store.credits() ? "credits" : "";
   }
 
   private renderTabs(): void {
@@ -225,7 +293,16 @@ export class ShopScreen {
       grid.append(hint("shop-empty", "No modules in this content pack."));
       return;
     }
-    for (const group of groups) {
+    // A family whose every module was filtered out loses its heading too — a
+    // bare "KINETIC" over nothing reads as a list that failed to load.
+    const matched = groups
+      .map((group) => ({ ...group, entries: group.entries.filter((e) => matchesShopFilter(e, this.filter)) }))
+      .filter((group) => group.entries.length > 0);
+    if (matched.length === 0) {
+      grid.append(hint("shop-empty", `No modules match “${this.filter.trim()}”.`));
+      return;
+    }
+    for (const group of matched) {
       grid.append(hint("shop-group-title", group.title));
       for (const entry of group.entries) {
         const card = this.card(entry);
@@ -236,9 +313,14 @@ export class ShopScreen {
   }
 
   private renderPaints(grid: HTMLDivElement): void {
-    const entries = paintEntries(this.configs, this.store);
-    if (entries.length === 0) {
+    const all = paintEntries(this.configs, this.store);
+    if (all.length === 0) {
       grid.append(hint("shop-empty", "No paints in this content pack."));
+      return;
+    }
+    const entries = all.filter((entry) => matchesShopFilter(entry, this.filter));
+    if (entries.length === 0) {
+      grid.append(hint("shop-empty", `No paints match “${this.filter.trim()}”.`));
       return;
     }
     for (const entry of entries) {
@@ -273,10 +355,12 @@ export class ShopScreen {
 
   /** The shared card shell: name, price chip, sub-line, stat chips. */
   private card(entry: ShopEntry, lead?: HTMLElement): HTMLDivElement {
+    const block = this.blockFor(entry);
     const card = document.createElement("div");
     card.className = "shop-card";
     card.dataset["state"] = entry.state;
     card.dataset["entry"] = entry.id;
+    if (block) card.dataset["blocked"] = block;
     if (lead) card.append(lead);
 
     const head = document.createElement("div");
@@ -287,9 +371,13 @@ export class ShopScreen {
     const price = document.createElement("span");
     price.className = "shop-price";
     price.dataset["free"] = String(entry.price <= 0);
+    // A price you cannot meet is the bad number on the card, and it is the one
+    // the pilot is comparing against the balance in the header.
+    price.dataset["afford"] = String(block !== "credits");
     price.textContent = priceLabel(entry.price);
     head.append(name, price);
     card.append(head, hint("shop-card-sub", entry.sub));
+    if (block) card.append(hint("shop-card-blocked", this.blockReason(entry, block)));
 
     if (entry.chips.length > 0) {
       const chips = document.createElement("div");
@@ -324,14 +412,31 @@ export class ShopScreen {
       return row;
     }
     const key = `${kind}:${entry.id}`;
+    const block = this.blockFor(entry);
     const btn = document.createElement("button");
     btn.className = "sa-button sa-button--primary shop-buy";
     btn.type = "button";
-    btn.textContent = this.pending === key ? "Buying…" : `Buy · ${priceLabel(entry.price)}`;
-    btn.disabled = this.pending !== null;
+    btn.textContent =
+      this.pending === key
+        ? "Buying…"
+        : block === "level"
+          ? `Requires Lv ${entry.requiresLevel}`
+          : `Buy · ${priceLabel(entry.price)}`;
+    btn.disabled = this.pending !== null || block !== "";
+    if (block) {
+      btn.dataset["blocked"] = block;
+      btn.title = this.blockReason(entry, block);
+    }
     btn.addEventListener("click", () => void this.run(key, buy, "Purchase failed"));
     row.append(btn);
     return row;
+  }
+
+  /** The one sentence a blocked card owes the player. */
+  private blockReason(entry: ShopEntry, block: BuyBlock): string {
+    if (block === "level") return `Unlocks at level ${entry.requiresLevel}.`;
+    if (block === "credits") return `Costs ${priceLabel(entry.price)} — you have ${this.store.credits()} cr.`;
+    return "";
   }
 
   /**

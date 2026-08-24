@@ -205,18 +205,35 @@ function contentPipelinePlugin(): Plugin {
       // itself and filter for .json inside push().
       server.watcher.add(CONTENT_DIR);
 
-      const push = async (file: string): Promise<void> => {
+      /**
+       * A save is not atomic. An editor (or our own /__editor/save) truncates
+       * the file and writes it in pieces, chokidar fires on the truncate, and
+       * the read lands on half a file — "Unexpected end of JSON input", logged
+       * as a red error about a config that is in fact perfectly fine, on every
+       * save of a large theme. Retry once before believing it: a torn read is
+       * settled within milliseconds, a genuinely broken file is not.
+       *
+       * The first failure is still reported, flagged `transient` so the client
+       * logs it at debug rather than error — there when something is being
+       * diagnosed, out of the way when it is not.
+       */
+      const RETRY_MS = 100;
+      const push = async (file: string, attempt = 1): Promise<void> => {
         if (!file.endsWith(".json") || !path.resolve(file).startsWith(CONTENT_DIR)) return;
         const rel = path.relative(CONTENT_DIR, file).split(path.sep).join("/");
         try {
           const json = JSON.parse(await readFile(file, "utf8"));
           server.ws.send({ type: "custom", event: "content:changed", data: { file: rel, json } });
         } catch (err) {
+          const transient = attempt === 1;
           server.ws.send({
             type: "custom",
             event: "content:error",
-            data: { file: rel, message: String(err) },
+            data: { file: rel, message: String(err), transient },
           });
+          if (!transient) return;
+          await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+          await push(file, attempt + 1);
         }
       };
 

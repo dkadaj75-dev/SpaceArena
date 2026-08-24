@@ -32,6 +32,7 @@ import { KillFeed } from "./KillFeed.js";
 import { Scoreboard } from "./Scoreboard.js";
 import { MatchPresentationFlow, mvpPresentationSettings } from "./matchPresentation.js";
 import { designTokenCssVars } from "../themeTokens.js";
+import { bindTap } from "./tapControl.js";
 
 const log = createLogger("Hud");
 
@@ -118,6 +119,7 @@ export class Hud {
   private readonly unsubscribeTheme: () => void;
   private readonly unsubscribeShipConfig: () => void;
   private readonly onViewportChange: () => void;
+  private unbindSettings: () => void = () => {};
 
   private layout: HudLayout;
   private flightLayout: FlightHudLayout;
@@ -146,7 +148,10 @@ export class Hud {
       settingsBtn.setAttribute("aria-label", "Settings");
       settingsBtn.setAttribute(HUD_CONTROL_ATTR, "");
       settingsBtn.dataset["hudSettings"] = "";
-      settingsBtn.addEventListener("click", callbacks.onSettings);
+      // Tap, not `click`: a second touch while the steering thumb is down never
+      // synthesizes one, which made the pause menu unreachable in flight
+      // (playtest finding 1). See `tapControl.ts`.
+      this.unbindSettings = bindTap(settingsBtn, callbacks.onSettings);
       this.root.appendChild(settingsBtn);
     }
 
@@ -394,6 +399,7 @@ export class Hud {
   dispose(): void {
     this.unsubscribeTheme();
     this.unsubscribeShipConfig();
+    this.unbindSettings();
     this.flight?.dispose();
     window.removeEventListener("resize", this.onViewportChange);
     window.removeEventListener("orientationchange", this.onViewportChange);

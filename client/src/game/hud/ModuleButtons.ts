@@ -6,6 +6,7 @@ import { resolveHudLayout, type HudLayout } from "./hudLayout.js";
 import { anchoredOffset, type FlightHudLayout } from "./flightHudLayout.js";
 import { moduleIconId, moduleIconSvg } from "./moduleIcons.js";
 import { resolveSlotCluster, slotNumberLabel, type SlotSide } from "./slotCluster.js";
+import { bindTap } from "./tapControl.js";
 import { DEFAULT_DESIGN_TOKENS } from "../themeTokens.js";
 
 const log = createLogger("HudModuleButtons");
@@ -96,6 +97,28 @@ export interface HudSlotCounts {
   jettisonSlot: number | null;
   /** Total left-cluster slots — what the diameter ramp is fed. */
   utilities: number;
+  /**
+   * `hardpointIndex` → the circle that WEAPON owns in the right cluster.
+   *
+   * See {@link HudSlotCounts.utilitySlots} for why the assignment lives here
+   * rather than in the widget that draws it.
+   */
+  weaponSlots: ReadonlyMap<number, number>;
+  /**
+   * `hardpointIndex` → the circle that DEPLOYABLE owns in the left cluster,
+   * alongside {@link HudSlotCounts.boostSlot} and
+   * {@link HudSlotCounts.jettisonSlot} in the same index space.
+   *
+   * The whole point of the type (2026-08-23). Before these maps every consumer
+   * counted its own way to the same answer — the rail walked its sorted build
+   * order incrementing a per-side counter, while BOOST and JETTISON were handed
+   * `utilityModules` and `utilityModules + 1` from here — and any fitting where
+   * those two walks disagreed by one put two controls on one circle. The
+   * assignment is now made ONCE, here, and every widget looks its circle up
+   * rather than deriving it: a shield cannot end up under BOOST, because
+   * nothing but this function decides where either of them goes.
+   */
+  utilitySlots: ReadonlyMap<number, number>;
 }
 
 /**
@@ -133,13 +156,24 @@ export function isBoostModule(cfg: Pick<ModuleConfig, "family" | "boost"> | unde
   return cfg?.boost !== undefined || cfg?.family === "boost";
 }
 
-/** Resolve {@link HudSlotCounts} for one ship's fitting. Pure over the configs. */
+/**
+ * Resolve {@link HudSlotCounts} for one ship's fitting. Pure over the configs.
+ *
+ * THE ONLY PLACE a circle is assigned. Every widget on either cluster — the
+ * module rail, {@link import("./BoostButton.js").BoostButton},
+ * {@link import("./JettisonButton.js").JettisonButton} — takes its slot from
+ * this one result, so two controls sharing a circle is not a bug that can be
+ * reintroduced by a fitting: the assignment is a single pass over one snapshot.
+ */
 export function resolveHudSlotCounts(
   configs: ConfigService,
   modules: readonly ModuleSnapshot[],
 ): HudSlotCounts {
-  let weapons = 0;
-  let utilityModules = 0;
+  // Hardpoint indices per cluster, so the numbering is a function of the
+  // FITTING rather than of whatever order a consumer happens to walk in. Sorted
+  // below because a snapshot's `modules` is sparse-safe but not order-safe.
+  const weaponHardpoints: number[] = [];
+  const utilityHardpoints: number[] = [];
   let hasBoost = false;
   let hasJettison = false;
   for (const m of modules) {
@@ -147,9 +181,17 @@ export function resolveHudSlotCounts(
     if (isBoostModule(cfg)) hasBoost = true;
     if (cfg?.jettison) hasJettison = true;
     if (!isButtonableFamily(cfg?.family)) continue;
-    if (cfg?.fire !== undefined) weapons++;
-    else utilityModules++;
+    (cfg?.fire !== undefined ? weaponHardpoints : utilityHardpoints).push(m.hardpointIndex);
   }
+  weaponHardpoints.sort(ascending);
+  utilityHardpoints.sort(ascending);
+  const weaponSlots = new Map<number, number>();
+  const utilitySlots = new Map<number, number>();
+  for (let i = 0; i < weaponHardpoints.length; i++) weaponSlots.set(weaponHardpoints[i]!, i);
+  for (let i = 0; i < utilityHardpoints.length; i++) utilitySlots.set(utilityHardpoints[i]!, i);
+
+  const weapons = weaponHardpoints.length;
+  const utilityModules = utilityHardpoints.length;
   // Order inside the left cluster: deployables first, then BOOST, then JETTISON
   // — the same running order the retired action arc used, so a pilot's muscle
   // memory for "boost is after my kit" survives the move to the left thumb.
@@ -161,7 +203,28 @@ export function resolveHudSlotCounts(
     boostSlot,
     jettisonSlot,
     utilities: utilityModules + (hasBoost ? 1 : 0) + (hasJettison ? 1 : 0),
+    weaponSlots,
+    utilitySlots,
   };
+}
+
+function ascending(a: number, b: number): number {
+  return a - b;
+}
+
+/**
+ * Every LEFT-cluster circle this fitting hands out, keyed by the control that
+ * owns it (`module:<hardpointIndex>`, `boost`, `jettison`).
+ *
+ * Exported for the regression tests, which assert the invariant the maps above
+ * exist for: whatever the fitting, no two controls resolve to one circle.
+ */
+export function utilitySlotAssignments(counts: HudSlotCounts): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [hardpointIndex, slot] of counts.utilitySlots) out.set(`module:${hardpointIndex}`, slot);
+  if (counts.boostSlot !== null) out.set("boost", counts.boostSlot);
+  if (counts.jettisonSlot !== null) out.set("jettison", counts.jettisonSlot);
+  return out;
 }
 
 interface ButtonEntry {
@@ -249,6 +312,13 @@ export class ModuleButtons {
   private builtForModuleCount = -1;
   /** Left-cluster slots taken by BOOST/JETTISON, which this component does not draw. */
   private utilityExtras = 0;
+  /**
+   * The assignment the current buttons were placed against. Held (rather than
+   * recounted in {@link position}) so a re-layout replays the SAME circles the
+   * flight controls were given, instead of a second opinion derived from the
+   * DOM — the two-opinion problem is exactly what stacked controls.
+   */
+  private slotCounts: HudSlotCounts | null = null;
   private layout: HudLayout;
   /**
    * Held weapon triggers: hardpoint index → the POINTER holding it.
@@ -372,16 +442,9 @@ export class ModuleButtons {
   /** Writes each button's pivot-relative box into its inline left/top/size. */
   private position(): void {
     const opts = { viewport: this.layout.viewport, scale: this.layout.scale };
-    const weapons = resolveSlotCluster(
-      this.ordered.reduce((n, e) => (e.side === "weapons" ? n + 1 : n), 0),
-      "weapons",
-      opts,
-    );
-    const utilities = resolveSlotCluster(
-      this.ordered.reduce((n, e) => (e.side === "utilities" ? n + 1 : n), 0) + this.utilityExtras,
-      "utilities",
-      opts,
-    );
+    const counts = this.slotCounts;
+    const weapons = resolveSlotCluster(counts?.weapons ?? 0, "weapons", opts);
+    const utilities = resolveSlotCluster(counts?.utilities ?? 0, "utilities", opts);
     for (const entry of this.ordered) {
       const cluster = entry.side === "weapons" ? weapons : utilities;
       const slot = cluster.slots[entry.slotIndex];
@@ -569,7 +632,7 @@ export class ModuleButtons {
     this.clusters.utilities.innerHTML = "";
     this.ordered = [];
     this.utilityExtras = counts.utilities - counts.utilityModules;
-    const perSide: Record<SlotSide, number> = { weapons: 0, utilities: 0 };
+    this.slotCounts = counts;
 
     this.entries = new Map(
       [...modules]
@@ -589,7 +652,15 @@ export class ModuleButtons {
         if (!cfg) log.warn(`unknown module config ${moduleId}`);
         const isWeapon = cfg?.fire !== undefined;
         const side: SlotSide = isWeapon ? "weapons" : "utilities";
-        const slotIndex = perSide[side]++;
+        // Looked UP, never counted here: the circle a fitted module owns is
+        // decided once, in `resolveHudSlotCounts`, alongside BOOST's and
+        // JETTISON's. A local counter is how a shield ended up sharing a circle
+        // with one of them. The `??` is unreachable for a module that passed
+        // the same filter the counts used, and exists only so a future
+        // divergence lands on an unused circle rather than on someone else's.
+        const assigned = (isWeapon ? counts.weaponSlots : counts.utilitySlots).get(hardpointIndex);
+        if (assigned === undefined) log.warn(`no HUD slot resolved for hardpoint ${hardpointIndex} (${moduleId})`);
+        const slotIndex = assigned ?? (isWeapon ? counts.weapons : counts.utilities);
 
         const btn = document.createElement("div");
         btn.className = "hud-module-btn hud-slot-btn hex-action";
@@ -686,7 +757,11 @@ export class ModuleButtons {
           btn.addEventListener("lostpointercapture", (ev) => release(ev.pointerId));
           this.releasers.push(release);
         } else {
-          btn.addEventListener("click", () => {
+          // A TAP, not a `click` (2026-08-23). While a steering thumb is on the
+          // screen a second touch synthesizes no click at all, so this button —
+          // the shield's, in every report of it — was dead for the whole of
+          // normal flight. See `tapControl.ts`.
+          bindTap(btn, () => {
             // The same gate the weapon triggers honour. A utility button used to
             // send its order regardless, so a dead pilot on the respawn hold
             // could still toggle a shield on a ship that no longer existed.

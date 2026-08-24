@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AuthService } from "../../core/AuthService.js";
-import { AuthScreen } from "./AuthScreen.js";
+import { ApiRequestError, type AuthService } from "../../core/AuthService.js";
+import { AuthScreen, authFieldError } from "./AuthScreen.js";
 
 /**
  * The registration contract the owner asked for (2026-08-22): the NICKNAME is
@@ -34,6 +34,12 @@ function panel(root: HTMLElement, tab: "login" | "register"): { inputs: HTMLInpu
     inputs: [...el.querySelectorAll("input")],
     submit: el.querySelector("button")!,
   };
+}
+
+/** The error line belonging to one input, wherever its panel is. */
+function fieldError(root: HTMLElement, field: string): string {
+  const lines = [...root.querySelectorAll<HTMLElement>(`[data-field-error="${field}"]`)];
+  return lines.map((el) => el.textContent).join("");
 }
 
 afterEach(() => {
@@ -72,7 +78,7 @@ describe("AuthScreen register form", () => {
     expect(auth.register).toHaveBeenCalledWith("Nova", "password123", "nova@example.com");
   });
 
-  it("refuses to submit without a nickname, and says so instead of calling the API", () => {
+  it("refuses to submit without a nickname, and says so ON the nickname box", () => {
     const auth = stubAuth();
     const { root } = mount(auth);
     const { inputs, submit } = panel(root, "register");
@@ -81,7 +87,102 @@ describe("AuthScreen register form", () => {
 
     submit.click();
     expect(auth.register).not.toHaveBeenCalled();
-    expect(root.querySelector(".sa-screen-error")!.textContent).toBe("Choose a nickname");
+    expect(fieldError(root, "displayName")).toBe("Choose a nickname");
+    // The line above the form stays for whole-attempt failures only.
+    expect(root.querySelector(".sa-screen-error")!.textContent).toBe("");
+  });
+});
+
+/**
+ * Findings 5 and 6: the complaint rendered above the form — between "Play as
+ * Guest" and the toggle link, up to a whole form away from the box it was
+ * about — and it arrived in the schema's own words
+ * (`password: Too small: expected string to have >=8 characters`).
+ */
+describe("AuthScreen validation errors", () => {
+  it("translates the server's zod text into something a player can act on", () => {
+    expect(authFieldError("password: Too small: expected string to have >=8 characters")).toEqual({
+      field: "password",
+      message: "Password needs at least 8 characters",
+    });
+    expect(authFieldError("displayName: Too small: expected string to have >=1 characters")).toEqual({
+      field: "displayName",
+      message: "Choose a nickname",
+    });
+    expect(authFieldError("email: Invalid email address")).toEqual({
+      field: "email",
+      message: "That email address doesn't look right",
+    });
+  });
+
+  it("leaves an unmapped message alone rather than swallowing it", () => {
+    // An unhelpful sentence still beats a blank panel; only the machine-facing
+    // field prefix comes off.
+    expect(authFieldError("password: some rule nobody has written copy for yet")).toEqual({
+      field: "password",
+      message: "some rule nobody has written copy for yet",
+    });
+    expect(authFieldError("Invalid credentials")).toEqual({ field: null, message: "Invalid credentials" });
+  });
+
+  it("renders a server field error beside its own input", async () => {
+    const auth = stubAuth();
+    (auth.register as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ApiRequestError("invalid-body", "password: Too small: expected string to have >=8 characters", 400),
+    );
+    const { root } = mount(auth);
+    const { inputs, submit } = panel(root, "register");
+    inputs[0]!.value = "Nova";
+    inputs[2]!.value = "short";
+
+    submit.click();
+    await vi.waitFor(() => expect(fieldError(root, "password")).toBe("Password needs at least 8 characters"));
+    expect(root.querySelector(".sa-screen-error")!.textContent).toBe("");
+  });
+
+  it("keeps a whole-attempt failure above the form, where no one field is at fault", async () => {
+    const auth = stubAuth();
+    (auth.login as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ApiRequestError("invalid-credentials", "Invalid credentials", 401),
+    );
+    const { root } = mount(auth);
+    const { inputs, submit } = panel(root, "login");
+    inputs[0]!.value = "Nova";
+    inputs[1]!.value = "wrong";
+
+    submit.click();
+    await vi.waitFor(() => expect(root.querySelector(".sa-screen-error")!.textContent).toBe("Invalid credentials"));
+    expect(fieldError(root, "identifier")).toBe("");
+  });
+
+  it("clears the complaint as soon as the player answers it", () => {
+    const { root } = mount(stubAuth());
+    const { inputs, submit } = panel(root, "register");
+    submit.click();
+    expect(fieldError(root, "displayName")).toBe("Choose a nickname");
+    inputs[0]!.value = "Nova";
+    inputs[0]!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(fieldError(root, "displayName")).toBe("");
+  });
+});
+
+/** Finding 4 / match 5: the submit button sat below the fold with no scroll cue. */
+describe("AuthScreen fits its viewport", () => {
+  it("scrolls the submit into view when a form opens", () => {
+    const { screen, root } = mount(stubAuth());
+    const submit = panel(root, "register").submit;
+    const scrollIntoView = vi.fn();
+    submit.scrollIntoView = scrollIntoView;
+
+    screen.showRegisterTab();
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("carries a scroll affordance that is off while everything fits", () => {
+    const { root } = mount(stubAuth());
+    // happy-dom lays nothing out, so scrollHeight === clientHeight === 0: the
+    // "nothing is hidden" case, and the mark must stay down for it.
+    expect(root.querySelector<HTMLElement>(".sa-screen-scrollhint")!.dataset["visible"]).toBe("false");
   });
 });
 

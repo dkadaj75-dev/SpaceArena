@@ -70,9 +70,9 @@ export class BalanceWorkbench implements EditorPanel {
     if (!rows.some((r) => r.key === this.selectedFitKey)) this.selectedFitKey = rows[0]!.key;
 
     this.element.append(textEl("h3", "Stat comparison"));
-    this.element.append(this.statTable(rows));
+    this.element.append(scroller(this.statTable(rows)));
     this.element.append(textEl("h3", "TTK matrix (attacker → defender, seconds)"));
-    this.element.append(this.ttkMatrix(rows));
+    this.element.append(scroller(this.ttkMatrix(rows)));
     this.element.append(this.customFitEditor());
     this.element.append(textEl("h3", "60 s engagement simulator"));
     this.element.append(this.engagementPanel(rows));
@@ -246,6 +246,20 @@ function textEl(tag: string, content: string): HTMLElement {
   const el = document.createElement(tag);
   el.textContent = content;
   return el;
+}
+/**
+ * Both tables are wider than the inspector column by construction — eight stat
+ * columns, or one column per ship in the TTK matrix, every cell `nowrap`. They
+ * used to simply overflow it: half of each table off-screen, no scrollbar or
+ * shadow to say so, so a clipped `ENERG…` read as the last column rather than
+ * the fourth of eight. `.ed-table-scroll` carries the scroll shadows AND pins
+ * the first column, which is the one that says which hull a row of numbers is.
+ */
+function scroller(table: HTMLElement): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "ed-table-scroll";
+  box.append(table);
+  return box;
 }
 function th(content: string): HTMLTableCellElement {
   const cell = document.createElement("th");

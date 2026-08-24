@@ -37,6 +37,7 @@ import {
 import {
   BOUNDARY_HEX_DENSITY_MAX,
   BOUNDARY_HEX_DENSITY_MIN,
+  boundaryShellFlatAlpha,
   boundaryShieldOpacity,
   boundaryShieldRedMix,
   boundaryShieldRenderParams,
@@ -887,7 +888,10 @@ export class SceneBuilder {
       material.setFloat("hexLineWidth", shield.hexLineWidth);
       material.setColor3("shieldColor", this.boundaryColor);
     } else {
-      material.alpha = renderParams.opacity;
+      // The low tier draws the shell as one unmasked surface, so its alpha is
+      // literally how much of the screen it tints — see the note on
+      // `boundaryShellFlatAlpha`.
+      material.alpha = boundaryShellFlatAlpha(renderParams.opacity);
       material.emissiveColor.copyFrom(this.boundaryColor);
       clampColorInPlace(material.emissiveColor);
     }

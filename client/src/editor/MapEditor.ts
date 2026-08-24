@@ -48,7 +48,9 @@ export class MapEditor implements EditorPanel {
   private gameViewAssets: AssetRegistry | null = null;
   private gameViewRoot: TransformNode | null = null;
   private gameViewSpin: Observer<Scene> | null = null;
-  private readonly ctx = new ViewportContextPanel(() => this.clearSelection());
+  // Dismissing the context panel also drops the selection, so the edit bar's
+  // per-selection enablement has to be redrawn with it.
+  private readonly ctx = new ViewportContextPanel(() => { this.clearSelection(); this.renderUi(); });
   // Terrain defaults LOCKED so stray clicks never drag the floor; the layer row
   // is the obvious way in (replaces the old one-shot "Unlock terrain" button).
   private layers = new Map<Layer, { visible: boolean; locked: boolean }>(LAYERS.map(([layer]) => [layer, { visible: true, locked: layer === "terrain" }]));
@@ -176,7 +178,7 @@ export class MapEditor implements EditorPanel {
       const flag = this.arena()?.flagBases?.[this.selected.index];
       if (flag) transforms.append(numberField("Radius", flag.radius, (radius) => this.editFlagRadius(radius)));
     }
-    transforms.append(document.createTextNode(" Ctrl+D duplicate · Delete remove · F frame · select 2 nav nodes + L link"));
+    transforms.append(this.editActions());
     this.element.append(transforms);
 
     const arena = this.arena();
@@ -185,6 +187,29 @@ export class MapEditor implements EditorPanel {
       const form = new SchemaFormGen({ schema: arenaSchema, value: arena, configService: this.host.configService, onProblem: (p) => this.report(p ? `${arena.id} ${p.path}: ${p.message}` : null), onSaved: () => { this.host.rebuildArena(this.arenaId); this.rebuildPreview(); } });
       this.element.append(form.element);
     }
+  }
+
+  /**
+   * Touch equivalents for {@link onKey}'s edit ops.
+   *
+   * Duplicate, remove, frame and nav-link were reachable only through Ctrl+D,
+   * Delete, F and L — on the device this tool exists to serve, that made Map a
+   * viewer with dropdowns. These call the SAME methods the shortcuts do (no
+   * parallel edit path to keep in step), and each is disabled until its
+   * precondition holds, so the bar also *states* what the shortcuts silently
+   * required: a selection, or exactly two selected nav nodes for a link.
+   * The accelerators stay in the labels — a desktop designer still learns them.
+   */
+  private editActions(): HTMLElement {
+    const bar = row("ed-map-actions");
+    const selected = this.selected !== null;
+    bar.append(
+      editAction("duplicate", "Duplicate (Ctrl+D)", selected, () => this.duplicateSelected()),
+      editAction("frame", "Frame (F)", selected, () => this.frameSelection()),
+      editAction("link", "Link nav (L)", this.navSelection.length === 2, () => this.toggleNavLink()),
+      editAction("remove", "Remove (Del)", selected, () => this.removeSelected(), "ed-btn--danger"),
+    );
+    return bar;
   }
 
   private rebuildPreview(): void {
@@ -606,6 +631,14 @@ function label(value: string): HTMLSpanElement { const span = document.createEle
 function row(className = "ed-row"): HTMLDivElement { const element = document.createElement("div"); element.className = className; return element; }
 function section(title: string): HTMLDivElement { const element = document.createElement("div"); element.className = "ed-map-section"; const heading = document.createElement("div"); heading.className = "ed-map-section-title"; heading.textContent = title; element.append(heading); return element; }
 function button(text: string, click: () => void, extra = ""): HTMLButtonElement { const element = document.createElement("button"); element.type = "button"; element.className = `ed-btn ed-btn--sm ${extra}`; element.textContent = text; element.addEventListener("click", click); return element; }
+/** One button in the Map edit bar, tagged for the tests (and Playwright) that drive it. */
+function editAction(name: string, text: string, enabled: boolean, click: () => void, extra = ""): HTMLButtonElement {
+  const element = button(text, click, extra);
+  element.dataset.mapAction = name;
+  element.disabled = !enabled;
+  if (!enabled) element.title = name === "link" ? "Select two nav nodes to link or unlink them" : "Select a placement first";
+  return element;
+}
 function toggle(text: string, checked: boolean, change: (checked: boolean) => void): HTMLLabelElement { const element = document.createElement("label"); element.className = "ed-check"; const input = document.createElement("input"); input.type = "checkbox"; input.checked = checked; input.addEventListener("change", () => change(input.checked)); element.append(input, document.createTextNode(text)); return element; }
 function numberField(text: string, value: number, change: (value: number) => void): HTMLLabelElement { const element = document.createElement("label"); element.className = "ed-check"; const input = document.createElement("input"); input.type = "number"; input.className = "ed-input ed-num ed-num--sm"; input.value = String(value); input.min = ".01"; input.addEventListener("change", () => change(Number(input.value))); element.append(document.createTextNode(text), input); return element; }
 function material(host: EditorHost, name: string, color: Color3): StandardMaterial { const mat = new StandardMaterial(name, host.scene); mat.emissiveColor = color; return mat; }
