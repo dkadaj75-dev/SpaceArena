@@ -19,7 +19,7 @@
  *      incident.
  */
 import path from "node:path";
-import { FPS_BUCKETS, DEVICE_CLASSES, QUALITY_TIERS } from "@space-arena/shared";
+import { FPS_BUCKETS, DEVICE_CLASSES, QUALITY_TIERS, SIM_TICK_RATE } from "@space-arena/shared";
 import { openDatabase, setDb } from "../server/src/db/index.js";
 import {
   clientMetricsRepo,
@@ -31,8 +31,8 @@ import {
 } from "../server/src/db/repos.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** The roadmap's 30 Hz simulation step budget, for context on the tick trend. */
-const TICK_BUDGET_MS = 1000 / 30;
+/** The shipped simulation step budget, for context on the tick trend. */
+const TICK_BUDGET_MS = 1000 / SIM_TICK_RATE;
 
 interface Args {
   days: number;

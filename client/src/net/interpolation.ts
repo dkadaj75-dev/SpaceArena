@@ -30,16 +30,19 @@ function phase(aTime: number, bTime: number, renderTime: number): number {
 }
 
 /**
- * Ceiling on bounded dead reckoning past the newest sample — one patch gap.
+ * Ceiling on bounded dead reckoning past the newest sample.
  *
- * The room broadcasts every 2 sim ticks (66.7 ms), so a starve of up to ~100 ms
- * is one missed patch plus jitter: the ship is overwhelmingly likely to still be
- * doing what it was doing, and straight-line extrapolation is a better guess
- * than a freeze. Past that the guess stops being cheap — a ship at cruise covers
- * ~10 units per 100 ms, and a hull drawn a second of travel from where it
- * actually is misleads the pilot aiming at it far more than a stalled one does.
- * So the lead SATURATES here rather than growing: a long outage degrades to the
- * old freeze behaviour, just 100 ms further along.
+ * 100 ms is a burst-length budget, not a patch-count one — it was one patch gap
+ * plus jitter at the old 15 Hz cadence and is ~6 gaps at the 60 Hz one, but the
+ * quantity it bounds is how long a Wi-Fi power-save burst or a dropped packet
+ * plausibly lasts, which is a property of networks, not of the room's cadence.
+ * Within it the ship is overwhelmingly likely to still be doing what it was
+ * doing, and straight-line extrapolation is a better guess than a freeze. Past
+ * it the guess stops being cheap — a ship at cruise covers ~10 units per
+ * 100 ms, and a hull drawn a second of travel from where it actually is
+ * misleads the pilot aiming at it far more than a stalled one does. So the
+ * lead SATURATES here rather than growing: a long outage degrades to the old
+ * freeze behaviour, just 100 ms further along.
  */
 export const MAX_EXTRAPOLATION_MS = 100;
 
@@ -200,6 +203,17 @@ export interface TimedPos {
  */
 export const VELOCITY_TANGENT_CHORD_LIMIT = 3;
 
+/**
+ * Chord length (squared, world units) below which a position segment is drawn
+ * as a straight lerp instead of a Hermite curve — 1.5x the wire's 0.1-unit
+ * position quantization step, so a segment whose shape is mostly codec noise
+ * never feeds that noise into the tangent guards. Passed into
+ * {@link hermitePosition} by the PRODUCTION caller (`interpolate`), not baked
+ * into the pure function: the threshold is a property of the wire codec, and
+ * the curve math itself is scale-agnostic.
+ */
+export const STATIONARY_CHORD_SQ = 0.15 * 0.15;
+
 export function hermitePosition(
   prev: TimedPos | null,
   from: TimedPos,
@@ -207,6 +221,7 @@ export function hermitePosition(
   next: TimedPos | null,
   t: number,
   out: Vec3,
+  stationaryChordSq = 0,
 ): Vec3 {
   const h = to.time - from.time;
   if (!(h > 0)) {
@@ -219,6 +234,21 @@ export function hermitePosition(
   const dx = to.pos.x - from.pos.x;
   const dy = to.pos.y - from.pos.y;
   const dz = to.pos.z - from.pos.z;
+  // SUB-QUANTIZATION SEGMENT (production passes {@link STATIONARY_CHORD_SQ};
+  // the default 0 keeps the pure curve math scale-agnostic): at the 16.7 ms
+  // patch cadence a slow ship's per-patch travel drops under the wire's
+  // 0.1-unit position step, so the chord's DIRECTION is mostly quantization
+  // noise. Every guard below compares a tangent against that direction, so on
+  // noise-dominated segments the reversal guard flaps between curve and lerp
+  // frame to frame — a visible shimmer on near-stationary hulls. Nothing a
+  // cubic could add survives at this scale (the whole segment is under two
+  // quantization steps), so draw it straight.
+  if (stationaryChordSq > 0 && dx * dx + dy * dy + dz * dz < stationaryChordSq) {
+    out.x = from.pos.x + dx * t;
+    out.y = from.pos.y + dy * t;
+    out.z = from.pos.z + dz * t;
+    return out;
+  }
   // Tangents scaled onto the segment (M = m·h), defaulting to the chord itself,
   // which makes a neighbourless end EXACTLY linear rather than approximately so.
   let m1x = dx, m1y = dy, m1z = dz;
@@ -1023,6 +1053,22 @@ const NARROW_MS_PER_SECOND = 15;
 const HEADROOM_PATCHES = 2;
 
 /**
+ * p90 of the observed patch-arrival gaps, or null with fewer than 4
+ * observations (too little to estimate anything).
+ *
+ * Split out of {@link adaptiveRenderDelay} because the two change at different
+ * rates: the p90 can only change when a PATCH lands, but the delay is advanced
+ * every RENDERED frame — and sorting a copied ring per drawn frame was a pure
+ * hot-path allocation for a value that had not moved. The session computes this
+ * once per patch and hands the cached number to every frame in between.
+ */
+export function p90ArrivalGap(arrivalGapsMs: readonly number[]): number | null {
+  if (arrivalGapsMs.length < 4) return null;
+  const sorted = [...arrivalGapsMs].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))]!;
+}
+
+/**
  * `shortfallMs` closes the loop. The p90 target above is OPEN loop: it predicts
  * the delay the arrival cadence should need. `shortfallMs` is the delay the last
  * frame actually MISSED BY — how far `now − delay` overran the newest playback
@@ -1035,17 +1081,15 @@ const HEADROOM_PATCHES = 2;
  */
 export function adaptiveRenderDelay(
   currentMs: number,
-  arrivalGapsMs: readonly number[],
+  p90GapMs: number | null,
   floorMs: number,
   dtSeconds: number,
   ceilMs = RENDER_DELAY_CEIL_MS,
   shortfallMs = 0,
 ): number {
   let target = floorMs;
-  if (arrivalGapsMs.length >= 4) {
-    const sorted = [...arrivalGapsMs].sort((a, b) => a - b);
-    const p90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))]!;
-    target = Math.max(floorMs, p90 * HEADROOM_PATCHES);
+  if (p90GapMs !== null) {
+    target = Math.max(floorMs, p90GapMs * HEADROOM_PATCHES);
   }
   if (shortfallMs > 0) target = Math.max(target, currentMs + shortfallMs);
   target = Math.min(ceilMs, Math.max(floorMs, target));
@@ -1080,8 +1124,17 @@ export interface SnapshotStamp {
   reset: boolean;
 }
 
-/** How many `arrival − server` observations the offset estimate looks back over. */
-const CLOCK_WINDOW = 32;
+/**
+ * How many `arrival − server` observations the offset estimate looks back over.
+ * Sized in PATCHES, so it must scale with the patch cadence: at the 60 Hz
+ * cadence 128 observations is ~2.1 s of history — the same horizon the original
+ * 32 gave at 15 Hz. A shorter window is not a harmless tightening: the offset
+ * is the window MINIMUM, and if one congestion episode outlives the window, the
+ * minimum ratchets up by the whole queueing delay and can clear
+ * {@link SNAPSHOT_CLOCK_RESET_MS} — a spurious full clock reset (buffer dump,
+ * delay re-floor) on exactly the burst the system exists to ride out.
+ */
+const CLOCK_WINDOW = 128;
 /**
  * Offset error that stops being drift and starts being a different clock: a
  * match going live (`matchTimer` leaves 0 after a lobby of any length), a

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { SIM_TICK_RATE } from "../constants.js";
 import type { ConfigService } from "../core/ConfigService.js";
 import { botprofileSchema, type BotprofileConfig } from "../schemas/botprofile.js";
 import type { ShipSnapshot, Snapshot } from "../sim/ArenaSimulation.js";
@@ -143,7 +144,10 @@ describe("fireDiscipline", () => {
   });
 
   it("follows the exact burst/pause pattern at the simulation tick rate", () => {
-    const rhythmic = { ...discipline, burstSec: 0.1, pauseSec: 0.1 };
+    // 3 ticks on / 3 ticks off at ANY tick rate: the seconds knobs convert to
+    // tick counts through SIM_TICK_RATE inside decideFire, so the authored
+    // seconds are stated in ticks here to keep the hand-written pattern exact.
+    const rhythmic = { ...discipline, burstSec: 3 / SIM_TICK_RATE, pauseSec: 3 / SIM_TICK_RATE };
     const decisions = Array.from({ length: 12 }, (_, driverTick) =>
       decideFire({ ...context(true), driverTick }, configs, rhythmic, true),
     );

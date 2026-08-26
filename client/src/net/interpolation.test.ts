@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adaptiveRenderDelay, angularVelocity, bracket, createSnapshotClock, decayCorrection, ExtrapolationBlender, frameDelta, hermiteFrame, hermitePosition, lerpHeading, MAX_ANGULAR_EXTRAPOLATION_RAD, MAX_EXTRAPOLATION_MS, VELOCITY_TANGENT_CHORD_LIMIT, RENDER_DELAY_CEIL_MS, rotateByVector, stampSnapshot, timeBasedPull, WIDEN_MS_PER_SECOND, type TimedFrame, type TimedPos, type Vec3 } from "./interpolation.js";
+import { adaptiveRenderDelay, angularVelocity, bracket, createSnapshotClock, decayCorrection, ExtrapolationBlender, frameDelta, hermiteFrame, hermitePosition, lerpHeading, MAX_ANGULAR_EXTRAPOLATION_RAD, MAX_EXTRAPOLATION_MS, p90ArrivalGap, VELOCITY_TANGENT_CHORD_LIMIT, RENDER_DELAY_CEIL_MS, rotateByVector, stampSnapshot, timeBasedPull, WIDEN_MS_PER_SECOND, type TimedFrame, type TimedPos, type Vec3 } from "./interpolation.js";
 import { decodeCenti, decodeHeading, encodeCenti, encodeHeading, facingVec, interpolateFrame, upFromAttitude, type FrameAttitude } from "@space-arena/shared";
 
 describe("net interpolation", () => {
@@ -186,7 +186,13 @@ describe("hermitePosition with replicated velocity", () => {
   const at = (prev: TimedPos | null, from: TimedPos, to: TimedPos, next: TimedPos | null, t: number): Vec3 =>
     hermitePosition(prev, from, to, next, t, { x: 0, y: 0, z: 0 });
 
-  /** The room's real cadence: 2 sim ticks at 30 Hz. */
+  /**
+   * A representative patch gap (the pre-60 Hz room's 15 Hz cadence). The curve
+   * math is cadence-agnostic; this suite's fixtures and hand-derived slope
+   * expectations were built at this H, so it stays PINNED — re-deriving every
+   * expectation for 16.7 ms would buy nothing (the shipped-cadence pipeline is
+   * covered end to end by renderPacing.test.ts).
+   */
   const H = 1000 / 15;
 
   it("makes the curve's derivative at a knot the sample's OWN velocity", () => {
@@ -489,17 +495,29 @@ describe("ExtrapolationBlender", () => {
 
 describe("adaptiveRenderDelay", () => {
   const dt = 1 / 60;
+  // The session computes the p90 once per patch and hands the number to every
+  // frame (the per-frame sort was hot-path churn); these tests compose the two
+  // exactly as `NetGameSession` does.
+  const p90 = (gaps: readonly number[]) => p90ArrivalGap(gaps);
 
   it("stays at the authored floor on a calm network", () => {
     // Steady 50 ms patches want 2×p90 = 100 = the floor: behaviour unchanged.
     const gaps = Array.from({ length: 20 }, () => 50);
-    expect(adaptiveRenderDelay(100, gaps, 100, dt)).toBe(100);
+    expect(adaptiveRenderDelay(100, p90(gaps), 100, dt)).toBe(100);
+  });
+
+  it("stays floor-dominated at the shipped 60 Hz cadence", () => {
+    // The production steady state after the 60 Hz patch change: ~16.7 ms gaps
+    // against the 50 ms authored floor — 2×p90 ≈ 33 stays under the floor, so
+    // a calm network renders at exactly the authored delay.
+    const gaps = Array.from({ length: 20 }, () => 1000 / 60);
+    expect(adaptiveRenderDelay(50, p90(gaps), 50, dt)).toBe(50);
   });
 
   it("holds the floor until enough gaps exist to say anything", () => {
     // The first patches of a match must not swing the delay on noise.
-    expect(adaptiveRenderDelay(100, [], 100, dt)).toBe(100);
-    expect(adaptiveRenderDelay(100, [200, 210, 190], 100, dt)).toBe(100);
+    expect(adaptiveRenderDelay(100, p90([]), 100, dt)).toBe(100);
+    expect(adaptiveRenderDelay(100, p90([200, 210, 190]), 100, dt)).toBe(100);
   });
 
   it("widens FAST but never steps — a delay step is a backward step in render time", () => {
@@ -509,18 +527,18 @@ describe("adaptiveRenderDelay", () => {
     // One frame moves at most one frame's worth of widening. The first cut
     // jumped the full width here, and every up-jump rewound `now - delay` —
     // the owner saw remote ships hitch backwards once per burst sample.
-    const oneFrame = adaptiveRenderDelay(100, gaps, 100, dt);
+    const oneFrame = adaptiveRenderDelay(100, p90(gaps), 100, dt);
     expect(oneFrame).toBeCloseTo(100 + WIDEN_MS_PER_SECOND * dt, 6);
     // A zero-dt frame moves nothing at all.
-    expect(adaptiveRenderDelay(100, gaps, 100, 0)).toBe(100);
+    expect(adaptiveRenderDelay(100, p90(gaps), 100, 0)).toBe(100);
     // But it converges onto the burst target inside a second of frames.
     let delay = 100;
-    for (let i = 0; i < 60; i++) delay = adaptiveRenderDelay(delay, gaps, 100, dt);
+    for (let i = 0; i < 60; i++) delay = adaptiveRenderDelay(delay, p90(gaps), 100, dt);
     expect(delay).toBeGreaterThan(150);
   });
 
   it("narrows SLOWLY once the network calms down", () => {
-    const calm = Array.from({ length: 20 }, () => 50);
+    const calm = p90(Array.from({ length: 20 }, () => 50));
     // Recovering from a 250 ms burst delay: one frame moves a fraction of a
     // millisecond — the timeline replays faster than real time, and doing this
     // abruptly is itself a visible speed-up.
@@ -535,7 +553,7 @@ describe("adaptiveRenderDelay", () => {
   });
 
   it("never exceeds the ceiling however bad the jitter gets", () => {
-    const awful = Array.from({ length: 20 }, () => 400);
+    const awful = p90(Array.from({ length: 20 }, () => 400));
     let delay = 100;
     for (let i = 0; i < 300; i++) delay = adaptiveRenderDelay(delay, awful, 100, dt);
     expect(delay).toBe(RENDER_DELAY_CEIL_MS);
@@ -543,7 +561,7 @@ describe("adaptiveRenderDelay", () => {
 
   it("never drops below the authored floor", () => {
     // A network faster than the floor asks for less; the floor wins.
-    const fast = Array.from({ length: 20 }, () => 20);
+    const fast = p90(Array.from({ length: 20 }, () => 20));
     expect(adaptiveRenderDelay(100, fast, 100, dt)).toBe(100);
   });
 
@@ -553,7 +571,7 @@ describe("adaptiveRenderDelay", () => {
     // open-loop estimator cannot see that — a duplicated `matchTimer`, a sim tick
     // lost to a server GC — so the shortfall has to be able to raise the target
     // on its own. Still rate-limited: no step, same as any other widening.
-    const calm = Array.from({ length: 20 }, () => 50);
+    const calm = p90(Array.from({ length: 20 }, () => 50));
     expect(adaptiveRenderDelay(100, calm, 100, dt, RENDER_DELAY_CEIL_MS, 40)).toBeCloseTo(100 + WIDEN_MS_PER_SECOND * dt, 6);
     // A healthy frame reports zero and leaves the tuned behaviour exactly alone.
     expect(adaptiveRenderDelay(100, calm, 100, dt, RENDER_DELAY_CEIL_MS, 0)).toBe(100);
@@ -562,18 +580,30 @@ describe("adaptiveRenderDelay", () => {
   });
 
   it("honours a designer-lowered ceiling", () => {
-    const awful = Array.from({ length: 20 }, () => 400);
+    const awful = p90(Array.from({ length: 20 }, () => 400));
     let delay = 100;
     for (let i = 0; i < 300; i++) delay = adaptiveRenderDelay(delay, awful, 100, dt, 200);
     expect(delay).toBe(200);
   });
+
+  it("p90ArrivalGap answers null until four gaps exist, then the p90", () => {
+    expect(p90ArrivalGap([])).toBeNull();
+    expect(p90ArrivalGap([50, 60, 70])).toBeNull();
+    expect(p90ArrivalGap([50, 50, 50, 50])).toBe(50);
+    // 10 samples: index floor(10 * 0.9) = 9 → the largest.
+    expect(p90ArrivalGap([1, 2, 3, 4, 5, 6, 7, 8, 9, 95])).toBe(95);
+  });
 });
 
 /**
- * The playback clock. Every case here is stated in terms of the real room:
- * `ArenaRoom` steps its sim at 30 Hz and broadcasts at 20 Hz, so a patch carries
- * whichever tick was most recent when it fired — 33.3 ms of travel, then 66.7,
- * alternating.
+ * The playback clock. Every case here is stated in terms of the RETIRED room —
+ * a 30 Hz sim beside a free 20 Hz patch timer, so a patch carried whichever
+ * tick was most recent when it fired: 33.3 ms of travel, then 66.7,
+ * alternating. That cadence is deliberately kept as the fixture: stampSnapshot
+ * must handle ANY cadence a host can produce (timer slip, starved ticks,
+ * duplicated matchTimer), and the alternating stream is the hardest legal one.
+ * The shipped uniform 60 Hz cadence is the EASY case and is covered end to end
+ * in renderPacing.test.ts.
  */
 describe("stampSnapshot", () => {
   const TICK_MS = 1000 / 30;

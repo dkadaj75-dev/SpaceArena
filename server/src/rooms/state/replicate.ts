@@ -37,14 +37,17 @@ import {
  *
  * ## Write-on-change
  *
- * Almost every assignment here is guarded by an inequality. That is not
- * micro-optimization: colyseus patches carry every field that was ASSIGNED
- * since the last patch, whether or not the value changed, so an unguarded
- * `state.x = x` re-sends the field at 20 Hz forever. The guards are what keep
- * an idle room's patches near-empty. Where a field is written unguarded below
- * (decoys, flags) it is because those entities are short-lived and change on
- * essentially every tick they exist, so the comparison would cost more than it
- * saves.
+ * Almost every assignment here is guarded by an inequality. Since
+ * @colyseus/schema 3.x this is a micro-optimization, not a correctness rule:
+ * the generated property setter itself skips identical primitive values
+ * (`if (value === previousValue) return` in the schema build), so an unguarded
+ * `state.x = x` no longer dirties the field — the guards merely save a setter
+ * invocation on the hot path. They are kept because the mirror runs per tick
+ * for every field of every entity, and because `Math.fround` on the up-axis is
+ * still load-bearing: comparing the 64-bit sim value against the stored number
+ * without rounding would defeat the equality check for sub-float32 jitter that
+ * cannot change the wire value anyway. The unguarded writes below (decoys,
+ * flags) are equally safe for the same reason.
  */
 
 /**

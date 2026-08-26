@@ -2,27 +2,29 @@
   "id": "module.shield-mk1",
   "type": "module",
   "version": 1,
+  "name": "Deflector Shield Mk I",
   "family": "shield",
   "level": 1,
-  "name": "Deflector Shield Mk I",
   "activation": {
     "deployTime": 0.4,
     "retractTime": 0.3
   },
   "energy": {
-    "capacity": 40,
-    "rechargePerSec": 4.0,
-    "drawPerSec": 4.0
+    "capacity": 150,
+    "rechargePerSec": 10,
+    "drawPerSec": 4,
+    "rearmAbove": 0.25
   },
   "power": {
     "draw": 3
   },
   "mitigation": {
-    "damageReduction": 0.5,
+    "damageReduction": 0.8,
     "coversFamilies": [
       "kinetic",
       "energy"
-    ]
+    ],
+    "collapseCooldownSec": 8
   },
   "onActivate": [
     "action.play-sound-shield-up"

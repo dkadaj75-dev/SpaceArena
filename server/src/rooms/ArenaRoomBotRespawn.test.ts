@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { ColyseusTestServer } from "@colyseus/testing";
-import { setGlobalLogLevel, type ConfigService, type TuningConfig } from "@space-arena/shared";
+import { SIM_TICK_RATE, setGlobalLogLevel, type ConfigService, type TuningConfig } from "@space-arena/shared";
 import { loadContent, setConfigService } from "../configService.js";
 import { openDatabase, setDb } from "../db/index.js";
 import { ArenaRoom, internalArenaCreateOptions } from "./ArenaRoom.js";
@@ -13,9 +13,17 @@ setGlobalLogLevel("error");
 let colyseus: ColyseusTestServer;
 let configs: ConfigService;
 
-/** Advance the server room's fixed sim by `n` ticks (real-time, ~33ms each). */
+/**
+ * Advance the server room's fixed sim by AT LEAST `n` ticks. Tick-counted, not
+ * fire-counted: the room's fixed-timestep accumulator may run 0 or 2 sim steps
+ * on any single timer fire, so fires are awaited until `n` ticks have run.
+ */
 async function advance(room: { waitForNextSimulationTick(): Promise<void> }, n: number): Promise<void> {
-  for (let i = 0; i < n; i++) await room.waitForNextSimulationTick();
+  // The @colyseus/testing wrapper types rooms as the base Room; the tick probe
+  // lives on ArenaRoom, which is what every room in this suite actually is.
+  const probe = room as unknown as { totalSimTicks: number };
+  const target = probe.totalSimTicks + n;
+  while (probe.totalSimTicks < target) await room.waitForNextSimulationTick();
 }
 
 beforeAll(async () => {
@@ -97,7 +105,7 @@ describe("ArenaRoom bot drivers across a respawn (owner 2026-08-16)", () => {
     internal.sim.releaseLaunchSequences();
     internal.sim.world.shipCores.get(botId)!.hull = 0.01;
     internal.sim.world.transforms.get(botId)!.pos.x = 30_000;
-    for (let tick = 0; tick < 90 && internal.sim.hasShip(botId); tick++) await advance(room, 1);
+    for (let tick = 0; tick < 3 * SIM_TICK_RATE && internal.sim.hasShip(botId); tick++) await advance(room, 1);
     expect(internal.sim.hasShip(botId)).toBe(false);
 
     // THE regression: the driver must survive the respawn wait. The old loop
@@ -105,8 +113,9 @@ describe("ArenaRoom bot drivers across a respawn (owner 2026-08-16)", () => {
     await advance(room, 1);
     expect(internal.botDrivers.has(botId)).toBe(true);
 
-    // Wait out `respawn.delay`; the sim rebuilds the ship under the same id.
-    for (let tick = 0; tick < 300 && !internal.sim.hasShip(botId); tick++) await advance(room, 1);
+    // Wait out `respawn.delay` (4 s in this mode); the sim rebuilds the ship
+    // under the same id. Budget in seconds of sim time.
+    for (let tick = 0; tick < 8 * SIM_TICK_RATE && !internal.sim.hasShip(botId); tick++) await advance(room, 1);
     expect(internal.sim.hasShip(botId)).toBe(true);
 
     // A driverless hull keeps its default zero-throttle flight state forever;
@@ -114,7 +123,7 @@ describe("ArenaRoom bot drivers across a respawn (owner 2026-08-16)", () => {
     // intervals. Waiting on the INTEGRATED state proves an order arrived
     // through the same validation path a human's would.
     let throttled = false;
-    for (let tick = 0; tick < 150 && !throttled; tick++) {
+    for (let tick = 0; tick < 5 * SIM_TICK_RATE && !throttled; tick++) {
       await advance(room, 1);
       if (!internal.sim.hasShip(botId)) continue; // killed again mid-probe: keep waiting
       throttled = (internal.sim.world.flightStates.get(botId)?.throttle ?? 0) > 0;

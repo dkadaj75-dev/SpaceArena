@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { SIM_TICK_RATE } from "../constants.js";
 import type { ConfigService } from "../core/ConfigService.js";
 import type { TuningConfig } from "../schemas/index.js";
 import { ArenaSimulation } from "./ArenaSimulation.js";
 import { DEFAULT_MATCH_COUNTDOWN_SEC, matchCountdownSecOf } from "./tuningDefaults.js";
 import { INTERCEPTOR_FITTING, loadTestConfigs, setTestCountdown } from "./testutil.js";
 
-const DT = 1 / 30;
+const DT = 1 / SIM_TICK_RATE;
 /** The shipped `tuning.matchCountdownSec`. */
 const COUNTDOWN = 3;
 const TICKS = Math.round(COUNTDOWN / DT);

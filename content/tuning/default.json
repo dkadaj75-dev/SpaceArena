@@ -28,10 +28,10 @@
   "spatialCellSize": 16,
   "impactSpeedThreshold": 6,
   "impactDamageCooldown": 1.0,
-  "maxTicksPerFrame": 5,
+  "maxTicksPerFrame": 10,
   "beamFadeMs": 120,
   "projectilePoolSize": 64,
-  "netRenderDelayMs": 100,
+  "netRenderDelayMs": 50,
   "netRenderDelayMaxMs": 350,
   "netCorrectionRate": 12,
   "featureFlags": {

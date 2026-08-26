@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { SIM_TICK_RATE } from "../constants.js";
 import { ConfigService } from "../core/ConfigService.js";
 import { botprofileSchema, type BotprofileConfig } from "../schemas/botprofile.js";
 import { orderSchema } from "../net/protocol.js";
@@ -780,8 +781,11 @@ describe("BotDriver flight orders", () => {
       fireDiscipline: {
         engageRangeMult: 1,
         minEnergyFraction: 0,
-        burstSec: 0.1,
-        pauseSec: 0.1,
+        // 3 driver ticks on / 3 off at ANY tick rate (the seconds knobs become
+        // tick counts through SIM_TICK_RATE), keeping the hand-written edge
+        // pattern below exact when the tick rate changes.
+        burstSec: 3 / SIM_TICK_RATE,
+        pauseSec: 3 / SIM_TICK_RATE,
       },
     });
     const driver = makeDriver(p, configs);

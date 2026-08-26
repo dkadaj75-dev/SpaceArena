@@ -47,8 +47,10 @@ import { applySnapshot, syncShipState } from "./state/replicate.js";
 
 const log = createLogger("ArenaRoom");
 
-/** Fixed sim step in seconds (matches the shared 30 Hz sim; see 0.9). */
+/** Fixed sim step in seconds (matches the shared 60 Hz sim; see 0.9). */
 const FIXED_DT = 1 / SIM_TICK_RATE;
+/** Fixed sim step in milliseconds, the unit the tick accumulator runs in. */
+const FIXED_DT_MS = 1000 / SIM_TICK_RATE;
 /**
  * Sim ticks per replicated patch — the room's patch cadence, PHASE-LOCKED to the
  * simulation instead of run off a timer of its own.
@@ -56,26 +58,37 @@ const FIXED_DT = 1 / SIM_TICK_RATE;
  * Until 2026-08-18 this was `setPatchRate(50)`: a second, INDEPENDENT interval
  * broadcasting at 20 Hz beside a 30 Hz sim. Nothing synchronised the two, so a
  * patch carried whichever tick happened to be the most recent when its timer
- * fired — consecutive patches one tick apart (33.3 ms of simulated travel), then
- * two (66.7 ms), alternating forever, on a perfect network. The client's
- * `stampSnapshot` can absorb that in TIMING (it files each sample under the
- * server's own `matchTimer` rather than its arrival instant), but it cannot undo
- * the SAMPLING: half of all patches carried a world the client had already been
- * shown, so the effective sample rate of a remote hull's motion alternated
- * between 30 Hz and 15 Hz. Curve fitting through samples that are not there is
- * still guesswork, and it read as the residual judder the owner kept reporting.
+ * fired — consecutive patches one tick apart, then two, alternating forever, on
+ * a perfect network. The client's `stampSnapshot` can absorb that in TIMING (it
+ * files each sample under the server's own `matchTimer` rather than its arrival
+ * instant), but it cannot undo the SAMPLING: half of all patches carried a
+ * world the client had already been shown. Broadcasting from the sim loop makes
+ * every patch carry a FRESH tick, exactly `PATCH_EVERY_TICKS` apart.
  *
- * Broadcasting from the sim loop instead makes every patch carry a FRESH tick,
- * exactly `PATCH_EVERY_TICKS` apart. Two ticks (66.7 ms, 15 Hz uniform) is the
- * bandwidth-neutral choice against the old 20 Hz alternating cadence — the
- * per-patch payload grows by the one extra tick of movement, the patch count
- * drops by a quarter — and it is what the client's interpolation buffer is
- * sized for. One tick (30 Hz) would be strictly smoother and cost 2x the
- * patches; three (10 Hz) starts to strain the render-delay ceiling.
+ * ONE tick (16.7 ms at the 60 Hz sim, 2026-08-24) is the fast-paced choice: it
+ * quarters the sampling interval the client interpolates across (66.7 ms → 16.7
+ * ms), lets the render-delay floor drop from 100 ms to 50 ms, and halves the
+ * worst-case order-to-visible latency quantization. The cost is bandwidth —
+ * every patch carries the same changed-field set (kinematics change every
+ * tick), so patches barely shrink and per-client egress is ~4x the old 15 Hz
+ * cadence: ~27-60 kB/s per client for a 10-ship room (measured field
+ * arithmetic, telemetry/metrics.ts tracks the real figure). Raise this to 2 if
+ * a deployment needs the bandwidth back — every client constant adapts (the
+ * adaptive render delay measures arrival gaps rather than assuming them).
  */
-const PATCH_EVERY_TICKS = 2;
+const PATCH_EVERY_TICKS = 1;
 /** Nominal ms between patches, for logs and telemetry — derived, never a timer. */
 const PATCH_INTERVAL_MS = (PATCH_EVERY_TICKS * 1000) / SIM_TICK_RATE;
+/**
+ * Catch-up bound for the fixed-timestep accumulator (see {@link update}): at
+ * most this many sim ticks run per timer callback, and a single callback's
+ * wall-clock delta is clamped to the same budget. 8 ticks is 133 ms — enough to
+ * absorb an ordinary GC pause or event-loop stall without the sim clock losing
+ * time, while a stall longer than that sheds the backlog instead of freezing
+ * the room in a burst of catch-up ticks (and a non-monotonic Date.now step —
+ * the clock Colyseus reads — can never fast-forward a match).
+ */
+const MAX_CATCHUP_TICKS = 8;
 /** Grace period after match end before the room disconnects everyone. */
 const MATCH_END_GRACE_MS = 8000;
 /** Reconnection window (seconds) offered on an unconsented leave. */
@@ -271,7 +284,12 @@ export class ArenaRoom extends Room<ArenaState> {
     this.botProfileOverride = internal?.botProfile;
     this.botBackfillMs = internal?.botBackfillMs ?? gamemode.bots?.backfillWaitMs ?? DEFAULT_BOT_BACKFILL_MS;
 
-    this.setSimulationInterval(() => this.update(), 1000 / SIM_TICK_RATE);
+    // The callback's argument is Colyseus' clock.deltaTime — the REAL wall
+    // milliseconds since the previous fire — which is what makes the fixed
+    // timestep in `update` honest. The interval itself is only a wake-up
+    // cadence: Node truncates it to integer ms and fires late under load, and
+    // neither error reaches the sim clock any more (see `update`).
+    this.setSimulationInterval((deltaMs) => this.update(deltaMs), 1000 / SIM_TICK_RATE);
     // 0 disables colyseus' own patch interval entirely (see the `patchRate`
     // setter in @colyseus/core's Room: 0 and null both clear it and start
     // nothing). `update()` calls `broadcastPatch()` itself, phase-locked to the
@@ -836,21 +854,70 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   /**
-   * The fixed simulation step, wrapped in a duration counter (6.6/6.8). The two
-   * `performance.now()` calls cost well under a microsecond against a 33 ms
-   * budget, and the roadmap wants avg tick time in production telemetry — so
-   * this is measured always, not behind a dev flag.
+   * Wall-time accumulator carrying fractional sim ticks between timer fires.
+   * This is what makes the tick rate genuinely FIXED: the old loop stepped
+   * exactly one FIXED_DT per `setInterval` fire, so every millisecond the timer
+   * fired late (integer-ms truncation, event-loop load) silently stretched
+   * simulated time against wall time — 1-2% drift the client's snapshot clock
+   * then had to slew away, and unbounded slowdown under sustained load.
    */
-  private update(): void {
-    this.stepSim();
+  private tickAccumulatorMs = 0;
+  private simTickCount = 0;
+
+  /**
+   * Total fixed sim steps this room has executed (lobby ticks included).
+   * Test/telemetry probe: one timer fire may run 0, 1 or several fixed steps
+   * under the accumulator, so "wait N fires" no longer means "wait N ticks" —
+   * the test helper counts THIS instead.
+   */
+  get totalSimTicks(): number {
+    return this.simTickCount;
+  }
+
+  /**
+   * The fixed-timestep driver: accumulate the REAL elapsed wall time Colyseus
+   * hands the simulation callback, run as many fixed `FIXED_DT` steps as have
+   * accrued (bounded by {@link MAX_CATCHUP_TICKS} — beyond that the backlog is
+   * shed and the match slows rather than fast-forwarding in a burst), then
+   * broadcast on the tick-counted patch beat. Each step is wrapped in a
+   * duration counter (6.6/6.8) inside {@link stepSim}; the roadmap wants avg
+   * tick time in production telemetry, so it is measured always.
+   *
+   * `deltaMs` defaults to exactly one step so tests that drive the room
+   * directly (`advance(room, n)`) remain deterministic: one call, one tick.
+   */
+  private update(deltaMs: number = FIXED_DT_MS): void {
+    // Clamp before accumulating: the Colyseus clock is Date.now-based, so a
+    // system clock step can hand back a negative or a multi-second delta, and
+    // a laptop resume can hand back minutes. Neither is sim time owed.
+    const clamped = Math.min(Math.max(deltaMs, 0), MAX_CATCHUP_TICKS * FIXED_DT_MS);
+    this.tickAccumulatorMs += clamped;
+
+    let steps = 0;
+    while (this.tickAccumulatorMs >= FIXED_DT_MS) {
+      if (steps >= MAX_CATCHUP_TICKS) {
+        // Shed what cannot be caught up; keep the sub-tick remainder so the
+        // phase of the next tick is still exact.
+        this.tickAccumulatorMs %= FIXED_DT_MS;
+        break;
+      }
+      this.tickAccumulatorMs -= FIXED_DT_MS;
+      this.stepSim();
+      this.ticksSincePatch++;
+      this.simTickCount++;
+      steps++;
+    }
 
     // PHASE-LOCKED PATCH. Counted and broadcast here, outside `stepSim`'s phase
     // guards, because a patch is not a property of the sim being live: a lobby
     // still replicates `lobbyRemainingSec` and the `matchPhase` flip that ends
     // the wait, and the "ended" state written by `endMatch` above has to reach
     // the clients that are about to see the results screen. Every phase patches
-    // on the same 2-tick beat; only the payload differs.
-    if (++this.ticksSincePatch < PATCH_EVERY_TICKS) return;
+    // on the same tick beat; only the payload differs. A catch-up burst
+    // broadcasts ONCE, after its last step — the intermediate ticks' state has
+    // been superseded, and the client files the one patch under the server
+    // clock, so the segment is simply longer rather than wrong.
+    if (this.ticksSincePatch < PATCH_EVERY_TICKS) return;
     this.ticksSincePatch = 0;
     this.broadcastPatch();
   }

@@ -6,6 +6,7 @@ import { boot, ColyseusTestServer } from "@colyseus/testing";
 import {
   type ArenaSimulation,
   FlagTrailAccumulator,
+  SIM_TICK_RATE,
   decodeCenti,
   decodeDecoys,
   decodeFlags,
@@ -43,9 +44,18 @@ setGlobalLogLevel("error");
 let colyseus: ColyseusTestServer;
 let configs: ConfigService;
 
-/** Advance the server room's fixed sim by `n` ticks (real-time, ~33ms each). */
+/**
+ * Advance the server room's fixed sim by AT LEAST `n` ticks. Tick-counted, not
+ * fire-counted: the room's fixed-timestep accumulator may run 0 or 2 sim steps
+ * on any single timer fire (the fire cadence is wall time, the tick cadence is
+ * exact), so fires are awaited until `n` ticks have actually executed.
+ */
 async function advance(room: { waitForNextSimulationTick(): Promise<void> }, n: number): Promise<void> {
-  for (let i = 0; i < n; i++) await room.waitForNextSimulationTick();
+  // The @colyseus/testing wrapper types rooms as the base Room; the tick probe
+  // lives on ArenaRoom, which is what every room in this suite actually is.
+  const probe = room as unknown as { totalSimTicks: number };
+  const target = probe.totalSimTicks + n;
+  while (probe.totalSimTicks < target) await room.waitForNextSimulationTick();
 }
 
 beforeAll(async () => {
@@ -359,7 +369,7 @@ describe("ArenaRoom", () => {
       Math.PI,
     );
 
-    for (let i = 0; i < 120 && !p1.locked; i++) await advance(room, 1);
+    for (let i = 0; i < 4 * SIM_TICK_RATE && !p1.locked; i++) await advance(room, 1);
     expect(p1.locked).toBe(true);
     expect(p1.lockProgress).toBe(255); // encodeUnit(1) — a completed lock
     expect(p1.targetId).toBe(enemyId);
@@ -485,7 +495,8 @@ describe("ArenaRoom", () => {
     c1.send("order", { seq: 1, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: 1, boost: false, fire: true } });
     expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 1, accepted: true });
 
-    await advance(room, 25);
+    // ~0.85 s of climb — enough to clear the +1 unit asserted below at any rate.
+    await advance(room, Math.round(0.85 * SIM_TICK_RATE));
 
     // The SIM moved off-plane (the point of the stage), and the two new fields
     // carry it: y through the same centi codec as x/z, pitch through the signed
@@ -506,7 +517,7 @@ describe("ArenaRoom", () => {
     // precisely what routing it through the heading codec would have destroyed.
     c1.send("order", { seq: 2, order: { kind: "flight", throttle: 1, turn: 0, pitchStick: -1, boost: false, fire: true } });
     expect(await c1.waitForMessage("orderAck")).toMatchObject({ seq: 2, accepted: true });
-    await advance(room, 30);
+    await advance(room, Math.round(1.0 * SIM_TICK_RATE)); // ~1 s nose-down
     expect(tf.pitch).toBeLessThan(0);
     expect(p1.pitch).toBeLessThan(0);
     expect(decodePitch(p1.pitch)).toBeCloseTo(tf.pitch, 3);
@@ -694,8 +705,10 @@ describe("ArenaRoom", () => {
         expect(p1.throttle).toBe(255); // encodeUnit(1) — the held state IS replicated
         expect(room.state.matchTimer).toBe(0);
 
-        // Run the clock out: the held throttle bites immediately at GO.
-        for (let i = 0; i < 120 && room.state.countdownRemaining > 0; i++) await advance(room, 1);
+        // Run the clock out: the held throttle bites immediately at GO. Budget
+        // derived from the tick rate: the countdown is COUNTDOWN seconds of
+        // sim time, plus one spare second.
+        for (let i = 0; i < (COUNTDOWN + 1) * SIM_TICK_RATE && room.state.countdownRemaining > 0; i++) await advance(room, 1);
         expect(room.state.countdownRemaining).toBe(0);
         await advance(room, 10);
         expect(p1.x === startX && p1.z === startZ).toBe(false);
@@ -727,7 +740,7 @@ describe("ArenaRoom", () => {
           });
         }
 
-        for (let i = 0; i < 140 && room.state.countdownRemaining > 0; i++) await advance(room, 1);
+        for (let i = 0; i < (COUNTDOWN + 2) * SIM_TICK_RATE && room.state.countdownRemaining > 0; i++) await advance(room, 1);
         await new Promise((r) => setTimeout(r, 250)); // let the broadcasts flush
 
         expect(beats1).toEqual([3, 2, 1]);
@@ -785,7 +798,7 @@ describe("ArenaRoom", () => {
       Math.PI,
     );
 
-    for (let i = 0; i < 120 && !p1.locked; i++) await advance(room, 1);
+    for (let i = 0; i < 4 * SIM_TICK_RATE && !p1.locked; i++) await advance(room, 1);
     expect(p1.locked).toBe(true);
     await new Promise((r) => setTimeout(r, 200)); // let the broadcast flush
 
@@ -884,7 +897,7 @@ describe("ArenaRoom", () => {
       order: { kind: "flight", throttle: 0, turn: 0, boost: false, fire: true },
     });
 
-    for (let i = 0; i < 400 && room.state.matchPhase !== "ended"; i++) await advance(room, 1);
+    for (let i = 0; i < 15 * SIM_TICK_RATE && room.state.matchPhase !== "ended"; i++) await advance(room, 1);
     await new Promise((r) => setTimeout(r, 200));
 
     expect(room.state.matchPhase).toBe("ended");
@@ -1410,7 +1423,8 @@ describe("ArenaRoom", () => {
     expect(simEvents.find((event) => event.type === "entityDestroyed" && event.entityId === player.entityId)?.pos)
       .toEqual(expect.objectContaining({ x: expect.any(Number), y: expect.any(Number), z: expect.any(Number) }));
 
-    for (let tick = 0; tick < 180 && !player.alive; tick++) await advance(room, 1);
+    // Budget in seconds of sim time (the CTF respawn delay is 4 s), not ticks.
+    for (let tick = 0; tick < 6 * SIM_TICK_RATE && !player.alive; tick++) await advance(room, 1);
     expect(player.alive).toBe(true);
     await human.leave();
   });
@@ -1670,7 +1684,7 @@ describe("ArenaRoom", () => {
     };
 
     const startedAt = Date.now();
-    await advance(room, 90); // ~3 s of sim at 30 Hz
+    await advance(room, 3 * SIM_TICK_RATE); // ~3 s of sim
     serverRoom.sim.applyOrder = original;
     const elapsedS = (Date.now() - startedAt) / 1000;
 
@@ -1737,7 +1751,7 @@ describe("ArenaRoom", () => {
       serverRoom.sim.world.shipCores.get(ps.entityId)!.hull = 0;
     }
 
-    for (let i = 0; i < 400 && room.state.matchPhase !== "ended"; i++) await advance(room, 1);
+    for (let i = 0; i < 15 * SIM_TICK_RATE && room.state.matchPhase !== "ended"; i++) await advance(room, 1);
     await new Promise((r) => setTimeout(r, 200));
     expect(room.state.matchPhase).toBe("ended");
 

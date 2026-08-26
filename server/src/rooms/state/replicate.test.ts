@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   ArenaSimulation,
   FlagTrailAccumulator,
+  SIM_TICK_RATE,
   applySlow,
   decodeSnapshot,
   setGlobalLogLevel,
@@ -165,7 +166,7 @@ describe("replication round trip", () => {
     // pitch, the up axis and the module timers all have to be moving for a
     // dropped writer to be distinguishable from a correct one.
     room.sim.applyOrder(a, { kind: "flight", throttle: 1, turn: 0.6, pitchStick: -0.4, boost: false, fire: true });
-    for (let i = 0; i < 20; i++) room.sim.tick(1 / 30);
+    for (let i = 0; i < 20; i++) room.sim.tick(1 / SIM_TICK_RATE);
 
     const snap = room.sim.snapshot();
     const decoded = roundTrip(room, snap);
@@ -243,7 +244,7 @@ describe("replication round trip", () => {
     const a = join(room, "session-a", 0, { x: 12, y: 0, z: 0 });
     join(room, "session-b", 1, { x: -12, y: 0, z: 0 });
     room.sim.applyOrder(a, { kind: "flight", throttle: 1, turn: 0, pitchStick: 0, boost: false, fire: true });
-    for (let i = 0; i < 30; i++) room.sim.tick(1 / 30);
+    for (let i = 0; i < 30; i++) room.sim.tick(1 / SIM_TICK_RATE);
 
     // Every per-module store gets a DISTINCT non-zero value before the
     // snapshot. Without this most of them are 0 in a fresh match, and 0 === 0
@@ -289,13 +290,13 @@ describe("replication round trip", () => {
     const room = createRoom();
     join(room, "session-a", 0, { x: 12, y: 0, z: 0 });
     join(room, "session-b", 1, { x: -12, y: 0, z: 0 });
-    for (let i = 0; i < 12; i++) room.sim.tick(1 / 30);
+    for (let i = 0; i < 12; i++) room.sim.tick(1 / SIM_TICK_RATE);
 
     const snap = room.sim.snapshot();
     const decoded = roundTrip(room, snap);
 
     expect(decoded.elapsed).toBeCloseTo(snap.elapsed, 3);
-    expect(decoded.tick).toBe(Math.round(snap.elapsed * 30));
+    expect(decoded.tick).toBe(Math.round(snap.elapsed * SIM_TICK_RATE));
     expect(decoded.countdownRemaining).toBeCloseTo(snap.countdownRemaining, 3);
     expect(decoded.phase).toBe("live");
     expect(decoded.teamScores).toEqual(snap.teamScores);
@@ -306,7 +307,7 @@ describe("replication round trip", () => {
     const room = createRoom();
     const a = join(room, "session-a", 0, { x: 12, y: 0, z: 0 });
     join(room, "session-b", 1, { x: -12, y: 0, z: 0 });
-    for (let i = 0; i < 4; i++) room.sim.tick(1 / 30);
+    for (let i = 0; i < 4; i++) room.sim.tick(1 / SIM_TICK_RATE);
 
     // A real decoy from the real system: the sink is fitted, so the order that
     // the HUD's jettison button sends produces one.
@@ -319,7 +320,7 @@ describe("replication round trip", () => {
     shipTf.pos.x = flagPos.x;
     shipTf.pos.y = flagPos.y;
     shipTf.pos.z = flagPos.z;
-    room.sim.tick(1 / 30);
+    room.sim.tick(1 / SIM_TICK_RATE);
 
     const snap = room.sim.snapshot();
     expect(snap.decoys).toHaveLength(1);
@@ -382,14 +383,14 @@ describe("replication round trip", () => {
     const room = createRoom();
     join(room, "session-a", 0, { x: 12, y: 0, z: 0 });
     join(room, "session-b", 1, { x: -12, y: 0, z: 0 });
-    room.sim.tick(1 / 30);
+    room.sim.tick(1 / SIM_TICK_RATE);
 
     const enemyFlagId = room.sim.world.flagIds().find((id) => room.sim.world.flags.get(id)!.team === 1)!;
     const flag = room.sim.world.flags.get(enemyFlagId)!;
     flag.state = "dropped";
     flag.carrierId = null;
     flag.dropTimer = 7.5;
-    room.sim.tick(1 / 30);
+    room.sim.tick(1 / SIM_TICK_RATE);
 
     const snap = room.sim.snapshot();
     const simFlag = snap.flags.find((f) => f.id === enemyFlagId)!;
@@ -405,7 +406,7 @@ describe("replication round trip", () => {
   it("replicates asteroid destruction, and prunes entities the sim dropped", () => {
     const room = createRoom(ROCKY_ARENA_ID);
     join(room, "session-a", 0, { x: 12, y: 0, z: 0 });
-    room.sim.tick(1 / 30);
+    room.sim.tick(1 / SIM_TICK_RATE);
     expect(room.asteroidEntityIds.length).toBeGreaterThan(0);
 
     // The state is read from the live world map rather than the snapshot, and
@@ -441,11 +442,11 @@ describe("replication round trip", () => {
     const room = createRoom();
     const a = join(room, "session-a", 0, { x: 12, y: 0, z: 0 });
     join(room, "session-b", 1, { x: -12, y: 0, z: 0 });
-    room.sim.tick(1 / 30);
+    room.sim.tick(1 / SIM_TICK_RATE);
     applySnapshot(room.state, room.sim.snapshot(), room.entityToKey, room.asteroidEntityIds, room.sim.world.asteroids);
 
     room.sim.world.shipCores.get(a)!.hull = 0;
-    for (let i = 0; i < 2; i++) room.sim.tick(1 / 30);
+    for (let i = 0; i < 2; i++) room.sim.tick(1 / SIM_TICK_RATE);
     const snap = room.sim.snapshot();
     expect(snap.ships.find((s) => s.id === a)).toBeUndefined();
 

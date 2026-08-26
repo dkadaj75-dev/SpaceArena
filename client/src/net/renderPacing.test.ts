@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GameLoop, type ShipSnapshot, type Snapshot } from "@space-arena/shared";
+import { GameLoop, SIM_TICK_RATE, type ShipSnapshot, type Snapshot } from "@space-arena/shared";
 import { bracket, createSnapshotClock, ExtrapolationBlender, MAX_EXTRAPOLATION_MS, stampSnapshot } from "./interpolation.js";
 import { interpolate } from "./NetGameSession.js";
 
@@ -30,20 +30,22 @@ import { interpolate } from "./NetGameSession.js";
 
 const REMOTE_ID = 2;
 const LOCAL_ID = 1;
-/** ArenaRoom SIM_TICK_RATE. */
-const TICK_MS = 1000 / 30;
+/** ArenaRoom SIM_TICK_RATE — the current-cadence suites track the shipped rate. */
+const TICK_MS = 1000 / SIM_TICK_RATE;
 /**
- * The room's patch interval: `PATCH_EVERY_TICKS` (2) sim ticks, broadcast from
- * the sim loop itself. Uniform 66.7 ms, every patch carrying a fresh tick.
+ * The room's patch interval: `PATCH_EVERY_TICKS` (1) sim ticks, broadcast from
+ * the sim loop itself. Uniform 16.7 ms, every patch carrying a fresh tick.
  */
-const PATCH_MS = 2 * TICK_MS;
+const PATCH_MS = 1 * TICK_MS;
 /**
- * The 20 Hz free-running patch timer this replaced. Kept as a constant because
- * the characterization tests at the bottom of this file still model it — that is
- * what makes them guard rails rather than folklore.
+ * The RETIRED cadence the characterization tests at the bottom of this file
+ * still model: a 30 Hz sim beside a free-running 20 Hz patch timer. Pinned to
+ * literals on purpose — these are historical guard rails, and following
+ * SIM_TICK_RATE would silently rewrite the history they characterize.
  */
+const LEGACY_TICK_MS = 1000 / 30;
 const LEGACY_PATCH_MS = 50;
-const RENDER_DELAY_MS = 100; // tuning.netRenderDelayMs
+const RENDER_DELAY_MS = 50; // tuning.netRenderDelayMs
 const FRAME_MS = 1000 / 60;
 
 /** A remote ship on a constant-speed circle: curvature, so lerp cannot cheat. */
@@ -291,7 +293,7 @@ describe("online render pacing", () => {
  */
 describe("online pacing against the room's REAL tick/patch cadence", () => {
   /** The world sample a patch broadcast at `patchMs` carries, under a free timer. */
-  const tickBefore = (patchMs: number): number => Math.floor(patchMs / TICK_MS) * TICK_MS;
+  const tickBefore = (patchMs: number): number => Math.floor(patchMs / LEGACY_TICK_MS) * LEGACY_TICK_MS;
 
   function buildLegacyBuffer(durationMs: number, stamping: "arrival" | "server"): { time: number; snapshot: Snapshot }[] {
     const clock = createSnapshotClock();
@@ -304,11 +306,11 @@ describe("online pacing against the room's REAL tick/patch cadence", () => {
     return out;
   }
 
-  /** The room as it is now: a patch every 2 sim ticks, straight from the loop. */
+  /** The room as it is now: a patch every sim tick, straight from the loop. */
   function buildPhaseLockedBuffer(durationMs: number, stamping: "arrival" | "server"): { time: number; snapshot: Snapshot }[] {
     const clock = createSnapshotClock();
     const out: { time: number; snapshot: Snapshot }[] = [];
-    for (let tick = 0; tick * TICK_MS <= durationMs; tick += 2) {
+    for (let tick = 0; tick * TICK_MS <= durationMs; tick += 1) {
       const simMs = tick * TICK_MS;
       const snapshot = snapshotAt(simMs);
       const time = stamping === "arrival" ? simMs : stampSnapshot(clock, snapshot.elapsed * 1000, simMs).timeMs;
@@ -340,13 +342,13 @@ describe("online pacing against the room's REAL tick/patch cadence", () => {
 
   it("phase-locks every patch onto a fresh sim tick, so the sample spacing is UNIFORM", () => {
     // The room-side half of the fix, stated as the property it buys: consecutive
-    // patches are exactly 2 ticks of simulated travel apart. Under the old timer
-    // this alternated 1, 2, 1, 2 — which is what halved the effective sample
-    // rate of a remote hull's motion on every other patch, whatever the client
-    // then did with the timestamps.
+    // patches are exactly PATCH_EVERY_TICKS ticks of simulated travel apart.
+    // Under the old timer this alternated 1, 2, 1, 2 — which is what halved the
+    // effective sample rate of a remote hull's motion on every other patch,
+    // whatever the client then did with the timestamps.
     const buf = buildPhaseLockedBuffer(2000, "arrival");
     const steps = buf.slice(1).map((s, i) => s.snapshot.elapsed - buf[i]!.snapshot.elapsed);
-    for (const step of steps) expect(step).toBeCloseTo((2 * TICK_MS) / 1000, 12);
+    for (const step of steps) expect(step).toBeCloseTo(PATCH_MS / 1000, 12);
     expect(new Set(steps.map((s) => s.toFixed(9))).size).toBe(1);
   });
 
@@ -530,11 +532,13 @@ describe("bounded dead reckoning through a starved buffer", () => {
   }
 
   it("keeps the hull moving through a starve INSIDE the extrapolation budget", () => {
-    // A 150 ms gap between patches overruns the 100 ms render delay by ~83 ms,
+    // A 120 ms gap between patches overruns the 50 ms render delay by ~70 ms,
     // which the 100 ms budget covers entirely: not one frame freezes, where
-    // every frame past the overrun used to.
-    expect(stalledFrames(drawThroughStarve(150))).toBe(0);
-    expect(drawThroughStarve(0).length).toBe(drawThroughStarve(150).length);
+    // every frame past the overrun used to. (Deliberately NOT sized right at
+    // the budget: overrun == MAX_EXTRAPOLATION_MS is the saturation boundary,
+    // and asserting zero stalls exactly on it would be a coin flip.)
+    expect(stalledFrames(drawThroughStarve(120))).toBe(0);
+    expect(drawThroughStarve(0).length).toBe(drawThroughStarve(120).length);
   });
 
   it("degrades to the old freeze past the budget rather than guessing further", () => {

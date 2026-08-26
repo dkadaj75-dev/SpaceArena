@@ -55,15 +55,40 @@ import {
   ExtrapolationBlender,
   hermiteFrame,
   hermitePosition,
+  p90ArrivalGap,
   RENDER_DELAY_CEIL_MS,
   stampSnapshot,
+  STATIONARY_CHORD_SQ,
   timeBasedPull,
 } from "./interpolation.js";
 
 const log = createLogger("NetGameSession");
-const MAX_SNAPSHOTS = 32;
+/**
+ * Snapshot buffer depth. Sized in PATCHES, so it scales with the patch cadence:
+ * 64 at the 60 Hz cadence is ~1.07 s of history — it must comfortably cover the
+ * 350 ms render-delay ceiling plus the extrapolation window, and 32 (the 15 Hz
+ * sizing) would have left only ~533 ms.
+ */
+const MAX_SNAPSHOTS = 64;
+/**
+ * Arrival-gap ring depth — deliberately DECOUPLED from MAX_SNAPSHOTS: the p90
+ * estimator wants to remember a Wi-Fi burst for a couple of seconds after the
+ * network calms down (~2.1 s at 60 Hz), and the ring is just numbers, so depth
+ * costs nothing.
+ */
+const ARRIVAL_GAP_WINDOW = 128;
 const SNAP_DISTANCE = 3; // world units: larger prediction error snaps instead of blending
 const PENDING_TOGGLE_MS = 800; // optimistic module-state overlay lifetime
+/**
+ * Minimum age gap (ms) between the two samples the local player's velocity may
+ * be differenced across, when a sample carries no replicated velocity.
+ * Differencing ADJACENT samples at the 16.7 ms patch cadence amplifies the
+ * 0.1-unit position quantization into ±6 u/s of noise per axis; a ≥50 ms
+ * baseline keeps it under ±2 u/s, at the cost of the estimate being centred a
+ * few samples further back — fine for a fallback whose only consumer is the
+ * velocity a prediction snap adopts.
+ */
+const MIN_VELOCITY_BASELINE_MS = 50;
 
 /**
  * The wire decoders now live in `shared/src/net/decodeState.ts` — unchanged, and
@@ -135,6 +160,19 @@ export class FlightReconciler {
   private readonly inFlight = new Map<number, PredictedFlight>();
   /** Newest flight seq sent, acked or not. */
   private newestSeq = -1;
+  /**
+   * True while the predictor is running on a ROLLBACK rather than on the last
+   * order the player sent — i.e. a rejection put it back on `accepted`, and no
+   * new input has replaced that since. The flag exists for one race: reject(B)
+   * can arrive BEFORE the ack of the older accept(A) it rolls back to, in which
+   * case the rollback lands on a stale (possibly null) `accepted` while the
+   * server is really integrating A. Without the flag the straggling accept(A)
+   * would only update `accepted`, leaving the predictor inert (null) or stale
+   * until the player next moves the stick — which for a held-steady input
+   * (flight orders are level-triggered and only re-sent on change) can be many
+   * seconds of pure rubber-band.
+   */
+  private rolledBack = false;
 
   /** The flight state the predictor should be integrating right now. */
   get current(): PredictedFlight | null {
@@ -144,6 +182,7 @@ export class FlightReconciler {
   /** Record a flight order handed to the transport. */
   sent(seq: number, flight: PredictedFlight): void {
     this.predicted = flight;
+    this.rolledBack = false;
     this.inFlight.set(seq, flight);
     if (seq > this.newestSeq) this.newestSeq = seq;
   }
@@ -162,6 +201,13 @@ export class FlightReconciler {
       if (seq >= this.acceptedSeq) {
         this.accepted = flight;
         this.acceptedSeq = seq;
+        // A straggler landing AFTER a rollback, with nothing newer in flight:
+        // the server is integrating THIS state (it accepted it and holds
+        // nothing later), so the predictor adopts it — see `rolledBack`.
+        if (this.rolledBack && this.inFlight.size === 0) {
+          this.predicted = flight;
+          this.rolledBack = false;
+        }
       }
       return false;
     }
@@ -170,6 +216,7 @@ export class FlightReconciler {
     // is what it is really flying. Rolling back then would be the bug.
     if (seq === this.newestSeq) {
       this.predicted = this.accepted;
+      this.rolledBack = true;
       return true;
     }
     return false;
@@ -419,6 +466,8 @@ export class NetGameSession extends GameSession {
    * ceiling for the rest of the match.
    */
   private readonly arrivalGaps: number[] = [];
+  /** Cached p90 of `arrivalGaps` — recomputed per PATCH, read per frame. */
+  private arrivalGapP90: number | null = null;
   private lastPatchAt: number | null = null;
   /** Hard ceiling on the adaptive render delay; `netRenderDelayMaxMs` overrides it. */
   private readonly renderDelayCeil: number;
@@ -813,8 +862,12 @@ export class NetGameSession extends GameSession {
       this.wireChecked = true;
       for (const problem of checkWireState(state)) log.error("wire schema mismatch —", problem);
     }
-    const snap = this.decode(state);
+    // Arrival instant BEFORE the decode: the decode itself costs real time at
+    // the 60 Hz patch cadence, and stamping after it would fold that cost into
+    // both the arrival-gap jitter measurement and the snapshot clock's offset
+    // observations.
     const now = performance.now();
+    const snap = this.decode(state);
     this.latest = snap;
     // The buffer is spaced by the SERVER's clock, not by receive time — see
     // `stampSnapshot`. A reset means the mapping changed under us (the match went
@@ -832,6 +885,13 @@ export class NetGameSession extends GameSession {
       // `arrivalGaps` deliberately survives — it measures the network, which a
       // clock reset says nothing about.
       this.renderDelay = this.renderDelayFloor;
+      // Everything keyed to the DISCARDED timeline goes with it: the blender's
+      // drawn-position anchors would otherwise hand back residuals measured
+      // against positions from the dead timeline (its own class doc names a
+      // clock reset as exactly what `clear` is for), and a flag's accumulated
+      // wake belongs to the old match.
+      this.extrapolation.clear();
+      this.flagTrails.clear();
     }
     if (this.snapshots.length === 0) {
       // First authoritative state: replace the inherited local-sim snapshot
@@ -842,12 +902,15 @@ export class NetGameSession extends GameSession {
     }
     this.snapshots.push({ time: stamp.timeMs, snapshot: snap });
     if (this.snapshots.length > MAX_SNAPSHOTS) this.snapshots.shift();
-    // Feed the adaptive render delay (see `renderAt`). Same ring size as the
-    // snapshot buffer: ~1.6 s of history at the nominal patch rate, enough to
-    // see a Wi-Fi burst coming and to forget it once the network calms down.
+    // Feed the adaptive render delay (see `renderAt`): ~2.1 s of gap history at
+    // the nominal patch rate, enough to see a Wi-Fi burst coming and to forget
+    // it once the network calms down. The p90 is computed HERE, once per patch,
+    // because it can only change when a gap lands — recomputing (and sorting a
+    // copy) per rendered frame was pure hot-path churn.
     if (this.lastPatchAt !== null) {
       this.arrivalGaps.push(now - this.lastPatchAt);
-      if (this.arrivalGaps.length > MAX_SNAPSHOTS) this.arrivalGaps.shift();
+      if (this.arrivalGaps.length > ARRIVAL_GAP_WINDOW) this.arrivalGaps.shift();
+      this.arrivalGapP90 = p90ArrivalGap(this.arrivalGaps);
     }
     this.lastPatchAt = now;
     this.patchesReceived++;
@@ -877,7 +940,7 @@ export class NetGameSession extends GameSession {
     const shortfall = newest === null ? 0 : Math.max(0, now - this.renderDelay - newest);
     this.renderDelay = adaptiveRenderDelay(
       this.renderDelay,
-      this.arrivalGaps,
+      this.arrivalGapP90,
       this.renderDelayFloor,
       dt,
       this.renderDelayCeil,
@@ -914,7 +977,7 @@ export class NetGameSession extends GameSession {
     }
     this.current = frame;
     this.trackServerVelocity(a, z);
-    this.applyPrediction(dt, now);
+    this.applyPrediction(dt, leadMs);
     this.applyPendingToggles(now);
   }
 
@@ -978,19 +1041,46 @@ export class NetGameSession extends GameSession {
    * (a pre-velocity server, a hull decoded as an all-zero triple).
    */
   private trackServerVelocity(a: TimedSnapshot, z: TimedSnapshot): void {
-    const from = a.snapshot.ships.find((s) => s.id === this.playerId);
     const to = z.snapshot.ships.find((s) => s.id === this.playerId);
-    const v =
-      to?.velocity ??
-      (from && to ? sampledVelocity(from.pos, to.pos, (z.time - a.time) / 1000) : { x: 0, y: 0, z: 0 });
-    this.serverVel.x = v.x;
-    this.serverVel.y = v.y;
-    this.serverVel.z = v.z;
+    let v = to?.velocity;
+    if (!v && to) {
+      // Fallback differencing, against a baseline at least
+      // MIN_VELOCITY_BASELINE_MS old rather than the adjacent sample: at the
+      // 16.7 ms patch cadence an adjacent-pair difference is dominated by the
+      // position codec's quantization (see the constant's doc). Walk back from
+      // the bracketed sample; the segment start `a` remains the last resort for
+      // a buffer too young to offer one.
+      let from: TimedSnapshot | null = null;
+      for (let i = this.snapshots.indexOf(z) - 1; i >= 0; i--) {
+        const s = this.snapshots[i]!;
+        if (z.time - s.time >= MIN_VELOCITY_BASELINE_MS) {
+          from = s;
+          break;
+        }
+      }
+      from ??= a !== z ? a : null;
+      const fromShip = from?.snapshot.ships.find((s) => s.id === this.playerId);
+      if (from && fromShip) v = sampledVelocity(fromShip.pos, to.pos, (z.time - from.time) / 1000);
+    }
+    this.serverVel.x = v?.x ?? 0;
+    this.serverVel.y = v?.y ?? 0;
+    this.serverVel.z = v?.z ?? 0;
   }
 
-  /** Advance the local predictor and pull it toward server truth (2.5). */
-  private applyPrediction(dt: number, now: number): void {
-    void now;
+  /**
+   * Advance the local predictor and pull it toward server truth (2.5).
+   *
+   * `leadMs` is `bracket`'s bounded overrun — non-zero only while the snapshot
+   * buffer is STARVED. During a starve the correction pull is suspended: the
+   * interpolated correction target is clamped to the frozen newest sample, and
+   * pulling toward a parked target at `netCorrectionRate` reaches equilibrium
+   * (err = speed/rate) within ~85 ms — the LOCAL hull decelerated into a crawl
+   * glued near the stale sample, while every remote hull dead-reckoned smoothly
+   * past it. The predictor free-integrating IS the local ship's extrapolator;
+   * the pull resumes on the first wet frame and repays whatever error the
+   * starve left, exactly as it does after any patch gap.
+   */
+  private applyPrediction(dt: number, leadMs: number): void {
     const player = this.current.ships.find((s) => s.id === this.playerId);
     if (!player) {
       this.predActive = false;
@@ -1048,16 +1138,19 @@ export class NetGameSession extends GameSession {
       this.resolvePredictedStatics(cfg.collider.radius, dt);
     }
 
-    // Blend server error into the prediction; snap when badly wrong.
-    const err = correctPrediction(this.pred, player, this.serverVel, {
-      steering: held !== null,
-      dt,
-      correctionRate: this.correctionRate,
-    });
-    this.errX = err.x;
-    this.errY = err.y;
-    this.errZ = err.z;
-    if (err.snapped) this.predictionSnaps++;
+    // Blend server error into the prediction; snap when badly wrong. Suspended
+    // while the buffer is starved — see the method doc.
+    if (leadMs <= 0) {
+      const err = correctPrediction(this.pred, player, this.serverVel, {
+        steering: held !== null,
+        dt,
+        correctionRate: this.correctionRate,
+      });
+      this.errX = err.x;
+      this.errY = err.y;
+      this.errZ = err.z;
+      if (err.snapped) this.predictionSnaps++;
+    }
 
     // Render the local player from the predictor — frame included.
     player.pos.x = this.pred.pos.x;
@@ -1174,7 +1267,27 @@ export class NetGameSession extends GameSession {
    * entity ids and `placementIndex` carries the same number.
    */
   private decodeAsteroids(state: any): Snapshot["asteroids"] {
-    return this.arena.asteroidPlacements.map((p, i) => {
+    // Rocks are static: everything below except `state` is a pure function of
+    // the arena config, and `state` flips at most a handful of times per match.
+    // Rebuilding the whole array per patch allocated an object + position per
+    // rock at the patch rate (60 Hz × dozens of rocks) for data that had not
+    // changed — so the previous array is reused BY REFERENCE until a destroyed
+    // bit actually differs. Snapshots may share it because asteroid entries are
+    // read-only by convention everywhere (a new array is built on change, so
+    // buffered history keeps its own pre-destruction view).
+    const cached = this.asteroidSnapshotCache;
+    if (cached && cached.length === this.arena.asteroidPlacements.length) {
+      let dirty = false;
+      for (let i = 0; i < cached.length; i++) {
+        const destroyed = decodeAsteroidDestroyed(state.asteroids, i);
+        if ((cached[i]!.state === "destroyed") !== destroyed) {
+          dirty = true;
+          break;
+        }
+      }
+      if (!dirty) return cached;
+    }
+    const rebuilt = this.arena.asteroidPlacements.map((p, i) => {
       const geometry = this.rockGeometry(p.asteroidId);
       const scale = p.scale ?? 1;
       return {
@@ -1189,7 +1302,12 @@ export class NetGameSession extends GameSession {
         state: decodeAsteroidDestroyed(state.asteroids, i) ? ("destroyed" as const) : ("intact" as const),
       };
     });
+    this.asteroidSnapshotCache = rebuilt;
+    return rebuilt;
   }
+
+  /** Last decoded rock list — reused by reference until a destroyed bit flips. */
+  private asteroidSnapshotCache: Snapshot["asteroids"] | null = null;
 
   /**
    * Roster-side bookkeeping the snapshot itself does not carry: which ship
@@ -1348,6 +1466,9 @@ export function interpolate(
         pNext ? { time: after!.time, pos: pNext.pos } : null,
         t,
         pos,
+        // Wire-codec noise floor: segments under ~1.5 quantization steps draw
+        // straight instead of feeding codec noise into the tangent guards.
+        STATIONARY_CHORD_SQ,
       );
       // The ORIENTATION rides the matching C1 curve through the same four
       // samples — angular velocity continuous through every knot, where the

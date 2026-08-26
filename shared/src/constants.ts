@@ -1,5 +1,14 @@
-/** Fixed simulation tick rate (Hz) shared by client render-interpolation and server sim. */
-export const SIM_TICK_RATE = 30;
+/**
+ * Fixed simulation tick rate (Hz) shared by client render-interpolation and
+ * server sim. Raised 30 → 60 (2026-08-24) so the room can patch every tick at
+ * 16.7 ms — patching faster than the sim ticks is pointless (a patch between
+ * ticks carries no fresh state), so the patch cadence the fast-paced combat
+ * wants had to come from the sim rate itself. Every sim system integrates by
+ * `dt`, so gameplay is rate-independent; the two knobs that were not
+ * (NavigationSystem's coast drag, CombatSystem's cycle-timer quantization) were
+ * made rate-independent in the same change.
+ */
+export const SIM_TICK_RATE = 60;
 
 /** Wire protocol version; bump on any breaking message/schema change. */
 // 3: PlayerState replicates the authoritative ship up-vector (upX/upY/upZ) —

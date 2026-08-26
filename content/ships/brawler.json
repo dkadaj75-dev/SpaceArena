@@ -6,16 +6,16 @@
   "class": "heavy",
   "core": {
     "hull": {
-      "base": 195,
+      "base": 220,
       "resists": {
         "kinetic": 0.25,
         "energy": 0.15
       }
     },
     "engine": {
-      "nominalSpeed": 16,
+      "nominalSpeed": 18,
       "accel": 7,
-      "turnRate": 1
+      "turnRate": 2
     },
     "recharge": {
       "multiplier": 0.95
@@ -45,10 +45,16 @@
       "id": "hp-nose-l",
       "transform": {
         "pos": [
-          -0.9,
+          -1.2992,
           0.1,
-          1.6
-        ]
+          -0.2471
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "hardpoint",
       "accepts": [
@@ -64,10 +70,16 @@
       "id": "hp-nose-r",
       "transform": {
         "pos": [
-          0.9,
+          1.1908,
           0.1,
-          1.6
-        ]
+          -0.3582
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 0.9528
       },
       "kind": "hardpoint",
       "accepts": [
@@ -188,10 +200,16 @@
       "id": "eng-l",
       "transform": {
         "pos": [
-          -0.9,
+          -0.622,
           0,
           -2
-        ]
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "emitter",
       "effect": "fx.engine-trail",
@@ -230,10 +248,16 @@
       "id": "eng-r",
       "transform": {
         "pos": [
-          0.9,
+          0.6169,
           0,
           -2
-        ]
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "emitter",
       "effect": "fx.engine-trail",
@@ -307,7 +331,13 @@
           0,
           0,
           -2.4
-        ]
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1.0192
       },
       "kind": "emitter",
       "effect": "fx.boost-trail",

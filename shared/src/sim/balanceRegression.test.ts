@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { SIM_TICK_RATE } from "../constants.js";
 
 import { ConfigService } from "../core/ConfigService.js";
 import type { ModuleConfig, ShipConfig } from "../schemas/index.js";
@@ -41,13 +42,18 @@ import { loadTestConfigs, pinLock } from "./testutil.js";
  *  - an INVARIANT failure (a tank over capacity, self-inflicted
  *    hull loss, a TTK outside the band) means something is actually broken.
  *
- * Determinism: every scenario runs on a private, asteroid-free bench arena with
- * a fixed 30 Hz tick, a fully scripted order stream and no RNG consumer, so the
- * numbers reproduce exactly on any machine (there is an explicit test for that).
+ * Determinism: every scenario runs on a private, asteroid-free bench arena at
+ * the shipped fixed tick rate (SIM_TICK_RATE), a fully scripted order stream
+ * and no RNG consumer, so the numbers reproduce exactly on any machine (there
+ * is an explicit test for that).
  */
 
-const DT = 1 / 30;
-const TPS = 30;
+// The shipped tick rate: the bench certifies balance at the cadence the game
+// actually runs (re-blessed 2026-08-24 for SIM_TICK_RATE 30 → 60 plus the
+// cycle-timer residual fix, which moved weapon cadence onto its AUTHORED
+// period — kill times shifted a few percent toward faster, uniformly).
+const TPS = SIM_TICK_RATE;
+const DT = 1 / TPS;
 const ENGAGEMENT_SECONDS = 60;
 
 const BENCH_ARENA = "arena.balance-bench";
@@ -599,9 +605,18 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   // 2.833 s now sits only 1.06× above the floor, the thinnest legal margin the
   // matrix has ever recorded: if any hull's profile heats up further, that is
   // the first cell that will trip.
+  //
+  // RE-RECORDED 2026-08-24, for the 60 Hz tick rate + the cycle-timer residual
+  // fix (CombatSystem): weapons now fire at their AUTHORED period instead of
+  // ceil(cycle/dt)·dt, which removed up to a tick of slack per shot. Every row
+  // moved a few percent FASTER, uniformly, inside the band — except the cell
+  // the 2026-08-22 note predicted: the interceptor mirror (2.833 → 2.533)
+  // crossed the floor and is now recorded in {@link BELOW_FLOOR}. The debt is
+  // the ×2.4 interceptor rate profile, not the tick rate: the fix merely
+  // stopped the tick grid from hiding ~5% of the profile's heat.
   const MATRIX: Array<[attacker: string, defender: string, range: number, recorded: number]> = [
-    // laser ×2 / missile ×3@¼ rate → cannon ×0.8 / laser ×1.3 → heat deleted → hull combat profiles
-    ["ship.interceptor", "ship.interceptor", 22, 2.833], //   8.333 → 4.833 → 4.833 → 2.833
+    // laser ×2 / missile ×3@¼ rate → cannon ×0.8 / laser ×1.3 → heat deleted → hull combat profiles → 60 Hz + authored cadence
+    ["ship.interceptor", "ship.interceptor", 22, 2.533], //   8.333 → 4.833 → 4.833 → 2.833 → 2.533  ⚠ under floor
     ["ship.interceptor", "ship.brawler", 22, 6.333], //      16.1   → 11     → 10.133 → 6.333
     ["ship.interceptor", "ship.support", 22, 4.7], //        10.133 →  9.933 →  8.033 → 4.7
     ["ship.brawler", "ship.interceptor", 22, 1.867], //       3.367 →  3.233 →  1.533 → 1.867  ⚠ under floor
@@ -625,6 +640,11 @@ describe("TTK sanity bounds (default fittings, weapons hot)", () => {
   const BELOW_FLOOR = new Set([
     "ship.brawler>ship.interceptor",
     "ship.brawler>ship.support",
+    // 2026-08-24: crossed the floor when the cycle-timer residual fix put the
+    // ×2.4-rate interceptor profile on its authored cadence (see the matrix
+    // note above). The knob owed is the interceptor's `core.combat.rateOfFire`
+    // test profile, already recorded as intentionally hot on 2026-08-22.
+    "ship.interceptor>ship.interceptor",
   ]);
 
   it.each(MATRIX)("%s vs %s at %i units", (attacker, defender, range, recorded) => {

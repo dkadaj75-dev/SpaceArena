@@ -6,7 +6,7 @@
   "class": "light",
   "core": {
     "hull": {
-      "base": 120,
+      "base": 150,
       "resists": {
         "kinetic": 0.1,
         "energy": 0
@@ -18,9 +18,9 @@
         "energy": 0.8
       },
       "rateOfFire": {
-        "kinetic": 2.45,
-        "energy": 2.4,
-        "hybrid": 0.45
+        "kinetic": 2.25,
+        "energy": 1.25,
+        "hybrid": 1.25
       }
     },
     "engine": {
@@ -56,10 +56,16 @@
       "id": "hp-wing-l",
       "transform": {
         "pos": [
-          -1,
-          -0.0526,
-          -0.9474
-        ]
+          -0.594,
+          0.3273,
+          0.3783
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "hardpoint",
       "accepts": [
@@ -75,10 +81,16 @@
       "id": "hp-wing-r",
       "transform": {
         "pos": [
-          1,
-          -0.0526,
-          -0.9474
-        ]
+          0.8219,
+          0.11,
+          0.4648
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "hardpoint",
       "accepts": [
@@ -164,16 +176,16 @@
       "id": "eng-l",
       "transform": {
         "pos": [
-          -0.1053,
+          -0.5487,
           -0.0737,
-          -1.9684
+          -1.4235
         ],
         "rot": [
           0,
           0,
           0
         ],
-        "scale": 1
+        "scale": 0.9782
       },
       "kind": "emitter",
       "effect": "fx.engine-trail",
@@ -212,14 +224,14 @@
       "id": "eng-r",
       "transform": {
         "pos": [
-          0.1053,
+          0.4561,
           -0.0737,
-          -1.9684
+          -1.4226
         ],
         "rot": [
           0,
           0,
-          0
+          0.0115
         ],
         "scale": 1
       },
@@ -292,10 +304,16 @@
       "id": "boost-plume",
       "transform": {
         "pos": [
-          0,
+          -0.0192,
           -0.0737,
-          -2.1579
-        ]
+          -1.4667
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "emitter",
       "effect": "fx.boost-trail",
@@ -379,7 +397,7 @@
       "accent": "#57d8ff"
     },
     "model": "ships/human_light_lod0.glb",
-    "modelScale": 0.655,
+    "modelScale": 1.5,
     "modelRotationY": 0,
     "lods": [
       {

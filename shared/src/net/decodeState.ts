@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Colyseus schema state is runtime-generated. */
+import { SIM_TICK_RATE } from "../constants.js";
 import type { ArenaConfig } from "../schemas/arena.js";
 import type {
   AsteroidSnapshot,
@@ -275,16 +276,35 @@ export function decodeDecoys(raw: any): Snapshot["decoys"] {
 
 type TrailPoint = { x: number; y: number; z: number };
 
+/** One flag's accumulated wake plus the immutable copy handed to snapshots. */
+interface TrailEntry {
+  /** Working buffer, mutated in place as the carrier moves. */
+  points: TrailPoint[];
+  /**
+   * The copy snapshots receive. Rebuilt ONLY when a point lands or is trimmed —
+   * a carrier adds a point every 0.5 world units of travel, so at the 60 Hz
+   * patch cadence the old clone-per-update allocated dozens of identical arrays
+   * (plus a point object each) between real changes. Snapshots may safely share
+   * one array because trail arrays are read-only by convention everywhere.
+   */
+  copy: TrailPoint[];
+}
+
 /** Stateful client-side counterpart of the sim's CTF `pushTrail`. */
 export class FlagTrailAccumulator {
-  private readonly trails = new Map<number, TrailPoint[]>();
+  private readonly trails = new Map<number, TrailEntry>();
 
   update(id: number, state: Snapshot["flags"][number]["state"], pos: TrailPoint, maxLength: number): TrailPoint[] {
     if (state === "home" || maxLength <= 0) {
       this.trails.delete(id);
       return [];
     }
-    const trail = this.trails.get(id) ?? [];
+    let entry = this.trails.get(id);
+    if (!entry) {
+      entry = { points: [], copy: [] };
+      this.trails.set(id, entry);
+    }
+    const trail = entry.points;
     const last = trail[trail.length - 1];
     if (!last || distance(last, pos) >= 0.5) {
       if (last && distance(last, pos) > maxLength) trail.length = 0;
@@ -297,9 +317,9 @@ export class FlagTrailAccumulator {
           break;
         }
       }
+      entry.copy = trail.map((point) => ({ ...point }));
     }
-    this.trails.set(id, trail);
-    return trail.map((point) => ({ ...point }));
+    return entry.copy;
   }
 
   retain(ids: ReadonlySet<number>): void {
@@ -373,7 +393,7 @@ export interface WireDecodeContext {
 export function decodeSnapshot(state: any, ctx: WireDecodeContext): Snapshot {
   const countdownRemaining = Math.max(0, Number(state.countdownRemaining ?? 0));
   return {
-    tick: Math.round((state.matchTimer ?? 0) * 30),
+    tick: Math.round((state.matchTimer ?? 0) * SIM_TICK_RATE),
     elapsed: state.matchTimer ?? 0,
     phase: decodeRoomPhase(state.matchPhase, countdownRemaining),
     teamScores: decodeTeamScores(state.teamScores),

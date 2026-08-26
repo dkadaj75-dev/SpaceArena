@@ -79,9 +79,19 @@ export function combatSystem(world: World, dt: number): void {
 
       if (m.state !== "active") continue;
 
+      // Sub-tick residual of a cycle that expired THIS tick, carried into the
+      // next cycle so the effective period is the authored `cycleTime` at any
+      // tick rate. Without it the period quantizes to ceil(cycle/dt)·dt — a
+      // 0.15 s weapon fired every 0.1667 s at 30 Hz but every 0.15 s at 60 Hz,
+      // i.e. the tick rate silently set the DPS. The residual is only non-zero
+      // on the expiry tick itself: a weapon whose gates then fail (trigger up,
+      // no lock, out of range) waits at 0 and fires a FULL cycle later, so idle
+      // time never accumulates catch-up debt.
+      let cycleResidual = 0;
       if (m.cycleTimer > 0) {
         m.cycleTimer -= dt;
         if (m.cycleTimer > 0) continue;
+        cycleResidual = m.cycleTimer; // in (-dt, 0]
         m.cycleTimer = 0;
       }
 
@@ -103,7 +113,7 @@ export function combatSystem(world: World, dt: number): void {
         // No lock: fire straight along the nose. Nothing else gates a shot —
         // a weapon costs no energy since the 2026-08-07 overhaul, and a shot
         // into empty space still spends its cycle.
-        m.cycleTimer = cycle;
+        m.cycleTimer = cycle + cycleResidual;
         m.workedThisTick = true;
         spendRound(world, id, m, cfg);
 
@@ -164,7 +174,7 @@ export function combatSystem(world: World, dt: number): void {
       if (cfg.fire.requiresLineOfSight && !hasLineOfSightBetween(world, id, targetId)) continue;
 
       // Fire.
-      m.cycleTimer = cycle;
+      m.cycleTimer = cycle + cycleResidual;
       m.workedThisTick = true;
       spendRound(world, id, m, cfg);
       const heading = headingOf(dx, dz);

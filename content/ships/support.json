@@ -6,7 +6,7 @@
   "class": "medium",
   "core": {
     "hull": {
-      "base": 145,
+      "base": 175,
       "resists": {
         "kinetic": 0.15,
         "energy": 0.2
@@ -70,10 +70,16 @@
       "id": "hp-wing",
       "transform": {
         "pos": [
-          -1.045,
+          -0.3841,
           0,
           -0.19
-        ]
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "hardpoint",
       "accepts": [
@@ -89,10 +95,16 @@
       "id": "hp-support",
       "transform": {
         "pos": [
-          1.045,
+          0.4621,
           0,
           -0.19
-        ]
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "hardpoint",
       "accepts": [
@@ -195,9 +207,9 @@
       "id": "eng-l",
       "transform": {
         "pos": [
-          -0.2766,
-          0.1508,
-          -1.8385
+          0.0286,
+          -0.2008,
+          -2.4083
         ],
         "rot": [
           0,
@@ -205,54 +217,6 @@
           0
         ],
         "scale": 0.9986
-      },
-      "kind": "emitter",
-      "effect": "fx.engine-trail",
-      "bindings": [
-        {
-          "source": "throttle",
-          "param": "emitRate",
-          "curve": [
-            [
-              0,
-              0
-            ],
-            [
-              1,
-              100
-            ]
-          ]
-        },
-        {
-          "source": "boostActive",
-          "param": "speedMax",
-          "curve": [
-            [
-              0,
-              7
-            ],
-            [
-              1,
-              14
-            ]
-          ]
-        }
-      ]
-    },
-    {
-      "id": "eng-r",
-      "transform": {
-        "pos": [
-          0.1582,
-          0.1801,
-          -1.8622
-        ],
-        "rot": [
-          0,
-          0,
-          0
-        ],
-        "scale": 1
       },
       "kind": "emitter",
       "effect": "fx.engine-trail",
@@ -324,9 +288,15 @@
       "transform": {
         "pos": [
           0,
+          -0.1855,
+          -2.3865
+        ],
+        "rot": [
           0,
-          -2.09
-        ]
+          0,
+          0
+        ],
+        "scale": 1
       },
       "kind": "emitter",
       "effect": "fx.boost-trail",

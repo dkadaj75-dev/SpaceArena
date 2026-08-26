@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { SIM_TICK_RATE } from "../constants.js";
 import type { ConfigService } from "../core/ConfigService.js";
 import type { BotprofileConfig, GamemodeConfig, ShipConfig } from "../schemas/index.js";
 import { BotDriver } from "../bots/BotDriver.js";
@@ -135,9 +136,20 @@ import { loadTestConfigs } from "./testutil.js";
  *    object and is filtered out of both. Nothing in the sim READS either field
  *    — no tick, no amount, no ordering and no event count moved — which is
  *    exactly why the two float/count corroborations sit where they were.
+ *  - 2026-08-24 (60 Hz tick rate): BOTH vectors re-recorded for SIM_TICK_RATE
+ *    30 → 60 and the two rate-independence fixes that landed with it. DT here
+ *    now derives from SIM_TICK_RATE and the vectors run the SAME SIM SECONDS
+ *    (20 s scripted / 30 s bot), so the tick counts double (600 → 1200,
+ *    900 → 1800). Everything moves, as it must: integration happens at half
+ *    the step (different float rounding on every tick), CombatSystem's cycle
+ *    timer now carries its sub-tick residual (weapons fire at their AUTHORED
+ *    period instead of ceil(cycle/dt)·dt — up to +11% rate on 0.15 s-cycle
+ *    weapons at the old quantization), and NavigationSystem's coast drag is
+ *    dt-compensated. Event counts move with the extra shots and the doubled
+ *    event-timestamp resolution, not because any rule changed.
  */
 
-const DT = 1 / 30;
+const DT = 1 / SIM_TICK_RATE;
 const BENCH_MODE = "gamemode.fingerprint-bench";
 
 let configs: ConfigService;
@@ -347,12 +359,12 @@ describe("golden sim fingerprint", () => {
   // fingerprint's numeric line, and weapons no longer lock themselves out, so
   // the same script now fires more shots over the same 600 ticks.
   it("pins the scripted asteroid-field vector", () => {
-    const fp = scriptedVector(600);
+    const fp = scriptedVector(20 * SIM_TICK_RATE); // 20 s of sim, as always
     expect(fp).toEqual({
-      structure: "a1723d07",
-      numeric: "b5e69888",
-      events: 668,
-      ticks: 600,
+      structure: "03848fbb",
+      numeric: "716d17c0",
+      events: 635,
+      ticks: 20 * SIM_TICK_RATE,
     });
   });
 
@@ -390,12 +402,12 @@ describe("golden sim fingerprint", () => {
   // scripted vector above. The event count is unchanged at 300; only the
   // digests move.
   it("pins the ten-bot lunar-rift vector", () => {
-    const fp = botVector(900);
+    const fp = botVector(30 * SIM_TICK_RATE); // 30 s of sim, as always
     expect(fp).toEqual({
-      structure: "23bc265c",
-      numeric: "e230d911",
-      events: 310,
-      ticks: 900,
+      structure: "4b3c0c48",
+      numeric: "701c3c01",
+      events: 410,
+      ticks: 30 * SIM_TICK_RATE,
     });
   }, 120_000);
 

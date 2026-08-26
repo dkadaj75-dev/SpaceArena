@@ -44,6 +44,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, type Room } from "colyseus.js";
+import { SIM_TICK_RATE } from "../shared/src/constants.js";
 import {
   analyzeMemoryTrend,
   analyzeTickTrend,
@@ -703,7 +704,7 @@ function report(input: ReportInput): number {
   console.log(`  tick p50:           ${histogramQuantile(total, 0.5).toFixed(3)} ms`);
   console.log(`  tick p95:           ${histogramQuantile(total, 0.95).toFixed(3)} ms`);
   console.log(`  tick p99:           ${histogramQuantile(total, 0.99).toFixed(3)} ms`);
-  console.log(`  tick max:           ${total.maxMs.toFixed(3)} ms  (budget ${(1000 / 30).toFixed(1)} ms per step)`);
+  console.log(`  tick max:           ${total.maxMs.toFixed(3)} ms  (budget ${(1000 / SIM_TICK_RATE).toFixed(1)} ms per step)`);
   if (totalSpanS > 0 && meanRooms > 0) {
     const patches = windows.reduce((sum, w) => sum + w.patches, 0);
     console.log("");

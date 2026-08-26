@@ -5,6 +5,15 @@ import { advanceFrame, type FrameAttitude } from "../frame.js";
 
 /** Scratch frame — the sim loops over every ship each tick, so reuse one. */
 const scratchFrame: FrameAttitude = { heading: 0, pitch: 0, up: { x: 0, y: 1, z: 0 } };
+
+/**
+ * The tick rate `tuning.dragCoefficient` was authored against. The knob means
+ * "fraction of velocity shed per 30 Hz tick" (0.02 ⇒ ~45%/s); the coast branch
+ * below converts it to a dt-stable decay so the authored feel survives any
+ * SIM_TICK_RATE. This is a unit definition, not the live tick rate — do NOT
+ * change it when the tick rate changes.
+ */
+const DRAG_REFERENCE_TICK_RATE = 30;
 import { pitchTuningOf } from "../tuningDefaults.js";
 import { slowMultiplierFor } from "./AbilitySystem.js";
 import { carriedFlagOf } from "./CtfSystem.js";
@@ -112,7 +121,13 @@ export function navigationSystem(world: World, dt: number): void {
     if (!flight) {
       // Coast: mild drag brings a ship with no standing input to rest.
       if (drag > 0) {
-        const decay = Math.max(0, 1 - drag);
+        // `dragCoefficient` is authored as a per-tick decay at the 30 Hz rate
+        // the knob was tuned at, so it is compensated by dt: at dt = 1/30 this
+        // is exactly the old `1 - drag`, and at any other tick rate a coasting
+        // ship sheds the same fraction of its speed per SECOND instead of per
+        // tick (raising SIM_TICK_RATE to 60 would otherwise have doubled the
+        // braking in wall time).
+        const decay = Math.pow(Math.max(0, 1 - drag), dt * DRAG_REFERENCE_TICK_RATE);
         vel.x *= decay;
         vel.y *= decay;
         vel.z *= decay;

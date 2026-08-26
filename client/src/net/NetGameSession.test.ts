@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   ArenaSimulation,
   ConfigService as ConfigServiceImpl,
+  SIM_TICK_RATE,
   flightStep,
   pitchTuningOf,
   resolveShipStats,
@@ -321,10 +322,10 @@ beforeAll(async () => {
   configs = service;
 });
 
-const DT = 1 / 30;
+const DT = 1 / SIM_TICK_RATE;
 const SHIP_ID = "ship.interceptor";
 /** Long enough to cover the accel ramp AND the cruise phase (1.5 s). */
-const RUN_TICKS = 45;
+const RUN_TICKS = Math.round(1.5 * SIM_TICK_RATE);
 const START = { x: 0, z: -49 };
 
 /**
